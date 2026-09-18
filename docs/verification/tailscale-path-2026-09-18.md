@@ -303,6 +303,76 @@ HTTPS certificates"*, and those are the two things on that one page, in that ord
 `unverified:` that `login.tailscale.com/admin/dns` redirects to the `console.` host. I did not test
 it and nothing needs it to: the table above uses the host the current documentation uses.
 
+## 4b. CEO-derived copy, and why each sentence exists
+
+Four requirements arrived from the CEO's own live attempt while this slice was in flight. Each one
+overrides Urban's specification where they differ, and each is recorded here with the failure it
+came from — because in every case the copy is a fix for a defect, not a wording preference.
+
+**(i) Four steps on the phone, not three.** He installed and uninstalled Tailscale on Android
+**three times**, hunting for a "connect to Mac" step that does not exist. Urban's Screen 5 had three
+steps and stopped at *"sign in"* — which is exactly where that hunt begins: the app is signed in,
+nothing says it is finished, so the user goes looking for the pairing screen Tailscale does not
+have. The two added steps end the hunt (*allow the VPN connection your phone asks about*; *the
+switch says Connected*), and one sentence names the absence outright:
+
+> **There is no pairing step in Tailscale.** Sign in with the same account on both devices and they
+> are connected.
+
+**Nothing about tailnets, MagicDNS or machine names appears on that screen**, by the same ruling.
+Those are vocabulary for something the user does not have to think about; they stay on the Mac's own
+screens, where they already are.
+
+**(ii) The reason before the instruction.** His words: *"in hindsight this sounds obvious, but it's
+absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same
+identity on the Mac and on the phone."* This is a defect in the step list, not a missing nicety: a
+person whose habit is to keep two identities apart reads *"sign in"* and signs in — correctly, by
+their own lights, with the wrong account. So the reason is given **first**, and it names the habit it
+is asking them to break:
+
+> Your Tailscale account **is** your private network. Devices signed in to it can reach each other.
+> So sign in on your phone with the same account you used on your Mac, even if you normally keep
+> them separate. Nothing else connects them.
+
+And the same why, shortened, on the **Mac's** sign-in screen — which is the half that matters,
+because that is where the identity is *chosen*. Saying it only on the phone screen says it after he
+has already picked, and by then the fix is signing out of an account he made minutes ago:
+
+> Whichever you pick, you will sign in to the SAME one on your phone — your Tailscale account is
+> your private network, and devices signed in to it are what can reach each other. Nothing else
+> connects them.
+
+**(iii) Name the account, because "the same one" is not an instruction he can follow.** He signed in
+with Apple on the Mac and Google on the Android *"and had no way to know they were different
+networks, or which to reuse"*. The Mac reads its own `User[Self.UserID].LoginName`, infers the
+provider from the domain, and puts it **into** the step: *"Sign in with Apple as
+someone@icloud.com"*. Screen 4 shows the same line: *"You signed in with &lt;that&gt;. Use exactly
+this on your phone."* One phrase, built once in `Account::described()`, so the two screens cannot
+word it differently.
+
+The provider is `None` for a Google Workspace or SSO login, and that is deliberate — those domains
+are the user's own, so a guess would be wrong for precisely the people most likely to keep two
+identities. The address alone is still the thing he could not get: **which** account.
+
+**(iv) Detect the mismatch, do not merely describe it.** His estimate is that this hits **9 in 10
+users**. A phone signed in to the same account appears in the daemon's own `Peer` map with an `OS`
+of `iOS`, `iPadOS` or `android`; one signed in to a different provider is in a different tailnet and
+appears **nowhere**. That asymmetry is the whole mechanism, and it turns a warning into evidence:
+the screen waits, then either confirms the phone by name or says *"Your phone is not on this network
+yet. On the phone, sign in with &lt;account&gt;, then come back here."* It advances on its own when
+the peer appears.
+
+`unverified:` **the 60-second grace window is a judgment, not a measurement.** Measuring it needs a
+second device signing in to a fresh account while this Mac watches, and there was one Mac and no
+phone. It is biased long on purpose, because the errors are not symmetric: too short tells a user
+who is still typing their password that they got it wrong, which sends them to redo a correct
+sign-in — the exact loop that had the CEO uninstalling the app three times. Too long costs a few
+seconds of *"waiting"*. One measurement with a real phone settles it; the constant is one line.
+
+**Detection follows a re-login with no restart** — `TAILNET_RECHECK_MS` is 2 s and the screens poll,
+so switching the Mac from one provider to another is picked up within two seconds and the tailnet
+name changing underneath is a normal redraw rather than a stale screen.
+
 ## 5. Answers to Urban's other three seams
 
 - **Seam 2, the precondition for a usable name.** It is two things, and `CertDomains` answers the
