@@ -1,0 +1,81 @@
+windows:1
+AXGroup | 260,102 1400x881 | name=missing value | value=missing value
+AXGroup | 260,102 1400x881 | name=missing value | value=missing value
+AXScrollArea | 260,130 1400x853 | name=missing value | value=
+AXWebArea | 260,130 1400x853 | name=missing value | value=
+AXGroup | 260,130 1400x10 | name=Which company this picture is of | value=
+AXGroup | 294,160 317x85 | name=missing value | value=
+AXImage | 294,160 119x27 | name=missing value | value=
+AXGroup | 294,198 317x21 | name=missing value | value=
+AXStaticText | 294,199 49x18 | name=for you | value=for you
+AXGroup | 294,228 317x17 | name=missing value | value=
+AXStaticText | 294,228 63x17 | name=LORO ·  | value=LORO · 
+AXStaticText | 356,228 19x17 | name=14 | value=14
+AXStaticText | 374,228 98x17 | name= MONTHS ·  | value= MONTHS · 
+AXStaticText | 471,228 46x17 | name=7,723 | value=7,723
+AXStaticText | 516,228 96x17 | name= MEMORIES | value= MEMORIES
+AXGroup | 294,298 268x31 | name=missing value | value=
+AXStaticText | 294,298 35x31 | name=18 | value=18
+AXStaticText | 336,309 9x17 | name=·  | value=· 
+AXStaticText | 344,309 11x17 | name=6 | value=6
+AXStaticText | 354,309 99x17 | name= working now | value= working now
+AXGroup | 294,334 268x17 | name=missing value | value=
+AXStaticText | 294,334 133x17 | name=AI SPECIALISTS | value=AI SPECIALISTS
+AXGroup | 294,370 268x31 | name=missing value | value=
+AXStaticText | 294,370 77x31 | name=1,596 | value=1,596
+AXGroup | 294,406 268x17 | name=missing value | value=
+AXStaticText | 294,406 269x17 | name=TASKS HANDLED WITHOUT YOU | value=TASKS HANDLED WITHOUT YOU
+AXGroup | 294,442 268x31 | name=missing value | value=
+AXStaticText | 294,442 77x31 | name=4,858 | value=4,858
+AXGroup | 294,478 268x17 | name=missing value | value=
+AXStaticText | 294,478 203x17 | name=SOURCES UNDERSTOOD | value=SOURCES UNDERSTOOD
+AXGroup | 294,514 268x31 | name=missing value | value=
+AXStaticText | 294,514 53x31 | name=430 | value=430
+AXStaticText | 354,525 9x17 | name=·  | value=· 
+AXStaticText | 362,525 30x17 | name=185 | value=185
+AXStaticText | 391,525 54x17 | name= lessons | value= lessons
+AXGroup | 294,550 268x17 | name=missing value | value=
+AXStaticText | 294,550 214x17 | name=DECISIONS REMEMBERED | value=DECISIONS REMEMBERED
+AXGroup | 294,586 268x31 | name=missing value | value=
+AXStaticText | 294,586 77x31 | name=2,365 | value=2,365
+AXStaticText | 370,586 25x31 | name= h | value= h
+AXGroup | 294,622 268x17 | name=missing value | value=
+AXStaticText | 294,622 239x17 | name=OF YOUR ATTENTION SAVED | value=OF YOUR ATTENTION SAVED
+AXGroup | 1252,196 392x76 | name=missing value | value=
+AXGroup | 1270,210 356x48 | name=missing value | value=
+AXStaticText | 1279,214 347x40 | name=This is what your home screen could look like once Rich knows enough about you and your business. | value=This is what your home screen could look like once Rich knows enough about you and your business.
+AXGroup | 1425,284 202x196 | name=missing value | value=
+AXGroup | 1425,284 202x17 | name=missing value | value=
+AXStaticText | 1488,284 138x17 | name=WORKING NOW | value=WORKING NOW
+AXGroup | 1425,312 202x168 | name=missing value | value=
+AXGroup | 1425,312 202x28 | name=missing value | value=Cadence Customer Research
+AXStaticText | 1425,318 63x16 | name=Cadence  | value=Cadence 
+AXStaticText | 1487,318 122x16 | name=Customer Research | value=Customer Research
+AXGroup | 1425,340 202x28 | name=missing value | value=Fathom Pipeline Analysis
+AXStaticText | 1443,346 57x16 | name=Fathom  | value=Fathom 
+AXStaticText | 1499,346 110x16 | name=Pipeline Analysis | value=Pipeline Analysis
+AXGroup | 1425,368 202x28 | name=missing value | value=Gantry Technical Research
+AXStaticText | 1436,374 53x16 | name=Gantry  | value=Gantry 
+AXStaticText | 1488,374 121x16 | name=Technical Research | value=Technical Research
+AXGroup | 1425,396 202x28 | name=missing value | value=Kiln Vendor Diligence
+AXStaticText | 1467,402 34x16 | name=Kiln  | value=Kiln 
+AXStaticText | 1500,402 109x16 | name=Vendor Diligence | value=Vendor Diligence
+AXGroup | 1425,424 202x28 | name=missing value | value=Nocturne Pricing Analysis
+AXStaticText | 1437,430 68x16 | name=Nocturne  | value=Nocturne 
+AXStaticText | 1504,430 105x16 | name=Pricing Analysis | value=Pricing Analysis
+AXGroup | 1425,452 202x28 | name=missing value | value=Quarry Quality Assurance
+AXStaticText | 1437,458 54x16 | name=Quarry  | value=Quarry 
+AXStaticText | 1490,458 119x16 | name=Quality Assurance | value=Quality Assurance
+AXButton | 294,679 174x52 | name=Talk to Rich | value=missing value
+AXGroup | 917,561 86x16 | name=missing value | value=
+AXStaticText | 917,561 86x16 | name=waking loro… | value=waking loro…
+AXGroup | 260,130 1400x10 | name=Connected repositories | value=
+AXGroup | 260,130 1400x10 | name=Allow this action? | value=
+AXGroup | 260,130 1400x10 | name=Quit while work is running? | value=
+AXPopUpButton | 1602,148 40x40 | name=Settings | value=
+AXButton | 266,108 16x16 | name=missing value | value=missing value
+AXButton | 306,108 16x16 | name=missing value | value=missing value
+AXGroup | 307,108 14x16 | name=missing value | value=missing value
+AXButton | 286,108 16x16 | name=missing value | value=missing value
+AXStaticText | 934,107 52x16 | name=RichOS | value=RichOS
+

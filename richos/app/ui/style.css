@@ -3995,6 +3995,26 @@ body.bp-narrow .tl-user-bubble {
   border-color: var(--attention);
   color: var(--attention);
 }
+/* A DISCLOSURE, NOT A DECISION — audit-9 row 5. It opens the raw form of a request and does
+   nothing else, so it does not look like the two buttons that answer the question.
+
+   THE BORDER IS DROPPED FOR A MEASURED REASON, not for a quiet one. `.desk-btn`'s border is
+   `var(--line)` = `--line-strong`, and against the panel it sits on (`--surface`, which is
+   `--card`) that computes to 1.24:1 in dark mode and 1.50:1 in light — both under the 3:1 floor
+   a non-text indicator has to clear. Every `.desk-btn` in the app carries that border today and
+   that is a row somebody owns; a control added now does not add another one. What identifies
+   this one is its own label — `--ink-soft` on `--surface`, 5.78:1 dark and 6.38:1 light — and
+   `.desk-btn:focus-visible` above, whose 2px `--accent` ring is 6.36:1 dark and 3.83:1 light
+   against the same panel. All five ratios computed with the WCAG formula, none eyeballed. */
+.desk-btn--plain {
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
+  margin: 0 0 12px;
+}
+.desk-btn--plain:hover {
+  border-color: transparent;
+}
 
 .desk-btn:focus-visible,
 #corrections-close:focus-visible {

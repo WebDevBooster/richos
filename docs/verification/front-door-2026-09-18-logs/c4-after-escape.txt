@@ -1,0 +1,48 @@
+windows:1
+AXGroup | 260,102 1400x881 | name=missing value | value=missing value
+AXGroup | 260,102 1400x881 | name=missing value | value=missing value
+AXScrollArea | 260,130 1400x853 | name=missing value | value=
+AXWebArea | 260,130 1400x853 | name=missing value | value=
+AXGroup | 260,130 300x853 | name=Entities and threads | value=
+AXButton | 280,154 97x22 | name=missing value | value=missing value
+AXButton | 276,188 267x32 | name=Search ⌘K | value=missing value
+AXButton | 276,222 267x32 | name=+ New thread | value=missing value
+AXPopUpButton | 276,256 267x32 | name=Corrections | value=
+AXPopUpButton | 276,290 267x32 | name=Feedback | value=
+AXGroup | 274,332 271x586 | name=Entity areas | value=
+AXPopUpButton | 515,940 24x24 | name=⚙ | value=
+AXPopUpButton | 280,937 148x30 | name=No name is set. Open preferences to add yours. | value=
+AXSplitter | 556,130 6x853 | name=Left navigation width | value=300.0
+AXGroup | 560,130 1100x853 | name=missing value | value=
+AXGroup | 260,130 0x0 | name=missing value | value=
+AXGroup | 560,182 1100x626 | name=missing value | value=
+AXGroup | 560,182 1100x10 | name=Between turns | value=
+AXGroup | 559,129 1x1 | name=missing value | value=
+AXGroup | 560,130 1100x10 | name=missing value | value=
+AXGroup | 560,130 1100x10 | name=missing value | value=
+AXGroup | 770,809 680x48 | name=missing value | value=
+AXStaticText | 798,811 620x44 | name=I don't know about any of your companies yet, so I've nothing to file this under. Tell me one and I'll take it from there. | value=I don't know about any of your companies yet, so I've nothing to file this under. Tell me one and I'll take it from there.
+AXGroup | 770,863 680x34 | name=missing value | value=
+AXButton | 798,863 186x34 | name=Choose the company | value=missing value
+AXCheckBox | 798,927 40x40 | name=Talk to Rich | value=0
+AXTextArea | 849,922 522x44 | name=Message to Rich | value=front door probe 66342
+AXGroup | 863,932 494x24 | name=missing value | value=
+AXStaticText | 863,934 177x20 | name=front door probe 66342 | value=front door probe 66342
+AXButton | 1382,927 40x40 | name=Send | value=missing value
+AXGroup | 260,130 1400x10 | name=missing value | value=
+AXGroup | 260,130 1400x10 | name=Which company is this copy of Rich for? | value=
+AXGroup | 260,130 1400x10 | name=There are a couple of things I need on this Mac. | value=
+AXGroup | 260,130 1400x10 | name=Where should I keep what you tell me? | value=
+AXGroup | 260,130 1400x10 | name=Corrections | value=
+AXGroup | 260,130 1400x10 | name=Feedback | value=
+AXGroup | 260,130 1400x10 | name=Connected repositories | value=
+AXGroup | 260,130 1400x10 | name=Allow this action? | value=
+AXGroup | 260,130 1400x10 | name=Quit while work is running? | value=
+AXPopUpButton | 1602,148 40x40 | name=Settings | value=
+AXButton | 266,108 16x16 | name=missing value | value=missing value
+AXButton | 306,108 16x16 | name=missing value | value=missing value
+AXGroup | 307,108 14x16 | name=missing value | value=missing value
+AXGroup | 307,108 14x16 | name=missing value | value=missing value
+AXButton | 286,108 16x16 | name=missing value | value=missing value
+AXStaticText | 934,107 52x16 | name=RichOS | value=RichOS
+

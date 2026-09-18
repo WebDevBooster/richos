@@ -1,0 +1,107 @@
+windows:1
+AXGroup | 260,102 1400x881 | name=missing value | value=missing value
+AXGroup | 260,102 1400x881 | name=missing value | value=missing value
+AXScrollArea | 260,130 1400x853 | name=missing value | value=
+AXWebArea | 260,130 1400x853 | name=missing value | value=
+AXGroup | 260,130 300x853 | name=Entities and threads | value=
+AXButton | 280,154 97x22 | name=missing value | value=missing value
+AXButton | 276,188 267x32 | name=Search ⌘K | value=missing value
+AXButton | 276,222 267x32 | name=+ New thread | value=missing value
+AXPopUpButton | 276,256 267x32 | name=Corrections | value=
+AXPopUpButton | 276,290 267x32 | name=Feedback | value=
+AXGroup | 274,332 271x586 | name=Entity areas | value=
+AXPopUpButton | 515,940 24x24 | name=⚙ | value=
+AXPopUpButton | 280,937 148x30 | name=No name is set. Open preferences to add yours. | value=
+AXSplitter | 556,130 6x853 | name=Left navigation width | value=300.0
+AXGroup | 560,130 1100x853 | name=missing value | value=
+AXGroup | 260,130 0x0 | name=missing value | value=
+AXGroup | 560,182 1100x626 | name=missing value | value=
+AXGroup | 560,182 1100x10 | name=Between turns | value=
+AXGroup | 559,129 1x1 | name=missing value | value=
+AXGroup | 560,130 1100x10 | name=missing value | value=
+AXGroup | 560,130 1100x10 | name=missing value | value=
+AXGroup | 770,809 680x48 | name=missing value | value=
+AXStaticText | 798,811 620x44 | name=I don't know about any of your companies yet, so I've nothing to file this under. Tell me one and I'll take it from there. | value=I don't know about any of your companies yet, so I've nothing to file this under. Tell me one and I'll take it from there.
+AXGroup | 770,863 680x34 | name=missing value | value=
+AXButton | 798,863 186x34 | name=Choose the company | value=missing value
+AXCheckBox | 798,927 40x40 | name=Talk to Rich | value=0
+AXTextArea | 849,922 522x44 | name=Message to Rich | value=front door probe 66342
+AXGroup | 863,932 494x24 | name=missing value | value=
+AXStaticText | 863,934 177x20 | name=front door probe 66342 | value=front door probe 66342
+AXButton | 1382,927 40x40 | name=Send | value=missing value
+AXGroup | 260,130 1400x10 | name=missing value | value=
+AXGroup | 260,130 1400x853 | name=Search | value=
+AXComboBox | 651,233 618x50 | name=missing value | value=
+AXGroup | 667,247 586x21 | name=missing value | value=
+AXStaticText | 667,247 352x21 | name=Search entities, threads and conversations… | value=Search entities, threads and conversations…
+AXList | 651,282 618x13 | name=Search results | value=
+AXGroup | 260,130 1400x10 | name=There are a couple of things I need on this Mac. | value=
+AXGroup | 260,130 1400x10 | name=Where should I keep what you tell me? | value=
+AXGroup | 260,130 1400x10 | name=Corrections | value=
+AXGroup | 260,130 1400x10 | name=Feedback | value=
+AXGroup | 260,130 1400x10 | name=Connected repositories | value=
+AXGroup | 260,130 1400x10 | name=Allow this action? | value=
+AXGroup | 260,130 1400x10 | name=Quit while work is running? | value=
+AXPopUpButton | 1602,148 40x40 | name=Settings | value=
+AXMenu | 1375,196 267x637 | name=Settings | value=
+AXStaticText | 1392,212 54x20 | name=Theme | value=Theme
+AXGroup | 1535,208 94x28 | name=Theme | value=
+AXCheckBox | 1537,210 30x24 | name=Light theme | value=0
+AXCheckBox | 1567,210 30x24 | name=Follow the system | value=0
+AXCheckBox | 1597,210 30x24 | name=Dark theme | value=1
+AXStaticText | 1392,250 69x20 | name=Text size | value=Text size
+AXGroup | 1513,246 116x28 | name=Text size | value=
+AXButton | 1515,248 30x24 | name=Smaller text | value=missing value
+AXGroup | 1545,250 52x20 | name=missing value | value=
+AXStaticText | 1547,250 48x20 | name=100% | value=100%
+AXButton | 1597,248 30x24 | name=Larger text | value=missing value
+AXStaticText | 1392,287 95x20 | name=Techy Mode | value=Techy Mode
+AXCheckBox | 1591,286 38x22 | name=Techy Mode | value=0
+AXStaticText | 1392,323 123x20 | name=Opening screen | value=Opening screen
+AXCheckBox | 1591,322 38x22 | name=Opening screen | value=1
+AXStaticText | 1392,361 75x20 | name=Company | value=Company
+AXPopUpButton | 1511,356 118x30 | name=Company | value=Not set yet
+AXStaticText | 1392,396 53x40 | name=Home screen | value=Home screen
+AXPopUpButton | 1461,401 168x30 | name=Home screen | value=
+AXMenuItem | 1382,441 253x36 | name=Connected repositories | value=
+AXMenuItem | 1382,477 253x36 | name=Account connection | value=
+AXMenuItem | 1382,513 253x36 | name=Memory folder | value=
+AXGroup | 1392,560 233x20 | name=missing value | value=
+AXStaticText | 1392,560 65x20 | name=Updates | value=Updates
+AXGroup | 1392,584 233x66 | name=missing value | value=
+AXStaticText | 1392,585 203x64 | name=RichOS 1.2.0-nightly.20260918.3 is up to date. | value=RichOS 1.2.0-nightly.20260918.3 is up to date.
+AXGroup | 1392,654 233x23 | name=missing value | value=
+AXStaticText | 1392,655 138x20 | name=Checked just now. | value=Checked just now.
+AXButton | 1392,687 165x33 | name=Check for updates | value=missing value
+AXButton | 1382,553 253x10 | name=missing value | value=missing value
+AXGroup | 1382,553 253x10 | name=missing value | value=
+AXGroup | 1392,726 233x60 | name=missing value | value=
+AXStaticText | 1392,727 103x17 | name=Update server:  | value=Update server: 
+AXStaticText | 1494,727 39x17 | name=https: | value=https:
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1542,727 42x17 | name=github | value=github
+AXStaticText | 1583,727 5x17 | name=. | value=.
+AXStaticText | 1587,727 30x17 | name=com | value=com
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1392,747 108x17 | name=WebDevBooster | value=WebDevBooster
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1504,747 42x17 | name=richos | value=richos
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1550,747 57x17 | name=releases | value=releases
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1392,767 66x17 | name=download | value=download
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1462,767 45x17 | name=nightly | value=nightly
+AXStaticText | 1532,727 6x17 | name=/ | value=/
+AXStaticText | 1511,767 37x17 | name=latest | value=latest
+AXStaticText | 1583,727 5x17 | name=. | value=.
+AXStaticText | 1551,767 29x17 | name=json | value=json
+AXButton | 1382,790 253x36 | name=Bust a bug! | value=missing value
+AXButton | 266,108 16x16 | name=missing value | value=missing value
+AXButton | 306,108 16x16 | name=missing value | value=missing value
+AXGroup | 307,108 14x16 | name=missing value | value=missing value
+AXGroup | 307,108 14x16 | name=missing value | value=missing value
+AXButton | 286,108 16x16 | name=missing value | value=missing value
+AXStaticText | 934,107 52x16 | name=RichOS | value=RichOS
+

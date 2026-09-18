@@ -4744,6 +4744,31 @@ async function runSetup() {
     return;
   }
   setupState = next;
+  // -------------------------------------------------------------------------------------
+  // THE ACCOUNT ANSWER IS IN HAND BEFORE ANYTHING MOVES — audit-9 row 4.
+  //
+  // Ray, on candidate .9: the sheet "re-rendered under my cursor. It went from 'setting up
+  // done / the software is installed' to 'setting up done / Your Anthropic account is
+  // connected', and the `Close` button moved up ~46 px between the two. My click aimed at
+  // Close landed on nothing and I had to click again." It is the very first button he presses.
+  //
+  // THE MECHANISM, and it is entirely this line's ordering. `provider_auth_status` was awaited
+  // AFTER the done state had been painted, so the panel reached the screen with `Close` under
+  // his cursor and with `#provider-connect` and `#provider-account-kind` still above it — the
+  // state `openSetupSheet` left them in. The answer then came back `connected`,
+  // `renderProviderAuth` hid both of those controls, and the panel shrank by exactly their
+  // height with his hand already on the way down.
+  //
+  // So the round trip happens FIRST and the sheet reaches its final size in ONE paint.
+  // `setupProgressEl` stays up across it rather than being cleared first: the progress line is
+  // the honest thing to show while a question is still being asked, and blanking it would put
+  // an empty panel on screen for the length of the round trip.
+  //
+  // It also collapses what Ray counted as two sheets into the one it always was — the account
+  // sentence is `#setup-account`, a paragraph INSIDE this sheet, not a second dialog. What made
+  // it read as a second dialog was this re-render.
+  // -------------------------------------------------------------------------------------
+  const providerView = next && next.complete ? await invokeQuiet("provider_auth_status") : null;
   setupProgressEl.hidden = true;
   setupGoEl.hidden = true;
   setupLaterEl.hidden = true;
@@ -4765,7 +4790,9 @@ async function runSetup() {
     : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";
   setupItemsEl.replaceChildren();
   setupAccountEl.hidden = false;
-  if (next?.complete) renderProviderAuth(await invokeQuiet("provider_auth_status"));
+  // Synchronous now: the answer was fetched above, so this is the same paint as everything
+  // else in the done state rather than a second one a moment later.
+  if (providerView) renderProviderAuth(providerView);
   setupCloseEl.focus();
 }
 

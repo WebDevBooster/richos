@@ -376,6 +376,81 @@ async function main() {
     return "each step announced as it started; the ending came from the backend";
   });
 
+  await run.check("17  the first button he ever presses does not move under his hand", async () => {
+    // AUDIT-9 ROW 4. Ray, on candidate .9: the sheet "re-rendered under my cursor. It went from
+    // 'setting up done / the software is installed' to 'setting up done / Your Anthropic account
+    // is connected', and the `Close` button moved up ~46 px between the two. My click aimed at
+    // Close landed on nothing and I had to click again. Minor, and it only happens once — but it
+    // is the very first button he presses."
+    //
+    // THE MECHANISM, and it is why this check watches a POSITION rather than a string.
+    // `runSetup` painted the done state and THEN awaited `provider_auth_status`. The mock's
+    // default is `connected`, the same answer his Mac gives, and `renderProviderAuth` hides
+    // `#provider-connect` and `#provider-account-kind` on that answer — two controls ABOVE
+    // `#setup-close`. So the panel reached the screen at one height and shrank by their height a
+    // round trip later.
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // A ZERO-LATENCY BRIDGE CANNOT REPRODUCE A DEFECT THAT IS ABOUT THE ORDER OF TWO PAINTS,
+    // and this check was written once without this and passed against the broken source — the
+    // mock answers in a microtask, so no frame is painted between the done state and the account
+    // answer, and the button appears never to move. A real Tauri IPC round trip is not free and
+    // Ray measured a real one moving 46px. 150ms is about nine frames: enough for the browser to
+    // paint the intermediate state if there is one, and nothing at all if there is not. Scoped
+    // to the ONE command whose ordering is under test, and layered on the live object rather
+    // than through `SLOW_BRIDGE`, because `openApp` above already owns `window.RichBridge`'s
+    // property descriptor and a second `defineProperty` would take the call log with it.
+    await page.evaluate(() => {
+      const inv = window.RichBridge.invoke.bind(window.RichBridge);
+      window.RichBridge.invoke = (cmd, args) =>
+        cmd === "provider_auth_status"
+          ? new Promise((r) => setTimeout(() => r(inv(cmd, args)), 150))
+          : inv(cmd, args);
+    });
+    // EVERY FRAME FROM THE MOMENT IT IS VISIBLE, in the page. Sampling from the driver would
+    // measure whenever the harness got its turn, which is the shape of check that goes green on
+    // a fast machine and red on a runner (`README.md`, "Making this machine behave like a
+    // runner").
+    await page.evaluate(() => {
+      window.__closeTops = [];
+      const close = document.getElementById("setup-close");
+      (function sample() {
+        if (!close.hidden) window.__closeTops.push(Math.round(close.getBoundingClientRect().top));
+        requestAnimationFrame(sample);
+      })();
+    });
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-close:not([hidden])");
+    // The account answer, whenever it lands, has landed by now: its own effect is observable.
+    await page.waitForFunction(
+      () => /connected|sign in|Sign in|account/i.test(document.getElementById("setup-account").textContent || ""),
+      { timeout: 10000 }
+    );
+    await page.waitForTimeout(400);
+    const tops = await page.evaluate(() => window.__closeTops);
+    const distinct = [...new Set(tops)];
+    assert(tops.length > 5, "the button was never sampled on screen: " + JSON.stringify(tops));
+    assertEqual(
+      distinct.length,
+      1,
+      "`Close` moved after it was on screen — it was at " + JSON.stringify(distinct) +
+        " across " + tops.length + " frames, a travel of " +
+        (Math.max(...distinct) - Math.min(...distinct)) + "px. A button a person is already " +
+        "aiming at may not move."
+    );
+    // ...AND THE ACCOUNT SENTENCE WAS THERE FROM THAT FIRST FRAME, so nothing arrived late; the
+    // sheet is not merely frozen, it is finished.
+    assert(
+      (await page.textContent("#setup-account")).trim().length > 0,
+      "the account line is empty, so the sheet was painted before it had its answer after all"
+    );
+    assert(await page.isVisible("#setup-close"), "the way out is not on screen");
+    bump(4);
+    await page.close();
+    return "`Close` held one position for " + tops.length + " frames at y=" + distinct[0] +
+      ", with the account sentence already on it";
+  });
+
   await run.check("8  a machine that has everything is never asked", async () => {
     const page = await openApp(browser, { setup: "ready" });
     await page.waitForTimeout(300);
