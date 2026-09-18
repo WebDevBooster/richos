@@ -802,6 +802,129 @@ enum ChunkMsg {
 }
 
 // ===========================================================================================
+// TURN CORRELATION — WHICH `result` ANSWERS THE MESSAGE THIS CLIENT SENT
+// ===========================================================================================
+
+/// How far the child has said THIS client's message has got.
+///
+/// Three states rather than two, for the reason the tri-state [`InitFact`] exists elsewhere
+/// in this file: "the child has not told us" and "the child told us it is still queued" call
+/// for opposite treatment, and collapsing them is the defect below.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TurnPhase {
+    /// No `command_lifecycle` frame naming our `command_uuid` has arrived. Either the child
+    /// does not emit them, or ours has not been admitted yet. Nothing may be inferred.
+    Unconfirmed,
+    /// The child said our message ENTERED ITS COMMAND QUEUE (`state: "queued"`) and has not
+    /// yet said it drained into a turn. A `result` written while this holds belongs to a turn
+    /// that was already running.
+    Queued,
+    /// The child said our message drained into a turn (`started`), or that the turn which
+    /// consumed it has ended (`completed`, which on the fold path precedes that turn's
+    /// `result`). From here the turn in flight is OURS.
+    Running,
+}
+
+/// The prompt this client has sent and is waiting for.
+///
+/// # THE DEFECT THIS TYPE EXISTS TO CLOSE
+///
+/// `prompt` used to park a bare `Sender` and return on the **next** `result` frame to
+/// arrive, on the stated premise that a session runs one turn at a time and therefore the
+/// next `result` must be ours. **The platform injects turns of its own into a lease that
+/// dispatches helpers, and that premise is false.** Measured on the green
+/// `work_lease_roundtrip` run of 2026-09-18
+/// (`docs/verification/worker-turn-grant-2026-09-18.md` §5): of the six `UserPromptSubmit`
+/// rows in that session's journal three were the platform's — two subagent hand-backs
+/// (rows 52, 92) and one task-notification (row 55) — and the host's second continuation
+/// returned **1.847 s** after the reviewer ended, with **zero** tool calls, because the
+/// `result` of an injected turn already in flight was handed to it. The back end never got a
+/// turn in which to land the work, and a passing review sat on the worker's branch while the
+/// assignment was reported failed.
+///
+/// # THE CORRELATION THE PROTOCOL OFFERS, READ OFF THE BINARY THAT SHIPS
+///
+/// Two documented fields, both quoted from the schema embedded in `claude` 2.1.277 — the
+/// binary this product spawns (`/Users/alex/.local/share/claude/versions/2.1.277`, read with
+/// `strings`):
+///
+/// - **`command_lifecycle`** — `{type, command_uuid, state, uuid, session_id}`, where
+///   `command_uuid` is *"The queued command's uuid — the client-supplied uuid on the inbound
+///   message. Commands enqueued without a uuid (e.g. the one-shot `-p "prompt"` string path)
+///   emit no lifecycle events."* `state` is one of
+///   `queued | started | completed | cancelled | discarded | refused`: *"'queued' when the
+///   inbound message enters the command queue; 'started' when it drains into a turn; then
+///   exactly one terminal state"*. Ordering against the result frame is per-path and the
+///   schema says which: *"a command that starts a fresh turn emits 'completed' AFTER that
+///   turn's result frame ...; a command folded into an already-in-flight turn emits
+///   'completed' BEFORE that turn's result frame."* The session announces the capability as
+///   `msg_lifecycle_v1` on its `system/init` frame — present in the 2026-08-31 captures
+///   (`docs/verification/native-claude-stream-json-2026-08-31/raw/run2-multiturn-one-process.jsonl`,
+///   line 1). **So this client stamps a `uuid` on every user message it writes** — an
+///   optional field of the documented inbound schema — and the child names it back.
+/// - **`queued_turn_count`** on the `result` frame — *"User-initiated sends still waiting in
+///   the command queue when this result was produced. Greater than 0 means at least one more
+///   user turn (and result) follows without further input, barring cancellation; 0 means none
+///   is pending... System-generated queue entries are not counted."* The platform's own
+///   injections ARE system-generated: the subagent hand-back enqueues with `isMeta: true`, so
+///   does the worker/task notification, and the child's own counting predicate excludes
+///   `isMeta` entries. This client's send is the only user-initiated one there can be,
+///   because there is at most one parked prompt.
+///
+/// # THE INVARIANT
+///
+/// **A parked prompt is answered by the `result` of the turn that consumed the message it
+/// sent, never by the next `result` to arrive.** A `result` reaches it only when the child
+/// has said our message drained into a turn, or has said nothing of ours is waiting behind it
+/// (`queued_turn_count == 0`). A `result` the child reports with a user send still queued
+/// belongs to a turn that was already in flight: it is RETAINED on the between-turn lane
+/// (§1.4 G5 — traffic is never dropped), and the prompt keeps waiting.
+///
+/// Frames arriving while our message is known to be still queued are retained the same way
+/// rather than streamed into this turn, because they belong to the other turn. Attributing
+/// them here is the false attribution §1.4 G4 forbids.
+///
+/// # WHERE IT DEGRADES, AND HOW
+///
+/// A child that emits no `command_lifecycle` for our uuid leaves the phase `Unconfirmed`, and
+/// then `queued_turn_count` alone decides — weaker (a count, not an identity) and still
+/// strictly better than "the next result wins". A child that offers NEITHER field does what
+/// this file did before 2026-09-18: the next `result` is delivered. That is the honest floor,
+/// and it is named here rather than hidden.
+struct PendingTurn {
+    /// Where this turn's items go.
+    sink: Sender<ChunkMsg>,
+    /// The `uuid` stamped on the user message this prompt wrote, which the child echoes as
+    /// `command_uuid`. Minted per prompt, so a lifecycle frame can never be matched against a
+    /// previous turn's message.
+    command_uuid: String,
+    phase: TurnPhase,
+}
+
+impl PendingTurn {
+    /// **Does this `result` belong to a turn that is not ours?** The whole decision, in one
+    /// place, from the child's own words and nothing else.
+    fn result_is_another_turns(&self, result: &Value) -> bool {
+        // Our message is in the turn that is running: whatever is queued behind it, this
+        // result ends OUR turn. Tested first, because `queued_turn_count` counts what is
+        // WAITING and says nothing about what is running.
+        if self.phase == TurnPhase::Running {
+            return false;
+        }
+        match result.get("queued_turn_count").and_then(Value::as_u64) {
+            // The child's own count of user-initiated sends still waiting. Ours is the only
+            // one there can be, so a positive count is the child saying "your turn has not
+            // run yet".
+            Some(waiting) => waiting >= 1,
+            // No count on this frame. Then the lifecycle is the only positive evidence: if
+            // the child said ours is still QUEUED, this result is another turn's. If it has
+            // said nothing at all, nothing is inferred and the result is delivered.
+            None => self.phase == TurnPhase::Queued,
+        }
+    }
+}
+
+// ===========================================================================================
 // THE BETWEEN-TURN LANE (techy-mode design §1.5, gap #1)
 //
 // `dispatch` delivers to the prompt channel only while `current_prompt` is `Some`. Anything
@@ -1028,14 +1151,13 @@ pub struct NativeClient {
     next_id: AtomicI64,
     /// Control-request replies, keyed by our `request_id`.
     pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
-    /// The currently in-flight turn's sink for streamed chunks.
+    /// The parked prompt: the turn this client sent and is waiting for, and the sink its
+    /// items are streamed to.
     ///
-    /// **No request id, and that is a wire difference worth naming.** ACP's `session/prompt`
-    /// was a JSON-RPC request whose response id identified the turn. Here a turn is opened by
-    /// a `user` frame that carries no id and closed by a `result` frame that carries none
-    /// either, so "the turn in flight" is positional: there is at most one, and the next
-    /// `result` ends it.
-    current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+    /// **This used to say "there is at most one turn in flight, so the next `result` ends
+    /// it", and that premise is FALSE on this wire** — see [`PendingTurn`] for the run that
+    /// disproved it and the correlation the child actually offers.
+    current_prompt: Arc<Mutex<Option<PendingTurn>>>,
     operation_cancel: Arc<Mutex<OperationCancellation>>,
     action_grants: Vec<ActionGrant>,
     reader_closed: Arc<AtomicBool>,
@@ -1577,7 +1699,7 @@ impl NativeClient {
 
         let pending: Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>> =
             Arc::new(Mutex::new(std::collections::HashMap::new()));
-        let current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>> = Arc::new(Mutex::new(None));
+        let current_prompt: Arc<Mutex<Option<PendingTurn>>> = Arc::new(Mutex::new(None));
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
         let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
         if let (Some(profile), Some((_, scope))) = (profile, continuity) {
@@ -1654,8 +1776,8 @@ impl NativeClient {
             reader_pending.lock().unwrap().clear();
             let mut current = reader_current.lock().unwrap();
             reader_closed_flag.store(true, Ordering::SeqCst);
-            if let Some(sink) = current.take() {
-                let _ = sink.send(ChunkMsg::Done(json!({ "stop_reason": "child_exited" })));
+            if let Some(pending) = current.take() {
+                let _ = pending.sink.send(ChunkMsg::Done(json!({ "stop_reason": "child_exited" })));
             }
         });
 
@@ -1875,7 +1997,7 @@ impl NativeClient {
         msg: Value,
         stdin: &Arc<Mutex<ChildStdin>>,
         pending: &Arc<Mutex<std::collections::HashMap<String, Sender<Value>>>>,
-        current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+        current: &Arc<Mutex<Option<PendingTurn>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         state: &Arc<Mutex<ReaderState>>,
         text_deltas: &Arc<AtomicUsize>,
@@ -1905,6 +2027,50 @@ impl NativeClient {
             return;
         }
 
+        // ---- the fate of the message WE sent (see [`PendingTurn`]) ---------------------
+        //
+        // The one frame on this wire that names a turn by the id its sender chose. It is
+        // read for exactly one purpose: to know whether the turn in flight is ours. It is
+        // then RETAINED like any other traffic — a lifecycle frame for another command is
+        // somebody else's machinery and is not this turn's.
+        if ty == "command_lifecycle" {
+            let command = msg.get("command_uuid").and_then(|v| v.as_str()).unwrap_or("");
+            let lifecycle = msg.get("state").and_then(|v| v.as_str()).unwrap_or("");
+            let mut terminal: Option<&'static str> = None;
+            {
+                let mut guard = current.lock().unwrap();
+                if let Some(pending) = guard.as_mut() {
+                    if pending.command_uuid == command {
+                        match lifecycle {
+                            // In the queue, behind whatever is running. Everything until
+                            // `started` belongs to that other turn.
+                            "queued" => pending.phase = TurnPhase::Queued,
+                            // Drained into a turn — the turn in flight is ours from here.
+                            // `completed` reaches a still-parked prompt only on the FOLD
+                            // path, where the schema says it precedes that turn's `result`;
+                            // either way the next `result` is the one that consumed us.
+                            "started" | "completed" => pending.phase = TurnPhase::Running,
+                            // **A POSITIVE "this will never run".** Without it the prompt
+                            // would wait for a turn the child has already thrown away —
+                            // the one way this correlation could be worse than the defect
+                            // it replaces. Three states, one sentence each.
+                            "cancelled" => terminal = Some(STOP_REASON_CANCELLED), // dialect-exempt: the vendor's own `command_lifecycle` state value, matched verbatim off the wire
+                            "discarded" => terminal = Some("discarded_before_it_ran"),
+                            "refused" => terminal = Some("refused_before_it_ran"),
+                            _ => {}
+                        }
+                    }
+                }
+                if let Some(reason) = terminal {
+                    if let Some(pending) = guard.take() {
+                        let _ = pending.sink.send(ChunkMsg::Done(json!({ "stop_reason": reason })));
+                    }
+                }
+            }
+            Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
+            return;
+        }
+
         // Nested agent frames are operational evidence, never the lead's words,
         // context watermark or terminal state. In particular, whole-message fallback
         // must not promote worker narration when the lead has no active text stream.
@@ -1915,7 +2081,34 @@ impl NativeClient {
 
         // ---- the terminal frame --------------------------------------------------------
         if ty == "result" {
-            let mut st = state.lock().unwrap();
+            // **THE DENOMINATOR IS A FACT ABOUT THE MODEL, so it is learned from whichever
+            // turn reported it** — ours or one the platform injected — and therefore before
+            // the ownership question below. Learn it for the NEXT turn's watermark, by NAME
+            // (finding §10).
+            {
+                let mut st = state.lock().unwrap();
+                if let (Some(model), Some(usage)) = (st.session_model.clone(), msg.get("modelUsage")) {
+                    if let Some(w) = usage.get(&model).and_then(|m| m.get("contextWindow")).and_then(|v| v.as_u64()) {
+                        st.context_window = Some(w);
+                    }
+                }
+            }
+            // ---- WHOSE TURN DOES THIS END? (see [`PendingTurn`]) -----------------------
+            //
+            // The one question this branch used not to ask. A `result` the child reports
+            // with a user send still queued — ours, the only one there can be — ends a turn
+            // that was already in flight when we sent, so it is RETAINED and the parked
+            // prompt keeps waiting for its own.
+            {
+                let guard = current.lock().unwrap();
+                let another_turns = guard.as_ref().is_some_and(|pending| pending.result_is_another_turns(&msg));
+                drop(guard);
+                if another_turns {
+                    between.lock().unwrap().offer_frame(msg);
+                    return;
+                }
+            }
+            let st = state.lock().unwrap();
             // **THE LOUDNESS LAYER FOR THE WITHHOLDING**, at the one point in a turn that is
             // guaranteed to be reached. Said here rather than per delta: the deltas arrive in
             // pieces and a notice per piece would be a notice per token.
@@ -1929,17 +2122,11 @@ impl NativeClient {
                     if same { "the same sentence again" } else { "NOT the sentence the app said" },
                 );
             }
-            // Learn the denominator for the NEXT turn's watermark, by NAME (finding §10).
-            if let (Some(model), Some(usage)) = (st.session_model.clone(), msg.get("modelUsage")) {
-                if let Some(w) = usage.get(&model).and_then(|m| m.get("contextWindow")).and_then(|v| v.as_u64()) {
-                    st.context_window = Some(w);
-                }
-            }
             drop(st);
             let sink = current.lock().unwrap().take();
             match sink {
-                Some(s) => {
-                    let _ = s.send(ChunkMsg::Done(msg));
+                Some(pending) => {
+                    let _ = pending.sink.send(ChunkMsg::Done(msg));
                 }
                 // A `result` with no turn in flight is a statement about a turn that has
                 // already been answered. It is retained, not dropped.
@@ -2215,12 +2402,18 @@ impl NativeClient {
     /// arriving one instant later.
     fn route(
         chunk: ChunkMsg,
-        current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+        current: &Arc<Mutex<Option<PendingTurn>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         frame: &Value,
     ) {
         let routed = match current.lock().unwrap().as_ref() {
-            Some(sink) => sink.send(chunk).is_ok(),
+            // **A turn whose message the child says is STILL IN ITS QUEUE has not started,
+            // so none of this is its traffic.** It belongs to the turn that is running —
+            // one the platform injected — and streaming it here would attribute another
+            // turn's words to this one (§1.4 G4). Retained on the between-turn lane, where
+            // it attaches to the THREAD and to no turn at all, which is what it is.
+            Some(pending) if pending.phase == TurnPhase::Queued => false,
+            Some(pending) => pending.sink.send(chunk).is_ok(),
             None => false,
         };
         if !routed {
@@ -2236,7 +2429,7 @@ impl NativeClient {
     fn handle_agent_request(
         msg: &Value,
         stdin: &Arc<Mutex<ChildStdin>>,
-        current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+        current: &Arc<Mutex<Option<PendingTurn>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         context_only: bool,
         permissions: Option<&crate::permissions::ScopedPermissions>,
@@ -2283,7 +2476,10 @@ impl NativeClient {
 
         if let Some(m) = machinery {
             let routed = match current.lock().unwrap().as_ref() {
-                Some(sink) => sink.send(m.to_chunk()).is_ok(),
+                // Same rule as `route`: a turn whose message is still in the child's queue
+                // has not started, so this record is the running turn's and not its.
+                Some(pending) if pending.phase == TurnPhase::Queued => false,
+                Some(pending) => pending.sink.send(m.to_chunk()).is_ok(),
                 None => false,
             };
             if !routed {
@@ -2394,8 +2590,15 @@ impl NativeClient {
     /// and `app/STREAMING.md` says so.
     pub fn prompt(&self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, NativeError> {
         let (tx, rx): (Sender<ChunkMsg>, Receiver<ChunkMsg>) = channel();
+        // **THE ID THIS TURN IS KNOWN BY, MINTED HERE AND SENT WITH THE MESSAGE.** Optional
+        // on the child's inbound schema and load-bearing for us: a command with no uuid
+        // *"emits no lifecycle events"*, so without this line the child has no name to call
+        // our turn by and every `result` looks alike. One per prompt, never reused — see
+        // [`PendingTurn`] for what it buys and what happens when the child says nothing.
+        let command_uuid = uuid::Uuid::new_v4().to_string();
         let msg = json!({
             "type": "user",
+            "uuid": command_uuid,
             "message": { "role": "user", "content": [{ "type": "text", "text": text }] }
         });
         {
@@ -2408,7 +2611,13 @@ impl NativeClient {
             {
                 let mut current = self.current_prompt.lock().unwrap();
                 if self.reader_closed.load(Ordering::SeqCst) { return Err(NativeError::Closed); }
-                *current = Some(tx);
+                // Parked with the id it was sent under, and `Unconfirmed` until the child
+                // says otherwise — never assuming the next `result` is this turn's.
+                *current = Some(PendingTurn {
+                    sink: tx,
+                    command_uuid: command_uuid.clone(),
+                    phase: TurnPhase::Unconfirmed,
+                });
                 // **Every turn starts with him having heard nothing**, and the reset belongs
                 // here — with the send, under the same lock that decides a turn is in flight —
                 // rather than at the previous turn's end, where a lease that never ran a
@@ -2541,7 +2750,7 @@ fn tokens_in_context(usage: &Value) -> Option<u64> {
 /// to leave the CEO looking at a turn he ended.
 pub struct NativeCancelHandle {
     stdin: Arc<Mutex<ChildStdin>>,
-    current_prompt: Arc<Mutex<Option<Sender<ChunkMsg>>>>,
+    current_prompt: Arc<Mutex<Option<PendingTurn>>>,
     operation_cancel: Arc<Mutex<OperationCancellation>>,
     action_grants: Vec<ActionGrant>,
     process_fence: crate::owned_process::ProcessFence,
@@ -2578,7 +2787,7 @@ impl TurnCancel for NativeCancelHandle {
         // loop would return `end_turn` for a turn the CEO stopped. Measured: the agent acked
         // the interrupt in 0.9 ms, so this race is real rather than theoretical.
         let sink = match self.current_prompt.lock().unwrap().as_ref() {
-            Some(sink) => sink.clone(),
+            Some(pending) => pending.sink.clone(),
             // Nothing in flight on this session. Reported as `false` and never as a success —
             // see `StopOutcome::reached_lease`.
             None => {
@@ -5646,5 +5855,131 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         assert_eq!(drained[0].kind, crate::machinery::MachineryKind::PermissionRequested);
         assert_eq!(drained[0].title, "ls -la");
         assert_eq!(drained[0].tool_call_id.as_deref(), Some("toolu_Z"));
+    }
+
+    // =======================================================================================
+    // TURN CORRELATION — a prompt is answered by ITS OWN turn (see `PendingTurn`)
+    // =======================================================================================
+
+    /// The frame sequence below is the green `work_lease_roundtrip` run of 2026-09-18 replayed
+    /// from its journal (`docs/verification/worker-turn-grant-2026-09-18.md` §5): the host sent
+    /// its continuation (`callbacks.jsonl` row 95) while the platform's subagent hand-back
+    /// (row 92) was already in flight, and the hand-back's `result` was handed to the host as
+    /// the answer to its own prompt — back in **1.847 s** with **zero** tool calls.
+    ///
+    /// **RED at `c8bcfe90`**: `prompt` returned on the first `result` it saw, so `said` was the
+    /// injected turn's sentence and the host's own turn streamed into nothing.
+    #[test]
+    fn a_turn_the_platform_injected_never_answers_the_prompt_this_client_sent() {
+        let script = write_script("injected-turn", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+test -n "$ours" || exit 9
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"queued\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"the hand-back turn"}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn","queued_turn_count":1}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"started\"}"
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"landing it"}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn","queued_turn_count":0}'
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"completed\"}"
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        let reason = client
+            .prompt("The helper you started has ended", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        assert_eq!(reason, "end_turn");
+        // The whole defect in one assertion: the sentence this prompt was answered with.
+        assert_eq!(said, "landing it", "the prompt was answered by a turn it did not send");
+        // And the injected turn's traffic is RETAINED rather than dropped (§1.4 G5) and rather
+        // than attributed to this turn (§1.4 G4).
+        let retained = client.drain_between_turn("sess");
+        assert!(
+            retained.iter().any(|record| record.turn_id.is_none()),
+            "the injected turn's frames reached neither this turn nor the thread",
+        );
+    }
+
+    /// **The fallback, alone.** A child that names no command (an older binary, or a command it
+    /// enqueued without our uuid) still reports `queued_turn_count`, and that count alone is
+    /// enough to refuse a result belonging to a turn ahead of ours.
+    #[test]
+    fn a_result_with_a_user_send_still_queued_is_not_this_prompts_answer() {
+        let script = write_script("queued-count-only", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"result","stop_reason":"end_turn","queued_turn_count":2}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn","queued_turn_count":1}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"mine"}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn","queued_turn_count":0}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        client
+            .prompt("carry on", &mut |item| {
+                if let TurnItem::Text { text, .. } = item {
+                    said.push_str(text);
+                }
+            })
+            .unwrap();
+        // Two results said a user send was still waiting; only the third was ours, and it is
+        // the only one whose text this turn was given.
+        assert_eq!(said, "mine", "the prompt returned before its own turn ran");
+    }
+
+    /// **THE FLOOR, kept deliberately.** A child that offers neither correlation field behaves
+    /// exactly as this file did before 2026-09-18 — the next `result` answers the prompt.
+    /// Without this, the change would be a silent new way to hang.
+    #[test]
+    fn a_child_that_names_no_turn_at_all_still_answers_the_next_result() {
+        let script = write_script("no-correlation", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"answered"}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        assert_eq!(
+            client
+                .prompt("hello", &mut |item| {
+                    if let TurnItem::Text { text, .. } = item {
+                        said.push_str(text);
+                    }
+                })
+                .unwrap(),
+            "end_turn",
+        );
+        assert_eq!(said, "answered");
+    }
+
+    /// **A command the child throws away ends the wait, positively.** `refused` (and
+    /// `discarded`) are the child saying this turn will never run; without reading them the
+    /// correlation above would wait for a `result` that is never coming, which is a worse
+    /// failure than the one it fixes.
+    #[test]
+    fn a_command_the_child_refuses_ends_the_wait_rather_than_hanging() {
+        let script = write_script("refused-command", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+ours=$(printf '%s' "$prompt" | sed -n 's/.*"uuid":"\([0-9a-fA-F-]*\)".*/\1/p')
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"queued\"}"
+printf '%s\n' "{\"type\":\"command_lifecycle\",\"command_uuid\":\"$ours\",\"state\":\"refused\"}"
+read -r keep_alive
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        assert_eq!(client.prompt("carry on", &mut |_| {}).unwrap(), "refused_before_it_ran");
     }
 }
