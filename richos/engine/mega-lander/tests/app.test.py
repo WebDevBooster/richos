@@ -65,12 +65,15 @@ class DesktopWork(unittest.TestCase):
         # POSITIVE CONTROL: the exact list `prepare()` built before this
         # function existed, for one repository. Any change to this function
         # that touches the single-repository path must fail here first.
+        # `--audience app` joined it on 2026-09-18: everything reached from
+        # here is the APP's dispatch, so it is judged by the user-work guards
+        # and never by the development session's (Rich's ruling, CEO §57).
         name,brief_path,title="worker-sonnet-abc123456789",Path("/x/y.brief"),"Some title"
         got=self.app.build_spawn_command([("/some/repo","/dest/path")],name,"worker",brief_path,title,
             integration="main",base=None)
         want=[sys.executable,str(self.app.ENGINE/"scripts/lib/spawn.py"),name,"--repo","/some/repo",
             "--type","richos-app-engine:worker","--model","sonnet","--brief",str(brief_path),
-            "--description",title,"--dir","/dest/path","--json","--integration","main"]
+            "--description",title,"--audience","app","--dir","/dest/path","--json","--integration","main"]
         self.assertEqual(got,want)
 
     def test_build_spawn_command_two_repositories_emits_two_repo_and_scoped_values(self):
@@ -81,7 +84,7 @@ class DesktopWork(unittest.TestCase):
         want=[sys.executable,str(self.app.ENGINE/"scripts/lib/spawn.py"),name,
             "--repo","/repoA","--repo","/repoB",
             "--type","richos-app-engine:worker","--model","sonnet","--brief",str(brief_path),
-            "--description",title,"--dir","/repoA=/destA","--dir","/repoB=/destB","--json",
+            "--description",title,"--audience","app","--dir","/repoA=/destA","--dir","/repoB=/destB","--json",
             "--integration","/repoA=main","--base","/repoA=deadbeef"]
         self.assertEqual(got,want)
 

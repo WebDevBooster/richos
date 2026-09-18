@@ -67,9 +67,29 @@ def handle(payload):
         if context: print(json.dumps(context))
     if event == "PreToolUse" and payload.get("tool_name") == "Agent":
         work.dispatch_intent(active, payload)
-        # Both decisions come from the existing canonical implementation.
-        run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-worktree-isolation.sh")], payload)
-        run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-brief-scope.sh")], payload)
+        # WHICH GUARDS JUDGE A DISPATCH THE APP MAKES — read from
+        # spawn-guard-audience.declaration, never typed here.
+        #
+        # This list was two hand-written paths until 2026-09-18:
+        # guard-worktree-isolation.sh and guard-brief-scope.sh. Nothing said why
+        # those two, nothing connected them to the identical list in
+        # `EngineProfile::prepare`'s spawn-preflight.json, and the second of them
+        # is an operator-session guard — it judges a dispatch against a
+        # design-round specification recorded in the DEVELOPMENT project, with an
+        # escape line only an operator can write. It was silent on a user's own
+        # repository only because a user's repository happens to carry no such
+        # record. Rich's ruling (CEO §57) is that the app is judged only by
+        # guards whose reason protects the user's own work, so it is off this
+        # list and the classification is the source of what is on it.
+        #
+        # guard-sealed-worktree.sh is user-work and is deliberately NOT repeated
+        # here: it ran above, for every tool, exactly as its matcherless
+        # registration says it should.
+        audience = load("richos_spawn_guard_audience", ENGINE / "scripts/lib/spawn-guard-audience.py")
+        for guard in audience.user_work_ids():
+            if guard == "guard-sealed-worktree.sh":
+                continue
+            run(["/bin/bash", str(ENGINE / "scripts/hooks" / guard)], payload)
     if event in ("SessionStart", "SubagentStart", "SubagentStop", "PostToolUse", "SessionEnd"):
         run(ws + ["hook"], payload)
     if event == "PostToolUse" and payload.get("tool_name") == "Agent":
