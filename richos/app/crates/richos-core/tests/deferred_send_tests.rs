@@ -453,12 +453,23 @@ fn a_correction_he_types_during_a_prime_is_staged_exactly_as_one_he_types_at_any
     //
     // So the `Desk` arm goes through `accept_prompt`, and this is the assertion that says so.
     // The correction and the misspelling are invented for the test.
-    let dir = std::env::temp_dir().join(format!(
+    // **REMOVED HOWEVER THIS TEST ENDS, not only when it passes** (CEO §54: cleanup is a
+    // mechanism, not a per-run judgment). The first version removed the directory on its last
+    // line, so the RED-FIRST run that proved this test can fail left its scratch behind — the
+    // exact shape of the failure §54 was written about, at one-thousandth the size.
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir = Scratch(std::env::temp_dir().join(format!(
         "richos-deferred-correction-{}-{}",
         std::process::id(),
         richos_core::util::now_millis()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    )));
+    let dir = &dir.0;
+    std::fs::create_dir_all(dir).unwrap();
     let mut spine = support::spine(Ledger::open(dir.join("ledger.jsonl")).unwrap());
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.switch_thread(&thread).unwrap();
@@ -494,7 +505,6 @@ fn a_correction_he_types_during_a_prime_is_staged_exactly_as_one_he_types_at_any
         "the anchor must quote the line the wrong word appeared on, deferred or not"
     );
     drop(guard);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
