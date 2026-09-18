@@ -2,8 +2,9 @@
 
 The RichOS phone app (`richos/app/phone`), walked end to end in two browser engines against a stub
 Mac over a real TLS origin. **108 checks pass, 1 documented skip, in Chromium and WebKit.** The full
-output of the run this record was written from is beside it in `desktop-verify.log`; the screenshots
-are the same run's.
+output of the run this record was written from is beside it in `desktop-verify.log`, and the
+screenshots are that same run's — the record, the log and the images are one run or they are
+nothing.
 
 Reproduce it:
 
@@ -23,7 +24,7 @@ npm run verify    # the run this record describes
 | **Rich streams** | The reply grew from 6 characters to 92 while the page watched, rather than arriving whole. |
 | **Waiting, and surviving a relaunch** | With the Mac unreachable (its socket destroyed, not a convenient 503), the message says *"waiting to send — your Mac isn't reachable from here"*, survives a **real page reload**, and then reaches the Mac **exactly once**. |
 | **The voice note the Mac receives** | A 1.32-second hold arrived as 42,284 bytes whose header reads `RIFF`/`WAVE`, format 1 (PCM), 1 channel, 16000 Hz, 16-bit — read off the bytes on the wire, not off what the page believed it sent. |
-| **Older messages** | Scrolling to the top loaded earlier messages (13 rows became 53). No page number, no pagination control, anywhere. |
+| **Older messages** | Scrolling to the top loaded earlier messages (15 rows became 55). No page number, no pagination control, anywhere. |
 | **Contrast** | The shipped app's own contrast walker measured **151 text nodes and 1 indicator in each theme**: zero failures, zero colors that could not be proved, and **zero exemptions claimed**. |
 | **No horizontal scroll** | The document was never wider than the viewport at 320, 375, 390 and 430 pixels, in dark and in light. |
 | **The picker, and what v1 does not do** | With one conversation there is no picker at all; a second one brings it, listing what exists — and nothing anywhere offers a way to create a conversation, which v1 deliberately does not do. |

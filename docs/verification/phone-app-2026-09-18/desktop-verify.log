@@ -3,15 +3,15 @@
 
 === chromium: the origin itself ===
 PASS  the pinned certificate makes this a SECURE CONTEXT — what service workers and the microphone are gated on
-        {"secure":true,"protocol":"https:","host":"localhost:53760","serviceWorker":true,"indexedDB":true,"subtle":true}
+        {"secure":true,"protocol":"https:","host":"localhost:53800","serviceWorker":true,"indexedDB":true,"subtle":true}
 PASS  it is the origin the phone will use, port included
-        localhost:53760
+        localhost:53800
 
 === chromium: pairing — six words, and not one identifier ===
 PASS  the phone shows the six words derived from the certificate the Mac is actually serving
-        shown "guitar orbit bench cobalt pelican frozen", derived "guitar orbit bench cobalt pelican frozen"
+        shown "jasmine falcon pelican ivory finger phantom", derived "jasmine falcon pelican ivory finger phantom"
 PASS  six words, not five and not a hash
-        guitar orbit bench cobalt pelican frozen
+        jasmine falcon pelican ivory finger phantom
 PASS  no raw hash or identifier is anywhere on the pairing screen
 PASS  no horizontal scroll — chromium: pairing
         document 375px against a viewport of 375px; widest element SECTION.takeover ends at 375px
@@ -38,7 +38,7 @@ PASS  a second conversation brings the picker, listing what exists
         Rich, The proposal
 PASS  and offers no way to create one, which v1 deliberately does not do
 PASS  the service worker registers at the root of the origin, which is what scopes the push subscription
-        {"supported":true,"registered":true,"scope":"https://localhost:53760/","caches":["richos-phone-shell-v1"],"cached":17}
+        {"supported":true,"registered":true,"scope":"https://localhost:53800/","caches":["richos-phone-shell-v1"],"cached":17}
 PASS  and it kept the shell, so the app opens where the Mac does not resolve
         17 entries in richos-phone-shell-v1
 
@@ -64,11 +64,11 @@ PASS  NO PAGINATION — no page number, no pagination control, anywhere
 PASS  a voice note reached the Mac
         1 received
 PASS  it was sent as bytes with the codec named — never base64, never a container negotiation
-        {"bytes":42028,"codec":"wav16k","seconds":1.31}
+        {"bytes":42284,"codec":"wav16k","seconds":1.32}
 PASS  the duration matches the hold, and the size is the plan's ~32 KB per second
-        1.31 s, 42028 bytes
+        1.32 s, 42284 bytes
 PASS  the WAV header the Mac received declares 16 kHz mono 16-bit PCM
-        {"riff":"RIFF","wave":"WAVE","fmt":"fmt ","format":1,"channels":1,"rate":16000,"byteRate":32000,"bits":16,"dataBytes":41984,"totalBytes":42028}
+        {"riff":"RIFF","wave":"WAVE","fmt":"fmt ","format":1,"channels":1,"rate":16000,"byteRate":32000,"bits":16,"dataBytes":42240,"totalBytes":42284}
 PASS  "hear it" fetches the audio on demand and turns into the control that stops it
         the control reads "Hear it" (muted browser, no sound was played in the room)
 
@@ -135,15 +135,15 @@ PASS  the outage was a REAL network failure, not something the page pretended
 === webkit: the origin itself ===
         WebKit reports isSecureContext=true (no public-key pin exists for this engine)
 PASS  WebKit has WebCrypto, IndexedDB and a service worker container on this origin
-        {"secure":true,"protocol":"https:","host":"localhost:53778","serviceWorker":true,"indexedDB":true,"subtle":true}
+        {"secure":true,"protocol":"https:","host":"localhost:53819","serviceWorker":true,"indexedDB":true,"subtle":true}
 PASS  it is the origin the phone will use, port included
-        localhost:53778
+        localhost:53819
 
 === webkit: pairing — six words, and not one identifier ===
 PASS  the phone shows the six words derived from the certificate the Mac is actually serving
-        shown "compass market bridge collar noodle farmer", derived "compass market bridge collar noodle farmer"
+        shown "mammal helmet clover helmet camera pillow", derived "mammal helmet clover helmet camera pillow"
 PASS  six words, not five and not a hash
-        compass market bridge collar noodle farmer
+        mammal helmet clover helmet camera pillow
 PASS  no raw hash or identifier is anywhere on the pairing screen
 PASS  no horizontal scroll — webkit: pairing
         document 375px against a viewport of 375px; widest element SECTION.takeover ends at 375px
@@ -170,7 +170,7 @@ PASS  a second conversation brings the picker, listing what exists
         Rich, The proposal
 PASS  and offers no way to create one, which v1 deliberately does not do
 PASS  the service worker registers at the root of the origin, which is what scopes the push subscription
-        {"supported":true,"registered":true,"scope":"https://localhost:53778/","caches":["richos-phone-shell-v1"],"cached":17}
+        {"supported":true,"registered":true,"scope":"https://localhost:53819/","caches":["richos-phone-shell-v1"],"cached":17}
 PASS  and it kept the shell, so the app opens where the Mac does not resolve
         17 entries in richos-phone-shell-v1
 
