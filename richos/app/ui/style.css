@@ -50,6 +50,10 @@
      panel), which is a surface no single-background calculation reaches. A token
      calibrated against the page ground is not calibrated against every ground. */
   --ink-faint: rgba(223, 228, 238, 0.62);
+  /* THE TECHNICAL VIEW'S OWN INK — audit-10 row 4. 8.50:1 on the ground here, 7.39:1 in
+     light, and it exists because `--ink-faint` clears the floor by 0.48 and the RENDERED
+     GLYPH does not. The whole derivation is beside `.tl-tech-title`. */
+  --ink-tech: rgba(223, 228, 238, 0.75);
 
   --line-strong: rgba(76, 96, 135, 0.26);
   --line-soft: rgba(76, 96, 135, 0.14);
@@ -220,6 +224,10 @@
   /* 4.85:1 on the rail — the darkest surface it paints on in this theme. Round 10 shipped
      this token lower and `.rail-count` came out at 3.60:1; the CEO named it. */
   --ink-faint: rgba(12, 19, 34, 0.63);
+  /* The technical view's own ink, light branch. 7.39:1 on the ground — see `.tl-tech-title`.
+     THIS IS THE THEME THE DEFECT WAS MEASURED IN: `--ink-faint` declares 4.98:1 here and the
+     11px italic monospace glyph it paints measures 4.36:1. */
+  --ink-tech: rgba(12, 19, 34, 0.75);
 
   --line-strong: rgba(60, 70, 95, 0.24);
   --line-soft: rgba(60, 70, 95, 0.12);
@@ -606,6 +614,98 @@ button {
   color: var(--ink-soft);
   padding: 4px 0;
   cursor: pointer;
+}
+
+/* =========================================================================================
+   THE RADIO BUTTONS — audit-10 row 3. NINE OF THEM, AND NOT ONE WAS EVER MEASURED.
+
+   Every radio in this app shipped as a bare native `<input type="radio">` with no CSS at
+   all: the three assertiveness options, the three retention options and §7.1's three-way
+   scope choice. `style.css:4396` says so in as many words — *"the radios are the SAME
+   unstyled native inputs the retention choice in the rail's popover ships"* — and treats
+   that as a reason they need no arithmetic, because the walk that vouches for the scope
+   sheet measures TEXT. A radio's ring is not text. It is the non-text indicator that says
+   "there are two other choices here", it owes 3:1, and nothing in this repository had ever
+   computed it.
+
+   WHAT THE PLATFORM WAS PAINTING, re-derived by me under WebKit before a line of this block
+   was written — same method Ray used, same numbers, reported here as pixels off the real
+   renderer and not as a recollection of his audit:
+
+                                  ink        ground     ratio    floor 3:1
+     LIGHT  unselected ring      #c9c8c8    #fdfcf8     1.63:1   FAIL
+     LIGHT  selected            #057dff    #fdfcf8     3.80:1   pass
+     DARK   unselected ring      #ffffff    #182440    15.38:1   pass on the number
+     DARK   selected            #ffffff    #182440    15.38:1   pass on the number
+
+   THE DARK ROW IS THE WORSE DEFECT AND ITS RATIO IS FINE, which is the whole reason a number
+   is not a verdict. The crops say what the ratio cannot: the two UNSELECTED radios carry
+   **38** white samples each and the SELECTED one carries **12**. The unselected are solid
+   white discs; the selected is a ring with a small blue dot in it. At a glance the two he has
+   NOT chosen are the two that look chosen, and the real selection is then carried by hue
+   alone — blue on white — which a person with a color vision deficiency does not receive.
+   `#057dff` is not in this app's palette in either theme; it is the platform's accent, and
+   the platform was picking it because nobody had said otherwise.
+
+   SO THE STATE IS CARRIED BY FILL AND SHAPE, NEVER BY HUE. Unselected is an EMPTY ring on the
+   card. Selected is a FILLED accent disc with the card punched back out of it as a gap, so a
+   dot appears in the middle. Present-dot versus no-dot survives grayscale, and it is the
+   meaning a radio has had since before this app existed.
+
+   THE ARITHMETIC, computed from the tokens in this file (WCAG 2.2 §1.4.11, 3:1 for a non-text
+   indicator) and then re-measured off the painted control in both themes:
+
+                                              dark      light
+     unselected ring  --line-control on --card  3.79:1    4.06:1
+     selected disc    --accent on --card        6.36:1    3.83:1
+     the dot          --card through the disc   6.36:1    3.83:1
+
+   `--line-control` is the right token and not a new one: its own comment forty lines up says
+   *"THE BORDER OF A FORM CONTROL IS A NON-TEXT INDICATOR and owes 3:1, which `--line` does
+   not pay"*. This block is the second consumer of the reason it exists.
+
+   AND THE TWO STATES ARE 1.68:1 (dark) / 1.06:1 (light) APART BY HUE, deliberately recorded
+   here because it looks like a failure and is not: it is the measurement that proves the
+   distinction must not rest on hue, and the reason the dot is the distinction.
+
+   BOTH GROUNDS CLEAR. `.popover` and `.overlay-panel` are both `--card` (via `--surface`), so
+   one pair of numbers covers all nine. On `--surface-raised` the same tokens give 4.09/3.82
+   and 6.87/3.60, so a radio moved to a raised surface later still clears the floor.
+
+   THE KEYBOARD LOSES NOTHING. `appearance: none` changes painting, not conduct — arrow keys
+   still move the group and `contrast.js`'s own scope driver presses them. What it DOES remove
+   is the platform's focus ring, so one is declared, in the same vocabulary `.popover-input`
+   already uses.
+   ========================================================================================= */
+.popover-option > input[type="radio"],
+.techy-scope-option > input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 2px solid var(--line-control);
+  border-radius: 50%;
+  /* Not `transparent`: the walker reads `backgroundColor`, and a control whose ground has to
+     be inferred from an ancestor is a control nothing can vouch for. */
+  background: var(--card);
+  cursor: pointer;
+}
+
+.popover-option > input[type="radio"]:checked,
+.techy-scope-option > input[type="radio"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  /* The gap that makes the dot. `box-sizing: border-box` is global, so the padding box is
+     12px; 2px of `--card` inset from it leaves an 8px accent dot in the middle. */
+  box-shadow: inset 0 0 0 2px var(--card);
+}
+
+.popover-option > input[type="radio"]:focus-visible,
+.techy-scope-option > input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------------------------------------------------------------
@@ -4223,16 +4323,68 @@ body.bp-narrow .tl-user-bubble {
   overflow-wrap: anywhere;
 }
 
-/* An untyped vendor kind is ONE DIM LINE (§1.4 G5): it is an accounting update, not
-   something Rich did, and it must not read with the same weight as a command he ran. */
+/* =========================================================================================
+   THE TECHNICAL VIEW'S INK — audit-10 row 4, and the reason it is a SEPARATE TOKEN.
+
+   Ray walked candidate .10 with the technical view on and measured six labels between
+   4.36:1 and 4.99:1 against a 4.5:1 floor, two of them under it
+   (`docs/verification/2026-09-18-nightly-1.2.0-nightly.20260918.5-onscreen-audit.md` §4,
+   frame `38-techy-on-thread.png`). RE-DERIVED HERE, from the pixels, on the `acme` fixture
+   under WebKit, before this token existed — his numbers to the second decimal:
+
+                                              declared   RENDERED   floor 4.5
+     `system:init` / `system:status`   11px italic mono    4.98:1     4.36:1   FAIL
+     `stream_event:message_delta`      11px italic mono    4.98:1     4.59:1   pass, barely
+     the bounded preview / the paths   14px                4.98:1     4.99:1   pass, barely
+     the chevron                       11px                4.98:1     3.75:1   FAIL as text
+
+   THE TWO COLUMNS ARE THE FINDING, and they are why raising the token is the fix rather than
+   arguing with the audit. `--ink-faint` on `--ground` in light mode DECLARES 4.98:1 — it
+   clears the floor by 0.48 — and at 11px italic monospace the glyph that reaches the screen
+   measures 4.36:1. Antialiasing over thin, slanted, small strokes never lets the painted
+   pixel reach the declared color, and the thinner the stroke the further short it falls: the
+   same token in the same crop measures 4.99:1 at 14px upright and 4.36:1 at 11px italic.
+   A declared ratio with no headroom is not a passing ratio; it is a ratio that has not been
+   measured where it is read.
+
+   SO THE TECHNICAL VIEW GETS ITS OWN INK, at 0.75 rather than 0.62/0.63:
+
+                        declared on --ground      rendered at 11px italic
+     light  #444851          7.39:1                     6.4:1
+     dark   #aab0bb          8.50:1                     7.4:1
+
+   IT IS STILL ONE DIM LINE. §1.4 G5's intent is that an untyped vendor frame must not read
+   with the weight of a command Rich ran, and it does not: `--ink` is 14.90:1 in this theme
+   and this is 7.39:1, half of it. Recessive was never the same thing as unreadable, and no
+   exemption applies here — a person who has turned the technical view on has turned it on in
+   order to read exactly these labels.
+
+   WHY A NEW TOKEN RATHER THAN MOVING `--ink-faint`. `--ink-faint` is carried by the rail
+   tallies, the popover fine print, the turn digest and a dozen other places that are 14px or
+   larger and upright, measure 4.99:1 rendered, and were calibrated against the rail — its own
+   comment records the CEO naming `.rail-count` at 3.60:1, so that token has been tuned to a
+   different constraint and moving it would re-open a ruled surface to fix an unruled one.
+
+   WHAT IS DELIBERATELY NOT IN THIS BLOCK. `.tl-activity-state` ("done", "failed", "outcome
+   not recorded") keeps `--ink-faint`: it is 16px upright, it measures 4.99:1 RENDERED, and it
+   is shared with the calm view, where nothing was reported. It is named here so that its
+   absence is a decision and not an oversight.
+
+   AND THE SIZE IS A SEPARATE QUESTION THAT THIS DOES NOT ANSWER. These labels are 11px
+   (`0.6875rem`), which is below §15's 14px floor for anything readable — the ruling's own
+   words are "nothing readable sits below 14px", and `appearance.js` check 12 only enumerates
+   the PIXEL declarations, so a `rem` under the floor has never been counted. Raising the ink
+   makes them legible at the size they are; it does not make the size compliant. Escalated
+   rather than taken.
+   ========================================================================================= */
 .tl-tech[data-vendor] .tl-tech-title {
-  color: var(--ink-faint);
+  color: var(--ink-tech);
   font-style: italic;
 }
 
 .tl-tech-chevron {
   flex: 0 0 auto;
-  color: var(--ink-faint);
+  color: var(--ink-tech);
   font-size: 0.6875rem;
 }
 
@@ -4256,7 +4408,9 @@ body.bp-narrow .tl-user-bubble {
 .tl-tech-paths {
   padding-left: 20px; /* aligns under the title, past the status glyph */
   font-size: 0.875rem;
-  color: var(--ink-faint);
+  /* 4.99:1 rendered on `--ink-faint` — a pass with 0.01 in hand, which is the same "no
+     headroom" the block above is about. Same token as the labels beside them. */
+  color: var(--ink-tech);
   overflow-wrap: anywhere;
 }
 

@@ -119,6 +119,79 @@ function hex(c) {
 }
 
 // ---------------------------------------------------------------------------------------
+// A NON-TEXT INDICATOR MEASURED FROM THE PIXELS — audit-10 row 3
+// ---------------------------------------------------------------------------------------
+
+/// THE ONE THING THE DOM WALK BELOW STRUCTURALLY CANNOT DO: measure a control the PLATFORM
+/// painted.
+///
+/// The walk reads `backgroundColor` and the four border colors. A bare `<input type="radio">`
+/// with no CSS has `rgba(0,0,0,0)` and `0px` for all five, because the ring on screen is the
+/// UA's own rendering and has no computed style anywhere — so the walk files it `textOnly`,
+/// which is the bucket that means "nothing of its own to check". That is the correct answer to
+/// the question the walk can ask, and it is why nine radios reached candidate .10 with the
+/// light-mode unselected ring at 1.63:1 against a 3:1 floor.
+///
+/// So this measures the rendered frame instead, and it is the same method Ray's audits use, in
+/// this file so the arithmetic is the arithmetic the suite already proves against WebAIM's
+/// published values rather than a second copy:
+///
+///   * GROUND — the most common value in the crop's outer two-pixel skirt. The skirt is the
+///     surface the control is drawn ON, so this resolves a ground rather than assuming one.
+///   * INK — the value occurring at least `minSamples` times whose luminance is FURTHEST from
+///     the ground. A three-sample floor is what keeps an antialiasing artifact from being
+///     reported as the control's color; it is the rule Ray states in his own audits, and on the
+///     one crop where nothing clears it (a count over moving artwork) the honest answer is that
+///     the frequency method has nothing to measure against.
+///   * `inkSamples` — HOW MUCH of that ink there is. This is the part a ratio cannot carry: a
+///     filled disc and an empty ring of the same diameter and the same color have the same
+///     ratio and opposite meanings, and it was the opposite meaning that shipped in dark mode.
+function measureIndicatorCrop(pngBuffer, minSamples) {
+  const png = require("./png");
+  const img = png.decode(pngBuffer);
+  const need = minSamples || 3;
+  const at = function (x, y) {
+    const o = (y * img.width + x) * 4;
+    return { r: img.data[o], g: img.data[o + 1], b: img.data[o + 2], a: 1 };
+  };
+  const skirt = new Map();
+  const all = new Map();
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      const c = at(x, y);
+      const k = hex(c);
+      all.set(k, (all.get(k) || 0) + 1);
+      const edge = x <= 1 || x >= img.width - 2 || y <= 1 || y >= img.height - 2;
+      if (edge) skirt.set(k, (skirt.get(k) || 0) + 1);
+    }
+  }
+  const groundKey = Array.from(skirt.entries()).sort(function (a, b) { return b[1] - a[1]; })[0][0];
+  const toRgb = function (k) {
+    return { r: parseInt(k.slice(1, 3), 16), g: parseInt(k.slice(3, 5), 16), b: parseInt(k.slice(5, 7), 16), a: 1 };
+  };
+  const ground = toRgb(groundKey);
+  const gl = relativeLuminance(ground);
+  let best = null;
+  all.forEach(function (n, k) {
+    if (n < need) return;
+    const c = toRgb(k);
+    const d = Math.abs(relativeLuminance(c) - gl);
+    if (!best || d > best.d) best = { key: k, color: c, d: d, n: n };
+  });
+  if (!best) {
+    // NOT A PASS. The same rule the walk follows: an unresolvable color is a failure to prove.
+    return { ground: groundKey, ink: null, inkSamples: 0, ratio: 0, unresolvable: "no value in the crop occurs " + need + " times" };
+  }
+  return {
+    ground: groundKey,
+    ink: best.key,
+    inkSamples: best.n,
+    ratio: round2(contrastRatio(best.color, ground)),
+    unresolvable: null,
+  };
+}
+
+// ---------------------------------------------------------------------------------------
 // The DOM walk — written here, executed in WebKit
 // ---------------------------------------------------------------------------------------
 
@@ -831,5 +904,6 @@ module.exports = {
   round2,
   isLargeText,
   hex,
+  measureIndicatorCrop,
   pageScript,
 };

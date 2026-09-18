@@ -2407,6 +2407,248 @@ async function main() {
     );
   });
 
+  await run.check("16  every radio paints its OWN indicator — the platform's measured 1.63:1 and this walk could not see it", async () => {
+    // AUDIT-10 ROW 3, AND THE REASON IT SURVIVED THIRTY-NINE GREEN SURFACES ABOVE.
+    //
+    // Nine radios ship in this shell — assertiveness x3, retention x3, §7.1's scope x3 — and
+    // until 2026-09-18 every one of them was a bare native `<input type="radio">` with no CSS.
+    // The indicator walk in `lib/contrast.js` DOES reach them (`input` is in `CONTROLS`, and
+    // `FIELD` is true, so the visible-label shortcut never applies). It then reads
+    // `backgroundColor: rgba(0,0,0,0)` and `borderWidth: 0px`, because the platform paints the
+    // ring and the stylesheet says nothing at all — and files them `textOnly`, the bucket whose
+    // own comment calls itself "the honest size of this section's blind spot". So the blind spot
+    // was real, it was declared, and nobody had looked in it. Ray did, with a camera:
+    //
+    //     LIGHT unselected  #c9c8c8 on #fdfcf8   1.63:1   against a 3:1 floor
+    //     DARK  unselected  #ffffff on #182440  15.38:1 — and the two he had NOT chosen were
+    //                                           SOLID WHITE DISCS while the selected one was a
+    //                                           ring with a small blue dot, so at a glance the
+    //                                           wrong two looked chosen
+    //
+    // THIS CHECK IS DELIBERATELY PIXEL-BASED, not computed-style, and that is the point rather
+    // than a flourish. A computed-style assertion is satisfied by any stylesheet that declares
+    // SOMETHING; the defect it has to catch is a control whose paint comes from the platform, and
+    // the platform's paint has no computed style to read. Only the rendered frame can tell those
+    // two apart. It is the same instrument Ray used, so a regression fails here before it reaches
+    // a walk.
+    //
+    // AND IT CHECKS THE MEANING, NOT ONLY THE RATIO. The dark row above passes 15.38:1 while
+    // being the worse defect, so a ratio alone would have called it fine. What carries the state
+    // is FILL: the selected radio is a filled accent disc and an unselected one is an empty ring,
+    // which is a difference in how much ink is on the control and survives grayscale. The two
+    // tokens are 1.68:1 (dark) / 1.06:1 (light) apart by hue — measured, and recorded in
+    // `style.css` beside the rule — so hue can never be allowed to be the distinction.
+    const RADIO_FLOOR = 3;
+    const lines = [];
+    for (const theme of ["light", "dark"]) {
+      const page = await openApp(browser, theme);
+      await page.click('.nav-thread[data-thread-id="hiring"]');
+      await settleOnThread(page, "hiring");
+      await page.click("#rail-settings");
+      await page.waitForSelector("#assertiveness-popover:not([hidden])");
+      await page.check("#techy-default");
+      await page.waitForSelector("#techy-scope:not([hidden])");
+      await awaitSettled(page);
+
+      const boxes = await page.evaluate(() => {
+        const panel = document.querySelector("#techy-scope .overlay-panel");
+        return {
+          ground: getComputedStyle(panel).backgroundColor,
+          radios: [...document.querySelectorAll('#techy-scope input[name="techy-scope"]')].map((i) => {
+            const r = i.getBoundingClientRect();
+            return { value: i.value, checked: i.checked, x: r.x, y: r.y, w: r.width, h: r.height };
+          }),
+        };
+      });
+      assertEqual(boxes.radios.length, 3, "the scope sheet did not put three radios on screen");
+
+      const measured = [];
+      for (const r of boxes.radios) {
+        // A three-pixel skirt, so the crop carries the panel the ring is drawn on as well as the
+        // ring. The ground is then read from the skirt (the most common border value) rather than
+        // assumed, exactly as the surface walks resolve a ground from the paint stack.
+        const buf = await page.screenshot({
+          clip: { x: Math.floor(r.x - 3), y: Math.floor(r.y - 3), width: Math.ceil(r.w + 6), height: Math.ceil(r.h + 6) },
+        });
+        measured.push(Object.assign({ theme: theme }, C.measureIndicatorCrop(buf), { value: r.value, checked: r.checked }));
+      }
+
+      for (const m of measured) {
+        assert(
+          m.ratio >= RADIO_FLOOR,
+          theme + ": the " + (m.checked ? "selected" : "unselected") + " radio (" + m.value + ") paints " +
+            m.ink + " on " + m.ground + " = " + m.ratio + ":1, under the " + RADIO_FLOOR +
+            ":1 floor a non-text indicator owes. This is the shape audit-10 row 3 measured at 1.63:1."
+        );
+      }
+
+      // THE FILL TEST. `ink` is the strongest value on the control and `inkSamples` is how many
+      // of it there are, so a FILLED disc carries strictly more of its own ink than an EMPTY ring
+      // of the same diameter does. On the shipped control today: selected 72 / 64 samples,
+      // unselected 32. On the platform's radios it was the other way round — unselected 38,
+      // selected 12 — which is precisely Ray's "the wrong two look chosen", and it is what this
+      // assertion refuses.
+      const chosen = measured.find((m) => m.checked);
+      const others = measured.filter((m) => !m.checked);
+      assert(chosen, theme + ": no radio is selected on a sheet whose first option is preselected");
+      for (const o of others) {
+        assert(
+          chosen.inkSamples > o.inkSamples,
+          theme + ": the SELECTED radio carries " + chosen.inkSamples + " samples of its own ink and the " +
+            "unselected one (" + o.value + ") carries " + o.inkSamples + ". The unselected control is at " +
+            "least as filled as the chosen one, so at a glance the wrong option looks chosen — which is " +
+            "audit-10 row 3's dark-mode half, and it passed its RATIO at 15.38:1."
+        );
+      }
+      lines.push(
+        theme + ": selected " + chosen.ratio + ":1 (" + chosen.inkSamples + " samples) vs unselected " +
+          others.map((o) => o.ratio + ":1 (" + o.inkSamples + ")").join(", ")
+      );
+      await page.close();
+    }
+    return "floor " + RADIO_FLOOR + ":1, measured off the painted control — " + lines.join("; ");
+  });
+
+  await run.check("17  the technical view's own labels, DECLARED and RENDERED — the surface walk sees neither", async () => {
+    // AUDIT-10 ROW 4, AND TWO REASONS THIRTY-NINE GREEN SURFACES DID NOT HOLD IT.
+    //
+    // REASON ONE: THE SURFACE NAMED `technical-view` CONTAINS NO TECHNICAL ROWS. Its driver
+    // opens `hiring`, and `hiring` is the fixture chosen deliberately to have NO machinery and
+    // an EMPTY between-turn lane — `mock.js` says so where it defines them: "`acme` has
+    // traffic; `hiring` deliberately has none, so the honest empty state is a screen this
+    // harness can actually open". Measured here before this check was written: with the
+    // technical view pinned on `hiring`, `document.querySelectorAll(".tl-tech").length` is 0.
+    // So the 148 nodes that surface reports are the conversation AROUND the technical view,
+    // and every label Ray measured was outside the walk. That is not a bug in that surface —
+    // it is the right fixture for the empty state — it is a hole where the full state should
+    // also be walked.
+    //
+    // REASON TWO, AND THE ONE WORTH KEEPING: THE DECLARED COLOR PASSED AND THE PAINTED GLYPH
+    // DID NOT. Measured on `acme`, light mode, before the fix:
+    //
+    //                                             declared   rendered
+    //   `system:init` / `system:status`  11px italic   4.98:1     4.36:1   under the floor
+    //   `stream_event:message_delta`     11px italic   4.98:1     4.59:1   barely over it
+    //   the bounded preview / the paths  14px          4.98:1     4.99:1   barely over it
+    //   the chevron                      11px          4.98:1     3.75:1   under the floor
+    //
+    // One token, one ground, four different rendered numbers — because antialiasing over
+    // thin, slanted, 11px strokes never lets the painted pixel reach the declared color. Ray
+    // reported 4.36 / 4.49 / 4.60 / 4.99 on the shipped build and every one of them is
+    // reproduced above to the second decimal. A computed-style walk reads the declared column
+    // and can never read the other one, so this check reads BOTH and holds both to 4.5:1.
+    //
+    // THE DECLARED FLOOR IS DELIBERATELY HIGHER THAN 4.5. A declared ratio with nothing in
+    // hand is a ratio that has not been measured where it is read; `DECLARED_FLOOR` is what
+    // stops this cluster drifting back to a technically-passing 4.98:1.
+    const RENDERED_FLOOR = 4.5;
+    const DECLARED_FLOOR = 6;
+    const lines = [];
+    for (const theme of ["light", "dark"]) {
+      const page = await openApp(browser, theme);
+      // `acme` AND NOT `hiring`, for the reason at the top of this check.
+      await page.click('.nav-thread[data-thread-id="acme"]');
+      await settleOnThread(page, "acme");
+      await page.keyboard.press("Meta+Shift+T");
+      await techyScopeThisConversation(page);
+      await page.waitForFunction(() => {
+        const chip = document.getElementById("techy-chip");
+        return !!chip && !chip.hidden;
+      });
+      await awaitSettled(page);
+
+      // THE POSITIVE PROBE, and it is the whole defense against this check passing by
+      // measuring nothing. If the fixture ever stops rendering technical rows — the exact
+      // state `technical-view` is in today — this fails here rather than reporting a clean
+      // sweep of an empty screen.
+      // HANDLES, NOT COORDINATES, AND THE FIRST DRAFT OF THIS CHECK PROVED WHY. Reading every
+      // rect in one `evaluate` and then shooting those rectangles one at a time reported
+      // `#eae6dd on #eae6dd` — a crop of bare ground — because the conversation moves under a
+      // coordinate the moment anything above it settles. `elementHandle.screenshot()` scrolls
+      // the node into view and shoots THAT node, so the frame and the element can never be one
+      // scroll apart.
+      const WANT = [
+        [".tl-tech[data-vendor] .tl-tech-title", "vendor label, 11px italic mono"],
+        [".tl-tech-summary", "the bounded preview, 14px"],
+        [".tl-tech-path", "a touched path, 14px mono"],
+        [".tl-tech-chevron", "the expand chevron, 11px"],
+      ];
+      const nodes = [];
+      for (const [sel, what] of WANT) {
+        for (const handle of await page.$$(sel)) {
+          const info = await handle.evaluate((n) => {
+            const r = n.getBoundingClientRect();
+            if (r.width < 2 || r.height < 2) return null;
+            const cs = getComputedStyle(n);
+            // The ground the run is painted over, resolved the way the walk resolves one: up
+            // the ancestor chain to the first opaque background.
+            let host = n.parentElement;
+            let ground = null;
+            while (host && !ground) {
+              const c = getComputedStyle(host).backgroundColor;
+              const m = c && c.match(/^rgba?\(([^)]+)\)$/);
+              if (m) {
+                const p = m[1].split(/[,/\s]+/).filter((x) => x.length);
+                if (p.length < 4 || parseFloat(p[3]) >= 0.999) ground = c;
+              }
+              host = host.parentElement;
+            }
+            return { text: (n.textContent || "").trim().slice(0, 44), color: cs.color, ground,
+                     size: cs.fontSize, weight: cs.fontWeight };
+          });
+          if (info) nodes.push(Object.assign({ sel, what, handle }, info));
+        }
+      }
+      assert(
+        nodes.filter((n) => n.sel.indexOf("tl-tech-title") >= 0).length >= 2,
+        theme + ": the fixture rendered fewer than two vendor labels, so this check would be " +
+          "measuring an empty screen — which is precisely the state the `technical-view` surface " +
+          "is in. Conversation `acme` is the one with machinery (`mock.js` `machineryRaw`)."
+      );
+
+      let worstDeclared = null;
+      let worstRendered = null;
+      for (const n of nodes) {
+        // ---- the declared column, the suite's own arithmetic on the resolved colors -------
+        const fg = C.parseCssColor(n.color);
+        const bg = C.parseCssColor(n.ground);
+        assert(fg && bg, theme + ": could not resolve " + n.sel + " (" + n.color + " on " + n.ground + ")");
+        const declared = C.round2(C.contrastRatio(fg.a < 1 ? C.compositeOver(fg, bg) : fg, bg));
+        assert(
+          declared >= DECLARED_FLOOR,
+          theme + ": " + n.what + " declares " + declared + ":1 (" + n.color + " over " + n.ground +
+            "). The floor for THIS cluster is " + DECLARED_FLOOR + ":1, not 4.5, because " +
+            "`--ink-faint` declared 4.98:1 here and painted 4.36:1 — a declared ratio with " +
+            "nothing in hand is a ratio nobody has measured where it is read."
+        );
+        if (!worstDeclared || declared < worstDeclared.r) worstDeclared = { r: declared, what: n.what };
+
+        // ---- the rendered column, off the painted frame ----------------------------------
+        const buf = await n.handle.screenshot();
+        const m = C.measureIndicatorCrop(buf, 3);
+        assert(
+          !m.unresolvable,
+          theme + ": " + n.what + " " + JSON.stringify(n.text) + " — " + m.unresolvable +
+            ", which is a failure to prove and never a pass"
+        );
+        assert(
+          m.ratio >= RENDERED_FLOOR,
+          theme + ": " + n.what + " " + JSON.stringify(n.text) + " declares " + declared +
+            ":1 and PAINTS " + m.ratio + ":1 (" + m.ink + " on " + m.ground + ") at " + n.size +
+            ". Under the " + RENDERED_FLOOR + ":1 floor. This is audit-10 row 4 exactly: the " +
+            "declared column passed and the glyph on the glass did not."
+        );
+        if (!worstRendered || m.ratio < worstRendered.r) worstRendered = { r: m.ratio, what: n.what, text: n.text };
+      }
+      lines.push(
+        theme + ": " + nodes.length + " label(s), worst declared " + worstDeclared.r + ":1 (" +
+          worstDeclared.what + "), worst rendered " + worstRendered.r + ":1 (" + worstRendered.what + ")"
+      );
+      await page.close();
+    }
+    return "declared floor " + DECLARED_FLOOR + ":1, rendered floor " + RENDERED_FLOOR + ":1 — " + lines.join("; ");
+  });
+
   // ---- the run's own numbers, printed whether it passes or fails ---------------------------
 
   const t = seen.totals;
