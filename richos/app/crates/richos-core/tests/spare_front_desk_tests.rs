@@ -431,3 +431,52 @@ fn a_build_that_cannot_spawn_a_lease_says_so_and_costs_him_nothing() {
     assert_eq!(reprimes.lock().unwrap().len(), 1);
     let _ = std::fs::remove_file(path);
 }
+
+/// **THE DEFECT RUN H BOUGHT, AS A TEST THAT COSTS NOTHING.**
+///
+/// Run H (`docs/verification/first-words-2026-09-18-primed.md` §3) primed a spare in 4.709 s,
+/// watched his thread adopt it (`spawned: false`), and then measured a SECOND priming turn of
+/// 2.123 s on his own clock. The saving was zero and the spare's turn was thrown away.
+///
+/// The cause is one line in `prime_lease_if_needed`:
+/// `if onboarding_block != self.onboarding_primed_block { self.lease_primed = false; }`.
+/// `onboarding_primed_block` was a SPINE-WIDE field describing whatever desk was last in the
+/// chair — and a spare primes while no desk is in the chair at all, so the field still read
+/// `None` while the adopted desk was holding the company block. The comparison un-primed a desk
+/// that was perfectly primed.
+///
+/// **The tests above did not catch it because none of them set a central root**, so the block
+/// was `None` on both sides and the comparison passed for the wrong reason. This one sets one,
+/// which is the shipping state of any install whose owner has a company folder.
+#[test]
+fn a_spare_primed_with_the_company_material_is_not_re_primed_when_his_thread_adopts_it() {
+    let (path, ledger) = tmp_ledger("company-block-travels");
+    let mut spine = support::spine(ledger);
+    let factory = MockLeaseFactory::new(vec!["On it!"]);
+    let spawned = factory.spawned.clone();
+    spine.set_lease_factory(Box::new(factory));
+
+    // A real install: the CEO's central folder is known, and the declination record with it.
+    // Both are set BEFORE the spare is readied, because each un-primes every desk.
+    let central = std::env::temp_dir().join(format!(
+        "richos-spare-central-{}-{}", std::process::id(), richos_core::util::now_millis()
+    ));
+    std::fs::create_dir_all(central.join("femcboost")).unwrap();
+    spine.set_central_root(central.clone());
+    spine.set_onboarding_record(central.join("onboarding.json"));
+
+    spine.ready_a_spare_front_desk(&femcboost());
+    assert_eq!(spawned.lock().unwrap()[0].lock().unwrap().len(), 1, "the spare primed once");
+
+    let thread = spine.create_thread("Pricing", &femcboost()).unwrap();
+    spine.prime_front_desk(&thread);
+
+    assert_eq!(spawned.lock().unwrap().len(), 1, "no second child");
+    assert_eq!(
+        spawned.lock().unwrap()[0].lock().unwrap().len(), 1,
+        "the adopted desk was primed a SECOND time on his clock — the company material it was \
+         primed with did not travel with it, which is exactly what run H measured"
+    );
+    let _ = std::fs::remove_dir_all(central);
+    let _ = std::fs::remove_file(path);
+}

@@ -313,3 +313,56 @@ fn no_front_desk_ever_takes_another_conversations_binding() {
     let _: Option<&ThreadBinding> = spine.active_binding();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// **A PARKED DESK COMES BACK WITH THE COMPANY MATERIAL IT WAS PRIMED WITH** — the latent half
+/// of the defect run H measured on the real provider
+/// (`docs/verification/first-words-2026-09-18-primed.md` §3).
+///
+/// `prime_lease_if_needed` opens with
+/// `if onboarding_block != self.onboarding_primed_block { self.lease_primed = false; }`, and
+/// `onboarding_primed_block` was a SPINE-WIDE field. Residency made that wrong: it described
+/// whichever desk last sat in the chair, so a desk returning from one company found the field
+/// describing another company's desk, was un-primed by the comparison, and re-primed — on his
+/// clock, for nothing. Residency exists so that coming back is a RETURN rather than a
+/// reconstitution, and a re-prime is a reconstitution.
+///
+/// **Two companies, not one, and that is the whole test.** With a single entity both sides of
+/// the comparison are the same string and it passes for the wrong reason; the block is built
+/// from the entity (`onboarding::priming_block`), so only a cross-company return can tell a
+/// per-desk field from a shared one. The suite's other tests set no central root at all, which
+/// is why every one of them was green while this was broken.
+#[test]
+fn a_parked_desk_comes_back_with_the_company_material_it_was_primed_with() {
+    let (mut spine, log, root) = fixture();
+    let deeply = EntityId::parse("deeply").unwrap();
+    // A real install: the CEO's central folder is known, with a folder per company in it.
+    let corpus = root.join("corpus");
+    std::fs::create_dir_all(corpus.join("femcboost")).unwrap();
+    std::fs::create_dir_all(corpus.join("deeply")).unwrap();
+    spine.set_central_root(corpus);
+    spine.set_onboarding_record(root.join("onboarding.json"));
+
+    let one = spine.create_thread("Pricing", &femcboost()).unwrap();
+    let two = spine.create_thread("Q4 board pack", &deeply).unwrap();
+    spine.submit_prompt_to(&one, "where is the pricing review", Source::Text).unwrap();
+    spine.submit_prompt_to(&two, "what goes in the board pack", Source::Text).unwrap();
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"], "one desk per conversation");
+    assert_eq!(log.primed_count("desk-1"), 1);
+    assert_eq!(log.primed_count("desk-2"), 1);
+
+    // Back to the first company's conversation. Its desk is parked and primed with that
+    // company's material; nothing should be spent putting it back in the chair.
+    spine.submit_prompt_to(&one, "and what did it cost", Source::Text).unwrap();
+    assert_eq!(log.spawned(), vec!["desk-1", "desk-2"], "coming back spawned a new front desk");
+    assert_eq!(
+        log.primed_count("desk-1"), 1,
+        "coming back to a parked desk spent a priming turn — the company material it was primed \
+         with did not come back with it, so the chair compared it against the OTHER company's"
+    );
+    assert_eq!(
+        log.prompts_to("desk-1"),
+        vec!["where is the pricing review".to_string(), "and what did it cost".to_string()],
+        "the second sentence did not reach the desk that heard the first"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

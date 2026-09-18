@@ -288,6 +288,10 @@ struct SpareFrontDesk {
     /// it is adopted anyway and primes at his first send, which is exactly what every thread did
     /// before this existed. The degrade is the old path rather than a new failure.
     primed: bool,
+    /// The company material it was primed with, moved into the chair with it. Without this the
+    /// chair compares the adopted desk against whatever the PREVIOUS desk was primed with and
+    /// re-primes it for nothing — which is the defect run H measured.
+    onboarding_block: Option<String>,
     /// The watermark baseline its priming turn established, moved into the chair with it.
     context_chars: usize,
 }
@@ -329,6 +333,9 @@ pub enum SpareReady {
 struct Resident {
     lease: Box<dyn Cognition>,
     primed: bool,
+    /// The company material THIS desk was primed with — see [`Spine::onboarding_primed_block`].
+    /// Parked and restored with the lease, because it is a fact about the lease.
+    onboarding_block: Option<String>,
     /// Its own consumption, so a thread coming back is not rotated on another thread's
     /// numbers. `install_lease` clears these for a FRESH lease and this restores them for
     /// a returning one — a resident that inherited the chair's usage would rotate itself on
@@ -520,7 +527,18 @@ pub struct Spine {
     /// `None` behaves as "no declination on file", which leans toward asking — see
     /// `OnboardingRecord::load` on why the failure leans that way and only that way.
     onboarding_record: Option<std::path::PathBuf>,
-    /// Last successfully primed onboarding content. External MCP saves/declines invalidate it.
+    /// **The company material THE CHAIR'S DESK was last primed with.** External MCP
+    /// saves/declines invalidate it, and `prime_lease_if_needed` re-primes when what the
+    /// thread about to speak needs is not what the desk in the chair is holding.
+    ///
+    /// **It travels with the desk** — parked into [`Resident`], carried on
+    /// [`SpareFrontDesk`], restored by `resume_front_desk`. It did not until 2026-09-19, and a
+    /// spine-wide field describing one lease was wrong the moment a second lease could take the
+    /// chair. A spare front desk made that cost the whole slice: the spare primed WITH the
+    /// company block, the chair's field still read `None`, and the comparison below un-primed
+    /// the adopted desk and spent the priming turn again on his clock — 2.123 s of run H, with
+    /// the spare's own 4.709 s thrown away. It is also why a parked desk could be re-primed for
+    /// nothing after a switch between two companies.
     onboarding_primed_block: Option<String>,
     /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
     /// `Task` tool call can be joined to the worker it spawned (UX §7).
@@ -918,6 +936,7 @@ impl Spine {
         self.resident.insert(thread, Resident {
             lease,
             primed: self.lease_primed,
+            onboarding_block: self.onboarding_primed_block.take(),
             context_chars: self.context_chars,
             context_usage: self.context_usage.take(),
             context_pressure: self.context_pressure.take(),
@@ -951,6 +970,10 @@ impl Spine {
         // that came back with an empty watermark would be a session claiming it had used
         // nothing when it has been talking to him for an hour.
         self.lease_primed = resident.primed;
+        // **RESTORED WITH THE DESK, for the reason the field's own doc gives.** A desk that came
+        // back to a chair still describing the previous desk's company material is un-primed by
+        // `prime_lease_if_needed`'s comparison and re-primed on his clock, for nothing.
+        self.onboarding_primed_block = resident.onboarding_block;
         self.lease_primed_thread = Some(thread_id.to_string());
         self.context_chars = resident.context_chars;
         self.context_usage = resident.context_usage;
@@ -1061,6 +1084,7 @@ impl Spine {
             entity: entity.clone(),
             reserved_thread: reserved,
             primed: false,
+            onboarding_block: None,
             context_chars,
         });
         match self.prime_the_spare(&binding) {
@@ -1151,6 +1175,10 @@ impl Spine {
         // See (3) in this function's documentation.
         let _ = spare.lease.drain_between_turn();
         spare.primed = true;
+        // **WHAT IT WAS PRIMED WITH, kept on the desk**, so the chair it is adopted into
+        // compares his thread's company material against THIS desk's rather than against the
+        // previous occupant's. Run H is what its absence cost.
+        spare.onboarding_block = onboarding_block;
         spare.context_chars = priming.len();
         self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
         Ok(())
@@ -1740,6 +1768,7 @@ impl Spine {
                 self.resident.insert(id.clone(), Resident {
                     lease: spare.lease,
                     primed: spare.primed,
+                    onboarding_block: spare.onboarding_block,
                     context_chars: spare.context_chars,
                     context_usage: None,
                     context_pressure: None,
