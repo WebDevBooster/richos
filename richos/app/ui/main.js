@@ -6656,16 +6656,25 @@ function renderTechySettings() {
   if (!techyHintEl) return;
   const key = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "\u2318\u21e7T" : "Ctrl+Shift+T";
   // WHICH TIER IS HOLDING IT, in a sentence, because the switch above can no longer carry
-  // that in its label. With it off there is no tier to name, so the hint is the shortcut —
-  // which is still exactly what it says it is: the per-conversation control, and the one
-  // entrance that does NOT ask for a scope, because pressing it has already named one.
+  // that in its label. With it off there is no tier to name, so the hint is the shortcut.
+  //
+  // AND THE SHORTCUT IS DESCRIBED BY WHAT IT DOES, which changed on 2026-09-18: it opens
+  // the same three-way question this switch opens. The four sentences below used to promise
+  // one conversation ("shows it for one conversation only", "changes just this one"), and
+  // that promise was the entire argument for letting ⌘⇧T skip the question the CEO asked
+  // for — a sentence we wrote, quoted back as if it were his. A hint that promises a choice
+  // cannot be used to justify not offering one.
+  //
+  // WRITTEN TO SURVIVE BEING SPOKEN, like the sheet's own options: "⌘⇧T asks where to
+  // show it" is one complete statement read aloud, with no second clause to hold in mind
+  // and nothing that only parses on screen.
   techyHintEl.textContent = !techyOn()
-    ? `${key} shows it for one conversation only.`
+    ? `${key} asks where to show it.`
     : techy.source === "thread"
-      ? `On for this conversation. ${key} changes just this one.`
+      ? `On for this conversation. ${key} asks where to change it.`
       : techy.source === "entity"
-        ? `On for all conversations in this company. ${key} changes just this one.`
-        : `On for all conversations in all companies. ${key} changes just this one.`;
+        ? `On for all conversations in this company. ${key} asks where to change it.`
+        : `On for all conversations in all companies. ${key} asks where to change it.`;
 }
 
 /// The four states from `get_machinery`, rendered as the three sentences Rust wrote
@@ -6900,24 +6909,16 @@ async function setRetentionChoice(choice) {
   renderRetention(view);
 }
 
-/// Flip THIS conversation, and pin it — `set_techy_mode` writes a per-thread override, so
-/// the global switch can move afterwards without dragging this thread with it (§3.1).
-async function toggleTechyThread() {
-  if (!activeThreadId) return;
-  const next = !techyOn();
-  const mode = await invokeQuiet("set_techy_mode", { threadId: activeThreadId, enabled: next });
-  // An unwired bridge must not leave the surface claiming a state the backend does not
-  // have: no answer, no change. (`invokeQuiet` returns null on rejection.)
-  if (!mode) return;
-  techy = mode;
-  renderTechyChip();
-  renderTechySettings();
-  // §3.4: "Toggling re-renders the thread in place, from the journal. No reload, no
-  // navigation." The scroll position is the CEO's and is preserved across the swap.
-  const top = conversationEl.scrollTop;
-  await loadTimeline();
-  conversationEl.scrollTop = top;
-}
+/// THE PER-THREAD WRITE HAS NO UI CALLER ANY MORE, and that is the shape of the correction
+/// of 2026-09-18, not an omission. `toggleTechyThread` lived here and was the shortcut's
+/// whole implementation: one `set_techy_mode(threadId, enabled)` and a repaint. Every
+/// entrance now goes through the sheet, so the per-thread tier is written by
+/// `confirmTechyScope` through `set_techy_scope(scope: "thread")` — which reaches
+/// `ConfigStore::apply_techy_scope`'s `TechyScope::Thread` arm, and that arm is the same
+/// `techy_threads.insert(thread_id, enabled)` the old path performed. The command itself
+/// stays wired and stays tested: `set_techy_mode(enabled: null)` is how a pinned
+/// conversation is handed back to the tier above it (techy.js check 10), and nothing else
+/// in the app can express that.
 
 /// The global switch (§3.1: "all" must be one switch, not N toggles). Reached now only
 /// when there is NO conversation on screen — see `requestTechyToggle` — because with one
@@ -6943,21 +6944,26 @@ async function setTechyDefault(on) {
 //    user should be able to switch off the techy mode for a given company or a given
 //    thread."
 //
-// WHICH CONTROLS ASK, AND THE ONE THAT DOES NOT. The choice appears from every control
-// whose own name does not already say where it applies:
+// WHICH CONTROLS ASK: ALL OF THEM.
 //
 //   the settings menu's Techy Mode row  -> asks
 //   the rail's "Show the technical view" switch -> asks
 //   the chip in the conversation header -> asks (this is the switch-OFF path his last
 //                                          sentence is about)
+//   ⌘⇧T                                -> asks
 //
-// and NOT from the keyboard shortcut. ⌘⇧T is documented, in the hint under that very
-// switch, as the control that "shows it for one conversation only" — pressing it IS
-// choosing option 3. Routing it through a sheet whose first option is preselected would
-// have made ⌘⇧T + Enter turn the technical view on EVERYWHERE, inverting the meaning of
-// the only shortcut this feature has. His "toggles the techy mode on" is read here as the
-// scope-ambiguous switches, which is every control that does not name a scope itself. This
-// is the one judgment call in this slice and it is recorded rather than buried.
+// THE SHORTCUT WAS THE EXCEPTION FOR ONE DAY, AND THE EXCEPTION WAS WRONG. It was argued
+// for here: ⌘⇧T is documented, in the hint under that very switch, as the control that
+// "shows it for one conversation only", so pressing it already chose option 3, and routing
+// it through a sheet whose first option is preselected would make ⌘⇧T + Enter turn the
+// technical view on everywhere. Read again, that argument rests entirely on a sentence THIS
+// FILE WRITES — the hint is ours, not his — and his own sentence has no exception in it:
+// "when the user toggles the techy mode on while being inside a conversation thread, then
+// there should be something like a radio button choice between 3 choices". A shortcut is a
+// way of toggling it on. So the hint now promises the choice, the shortcut opens the sheet
+// with his first option preselected, Enter confirms it, and the inversion the old argument
+// feared is gone with the promise it was reading: nothing in the product tells him ⌘⇧T
+// means one conversation any more.
 //
 // AND ON THE OPENING SCREEN THERE IS NO CHOICE TO MAKE. With no conversation open, "this
 // company" and "this conversation" have no referent, so two of the three options are dead;
@@ -7065,6 +7071,28 @@ if (techyDefaultInput) {
 if (techyScopeCancelEl) techyScopeCancelEl.addEventListener("click", closeTechyScope);
 if (techyScopeConfirmEl) techyScopeConfirmEl.addEventListener("click", confirmTechyScope);
 
+/// ENTER CONFIRMS THE PRESELECTED ANSWER, which is what keeps ⌘⇧T a shortcut.
+///
+/// The sheet opens with focus on his first option and Escape already cancels it
+/// (`POPUP_CLOSERS`), so with this line the whole act is two keystrokes — ⌘⇧T, Enter —
+/// and the question costs him one of them. Without it Enter does nothing at all here: the
+/// panel is a `div`, not a `form`, so there is no implicit submission for a radio to
+/// trigger, which is worth writing down because "Enter probably works, it is a dialog" is
+/// exactly the assumption this listener exists to replace. Measured, not assumed.
+///
+/// A FOCUSED BUTTON ANSWERS ENTER ITSELF and is left alone: WebKit fires `click` on it from
+/// the same keystroke, so confirming here as well would run `confirmTechyScope` twice, and
+/// Enter on Cancel — where his hand is deliberately not on the confirm — would confirm.
+/// Modified Enter is left to the platform.
+if (techyScopeEl) {
+  techyScopeEl.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target && e.target.tagName === "BUTTON") return;
+    e.preventDefault();
+    confirmTechyScope();
+  });
+}
+
 // The settings menu's Techy row, registered with the SAME read and the SAME write the rail
 // preference uses. Registering the capability is also what makes the row appear at all —
 // settings-button.js omits it until a host provides one, so the component still works on a
@@ -7115,18 +7143,28 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   // §3.3: "v1 access = a keyboard shortcut, plus one line in Settings." This is the
-  // shortcut, and it flips ONE conversation — the CEO's daily path. Shift is what keeps it
-  // clear of the new-thread binding above, which is deliberately `mod` WITHOUT shift.
+  // shortcut. Shift is what keeps it clear of the new-thread binding above, which is
+  // deliberately `mod` WITHOUT shift.
   //
-  // AND IT IS THE ONE TECHY CONTROL THAT DOES NOT ASK FOR A SCOPE (§7.1, 2026-09-18). It
-  // names one: the hint under the rail's switch calls it the control that "shows it for one
-  // conversation only", so pressing it is already choosing his third option. Sending it
-  // through the sheet — whose first option is preselected, by his instruction — would make
-  // ⌘⇧T + Enter turn the technical view on everywhere, which is the opposite of what
-  // this key has meant since §3.3.
+  // AND IT ASKS WHERE IT APPLIES, LIKE EVERY OTHER ENTRANCE (§7.1, corrected 2026-09-18).
+  // It used to be the one techy control that applied a scope without asking — it pinned
+  // this conversation, on the reading that the hint under the rail's switch had already
+  // named a scope on its behalf. THE CEO'S SENTENCE HAS NO EXCEPTION IN IT: "when the user
+  // toggles the techy mode on while being inside a conversation thread, then there should
+  // be something like a radio button choice between 3 choices", and pressing a shortcut is
+  // a way of toggling it on. An entrance that answers the question for him is one he cannot
+  // see, so this one asks too, with his first choice preselected; Enter confirms, which
+  // makes the whole cost of the correction one extra keypress. The hint under the switch
+  // promises the CHOICE now rather than one conversation, because that promise was the
+  // whole foundation the old reading stood on — see `renderTechySettings`.
+  //
+  // ON THE OPENING SCREEN IT IS UNCHANGED, which is to say it does nothing. Two of the
+  // three options have no referent with no conversation open, and this key has never
+  // written the global default: `requestTechyToggle`'s no-thread branch belongs to the
+  // switches that are actually drawn on that screen, and this key is not one of them.
   if (mod && e.shiftKey && (e.key === "t" || e.key === "T")) {
     e.preventDefault();
-    toggleTechyThread();
+    if (activeThreadId) openTechyScope(!techyOn());
     return;
   }
   if (e.key === "Escape") {

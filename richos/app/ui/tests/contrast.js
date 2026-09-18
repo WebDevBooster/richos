@@ -546,6 +546,11 @@ const SURFACES = [
       await p.click('.nav-thread[data-thread-id="hiring"]');
       await atHiringThread(p);
       await p.keyboard.press("Meta+Shift+T");
+      // ⌘⇧T ASKS WHERE IT APPLIES since 2026-09-18 (CEO §9.1: the choice has no exception
+      // in it, not even for a shortcut), so this is two acts, not one: press the key, then
+      // take "For this conversation only" — which leaves exactly the state this surface was
+      // walked in before the sheet existed.
+      await techyScopeThisConversation(p);
       // WHAT THE PRODUCT PUBLISHES WHEN THE MODE GOES ON, and it is deliberately not
       // `#techy-state`: `renderTechyState` only fills that element when the machinery read
       // carries a `sentence`, and on `hiring` it does not — measured 2026-09-06, the element
@@ -998,6 +1003,11 @@ const SURFACES = [
       await p.click('.nav-thread[data-thread-id="partner"]');
       await settleOnThread(p, "partner");
       await p.keyboard.press("Meta+Shift+T");
+      // ⌘⇧T ASKS WHERE IT APPLIES since 2026-09-18 (CEO §9.1: the choice has no exception
+      // in it, not even for a shortcut), so this is two acts, not one: press the key, then
+      // take "For this conversation only" — which leaves exactly the state this surface was
+      // walked in before the sheet existed.
+      await techyScopeThisConversation(p);
       await p.waitForSelector('#techy-state[data-state="nothing_recorded"]');
       await pageSettled(p);
       await assertOnThread(p, "partner", "techy-nothing-recorded");
@@ -1117,6 +1127,43 @@ const SURFACES = [
 // ---------------------------------------------------------------------------------------
 // Driving
 // ---------------------------------------------------------------------------------------
+
+/// Answer the three-way scope sheet with his third option — the per-conversation tier — and
+/// wait for it to be gone. Called straight after `Meta+Shift+T`, which opens it (§7.1, the
+/// CEO's answer of 2026-09-18; before that date the keystroke applied this tier by itself).
+///
+/// KEYBOARD, NOT THE MOUSE, AND THE REASON WAS MEASURED RATHER THAN PREFERRED. The first
+/// version clicked the radio and the confirm button, which moves the pointer to the middle
+/// of the window — out of the rail, where `p.click('.nav-thread...')` had left it. That
+/// un-hovers the conversation row and takes its `.nav-thread-more` (the ⋯ overflow) off the
+/// screen: `technical-view` fell from 148 measured nodes to 146 and `techy-nothing-recorded`
+/// from 118 to 116, with a 14-pixel shot change at [269..279, 308..309] — exactly the glyph
+/// — for a reason with nothing to do with the surface under test. Arrow keys move the native
+/// radio group and Enter confirms, so the pointer never moves and the walk measures what it
+/// measured before the sheet existed.
+///
+/// The selection is ASSERTED before it is confirmed. A silent confirm of the wrong tier
+/// would turn the technical view on for every conversation in the fixture and fail nothing
+/// here, which is the kind of green that costs a day.
+async function techyScopeThisConversation(page) {
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  const checkedScope = () =>
+    page.evaluate(() => {
+      const on = document.querySelector('#techy-scope input[name="techy-scope"]:checked');
+      return on ? on.value : null;
+    });
+  // The number of presses is DERIVED, not typed: the middle option is absent for a
+  // conversation in no company, so "two downs" would be one too many there.
+  for (let i = 0; i < 3 && (await checkedScope()) !== "thread"; i++) {
+    await page.keyboard.press("ArrowDown");
+  }
+  const picked = await checkedScope();
+  if (picked !== "thread") {
+    throw new Error('scope sheet: expected "thread" to be selected, got ' + picked);
+  }
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
+}
 
 async function openApp(browser, theme, holdSplash, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });

@@ -113,6 +113,43 @@ const PARTY = /whoever set RichOS up|Whoever set RichOS up|an operator|An operat
 /// class of state and cannot be replaced by a setter: "no company has ever been chosen" is
 /// decided at boot, and by the time any setter could be called `init()` has already branched
 /// on whether a thread was active. See `window.__RICHOS_MOCK_PRESET__` in mock.js.
+/// Answer the three-way scope sheet with his third option — the per-conversation tier — and
+/// wait for it to be gone. Called straight after `Meta+Shift+T`, which opens it (§7.1, the
+/// CEO's answer of 2026-09-18; before that date the keystroke applied this tier by itself).
+///
+/// KEYBOARD, NOT THE MOUSE, AND THE REASON WAS MEASURED RATHER THAN PREFERRED. The first
+/// version clicked the radio and the confirm button, which moves the pointer to the middle
+/// of the window — out of the rail, where `p.click('.nav-thread...')` had left it. That
+/// un-hovers the conversation row and takes its `.nav-thread-more` (the ⋯ overflow) off the
+/// screen: `technical-view` fell from 148 measured nodes to 146 and `techy-nothing-recorded`
+/// from 118 to 116, with a 14-pixel shot change at [269..279, 308..309] — exactly the glyph
+/// — for a reason with nothing to do with the surface under test. Arrow keys move the native
+/// radio group and Enter confirms, so the pointer never moves and the walk measures what it
+/// measured before the sheet existed.
+///
+/// The selection is ASSERTED before it is confirmed. A silent confirm of the wrong tier
+/// would turn the technical view on for every conversation in the fixture and fail nothing
+/// here, which is the kind of green that costs a day.
+async function techyScopeThisConversation(page) {
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  const checkedScope = () =>
+    page.evaluate(() => {
+      const on = document.querySelector('#techy-scope input[name="techy-scope"]:checked');
+      return on ? on.value : null;
+    });
+  // The number of presses is DERIVED, not typed: the middle option is absent for a
+  // conversation in no company, so "two downs" would be one too many there.
+  for (let i = 0; i < 3 && (await checkedScope()) !== "thread"; i++) {
+    await page.keyboard.press("ArrowDown");
+  }
+  const picked = await checkedScope();
+  if (picked !== "thread") {
+    throw new Error('scope sheet: expected "thread" to be selected, got ' + picked);
+  }
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
+}
+
 async function openApp(browser, viewport, preset) {
   const page = await browser.newPage({ viewport: viewport || { width: 1400, height: 900 } });
   const errors = [];
@@ -978,9 +1015,15 @@ const FIXTURES = {
 
   // ---- techy mode (open-items row 3.1) ------------------------------------------------
   //
-  // All three go through the CEO's own path — open a thread, press the shortcut — rather
-  // than setting a flag. The state under test is what the SHIPPING `loadTimeline` branch
-  // produces, and a fixture that painted it would prove the fixture.
+  // All three go through the CEO's own path — open a thread, press the shortcut, take a
+  // scope — rather than setting a flag. The state under test is what the SHIPPING
+  // `loadTimeline` branch produces, and a fixture that painted it would prove the fixture.
+  //
+  // THE SHORTCUT IS TWO ACTS SINCE 2026-09-18. ⌘⇧T opens the three-way scope sheet like
+  // every other entrance (CEO §9.1 — his sentence has no exception in it), so each driver
+  // below answers it with "For this conversation only", which is the state these three
+  // fixtures were walked in before the sheet existed. One helper rather than three copies,
+  // so the next change to the sheet has one place to land instead of three that can drift.
 
   /// The technical view of a thread that HAS machinery, with the two raw panes that carry
   /// their own sentences already open: an evicted Tier-B payload and a truncated one.
@@ -989,6 +1032,7 @@ const FIXTURES = {
     await page.click('.nav-thread[data-thread-id="acme"]');
     await page.waitForSelector(".tl-turn");
     await page.keyboard.press("Meta+Shift+T");
+    await techyScopeThisConversation(page);
     await page.waitForSelector(".tl-tech");
     await page.click("#mach\\:mach_a5"); // raw window has passed over this one
     await page.click("#mach\\:mach_a6"); // over the 32 KB cap
@@ -1003,6 +1047,7 @@ const FIXTURES = {
     await page.click('.nav-thread[data-thread-id="partner"]');
     await page.waitForSelector(".tl-turn");
     await page.keyboard.press("Meta+Shift+T");
+    await techyScopeThisConversation(page);
     await page.waitForSelector('#techy-state[data-state="nothing_recorded"]');
     return page;
   },
@@ -1015,6 +1060,7 @@ const FIXTURES = {
     await page.click('.nav-thread[data-thread-id="acme"]');
     await page.waitForSelector(".tl-turn");
     await page.keyboard.press("Meta+Shift+T");
+    await techyScopeThisConversation(page);
     await page.waitForSelector('#techy-state[data-state="unreadable"]');
     return page;
   },

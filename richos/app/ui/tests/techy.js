@@ -124,10 +124,37 @@ async function openThread(page, threadId) {
   await page.waitForTimeout(250);
 }
 
-/// The CEO's own path: the keyboard shortcut, which pins THIS conversation (§3.3) and is
-/// the one techy control that does NOT ask for a scope, because it names one.
+/// The CEO's own path to a per-conversation flip: the keyboard shortcut, then his third
+/// option. TWO ACTS SINCE 2026-09-18, not one — ⌘⇧T asks WHERE it applies, like every
+/// other entrance, so a helper that only pressed the key would leave a modal open and every
+/// check below would then be measuring a sheet rather than a conversation.
+///
+/// It still stands for exactly what it stood for before: this conversation on (or off), the
+/// other conversations and the global default untouched. `apply_techy_scope`'s
+/// `TechyScope::Thread` arm is the same `techy_threads.insert(thread_id, enabled)` that the
+/// old `set_techy_mode` path performed, so the twenty checks that use this helper as a way
+/// to REACH the technical view are measuring the state they always were.
+///
+/// The raw keystroke is deliberately NOT wrapped here — checks 29 and 31 press it
+/// themselves, because what the key alone does is the thing they are about.
+///
+/// AND THE SHEET IS ANSWERED FROM THE KEYBOARD, WHICH IS MEASURED RATHER THAN PREFERRED.
+/// The first version clicked the radio and the confirm button; that moves the pointer to
+/// the middle of the window, out of the rail where `openThread`'s click left it, which
+/// un-hovers the conversation row and takes its `.nav-thread-more` (⋯) off the screen. Six
+/// of this suite's committed shots changed by 60-100 bytes each for that reason and no
+/// other, and the same move cost `contrast.js` two measured nodes on two surfaces. Arrow
+/// keys and Enter leave the pointer where the CEO's own hand left it.
 async function pressToggle(page) {
   await page.keyboard.press("Meta+Shift+T");
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  // Derived, not typed: a conversation in no company is offered two options, not three.
+  for (let i = 0; i < 3 && (await scopeChecked(page)) !== "thread"; i++) {
+    await page.keyboard.press("ArrowDown");
+  }
+  assertEqual(await scopeChecked(page), "thread", "the per-conversation tier is the one being taken");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
   await page.waitForTimeout(250);
 }
 
@@ -1005,23 +1032,81 @@ async function main() {
     return "opening screen: no sheet; a conversation with no company: two options, not a dead third";
   });
 
-  await run.check("29. the keyboard shortcut names its own scope, so it does not ask", async () => {
-    // ⌘⇧T is documented under the rail's own switch as the control that "shows it for one
-    // conversation only" — pressing it IS choosing his third option. Sending it through a
-    // sheet whose first option is preselected would make ⌘⇧T + Enter turn the technical
-    // view on everywhere, inverting the only shortcut this feature has.
+  await run.check("29. the keyboard shortcut ASKS WHERE, and Enter takes his first choice", async () => {
+    // CORRECTED 2026-09-18, AND THE CORRECTION IS THE POINT OF THIS CHECK. It used to assert
+    // the opposite — "the keyboard shortcut names its own scope, so it does not ask" — on
+    // the argument that `#techy-hint` calls ⌘⇧T the control that "shows it for one
+    // conversation only", so pressing it already chose option 3. That hint is a sentence
+    // `main.js` writes. The CEO's sentence is the acceptance criterion and it has no
+    // exception in it: "when the user toggles the techy mode on while being inside a
+    // conversation thread, then there should be something like a radio button choice between
+    // 3 choices ... And the first choice should be preselected". Pressing a shortcut is a
+    // way of toggling it on, so the shortcut asks.
+    //
+    // THE COST IS ONE KEYSTROKE, which is what keeps it a shortcut: ⌘⇧T, Enter.
     const page = await openApp(browser);
     await openThread(page, "acme");
-    await pressToggle(page);
-    assert(await page.locator("#techy-scope").isHidden(), "no sheet — the control already named a scope");
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
+
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForSelector("#techy-scope:not([hidden])");
+    assertEqual(await scopeOptions(page), [
+      "For all conversations in all companies",
+      "For all conversations in this company",
+      "For this conversation only",
+    ], "his three choices, in his order — the same sheet every other entrance opens");
+    assertEqual(await scopeChecked(page), "all-companies", "with his first choice preselected");
+    assertEqual(await page.textContent("#techy-scope-title"), "Turn on the technical view");
     assertEqual(
       await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
-      { default: false, companies: {}, threads: { acme: true } },
-      "and it pinned exactly one conversation, as it always has"
+      before,
+      "and NOTHING is written while the question is on screen — it asks instead of pinning"
     );
-    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · this conversation");
+    assert(await page.locator("#techy-chip").isHidden(), "no chip yet either");
+
+    // Enter, with focus where the sheet put it: on the preselected option.
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("#techy-scope", { state: "hidden" });
+    await page.waitForTimeout(250);
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: true, companies: {}, threads: {} },
+      "Enter took the preselected answer — his first choice, applied at the global tier"
+    );
+    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · everywhere");
+
+    // AND THE HINT NO LONGER PROMISES ONE CONVERSATION, because that promise was the whole
+    // argument for the exception this check used to encode.
+    assertEqual(
+      await page.textContent("#techy-hint"),
+      "On for all conversations in all companies. ⌘⇧T asks where to change it.",
+      "the hint describes what the key actually does now"
+    );
     await page.close();
-    return "the shortcut is option 3, applied directly";
+    return "⌘⇧T opens the sheet, writes nothing until Enter, then takes option 1";
+  });
+
+  await run.check("31. ⌘⇧T on the opening screen still does nothing at all", async () => {
+    // THE ONE THING THE CORRECTION HAD TO LEAVE ALONE. With no conversation open, two of the
+    // three options have no referent, so `requestTechyToggle` — the entrance the rail's
+    // switch and the settings row use — writes the GLOBAL DEFAULT directly. Wiring the
+    // shortcut to that entrance would have been the obvious one-line change, and it would
+    // have given ⌘⇧T a power it has never had: turning the technical view on for every
+    // conversation, from a screen with no conversation on it, with no sheet and no undo.
+    // This key has only ever meant something inside a conversation.
+    const page = await openApp(browser, undefined, { chosenEntity: null });
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForTimeout(250);
+    assert(await page.locator("#techy-scope").isHidden(), "no sheet, because there is no choice to make");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      before,
+      "and nothing was written — in particular not the global default"
+    );
+    assertEqual(before.default, false, "(the boot state this is measured against)");
+    await page.close();
+    return "unchanged: the key is inert with no conversation open";
   });
 
   await run.check("30. the two doors into one state can never show different answers", async () => {
@@ -1046,7 +1131,7 @@ async function main() {
     assertEqual(await settingsSwitch(page), true);
     assertEqual(
       await page.textContent("#techy-hint"),
-      "On for all conversations in this company. ⌘⇧T changes just this one.",
+      "On for all conversations in this company. ⌘⇧T asks where to change it.",
       "and the hint names which of the three tiers is holding it, since the label no longer can"
     );
     await page.close();
@@ -1080,7 +1165,11 @@ main().catch((e) => {
 //     permission rows vanish; check 7 fails. (This was a REAL defect, found by running it.)
 //  8  main.js `toggleTechyThread`: pass `enabled: null` instead of `enabled: next` -> the
 //     shortcut clears an override instead of setting one, so nothing ever turns on;
-//     11 checks go red including 8.
+//     11 checks go red including 8. THAT FUNCTION NO LONGER EXISTS (2026-09-18: every
+//     entrance goes through the sheet), and the equivalent mutation on the path that
+//     replaced it is `confirmTechyScope`: send `scope` as `TECHY_SCOPE_PRESELECTED`
+//     regardless of what is checked -> `pressToggle` writes the global default instead of a
+//     pin and the same family of checks goes red, 8 first.
 //  9  mock.js `techyModeOf`: ignore `techyThreads` -> the pin does not survive the global
 //     switch; check 9 fails.
 // 10  mock.js `set_techy_mode`: `techyThreads.set(id, false)` on the null arm -> the clear
@@ -1126,6 +1215,20 @@ main().catch((e) => {
 //     `padding-right: 20px` (the shipped defect, dev-walk audit N3) -> check 22 fails:
 //     "badge {...,\"right\":1004} intersects gear {\"left\":966,...}" at 1024x700, which is
 //     the exact overlap the audit's screenshot showed.
+//
+// 29  main.js, the ⌘⇧T handler: `if (activeThreadId) openTechyScope(!techyOn())` reverted
+//     to the 2026-09-18 morning behavior, `toggleTechyThread()` — which is literally the
+//     previous commit (`6e5eb6e0`), so this one was run red against the shipped tree rather
+//     than a hand edit. Check 29 fails at its first wait, "#techy-scope:not([hidden])"
+//     timing out at 30s, because the key pins the conversation instead of asking. Removing
+//     ONLY the keydown listener (Enter) leaves the same check red later instead, at the
+//     `state: "hidden"` wait — the sheet stays open because nothing answers Enter, which is
+//     the half of this check that no other check covers.
+// 31  main.js, the same handler: `openTechyScope` -> `requestTechyToggle`, the obvious
+//     one-line wiring -> on the opening screen the no-thread branch writes the global
+//     default, and check 31 fails on "nothing was written — in particular not the global
+//     default" with `default: true`. Checks 1-30 stay green under that mutation, which is
+//     why 31 exists.
 //
 // The whole sweep, with the run output and the two Rust-side mutations, is recorded at
 // `docs/verification/techy-mode-2026-08-30/mutation-runs.txt`.

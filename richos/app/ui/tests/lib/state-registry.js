@@ -2018,33 +2018,36 @@ module.exports = [
   // not claim coverage of a string nothing tracks. Where the switch applies is said in
   // #techy-hint, which IS above the floor and IS classified, three tiers' worth.
   {
-    s: "On for this conversation. changes just this one.",
+    s: "On for this conversation. asks where to change it.",
     c: "CONTROL",
     why:
       "#techy-hint under the Settings switch, with the `${key}` shortcut hole folded out by " +
-      "the scraper — it renders as 'On for this conversation. ⌘⇧T changes just this one.' " +
+      "the scraper — it renders as 'On for this conversation. ⌘⇧T asks where to change it.' " +
       "It names WHICH of the three tiers is holding this conversation on, which the switch's " +
       "label carried until 2026-09-18 and can no longer carry, and it describes the KEYBOARD " +
       "affordance beside it. A control's description rather than a state: there is no fault " +
       "here and nothing has gone wrong.",
   },
   {
-    s: "On for all conversations in this company. changes just this one.",
+    s: "On for all conversations in this company. asks where to change it.",
     c: "CONTROL",
     why: "The same hint over §7.1's middle tier — a company pin is holding this one on.",
   },
   {
-    s: "On for all conversations in all companies. changes just this one.",
+    s: "On for all conversations in all companies. asks where to change it.",
     c: "CONTROL",
     why: "The same hint over the global tier. Three tiers, three sentences, one hint.",
   },
   {
-    s: "shows it for one conversation only.",
+    s: "asks where to show it.",
     c: "CONTROL",
     why:
       "The OFF branch of #techy-hint: with the technical view off there is no tier to name, " +
-      "so the hint is the shortcut — which is still exactly what it says it is, the " +
-      "per-conversation control and the one entrance that does not ask for a scope.",
+      "so the hint is the shortcut, and what the shortcut DOES is ask. All four branches " +
+      "promised one conversation ('shows it for one conversation only', 'changes just this " +
+      "one') until 2026-09-18, when ⌘⇧T stopped being the entrance that answered the CEO's " +
+      "question on his behalf — and that promise had been the whole argument for the " +
+      "exception.",
   },
 
   // ---- §7.1'S THREE-WAY SCOPE SHEET (the CEO's answer, 2026-09-18) ---------------------
