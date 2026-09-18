@@ -296,6 +296,23 @@ function setLinkState(which, detail) {
 	else el.textContent = detail || '';
 }
 
+// A CONTROL IS RENDERED ONLY WHERE THE MAC HAS NAMED THE CAPABILITY BEHIND IT (plan §2 A).
+//
+// The app shipped "Hold to record" as one of the two biggest controls on the screen against a Mac
+// that answers every voice note `503`. The decision itself is in `lib/api.js` and is default-deny,
+// so this function cannot show a control by omission: it is only ever reached with an answer the
+// Mac gave, and both halves ship `hidden` in `index.html`. What is left here is the DOM.
+function applyCapabilities() {
+	if (!api) return;
+	// Never while his finger is down. The release is handled by the button, so taking the button
+	// out from under a live recording is how a recording never ends. `stopRecording` calls this
+	// again the moment it is over, so a Mac that changed its mind is honored a second later.
+	if (recording) return;
+	const voice = api.offers('voice');
+	hold.hidden = !voice;
+	$('hold-note').hidden = !voice;
+}
+
 function connectStream() {
 	if (stream) { try { stream.close(); } catch { /* already gone */ } stream = null; }
 	if (!currentThreadId) return;
@@ -305,6 +322,9 @@ function connectStream() {
 		hello(data) {
 			streamOpen = true;
 			setLinkState('connected');
+			// What this Mac can actually be asked for, before anything else in this handler: the
+			// screen should never be one frame ahead of what the Mac has said it can do.
+			applyCapabilities();
 			if (data.vapid_public_key) {
 				vapidPublicKey = data.vapid_public_key;
 				settings.set('vapidPublicKey', vapidPublicKey).catch(() => {});
@@ -847,6 +867,8 @@ async function stopRecording() {
 	clearTimeout(autoStopTimer);
 	hold.classList.remove('recording');
 	hold.textContent = 'Hold to record';
+	// His finger is off it, so a `hello` that arrived mid-hold and withdrew voice takes effect now.
+	applyCapabilities();
 	teardownGraph();
 	setLevel(0);
 	$('meter').hidden = true;
@@ -1078,7 +1100,7 @@ globalThis.__richosPhone = {
 	get thread() { return thread; },
 	get api() { return api; },
 	get state() { return apiState; },
-	render, flushQueue, connectStream
+	render, flushQueue, connectStream, applyCapabilities
 };
 
 })();

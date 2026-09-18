@@ -404,6 +404,11 @@ button:disabled {
 	-webkit-touch-callout: none;
 }
 
+/* Both halves of the voice control are hidden until the Mac names `voice` in `capabilities`, and
+ * they ship hidden — see the comment in `index.html`. */
+.hold[hidden] { display: none; }
+.hold-note[hidden] { display: none; }
+
 .hold.recording {
 	background: var(--danger);
 	border-color: var(--danger);

@@ -121,6 +121,10 @@ function createStubMac(options) {
 		pairCode: opts.pairCode || 'harness-pair-code',
 		threads: opts.threads || [{ id: threadId, title: 'Rich' }],
 		vapidPublicKey: opts.vapidPublicKey || 'BJ-harness-vapid-public-key',
+		// Both are what the stub IS, and both are overridable so a check can drive a Mac that
+		// cannot take a voice note without a second server.
+		capabilities: opts.capabilities || ['text', 'voice'],
+		build: opts.build || '0.0.0-harness',
 		autoReply: opts.autoReply !== false
 	};
 
@@ -266,7 +270,15 @@ function createStubMac(options) {
 				thread_id: threadId,
 				latest_cursor: state.nextCursor - 1,
 				threads: state.threads,
-				vapid_public_key: state.vapidPublicKey
+				vapid_public_key: state.vapidPublicKey,
+				// WHAT THIS STUB CAN ACTUALLY DO, and it advertises it because it can: the
+				// `/api/messages` handler below takes an `audio/wav` body and files it as a voice
+				// row. The shipped Mac answers a voice note 503 and advertises `["text"]` only
+				// (`routes.rs`), which is the same rule — a capability is named when the thing
+				// behind it works — and it is what makes the harness's hold-to-record walk a test
+				// of the recorder rather than a test of a control that should not be there.
+				capabilities: state.capabilities,
+				build: state.build
 			})}\n\n`);
 
 			const since = Number(url.searchParams.get('since'));
