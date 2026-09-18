@@ -559,6 +559,47 @@ const FIXTURES = {
     await page.waitForSelector("#slideover-body .assignment-approve");
     return page;
   },
+  /// **§58's question form of `assignment-waiting`.** Same DOM, same Approve and Decline, a
+  /// different sentence — because a question that stopped at a decision of his is still a
+  /// decision of his, and the wording is what changed rather than the affordance.
+  ///
+  /// It exists as its own fixture rather than as a parameter because the registry maps ONE
+  /// sentence to ONE fixture: without it, the question sentence would be ACTIONABLE with a
+  /// control nobody had ever seen on a question's row.
+  async "assignment-question-waiting"(browser) {
+    const page = await openApp(browser, undefined, {
+      assignments: {
+        hiring: [
+          {
+            id: "question-one",
+            title: "why the nightly has been red since Tuesday",
+            kind: "check",
+            state: "blocked",
+            detail: "Answering this reached a step that is yours to decide: running a command on your Mac.",
+            repositories: [],
+            registeredAtMs: 1,
+            canStop: true,
+            onTheConnection: false,
+            awaitingYou: {
+              requestId: "affordance-question-request",
+              asked: "running a command on your Mac",
+              tool: "Bash",
+              description: "",
+              raisedAtMs: 2,
+            },
+          },
+        ],
+      },
+    });
+    await dismissEntityPicker(page);
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    await page.waitForFunction(() =>
+      document.getElementById("drill-chip-zone").textContent.includes("1 waiting for you")
+    );
+    await page.click(".drill-chip");
+    await page.waitForSelector("#slideover-body .assignment-approve");
+    return page;
+  },
   async "permission-pending"(browser) {
     const page = await openApp(browser);
     await page.evaluate(() => { window.__RICHOS_MOCK_PRESET__ = {pendingPermission: {
@@ -1294,6 +1335,9 @@ const TEXT_RENDERING_FIXTURES = new Set([
   // software behind it — and §7.8 says the wording IS the test, so the sentence is asserted
   // present rather than only the control beneath it.
   "assignment-waiting",
+  // §58's question form of the same surface: the sentence is different and the control is the
+  // same, which is precisely the pair worth asserting together.
+  "assignment-question-waiting",
   // Every correction-desk fixture renders its own words — there is no hardware behind any
   // of them, so the weaker control-presence-only proof would be a choice rather than a
   // limit.

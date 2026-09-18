@@ -141,18 +141,34 @@ struct RecordArguments {
     /// behaves exactly as this app did before §56.
     #[serde(default)]
     needs_screen: bool,
+    /// **Is this a piece of work, or a question of his you must go and find out?** The CEO's
+    /// ruling §58, 2026-09-18.
+    ///
+    /// Three values, and the model reports one fact to pick between them: `task` for work he
+    /// asked for, `check` for a question whose answer it expects quickly, `investigate` for
+    /// one it expects to take more than about a minute. His words on how hard that call is:
+    /// *"just a rough estimate whether or not the answer is expected quickly is all we need
+    /// to distinguish between "I'll check" or "I'll investigate"."*
+    ///
+    /// It chooses nothing else. All three sentences are the app's
+    /// ([`assignment::Receipt::sentence`]), so a model that gets this wrong says the other
+    /// short reply rather than a paragraph of its own. Absent means `task`, which is what
+    /// every caller before today meant.
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 pub fn tools() -> Value {
     json!({"tools":[
         {"name":RECORD_TOOL_NAME,
-         "description":"Write down a piece of work the CEO has asked for so it can run in the background, and END YOUR TURN with what this returns — which is three words. CALL THIS FIRST, BEFORE ANY OTHER TOOL: he is waiting, and every search, lookup or check you do before it is time he spends looking at nothing. Do not look up status first, do not read anything first, do not plan first. If the request is clear, this is your first call and its answer is your whole reply; if it genuinely is not clear, ask him the question instead and call this once he has answered, with after_questions set. It records the assignment and returns the exact words to say; it does not do the work and does not wait for it. The work, and all the looking, then runs on a separate connection and he is told when there is something for him to look at. Say only what this returns: no restating his task back to him, no claim that the work is running, started, prepared or finished.",
+         "description":"Write down a piece of work the CEO has asked for — OR a question of his you cannot answer yourself — so it can run in the background, and END YOUR TURN with what this returns, which is a few words. CALL THIS FIRST, BEFORE ANY OTHER TOOL: he is waiting, and every search, lookup or check you do before it is time he spends looking at nothing. Do not look up status first, do not read anything first, do not plan first. If the request is clear, this is your first call and its answer is your whole reply; if it genuinely is not clear, ask him the question instead and call this once he has answered, with after_questions set. It records the assignment and returns the exact words to say; it does not do the work and does not wait for it. The work, and all the looking, then runs on a separate connection and he is told when there is something for him to look at. Say only what this returns: no restating his task or his question back to him, no claim that the work is running, started, prepared or finished. A question you ALREADY KNOW the answer to is answered on the spot and never written down here.",
          "inputSchema":{"type":"object","properties":{
              "obligation_id":{"type":"string","minLength":1,"maxLength":128,"description":"The open ECS obligation this assignment carries out. Open it first; a background assignment with no obligation behind it cannot be prepared or reconciled."},
-             "assignment":{"type":"string","minLength":1,"maxLength":4096,"description":"What he asked for, in HIS OWN TERMS, as one plain sentence you would be happy to read back to him. No identifiers, no internal names."},
+             "assignment":{"type":"string","minLength":1,"maxLength":4096,"description":"What he asked for, in HIS OWN TERMS, as one plain sentence you would be happy to read back to him. For a question, his question in his own terms. No identifiers, no internal names."},
              "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not."},
              "after_questions":{"type":"boolean","description":"True only if you asked him a clarifying question about this work and he has now answered it. It changes which short reply you are handed and nothing else. Omit it otherwise."},
-             "needs_screen":{"type":"boolean","description":"True if this work needs the Mac's screen to be unlocked — it drives the app's own window, takes screenshots, walks a build on screen, or otherwise cannot be done while the screen is locked. If the screen is locked when this comes up, the app waits for the unlock and carries on by itself; nobody is asked anything. Omit it for ordinary work, which is almost all work."}
+             "needs_screen":{"type":"boolean","description":"True if this work needs the Mac's screen to be unlocked — it drives the app's own window, takes screenshots, walks a build on screen, or otherwise cannot be done while the screen is locked. If the screen is locked when this comes up, the app waits for the unlock and carries on by itself; nobody is asked anything. Omit it for ordinary work, which is almost all work."},
+             "kind":{"type":"string","enum":["task","check","investigate"],"description":"What this is. `task` — work he asked for; omit it and you get this. `check` — a QUESTION of his whose answer you expect quickly, because it is on file somewhere and only has to be looked up. `investigate` — a QUESTION of his that needs real digging: repositories, logs, the web, several places. A rough estimate of the kind of work is all that is wanted here; nobody is timing it, and the app says the right thing either way if it takes longer than you thought."}
          },"required":["obligation_id","assignment"],"additionalProperties":false},
          "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}}
     ]})
@@ -164,10 +180,19 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
         return Err("That assignment tool does not exist. Nothing was recorded.".into());
     }
     let args: RecordArguments = serde_json::from_value(arguments).map_err(|_| {
-        "Use only obligation_id, assignment, repositories, after_questions and needs_screen. Nothing was recorded."
+        "Use only obligation_id, assignment, repositories, after_questions, needs_screen and kind. Nothing was recorded."
             .to_string()
     })?;
     let after_questions = args.after_questions;
+    // **An unrecognized kind is refused before anything is written**, rather than quietly
+    // becoming a task. The whole of §58 is that the sentence matches what he actually asked
+    // for, and a typo that fell through to "On it!" would defeat it silently — which is
+    // worse than a refusal the model can see and correct in the same turn.
+    let kind = match args.kind.as_deref() {
+        None => assignment::AssignmentKind::Task,
+        Some(word) => assignment::AssignmentKind::parse(word)
+            .map_err(|e| format!("{e}. Nothing was recorded."))?,
+    };
     let scope = read_scope(scope_path)?;
     if !scope.actions_allowed {
         // Spec §5.1's rule, in its own place: with no visible turn the answer is a refusal,
@@ -176,7 +201,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             "This conversation is not open for new assignments right now. Nothing was recorded.".into(),
         );
     }
-    let receipt = assignment::register(
+    let receipt = assignment::register_kind(
         &scope.state_root,
         &Registration {
             entity_id: scope.entity_id,
@@ -188,6 +213,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             repositories: args.repositories,
             needs_screen: args.needs_screen,
         },
+        kind,
     )
     .map_err(|e| assignment::failed_registration_sentence(&format!("{e}.")))?;
     // **What comes back is the words, not an id.** `desktop-work.md:42-43` puts receipt ids on
@@ -398,6 +424,81 @@ mod tests {
         // Positive control: the doctrine was actually loaded and is not an empty string.
         assert!(doctrine.len() > 500, "the doctrine did not load: {} bytes", doctrine.len());
         assert!(doctrine.contains("richos_assignments.record"));
+    }
+
+    /// **A QUESTION GETS ONE OF TWO EXACT SENTENCES OFF THE WIRE** — the CEO's ruling §58
+    /// (`richos-hq` `wiki/ceo-decisions.md:2884-2914`, 2026-09-18).
+    ///
+    /// This is the same wire §55's defects came off: `say` is handed to the model verbatim
+    /// and the doctrine tells it to end the turn with exactly this string, so whatever is
+    /// here is what he reads and hears.
+    #[test]
+    fn a_question_is_recorded_as_a_question_and_answered_with_its_own_sentence() {
+        let (root, scope) = fixture();
+        let quick = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7",
+            "assignment":"whether the pricing review ever landed","kind":"check"}))
+            .unwrap();
+        assert_eq!(quick["say"], "I'll check.");
+        assert_eq!(quick["say_nothing_else"], true);
+        let deep = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-8",
+            "assignment":"why the nightly has been red since Tuesday","kind":"investigate"}))
+            .unwrap();
+        assert_eq!(deep["say"], "I'll investigate.");
+        // Nothing reads his question back, nothing says "working", nothing claims a start.
+        for say in [quick["say"].as_str().unwrap(), deep["say"].as_str().unwrap()] {
+            assert!(!say.contains("pricing"), "his question was read back: {say}");
+            assert!(!say.contains("nightly"), "his question was read back: {say}");
+            assert!(!say.to_lowercase().contains("working"), "a task's word reached a question: {say}");
+            assert!(!say.to_lowercase().contains("running"), "{say}");
+            assert!(!say.contains("On it"), "a question got the task reply: {say}");
+        }
+        // The kind is on the record, which is what the timer and the status read use.
+        let rows = assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap();
+        assert_eq!(rows.len(), 2);
+        let kinds: Vec<&str> = rows.iter().map(|r| r.kind.as_str()).collect();
+        assert!(kinds.contains(&"check") && kinds.contains(&"investigate"), "{kinds:?}");
+        // An omitted kind is a task — every caller before today, unchanged.
+        let task = call(&scope, RECORD_TOOL_NAME,
+            json!({"obligation_id":"obligation-9","assignment":"landing the three branches"})).unwrap();
+        assert_eq!(task["say"], "On it!");
+        // **A kind the model mistyped is REFUSED, not defaulted.** A typo that became a task
+        // would hand him "On it!" for a question, which is the defect §58 removes.
+        let typo = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-10",
+            "assignment":"whether the branch landed","kind":"checking"}))
+            .unwrap_err();
+        assert!(typo.contains("Nothing was recorded."), "{typo}");
+        assert_eq!(
+            assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap().len(),
+            3,
+            "a refused kind still wrote a record"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **§58 reaches the model, not only this file's tests.**
+    ///
+    /// The doctrine is what the conversation lease is actually given (`engine_profile.rs:158`),
+    /// so a rule that lives only in a tool description the model may skim is a rule with one
+    /// carrier — the same argument §55's own doctrine test makes.
+    #[test]
+    fn the_doctrine_tells_the_front_desk_what_to_say_to_a_question_it_cannot_answer() {
+        let doctrine = crate::doctrine::FRONT_DESK_DOCTRINE;
+        // His two sentences, verbatim, in the text the model reads.
+        assert!(doctrine.contains("I'll check."), "the quick reply is not in the doctrine");
+        assert!(doctrine.contains("I'll investigate."), "the slower reply is not in the doctrine");
+        // A question it KNOWS the answer to is answered on the spot — the precondition §58
+        // is written on ("doesn't immediately know the answer and therefore has to get it
+        // from the back-end Rich"), without which every question would grow a timer.
+        assert!(doctrine.contains("You know the answer."), "the answer-it-yourself case is not stated");
+        // The two words the register is told, so the model knows what it is reporting.
+        assert!(doctrine.contains("`check`") && doctrine.contains("`investigate`"), "the kinds are not named");
+        // Wrap-safe: the doctrine is hard-wrapped prose, so assertions stay inside one line.
+        assert!(doctrine.contains("You do not write those sentences"), "the words are not claimed by the app");
+        // Negative: the superseded freeform instruction is gone. A doctrine still telling it
+        // to "say plainly that you are handing it over" is a doctrine that composes.
+        assert!(!doctrine.contains("Say plainly that you are handing it over"), "the superseded clause survives");
+        // §55 is untouched by this change.
+        assert!(doctrine.contains("On it!") && doctrine.contains("Got it. On it!"));
     }
 
     /// The model supplies WHAT, never WHERE or WHOSE. Every redirection field is in the

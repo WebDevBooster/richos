@@ -399,7 +399,19 @@ impl WorkHost {
         binding: &ThreadBinding,
         request: &Registration,
     ) -> Result<assignment::Receipt, String> {
-        let receipt = assignment::register(&self.state, request).map_err(|e| e.to_string())?;
+        self.register_kind(binding, request, assignment::AssignmentKind::Task)
+    }
+
+    /// The same, for a QUESTION of his as well as a piece of work (CEO ruling §58). The
+    /// queueing, the failure path and the receipt are identical; only what gets written down
+    /// differs, which is what decides the sentence and the word beside his timer.
+    pub fn register_kind(
+        self: &Arc<Self>,
+        binding: &ThreadBinding,
+        request: &Registration,
+        kind: assignment::AssignmentKind,
+    ) -> Result<assignment::Receipt, String> {
+        let receipt = assignment::register_kind(&self.state, request, kind).map_err(|e| e.to_string())?;
         let record = assignment::read(&self.state, &request.entity_id, &request.thread_id, &receipt.id)
             .map_err(|e| e.to_string())?;
         if !self.enqueue(binding, record) {
@@ -638,7 +650,13 @@ impl WorkHost {
             // which invites the wrong question ("how far did it get?") about a job that got
             // nowhere at all.
             advance(AssignmentState::Failed, &honest(&why));
-            self.raise(record, NoticeKind::Failed, &assignment::says::did_not_start(&record.title, &honest(&why)));
+            // §58: a question that did not get answered is said as that, not as a job that
+            // never started — `says::failure` picks the shape off the kind.
+            self.raise(
+                record,
+                NoticeKind::Failed,
+                &assignment::says::failure(record.kind, &record.title, &honest(&why), false),
+            );
             return;
         }
 
@@ -665,7 +683,7 @@ impl WorkHost {
                 self.raise(
                     record,
                     NoticeKind::Failed,
-                    &assignment::says::did_not_start(&record.title, &honest(&why.to_string())),
+                    &assignment::says::failure(record.kind, &record.title, &honest(&why.to_string()), false),
                 );
                 return;
             }
@@ -731,6 +749,21 @@ impl WorkHost {
         // and the adapter's own `usage_update` is what actually decides below.
         let mut chars = prompt.len();
         let mut measured: Option<crate::machinery::ContextUsage> = None;
+        // **THE ANSWER TO A QUESTION, KEPT — the CEO's ruling §58, 2026-09-18.**
+        //
+        // The back end's assistant text has always come past this closure and has only ever
+        // been COUNTED (`chars += text.len()` below): its turns are never rendered, so
+        // nothing needed the words. §58's *"The answer arrives on the timeline as an answer"*
+        // needs exactly those words, and there is no other channel for them — `what_happened`
+        // reads land receipts and can say what landed on which branch, which is not an answer
+        // to a question and never will be.
+        //
+        // **Kept only for a question, and bounded.** A task's transcript is not retained and
+        // this does not start retaining it. The cap is `assignment::sanitize_answer`'s, applied
+        // once at the end rather than per item, so a runaway back end costs memory for one
+        // turn and cannot write a record the app can no longer read.
+        let mut answer = String::new();
+        let keeping_an_answer = record.kind.is_question();
         // **THE ONE PLACE `Running` IS WRITTEN, AND THE EVIDENCE THAT MAKES IT TRUE.**
         //
         // Ray's candidate-.7 walk, row 2: *"It's running now"* was on his screen at
@@ -766,7 +799,16 @@ impl WorkHost {
                         advance(AssignmentState::Running, started_detail);
                     }
                     match item {
-                    TurnItem::Text { text, .. } => chars += text.len(),
+                    TurnItem::Text { text, .. } => {
+                        chars += text.len();
+                        // Bounded while it accumulates, not only at the end: a back end that
+                        // streamed a hundred megabytes would otherwise hold all of it before
+                        // anything trimmed it. 64 KiB is eight times the answer cap, so no
+                        // real answer can reach this line and be cut by it.
+                        if keeping_an_answer && answer.len() < 64 * 1024 {
+                            answer.push_str(text);
+                        }
+                    }
                     TurnItem::Machinery(record) => {
                         // **The one machinery record that is READ rather than retained**,
                         // same as `spine.rs:2034`. The back end's own machinery is not
@@ -840,13 +882,11 @@ impl WorkHost {
         // assignment still open — as jobs that "did not start", which is Ray's row 2 inverted
         // and every bit as false. Absence of a signal is still never read as a signal here.
         let took_the_turn = confirmed || outcome.is_ok();
-        let tell = |title: &str, why: &str| {
-            if took_the_turn {
-                assignment::says::failed(title, why)
-            } else {
-                assignment::says::did_not_start(title, why)
-            }
-        };
+        // §58 adds a third shape to this: a QUESTION that did not get answered is neither
+        // "stopped before it finished" nor "did not start" — both put his own question where
+        // a job's name goes. The dispatch is in `says::failure` so a fourth failure path
+        // added later cannot forget the rule.
+        let tell = |title: &str, why: &str| assignment::says::failure(record.kind, title, why, took_the_turn);
         match outcome {
             Err(why) => {
                 let sentence = honest(&why.to_string());
@@ -858,6 +898,40 @@ impl WorkHost {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
+            }
+            // ===========================================================================
+            // HIS ANSWER — the CEO's ruling §58, 2026-09-18
+            // ===========================================================================
+            //
+            // *"The answer arrives on the timeline as an answer, never as 'done'."*
+            //
+            // **It is decided on POSITIVE EVIDENCE and on nothing else**, the same standard
+            // `Running` is written on above: `outcome` is `Ok` only on the child's own
+            // terminal `result` frame, and `answer` is non-empty only because assistant text
+            // came off its stream. Silence produces nothing here and falls through.
+            //
+            // **It sits BEFORE the obligation reading, and that is the substantive decision
+            // in this arm.** `outcome()` asks whether the obligation closed, which is how a
+            // piece of WORK is known to be finished. A question is not finished by closing a
+            // record — it is finished by being answered — and the ordinary back end answering
+            // a question has no reason to have closed anything. Reading the obligation first
+            // would have sorted nearly every answered question into `NotSettled` and told him
+            // his question "stopped before it finished" while its answer sat in this variable.
+            //
+            // It also sits before the readiness reading, deliberately: that reading asks
+            // whether the lease was equipped to do WORK — engine plugin, work tools, land
+            // permissions — and none of those is needed to answer a question. Withholding an
+            // answer he has actually been given, because the landing tooling was absent,
+            // would be refusing him the thing he asked for over a fact about something else.
+            // A question with NO answer still falls through to that reading and hears its
+            // precise reason.
+            Ok(_) if record.kind.is_question() && !answer.trim().is_empty() => {
+                let said = assignment::sanitize_answer(&answer);
+                // The record's own detail, which is never spoken: `settled` here means
+                // answered, and the pane reads the kind to say so in his words.
+                advance(AssignmentState::Settled, "Answered.");
+                self.forget_at_the_desk(record);
+                self.raise(record, NoticeKind::Answer, &assignment::says::answered(&record.title, &said));
             }
             // **A LEASE THAT TOLD US, ONE TURN LATE, THAT IT WAS NEVER EQUIPPED.** Step 3a's
             // reading, and it sits AFTER the stop arm on purpose: a stop is his own action and
@@ -1715,6 +1789,39 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
             record.title
         );
     }
+    // **A QUESTION IS ASKED AS A QUESTION — the CEO's ruling §58, 2026-09-18.**
+    //
+    // The work brief below tells the back end to do the work, get a review, LAND it and close
+    // the assignment. Handing that to a question — *"why has the nightly been red since
+    // Tuesday"* — would tell it to land something, and the thing he would get back is a
+    // branch rather than an answer.
+    //
+    // Three instructions, and each one removes a way the answer comes back wrong:
+    //   * the answer is its LAST WORDS, because the last words are what this host keeps
+    //     (`run_one`'s `answer`) and what reaches his timeline verbatim;
+    //   * it is in HIS terms, with no identifier, because it is said to him and may be read
+    //     aloud — the same rule every sentence in `assignment::says` keeps;
+    //   * it changes nothing, because he asked a question. A question that turns out to need
+    //     work is reported as that, and the work is his to ask for.
+    //
+    // **The kind is NOT in the brief, and that is on purpose.** `check` and `investigate`
+    // differ only in what the front desk said and what his timer reads; telling the back end
+    // "this one is expected to be quick" would invite a thinner answer to a question he
+    // happened to phrase simply, which is the front desk's rough guess leaking into the work.
+    if record.kind.is_question() {
+        return format!(
+            "This is a QUESTION from the CEO, not a piece of work. Find out the answer and \
+             tell him.{repositories}\n\nHis question: {}\n\nAnswer it in your last words of \
+             this turn: that is what he is shown, exactly as you write it. Answer in his own \
+             terms, in plain sentences, with no identifiers, no file paths and no branch \
+             names — he may hear this read aloud. Say what you actually established and say \
+             plainly where you could not establish something; never guess and never present \
+             a likely answer as a settled one. Do not do any work, do not change anything, \
+             do not land anything and do not open an assignment of your own: if answering \
+             him reveals work that needs doing, say so in the answer and leave it to him.",
+            record.title
+        );
+    }
     // **THE SENTENCE THE CEO'S RULING §52 REPLACED, and it is the whole feature in one
     // instruction.** It read: *"Stop at the step that would change his repository and wait
     // for him to approve it. Do not report this as done."* His ruling of 2026-09-18 —
@@ -1940,6 +2047,11 @@ mod tests {
         /// Every handoff ask the OUTGOING lease was given, and what it answered.
         handoffs: Arc<Mutex<Vec<String>>>,
         handoff_reply: String,
+        /// **What this lease says out loud on a WORK turn**, so the §58 answer path has a
+        /// back end that actually answers. Empty by default, which is every test written
+        /// before today: the real back end's assistant text was only ever counted, so no
+        /// fake needed to produce any.
+        answer_reply: String,
         /// What this lease's own init frame turned out to say about the three facts a
         /// background assignment needs (`native.rs`'s `work_readiness_after_turn`).
         /// `Some(sentence)` is a lease that came up without one of them and could only say so
@@ -1963,6 +2075,9 @@ mod tests {
             Ok("end_turn".to_string())
         }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+            if !self.answer_reply.is_empty() {
+                _on(TurnItem::Text { seq: 0, text: &self.answer_reply });
+            }
             if let Some(usage) = *self.usage.lock().unwrap() {
                 _on(TurnItem::Machinery(crate::machinery::MachineryRecord::from_context_usage(
                     usage.used,
@@ -2023,6 +2138,7 @@ mod tests {
         reprimes: Arc<Mutex<Vec<String>>>,
         handoffs: Arc<Mutex<Vec<String>>>,
         handoff_reply: Arc<Mutex<String>>,
+        answer_reply: Arc<Mutex<String>>,
         readiness: Arc<Mutex<Option<String>>>,
         /// The next `spawn_work` fails once, so the "a successor that cannot be opened
         /// leaves the incumbent working" branch has a way to happen.
@@ -2056,6 +2172,7 @@ mod tests {
                 reprimes: self.reprimes.clone(),
                 handoffs: self.handoffs.clone(),
                 handoff_reply: self.handoff_reply.lock().unwrap().clone(),
+                answer_reply: self.answer_reply.lock().unwrap().clone(),
                 readiness: self.readiness.clone(),
             }))
         }
@@ -2084,6 +2201,7 @@ mod tests {
         reprimes: Arc<Mutex<Vec<String>>>,
         handoffs: Arc<Mutex<Vec<String>>>,
         handoff_reply: Arc<Mutex<String>>,
+        answer_reply: Arc<Mutex<String>>,
         refuse_next: Arc<AtomicBool>,
         readiness: Arc<Mutex<Option<String>>>,
     }
@@ -2104,6 +2222,7 @@ mod tests {
         let reprimes = Arc::new(Mutex::new(Vec::new()));
         let handoffs = Arc::new(Mutex::new(Vec::new()));
         let handoff_reply = Arc::new(Mutex::new(String::new()));
+        let answer_reply = Arc::new(Mutex::new(String::new()));
         let refuse_next = Arc::new(AtomicBool::new(false));
         let readiness = Arc::new(Mutex::new(None));
         let factory = WorkFactory {
@@ -2117,13 +2236,14 @@ mod tests {
             reprimes: reprimes.clone(),
             handoffs: handoffs.clone(),
             handoff_reply: handoff_reply.clone(),
+            answer_reply: answer_reply.clone(),
             refuse_next: refuse_next.clone(),
             readiness: readiness.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
-            usage, reprimes, handoffs, handoff_reply, refuse_next, readiness }
+            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -2708,6 +2828,7 @@ mod tests {
             instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
             instruction_sha256: "abc".into(),
             title: "landing the three branches".into(),
+            kind: assignment::AssignmentKind::Task,
             repositories: vec!["/fictional/project".into()],
             state: AssignmentState::Registered,
             detail: String::new(),
@@ -2971,6 +3092,167 @@ mod tests {
         assert!(notice.text.contains("It landed on cc/echo-1 in project."), "{}", notice.text);
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **HIS ANSWER ARRIVES AS AN ANSWER, WITH THE OBLIGATION STILL OPEN** — the CEO's
+    /// ruling §58, 2026-09-18: *"The answer arrives on the timeline as an answer, never as
+    /// 'done'."*
+    ///
+    /// **The open obligation is the whole point of this test, not a detail of its setup.**
+    /// Answering a question gives a back end no reason to close anything, so this is the
+    /// ORDINARY shape of an answered question — and it is the shape that, before the question
+    /// arm was placed ahead of the obligation reading, produced `Failed` and *"stopped before
+    /// it finished"* with his answer sitting unread in a local variable.
+    ///
+    /// The comparison that makes it a test rather than an assertion is in the same function:
+    /// an identical run with `kind` left as a task, same open obligation, same words off the
+    /// stream, still reports the failure it should.
+    #[test]
+    fn an_answered_question_is_delivered_as_the_answer_and_never_as_a_job_that_finished() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        // Open, and it stays open: nothing about answering him closes it.
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        *h.answer_reply.lock().unwrap() =
+            "The nightly has been red since Tuesday because the speech model download times out on a slow connection.".into();
+        let _runner = h.host.start();
+        let receipt = h
+            .host
+            .register_kind(
+                &h.binding,
+                &Registration { title: "why the nightly has been red since Tuesday".into(), ..registration(&h) },
+                assignment::AssignmentKind::Investigate,
+            )
+            .unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled, "an answered question was not closed: {}", row.detail);
+        assert_eq!(row.kind, assignment::AssignmentKind::Investigate);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Answer, "his answer was filed as a work result");
+        // **The answer, and nothing but the answer.**
+        assert_eq!(
+            notice.text,
+            "The nightly has been red since Tuesday because the speech model download times out on a slow connection."
+        );
+        for wrapper in ["is finished", "landed", "stopped before", "your saved work", "On it"] {
+            assert!(!notice.text.contains(wrapper), "a work receipt's framing reached his answer: {}", notice.text);
+        }
+        // §58 names the one framing it refuses, so it is asserted by name in both cases.
+        assert!(!notice.text.to_lowercase().contains("done"), "{}", notice.text);
+        // Nothing an identifier could ride out on.
+        assert!(!notice.text.contains(&receipt.id));
+        assert!(!notice.text.contains("obligation-7"));
+        assert!(!notice.text.contains("work-seat"));
+
+        // **THE COMPARISON.** Same open obligation, same words off the stream, registered as
+        // a TASK — and it still reports the failure an open obligation means for work. So the
+        // arm above is reached by the KIND and not by anything else that changed here.
+        let task = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let task_row = assignment::read(&h.state, "depot", "thread-one", &task.id).unwrap();
+        assert_eq!(task_row.state, AssignmentState::Failed, "an open obligation stopped failing work");
+        let task_notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(task_notice.kind, NoticeKind::Failed);
+        assert!(task_notice.text.contains("stopped before it finished"), "{}", task_notice.text);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A QUESTION THE BACK END NEVER ANSWERED is told to him as that, not as a job that
+    /// stopped part way.**
+    ///
+    /// `says::failed` and `says::did_not_start` both put the title where a job's name goes,
+    /// so for a question they produce *"why the nightly is red stopped before it finished"* —
+    /// which is not English and not a thing anybody would say to him. The reason still
+    /// travels in full; only the shape of the sentence changes.
+    #[test]
+    fn a_question_that_got_no_answer_is_said_as_that_and_not_as_a_job_that_stopped() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        // The back end said nothing at all — the fall-through the question arm deliberately
+        // does not catch, because there is no positive evidence of an answer.
+        assert!(h.answer_reply.lock().unwrap().is_empty());
+        let _runner = h.host.start();
+        let receipt = h
+            .host
+            .register_kind(
+                &h.binding,
+                &Registration { title: "why the nightly has been red since Tuesday".into(), ..registration(&h) },
+                assignment::AssignmentKind::Check,
+            )
+            .unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "silence was read as an answer");
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert!(
+            notice.text.starts_with("I couldn't get you an answer on why the nightly has been red since Tuesday."),
+            "{}",
+            notice.text
+        );
+        // The job-shaped sentences are gone from a question, in both directions.
+        assert!(!notice.text.contains("stopped before it finished"), "{}", notice.text);
+        assert!(!notice.text.contains("did not start"), "{}", notice.text);
+        // The reason was not softened away with the sentence.
+        assert!(notice.text.len() > 80, "the reason was dropped: {}", notice.text);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **THE BRIEF A QUESTION IS SENT WITH, and the three claims it must not invite.**
+    #[test]
+    fn a_question_is_asked_as_a_question_and_never_told_to_land_anything() {
+        let record = Assignment {
+            schema: 1,
+            id: "assignment-id-that-must-not-appear".into(),
+            obligation_id: "obligation-that-must-not-appear".into(),
+            seat: "work-seat:obligation-that-must-not-appear".into(),
+            entity_id: "depot".into(),
+            thread_id: "thread-one".into(),
+            instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
+            instruction_sha256: "abc".into(),
+            title: "why the nightly has been red since Tuesday".into(),
+            kind: assignment::AssignmentKind::Check,
+            // §56's field, false here: answering a question does not need the Mac's screen,
+            // and this test is about what the brief says rather than about the screen.
+            needs_screen: false,
+            repositories: vec!["/fictional/project".into()],
+            state: AssignmentState::Registered,
+            detail: String::new(),
+            registered_at_ms: 0,
+            updated_at_ms: 0,
+            notices: Vec::new(),
+            work_session: None,
+            repository_pins: Vec::new(),
+        };
+        let brief = brief_for(&record, false);
+        assert!(brief.contains("This is a QUESTION from the CEO"));
+        assert!(brief.contains("why the nightly has been red since Tuesday"));
+        assert!(brief.contains("/fictional/project"), "a repository he named did not travel");
+        // The work brief's instructions are absent: a question that was told to land would
+        // hand him a branch instead of an answer.
+        for work_word in ["get an independent review", "land the reviewed result", "close the assignment"] {
+            assert!(!brief.contains(work_word), "a question was briefed as work: {work_word}");
+        }
+        assert!(brief.contains("Do not do any work"));
+        // The answer is its LAST WORDS, because that is what this host keeps and shows.
+        assert!(brief.contains("last words"));
+        // **The kind is deliberately NOT in the brief**: `check` and `investigate` differ only
+        // in what the front desk said and what his timer reads. A back end told "this one is
+        // expected to be quick" would give a thinner answer to a simply-phrased question.
+        assert!(!brief.contains("check") && !brief.contains("investigate"), "the front desk's guess leaked into the work");
+        // No identifier travels, exactly as with a task.
+        assert!(!brief.contains("assignment-id-that-must-not-appear"));
+        assert!(!brief.contains("obligation-that-must-not-appear"));
+        assert!(!brief.contains("work-seat:"));
+        assert!(!brief.contains("ledger:"));
     }
 
     /// `and_list` is the spoken form: one, two, or several. A background job can land in more
@@ -3580,6 +3862,7 @@ mod tests {
                 reprimes: h.reprimes.clone(),
                 handoffs: h.handoffs.clone(),
                 handoff_reply: h.handoff_reply.clone(),
+                answer_reply: h.answer_reply.clone(),
                 refuse_next: h.refuse_next.clone(),
                 readiness: h.readiness.clone(),
             }),

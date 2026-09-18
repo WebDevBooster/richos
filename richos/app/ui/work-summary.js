@@ -117,6 +117,45 @@
     interrupted: "Stopped.",
   };
 
+  // **A QUESTION IS NOT A JOB, AND THIS PANE MUST NOT CALL ONE FINISHED** — the CEO's ruling
+  // §58, 2026-09-18: *"The answer arrives on the timeline as an answer, never as 'done'."*
+  //
+  // The timeline is where his answer goes, and that is where §58 is really about. But this
+  // pane lists everything he has asked for, so a question he asked would have rendered here
+  // under "Written down. Nothing has been prepared yet." and then "Finished." — the exact
+  // framing the ruling refuses, on a surface he can open.
+  //
+  // Same three states, said about a question. `registered` and `preparing` are ONE sentence
+  // here and two above, because "getting a workspace ready" describes a thing that is done
+  // for work and is nothing he needs to hear about a question of his.
+  const QUESTION_STATES = {
+    registered: "Written down. Rich hasn't started looking yet.",
+    preparing: "Written down. Rich hasn't started looking yet.",
+    running: "Rich is looking into this.",
+    blocked: "Waiting for your decision before Rich can go on.",
+    // The same stop with nothing left on the desk: the queue lives in the running process, so
+    // a question that stopped at his decision before a relaunch has nothing to press. **This
+    // line was dropped by the §56 rebase and the affordance gate is what found it** — without
+    // it the state falls through to "Its state could not be read.", which is the honest
+    // sentence for a record this build cannot parse and a false one for a record it can.
+    blockedNoRequest: "Waiting for your decision. Ask Rich to continue when you are ready.",
+    // **§56's state, in a question's words.** Without this row a question waiting on the
+    // screen falls through to "Its state could not be read." — the same gap §56's own slice
+    // closed for work, arriving one commit later for questions.
+    "waiting-for-screen": "Waiting for the screen to unlock — Rich will carry on the moment it's back.",
+    // NOT "Finished." — the answer itself is on the conversation, which is where he reads it.
+    settled: "Answered — it's in your conversation.",
+    failed: "Rich couldn't get you an answer. Ask him again and he'll try it a different way.",
+    interrupted: "Stopped.",
+  };
+
+  /// Which set of sentences this row gets. `kind` comes from the assignment register
+  /// (`get_assignments`); anything that is not one of the two question kinds is work, which
+  /// is what every record written before 2026-09-18 is.
+  function sentencesFor(kind) {
+    return kind === "check" || kind === "investigate" ? QUESTION_STATES : STATES;
+  }
+
   /// `onDecide(requestId, allow)` answers the ONE exact request this assignment is waiting
   /// on him for. It is a request id and not an assignment id on purpose: what he approves is
   /// one action, and the press has to carry which one (spec §5.2's *"one exact action"*
@@ -147,16 +186,19 @@
       // sentences rather than a code and a label.
       const waiting = row.awaitingYou || null;
       const key = row.state === "blocked" && !waiting ? "blockedNoRequest" : row.state;
-      detail.textContent = STATES[key] || "Its state could not be read.";
-      // The recorded detail follows the state's sentence, because for every other state it
-      // ADDS something — the outcome that landed, the reason it stopped, the step it is on.
+      detail.textContent = sentencesFor(row.kind)[key] || "Its state could not be read.";
+      // The recorded detail follows the state's sentence, because for most states it ADDS
+      // something — the outcome that landed, the reason it stopped, the step it is on.
       //
-      // **`waiting-for-screen` is the one state where it would not.** The record's own detail
-      // ("The screen is locked, so this is waiting for it to unlock. It will carry on by
-      // itself.") is the same fact as the sentence above it in other words, and a surface that
-      // shows only the detail — the status read — needs it to be a whole sentence. So the
-      // record keeps it and this row drops it, rather than telling him the same thing twice.
-      if (row.detail && row.state !== "waiting-for-screen") detail.textContent += " " + row.detail;
+      // **Two states where it would not, and they arrived on the same day.**
+      // `waiting-for-screen` (§56): the record's own detail is the same fact as the sentence
+      // above it in other words, and the status read, which shows only the detail, needs it
+      // to be a whole sentence — so the record keeps it and this row drops it rather than
+      // telling him the same thing twice. And a QUESTION (§58): its detail is a record's
+      // internal note ("Answered.", "Opening the work connection.") that says nothing he
+      // needs and reads as machinery beside a sentence written for him.
+      const addsSomething = row.state !== "waiting-for-screen" && sentencesFor(row.kind) === STATES;
+      if (row.detail && addsSomething) detail.textContent += " " + row.detail;
       item.append(title, detail);
       if (waiting) {
         // WHAT HE IS BEING ASKED, in the backend's own words for it — one phrase, written
