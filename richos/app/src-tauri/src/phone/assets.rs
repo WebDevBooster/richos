@@ -1,7 +1,7 @@
 //! **THE PHONE APP ITSELF, COMPILED INTO THIS EXECUTABLE.**
 //!
-//! `app/phone/` is a static app with no dependencies: an HTML file, a stylesheet, nine
-//! small modules, a service worker, a manifest and four icons. [`super::routes`] serves it
+//! `richos/web/web-app/` is a static app with no dependencies: an HTML file, a stylesheet,
+//! ten small modules, a service worker, a manifest and four icons. [`super::routes`] serves it
 //! over the phone channel's TLS socket. Until 2026-09-18 it was served *from the source
 //! tree*, by way of a path `env!("CARGO_MANIFEST_DIR")` baked in at compile time — which
 //! worked on the machine that compiled it and nowhere else. The shipped bundle of that day
@@ -19,7 +19,7 @@
 /// The generated table: `(url path without its leading slash, bytes)`, sorted by path.
 ///
 /// Written by `build.rs` into `$OUT_DIR/phone_app.rs` on every build, from the contents of
-/// `app/phone/`. It is `include!`d rather than committed because it IS the directory — a
+/// `richos/web/web-app/`. It is `include!`d rather than committed because it IS the directory — a
 /// committed copy would be a second, drifting statement of what the phone app contains.
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/phone_app.rs"));
@@ -42,7 +42,7 @@ impl PhoneApp {
     /// that was described as an ordinary developer build and turned out to be every
     /// shipped build. A build now either embeds the app or does not compile:
     /// `embed_phone` refuses a source tree with no `index.html`, an empty staged set, or a
-    /// set that is missing anything `app/phone/sw.js` pre-caches.
+    /// set that is missing anything `web/web-app/sw.js` pre-caches.
     pub fn embedded() -> Self {
         Self { files: generated::FILES }
     }
@@ -122,21 +122,23 @@ mod tests {
 
     #[test]
     fn the_embedded_bytes_are_the_files_in_the_repository() {
-        // `build.rs` copies `app/phone` into `$OUT_DIR` and the compiler includes it from
+        // `build.rs` copies `web/web-app` into `$OUT_DIR` and the compiler includes it from
         // there, so "the same bytes" has one copy step in it. This is the assertion that
         // the step did what it says — read from the source tree, compared against what is
         // in the program. `CARGO_MANIFEST_DIR` is a test-only path here, exactly as
         // `ca.rs`'s word-list test uses it, and never reaches the shipped binary.
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/web-app");
         let app = PhoneApp::embedded();
-        for name in ["index.html", "app.js", "sw.js", "lib/api.js", "icons/icon-192.png"] {
+        for name in
+            ["index.html", "app.js", "sw.js", "lib/api.js", "lib/inbound.js", "icons/icon-192.png"]
+        {
             let on_disk = std::fs::read(root.join(name))
-                .unwrap_or_else(|e| panic!("could not read app/phone/{name}: {e}"));
+                .unwrap_or_else(|e| panic!("could not read web/web-app/{name}: {e}"));
             let (_, embedded) = app.file(name).unwrap_or_else(|| panic!("{name} is not embedded"));
             assert_eq!(
                 embedded,
                 on_disk.as_slice(),
-                "app/phone/{name} is not what this build embedded"
+                "web/web-app/{name} is not what this build embedded"
             );
         }
     }
