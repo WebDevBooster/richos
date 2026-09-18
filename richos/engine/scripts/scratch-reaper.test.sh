@@ -42,6 +42,30 @@
 #   S11 the verdict line exits 3 while anything is undecidable — undecidable is
 #       a failure, never a footnote beside a success-shaped count.
 #
+# --- added 2026-09-18 with the allocator root and the legacy sweep -----------
+# The 105 GB night: a sandbox named by a bare mktemp sat under $TMPDIR for five
+# hours while this reaper ran twice, because SCRATCH_TMP_PATTERNS was an
+# allowlist of two globs and nothing matched it.
+#
+#   S12  THE ALLOCATOR ROOT, DENY-BY-DEFAULT — the arm that would have caught
+#        it. A dead owner goes (S12), a LIVE owner stays (S12b, the control), an
+#        unrecorded directory goes because the only way to get one there is to
+#        ask the allocator (S12c), and with the ledger DELETED a live owner is
+#        still protected by the pid in the directory name (S12d).
+#   S13  a RELEASED ledger row whose tree survived the rm is deleted.
+#   S14  the legacy family sweep: abandoned goes (S14), a fixture containing a
+#        .git goes (S14b), A REGISTERED WORKSPACE WEARING A LEGACY NAME IS
+#        STILL REFUSED (S14c — wall 3 survived the wall-2 narrowing, which is
+#        the case that decides whether that narrowing was safe), and with the
+#        narrowing declared OFF the same fixture goes back to undecidable
+#        (S14d, the control that makes S14b a decision rather than an oversight).
+#   S15  a legacy directory with an open file descriptor inside is kept, and
+#        the same directory with its holder gone is deleted (S15b, the control).
+#   S16  a STOPPED Docker daemon is skipped silently and is never a failure
+#        (S16/S16b); a daemon that ANSWERS is actually asked to prune, both
+#        arms, and the bytes it reports reach the log (S16c/S16d, the controls
+#        that stop S16 passing against a docker arm that is dead code).
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -159,8 +183,36 @@ world() {                  # <name> -> exports W_*
         echo 'SCRATCH_NOTICE_BYTES="1"'
         echo 'SCRATCH_REAPER_HOURS="4"'
         echo 'SCRATCH_REAPER_MINUTE="40"'
+        # --- added 2026-09-18 with the allocator root and the legacy sweep ---
+        echo 'SCRATCH_ROOT_NAME="richos-scratch"'
+        echo 'SCRATCH_DEFAULT_TTL_MINUTES="360"'
+        # A family name NOTHING ELSE IN THIS SUITE USES, so adding the legacy
+        # arm cannot change the verdict of a case written before it existed.
+        echo 'SCRATCH_LEGACY_TMP_PATTERNS="zlegacy-*"'
+        echo 'SCRATCH_LEGACY_AGE_HOURS="0"'
+        echo 'SCRATCH_LEGACY_GIT_IS_FIXTURE="1"'
+        # OFF by default in every world. A suite that shelled out to the
+        # operator's real Docker daemon would be pruning their images, and S16
+        # turns it on against a deliberately broken `docker` instead.
+        echo 'SCRATCH_DOCKER_PRUNE="0"'
+        echo 'SCRATCH_DOCKER_KEEP_STORAGE="20GB"'
     } >"$W_CFG"
     attribute_running_claudes "$W_SESSIONS"
+}
+
+# alloc <name> [pid] — a directory in the allocator root, with a ledger row.
+# The ledger lives in the world's own CLAUDE_CONFIG_DIR, so nothing here can
+# see or damage the real one.
+alloc() {                  # <dir-name> <pid> <label>
+    local name="$1" pid="$2" label="${3:-fixture}"
+    local root="$W_TMP/richos-scratch"
+    mkdir -p "$root/$name"
+    printf '%s\n' "payload" >"$root/$name/payload.txt"
+    mkdir -p "$W_HOME/state"
+    printf '{"path":"%s","label":"%s","pid":%d,"ppid":1,"session":"","created":"%s","ttl_minutes":360,"event":"new"}\n' \
+        "$root/$name" "$label" "$pid" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        >>"$W_HOME/state/scratch-ledger.jsonl"
+    printf '%s\n' "$root/$name"
 }
 
 run() {                    # run the reaper in the current world
@@ -447,6 +499,362 @@ else
         *"lsof could not answer"*) ok "S10b no lsof means INDETERMINATE, not deletion" ;;
         *) bad "S10b without lsof the temp-workspace class did not say so" ;;
     esac
+fi
+
+
+# ===========================================================================
+# S12 — THE ALLOCATOR ROOT, SWEPT DENY-BY-DEFAULT
+# ===========================================================================
+# This is the arm that would have caught the 105 GB, so it gets the fullest
+# treatment: a dead owner goes, a LIVE owner stays, and an entry that no ledger
+# row mentions at all goes because the only way to get a directory under that
+# root is to ask the allocator for one.
+world alloc
+start_claude; PID_ALIVE="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_ALIVE" "$SID_LIVE"
+
+D_DEAD="$(alloc "99999-mutation-deadowner" 99999 mutation)"
+D_LIVE="$(alloc "$PID_ALIVE-mutation-liveowner" "$PID_ALIVE" mutation)"
+# No ledger row at all, and no pid in the name either.
+mkdir -p "$W_TMP/richos-scratch/unrecorded-junk"
+echo payload >"$W_TMP/richos-scratch/unrecorded-junk/payload.txt"
+
+OUT="$(run --apply)"
+
+if [ ! -d "$D_DEAD" ]; then
+    ok "S12  an allocation whose owner pid is ENDED is deleted"
+else
+    bad "S12  a dead owner's allocation survived"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+if [ -f "$D_LIVE/payload.txt" ]; then
+    ok "S12b a LIVE owner's allocation survives — the positive control for S12"
+else
+    bad "S12b a live owner's allocation was deleted from under it"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+if [ ! -d "$W_TMP/richos-scratch/unrecorded-junk" ]; then
+    ok "S12c an unrecorded directory under the allocator root is deleted"
+else
+    bad "S12c an unrecorded directory under the allocator root survived — the"
+    bad "     root is supposed to be deny-by-default"
+fi
+
+# THE NAME IS THE SECOND RECORD. With the ledger destroyed entirely, a live
+# owner must STILL be protected, because the pid is on the front of the
+# directory name. This is the case that decides whether losing $HOME turns the
+# reaper into something that deletes a running harness's sandbox.
+D_LIVE2="$(alloc "$PID_ALIVE-mutation-ledgerless" "$PID_ALIVE" mutation)"
+rm -f "$W_HOME/state/scratch-ledger.jsonl"
+OUT="$(run --apply)"
+if [ -f "$D_LIVE2/payload.txt" ]; then
+    ok "S12d with the ledger DELETED, a live owner is still protected by the"
+    ok "     pid in the directory name"
+else
+    bad "S12d losing the ledger made the reaper delete a LIVE owner's sandbox"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+kill "$PID_ALIVE" >/dev/null 2>&1 || true
+wait "$PID_ALIVE" 2>/dev/null || true
+
+# ===========================================================================
+# S13 — A RELEASED ROW WHOSE TREE IS STILL THERE
+# ===========================================================================
+# scratch_release ran, said so in the ledger, and the rm did not complete.
+# Nothing owns it and its maker has said as much.
+world released
+mkdir -p "$W_TMP/richos-scratch/4242-mutation-halfreleased"
+echo payload >"$W_TMP/richos-scratch/4242-mutation-halfreleased/payload.txt"
+mkdir -p "$W_HOME/state"
+{
+    printf '{"path":"%s","label":"mutation","pid":4242,"ppid":1,"session":"","created":"%s","ttl_minutes":360,"event":"new"}\n' \
+        "$W_TMP/richos-scratch/4242-mutation-halfreleased" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '{"path":"%s","pid":4242,"released":"%s","event":"release"}\n' \
+        "$W_TMP/richos-scratch/4242-mutation-halfreleased" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} >>"$W_HOME/state/scratch-ledger.jsonl"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/richos-scratch/4242-mutation-halfreleased" ]; then
+    ok "S13  a RELEASED row whose tree survived the rm is deleted"
+else
+    bad "S13  a released-but-present allocation survived"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# ===========================================================================
+# S14 — THE LEGACY FAMILY SWEEP, AND WALL 3 STILL STANDING OVER IT
+# ===========================================================================
+# The legacy arm is what reclaims the names that 171 engine files still create
+# with a bare mktemp. S14b is the case that matters most: narrowing wall 2 for
+# these families must NOT have opened a path to a registered worktree.
+world legacy
+mkdir -p "$W_TMP/zlegacy-abandoned"
+echo payload >"$W_TMP/zlegacy-abandoned/payload.txt"
+
+# A fixture repository — exactly the 2,800 entries that forced the narrowing.
+mkdir -p "$W_TMP/zlegacy-fixture-repo/.git"
+echo payload >"$W_TMP/zlegacy-fixture-repo/payload.txt"
+
+# A REGISTERED workspace wearing a legacy family name. Wall 3 must refuse it.
+mkdir -p "$W_TMP/zlegacy-registered/.git"
+echo payload >"$W_TMP/zlegacy-registered/payload.txt"
+mkdir -p "$W_HOME/state"
+printf '{"path":"%s","branch":"b","repo":"r"}\n' "$W_TMP/zlegacy-registered" \
+    >>"$W_HOME/state/worktree-ledger.jsonl"
+
+OUT="$(run --apply)"
+
+if [ ! -d "$W_TMP/zlegacy-abandoned" ]; then
+    ok "S14  an abandoned legacy-family directory is deleted"
+else
+    bad "S14  an abandoned legacy-family directory survived"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+if [ ! -d "$W_TMP/zlegacy-fixture-repo" ]; then
+    ok "S14b a legacy-family fixture containing a .git is deleted"
+else
+    bad "S14b the 2,800-fixture case is still undecidable"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+if [ -f "$W_TMP/zlegacy-registered/payload.txt" ]; then
+    ok "S14c A REGISTERED WORKSPACE with a legacy name is still refused — wall 3"
+    ok "     survived the wall-2 narrowing"
+else
+    bad "S14c THE WALL-2 NARROWING REACHED A REGISTERED WORKSPACE. This is the"
+    bad "     failure that narrowing was supposed not to have."
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# THE POSITIVE CONTROL FOR THE NARROWING ITSELF: with it declared OFF, the very
+# same fixture goes back to being undecidable. Without this, S14b passes just as
+# well against a reaper that ignores .git entirely.
+world legacyoff
+python3 - "$W_CFG" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().replace('SCRATCH_LEGACY_GIT_IS_FIXTURE="1"',
+                           'SCRATCH_LEGACY_GIT_IS_FIXTURE="0"')
+open(p, "w").write(s)
+PY
+mkdir -p "$W_TMP/zlegacy-fixture-repo/.git"
+echo payload >"$W_TMP/zlegacy-fixture-repo/payload.txt"
+OUT="$(run --apply)"; RC=$?
+if [ -f "$W_TMP/zlegacy-fixture-repo/payload.txt" ] && [ "$RC" = "3" ]; then
+    ok "S14d CONTROL: with the narrowing declared OFF the same fixture is kept"
+    ok "     and the run exits 3 — so S14b is a decision, not an oversight"
+else
+    bad "S14d CONTROL FAILED: the narrowing declaration changes nothing (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# ===========================================================================
+# S15 — A LEGACY DIRECTORY SOMETHING IS STILL WRITING INTO IS KEPT
+# ===========================================================================
+# The legacy age floor is taken from the NEWEST mtime, which is what lets a
+# 181-minute mutation pass run to completion under a two-hour floor. With the
+# floor declared as 0 hours the only thing standing between a running harness
+# and deletion is the open-handle check, so this is the case that proves it.
+world legacyheld
+mkdir -p "$W_TMP/zlegacy-inuse"
+echo payload >"$W_TMP/zlegacy-inuse/payload.txt"
+if command -v lsof >/dev/null 2>&1; then
+    # A real process with a real open file descriptor inside the directory.
+    #
+    # `tail -f`, NOT `( exec 9>file; sleep 30 ) &`. The first shape of this case
+    # used the redirect-and-sleep form and S15b's control failed: `sleep`
+    # INHERITS fd 9 from the subshell, so killing the subshell left the
+    # descriptor open in an orphaned sleep and the directory was correctly kept
+    # — a control that failed for a reason that had nothing to do with the
+    # reaper. `tail -f` is a single process that holds the file itself, so
+    # killing it actually releases it.
+    : >"$W_TMP/zlegacy-inuse/held.lock"
+    tail -f "$W_TMP/zlegacy-inuse/held.lock" >/dev/null 2>&1 &
+    HELD_PID=$!
+    KILL_LIST="$KILL_LIST $HELD_PID"
+    sleep 1
+    OUT="$(run --apply)"
+    if [ -f "$W_TMP/zlegacy-inuse/payload.txt" ]; then
+        ok "S15  a legacy directory with an open file descriptor inside is kept"
+    else
+        bad "S15  a legacy directory was deleted while a process held it open"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+    kill "$HELD_PID" >/dev/null 2>&1 || true
+    wait "$HELD_PID" 2>/dev/null || true
+
+    # The positive control: the same directory with the holder gone.
+    OUT="$(run --apply)"
+    if [ ! -d "$W_TMP/zlegacy-inuse" ]; then
+        ok "S15b CONTROL: with the holder gone the same directory is deleted"
+    else
+        bad "S15b CONTROL FAILED: it is kept whether held or not, so S15 proves"
+        bad "     nothing"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+else
+    ok "S15  SKIPPED — lsof is not on this host"
+    ok "S15b SKIPPED — lsof is not on this host"
+fi
+
+# ===========================================================================
+# S16 — A STOPPED DOCKER DAEMON IS SKIPPED SILENTLY, NEVER A FAILURE
+# ===========================================================================
+# CEO, 2026-09-18: prune Docker "only when the Docker daemon is running", and
+# a stopped daemon must "never be reported as a failure". Docker Desktop is
+# shut down most of the time on a laptop, and a scheduled job that logged a
+# failure every six hours for an optional tool would train its reader to skip
+# the log — the same way a 2,800-fixture alert would have died.
+#
+# The `docker` on PATH here is a STUB that fails `docker info` exactly as the
+# real client does with the daemon down. The operator's real daemon is never
+# contacted by this suite.
+world docker
+python3 - "$W_CFG" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().replace('SCRATCH_DOCKER_PRUNE="0"', 'SCRATCH_DOCKER_PRUNE="1"')
+open(p, "w").write(s)
+PY
+STUBDIR="$W_ROOT/stubbin"
+mkdir -p "$STUBDIR"
+cat >"$STUBDIR/docker" <<'STUB'
+#!/bin/sh
+# The real client's behavior with Docker Desktop not running: the client
+# answers, the daemon does not.
+case "$1" in
+  info) echo "Cannot connect to the Docker daemon. Is the docker daemon running?" >&2; exit 1 ;;
+  *)    echo "docker: daemon not running" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$STUBDIR/docker"
+
+mkdir -p "$W_SCRATCH/-p/$SID_DEAD/scratchpad"
+echo payload >"$W_SCRATCH/-p/$SID_DEAD/scratchpad/work.txt"
+OUT="$(PATH="$STUBDIR:$PATH" run --apply)"; RC=$?
+# THE LOG, NOT STDOUT, and M16 is why. The first shape of this case grepped
+# `$OUT` for `failures=[1-9]` — but the failures count lives on the verdict line
+# in the LOG FILE and never on stdout, so the assertion could not fail and
+# M16.docker-daemon-probe-removed scored "the suite still PASSED without this
+# property". The mutation harness caught a test that was checking a channel the
+# evidence does not travel on.
+DLOG="$W_HOME/state/scratch-reaper.log"
+if [ "$RC" = "0" ] \
+   && ! grep -q 'FAILED docker' "$DLOG" 2>/dev/null \
+   && ! grep -q 'failures=[1-9]' "$DLOG" 2>/dev/null; then
+    ok "S16  a stopped Docker daemon is skipped and is NOT a failure"
+else
+    bad "S16  a stopped Docker daemon was reported as a failure (rc=$RC)"
+    sed 's/^/        /' "$DLOG" 2>/dev/null | tail -6
+fi
+if ! grep -q 'class=docker-' "$DLOG" 2>/dev/null; then
+    ok "S16b a stopped daemon produces no docker log line at all"
+else
+    bad "S16b a stopped daemon still logged a docker action"
+    sed 's/^/        /' "$DLOG" 2>/dev/null | tail -6
+fi
+
+# THE POSITIVE CONTROL. A daemon that ANSWERS must actually be asked to prune,
+# all THREE stages, in the order that matters, and the log must carry the bytes
+# and the names. Without this, S16 passes against a reaper whose docker arm is
+# dead code.
+#
+# The stub RECORDS THE ARGUMENTS IT WAS CALLED WITH, because the CEO's rule is
+# as much about the flags as about the fact of pruning: `-a`, `until=720h`, and
+# containers before images. A stub that only echoed a total could not tell a
+# correct implementation from one that prunes dangling images forever.
+cat >"$STUBDIR/docker" <<STUB
+#!/bin/sh
+echo "\$@" >>"$W_ROOT/docker-calls.txt"
+case "\$1" in
+  info)      echo "27.0.0"; exit 0 ;;
+  container) echo "Deleted Containers:"; echo "deleted: old-exited-container"
+             echo "Total reclaimed space: 442.4kB"; exit 0 ;;
+  image)     echo "Deleted Images:"; echo "untagged: stale/app:v1"
+             echo "deleted: sha256:aaaa"
+             echo "Total reclaimed space: 17.8GB"; exit 0 ;;
+  builder)   echo "Deleted build cache objects:"
+             echo "Total reclaimed space: 8.5GB"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$STUBDIR/docker"
+OUT="$(PATH="$STUBDIR:$PATH" run --apply)"; RC=$?
+CALLS="$W_ROOT/docker-calls.txt"
+LOG="$W_HOME/state/scratch-reaper.log"
+
+if grep -q 'class=docker-container-prune ' "$LOG" 2>/dev/null \
+   && grep -q 'class=docker-image-prune ' "$LOG" 2>/dev/null \
+   && grep -q 'class=docker-builder-prune ' "$LOG" 2>/dev/null; then
+    ok "S16c CONTROL: a daemon that answers IS asked to prune, all three stages"
+else
+    bad "S16c CONTROL FAILED: the docker arm is dead code, so S16 proves nothing"
+    sed 's/^/        /' "$LOG" 2>/dev/null | tail -8
+fi
+
+# CONTAINERS BEFORE IMAGES. A stopped container pins its image, so the reverse
+# order silently leaves every pinned image behind.
+C_LINE="$(grep -n '^container prune' "$CALLS" 2>/dev/null | head -1 | cut -d: -f1)"
+I_LINE="$(grep -n '^image prune' "$CALLS" 2>/dev/null | head -1 | cut -d: -f1)"
+if [ -n "$C_LINE" ] && [ -n "$I_LINE" ] && [ "$C_LINE" -lt "$I_LINE" ]; then
+    ok "S16d containers are pruned BEFORE images — a stopped container pins its image"
+else
+    bad "S16d the prune order is wrong (container at '$C_LINE', image at '$I_LINE')"
+    sed 's/^/        /' "$CALLS" 2>/dev/null
+fi
+
+# THE CEO'S FLAGS, EXACTLY. `-a` is what reaches unused NAMED images, and
+# until=720h is the 30 days that makes -a safe.
+if grep -q 'image prune -a -f --filter until=720h' "$CALLS" 2>/dev/null \
+   && grep -q 'container prune -f --filter until=720h' "$CALLS" 2>/dev/null; then
+    ok "S16e the declared rule is on the wire: -a for named images, until=720h"
+else
+    bad "S16e the prune flags are not the declared standing rule"
+    sed 's/^/        /' "$CALLS" 2>/dev/null
+fi
+
+if grep -q 'bytes=17800000000' "$LOG" 2>/dev/null \
+   && grep -q 'stale/app:v1' "$LOG" 2>/dev/null; then
+    ok "S16f the LOG carries the bytes the daemon reported AND the name removed"
+else
+    bad "S16f the docker log line is missing its bytes or the removed name"
+    sed 's/^/        /' "$LOG" 2>/dev/null | tail -8
+fi
+
+# S16g — A FRESH IMAGE SURVIVES. The CEO asked for this control by name. The
+# age filter is the ONLY thing making `-a` safe, so a stub whose daemon reports
+# nothing removed (which is what a real daemon does when every image is inside
+# the window) must produce no removal and no failure.
+world dockerfresh
+python3 - "$W_CFG" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read().replace('SCRATCH_DOCKER_PRUNE="0"', 'SCRATCH_DOCKER_PRUNE="1"')
+open(p, "w").write(s)
+PY
+STUBDIR2="$W_ROOT/stubbin"
+mkdir -p "$STUBDIR2"
+cat >"$STUBDIR2/docker" <<'STUB'
+#!/bin/sh
+# A daemon whose every image is NEWER than the filter: docker prints the
+# header and a zero total, and removes nothing.
+case "$1" in
+  info) echo "27.0.0"; exit 0 ;;
+  *)    echo "Total reclaimed space: 0B"; exit 0 ;;
+esac
+STUB
+chmod +x "$STUBDIR2/docker"
+OUT="$(PATH="$STUBDIR2:$PATH" run --apply)"; RC=$?
+LOG2="$W_HOME/state/scratch-reaper.log"
+if [ "$RC" = "0" ] \
+   && ! grep -q 'untagged\|deleted:' "$LOG2" 2>/dev/null \
+   && ! printf '%s' "$OUT" | grep -q 'failures=[1-9]'; then
+    ok "S16g CONTROL: a fresh (in-window) image is not removed and is no failure"
+else
+    bad "S16g a fresh image was removed or reported as a failure (rc=$RC)"
+    sed 's/^/        /' "$LOG2" 2>/dev/null | tail -6
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

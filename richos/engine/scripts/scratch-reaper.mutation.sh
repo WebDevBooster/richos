@@ -67,8 +67,18 @@ mutant M3.registered-wall-removed "S2 " "$LIB" \
     "Wall 3 no longer recognizes a registered workspace, so an agent's
      workspace inside a dead session's scratch is deleted with it."
 
+# THE ANCHOR MOVED ON 2026-09-18 AND THIS HARNESS CAUGHT IT, which is the whole
+# reason a mutation harness asserts that its mutation applied. Wall 2 gained a
+# narrowing parameter for the legacy families (`and not git_is_fixture`), and
+# with the old one-line anchor this mutant reported
+# "MUTATION TARGET ABSENT — the source has drifted" instead of silently
+# scoring PROVEN against a line that no longer existed.
+#
+# The mutant still removes the WHOLE wall — `if False:` — rather than only the
+# narrowing, because what S4 covers is "a checkout in dead scratch is refused",
+# and the narrowing is proven separately by S11/S11b below.
 mutant M4.git-wall-removed "S4 " "$LIB" \
-    "if has_git:" \
+    "if has_git and not git_is_fixture:" \
     "if False:" \
     "Wall 2 no longer notices a checkout in the tree, so a repository living
      in dead scratch is removed."
@@ -107,5 +117,71 @@ mutant M10.nightly-retention-removed "S8 " "$LIB" \
     "if False:" \
     "The declared retention keeps nothing, so every release and log is deleted
      including the newest."
+
+# ===========================================================================
+# THE 2026-09-18 ARMS — the allocator root, the legacy sweep and the Docker rule
+# ===========================================================================
+# THE WHOLE REASON THESE EXIST is that the reaper they extend was ALREADY
+# INSTALLED AND RUNNING on the night 105 GB accumulated, and every one of its
+# ten mutants above was green. A suite of green ticks over an arm that does not
+# cover the thing that broke is exactly the failure this engine refuses, so each
+# new arm gets a mutant that removes its load-bearing decision.
+
+mutant M11.dead-owner-kept "S12 " "$LIB" \
+    "if alive:{AND}            self.add(path, \"scratch-alloc\", size, DELETE, why)" \
+    "if True:{AND}            pass" \
+    "The allocator root no longer distinguishes a dead owner from a live one and
+     never deletes an allocation — which is the 105 GB night restored exactly:
+     a sweeper that runs, logs, ends with a verdict, and reclaims nothing."
+
+mutant M12.live-owner-deleted "S12b" "$LIB" \
+    "if alive:" \
+    "if False:" \
+    "A LIVE owner's sandbox is deleted from under a running harness. This is the
+     one failure in this file that costs somebody's work rather than disk
+     space."
+
+mutant M13.unrecorded-child-spared "S12c" "$LIB" \
+    "pid = row.get(\"pid\") or pid_from_name(name)" \
+    "pid = row.get(\"pid\") or os.getpid()" \
+    "An unrecorded child of the allocator root inherits the SWEEPER's own pid,
+     which is always alive, so deny-by-default becomes allow-by-default and
+     anything that skipped the ledger lives forever."
+
+mutant M14.registered-wall-bypassed-for-legacy "S14c" "$LIB" \
+    "refused = walls.check(path, has_git,{NL}                              git_is_fixture=self.cfg[\"legacy_git_is_fixture\"])" \
+    "refused = \"\"" \
+    "The legacy arm stops consulting the walls at all, so a REGISTERED
+     WORKSPACE wearing a legacy family name is deleted. This is the mutant that
+     proves the wall-2 narrowing did not quietly take wall 3 with it."
+
+mutant M15.legacy-open-handle-ignored "S15 " "$LIB" \
+    "if self.held_in_snapshot(path, snapshot):" \
+    "if False:" \
+    "A legacy directory a process is actively writing into is treated as
+     abandoned — which for a running 181-minute mutation pass means its sandbox
+     is deleted underneath it."
+
+mutant M16.docker-daemon-probe-removed "S16 " "$LIB" \
+    "if probe.returncode != 0 or not probe.stdout.strip():" \
+    "if False:" \
+    "The sweep stops checking whether the daemon answers, so a laptop with
+     Docker Desktop shut down reports a prune failure on every scheduled run —
+     the six-hourly false alarm that trains its reader to skip the log."
+
+mutant M17.docker-age-filter-dropped "S16e" "$LIB" \
+    "\"until=\" + until]," \
+    "\"until=0h\"]," \
+    "The 30-day window becomes zero, so \`image prune -a\` reaches EVERY
+     unreferenced image including one built minutes ago. The age filter is the
+     only thing that makes -a safe, and this is what removing it looks like."
+
+mutant M18.docker-prune-order-reversed "S16d" "$LIB" \
+    "for args, klass in jobs:" \
+    "for args, klass in reversed(jobs):" \
+    "Images are pruned BEFORE containers, so every image pinned by a months-old
+     exited container survives the image stage and the sweep silently reclaims
+     far less than its log implies. This is the CEO's own caveat — stopped
+     containers pin images — turned into a defect."
 
 mutation_end
