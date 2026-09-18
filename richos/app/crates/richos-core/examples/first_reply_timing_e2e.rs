@@ -30,9 +30,20 @@
 //!    where it must never open: an internal turn he never saw opening the grant would hand the
 //!    next real turn one that was already open.
 //! 2. **`richos_work.prepare` is driven for real** ([`does_it_dispatch`]), against the
-//!    obligation the register opened (must reach the dispatch step) and against the old shape —
-//!    a model-typed obligation nobody ever opened (must be refused at `app.py:318-321`). The
-//!    previous record could only state this from source; this measures it.
+//!    obligation the register opened (must come back `prepared`, with a workspace and a
+//!    payload) and against the old shape — a model-typed obligation nobody ever opened (must
+//!    be refused at `app.py:318-321`). The previous record could only state this from source;
+//!    this measures it.
+//!
+//!    **It is driven in the LEASE's OWN ENVIRONMENT, which it was not until 2026-09-18.**
+//!    `drive_prepare` builds its own environment and had no `RICHOS_SPAWN_HOOK_SOURCES`, so
+//!    `spawn.py` collected all nine of the ENGINE's PreToolUse[Agent] guards instead of the
+//!    app's own preflight, and was refused by `guard-owned-state.sh` over the development
+//!    session's paused CI — a real, reproducible refusal of a path the shipped app never
+//!    takes. And the check scored REACHING the dispatch rather than surviving it, so the run
+//!    printed PASS over it. Both are fixed here: the value comes from
+//!    `EngineProfile::spawn_hook_sources()`, the same accessor `configure` uses, and only
+//!    `status: "prepared"` is a pass.
 //!
 //! # What it costs and what it touches
 //!
@@ -298,6 +309,7 @@ fn drive_prepare(
     repo: &str,
     request_id: &str,
     title: &str,
+    hook_sources: &str,
 ) -> Result<(bool, String), Box<dyn std::error::Error>> {
     let binding = bridge.bind_work_seat(entity, thread, session, obligation, seat)?;
     let scope_path = scratch.join(format!("work-scope-{}.json", uuid::Uuid::new_v4()));
@@ -346,7 +358,26 @@ fn drive_prepare(
         .env("RICHOS_APP_REGISTRY", coordination.parent().unwrap().join("entities.json"))
         .env("RICHOS_ENTITY_ROOT", coordination)
         .env("RICHOS_ENGINE_ROOT", engine)
-        .env("RICHOS_ENGINE_DIR", engine);
+        .env("RICHOS_ENGINE_DIR", engine)
+        // **THE VARIABLE THE LEASE ALWAYS SETS, AND THIS FUNCTION NEVER DID.**
+        //
+        // `EngineProfile::configure` exports `RICHOS_SPAWN_HOOK_SOURCES` for the provider
+        // child, and the `richos_work` server — `mega-lander/app.py`, a child of that child
+        // — inherits it, so `spawn.py`'s `settings_sources` reads the app's own
+        // `spawn-preflight.json` and nothing else. This function builds its own environment
+        // and omitted it, so on 2026-09-18 it measured `spawn.py` collecting all NINE of the
+        // ENGINE's PreToolUse[Agent] guards off `engine/hooks/hooks.json` and being refused
+        // by `guard-owned-state.sh` over the development session's paused CI.
+        //
+        // That refusal was real and reproducible AND IT WAS ABOUT A PATH THE SHIPPED APP
+        // NEVER TAKES: the same binary, with this line present, answers `prepared`. A probe
+        // measuring a different environment than the product is not a weaker probe; it is
+        // one that produces confident findings about nothing, and this one produced an
+        // escalation.
+        //
+        // The value comes from `EngineProfile::spawn_hook_sources()` — the same accessor
+        // `configure` calls — so the two cannot drift apart by omission again.
+        .env("RICHOS_SPAWN_HOOK_SOURCES", hook_sources);
     let output = command.output()?;
     let answer: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
         format!(
@@ -375,6 +406,7 @@ fn does_it_dispatch(
     session: &str,
     repo: &std::path::Path,
     recorded: &[richos_core::assignment::Assignment],
+    hook_sources: &str,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut failures = Vec::new();
     // ====================================================================================
@@ -419,6 +451,7 @@ fn does_it_dispatch(
             bridge, runtime, engine, state_root, coordination, scratch,
             &entity, &thread_id, &session, obligation, seat, &ledger_ref, &digest,
             &repo_argument, &format!("probe-dispatch-{index}"), "Probe: does this obligation dispatch?",
+            hook_sources,
         )?;
         eprintln!("---");
         eprintln!(
@@ -443,17 +476,26 @@ fn does_it_dispatch(
                      gate: {detail}"
                 ));
             }
-            // **AND IT GOT ALL THE WAY TO THE DISPATCH, which is what makes this a positive
+            // **AND IT WENT ALL THE WAY THROUGH, which is what makes this a positive
             // observation rather than "it failed somewhere else".** After the obligation gate
             // `prepare` still checks the host-attested instruction, the connected repository,
             // the main checkout, the role, the request-id reuse and the per-obligation
-            // unresolved-work rule, then writes the receipt and the brief and builds the spawn
-            // command (`app.py:322-430`). Reaching `spawn:` means every one of those passed. A
-            // refusal anywhere in between would leave this green check passing on a technicality,
-            // so it is a fault.
-            if !ok && !detail.contains("spawn: refused by") {
+            // unresolved-work rule, then writes the receipt and the brief, builds the spawn
+            // command and RUNS it (`app.py:322-440`). Only `status: "prepared"` means every
+            // one of those passed.
+            //
+            // **THIS CHECK USED TO STOP ONE STEP SHORT, AND THE STEP IT STOPPED SHORT OF IS
+            // THE ONE THAT WAS BROKEN.** It read `if !ok && !detail.contains("spawn: refused
+            // by")` — a spawn refusal counted as REACHING the dispatch and therefore as a
+            // pass. That is how the probe reported `PASS: every obligation the register
+            // opened is one the engine will prepare work against` on a run where every one of
+            // them was refused and nothing was created. Scoring the step BEFORE the one that
+            // matters is the same defect as measuring the wrong environment, and this file
+            // had both at once. A user does not get a worker out of a receipt that reached
+            // the dispatch; he gets one out of a dispatch that happened.
+            if !ok || !detail.contains("\"status\":\"prepared\"") {
                 failures.push(format!(
-                    "`prepare` stopped before the dispatch step on the register's own obligation \
+                    "`prepare` did not come back prepared on the register's own obligation \
                      {obligation}, so nothing here shows the assignment is dispatchable: {detail}"
                 ));
             }
@@ -552,6 +594,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     profile.scope_to(&spine.ledger().thread_binding(&thread)?)?;
     let state_root = profile.state.clone();
     let coordination = profile.coordination.clone();
+    // **WHAT THE LEASE PINS `spawn.py`'s GUARD SURFACE TO**, taken from the profile's own
+    // accessor rather than rebuilt here, so `does_it_dispatch` judges the environment the
+    // product runs in. See the comment on the `.env` call in `drive_prepare`.
+    let hook_sources = profile.spawn_hook_sources();
 
     // ====================================================================================
     // `RICHOS_PROBE_DISPATCH_ONLY=1` — THE JOIN, WITH NO MODEL AND NO PROVIDER AT ALL
@@ -604,14 +650,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("assignments written: {}", recorded.len());
         let failures = does_it_dispatch(
             &bridge, &runtime, &engine, &state_root, &coordination, &root.0, &session, &repo, &recorded,
+            &hook_sources,
         )?;
         if !failures.is_empty() {
             for why in &failures { eprintln!("FAIL: {why}"); }
             return Err(format!("{} dispatch check(s) failed", failures.len()).into());
         }
         eprintln!("---");
-        eprintln!("PASS: every obligation the register opened is one the engine will prepare work \
-                   against, and the old shape is refused at the same gate.");
+        eprintln!("PASS: every obligation the register opened came back PREPARED — a workspace \
+                   and a payload, judged by the app's own user-work guards — and the old shape \
+                   is refused at the same gate.");
         return Ok(());
     }
 
@@ -867,6 +915,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     failures.extend(does_it_dispatch(
         &bridge, &runtime, &engine, &state_root, &coordination, &root.0, &session, &repo, &recorded,
+        &hook_sources,
     )?);
 
     if !failures.is_empty() {

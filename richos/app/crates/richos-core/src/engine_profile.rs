@@ -17,6 +17,82 @@ use std::process::Command;
 /// absence is exactly what refused every background job on 2026-09-18.
 pub const PLUGIN_NAME: &str = "richos-app-engine";
 
+/// The engine file that says whose work each spawn guard's reason protects.
+pub const GUARD_AUDIENCE_DECLARATION: &str = "spawn-guard-audience.declaration";
+
+/// **The guards that judge a dispatch the APP makes, read from the engine's own
+/// declaration rather than typed here.**
+///
+/// The CEO's §57 is that RichOS is a free app for non-technical people and that nothing the
+/// user runs depends on our operator setup; §55 is that the work happens after "On it!", and
+/// that work is a background dispatch. Rich ruled on 2026-09-18 that such a dispatch is
+/// judged only by guards whose reason protects the user's own work on the user's own Mac.
+///
+/// **This used to be two script paths typed into [`EngineProfile::prepare`] below**, with an
+/// identical pair typed into `scripts/app-engine-hook.py`, and one of the two —
+/// `guard-brief-scope.sh` — is an operator-session guard: it judges a dispatch against a
+/// design-round specification recorded in the DEVELOPMENT project, and its way out is a line
+/// only an operator can write. Nothing said why those two, and nothing tied the two copies
+/// together. So the classification is data now, and this reads it.
+///
+/// Returns the `user-work` rows in declaration order. A declaration that is missing,
+/// unreadable or self-contradictory is an ERROR and never an empty list: the app's guard
+/// surface is supposed to be a declared list, and an unreadable list is not a list. An empty
+/// result is refused for the same reason `spawn.py` refuses one — an unguarded spawn is not a
+/// verified one, whoever it is for.
+pub fn user_work_guards(engine: &Path) -> Result<Vec<String>, RuntimeError> {
+    let path = engine.join(GUARD_AUDIENCE_DECLARATION);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| RuntimeError(format!("{GUARD_AUDIENCE_DECLARATION} could not be read: {e}")))?;
+    let mut guards = Vec::new();
+    // Blank-line-separated `key: value` records, `#` comments, one line per value — the same
+    // shape `owned-systems.declaration` uses and `scripts/lib/spawn-guard-audience.py` parses.
+    // Two readers of one file, by necessity (nothing may shell out on this path), so the
+    // engine's own test drives the Python reader against the same file and
+    // `tests/engine_profile.rs` asserts this one agrees with the shipped rows.
+    for record in text.split("\n\n") {
+        let (mut id, mut audience, mut message) = (None, None, None);
+        for line in record.lines() {
+            let line = line.trim_end();
+            if line.starts_with('#') || line.trim().is_empty() { continue; }
+            let Some((key, value)) = line.split_once(':') else {
+                return Err(RuntimeError(format!(
+                    "{GUARD_AUDIENCE_DECLARATION} carries a line that is not `key: value`: {line}")));
+            };
+            match key.trim() {
+                "id" => id = Some(value.trim().to_string()),
+                "audience" => audience = Some(value.trim().to_string()),
+                "user_message" => message = Some(value.trim().to_string()),
+                _ => {}
+            }
+        }
+        match (id, audience) {
+            (Some(id), Some(audience)) if audience == "user-work" => {
+                // The same rule the Python reader enforces, enforced here too rather than
+                // assumed: a guard the app runs carries the app's own words for its refusal.
+                if message.is_none_or(|m| m.is_empty()) {
+                    return Err(RuntimeError(format!(
+                        "{GUARD_AUDIENCE_DECLARATION}: {id} is user-work and has no user_message")));
+                }
+                if id.contains('/') || id.contains("..") || !id.ends_with(".sh") {
+                    return Err(RuntimeError(format!(
+                        "{GUARD_AUDIENCE_DECLARATION}: {id} is not a guard file name")));
+                }
+                guards.push(id);
+            }
+            (Some(_), Some(_)) | (None, None) => {}
+            _ => return Err(RuntimeError(format!(
+                "{GUARD_AUDIENCE_DECLARATION} has a record with an id or an audience but not both"))),
+        }
+    }
+    if guards.is_empty() {
+        return Err(RuntimeError(format!(
+            "{GUARD_AUDIENCE_DECLARATION} classifies no guard as user-work, so this dispatch \
+             would be judged by nothing")));
+    }
+    Ok(guards)
+}
+
 #[derive(Clone, Debug)]
 pub struct EngineProfile {
     pub engine: PathBuf,
@@ -115,16 +191,41 @@ impl EngineProfile {
         write(&plugin.join("gitconfig"), "[user]\n\tname = RichOS\n\temail = richos@localhost\n")?;
         let command = format!("{} {}", quote(&runtime.python), quote(&engine.join("scripts/app-engine-hook.py")));
         let mut hooks = serde_json::Map::new();
+        // **NO `matcher` KEY, ON ANY OF THE NINE EVENTS — SO THE `PreToolUse` REGISTRATION
+        // COVERS EVERY TOOL, NOT A CHOSEN FEW.**
+        //
+        // Stated here because two escalations and one brief were built on the opposite
+        // belief. `scripts/app-engine-hook.py`'s `PreToolUse` branch reads `RICHOS_APP_SCOPE`
+        // and raises *"This app turn is stopped or is supplying context. New actions are
+        // unavailable."* whenever that file's `actions_allowed` is not true — for EVERY tool
+        // the lease calls, because of this loop. It was read as gating only the two
+        // continuity tools, and deferring the grant on that basis would have made the
+        // register itself impossible, which is the opposite of the CEO's §55.
+        //
+        // This is the app's OWN turn lifecycle and it is right that it is broad: `prompt`
+        // shuts it at the start of a turn, the reader opens it at his first words, and an app
+        // turn that is stopped or is only supplying context genuinely may take no action of
+        // any kind. Nothing in it reads a development session — it is not the guard-audience
+        // defect wearing another costume (see
+        // docs/verification/guard-audience-2026-09-18.md, "Is RICHOS_APP_SCOPE the same
+        // root?"). What was wrong was that its reach was written down nowhere, so every
+        // reader had to infer it and one inferred it narrow.
         for event in ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop"] {
             hooks.insert(event.into(), json!([{"hooks":[{"type":"command","command":command,"timeout":25}]}]));
         }
         write(&plugin.join("hooks/hooks.json"), &json!({"hooks":hooks}).to_string())?;
         // Spawn preflight runs the canonical guards directly. The real provider
         // additionally enters the desktop scope/evidence gate at dispatch time.
-        write(&plugin.join("spawn-preflight.json"), &json!({"hooks":{"PreToolUse":[{"matcher":"Agent", "hooks":[
-            {"type":"command","command":format!("/bin/bash {}", quote(&engine.join("scripts/hooks/guard-worktree-isolation.sh")))},
-            {"type":"command","command":format!("/bin/bash {}", quote(&engine.join("scripts/hooks/guard-brief-scope.sh")))}
-        ]}]}}).to_string())?;
+        // WHICH guards is [`user_work_guards`]'s answer, read from the engine's
+        // declaration — never a list typed here, which is what it was until
+        // 2026-09-18 and how an operator-session guard came to be judging a
+        // user's assignment.
+        let preflight: Vec<_> = user_work_guards(&engine)?.into_iter()
+            .map(|guard| json!({"type":"command",
+                "command":format!("/bin/bash {}", quote(&engine.join("scripts/hooks").join(guard)))}))
+            .collect();
+        write(&plugin.join("spawn-preflight.json"),
+              &json!({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":preflight}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default() })
     }
     /// The standing instruction this lease comes up with — **and it is now different for
@@ -186,6 +287,28 @@ impl EngineProfile {
         };
         self.state.join("workspaces").join(partition)
     }
+    /// **The one place the app pins `spawn.py`'s guard surface**, as
+    /// `RICHOS_SPAWN_HOOK_SOURCES` expects it: `<label>=<path>`.
+    ///
+    /// [`configure`](Self::configure) exports this for the provider child, and the
+    /// `richos_work` server — `mega-lander/app.py`, a child of that child — inherits it, so
+    /// `spawn.py`'s `settings_sources` reads this file and nothing else. That is what makes
+    /// the app's guard surface the declared user-work list rather than whatever guards the
+    /// machine the app happens to be running on has installed for its own sessions.
+    ///
+    /// **IT IS AN ACCESSOR BECAUSE A SECOND CALLER GOT IT WRONG BY OMISSION.** The
+    /// `first_reply_timing_e2e` probe drives `prepare` directly, built its own environment,
+    /// and never set this — so on 2026-09-18 it measured `spawn.py` collecting all NINE of
+    /// the ENGINE's PreToolUse[Agent] guards and being refused by `guard-owned-state.sh` over
+    /// the development session's paused CI. That refusal was real, reproducible, and about a
+    /// path the shipped app never takes: the same binary, with this variable set the way
+    /// `configure` sets it, answers `prepared`. A value spelled out in two places drifts; a
+    /// value spelled out in one place and FORGOTTEN in another is worse, because the second
+    /// caller looks right.
+    pub fn spawn_hook_sources(&self) -> String {
+        format!("app={}", self.plugin.join("spawn-preflight.json").display())
+    }
+
     pub fn configure(&self, command: &mut Command, session: &str, scope: &Path) {
         crate::runtime::isolate_interpreter_environment(command);
         // App bindings replace terminal component roots, test overrides and
@@ -240,6 +363,6 @@ impl EngineProfile {
             .env("RICHOS_SESSIONS_DIR", self.state.join("platform-sessions"))
             .env("RICHOS_SA_ENTITY_ROOT", &self.coordination).env("RICHOS_SA_TEAMS_DIR", self.state.join("teams"))
             .env("RICHOS_SESSION_ID", session).env_remove("RICHOS_SESSION_PID")
-            .env("RICHOS_SPAWN_HOOK_SOURCES", format!("app={}", self.plugin.join("spawn-preflight.json").display()));
+            .env("RICHOS_SPAWN_HOOK_SOURCES", self.spawn_hook_sources());
     }
 }

@@ -294,7 +294,17 @@ def build_spawn_command(repo_dests, name, role, brief_path, title, integration=N
     for repo, _dest in repo_dests:
         command += ["--repo", repo]
     command += ["--type", f"richos-app-engine:{role}", "--model", "sonnet",
-                "--brief", str(brief_path), "--description", title]
+                "--brief", str(brief_path), "--description", title,
+                # WHOSE GUARDS JUDGE THIS. Everything reached from here is the
+                # APP's dispatch, on a non-technical user's own Mac, and Rich
+                # ruled on 2026-09-18 that it is judged only by guards whose
+                # reason protects that user's own work — never by a guard whose
+                # reason is the development session's paused CI, unasked
+                # decision, stale staging or design-round convention. It is a
+                # command-line argument and not a prompt line on purpose: the
+                # front desk cannot write an acknowledgement into a brief it
+                # never sees, and must not have to.
+                "--audience", "app"]
     for repo, dest in repo_dests:
         command += ["--dir", (f"{repo}={dest}" if scoped else dest)]
     command += ["--json"]
@@ -430,7 +440,15 @@ def prepare(scope_path, scope, args):
             ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
             read_scope(scope_path)  # Stop cannot turn preparation into permission to dispatch.
             if ready.get("ready") is not True or any(g.get("verdict") != "ok" for g in ready.get("guards",[])):
-                raise ValueError("not every required spawn guard passed")
+                # THE APP'S OWN WORDS, because this sentence can reach a person.
+                # A guard that REFUSES exits nonzero and never gets here — the
+                # `run()` above raises with the app sentence `spawn.py` printed.
+                # This branch is the other case: a guard that could not RUN, on
+                # a user's Mac, which is a fault of ours and not of his request.
+                # It used to read "not every required spawn guard passed", which
+                # names machinery he does not have to know exists.
+                raise ValueError("A safety check on this work could not run, so I did not "
+                                 "start it. Nothing was created.")
             record.update(status="prepared",payload={**ready["payload"],"run_in_background":True},
                 workspace_ref=W.named_key(scope["binding"]["session_id"],name))
             save(path,record);project(scope,path,record)

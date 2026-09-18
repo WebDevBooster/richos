@@ -158,6 +158,12 @@ pub fn verify_engine(engine: &Path) -> Result<EngineRuntime, RuntimeError> {
         "mega-lander/create-teammate-worktree.sh", "mega-lander/app.py", "mega-lander/DESKTOP.md", "ass-kicker/brief-provenance.py",
         "ass-kicker/brief-scope.py", "ass-kicker/guard-stated-actions.py",
         "scripts/lib/app-evidence.py", "scripts/spawn.sh", "scripts/lib/spawn.py",
+        // The classification of whose work each spawn guard's reason protects, and its
+        // reader. Without them the app cannot tell which guards may judge a dispatch it
+        // makes on a user's own Mac, and `EngineProfile::prepare` refuses rather than
+        // guessing — so their absence is a delivery fault, named here where every other
+        // missing component entry point is named.
+        crate::engine_profile::GUARD_AUDIENCE_DECLARATION, "scripts/lib/spawn-guard-audience.py",
         "scripts/hooks/guard-worktree-isolation.sh", "scripts/hooks/guard-brief-scope.sh",
         "scripts/app-engine-hook.py", "scripts/provider-supervisor.py", "agents/worker.md", "agents/reviewer.md"] {
         if !engine.join(name).is_file() { return Err(RuntimeError(format!("missing component entry point: {name}"))); }

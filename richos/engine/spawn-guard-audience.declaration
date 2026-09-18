@@ -1,0 +1,128 @@
+# spawn-guard-audience.declaration — WHOSE WORK EACH SPAWN GUARD'S REASON
+#                                     PROTECTS, DECLARED AS DATA.
+#
+# ===========================================================================
+# THE DECISION THIS FILE IS
+# ===========================================================================
+# Rich's ruling, 2026-09-18, standing on the CEO's §57 ("RichOS is a free app
+# for non-technical CEOs; nothing the user runs depends on our operator
+# setup") and §55 ("Rich immediately replies with: 'On it!' and only after
+# that does all that work"):
+#
+#     The RichOS app's own prepare/spawn path is judged ONLY by guards whose
+#     reason protects the APP USER's own work on the APP USER's own machine.
+#     A guard whose reason is the OPERATOR's session — a paused CI, an unasked
+#     CEO decision, a stale staging, a brief-scope convention of the
+#     development session — never refuses the app, and the front desk never
+#     shows a user an operator-session message.
+#
+# The work after "On it!" is a background assignment. A background assignment
+# that dies at spawn because the DEVELOPER's continuous integration is paused
+# is a user watching nothing happen for a reason that has nothing to do with
+# him, in words that mean nothing to him.
+#
+# ===========================================================================
+# WHY THIS IS ONE FILE OF DATA AND NOT A LIST TYPED IN TWO PLACES
+# ===========================================================================
+# It already WAS a list typed in two places, and that is the defect.
+#
+# The app's guard surface is pinned in two hand-written places: the plugin's
+# `spawn-preflight.json`, written by `EngineProfile::prepare`
+# (app/crates/richos-core/src/engine_profile.rs), which `spawn.py` reads
+# through RICHOS_SPAWN_HOOK_SOURCES; and the Agent branch of
+# `scripts/app-engine-hook.py`, which is the gate the platform actually runs
+# at dispatch. Both were literal lists of two script paths. Nothing said WHY
+# those two, nothing connected them to each other, and one of the two —
+# guard-brief-scope.sh — is an operator-session guard that had no business
+# judging a user's assignment. That is not a bug anybody introduced; it is
+# what an undeclared list becomes.
+#
+# So the classification lives HERE, once, in the shape
+# `owned-systems.declaration` and `orchestration.config`'s model tiers already
+# use: one declaration, quoted by consumers, never a second copy that drifts.
+#
+# Consumers:
+#   scripts/lib/spawn-guard-audience.py   the parser and the classification
+#   scripts/lib/spawn.py                  `--audience app` runs user-work only
+#   scripts/app-engine-hook.py            the app's real PreToolUse[Agent] gate
+#   app/crates/richos-core/src/engine_profile.rs
+#                                         writes spawn-preflight.json from it
+#
+# Located by SPAWN_GUARD_AUDIENCE_DECLARATION in orchestration.config.
+#
+# ===========================================================================
+# FORMAT — blank-line-separated records of `key: value`, one line per value
+# ===========================================================================
+#   id            the guard's file name, exactly as it is registered in
+#                 hooks/hooks.json. This is the join; a rename here that is
+#                 not a rename there is caught by the completeness test.
+#   audience      `user-work` or `operator-session`. Nothing else is accepted.
+#   reason        one sentence naming the guard's reason and why that reason
+#                 puts it on this side. Not a description of the guard — a
+#                 statement about WHOSE work it protects.
+#   user_message  REQUIRED on a `user-work` row, REFUSED on an
+#                 operator-session row. What the app says to its user when
+#                 THIS guard refuses their assignment — in the app's own
+#                 words, addressed to a non-technical person, American
+#                 English, naming no file, no flag and no acknowledgement
+#                 line. An operator-session row has none because a user must
+#                 never see one: if the app is ever in a position to need it,
+#                 the classification is what is wrong.
+#
+# THE UNCLASSIFIED CASE, decided rather than left to a shrug: a guard
+# registered in hooks.json and absent from this file is NOT run for the app.
+# "Judged only by guards whose reason protects the user's own work" is an
+# allowlist, and an undeclared guard has not been shown to protect anything of
+# the user's. The hazard that creates — a real user-work guard silently
+# dropping off the app's list — is closed by the completeness test
+# (scripts/lib/spawn-guard-audience.test.py), which fails the moment
+# hooks.json and this file disagree in either direction.
+#
+# ===========================================================================
+# USER-WORK — the app runs every one of these
+# ===========================================================================
+
+id: guard-sealed-worktree.sh
+audience: user-work
+reason: It refuses every tool to a worker whose run has already ended, so a worker the platform restarted can never write into the user's project again; the thing on the other side of it is the user's own files.
+user_message: The connection that asked for this work had already finished, so I did not start it. Nothing was created.
+
+id: guard-worktree-isolation.sh
+audience: user-work
+reason: It requires every file-editing worker to get its own isolated copy of the repository before it starts, so two pieces of the user's work can never write over each other.
+user_message: I could not give this work its own separate copy of your project, so I did not start it. Nothing was created.
+
+id: guard-definition-drift.sh
+audience: user-work
+reason: It refuses a worker whose instructions on disk no longer match the ones this session booted, so the user's work is never done against instructions that were replaced while it was being set up.
+user_message: The instructions for this kind of work changed while I was setting it up, so I did not start it on the old ones. Nothing was created.
+
+id: verify-agent-prompt.sh
+audience: user-work
+reason: It checks that the assignment handed to a worker is complete and its name is free — a duplicate worker, a missing role, or a worker being asked to hire other workers all produce work the user cannot use.
+user_message: This assignment was not complete enough to hand to a worker, so I did not start it. Nothing was created.
+
+id: guard-model-ceiling.sh
+audience: user-work
+reason: It refuses a worker on a model tier above the declared cost ceiling, and the subscription that tier is charged to is the user's own.
+user_message: This work asked for a more expensive model than this app is allowed to spend on, so I did not start it. Nothing was created.
+
+# ===========================================================================
+# OPERATOR-SESSION — the app runs none of these, ever
+# ===========================================================================
+
+id: guard-ceo-ask-first.sh
+audience: operator-session
+reason: It refuses a dispatch while a decision prepared in the DEVELOPMENT session's own CEO-TODOs has not been put to him in that session; the app user has no such ledger, and the only way to clear it is an operator asking a question in a terminal.
+
+id: guard-stale-staging.sh
+audience: operator-session
+reason: It refuses work against a product tree whose landed commits have not reached the DEVELOPMENT project's staging deployment; the app user has no staging, no deploy script and no product tree of ours.
+
+id: guard-owned-state.sh
+audience: operator-session
+reason: It refuses a dispatch while a standing system the DEVELOPMENT session's orchestrator owns the health of is known-bad, and both of its ways out — put somebody on the problem, or write an acknowledgement line into the spawn prompt — are things only an operator can do. This is the one that was measured refusing the app's own dispatch over a paused continuous-integration run on 2026-09-18.
+
+id: guard-brief-scope.sh
+audience: operator-session
+reason: It refuses a dispatch that drifts off a design-round specification recorded in the DEVELOPMENT project, and its spec pages, round verdict history and CEO-word escape line are all conventions of that session; it was silent on a user's own repository only because a user's repository happens to carry no such record.

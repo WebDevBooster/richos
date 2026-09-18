@@ -1,0 +1,23 @@
+RICHOS_PROBE_DISPATCH_ONLY: no lease is started and no model turn is spent.
+the register said : {"recorded":true,"say":"On it!","say_nothing_else":true}
+the register said : {"recorded":true,"say":"I'll investigate.","say_nothing_else":true}
+assignments written: 2
+---
+prepare against the REGISTER's own obligation work-5c496fd269cf4f379311dc9e7b219e90
+    the store says its status is : Open
+    prepare refused : ValueError: TEMPORARY POSITIVE PROBE. Nothing was created.
+
+---
+prepare against the REGISTER's own obligation work-8749a8cb39a54dfd9758e177029d3c1d
+    the store says its status is : Open
+    prepare refused : ValueError: TEMPORARY POSITIVE PROBE. Nothing was created.
+
+---
+prepare against the OLD SHAPE's never-opened obligation land-pricing-branch-staging-deploy
+    the store says its status is : Absent
+    prepare refused : ScopeError: item is absent or outside the active scope
+FAIL: `prepare` did not come back prepared on the register's own obligation work-5c496fd269cf4f379311dc9e7b219e90, so nothing here shows the assignment is dispatchable: ValueError: TEMPORARY POSITIVE PROBE. Nothing was created.
+
+FAIL: `prepare` did not come back prepared on the register's own obligation work-8749a8cb39a54dfd9758e177029d3c1d, so nothing here shows the assignment is dispatchable: ValueError: TEMPORARY POSITIVE PROBE. Nothing was created.
+
+Error: "2 dispatch check(s) failed"
