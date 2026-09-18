@@ -35,7 +35,7 @@ Validity: 397 days (root: 3650 days, CA:TRUE pathlen:0, Certificate Sign + CRL S
 
 ### Verified by three independent verifiers, each with a negative control
 
-`node test/tls-verify.js` — 33 checks, all passing. A certificate that satisfies only its own author
+`node test/tls-verify.js` — 32 checks, all passing. A certificate that satisfies only its own author
 has been verified by nobody, so each verifier is paired with a control that must FAIL:
 
 | Verifier | Positive | Negative control |
