@@ -225,6 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             b"Add a line to notes.txt in the fixture repository saying the work lease ran, and land it.")),
         title: "Add a line to the notes file and land it".into(),
         repositories: vec![repo.display().to_string()],
+        needs_screen: false,
     })?;
     eprintln!("REGISTERED {} at t+0", receipt.id);
 
