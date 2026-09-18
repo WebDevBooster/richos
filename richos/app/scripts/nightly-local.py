@@ -30,6 +30,25 @@ ROOT = Path(__file__).resolve().parents[3]
 REPO = "WebDevBooster/richos"
 SCRIPTS = Path("richos/app/scripts")
 
+# THE ONLY DECLARED HOST GAP OF THIS BUILD. `run-tests.sh` discovers every *.test.sh beside
+# it from disk and runs each with no arguments; a suite that answers "this host cannot
+# answer" (exit 2) is tolerated ONLY when its caller names it here WITH a reason, is RED
+# when undeclared, and is RED AGAIN on the day the suite starts answering — so this is an
+# allowance that cannot outlive its reason (run-tests.sh:20-92). Exit 2 is never read as a
+# skip anywhere; this is the whole of the tolerance.
+#
+# It is written HERE, in the file, rather than taken from the environment on purpose:
+# local_environment() drops RUN_TESTS_DECLARED_GAPS out of the operator's shell (see the
+# pop below) so a stray export can never declare a gap the build's own source does not.
+DECLARED_GAPS = (
+    "front-door.test.sh: this suite drives the SHIPPED window — it needs a built RichOS.app, "
+    "which THIS build has not produced yet at the gate stage, and a person's unlocked screen to "
+    "put it on (its own P1/P2 refuse a sleeping or locked one). There is no app for it to drive "
+    "on a build host, so it reports the gap and launches nothing. It is run by hand, or from a "
+    "walk, against a published release: scripts/front-door.test.sh --release <release dir>. "
+    "Measured on this Mac, 2026-09-18: a bare invocation exits 2 in nine lines and no process."
+)
+
 
 def private_file(path):
     path = Path(path).expanduser().resolve(strict=True)
@@ -166,8 +185,13 @@ class Runner:
         self.credentials = dict(credentials or {})
         self.source = state / "source"
 
-    def command(self, *args, cwd=None, capture=False, timeout=None, credentials=False):
+    def command(self, *args, cwd=None, capture=False, timeout=None, credentials=False,
+                env_extra=None):
         env = {**self.env, **self.credentials} if credentials else self.env
+        # A value this build states about ONE step, never a channel for the operator's
+        # shell: everything in `env_extra` is written literally at the call site.
+        if env_extra:
+            env = {**env, **env_extra}
         try:
             result = subprocess.run([str(a) for a in args], cwd=cwd or self.source,
                                     env=env, stdin=subprocess.DEVNULL, text=True,
@@ -306,7 +330,8 @@ class Runner:
         print("Running core, updater and packaging checks...", flush=True)
         self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/Cargo.toml", "-p", "richos-core")
         self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/crates/richos-user-update/Cargo.toml")
-        self.command("bash", self.source / SCRIPTS / "run-tests.sh")
+        self.command("bash", self.source / SCRIPTS / "run-tests.sh",
+                     env_extra={"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS})
         self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree", "--repo", self.source)
 
     def run_pointer(self, run_id):
