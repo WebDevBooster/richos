@@ -733,7 +733,28 @@ window.RichHome = (function () {
     // `aria-keyshortcuts="Enter"`, and announcing a second button for the same door would
     // describe the screen worse than it describes it now, so this gets no role and no
     // tab stop — the key already works from anywhere, which is the whole point of the word.
-    var cap = elem("p", null, { id: "home-door-cap" });
+    // AND IT IS OUT OF THE ACCESSIBILITY TREE, which is audit-8 row 3's other half. Ray ran
+    // the accessibility inspector over candidate .8 and got the cause audit-7 could only
+    // observe:
+    //
+    //     button Talk to Rich of UI element 1 of scroll area 1 of ...
+    //     static text Enter of group 15 of UI element 1 of scroll area 1 of ...
+    //
+    // "A screen-reader user hears 'Talk to Rich, button' and then a stray unlabeled 'Enter'."
+    // That is true and it is worth fixing, and the fix is NOT a second button. The fact the
+    // word carries — the Enter key opens this — is already in the tree, in the one place the
+    // platform looks for it: `aria-keyshortcuts="Enter"` on the door itself. The visible word
+    // is a redundant RENDERING of that fact for a reader's eye, so it is decoration to
+    // assistive technology and says so.
+    //
+    // NO FUNCTION IS LOST BY HIDING IT. The usual objection to `aria-hidden` on something
+    // clickable is that a keyboard user loses the action; here the action is the door, the door
+    // is focusable, and `onHomeKey` makes the key work from anywhere on the screen — so the
+    // only thing this element adds is a pointer target for a person aiming at a word that
+    // looks like part of the control. Announcing it as a second control with the same name is
+    // the thing `lib/state-registry.js` calls "two controls with one name is the thing a
+    // screen reader cannot tell apart".
+    var cap = elem("p", null, { id: "home-door-cap", "aria-hidden": "true" });
     cap.textContent = DOOR_CAPTION;
     cap.addEventListener("click", function () {
       hide("caption");

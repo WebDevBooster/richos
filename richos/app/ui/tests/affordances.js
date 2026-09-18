@@ -2482,9 +2482,40 @@ async function main() {
     );
     assert(after.open, "Return inside the open settings menu walked out of the opening screen");
 
+    // AND THE ACCESSIBILITY TREE CARRIES ONE DOOR, NOT A STRAY WORD BESIDE IT — audit-8 row 3's
+    // other half. Ray's accessibility inspector on candidate .8 reported `static text Enter`
+    // beside `button Talk to Rich`, so a screen-reader user met an unlabeled "Enter" with no
+    // role. The fact the word carries is in the tree where the platform looks for it, on the
+    // door; the word itself is a redundant rendering of it and is declared decoration.
+    await page.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    const tree = await page.evaluate(() => {
+      const cap = document.getElementById("home-door-cap");
+      const door = document.getElementById("home-enter");
+      return {
+        capHidden: cap.getAttribute("aria-hidden"),
+        capRole: cap.getAttribute("role"),
+        capTabIndex: cap.getAttribute("tabindex"),
+        capText: (cap.textContent || "").trim(),
+        doorRole: door.tagName,
+        doorName: (door.textContent || "").trim(),
+        doorKeys: door.getAttribute("aria-keyshortcuts"),
+      };
+    });
+    assertEqual(tree.capHidden, "true", "the word `Enter` is still announced as a stray unlabeled node beside the door");
+    assertEqual(tree.capRole, null, "the caption claims a role — then it is a second control with the door's own name");
+    assertEqual(tree.capTabIndex, null, "the caption is a tab stop — then it is a second control in the tab order");
+    assertEqual(tree.capText, "Enter", "the word is no longer on screen, which is the ruling's own wording");
+    assertEqual(tree.doorKeys, "Enter", "the door no longer carries the shortcut, so the hidden word's fact left the tree with it");
+    assertEqual(tree.doorRole, "BUTTON", "the door is not a button");
+
     assertEqual(pageErrors, [], "the opening screen threw during the walk");
     await page.close();
-    return `a click on the word leaves ("${capWhy}"); Return leaves ("${keyWhy}") with #set-btn focused; Return inside the open menu does not`;
+    return (
+      `a click on the word leaves ("${capWhy}"); Return leaves ("${keyWhy}") with #set-btn focused; ` +
+      `Return inside the open menu does not; the tree carries one BUTTON "${tree.doorName}" with ` +
+      `aria-keyshortcuts="${tree.doorKeys}" and the word "${tree.capText}" is aria-hidden with no role and no tab stop`
+    );
   });
 
   await run.check("POSITIVE CONTROL: an unclassified new state IS flagged", async () => {
