@@ -5,6 +5,18 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The name the engine plugin is rendered under, and therefore the exact string the child
+/// announces it by in `system/init.plugins`.
+///
+/// **One spelling, because two would drift silently and in the direction that matters.** It
+/// is written into the manifest here and asserted against the wire in `native.rs`, which is
+/// the same two-places-one-fact problem `skills.rs::PLUGIN_NAME` already solved for the
+/// skills plugin — and `skills.rs`'s own test says why: a name that disagrees with itself
+/// produces a readiness check that can only ever answer "absent", against a plugin that is
+/// sitting right there. That is not hypothetical here: a readiness check answering a false
+/// absence is exactly what refused every background job on 2026-09-18.
+pub const PLUGIN_NAME: &str = "richos-app-engine";
+
 #[derive(Clone, Debug)]
 pub struct EngineProfile {
     pub engine: PathBuf,
@@ -98,7 +110,7 @@ impl EngineProfile {
         write(&coordination.join("orchestration.config"), &format!(
             "# Generated desktop coordination, not target-repository configuration.\nALLOWED_MODELS=\"opus sonnet haiku\"\nMODEL_TIERS=\"opus > sonnet > haiku\"\nSESSION_TEAMS_DIR={}\n", quote(&state.join("teams"))))?;
         write(&coordination.join(".gitignore"), ".claude/\norchestration.config\napp-owned-coordination.json\n")?;
-        write(&plugin.join(".claude-plugin/plugin.json"), &json!({"name":"richos-app-engine", "version":"1.2.0",
+        write(&plugin.join(".claude-plugin/plugin.json"), &json!({"name":PLUGIN_NAME, "version":"1.2.0",
             "agents":["./agents/worker.md", "./agents/reviewer.md"]}).to_string())?;
         write(&plugin.join("gitconfig"), "[user]\n\tname = RichOS\n\temail = richos@localhost\n")?;
         let command = format!("{} {}", quote(&runtime.python), quote(&engine.join("scripts/app-engine-hook.py")));
