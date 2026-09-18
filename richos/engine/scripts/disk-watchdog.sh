@@ -187,8 +187,18 @@ if [ "$MODE" = "install" ]; then
     exit 0
 fi
 
-if [ "${DISK_WATCHDOG_ENABLE:-1}" = "0" ]; then
-    [ "$MODE" = "alert" ] || echo "disk-watchdog: STOOD DOWN by DISK_WATCHDOG_ENABLE=0."
+# THE ALERT CANNOT BE SILENCED BY CONFIGURATION, and that is a requirement
+# rather than an oversight. The CEO's rule is that garbage is always cleaned up
+# "or Rich must get a MASSIVE ALERT about it" — an alert with an off switch is
+# not that. DISK_WATCHDOG_ENABLE=0 stands down the SCHEDULED READING and the
+# CEO's notifications, which a person may legitimately want quiet on a machine
+# they are deliberately filling. It does not stand down `--alert`, which is what
+# the session hooks read: if the disk is nearly full, Rich is told, whatever the
+# configuration says.
+if [ "${DISK_WATCHDOG_ENABLE:-1}" = "0" ] && [ "$MODE" != "alert" ]; then
+    echo "disk-watchdog: the scheduled reading and the CEO's notifications are"
+    echo "  STOOD DOWN by DISK_WATCHDOG_ENABLE=0. The session alert (--alert) is"
+    echo "  NOT affected: an alert with an off switch is not an alert."
     exit 0
 fi
 

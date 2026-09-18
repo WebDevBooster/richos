@@ -917,6 +917,12 @@ LAUNCHD_DIR="${RICHOS_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 LAUNCHD_RETIRED_PLIST="$LAUNCHD_DIR/$LAUNCHD_RETIRED_LABEL.plist"
 PYTHON_BIN="$(command -v python3 || true)"
 RETIRE_FAILED=""
+# Set to 1 by the ONE branch of the chain below that is allowed to touch the
+# operator's launchd. The disk-watchdog step at the end of this file reads it
+# rather than re-deriving the five walls, because two copies of that chain would
+# drift and the copy that drifted would be the one scheduling jobs on a test
+# runner.
+LAUNCHD_TOUCHABLE=0
 if [ -n "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
     if [ -e "$LAUNCHD_RETIRED_PLIST" ]; then
         rm -f "$LAUNCHD_RETIRED_PLIST" || true
@@ -937,6 +943,7 @@ elif [ "$(uname -s 2>/dev/null)" != "Darwin" ]; then
 elif [ "$(cd "$ENGINE_CONFIG_DIR" 2>/dev/null && pwd -P)" != "$(cd "$HOME/.claude" 2>/dev/null && pwd -P)" ]; then
     : # a sandboxed install never touches the operator's launchd
 else
+    LAUNCHD_TOUCHABLE=1
     _domain="gui/$(id -u)"
     if command -v launchctl >/dev/null 2>&1; then
         launchctl bootout "$_domain/$LAUNCHD_RETIRED_LABEL" >/dev/null 2>&1 || true
@@ -960,5 +967,51 @@ if [ -n "$RETIRE_FAILED" ]; then
         echo "    $REPO_ROOT/scripts/hooks/install.sh"
     } >&2
     exit 1
+fi
+
+# --- The disk watchdog and the scratch reaper are ARMED here ----------------
+#
+# CEO, 2026-09-18 (§54): garbage is always cleaned up, "or Rich must get a
+# MASSIVE ALERT about it". Both halves of that are scheduled jobs, and A
+# SCHEDULED JOB THAT WAS NEVER INSTALLED IS THE ONE FAILURE NEITHER JOB CAN
+# REPORT ABOUT ITSELF — it looks exactly like a machine with no garbage and a
+# disk that never gets low.
+#
+# Leaving the arming to a human meant it did not happen: the reaper shipped on
+# 2026-09-17 with a `--install` flag, and the 105 GB arrived that night on a
+# machine where somebody had remembered to run it. That is the good case. The bad
+# case is a fresh clone where nobody does, and nothing anywhere says so.
+#
+# So install.sh arms them, through each job's own `--install`, which keeps the
+# plist-writing in one place per job. LAUNCHD_TOUCHABLE is the same five walls
+# the retired-reconciler step above uses: a redirected HOME, a linked worktree,
+# an ephemeral checkout, a sandboxed CLAUDE_CONFIG_DIR and a non-macOS host all
+# leave the operator's launchd alone.
+#
+# A FAILURE HERE IS A NOTE AND NOT AN EXIT 1, and that is a deliberate
+# difference from the retired reconciler above. That one fails the install
+# because a job that DELETES WORKTREES and should not exist is actively
+# dangerous. These two are protective: not having them is bad, but refusing to
+# install the whole engine because a timer could not be scheduled would leave the
+# operator with neither the engine nor the timer.
+if [ "$LAUNCHD_TOUCHABLE" -eq 1 ]; then
+    for _job in disk-watchdog scratch-reaper; do
+        _script="$REPO_ROOT/scripts/$_job.sh"
+        [ -x "$_script" ] || continue
+        if "$_script" --install >/dev/null 2>&1; then
+            echo "✓ scheduled com.richos.$_job"
+        else
+            echo "NOTE: could not schedule com.richos.$_job. Nothing is watching" >&2
+            echo "  until it is armed; run it by hand from the main checkout:" >&2
+            echo "    $_script --install" >&2
+        fi
+    done
+elif [ "$POINTER_EPHEMERAL" -eq 1 ] || [ "$POINTER_IN_WORKTREE" -eq 1 ]; then
+    # Said out loud rather than skipped silently, because this is the path an
+    # agent's install takes and the operator's machine is left unarmed.
+    echo "NOTE: the disk watchdog and scratch reaper were NOT scheduled (this is a" >&2
+    echo "  worktree or an ephemeral checkout, and a plist baked with this path would" >&2
+    echo "  fire against a directory that stops existing). Arm them from the main" >&2
+    echo "  checkout:  scripts/disk-watchdog.sh --install && scripts/scratch-reaper.sh --install" >&2
 fi
 exit 0
