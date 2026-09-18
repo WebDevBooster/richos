@@ -3391,9 +3391,39 @@ impl Cognition for NativeCognition {
                 return Err(CognitionError::Io(error));
             }
         }
+        // ===================================================================================
+        // WORKER SETTLEMENT AT TURN END — and WHICH of its three readings fired
+        // ===================================================================================
+        //
+        // **The check itself is right, and it was right on candidate .10.** The question the
+        // brief for this change asked — whether a turn-end check can be correct at all when a
+        // background job outlives the turn — is answered no here, because this is not the
+        // front desk's turn: it is the BACK END's, and the back end's turn IS the job
+        // (`work_host.rs`'s `run_one`). Four separate pieces of that flow need the worker to
+        // end inside the turn (`mega-lander/app.py`'s `prepare`, where the measurement is
+        // written out), so a helper still open at this line means the back end walked away
+        // from it. Stopping owned execution is the honest response and it stays.
+        //
+        // **What was missing is which of the three readings fired.** Ray's candidate-.10 walk
+        // produced this sentence twice and nothing recorded whether the evidence was
+        // unattributed, whether a run was counted active, or whether a run was open with its
+        // liveness unknown — the same gap `work_host::settlement` closed for itself on
+        // 2026-09-18 ("nothing wrote the reason down"). Diagnosing it took reading an
+        // 18-row callback journal out of a scratch HOME that could have been deleted at any
+        // moment. One `eprintln!` ends that for good; the sentence he reads is unchanged.
         if let Some(profile) = &self.engine_profile {
             let workers = crate::app_workers::status(&profile.state, Some(&self.session_id));
             if !workers.is_attributed() || workers.active > 0 || workers.liveness_unknown > 0 {
+                eprintln!(
+                    "[richos] worker settlement refused this turn end on session {}: \
+                     unattributed={:?} active={} liveness_unknown={} open={:?}",
+                    self.session_id,
+                    workers.unattributed,
+                    workers.active,
+                    workers.liveness_unknown,
+                    workers.items.iter().map(|item| (item.agent_id.clone(), item.state.clone()))
+                        .collect::<Vec<_>>(),
+                );
                 let _ = self.client.child.kill(); let _ = self.client.child.wait();
                 return Err(CognitionError::Protocol("Worker settlement could not be verified at turn end. Owned processes were stopped; their workspaces and receipts were retained for reconciliation.".into()));
             }

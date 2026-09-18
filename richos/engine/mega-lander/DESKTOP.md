@@ -30,9 +30,13 @@ For an authorized implementation assignment:
    per repository, all under the one worker. Submit it unchanged to Agent
    once. Do not replace the returned
    target with the provider's native coordination worktree.
-4. Wait for the actual worker through TaskOutput with `block: true`, then inspect
-   its observed result. All workers must settle before your turn ends. Stop and
-   quit stop owned execution; there is no promise to keep working while closed.
+4. The prepared payload is synchronous: the Agent call returns the worker's own
+   result, and only when the worker has ended. Do not add `run_in_background`,
+   do not change it, and do not launch the worker and carry on. Then inspect its
+   observed result. All workers must settle before your turn ends; a turn that
+   ends with a helper of yours still open abandons it, and the app stops your
+   connection rather than leave it unaccounted for. Stop and quit stop owned
+   execution; there is no promise to keep working while closed.
 5. Prepare a separate reviewer with `role: reviewer` and `review_of` the worker's
    receipt. Review the exact commit and run the checks appropriate to the change.
    A worker stopping is not success. A reviewer asking for changes means revise
