@@ -230,7 +230,18 @@ class RootSet(object):
     been a second definition of a path the first one already held.
     """
 
-    def __init__(self, extra=()):
+    def __init__(self, extra=(), include_declared=True):
+        """`include_declared=False` gives a RootSet of ONLY the paths passed in.
+
+        THE FLAG EXISTS BECAUSE THE TWO CALLERS NEED DIFFERENT SCOPES, and
+        conflating them would have made this fix cause the defect it prevents.
+        The reaper sweeps the machine and knows which sessions are alive, so it
+        wants every declared root. The LAND step knows only about the agent it
+        is landing: if it swept every declared root it would also quit a live
+        peer agent's test instance, mid-test, because that instance is rooted
+        under a scratch root too. So land passes its own workspaces with
+        include_declared=False.
+        """
         self.dirs = []
         seen = set()
 
@@ -241,15 +252,18 @@ class RootSet(object):
                 seen.add(p)
                 self.dirs.append(p)
 
-        for r in declared("SCRATCH_CLAUDE_ROOTS",
-                          "/private/tmp/claude-%u /tmp/claude-%u").split():
-            push(_expand(r))
         self.tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
-        push(os.path.join(self.tmp,
-                          declared("SCRATCH_ROOT_NAME", "richos-scratch")))
-        self.tmp_patterns = (declared("SCRATCH_TMP_PATTERNS", "").split()
-                             + declared("SCRATCH_LEGACY_TMP_PATTERNS",
-                                        "").split())
+        if include_declared:
+            for r in declared("SCRATCH_CLAUDE_ROOTS",
+                              "/private/tmp/claude-%u /tmp/claude-%u").split():
+                push(_expand(r))
+            push(os.path.join(self.tmp,
+                              declared("SCRATCH_ROOT_NAME", "richos-scratch")))
+            self.tmp_patterns = (declared("SCRATCH_TMP_PATTERNS", "").split()
+                                 + declared("SCRATCH_LEGACY_TMP_PATTERNS",
+                                            "").split())
+        else:
+            self.tmp_patterns = []
         for p in extra or ():
             if p:
                 push(os.path.realpath(os.path.expanduser(p)))
@@ -654,6 +668,109 @@ def collect(extra_roots=(), roots=None, dry_run=False):
     return res
 
 
+# ---------------------------------------------------------------------------
+# the durable failure record — §54's "if the clean-up fails, Rich is told"
+# ---------------------------------------------------------------------------
+# A SEPARATE FILE FROM scratch-failures.json, AND THAT IS NOT DUPLICATION.
+# The reaper's failure file is keyed by PATH and a row is resolved when
+# os.path.exists(path) goes false. A surviving PROCESS has no path for a key,
+# and a pid put into that file would be resolved on the very next run --
+# os.path.exists("98757") is false -- so the alert would clear itself while the
+# window was still on his screen. That is the exact failure mode §54 exists to
+# prevent, and it is why this record has its own resolution rule: a row is
+# resolved when the PID IS GONE.
+
+def failures_path():
+    base = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() \
+        or os.path.join(os.path.expanduser("~"), ".claude")
+    return os.environ.get("APP_INSTANCE_FAILURES_STATE") \
+        or os.path.join(base, "state", "app-instance-failures.json")
+
+
+def read_failures(path=None):
+    path = path or failures_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rows = json.load(fh)
+        return rows if isinstance(rows, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_failures(path, rows):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def record_failures(survivors, stamp=None, path=None):
+    """Carry surviving instances forward; drop the ones that are gone.
+
+    THE DROP IS AS IMPORTANT AS THE RECORD, for the reason the reaper's own
+    version says: an alert that never clears is an alert nobody reads, and then
+    the real one arrives into a habit of not reading.
+    """
+    path = path or failures_path()
+    stamp = stamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    rows = read_failures(path)
+    for key in list(rows):
+        row = rows[key] or {}
+        try:
+            pid = int(row.get("pid") or key)
+        except (TypeError, ValueError):
+            del rows[key]
+            continue
+        # Resolved the moment the process is gone, however it went -- collected
+        # later, quit by hand, or ended on its own. Rich's manual kill must be
+        # able to clear this alert without running anything.
+        if not alive(pid):
+            del rows[key]
+    for d in survivors or ():
+        key = str(d.get("pid"))
+        prev = rows.get(key) or {}
+        rows[key] = {
+            "pid": d.get("pid"),
+            # FIRST SEEN IS PRESERVED across runs: how long a window has been
+            # refusing to close is the single most useful fact in the alert.
+            "first": prev.get("first") or stamp,
+            "last": stamp,
+            "argv": d.get("argv") or prev.get("argv") or "?",
+            "root": d.get("root") or prev.get("root"),
+            "why": d.get("how") or d.get("why") or "?",
+            "attempts": int(prev.get("attempts") or 0) + 1,
+        }
+    if rows:
+        _write_failures(path, rows)
+    elif os.path.exists(path):
+        # No standing failures: remove the file rather than leave an empty
+        # object, so its mere existence answers "is anything stuck".
+        try:
+            os.unlink(path)
+        except OSError:
+            _write_failures(path, {})
+    return rows
+
+
+def collect_and_record(extra_roots=(), roots=None, dry_run=False):
+    """collect(), and make any survivor durable so the §54 alert can see it.
+
+    The one function the land step and the reaper both call, so neither can
+    collect without recording and the alert cannot depend on which caller ran.
+    """
+    res = collect(extra_roots=extra_roots, roots=roots, dry_run=dry_run)
+    if not dry_run:
+        # Called even with no survivors: that is what RESOLVES rows for
+        # instances which have since gone, and an alert that cannot clear is an
+        # alert that gets switched off.
+        res["standing"] = record_failures(res["survivors"])
+    return res
+
+
 def _main(argv):
     import argparse
     ap = argparse.ArgumentParser(
@@ -664,7 +781,7 @@ def _main(argv):
     ap.add_argument("--root", action="append", default=[],
                     help="an extra root to treat as scratch (repeatable)")
     a = ap.parse_args(argv)
-    res = collect(extra_roots=a.root, dry_run=not a.apply)
+    res = collect_and_record(extra_roots=a.root, dry_run=not a.apply)
     if a.json:
         print(json.dumps(res, indent=2, sort_keys=True))
     else:

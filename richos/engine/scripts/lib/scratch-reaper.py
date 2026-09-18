@@ -1031,8 +1031,34 @@ class Reaper(object):
                      "workspace is only dead when its creator is")
             return
         if self.held_in_snapshot(path, snapshot):
+            # §54 ADDENDUM 4: A TEST INSTANCE HOLDING IT OPEN IS NOT A REASON TO
+            # KEEP IT -- the instance IS the garbage, and it pins the rest.
+            #
+            # Before this, a stray app instance made its own scratch directory
+            # immortal: held -> KEEP, on every run, for ever. Observed for real
+            # while this was being written. One fake app left behind by a killed
+            # test harness held its sandbox open, and the sweeper's verdict on
+            # that directory was KEEP with "a process holds a file open inside
+            # it" -- correct by the old rule, and the old rule guaranteed the
+            # garbage stayed.
+            #
+            # The holder is only overridden when it is POSITIVELY a collectable
+            # test instance. Any other holder -- an editor, a build, a shell, a
+            # process this cannot place -- still means KEEP, exactly as before.
+            held_by, pids = self.test_instance_holders(path)
+            if held_by == "test-instances":
+                self.add(path, "tmp-legacy", size, DELETE,
+                         "held open only by test instance(s) of the app (pid "
+                         "%s), which are themselves garbage under §54 addendum "
+                         "4 and are quit before this is removed; nothing has "
+                         "touched it for %d h"
+                         % (", ".join(str(p) for p in pids), age // 3600))
+                return
             self.add(path, "tmp-legacy", size, KEEP,
-                     "a process holds a file open inside it")
+                     "a process holds a file open inside it"
+                     + ("" if held_by != "mixed" else
+                        " (one of them is a test instance of the app, but not "
+                        "all of them are, so nothing here is quit)"))
             return
         # git_is_fixture is passed HERE and only here, and only now — after the
         # family match, the age floor and the open-handle check have all been
@@ -1116,6 +1142,65 @@ class Reaper(object):
         `path` is a direct child of $TMPDIR, so its basename is the key.
         """
         return os.path.basename(path.rstrip("/")) in snapshot
+
+    def appinstances(self):
+        """The shared test-instance definition, or None if it cannot be loaded.
+
+        LAZY, AND A FAILURE IS NEVER FATAL. If this module cannot be imported the
+        reaper behaves exactly as it did before addendum 4: a held directory is
+        KEPT. Losing the new coverage is a regression; refusing to sweep at all
+        because of it would be an outage.
+        """
+        if "appinst" in self.__dict__:
+            return self.__dict__["appinst"]
+        mod = None
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import appinstances
+            mod = appinstances
+        except Exception:
+            mod = None
+        self.__dict__["appinst"] = mod
+        return mod
+
+    def test_instance_holders(self, path):
+        """Who holds `path` open: ('test-instances', pids) | ('mixed', pids)
+        | ('other', pids) | ('unknown', []).
+
+        'test-instances' is returned ONLY when EVERY holder is a collectable
+        test instance. That is the whole safety property: one unplaceable holder
+        and the directory is kept, because a directory holding somebody's real
+        work open is not garbage no matter what else is in it.
+        """
+        mod = self.appinstances()
+        if mod is None:
+            return "unknown", []
+        pids_text = self.holder(path)
+        if pids_text is None or not pids_text.strip():
+            # None = lsof could not answer; '' = nobody. Neither is a set of
+            # holders we can override, and the caller has already established
+            # from the cached snapshot that something holds it.
+            return "unknown", []
+        try:
+            pids = sorted({int(p) for p in pids_text.split()})
+        except ValueError:
+            return "unknown", []
+        try:
+            found = mod.find(roots=mod.RootSet(extra=[path]))
+        except Exception:
+            return "unknown", []
+        if found is None:
+            return "unknown", []
+        collectable = {i.pid for i in found if i.verdict == mod.COLLECT}
+        if not collectable:
+            return "other", pids
+        # Every holder must be accounted for. A pid holding the tree that is not
+        # a collectable test instance is a reason to keep the tree.
+        if set(pids) <= collectable:
+            return "test-instances", pids
+        return "mixed", pids
 
     def holder(self, path):
         """'' nobody, '<pids>' somebody, None cannot tell."""
@@ -1349,6 +1434,23 @@ class Reaper(object):
         # kind of log line nobody can act on.
         order = sorted((e for e in self.entries if e.action == DELETE),
                        key=lambda e: (-e.path.count(os.sep), e.path))
+        # §54 ADDENDUM 4, AND IT RUNS BEFORE THE FIRST rmtree. Any test instance
+        # of the app rooted in something about to be deleted is quit first.
+        #
+        # THE ORDER IS THE POINT. Without it the sweeper deletes a dead session's
+        # scratchpad while an app instance is still running on it -- the claude-
+        # roots arm has no open-handle check at all, by design, because a dead
+        # session's scratch is garbage whoever is holding it. The result was an
+        # orphan window running against a HOME that no longer exists: garbage
+        # that has been made HARDER to account for, not collected.
+        #
+        # Scoped to the planned paths with include_declared=False, so this can
+        # only ever quit an instance living inside something this run has already
+        # decided to delete. It never reaches a live peer's instance.
+        for line in self.collect_test_instances([e.path for e in order], stamp):
+            lines.append(line)
+            if " FAILED test-instance " in line:
+                failures.append(line.split("error=", 1)[-1])
         for e in order:
             try:
                 if os.path.islink(e.path) or os.path.isfile(e.path):
@@ -1437,6 +1539,42 @@ class Reaper(object):
         write_log(log_path, lines)
         self._record_failures(failures, stamp)
         return deleted, freed, failures
+
+    def collect_test_instances(self, paths, stamp):
+        """Quit every test instance rooted in `paths`. Returns log lines.
+
+        A SURVIVOR IS A FAILED COLLECTION and is logged as `FAILED
+        test-instance`, which apply() turns into a failure and therefore into the
+        MASSIVE ALERT. A window that will not close is precisely the "clean-up
+        failed" branch of §54: Rich is told, and he ends it by hand.
+
+        Never raises. If the collector is unavailable this returns one note and
+        the sweep proceeds -- the same trade stop_containers makes in the lander.
+        """
+        mod = self.appinstances()
+        if mod is None or not paths:
+            return []
+        try:
+            res = mod.collect_and_record(
+                roots=mod.RootSet(extra=paths, include_declared=False))
+        except Exception as exc:
+            return ["%s NOTE test-instance collector unavailable: %s"
+                    % (stamp, str(exc)[:160])]
+        out = []
+        for d in res.get("collected") or []:
+            out.append("%s QUIT test-instance pid=%d root=%s note=%s"
+                       % (stamp, d["pid"], d.get("root"), d.get("how")))
+        for d in res.get("undecided") or []:
+            # Not a failure: an instance this cannot place is LEFT RUNNING on
+            # purpose, and saying so in the log is how that stays visible.
+            out.append("%s KEPT test-instance pid=%d why=%s"
+                       % (stamp, d["pid"], d.get("why")))
+        for d in res.get("survivors") or []:
+            out.append("%s FAILED test-instance pid=%d root=%s error=%s"
+                       % (stamp, d["pid"], d.get("root"),
+                          "a test instance of the app (pid %d) could not be "
+                          "quit: %s" % (d["pid"], d.get("how"))))
+        return out
 
     def _record_failures(self, failures, stamp):
         """Carry this run's failures forward, and drop what is now gone.

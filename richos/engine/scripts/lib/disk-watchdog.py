@@ -289,8 +289,24 @@ def main():
     sweep_failures = read_state(fails_path)
     n_fail = len(sweep_failures) if isinstance(sweep_failures, dict) else 0
 
+    # --- test instances that would not close (§54 addendum 4) ---------------
+    # CEO: "Test app windows must always close/quit when testing is finished.
+    # Same hygiene as with any other garbage." So an instance that survived a
+    # quit request, a SIGTERM and a SIGKILL is a failed clean-up and belongs in
+    # this alert beside an undeletable directory.
+    #
+    # A SEPARATE FILE FROM THE SWEEPER'S, and deliberately so: rows there are
+    # keyed by path and resolved when the path stops existing, which would
+    # resolve a pid-keyed row on its very next read and clear the alert while
+    # the window was still on his screen. This file's rows resolve when the
+    # PROCESS is gone. Read, never run -- the same rule as above.
+    inst_path = expand(env("APP_INSTANCE_FAILURES_STATE",
+                           "~/.claude/state/app-instance-failures.json"))
+    inst_failures = read_state(inst_path)
+    n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
+
     alerting = [v for v in volumes if v["below_rich"] or v["drop_alert"]]
-    condition = bool(alerting) or n_fail > 0
+    condition = bool(alerting) or n_fail > 0 or n_inst > 0
 
     # --- attribution and classification, ONLY when something is wrong -------
     consumers, classification, garbage = [], "", 0
@@ -377,6 +393,21 @@ def main():
                 lines.append("      first seen %s, %s attempt(s), %s"
                              % (row.get("first", "?"), row.get("attempts", "?"),
                                 str(row.get("error", "?"))[:90]))
+        if n_inst > 0:
+            lines.append("")
+            lines.append("  %d TEST APP INSTANCE(S) WOULD NOT CLOSE. The CEO's rule"
+                         % n_inst)
+            lines.append("  (§54 addendum 4): a test app window is garbage when the")
+            lines.append("  test is over. Rich ends these BY HAND:")
+            for key, row in sorted(inst_failures.items())[:5]:
+                if not isinstance(row, dict):
+                    continue
+                pid = row.get("pid", key)
+                lines.append("    kill -9 %s" % pid)
+                lines.append("      %s" % str(row.get("argv", "?"))[:90])
+                lines.append("      first seen %s, %s attempt(s), %s"
+                             % (row.get("first", "?"), row.get("attempts", "?"),
+                                str(row.get("why", "?"))[:90]))
         if consumers:
             lines.append("")
             lines.append("  BIGGEST MEASURED CONSUMERS:")
@@ -453,6 +484,7 @@ def main():
         "richos_garbage_bytes": garbage,
         "top_consumers": consumers,
         "sweep_failures": n_fail,
+        "test_instance_failures": n_inst,
         "notified": notified,
         "timer_installed": installed,
         "thresholds": {

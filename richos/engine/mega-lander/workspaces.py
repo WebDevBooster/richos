@@ -3787,6 +3787,12 @@ def _delete(rec, workspaces, branches, why, processes=None):
         # part of it, and stop_containers never raises, so this cannot cost a
         # deletion that would otherwise have succeeded. See stop_containers.
         containers = stop_containers([w["path"] for w in workspaces])
+        # §54 addendum 4, and it sits here rather than beside stop_processes
+        # for the same reason containers do: it never raises and it never
+        # blocks the deletion, so it cannot cost a land that would otherwise
+        # have worked. A window that will not close is recorded for the alert,
+        # not made into a reason to keep a landed worktree on disk.
+        stop_test_instances([w["path"] for w in workspaces])
         current = load_agent(rec["key"]) or rec
         disposition = current.get("disposition") or {}
         if disposition.get("kind") == "landed":
@@ -4096,6 +4102,63 @@ def stop_processes(paths):
     survivors = [p for p in alive if _alive(p)]
     event("processes-stopped", pids=pids, survivors=survivors or None)
     return {"stopped": pids, "survivors": survivors}
+
+
+def stop_test_instances(paths):
+    """§54 ADDENDUM 4: a test instance of the app still running after its agent
+    has finished is uncollected garbage, and the land step collects it.
+
+    CEO, 2026-09-18, verbatim: "Ray had left the test app window open. Test app
+    windows must always close/quit when testing is finished. Same hygiene as
+    with any other garbage." The candidate-.7 walk ended with the QA instance
+    still on his screen after the handoff.
+
+    WHY stop_processes DOES NOT ALREADY DO THIS, measured rather than assumed.
+    stop_processes matches a process by its cwd or by its workspace path
+    appearing in argv. A test instance launched the way this engine launches
+    one has NEITHER: scripts/lib/gui-launch.sh runs it `cd /` with `env -i`, so
+    its cwd is `/`, and the candidate-.7 instance's argv was the relative
+    `./RichOS.app/Contents/MacOS/richos-tauri`, which names no absolute path at
+    all. Both tests miss it, which is exactly how it survived its own land.
+
+    WHAT IS IN SCOPE HERE, AND WHAT IS DELIBERATELY NOT. This collects
+    instances rooted under the paths being deleted -- the landing agent's own
+    workspaces -- and nothing else. It does NOT sweep every scratch root on the
+    machine, because a live peer agent's test instance is rooted under a scratch
+    root too, and quitting a running colleague's app mid-test would be a new
+    defect wearing this fix's clothes. The machine-wide arm belongs to the
+    reaper, which knows which sessions are still alive; here we only know about
+    this agent.
+
+    A SURVIVOR DOES NOT BLOCK THE WORKSPACE DELETION, and that is on purpose. A
+    window that will not close is not a reason to keep a landed worktree on
+    disk; the two failures are unrelated. It is made DURABLE instead, so the
+    §54 alert names it at session start and every turn end until it is gone.
+    Never raises: tidying up must not be able to break the deleter it hangs off.
+    """
+    try:
+        here = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "scripts", "lib")
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import appinstances
+        own = [p for p in paths if p]
+        if not own:
+            return {}
+        # include_declared=False: ONLY this agent's workspaces. See the RootSet
+        # docstring -- with the declared roots in scope this call would quit a
+        # live peer's test instance.
+        res = appinstances.collect_and_record(
+            roots=appinstances.RootSet(extra=own, include_declared=False))
+    except Exception as e:
+        event("test-instances-uncollected", why=str(e)[:200], paths=paths or None)
+        return {}
+    if res.get("collected") or res.get("survivors") or res.get("undecided"):
+        event("test-instances-collected",
+              collected=[d["pid"] for d in res.get("collected") or []] or None,
+              survivors=[d["pid"] for d in res.get("survivors") or []] or None,
+              undecided=[d["pid"] for d in res.get("undecided") or []] or None)
+    return res
 
 
 def stop_containers(paths):
