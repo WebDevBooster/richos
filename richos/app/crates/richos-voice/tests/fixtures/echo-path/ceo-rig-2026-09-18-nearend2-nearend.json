@@ -1,0 +1,27 @@
+{
+  "the_ceos_own_voice_is_in_the_microphone_track_of_this_pair": true,
+  "what_he_was_asked_for": "one ordinary sentence over Rich, at his normal voice, from where he sits",
+  "what_he_actually_did": "spoke five times across the 23.5 s passage, 4.880 s of speech in total. He was asked for one sentence; a person asked to interrupt something that is not stopping says it again, which is also exactly what the failing candidate's log showed (six discarded utterances inside one answer).",
+  "no_transcript_is_kept": "His words are not transcribed, stored or committed anywhere. Only the intervals and the levels below are derived from them.",
+
+  "near_end_intervals_secs": [
+    [3.568, 5.472],
+    [6.256, 7.360],
+    [14.320, 15.152],
+    [16.384, 16.672],
+    [20.912, 21.664]
+  ],
+  "near_end_total_secs": 4.880,
+  "near_end_frames_at_16ms": 299,
+
+  "his_level_at_the_microphone_dbfs": -18.1,
+  "echo_only_level_at_the_microphone_dbfs": -46.7,
+  "he_arrives_above_richs_echo_by_db": 28.6,
+  "level_note": "Both figures are RMS over the far-active region of the respective recording. The echo-only figure comes from ceo-rig-2026-09-18-nearend (the same rig, the same passage, the same output volume 60, recorded 14 minutes earlier with nobody speaking), NOT from this recording, so it is not circular.",
+
+  "how_the_intervals_were_derived": "Per 256-sample frame, microphone RMS minus the reference PEAK-DECAY ENVELOPE in dB (the same x0.72 decay the canceller uses, because echo follows the envelope and not the instantaneous level). That ratio is a property of the acoustic path, so on a recording with no near-end voice it has a bounded distribution: measured on ceo-rig-2026-09-18-nearend it is p50 -26.9, p90 -18.2, p99 -8.3, MAX -2.5 dB over 1441 far-active frames. Every frame of THIS recording whose ratio exceeds that baseline MAXIMUM carries energy the echo path cannot account for; 205 of 1441 frames do. Those frames were bridged across gaps of up to 0.400 s so one sentence is not split by its own inter-word pauses. Deliberately conservative in one direction and it is named: his QUIETEST speech (word onsets, trailing syllables, breath) falls below the baseline maximum and is therefore NOT marked, so the complement of these intervals is NOT a clean echo-only set and must never be used as one. False positives are measured on the two recordings that contain no near-end voice at all.",
+
+  "the_delay_estimate_failed_in_this_recording_and_that_is_a_finding": "The canceller settled on 1 block (16.0 ms) at correlation confidence 0.02, against 2 blocks (32.0 ms) at confidence 0.74 on the echo-only recording made 14 minutes earlier on the same rig at the same volume. A near-end talker present from the first second of playback corrupts the envelope cross-correlation the bulk-delay estimator runs on, and the whole answer is then canceled against the wrong alignment: ERLE 5.4 dB here against 8.8 dB there. Not fixed by this work and not hidden by it.",
+
+  "what_this_pair_cannot_prove": "One room, one pair of devices, one day, one output volume, one person. It proves what this path does with this person's voice in it. It proves nothing about any other path or any other voice."
+}

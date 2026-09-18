@@ -1,0 +1,20 @@
+{
+  "recorded_utc": "08:56:22.572Z",
+  "playback_start_utc": "08:56:23.278Z",
+  "playback_end_utc": "08:56:46.752Z",
+  "playback_start_offset_secs": 0.700,
+  "playback_duration_secs": 23.466,
+  "recording_duration_secs": 24.784,
+  "lead_ms": 700,
+  "output_device": "Mac mini Speakers",
+  "output_rate_hz": 48000,
+  "output_channels": 2,
+  "input_device": "microphone",
+  "input_rate_hz": 96000,
+  "input_channels": 1,
+  "tts_voice": "macOS say · Daniel · 180 wpm",
+  "passage_words": 81,
+  "output_volume_reported_by_operator": 60,
+  "sample_rate_hz": 16000,
+  "note": "mic and reference share one index: reference[i] is what went to the speakers for mic[i]."
+}
