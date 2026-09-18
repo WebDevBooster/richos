@@ -758,7 +758,12 @@ pub fn register_kind(
         // section and from the timer, not from this string; what this says is what is true
         // of both — it is written down and the back end has not been asked yet.
         detail: if kind.is_question() {
-            "Written down. The back end has not been asked yet.".into()
+            // **No seam in it.** The work details around here say "the back end", which is
+            // fine on a work row: the saved-work pane appends a work row's detail and never a
+            // question's, so a question's detail is read only by the front desk — and the
+            // front desk may say it out loud. It is the pane's own question wording, so the
+            // two cannot describe one state two ways.
+            "Written down. Rich hasn't started looking yet.".into()
         } else {
             "Written down. Preparation has not started.".to_string()
         },
