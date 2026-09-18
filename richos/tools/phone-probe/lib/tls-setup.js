@@ -63,8 +63,14 @@ function ensureCertificates(options = {}) {
 	let caCertPem = readIfPresent(p.caCert);
 	let caKeyPem = readIfPresent(p.caKey);
 
+	// "RichOS on MM1", not "RichOS Local CA". This string is what iOS puts on TWO screens he has to
+	// find his way through — the profile list, and the switch under Certificate Trust Settings — and
+	// the trust page's instructions quote it. Naming the Mac also tells two Macs apart, which a
+	// generic name cannot.
+	const caCommonName = `RichOS on ${localnames.displayHostName()}`;
+
 	if (!caCertPem || !caKeyPem) {
-		const ca = createCertificateAuthority({ commonName: 'RichOS Local CA' });
+		const ca = createCertificateAuthority({ commonName: caCommonName });
 		state.writePublic(p.caCert, ca.certPem);
 		state.writePrivate(p.caKey, ca.keyPem);
 		caCertPem = ca.certPem;
@@ -76,7 +82,10 @@ function ensureCertificates(options = {}) {
 	// The profile is regenerated whenever it is missing or stale — it is derived from the root, so it
 	// carries no state of its own and rewriting it can never invalidate the phone's trust.
 	const caCert = new crypto.X509Certificate(caCertPem);
-	const profile = caProfile({ certDer: caCert.raw, commonName: 'RichOS Local CA', hostNames: names });
+	// The name is read back out of the certificate rather than re-derived: an existing root keeps
+	// whatever name it was born with, and the profile must agree with the label iOS will show.
+	const certCommonName = (/CN=([^\n]+)/.exec(caCert.subject) || [null, caCommonName])[1].trim();
+	const profile = caProfile({ certDer: caCert.raw, commonName: certCommonName, hostNames: names });
 	const existingProfile = readIfPresent(p.caProfile);
 	if (existingProfile !== profile) {
 		state.writePublic(p.caProfile, profile);
@@ -111,6 +120,7 @@ function ensureCertificates(options = {}) {
 	const leafCert = new crypto.X509Certificate(leafCertPem);
 	const meta = {
 		names,
+		caCommonName: certCommonName,
 		caFingerprintSha256: fingerprint(caCertPem),
 		caNotAfter: caCert.validTo,
 		leafNotAfter: leafCert.validTo,

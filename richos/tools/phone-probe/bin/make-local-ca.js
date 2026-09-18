@@ -26,8 +26,8 @@ const args = process.argv.slice(2);
 const has = (flag) => args.includes(flag);
 const out = (line = '') => process.stdout.write(`${line}\n`);
 
-const HTTPS_PORT = Number(process.env.PROBE_HTTPS_PORT || 8788);
-const TRUST_PORT = Number(process.env.PROBE_TRUST_PORT || 8787);
+const HTTPS_PORT = Number(process.env.PROBE_HTTPS_PORT || 8443);
+const TRUST_PORT = Number(process.env.PROBE_TRUST_PORT || 8442);
 
 if (has('--help') || has('-h')) {
 	out(fs.readFileSync(__filename, 'utf8').split('\n').slice(2, 18).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));

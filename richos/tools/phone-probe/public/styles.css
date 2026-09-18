@@ -49,6 +49,14 @@
 	--success: #7fb894;
 	--trim-text: #7e92b8;
 
+	/* The QR code's own paper and ink, used by the trust step. These do NOT flip with the theme, and
+	 * that is the point: a QR code is dark modules on a light quiet zone by specification, and one
+	 * rendered light-on-dark to match a dark page is one a scanner may refuse. Black on white is
+	 * 21:1 in both themes, which is the highest ratio available and is asserted like every other
+	 * pair in test/contrast.test.js. */
+	--qr-paper: #ffffff;
+	--qr-ink: #000000;
+
 	--font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
 	--mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 	--radius: 10px;
@@ -76,6 +84,10 @@
 		--danger: #8a2f28;
 		--success: #3a5c46;
 		--trim-text: #44567a;
+
+		/* Unchanged on purpose — see the note at :root. */
+		--qr-paper: #ffffff;
+		--qr-ink: #000000;
 	}
 }
 
@@ -227,6 +239,73 @@ button:disabled {
 	color: var(--trim-text);
 	border-color: var(--line);
 	cursor: default;
+}
+
+/* A link that has to look and behave like the primary control, because on the trust step the thing
+ * he taps IS a download. A <button> cannot download a file and an <a> must not pretend to be a
+ * button for a screen reader, so it stays an <a> and is painted like one. Same tokens as
+ * button.primary, so the same computed contrast pair covers it. */
+
+.button-link {
+	display: inline-block;
+	flex: 1 1 auto;
+	min-height: 52px;
+	padding: 13px 20px;
+	border: 1px solid var(--gold);
+	border-radius: var(--radius);
+	background: var(--gold);
+	color: var(--on-gold);
+	font-size: 18px;
+	font-weight: 600;
+	line-height: 26px;
+	text-align: center;
+	text-decoration: none;
+	word-break: break-all;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.button-link:focus-visible {
+	outline: 3px solid var(--gold);
+	outline-offset: 2px;
+}
+
+/* An inline link inside a .detail line. Underlined, because a link that is only a different color
+ * is a link nobody colorblind can find. */
+.plain-link {
+	color: var(--gold-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+/* The numbered taps on the trust step. */
+.steps {
+	margin: 0 0 12px;
+	padding-left: 24px;
+	color: var(--ink);
+	font-size: 16px;
+}
+
+.steps li { margin-bottom: 6px; }
+
+/* The QR code's paper. The 1px edge is what stops white paper vanishing into the light theme's
+ * ivory ground; --line-control against --ground is asserted at 3:1 in both themes. */
+.qr {
+	margin: 0 0 12px;
+	padding: 12px;
+	border: 1px solid var(--line-control);
+	border-radius: var(--radius);
+	background: var(--qr-paper);
+	text-align: center;
+	line-height: 0;
+}
+
+.qr img {
+	width: 100%;
+	max-width: 264px;
+	height: auto;
+	/* Never smooth a QR code: interpolation between a black module and a white one is a grey module,
+	 * and grey modules are what a scanner gives up on. */
+	image-rendering: pixelated;
 }
 
 .row {

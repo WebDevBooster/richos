@@ -42,6 +42,18 @@ function localHostName() {
 	return raw.replace(/\.local\.?$/i, '').toLowerCase();
 }
 
+/**
+ * The host name as macOS SHOWS it — `MM1`, not `mm1`.
+ *
+ * Used only where a person reads it: the certificate authority's own name, and therefore the label
+ * on the switch he has to find in Settings. The page's instructions quote that label, so it has to
+ * be the same string iOS will put on the screen.
+ */
+function displayHostName() {
+	const fromScutil = process.platform === 'darwin' ? run('/usr/sbin/scutil', ['--get', 'LocalHostName']) : '';
+	return (fromScutil || os.hostname()).replace(/\.local\.?$/i, '');
+}
+
 /** The interface carrying the default route — the one the phone will reach us on. */
 function primaryInterface() {
 	if (process.platform !== 'darwin') return '';
@@ -91,4 +103,4 @@ function primaryName(options = {}) {
 	return `${options.hostName || localHostName()}.local`;
 }
 
-module.exports = { localHostName, primaryInterface, lanAddresses, certificateNames, primaryName };
+module.exports = { localHostName, displayHostName, primaryInterface, lanAddresses, certificateNames, primaryName };
