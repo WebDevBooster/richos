@@ -84,6 +84,18 @@
            user does not have to think about. -->
       <div id="phone-ts-steps" hidden>
         <h3 class="phone-step-title">On your phone, four things</h3>
+        <!-- THE WHY COMES BEFORE THE STEPS, and it is here because the CEO said it is not obvious:
+             *"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially
+             given that I would normally absolutely NEVER use the same identity on the Mac and on
+             the phone."* A person whose habit is to keep two identities apart will follow a step
+             that says "sign in" and use the WRONG one, correctly by their own lights, and the
+             result is two networks that never see each other with nothing on either screen saying
+             why. So the reason is given before the instruction, and it names the habit it is
+             asking them to break. -->
+        <p class="overlay-note">Your Tailscale account <strong>is</strong> your private network.
+          Devices signed in to it can reach each other. So sign in on your phone with the same
+          account you used on your Mac, even if you normally keep them separate. Nothing else
+          connects them.</p>
         <ol class="phone-steps">
           <li class="overlay-note">Install Tailscale from the store.</li>
           <li class="overlay-note">Sign in with the <strong>same</strong> identity you used on this
@@ -333,7 +345,13 @@
       heading: "Sign in to Tailscale on this Mac",
       note1:
         "Tailscale is installed here but not signed in. Open it and sign in. Any of the sign-in choices it offers is fine, and the free plan is enough. I cannot do this part for you.",
-      note2: "Use the same account on your phone later. Two different accounts is the one mistake that makes this fail.",
+      // THE SHORTENED WHY, ON THE SCREEN WHERE THE IDENTITY IS ACTUALLY CHOSEN. Same CEO ruling as
+      // the phone screen's opening paragraph: he would "normally absolutely NEVER use the same
+      // identity on the Mac and on the phone", so the choice has to be made KNOWING it will be
+      // reused. Telling him afterwards, on the phone screen, is telling him after he has already
+      // picked — and by then the fix is signing out of an account he just created.
+      note2:
+        "Whichever you pick, you will sign in to the SAME one on your phone — your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
       url: "",
     },
     "certificates-off": {
