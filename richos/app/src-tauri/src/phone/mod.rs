@@ -48,6 +48,7 @@ pub mod routes;
 pub mod rows;
 pub mod secrets;
 pub mod stream;
+pub mod tailnet;
 
 use std::fmt;
 
@@ -271,7 +272,26 @@ pub struct PhoneRuntime {
     /// until a listener runs, so there is no second code path for "attach the emitter later".
     hub: Arc<stream::PhoneHub>,
     running: Mutex<Option<Running>>,
+    /// The last answer [`tailnet::detect`] gave, and when. See [`PhoneRuntime::tailnet_now`].
+    tailnet: Mutex<Option<(u64, tailnet::TailnetState)>>,
 }
+
+/// How long a Tailscale detection is reused before the daemon is asked again.
+///
+/// **This is Urban's open seam 4** (`richos-tailscale-how-to-screens-2026-09-19.md` §6): screens 2,
+/// 3 and 7 redraw themselves as the user installs, signs in and enables certificates, with no
+/// action of theirs, so *"the screens only require that [a poll interval] exists and that `Check
+/// again` forces it."*
+///
+/// **Two seconds**, and the number is the screen's rather than the daemon's. A person who has just
+/// clicked *Sign in* in another app looks back at this one within a second or two; a redraw slower
+/// than that reads as the screen being broken, and one faster buys nothing a human can see. The
+/// cost at that rate is one short-lived subprocess every two seconds **and only while the sheet is
+/// open** — the sheet is the only caller of `phone_status`, and it stops polling when it closes.
+///
+/// On the overwhelmingly common Mac it costs no subprocess at all: [`tailnet::find_cli`] answers
+/// `Absent` from four `stat` calls without spawning anything.
+pub const TAILNET_RECHECK_MS: u64 = 2_000;
 
 struct Running {
     listener: listen::Listener,
@@ -306,6 +326,58 @@ pub struct PhoneStatus {
     pub bound: Vec<String>,
     /// Seconds left in the pairing window, or `None` when none is open.
     pub pairing_seconds_left: Option<u64>,
+    /// Where this Mac is on the Tailscale path — the ONLY input that selects a how-to screen.
+    pub tailnet: TailnetView,
+}
+
+/// **What the how-to screens draw themselves from** — Urban's state table
+/// (`richos-hq/docs/design/richos-tailscale-how-to-screens-2026-09-19.md` §3), whose first column
+/// is a Mac-side detection state and nothing else: *"Detection state is the only input that selects
+/// a screen."*
+///
+/// Four fields and no more. In particular there is **no `route`**: Urban's §3 is explicit that the
+/// user's Anywhere / At-home choice *"is held in the sheet for the life of one open, never
+/// persisted"*, so it is the screen's to remember and would be a bug for the Mac to store.
+#[derive(serde::Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TailnetView {
+    /// The stable token — `absent`, `needs-sign-in`, `certificates-off`, `ready`, and so on.
+    /// Never a sentence, never translated; the screen switches on this.
+    pub state: &'static str,
+    /// This Mac's tailnet name, when it has one. Known in `certificates-off` as well as in
+    /// `ready`, because Urban's screen 7 shows the user which machine it is talking about.
+    pub name: Option<String>,
+    /// The origin the phone would pair with — **present only when it would actually work.**
+    pub origin: Option<String>,
+    /// One sentence he can read, in his terms. A floor for the screen's copy, never a ceiling.
+    pub sentence: &'static str,
+    /// **"Apple as alex@icloud.com"** — which account this Mac is signed in to, phrased once here
+    /// so the Mac's screen and the phone's screen cannot word it differently.
+    ///
+    /// The CEO signed in with Apple on the Mac and Google on the Android and *"had no way to know
+    /// they were different networks, or which to reuse"*. Two providers are two tailnets; the
+    /// devices never meet, and the phone just says it cannot connect. A screen saying *"use the
+    /// same account"* cannot fix that, because he does not know which one he used. This does.
+    pub account: Option<String>,
+    /// **The name of a phone that is already on this tailnet**, or `None`.
+    ///
+    /// The CEO's estimate is that the mismatched-account failure hits 9 in 10 users, so the screen
+    /// DETECTS it rather than only warning about it. `None` while the user is on the phone step
+    /// means the phone has not joined — which, after a reasonable wait, means a different account.
+    pub phone: Option<String>,
+}
+
+impl From<&tailnet::TailnetState> for TailnetView {
+    fn from(state: &tailnet::TailnetState) -> Self {
+        TailnetView {
+            state: state.token(),
+            name: state.name().map(|n| n.to_string()),
+            origin: state.origin(),
+            sentence: state.sentence(),
+            account: state.account().map(|a| a.described()),
+            phone: state.phone().map(|p| p.to_string()),
+        }
+    }
 }
 
 impl PhoneRuntime {
@@ -316,11 +388,57 @@ impl PhoneRuntime {
     pub fn install(data_dir: std::path::PathBuf) -> (Arc<Self>, Box<dyn richos_core::live::LiveObserver>) {
         let hub = stream::PhoneHub::new();
         let emitter = Box::new(stream::PhoneLiveEmitter::new(Arc::clone(&hub)));
-        let runtime = Arc::new(PhoneRuntime { data_dir, hub, running: Mutex::new(None) });
+        let runtime = Arc::new(PhoneRuntime {
+            data_dir,
+            hub,
+            running: Mutex::new(None),
+            tailnet: Mutex::new(None),
+        });
         (runtime, emitter)
     }
 
+    /// Where this Mac is on the Tailscale path, asked at most once every
+    /// [`TAILNET_RECHECK_MS`].
+    ///
+    /// **The cache is the whole reason this is a method rather than a call to
+    /// [`tailnet::detect`].** [`PhoneRuntime::status`] is polled by an open sheet, and the states
+    /// the user is waiting to leave — installing, signing in, enabling certificates — are exactly
+    /// the ones a screen redraws itself out of. Without a ceiling, that is a subprocess per poll.
+    ///
+    /// **It is never held across the `running` lock.** `status()` takes this first and finishes
+    /// with it before it touches anything else, for the reason `push_last_reply` records at
+    /// length: a lock held across a subprocess is a settings screen that freezes.
+    fn tailnet_now(&self) -> tailnet::TailnetState {
+        let mut cached = self.tailnet.lock().unwrap();
+        let now = now_millis();
+        if let Some((asked_at, state)) = cached.as_ref() {
+            if now.saturating_sub(*asked_at) < TAILNET_RECHECK_MS {
+                return state.clone();
+            }
+        }
+        let (state, diagnostic) = tailnet::detect();
+        if let Some(diagnostic) = diagnostic {
+            // The LABEL, never the output. See `tailnet::Diagnostic`.
+            if !matches!(diagnostic, tailnet::Diagnostic::NotInstalled) {
+                eprintln!("[richos] {}", diagnostic.label());
+            }
+        }
+        *cached = Some((now, state.clone()));
+        state
+    }
+
+    /// Ask the daemon again on the next [`PhoneRuntime::status`], whatever the cache says.
+    ///
+    /// This is the Mac's half of Urban's `Check again` control: the user has just done the thing
+    /// the screen asked for and wants to see it land, and waiting out a recheck interval to be
+    /// told so reads as the button doing nothing.
+    pub fn recheck_tailnet(&self) {
+        *self.tailnet.lock().unwrap() = None;
+    }
+
     pub fn status(&self) -> PhoneStatus {
+        // FIRST, and out of the way, so no subprocess ever runs under the `running` lock.
+        let tailnet = TailnetView::from(&self.tailnet_now());
         let running = self.running.lock().unwrap();
         let Some(running) = running.as_ref() else {
             return PhoneStatus {
@@ -334,6 +452,11 @@ impl PhoneRuntime {
                 fingerprint_hex: None,
                 bound: Vec::new(),
                 pairing_seconds_left: None,
+                // THE CHANNEL BEING OFF IS THE COMMON CASE FOR THESE SCREENS, and the reason
+                // detection is not inside `Running`. Screens 2, 3 and 7 all draw before anything
+                // is listening: the user has not paired a phone yet, which is the entire point of
+                // the screen they are reading.
+                tailnet,
             };
         };
         let device = running.channel.devices.paired();
@@ -354,6 +477,7 @@ impl PhoneRuntime {
                 let elapsed = now_millis().saturating_sub(w.opened_at);
                 PAIRING_WINDOW_MS.saturating_sub(elapsed) / 1000
             }),
+            tailnet,
         }
     }
 
@@ -632,4 +756,70 @@ struct Gathered {
 /// `build.rs` compiled in, and a build that embedded nothing does not compile.
 fn phone_assets() -> assets::PhoneApp {
     assets::PhoneApp::embedded()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The six key names `ui/phone.js` reads.** A rename on this side is a screen that draws
+    /// nothing, silently, and serde's `rename_all` makes that a one-character mistake — so the
+    /// wire shape is asserted rather than left to the attribute.
+    #[test]
+    fn the_view_the_screens_read_is_six_camel_case_fields() {
+        let view = TailnetView::from(&tailnet::TailnetState::Ready {
+            name: "mm1.tail1a2b3c.ts.net".into(),
+            addresses: vec![],
+            account: Some(tailnet::Account {
+                login_name: "someone@icloud.com".into(),
+                provider: Some("Apple"),
+            }),
+            phone: Some("alexs-iphone".into()),
+        });
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["state"], "ready");
+        assert_eq!(json["name"], "mm1.tail1a2b3c.ts.net");
+        assert_eq!(json["origin"], "https://mm1.tail1a2b3c.ts.net:8443");
+        assert!(json["sentence"].as_str().unwrap().len() > 30);
+        // THE PHRASE THE PHONE SCREEN REPEATS BACK, built once on this side so the Mac's screen
+        // and the phone's screen cannot word it differently.
+        assert_eq!(json["account"], "Apple as someone@icloud.com");
+        assert_eq!(json["phone"], "alexs-iphone");
+        assert_eq!(json.as_object().unwrap().len(), 6, "the view grew a field the screens do not read");
+    }
+
+    #[test]
+    fn a_mac_with_no_tailscale_still_gets_a_view_with_a_sentence_in_it() {
+        // Urban's §3 row 2 is a screen drawn on exactly this state, so "absent" has to arrive as
+        // a drawable thing rather than as an absent field.
+        let json = serde_json::to_value(TailnetView::from(&tailnet::TailnetState::Absent)).unwrap();
+        assert_eq!(json["state"], "absent");
+        assert!(json["origin"].is_null());
+        assert!(json["name"].is_null());
+        assert!(json["sentence"].as_str().unwrap().contains("Tailscale is not on this Mac"));
+    }
+
+    #[test]
+    fn the_name_survives_certificates_being_off_because_screen_seven_shows_it() {
+        // The state whose whole job is "I know which Mac you mean, and it cannot be certified
+        // yet". Dropping the name here would leave Urban's screen 7 with nothing to name.
+        let json = serde_json::to_value(TailnetView::from(
+            &tailnet::TailnetState::CertificatesOff {
+                name: "mm1.tail1a2b3c.ts.net".into(),
+                account: None,
+                phone: None,
+            },
+        ))
+        .unwrap();
+        assert_eq!(json["state"], "certificates-off");
+        assert_eq!(json["name"], "mm1.tail1a2b3c.ts.net");
+        assert!(json["origin"].is_null(), "an origin was offered with no certificate behind it");
+    }
+
+    /// The recheck interval is Urban's seam 4, so the number is asserted where a reader of the
+    /// screens' document can find it rather than only in a `const`.
+    #[test]
+    fn the_recheck_interval_is_the_two_seconds_the_screens_were_specified_against() {
+        assert_eq!(TAILNET_RECHECK_MS, 2_000);
+    }
 }
