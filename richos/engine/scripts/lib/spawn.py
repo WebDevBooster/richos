@@ -113,6 +113,21 @@ PROV = _load("richos_brief_provenance",
              os.path.join(ENGINE, "ass-kicker", "brief-provenance.py"))
 SCOPE = _load("richos_brief_scope",
               os.path.join(ENGINE, "ass-kicker", "brief-scope.py"))
+AUDIENCE = _load("richos_spawn_guard_audience",
+                 os.path.join(HERE, "spawn-guard-audience.py"))
+
+# `--audience app` — WHO IS THIS DISPATCH FOR, AND THEREFORE WHOSE GUARDS JUDGE
+# IT. The RichOS desktop app dispatches background work on a non-technical
+# user's own Mac; the development session dispatches teammates. They are not
+# the same audience and they never were, but until 2026-09-18 they shared one
+# guard surface by default and the app's short list was typed by hand in two
+# places instead of being derived from anything.
+#
+# In `app` audience this command evaluates ONLY the guards
+# spawn-guard-audience.declaration puts on the `user-work` side, and a refusal
+# is reported in the APP'S OWN WORDS from that same declaration. `operator` is
+# the default and is byte-for-byte today's behavior.
+APP, OPERATOR = "app", "operator"
 
 
 class Refusal(Exception):
@@ -420,6 +435,77 @@ def guard_name(cmd):
     return (cmd.split() or ["?"])[0][:60]
 
 
+def for_audience(guards, audience):
+    """(guards this audience is judged by, notes about what was left out).
+
+    `operator` keeps every guard, unchanged. `app` keeps only the `user-work`
+    rows of spawn-guard-audience.declaration.
+
+    AN UNDECLARED GUARD IS NOT RUN FOR THE APP, and it is NAMED rather than
+    dropped quietly. That direction is the declaration's, and the reason is
+    that "judged only by guards whose reason protects the user's own work" is
+    an allowlist: a guard nobody classified has not been shown to protect
+    anything of the user's, and the app dying at spawn over an unreviewed new
+    guard is the exact failure this exists to end. The other hazard — a real
+    user-work guard silently falling off the app's list — is closed at
+    development time by scripts/lib/spawn-guard-audience.test.py, which fails
+    the moment hooks.json and the declaration disagree either way."""
+    if audience != APP:
+        return guards, []
+    rows = {row["id"]: row for row in AUDIENCE.load()}
+    kept, notes = [], []
+    for label, source, cmd in guards:
+        row = rows.get(guard_name(cmd))
+        if row is None:
+            notes.append("not run (nobody has classified it): %s" % guard_name(cmd))
+        elif row["audience"] == AUDIENCE.USER_WORK:
+            kept.append((label, source, cmd))
+        else:
+            notes.append("not run (its reason is the development session's, not this user's): %s"
+                         % guard_name(cmd))
+    return kept, notes
+
+
+def app_problems_from(results):
+    """A refusal the app's user can still see, IN THE APP'S OWN WORDS.
+
+    THE RAW GUARD OUTPUT NEVER LEAVES THIS FUNCTION, on either channel. Not
+    because it would be embarrassing, but because the sentence the front desk
+    says is read off whatever this command printed: `mega-lander/app.py`'s
+    `run()` raises with our stderr, the work tool hands that to the model, and
+    the model says it. A guard's own text is written for an operator in a
+    terminal — it names files, flags and acknowledgement lines — and on a
+    user's screen it is noise wearing the costume of an explanation. So the
+    declaration carries the app's sentence for every guard the app runs, and
+    that sentence is the only thing that comes out of here. A developer who
+    needs the guard's own words re-runs the same command with `--audience
+    operator`, which prints all of it."""
+    out = []
+    for r in results:
+        if r["verdict"] != "blocked":
+            continue
+        message = AUDIENCE.user_message(r["name"])
+        out.append({"headline": message or
+                    "I could not set this work up safely, so I did not start it. "
+                    "Nothing was created.", "detail": ""})
+    return out
+
+
+def redacted_for_app(results):
+    """The guard table, with every guard's raw output replaced by the declared
+    reason. Emitted on stdout for anyone inspecting a run; there is deliberately
+    nothing operator-worded left in it, so no future reader of this command's
+    stdout can leak one to a user."""
+    rows = {row["id"]: row for row in AUDIENCE.load()}
+    out = []
+    for r in results:
+        row = rows.get(r["name"], {})
+        clean = dict(r)
+        clean["output"] = row.get("reason", "")
+        out.append(clean)
+    return out
+
+
 def expand(cmd, project_dir):
     for var, val in (("CLAUDE_PROJECT_DIR", project_dir), ("CLAUDE_PLUGIN_ROOT", ENGINE)):
         cmd = cmd.replace("${%s}" % var, val).replace("$%s" % var, val)
@@ -537,6 +623,20 @@ def report_problems(title, problems, out=sys.stderr):
           file=out)
 
 
+def report_app_refusal(problems, out=sys.stderr):
+    """What the app says. Nothing else is on this channel.
+
+    The operator's report opens `spawn: refused by 1 of 9 guard(s) - NOTHING
+    WAS CREATED.`, numbers each problem, quotes the guard verbatim and prints a
+    table of every guard's verdict. Every one of those is right for a terminal
+    and wrong for a person who asked Rich to get something done: the count of
+    guards is not his business, `spawn` is not a word he has, and the table
+    describes machinery he does not have to know exists. So this prints the
+    declared sentence and stops."""
+    for p in problems:
+        print(p["headline"], file=out)
+
+
 def problems_from(results):
     out = []
     for r in results:
@@ -561,6 +661,7 @@ USAGE = """usage: spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
                 [--base [<repo>=]<ref>] [--dir [<repo>=]<path>]
                 [--integration [<repo>=]<branch>]
                 [--integration-why <text>] [--payload-out <file>] [--json] [--dry-run]
+                [--audience operator|app]
 
   <teammate-name>      <role>-<model>-<identifier>, e.g. zach-opus-spawn1
   --repo <repo>        absolute path, OR a bare name where it is unambiguous.
@@ -577,6 +678,12 @@ USAGE = """usage: spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
                        --integration <repo>=<branch>
   --dir <path>         where to put the workspace; with several --repo, scope
                        it the same way: --dir <repo>=<path>
+  --audience <who>     whose guards judge this dispatch. `operator` (default)
+                       runs every registered PreToolUse[Agent] guard. `app` is
+                       the RichOS desktop app dispatching work on its user's own
+                       Mac: it runs only the guards
+                       spawn-guard-audience.declaration puts on the `user-work`
+                       side, and reports a refusal in the app's own words.
   --dry-run            evaluate everything and create nothing
   --json               machine-readable result on stdout instead of the payload
 
@@ -589,11 +696,12 @@ Exit 0 ready; 1 refused (nothing created); 2 usage; 4 created but rolled back.
 def parse_args(argv):
     args = {"name": "", "repos": [], "type": "", "brief": "", "model": "", "description": "",
             "bases": [], "dirs": [], "integrations": [], "integration_why": "", "payload_out": "",
-            "json": False, "dry_run": False, "project_dir": ""}
+            "json": False, "dry_run": False, "project_dir": "", "audience": OPERATOR}
     flags = {"--type": "type", "--brief": "brief", "--model": "model",
              "--description": "description",
              "--integration-why": "integration_why",
-             "--payload-out": "payload_out", "--project-dir": "project_dir"}
+             "--payload-out": "payload_out", "--project-dir": "project_dir",
+             "--audience": "audience"}
     # REPEATABLE, which is this engine's convention for a list-valued option
     # (`--repo` in handoff-facts.py and ci-surface.py, `--workspace` in
     # containers.py, `--only` in workspace-probes.py are all action="append").
@@ -631,6 +739,8 @@ def parse_args(argv):
                 raise Refusal("unexpected argument %r" % a)
             args["name"] = a
             i += 1
+    if args["audience"] not in (APP, OPERATOR):
+        raise Refusal("--audience must be %s or %s" % (APP, OPERATOR))
     return args
 
 
@@ -732,20 +842,46 @@ def main(argv):
         report_problems("refused", [{"headline": str(exc), "detail": ""}])
         return 1
 
-    guards = collect_guards(project_dir)
-    if not guards:
+    registered = collect_guards(project_dir)
+    if not registered:
         report_problems("refused", [{
             "headline": "no PreToolUse[Agent] guard was found on any surface",
             "detail": "Sources looked at:\n  " + "\n  ".join(p for _l, p in
                                                              settings_sources(project_dir)) +
                       "\nRefusing to call that a pass: an unguarded spawn is not a verified one."}])
         return 1
+    # WHOSE GUARDS JUDGE THIS DISPATCH. A declaration that cannot be read is a
+    # refusal and never an empty allowlist: the app's guard surface is supposed
+    # to be a declared list, and an unreadable list is not a list.
+    try:
+        guards, audience_notes = for_audience(registered, args["audience"])
+    except AUDIENCE.DeclarationError as exc:
+        report_problems("refused", [{
+            "headline": "the spawn-guard classification could not be read, so nothing here "
+                        "knows which guards judge this dispatch",
+            "detail": str(exc)}])
+        return 1
+    for note in audience_notes:
+        notes.append("audience:    %s" % note)
+    if not guards:
+        # The same rule as "no guard was found", one level in: an app dispatch
+        # that ends up with an empty user-work list is unguarded, and an
+        # unguarded spawn is not a verified one whoever it is for.
+        report_problems("refused", [{
+            "headline": "no guard of this audience (%s) is registered for this dispatch"
+                        % args["audience"],
+            "detail": "Registered here: %s\nRefusing to call that a pass."
+                      % ", ".join(guard_name(c) for _l, _p, c in registered)}])
+        return 1
 
     pre = run_guards(guards, envelope_for(payload, session, project_dir, planned), project_dir)
-    problems = problems_from(pre)
+    problems = (app_problems_from(pre) if args["audience"] == APP else problems_from(pre))
     if problems:
-        report_problems("refused by %d of %d guard(s)" % (len(problems), len(guards)), problems)
-        _print_guard_table(pre)
+        if args["audience"] == APP:
+            report_app_refusal(problems)
+        else:
+            report_problems("refused by %d of %d guard(s)" % (len(problems), len(guards)), problems)
+            _print_guard_table(pre)
         return 1
 
     if args["dry_run"]:
@@ -786,19 +922,29 @@ def main(argv):
 
     # --- the same guards again, against the real thing ----------------------
     post = run_guards(guards, envelope_for(payload, session, project_dir, []), project_dir)
-    problems = problems_from(post)
+    problems = (app_problems_from(post) if args["audience"] == APP else problems_from(post))
     if problems:
-        report_problems("refused AFTER the workspace was created - rolling it back", problems)
-        _print_guard_table(post)
-        _rollback(session, args["name"], mine)
+        if args["audience"] == APP:
+            # Still the app's own words. The rollback below is what makes the
+            # declared sentence "Nothing was created." true on this path too.
+            report_app_refusal(problems)
+        else:
+            report_problems("refused AFTER the workspace was created - rolling it back", problems)
+            _print_guard_table(post)
+        _rollback(session, args["name"], mine, quiet=args["audience"] == APP)
         return 4
 
     _print_report(notes, post, guards, created, args, findings)
     return _emit(payload, args, post, notes, created)
 
 
-def _rollback(session, name, mine):
+def _rollback(session, name, mine, quiet=False):
     """On ANY failure of OUR OWN making, leave nothing behind.
+
+    `quiet` silences the operator-facing narration for an app dispatch. It never
+    silences a ROLLBACK FAILURE: that one means real state is left on the user's
+    machine, and §54 is that garbage either gets cleaned up or somebody is told
+    about it loudly.
 
     `mine` is false when a registration of this name already existed when this
     run started. Then the failure is "that name is taken", the workspace belongs
@@ -807,13 +953,16 @@ def _rollback(session, name, mine):
     question and does not cover this one: a registered, created, not-yet-spawned
     workspace looks the same whoever made it."""
     if not mine:
-        print("  left alone: %s was already registered before this run, so its workspace is not "
-              "this command's to withdraw. Pick a fresh identifier." % name, file=sys.stderr)
+        if not quiet:
+            print("  left alone: %s was already registered before this run, so its workspace is "
+                  "not this command's to withdraw. Pick a fresh identifier." % name,
+                  file=sys.stderr)
         return
     try:
         W.withdraw_cc(session, name, "its spawn was refused before it was made")
-        print("  rolled back: workspace, branch and registration withdrawn; the name %s is free "
-              "again." % name, file=sys.stderr)
+        if not quiet:
+            print("  rolled back: workspace, branch and registration withdrawn; the name %s is "
+                  "free again." % name, file=sys.stderr)
     except W.SpecError as exc:
         if "there is no registration" not in str(exc):
             print("  ROLLBACK FAILED: %s" % exc, file=sys.stderr)
@@ -866,8 +1015,14 @@ def _emit(payload, args, results, notes, created):
                   file=sys.stderr)
             return 1
     if args["json"]:
+        # In `app` audience the guard table carries the DECLARED REASON in place
+        # of each guard's own output, so there is nothing operator-worded left
+        # on this channel either. `mega-lander/app.py` reads this JSON and could
+        # one day put part of it in front of a person; that must not be a thing
+        # anyone has to remember.
+        table = redacted_for_app(results) if args["audience"] == APP else results
         print(json.dumps({"ready": True, "payload": payload, "created": created, "notes": notes,
-                          "guards": results}, indent=2))
+                          "audience": args["audience"], "guards": table}, indent=2))
     else:
         print(text)
     return 0

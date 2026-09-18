@@ -492,6 +492,186 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+echo "  --audience app: the RichOS app's own dispatch"
+# ---------------------------------------------------------------------------
+# WHAT THESE PROVE, and the order matters: the operator case is asserted FIRST
+# against the same refusing guard, so a green app case cannot be a green for
+# some unrelated reason. On 2026-09-18 an app dispatch on this machine was
+# refused by guard-owned-state.sh over the DEVELOPMENT session's paused CI, in
+# the development session's words, with the front desk holding neither of that
+# guard's two ways out. A user cannot dispatch somebody at a paused CI and
+# cannot add an acknowledgement line to a brief he never sees.
+AUD="$SANDBOX/audience.declaration"
+cat >"$AUD" <<'D'
+id: always-ok.sh
+audience: user-work
+reason: fixture
+user_message: The fixture's always-ok guard refused. Nothing was created.
+
+id: guard-worktree-isolation.sh
+audience: user-work
+reason: fixture
+user_message: I could not give this work its own separate copy of your project. Nothing was created.
+
+id: refuse-after-create.sh
+audience: user-work
+reason: fixture
+user_message: The fixture's after-create guard refused. Nothing was created.
+
+id: refuse-a.sh
+audience: operator-session
+reason: fixture, and its reason is the development session's
+
+id: refuse-b.sh
+audience: operator-session
+reason: fixture, and its reason is the development session's
+D
+
+# 1. THE CASE THIS WHOLE SLICE IS: an operator-session guard refusing does NOT
+#    refuse the app. Proven in both audiences on ONE refusing guard.
+REFUSE_A=1 run "zach-sonnet-aud1" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "GUARD A REFUSES"; then
+    ok "operator audience: a refusing guard refuses the dispatch (the control for the next case)"
+else
+    bad "operator audience: a refusing guard refuses" "rc=$RC $OUT"
+fi
+
+REFUSE_A=1 RICHOS_SPAWN_GUARD_AUDIENCE="$AUD" run "zach-sonnet-aud2" --repo "$TARGET" \
+    --type zach --brief "$BRIEF" --dry-run --audience app
+if [ "$RC" -eq 0 ]; then
+    ok "app audience: an operator-session guard's refusal does NOT refuse the app"
+else
+    bad "app audience: an operator-session guard's refusal does not refuse the app" "rc=$RC $OUT"
+fi
+
+# 2. AND IT IS NOT RUN AT ALL, not merely ignored. A guard that runs and is
+#    overruled still costs the user its runtime and still writes whatever it
+#    writes.
+if printf '%s' "$OUT" | grep -q "GUARD A REFUSES"; then
+    bad "app audience: the operator-session guard was not even run" "its output is in the report"
+else
+    ok "app audience: the operator-session guard is not run at all, not run-and-ignored"
+fi
+if printf '%s' "$OUT" | grep -q "not run (its reason is the development session's"; then
+    ok "app audience: what was left out is NAMED, never dropped quietly"
+else
+    bad "app audience: what was left out is named" "$OUT"
+fi
+
+# 3. A REFUSAL A USER CAN STILL SEE IS IN THE APP'S OWN WORDS. The user-work
+#    guard here is the real guard-worktree-isolation.sh, refusing on a real
+#    defect (a bare name), so this is not a fixture talking to itself.
+RICHOS_SPAWN_GUARD_AUDIENCE="$AUD" run "bare" --repo "$TARGET" --type zach \
+    --brief "$BRIEF" --dry-run --audience app
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" \
+       | grep -q "I could not give this work its own separate copy of your project"; then
+    ok "app audience: a user-work guard's refusal reaches the caller in the app's own words"
+else
+    bad "app audience: a user-work refusal is in the app's own words" "rc=$RC $OUT"
+fi
+APP_OUT="$OUT"
+# THE POSITIVE PROBE FOR THE FIVE CASES BELOW. A list of "this string is absent"
+# checks passes on an empty string, so the SAME refusal is taken in operator
+# audience first and every one of those strings must be PRESENT in it. Without
+# this, five green cases would prove only that something went wrong.
+#
+# IT EARNED ITS KEEP THE FIRST TIME IT RAN. The list began with six strings,
+# and "cross-repo-worktree" is not in THIS refusal's operator text at all, so
+# that case was asserting the absence of something that was never there. It is
+# gone; the five that remain are all present in the operator report.
+run "bare" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run
+OPERATOR_OUT="$OUT"
+MISSING=""
+for LEAK in "isolation" "REFUSES this spawn" "guards evaluated" \
+            "NOTHING WAS CREATED" "problem(s)"; do
+    printf '%s' "$OPERATOR_OUT" | grep -qF "$LEAK" || MISSING="$MISSING $LEAK"
+done
+if [ -z "$MISSING" ]; then
+    ok "the five absent-string cases below can go red: the operator report contains all five"
+else
+    bad "the five absent-string cases below can go red" "operator report is missing:$MISSING"
+fi
+
+for LEAK in "isolation" "REFUSES this spawn" "guards evaluated" \
+            "NOTHING WAS CREATED" "problem(s)"; do
+    if printf '%s' "$APP_OUT" | grep -qF "$LEAK"; then
+        bad "app audience: the refusal carries no operator text ($LEAK)" "$APP_OUT"
+    else
+        ok "app audience: the refusal carries no operator text ($LEAK)"
+    fi
+done
+
+# 4. AN UNDECLARED GUARD IS NOT RUN FOR THE APP, and is named. refuse-b.sh is
+#    removed from the declaration for this one case only.
+cat >"$AUD.partial" <<'D'
+id: always-ok.sh
+audience: user-work
+reason: fixture
+user_message: The fixture's always-ok guard refused. Nothing was created.
+
+id: guard-worktree-isolation.sh
+audience: user-work
+reason: fixture
+user_message: I could not give this work its own separate copy of your project. Nothing was created.
+D
+REFUSE_B=1 RICHOS_SPAWN_GUARD_AUDIENCE="$AUD.partial" run "zach-sonnet-aud4" --repo "$TARGET" \
+    --type zach --brief "$BRIEF" --dry-run --audience app
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "not run (nobody has classified it): refuse-b.sh"; then
+    ok "app audience: an undeclared guard is not run, and is named as not run"
+else
+    bad "app audience: an undeclared guard is not run and is named" "rc=$RC $OUT"
+fi
+
+# 5. AN EMPTY USER-WORK LIST IS A REFUSAL, NEVER A SILENT PASS. "An unguarded
+#    spawn is not a verified one" holds whoever the dispatch is for.
+cat >"$AUD.none" <<'D'
+id: always-ok.sh
+audience: operator-session
+reason: fixture
+
+id: guard-worktree-isolation.sh
+audience: operator-session
+reason: fixture
+
+id: refuse-a.sh
+audience: operator-session
+reason: fixture
+
+id: refuse-b.sh
+audience: operator-session
+reason: fixture
+
+id: refuse-after-create.sh
+audience: operator-session
+reason: fixture
+D
+RICHOS_SPAWN_GUARD_AUDIENCE="$AUD.none" run "zach-sonnet-aud5" --repo "$TARGET" \
+    --type zach --brief "$BRIEF" --dry-run --audience app
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "no guard of this audience"; then
+    ok "app audience: an empty user-work list refuses, rather than passing unguarded"
+else
+    bad "app audience: an empty user-work list refuses" "rc=$RC $OUT"
+fi
+
+# 6. AN UNREADABLE DECLARATION IS A REFUSAL, NEVER AN EMPTY ALLOWLIST.
+RICHOS_SPAWN_GUARD_AUDIENCE="$SANDBOX/no-such.declaration" run "zach-sonnet-aud6" \
+    --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run --audience app
+if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "classification could not be read"; then
+    ok "app audience: an unreadable classification refuses, rather than allowing everything"
+else
+    bad "app audience: an unreadable classification refuses" "rc=$RC $OUT"
+fi
+
+# 7. THE DEFAULT IS UNCHANGED. Every case above this section ran without
+#    --audience and is the proof; this one states it.
+run "zach-sonnet-aud7" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run --audience nonsense
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "audience must be"; then
+    ok "an unknown --audience is refused by name"
+else
+    bad "an unknown --audience is refused by name" "rc=$RC $OUT"
+fi
+
+# ---------------------------------------------------------------------------
 echo "  REAL SURFACES (not hermetic, on purpose)"
 # ---------------------------------------------------------------------------
 # THREE ASSERTIONS, THREE DIFFERENT SURFACES, AND EACH ONE ANSWERS FOR ITSELF.
