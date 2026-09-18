@@ -310,11 +310,26 @@ struct Outcome {
     tainted_discards: usize,
     other_discards: usize,
     barge_ins: usize,
+    /// **`utterance START` lines — the artifact Ray's walk found MISSING.** Counted separately
+    /// from admission on purpose: a start that is later discarded as echo is still the app
+    /// noticing a sound, and it is the only thing the notice layer can hang a card on. Zero
+    /// starts is a different defect from zero admissions and the record conflated them.
+    starts: usize,
+    /// Of those, the ones born `tainted=true` — Rich was audible, so nothing of his is
+    /// submitted. This is the count that must be non-zero for a real interruption during an
+    /// answer: heard, acknowledged, not submitted.
+    tainted_starts: usize,
 }
 
 fn tally(msgs: &[CapMsg], out: &mut Outcome) {
     for m in msgs {
         match m {
+            CapMsg::Started { tainted, .. } => {
+                out.starts += 1;
+                if *tainted {
+                    out.tainted_starts += 1;
+                }
+            }
             CapMsg::Utterance(u) => {
                 out.admitted += 1;
                 out.admitted_secs.push(u.samples.len() as f32 / SAMPLE_RATE as f32);
@@ -864,4 +879,370 @@ fn separating_the_ceo_from_richs_echo_by_level_needs_a_margin_this_large() {
         "the residual's own spread is only {spread:.1} dB, so a level discriminator may now be \
          worth building — re-derive the decision recorded in the verification note"
     );
+}
+
+// =============================================================================================
+// THE NEAR-END TALKER — the case observation C could not test
+// =============================================================================================
+//
+// **WHY THIS SECTION EXISTS, AND WHAT IT CORRECTS.**
+//
+// Ray's candidate-.6 walk (`docs/verification/2026-09-17-nightly-1.2.0-20260917.6-onscreen-
+// audit.md`, observation C) recorded that a deliberate talk-over produced *"NO utterance START
+// logged for it at all"*, and that was read as a defect at the 7-frame onset. The walk's own
+// command log, in the same file, is the correction:
+//
+// ```text
+//   21:35:01.262  say -v Samantha "Excuse me Rich, you can stop counting now."   (playback 4)
+// ```
+//
+// `say` renders to the DEFAULT OUTPUT DEVICE — the same Mac mini speakers Rich's answer was
+// coming out of, at the same output volume 85. So the "interruption" took the identical
+// loudspeaker-to-microphone path as the echo and arrived at the Wave:3 at the echo's own level.
+// Audit-5 printed that level while discarding it: **residual -44.7 dBFS**
+// (`2026-09-17-nightly-1.2.0-20260917.5-onscreen-audit-2.md:449`), and
+// `separating_the_ceo_from_richs_echo_by_level_needs_a_margin_this_large` above measures Rich's
+// echo ALONE on this rig at median -48.6, p90 -40.2, p99 -36.2, peak -34.3 dBFS. -44.7 sits
+// inside that distribution. The harness was not a person interrupting; it was a second echo.
+//
+// A person interrupting is NEAR-END: his voice reaches the microphone directly, never through
+// the speakers, and therefore never enters the reference the canceller subtracts. That is the
+// case the whole half-duplex design turns on, and no test drove it at a near-field level while
+// Rich was audible. These do.
+//
+// Nothing here plays a sound: `say -o` renders to a file.
+
+/// Ray's own sentence, in Ray's own voice, synthesized OFFLINE to 16 kHz mono — the pipeline's
+/// native rate, so nothing is resampled between the synthesizer and the VAD.
+///
+/// `-o <file>` makes `say` write a WAV instead of playing it, so this suite makes no sound at
+/// any volume. Same mechanism `voiced_acceptance.rs` uses, and for the same reason: a model of
+/// a voice can be fitted to its own detector, so the speech here is real speech.
+fn say_offline(voice: &str, text: &str) -> Vec<f32> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!("richos-voice-near-end-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path =
+        dir.join(format!("{}.wav", SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let out = std::process::Command::new("/usr/bin/say")
+        .args(["-v", voice, "-o"])
+        .arg(&path)
+        .arg("--data-format=LEI16@16000")
+        .arg(text)
+        .output()
+        .unwrap_or_else(|e| panic!("could not run /usr/bin/say: {e}"));
+    assert!(
+        out.status.success(),
+        "`say -v {voice}` failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let bytes = std::fs::read(&path).unwrap();
+    let pcm = wav::read_pcm16(&bytes).unwrap();
+    assert_eq!(pcm.sample_rate, SAMPLE_RATE, "say did not honor --data-format");
+    let _ = std::fs::remove_file(&path);
+    wav::to_mono(&pcm.samples, pcm.channels)
+}
+
+fn dbfs(x: &[f32]) -> f32 {
+    20.0 * rms(x).max(1e-12).log10()
+}
+
+/// Scale a signal so its RMS over its whole length sits at `target` dBFS.
+fn at_dbfs(mut xs: Vec<f32>, target: f32) -> Vec<f32> {
+    let k = 10f32.powf(target / 20.0) / rms(&xs).max(1e-12);
+    for x in xs.iter_mut() {
+        *x *= k;
+    }
+    xs
+}
+
+impl Scene {
+    /// **A SOUND THAT REACHES THE MICROPHONE WITHOUT PASSING THROUGH THE SPEAKERS.** Summed
+    /// into the microphone track and into NOTHING ELSE: the reference is untouched, so the
+    /// canceller holds no copy of it to subtract and cannot attenuate it by even the 3-7 dB it
+    /// manages on Rich. That asymmetry IS the difference between a person at the desk and
+    /// `say` through the app's own output device.
+    fn near_end_talker(&mut self, at_frame: usize, signal: &[f32]) {
+        let lo = at_frame * VAD_FRAME_SAMPLES;
+        assert!(lo + signal.len() <= self.mic.len(), "the talker runs off the end of the scene");
+        for (i, s) in signal.iter().enumerate() {
+            self.mic[lo + i] += s;
+        }
+    }
+
+    /// Rich answering out loud for at least `secs`, as a chain of `say` invocations with the
+    /// synthesis gaps between them — the shape of the walk's *"one... two... three..."*, whose
+    /// deltas chunk into roughly one sentence per number (`chunk.rs:126-129`). The fixture
+    /// holds one sentence and the walk's answer ran 16.5 s, so it is re-entered at rotating
+    /// offsets rather than replayed from the same sample, which would make the echo periodic.
+    fn rich_answers_for(&mut self, secs: f32, label: &'static str) -> std::ops::Range<usize> {
+        let r0 = frames_for(RICH_STARTS_AT_SECS);
+        let sentence = frames_for(1.2);
+        let gap = frames_for(0.35);
+        let start = self.frames();
+        let mut done = 0.0;
+        let mut k = 0usize;
+        while done < secs {
+            let from = r0 + (k % 5) * frames_for(0.3);
+            self.rich_speaks(from, sentence, true, label);
+            done += frames_to_secs(sentence as u32);
+            self.synthesis_gap(from + sentence, gap, label);
+            done += frames_to_secs(gap as u32);
+            k += 1;
+        }
+        start..self.frames()
+    }
+}
+
+/// **THE MEASUREMENT BEHIND EVERY LEVEL IN THIS SECTION, PRINTED.** Nothing below picks a
+/// near-field level by feel; this is where a reviewer reads the anchors, and where a re-recorded
+/// fixture or a changed convention announces itself.
+#[test]
+fn the_levels_this_suite_reasons_about_are_measured_and_printed() {
+    let ray = say_offline("Samantha", "Excuse me Rich, you can stop counting now.");
+    let mic = read("-mic.wav");
+    println!(
+        "[measured] Ray's sentence, as synthesized: {:.1} dBFS, {:.3} s",
+        dbfs(&ray),
+        ray.len() as f32 / SAMPLE_RATE as f32
+    );
+    println!("[measured] the fixture's mic track at the walk's volume: {:.1} dBFS", dbfs(&mic));
+    println!("[measured] the CEO's quietest second of room: {:.1} dBFS", dbfs(&room_floor(63)));
+    println!("[measured] a_voice(), this file's CEO stand-in: {:.1} dBFS", dbfs(&a_voice(60, 1)));
+    println!("[record] Rich's echo residual here: median -48.6, p90 -40.2, p99 -36.2, peak -34.3 dBFS");
+    println!("[record] Ray's say-through-the-speakers talk-over, as the app measured it: -44.7 dBFS");
+    println!("[record] echo at the mic before cancellation, continuous playback: -40.2 dBFS");
+    println!("[record] the VAD's absolute speech floor: 0.005 rms = {:.2} dBFS", 20.0 * 0.005f32.log10());
+}
+
+/// **THE SWEEP THAT ANSWERS THE QUESTION.** One near-end talker, superimposed on the microphone
+/// 11 s into Rich's audible answer exactly as Ray's was, at every level from far below the echo
+/// up to a normal speaking voice. For each: did an `utterance START` happen at all?
+#[test]
+fn the_level_at_which_a_talker_over_rich_starts_an_utterance() {
+    let ray = say_offline("Samantha", "Excuse me Rich, you can stop counting now.");
+    let talker_secs = ray.len() as f32 / SAMPLE_RATE as f32;
+    println!(
+        "[sweep] talker: Ray's own sentence, {talker_secs:.3} s, superimposed 11.0 s into the answer"
+    );
+    println!(
+        "[sweep]         OVER RICH'S AUDIBLE ANSWER          | CONTROL: THE SAME TALKER, RICH SILENT"
+    );
+    println!(
+        "[sweep]  level  start  taint  adm  disc  barge  run | start  adm  disc  run"
+    );
+    let mut levels: Vec<f32> = (0..=24).map(|i| -52.0 + i as f32).collect();
+    levels.extend([-24.0, -20.0, -16.0, -12.0]);
+    for level in levels {
+        let talker = at_dbfs(ray.clone(), level);
+
+        // Over the answer, exactly where Ray's was: 11.0 s in, Rich still speaking.
+        let mut s = Scene::default();
+        s.quiet(frames_for(1.5), "the room, settling the VAD floor");
+        let answer = s.rich_answers_for(18.0, "Rich answers, out loud");
+        s.quiet(frames_for(2.0), "the answer is over");
+        let at = answer.start + frames_for(11.0);
+        s.near_end_talker(at, &talker);
+        let speaking = s.audible_speaking();
+        let (o, run) = replay_tracing_onset(&s, &speaking, at..at + frames_for(talker_secs));
+
+        // THE CONTROL. Identical talker, identical position in an identical-length scene, but
+        // Rich never plays: the same 18 s is the CEO's own room. The only variable between the
+        // two halves of this row is whether Rich is audible, so the difference between them is
+        // the whole cost the half-duplex window imposes on being heard.
+        let mut c = Scene::default();
+        c.quiet(frames_for(1.5), "the room, settling the VAD floor");
+        let start_c = c.frames();
+        c.quiet(answer.len(), "Rich says nothing at all");
+        c.quiet(frames_for(2.0), "still nothing");
+        let at_c = start_c + frames_for(11.0);
+        c.near_end_talker(at_c, &talker);
+        let speaking_c = c.audible_speaking();
+        let (oc, run_c) =
+            replay_tracing_onset(&c, &speaking_c, at_c..at_c + frames_for(talker_secs));
+
+        println!(
+            "[sweep] {level:6.1}  {:5}  {:5}  {:3}  {:4}  {:5}  {run:>3} | {:5}  {:3}  {:4}  {run_c:>3}",
+            o.starts,
+            o.tainted_starts,
+            o.admitted,
+            o.tainted_discards + o.other_discards,
+            o.barge_ins,
+            oc.starts,
+            oc.admitted,
+            oc.tainted_discards + oc.other_discards,
+        );
+    }
+}
+
+/// **THE PINNING TEST, AND THERE IS NO RED HALF OF IT.**
+///
+/// The brief this came from asked for the reproduced failure as a red-then-green test. There is
+/// no red: at a near-field level the onset already works, over an audible answer, on the CEO's
+/// own echo path, with the canceller unconfident. So what is pinned is the pair of facts that
+/// together explain Ray's walk without a defect in the onset rule —
+///
+/// 1. **Ray's talk-over level starts nothing, and that is CORRECT.** It arrived at the
+///    microphone at -44.7 dBFS because it came out of the same speakers as Rich, so it is
+///    indistinguishable by level from the echo (median -48.6, peak -34.3 dBFS). Anything that
+///    fired here would fire on Rich's own voice.
+/// 2. **A near-end voice at a near-field level starts a TAINTED utterance.** Heard, so the
+///    notice layer is reached and the half-duplex card can fire once; tainted, so nothing of
+///    Rich's is ever submitted — the invariant from `c712ccd5` is untouched.
+///
+/// If a future change to the VAD, the onset or the window breaks (2), this test goes red and the
+/// defect Ray looked for will genuinely exist. If a future change makes (1) start an utterance,
+/// Rich is about to start transcribing himself again.
+#[test]
+fn a_near_end_voice_over_richs_answer_starts_a_tainted_utterance_and_is_never_submitted() {
+    let ray = say_offline("Samantha", "Excuse me Rich, you can stop counting now.");
+    let talker_secs = ray.len() as f32 / SAMPLE_RATE as f32;
+
+    // The level Ray's harness actually reached at the microphone, as the running app measured
+    // it during audit-5 — not a level chosen here.
+    const HARNESS_THROUGH_THE_SPEAKERS_DBFS: f32 = -44.7;
+    // A voice at the microphone. `a_voice`'s own level, which this file has used as the CEO
+    // stand-in since the window work, and which `the_levels_...` prints: -24.8 dBFS. Stated as
+    // the measurement rather than as a constant so a change to `a_voice` cannot silently
+    // weaken this test.
+    let near_field_dbfs = dbfs(&a_voice(60, 1));
+    assert!(
+        near_field_dbfs < -15.0 && near_field_dbfs > -30.0,
+        "the CEO stand-in has moved to {near_field_dbfs:.1} dBFS — re-derive this test's premise"
+    );
+
+    let scene_with = |level: f32| {
+        let mut s = Scene::default();
+        s.quiet(frames_for(1.5), "the room, settling the VAD floor");
+        let answer = s.rich_answers_for(18.0, "Rich answers, out loud");
+        s.quiet(frames_for(2.0), "the answer is over");
+        let at = answer.start + frames_for(11.0);
+        s.near_end_talker(at, &at_dbfs(ray.clone(), level));
+        (s, at)
+    };
+
+    // (1) Rich's answer alone, with NO talker at all — the control that proves the scene is not
+    // simply starting utterances on its own.
+    let mut alone = Scene::default();
+    alone.quiet(frames_for(1.5), "the room, settling the VAD floor");
+    alone.rich_answers_for(18.0, "Rich answers, out loud");
+    alone.quiet(frames_for(2.0), "the answer is over");
+    let bare = replay(&alone, &alone.audible_speaking(), None);
+    assert_eq!(bare.admitted, 0, "Rich's own answer became a message: {bare:?}");
+
+    // (2) The harness's own talk-over level. Nothing starts, and nothing should: it is the echo.
+    let (s, at) = scene_with(HARNESS_THROUGH_THE_SPEAKERS_DBFS);
+    let (harness, _) =
+        replay_tracing_onset(&s, &s.audible_speaking(), at..at + frames_for(talker_secs));
+    assert_eq!(
+        harness.starts, bare.starts,
+        "audio at the echo's own level started an utterance the bare answer did not — a gate \
+         that fires on this fires on Rich: {harness:?} vs {bare:?}"
+    );
+    assert_eq!(harness.admitted, 0, "{harness:?}");
+
+    // (3) A near-end voice. It MUST be heard, it MUST be tainted, and it MUST NOT be submitted.
+    let (s, at) = scene_with(near_field_dbfs);
+    let (near, run) =
+        replay_tracing_onset(&s, &s.audible_speaking(), at..at + frames_for(talker_secs));
+    assert_eq!(
+        near.starts,
+        bare.starts + 1,
+        "a voice at {near_field_dbfs:.1} dBFS over Rich's answer started NO utterance — this is \
+         the defect the .6 walk was read as showing, and it is now real: {near:?}"
+    );
+    assert_eq!(
+        near.tainted_starts,
+        bare.tainted_starts + 1,
+        "the utterance was not born tainted, so Rich's own voice could be submitted: {near:?}"
+    );
+    assert_eq!(
+        near.admitted, 0,
+        "an utterance recorded while Rich was audible was submitted ({near:?}) — the invariant \
+         the whole-answer window exists for"
+    );
+    assert_eq!(
+        near.tainted_discards,
+        bare.tainted_discards + 1,
+        "the utterance did not reach a tainted discard, so the notice layer is not entered: {near:?}"
+    );
+    // And it did NOT barge in: 2.841 s of talking is under the 5.008 s the unconfident-canceller
+    // rule requires (313 x 256 / 16000 = 5.008 s, re-derived), so Rich is not cut off. That is
+    // the barge-in rule working, and it is a different gate from the one this test is about.
+    assert_eq!(near.barge_ins, 0, "{near:?}");
+    assert!(
+        run >= SPEECH_ONSET_FRAMES - 1,
+        "the onset run only reached {run} of the {SPEECH_ONSET_FRAMES} frames it needs"
+    );
+}
+
+/// **WHICH WAY THIS REPLAY ERRS, MEASURED.** `mic_gain_for_the_walks_volume` scales the whole
+/// microphone track, which scales the CEO's room noise with it — his room sits at -67.9 dBFS
+/// live (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md:86`) and at a good deal more
+/// than that here. A louder room means a higher adapted floor, which means a HIGHER onset bar
+/// than the live app has. So every level in the sweep above is conservative, and the conclusion
+/// drawn from it — that a near-field voice clears the onset comfortably — is safe in the right
+/// direction. Asserted rather than asserted-in-prose.
+#[test]
+fn the_replays_room_is_louder_than_the_ceos_so_its_onset_bar_is_the_pessimistic_one() {
+    let replayed_room = dbfs(&room_floor(63));
+    const LIVE_ROOM_DBFS: f32 = -67.9;
+    assert!(
+        replayed_room > LIVE_ROOM_DBFS,
+        "the replay's room ({replayed_room:.1} dBFS) is now QUIETER than the CEO's \
+         ({LIVE_ROOM_DBFS} dBFS), so the sweep is no longer the pessimistic bound it is read as"
+    );
+
+    // What the VAD actually settles to on each. `noise_floor * speech_ratio` versus the absolute
+    // floor is the whole of it: at his real room level the ratio term is far under the absolute
+    // floor, so the live threshold is PINNED at -46.02 dBFS and cannot be raised by the room.
+    let settled = |room: &[f32]| {
+        let mut vad = Vad::default();
+        for f in room.chunks_exact(VAD_FRAME_SAMPLES) {
+            vad.push_frame(f);
+        }
+        20.0 * vad.speech_threshold().max(1e-12).log10()
+    };
+    let here = settled(&room_floor(200));
+    let live_room: Vec<f32> = {
+        let quiet = room_floor(200);
+        let k = 10f32.powf(LIVE_ROOM_DBFS / 20.0) / rms(&quiet).max(1e-12);
+        quiet.iter().map(|s| s * k).collect()
+    };
+    let live = settled(&live_room);
+    println!(
+        "[measured] VAD speech threshold after settling: {here:.2} dBFS on the replay's room \
+         ({replayed_room:.1} dBFS), {live:.2} dBFS on the CEO's ({LIVE_ROOM_DBFS} dBFS) — the \
+         replay's onset bar is {:.2} dB higher than the live one",
+        here - live
+    );
+    assert!(here > live, "{here} vs {live}");
+    assert!(
+        (live - 20.0 * 0.005f32.log10()).abs() < 0.01,
+        "at the CEO's room level the threshold should be pinned at the absolute floor, got {live}"
+    );
+}
+
+/// `replay`, plus the peak onset run the endpointer reached inside `window` — the difference
+/// between *the VAD never called it speech* and *it was speech but never 7 frames in a row*.
+fn replay_tracing_onset(
+    scene: &Scene,
+    speaking: &[bool],
+    window: std::ops::Range<usize>,
+) -> (Outcome, u32) {
+    let (aec, ring) = EchoCanceller::new();
+    let mut brain = CaptureBrain::with_aec(aec);
+    let mut out = Outcome::default();
+    let mut peak = 0u32;
+    for i in 0..scene.frames() {
+        let lo = i * AEC_BLOCK;
+        ring.push(&scene.reference[lo..lo + AEC_BLOCK]);
+        let msgs = brain.push_frame(&scene.mic[lo..lo + AEC_BLOCK], speaking[i], false);
+        tally(&msgs, &mut out);
+        if window.contains(&i) {
+            peak = peak.max(brain.onset_run_frames());
+        }
+    }
+    assert!(!brain.aec_confident(), "the canceller became confident on the CEO's own echo path");
+    (out, peak)
 }
