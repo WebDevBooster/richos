@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Check 0 — let your iPhone trust this Mac</title>
+<meta name="theme-color" content="#0c1322" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eae6dd" media="(prefers-color-scheme: light)">
+<!-- The same stylesheet as the probe, so these are two screens of one thing rather than two
+     things, and so one contrast test covers both. -->
+<link rel="stylesheet" href="/styles.css">
+<!-- Deliberately no JavaScript. This page has to work before the phone trusts anything, and every
+     line of script would be a line that could fail at the one moment there is no fallback. -->
+</head>
+<body>
+
+<h1>Check 0: let this iPhone trust your Mac</h1>
+<p class="lede">About two minutes, sixteen taps and your passcode. Once, ever. Then checks 1 to 5 can run.</p>
+<p class="build">served by {{HOST}} over plain http, because the next part is what fixes that</p>
+
+<div class="banner">
+	<strong>Use Safari for this.</strong>
+	A configuration profile downloaded in any other browser will not install. If you arrived here from
+	a QR code, you are already in Safari.
+</div>
+
+<!-- ============================ Why ============================ -->
+<section class="step">
+	<div class="step-head"><span class="step-n">?</span><h2>Why this is needed at all</h2></div>
+	<p class="plain">The probe has to be served over HTTPS. An iPhone gives a plain page no microphone,
+	no notifications and no Add to Home Screen, so without HTTPS there is nothing to test.</p>
+	<p>HTTPS needs a certificate, and a certificate is normally bought from a company on the internet
+	that has never seen your Mac. Your Mac made its own instead, a minute ago, and no company was
+	involved. That is the whole reason your phone needs telling: nobody it already trusts has vouched
+	for this one.</p>
+	<p class="plain">What it covers, and this is the entire list: <strong>{{CERT_NAMES}}</strong>. It
+	cannot be used for anything on the internet, and the key that signs it never leaves your Mac —
+	it is in one file, readable only by you: <span class="detail">{{CA_PATH}}</span></p>
+</section>
+
+<!-- ==================== Two things to know first ==================== -->
+<section class="step">
+	<div class="step-head"><span class="step-n">!</span><h2>Two things, before you start</h2></div>
+	<p class="plain"><strong>iOS will show the words &ldquo;Not Signed&rdquo; in red.</strong> That is
+	not a fault and it cannot be fixed. Getting rid of that red text means buying a certificate from
+	Apple to sign the file with, and we are not putting one inside a free app to quiet a warning. The
+	red means <em>nobody vouched for this file except your own Mac</em> &mdash; which is the entire
+	point of it.</p>
+	<p class="plain"><strong>If step 3's switch is not there at all, stop and tell Rich.</strong> Some
+	iOS versions have a bug where a certificate you installed by hand never appears under Certificate
+	Trust Settings. That is Apple's bug, not yours and not a mistake you made &mdash; and it is one of
+	the most useful things this whole probe could discover, because it would mean this design cannot
+	work on your phone. Do not hunt for it for more than a minute.</p>
+</section>
+
+<!-- ============================ Step 1 ============================ -->
+<section class="step">
+	<div class="step-head"><span class="step-n">1</span><h2>Download it <span class="gate">3 taps</span></h2></div>
+	<p>Tap the button. Safari will ask whether to allow a configuration profile &mdash; tap
+	<strong>Allow</strong>, then <strong>Close</strong>. Nothing is installed yet.</p>
+	<div class="row">
+		<a class="button-link" href="/ca.mobileconfig">Install the RichOS certificate</a>
+	</div>
+	<p class="detail">If that does nothing at all: <a class="plain-link" href="/ca.crt">the certificate on its own</a>.</p>
+</section>
+
+<!-- ============================ Step 2 ============================ -->
+<section class="step">
+	<div class="step-head"><span class="step-n">2</span><h2>Install it in Settings <span class="gate">8 taps</span></h2></div>
+	<p class="plain">Leave Safari. In the <strong>Settings</strong> app:</p>
+	<ol class="steps">
+		<li><strong>General</strong></li>
+		<li><strong>VPN &amp; Device Management</strong></li>
+		<li><strong>{{CA_NAME}}</strong> &mdash; that is what it is called</li>
+		<li><strong>Install</strong>, top right</li>
+		<li>your passcode</li>
+		<li><strong>Install</strong> again &mdash; this is the screen with the red &ldquo;Not Signed&rdquo;</li>
+		<li><strong>Install</strong> once more, on the sheet that slides up</li>
+		<li><strong>Done</strong></li>
+	</ol>
+</section>
+
+<!-- ============================ Step 3 ============================ -->
+<section class="step">
+	<div class="step-head"><span class="step-n">3</span><h2>Switch it on <span class="gate">the step everyone misses</span></h2></div>
+	<p class="plain">Installing it is not enough. Apple requires one more switch, or the certificate
+	sits there doing nothing and the probe page still will not open. Still in <strong>Settings</strong>:</p>
+	<ol class="steps">
+		<li><strong>General</strong></li>
+		<li><strong>About</strong></li>
+		<li>scroll to the bottom: <strong>Certificate Trust Settings</strong></li>
+		<li>turn on the switch beside <strong>{{CA_NAME}}</strong></li>
+		<li><strong>Continue</strong></li>
+	</ol>
+	<p class="detail">Compare what it shows with this, which your Mac printed a moment ago:<br>SHA-256 {{CA_FINGERPRINT}}</p>
+</section>
+
+<!-- ============================ Step 4 ============================ -->
+<section class="step">
+	<div class="step-head"><span class="step-n">4</span><h2>Open the probe</h2></div>
+	<p class="plain">Point the camera at this, or tap the link underneath it.</p>
+	<figure class="qr">
+		<img src="/qr.png" width="264" height="264" alt="QR code for the probe page">
+	</figure>
+	<div class="row">
+		<a class="button-link" href="{{HTTPS_URL}}">{{HTTPS_URL_PLAIN}}</a>
+	</div>
+	<p class="plain"><strong>It should open with no warning of any kind.</strong> If Safari says the
+	connection is not private, step 3's switch is not on &mdash; go back and check it. The probe's own
+	first screen asks you which of those two happened, and that answer is check 0.</p>
+	<p class="detail">If the name will not resolve at all, try http://{{LAN_ADDRESS}}:{{TRUST_PORT}}/ instead and tell Rich — that is a finding, not a mistake.</p>
+</section>
+
+<p class="note">
+	<strong>To undo all of this,</strong> in one move: Settings, General, VPN &amp; Device Management,
+	tap <strong>{{CA_NAME}}</strong>, <strong>Remove Profile</strong>. Your phone is then exactly as it
+	was. Nothing was sent anywhere, no account was made, and this page has no analytics and no
+	JavaScript at all.
+</p>
+
+</body>
+</html>

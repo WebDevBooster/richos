@@ -203,6 +203,17 @@ pub enum EngineRejected {
         /// The release this build pins.
         needed: String,
     },
+    /// Engine-shaped, carrying the RIGHT release string, and **not the content this build
+    /// pins** — the 2026-09-18 case, where two nightly cuts of engine `1.2.0` are two
+    /// different directories of code wearing one version number. `installed: None` is a
+    /// directory RichOS is answerable for that carries no `INSTALLED-FROM` at all: its content
+    /// is unknown, and unknown is never the same as matching.
+    WrongIdentity {
+        /// The digest recorded in `INSTALLED-FROM`, or `None` when there is no stamp.
+        installed: Option<String>,
+        /// The digest this build pins.
+        pinned: String,
+    },
 }
 
 impl EngineRejected {
@@ -216,6 +227,21 @@ impl EngineRejected {
             EngineRejected::WrongRelease { found, needed } => format!(
                 "the engine there is {}, and this build boots engine {needed}",
                 found.as_deref().unwrap_or("of no readable version"),
+            ),
+            // IT NAMES THE VERSION AGREEMENT FIRST, because that is the trap: an operator who
+            // reads only "wrong engine" about a directory whose VERSION matches goes looking
+            // for a version fault that is not there. The sentence has to say that the label is
+            // right and the contents are not.
+            EngineRejected::WrongIdentity { installed: Some(installed), pinned } => format!(
+                "the engine there carries the right version and different contents — installed \
+                 from {}, and this build pins {}",
+                short_digest(installed),
+                short_digest(pinned),
+            ),
+            EngineRejected::WrongIdentity { installed: None, pinned } => format!(
+                "the engine there has no record of what installed it, so its contents are \
+                 unknown, and this build pins {}",
+                short_digest(pinned),
             ),
         }
     }
@@ -260,6 +286,210 @@ pub fn engine_matches_build(dir: &Path) -> Result<(), EngineRejected> {
     engine_accepted(dir, required_engine_version().as_deref())
 }
 
+// ===========================================================================================
+// THE ENGINE'S IDENTITY — the CONTENT, not the label on it
+// ===========================================================================================
+//
+// [`engine_accepted`] above compares `VERSION` strings, and until 2026-09-18 that was the whole
+// of the gate. It is not enough, and the way it is not enough was MEASURED rather than reasoned
+// about.
+//
+// EVERY NIGHTLY PUBLISHES ITS OWN `richos-engine-1.2.0.tar.gz`. The version inside it is
+// `1.2.0` for all of them, because `1.2.0` is the engine's RELEASE and a nightly is not a new
+// release of the engine — it is a new CUT of it. So two engines a day apart answer the
+// identical question identically:
+//
+//   - installed under the walk's HOME, from `v1.2.0-nightly.20260917.2` (its own
+//     `INSTALLED-FROM`): sha256 `b7a882ef4381ca294259c1a01a6af29acc3159dc0b871e8064bd7f410b71da07`,
+//     119,463,136 B;
+//   - pinned by candidate .8's binary (`strings` on `Contents/MacOS/richos-tauri`): sha256
+//     `ea7f79043e7dc8f51b5f4207964ec5fa3e15ca11b44e5342a5fb4d38580db194`, from
+//     `v1.2.0-nightly.20260918.2`. That binary contains the pinned digest once and the
+//     installed digest ZERO times;
+//   - `VERSION` in both: `1.2.0`, so `engine_accepted` returned `Ok(())` and the app booted
+//     the older directory.
+//
+// The consequence, on Ray's walk of candidate .8: the first background job failed 6.28 s after
+// registration with *"the selected engine cannot hold a separate seat for background work"*
+// (`ecs.rs:328-333`). The installed `ecs/adapters/app.py` contains **no occurrence of the
+// substring `seat`, in any case, anywhere beneath `ecs/`** — the seat work landed on main on
+// 2026-09-17 and the app was running the cut from the night before. `supports_work_seats`
+// (`ecs.rs:295`) is a POSITIVE probe and answered correctly; the fault was never in the probe.
+// A user who updates from one 1.2.0 nightly to the next otherwise keeps yesterday's engine
+// forever.
+//
+// BOTH HALVES OF THE COMPARISON WERE ALREADY ON THE MACHINE, and that is the part worth saying
+// plainly. [`install_engine`] has written the installed digest into `INSTALLED-FROM` since it
+// was first written, and [`engine_pin`] has carried the pinned digest compiled in. Nothing ever
+// read the first one. What follows is a COMPARISON, not a new mechanism.
+//
+// WHY THE RULE IS THREE-VALUED AND NOT A BOOLEAN. A digest can only judge a directory whose
+// provenance RichOS knows, and RichOS installs exactly one ([`engine_install_dir`]). A
+// developer's checkout carries no stamp and is not stale — it is not an installation at all.
+// Collapsing those two would make every `cargo run` in this repository unresolvable, which is a
+// worse defect than the one being fixed, so the three cases are NAMED ([`EngineIdentity`])
+// rather than merged.
+
+/// The `INSTALLED-FROM` stamp, parsed.
+///
+/// Every field is optional because a stamp written by an older build, or truncated by a full
+/// disk, is one we can still read PART of — and the part that decides (`sha256`) is then either
+/// there or it is not. Parsed **by key** rather than by line position, so a field added later
+/// cannot shift the meaning of the ones above it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct InstalledFrom {
+    /// The `engine <version>` line.
+    pub version: Option<String>,
+    /// The `sha256 <digest>` line — **the identity**.
+    pub sha256: Option<String>,
+    /// The `bytes <n>` line.
+    pub bytes: Option<u64>,
+    /// The `from <url>` line.
+    pub url: Option<String>,
+}
+
+/// Read and parse `<dir>/INSTALLED-FROM`. `None` when there is no stamp at all — the honest
+/// answer for every directory RichOS did not install.
+pub fn installed_from(dir: &Path) -> Option<InstalledFrom> {
+    let text = std::fs::read_to_string(dir.join("INSTALLED-FROM")).ok()?;
+    let mut out = InstalledFrom::default();
+    for line in text.lines() {
+        let Some((key, value)) = line.trim().split_once(char::is_whitespace) else { continue };
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key {
+            "engine" => out.version = Some(value.to_string()),
+            "sha256" => out.sha256 = Some(value.to_ascii_lowercase()),
+            "bytes" => out.bytes = value.parse().ok(),
+            "from" => out.url = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+/// The first twelve hex characters of a digest — how an identity is SHOWN, never how it is
+/// compared. Comparison is always over the full 64 ([`EngineIdentity::judge`]).
+pub fn short_digest(sha256: &str) -> String {
+    sha256.chars().take(12).collect()
+}
+
+/// **How much this build is entitled to demand of a directory's CONTENT.**
+///
+/// Two cases, and the line between them is **whether this build names an asset at all**:
+///
+/// - `Unasked` — this build pins no asset (`option_env!` is a compile-time read, so this is
+///   every `cargo run` and every `cargo test` in this repository), or the caller is honoring an
+///   operator's explicit `$RICHOS_ENGINE_DIR`. A statement outranks the pin here exactly as it
+///   does for the release ([`engine_boot_refusal`]'s first silence). The dogfood checkout is
+///   this case, which is why nothing about a developer's day changes.
+/// - `Required` — this build NAMES an asset, so it boots the directory installed from that
+///   asset and nothing else. A stamp is required; **no stamp means the contents are unknown, and
+///   unknown is refreshed rather than trusted.**
+///
+/// # WHY A MISSING STAMP IS NOT FORGIVEN, EVEN OUTSIDE THE DIRECTORY RICHOS INSTALLS
+///
+/// The first draft of this gate forgave it — *"if RichOS stamped it, RichOS checks it"* — so a
+/// directory with no `INSTALLED-FROM` passed on the grounds that RichOS had not installed it and
+/// it therefore had no identity to be stale against. That is true, and it leaves a hole the same
+/// size as the one being closed. MEASURED on candidate .8's walk: with the managed directory
+/// moved aside, pid 66030 resolved its engine to `/Users/alex/.claude/richos-engine` — **the
+/// developer's engine pointer, outside the scratch HOME entirely** — and booted it silently. A
+/// shipped, signed, notarized build running the engine that happens to be checked out on the
+/// machine that built it is a freshness hole wearing a plausible path.
+///
+/// So the pin is the discriminator, and it is exactly the right one: a build with a pin is a
+/// build somebody cut and published, and it has been TOLD which engine it boots. A build without
+/// one has been told nothing and demands nothing. The escape hatch for the developer who wants a
+/// pinned build to run against a working tree is the one the rest of this module already honors
+/// and documents — name it in `$RICHOS_ENGINE_DIR`, once, deliberately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EngineIdentity<'a> {
+    /// No identity demanded.
+    #[default]
+    Unasked,
+    /// A stamp is required, and must carry this digest.
+    Required(&'a str),
+}
+
+impl<'a> EngineIdentity<'a> {
+    /// The digest demanded, or `None` when none is.
+    pub fn pinned(&self) -> Option<&'a str> {
+        match self {
+            EngineIdentity::Unasked => None,
+            EngineIdentity::Required(s) => Some(s),
+        }
+    }
+
+    /// Judge one directory. `Ok(())` accepts; the error carries the operator's sentence.
+    ///
+    /// **The comparison is over the full digest**, case-insensitively on both sides, and never
+    /// over a truncation — a twelve-character compare would promote a display convenience into
+    /// a security property.
+    fn judge(&self, dir: &Path) -> Result<(), EngineRejected> {
+        let Some(pinned) = self.pinned() else { return Ok(()) };
+        match installed_from(dir).and_then(|s| s.sha256) {
+            Some(found) if found.eq_ignore_ascii_case(pinned) => Ok(()),
+            found => {
+                Err(EngineRejected::WrongIdentity { installed: found, pinned: pinned.to_string() })
+            }
+        }
+    }
+}
+
+/// **What this build demands of an engine directory** — the release, and the content.
+///
+/// One struct rather than two arguments because the two are asked TOGETHER at every call site,
+/// and a call site that passed one and forgot the other would be the same class of hole this
+/// type closes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EngineDemand<'a> {
+    /// The `VERSION` demanded, or `None` when this build pins no release.
+    pub version: Option<&'a str>,
+    /// The content demanded. See [`EngineIdentity`].
+    pub identity: EngineIdentity<'a>,
+}
+
+impl<'a> EngineDemand<'a> {
+    /// A release demand and nothing more — the behavior every caller had before 2026-09-18,
+    /// available BY NAME so the places that legitimately ask only this say so out loud.
+    pub fn release(version: Option<&'a str>) -> Self {
+        EngineDemand { version, identity: EngineIdentity::Unasked }
+    }
+
+    /// **The whole demand a build with a pin makes**: that release, and that content.
+    ///
+    /// `None` — a build with no pin — demands nothing, which is [`EngineDemand::default`] and is
+    /// the state of every `cargo` invocation in this repository.
+    ///
+    /// There is deliberately ONE constructor and not one per candidate kind. An earlier draft had
+    /// two, a strict rule for the directory RichOS installs and a lenient one for everywhere
+    /// else, and the lenient one was precisely what let pid 66030 boot the developer's
+    /// `~/.claude/richos-engine` (see [`EngineIdentity`]). Two rules meant a hole at the seam
+    /// between them; one rule has no seam.
+    pub fn pinned(pin: Option<&'a EnginePin>) -> Self {
+        match pin {
+            None => EngineDemand::default(),
+            Some(p) => EngineDemand {
+                version: Some(&p.version),
+                identity: EngineIdentity::Required(&p.sha256),
+            },
+        }
+    }
+}
+
+/// [`engine_accepted`], asked about CONTENT as well as release.
+///
+/// Shape, then release, then identity, and the order is deliberate: the sentence an operator
+/// reads should name the coarsest thing that is wrong. A directory that is not an engine at all
+/// must not be reported as one carrying the wrong digest.
+pub fn engine_accepted_demand(dir: &Path, demand: EngineDemand<'_>) -> Result<(), EngineRejected> {
+    engine_accepted(dir, demand.version)?;
+    demand.identity.judge(dir)
+}
+
 /// **The last gate before `claude` is started in a directory** — the half of this rule that
 /// stops the wrong engine WRITING, as opposed to merely being resolved.
 ///
@@ -282,10 +512,35 @@ pub fn engine_matches_build(dir: &Path) -> Result<(), EngineRejected> {
 ///     with the path in them. Answering it twice would put two different sentences about one
 ///     condition into one log.
 pub fn engine_boot_refusal(dir: &Path, explicit: bool, needed: Option<&str>) -> Option<String> {
+    engine_boot_refusal_demand(dir, explicit, EngineDemand::release(needed))
+}
+
+/// [`engine_boot_refusal`] asked about CONTENT as well as release — **the line that actually
+/// stops the 2026-09-18 defect writing.**
+///
+/// Resolution refusing a stale directory is not the same as nothing running in it: `main.rs`'s
+/// `resolve_engine` hands the lease factory THE LAST PLACE IT LOOKED when no candidate answered,
+/// and on macOS that last place is `~/Library/Application Support/RichOS/engine` — precisely the
+/// directory a stale nightly engine sits in. Without this, candidate .8 would still have started
+/// `claude` in yesterday's cut; it would simply have said so first.
+///
+/// The two silences of [`engine_boot_refusal`] are unchanged and are unchanged for the same
+/// reasons: an operator's explicit statement outranks the pin, and a directory that is not an
+/// engine at all is a different function's sentence. A build with no pin demands nothing, so
+/// `EngineDemand::default()` refuses nothing.
+pub fn engine_boot_refusal_demand(
+    dir: &Path,
+    explicit: bool,
+    demand: EngineDemand<'_>,
+) -> Option<String> {
     if explicit {
         return None;
     }
-    match engine_accepted(dir, Some(needed?)) {
+    // A build that pins no release pins no content either — `engine_pin` is all-or-nothing
+    // (`pin_from_parts` returns `None` unless all three parts are present and well formed), so
+    // there is no state in which content is demanded and a version is not.
+    demand.version?;
+    match engine_accepted_demand(dir, demand) {
         Ok(()) | Err(EngineRejected::NotEngineShaped) => None,
         Err(rejected) => Some(format!("{}: {}", dir.display(), rejected.reason())),
     }
@@ -581,25 +836,47 @@ pub fn find_engine_pinned(
     usable: EngineUsable<'_>,
     needed: Option<&str>,
 ) -> ComponentStatus {
+    find_engine_demanded(paths, extra, usable, EngineDemand::release(needed))
+}
+
+/// [`find_engine_pinned`] asked about CONTENT as well as release — **the detection half of the
+/// 2026-09-18 fix.**
+///
+/// The candidate order, the one-line-per-place reporting and the explicit override's exclusivity
+/// are all unchanged. What changes is that a SEARCHED candidate must now also have been installed
+/// from the asset this build pins ([`EngineDemand::pinned`]), so the stale-by-content directory
+/// that ended Ray's walk of candidate .8 is reported here, at the boot line, with the two digests
+/// in the sentence — instead of 6.28 s into the CEO's first background job.
+///
+/// The explicit override remains exempt from both halves, for the reason [`engine_boot_refusal`]
+/// gives: an operator's statement is honored, a guess is not.
+pub fn find_engine_demanded(
+    paths: &SetupPaths,
+    extra: &[PathBuf],
+    usable: EngineUsable<'_>,
+    demand: EngineDemand<'_>,
+) -> ComponentStatus {
     let mut looked = Vec::new();
 
     // Test one candidate, appending exactly one line to `looked` whichever way it goes.
-    // `Some(status)` means stop here; `None` means keep walking. `pinned` is false for the
-    // explicit override alone.
-    let consider = |looked: &mut Vec<String>, candidate: &Path, label: &str, pinned: bool| {
+    // `Some(status)` means stop here; `None` means keep walking. `judged` is
+    // `EngineDemand::default()` — demand nothing — for the explicit override alone.
+    let consider = |looked: &mut Vec<String>,
+                    candidate: &Path,
+                    label: &str,
+                    judged: EngineDemand<'_>| {
         if !engine_looks_valid(candidate) {
             looked.push(format!("{}{label} — nothing that looks like the engine is there", candidate.display()));
             return None;
         }
-        if pinned {
-            if let Err(rejected) = engine_accepted(candidate, needed) {
-                // FOUND, AND REJECTED FOR ITS RELEASE, AND SAID SO — with the version that is
-                // there and the version this build boots, because "the engine is not
-                // installed" about a directory holding an engine is what sends an operator
-                // looking for the wrong fault.
-                looked.push(format!("{}{label} — {}", candidate.display(), rejected.reason()));
-                return None;
-            }
+        if let Err(rejected) = engine_accepted_demand(candidate, judged) {
+            // FOUND, AND REJECTED FOR ITS RELEASE OR ITS CONTENTS, AND SAID SO — with what is
+            // there and what this build boots, because "the engine is not installed" about a
+            // directory holding an engine is what sends an operator looking for the wrong
+            // fault. `WrongIdentity` is the sentence that would have ended candidate .8's walk
+            // at the boot log instead of 6.28 s into a background job.
+            looked.push(format!("{}{label} — {}", candidate.display(), rejected.reason()));
+            return None;
         }
         if let Err(why) = usable(candidate) {
             // FOUND, AND REJECTED, AND SAID SO. This is the line that was missing: the
@@ -613,7 +890,10 @@ pub fn find_engine_pinned(
     };
 
     if let Some(explicit) = paths.engine_override.as_deref() {
-        if let Some(found) = consider(&mut looked, explicit, " ($RICHOS_ENGINE_DIR)", false) {
+        // DEMAND NOTHING OF WHAT AN OPERATOR NAMED — neither release nor content.
+        if let Some(found) =
+            consider(&mut looked, explicit, " ($RICHOS_ENGINE_DIR)", EngineDemand::default())
+        {
             return found;
         }
         return ComponentStatus::missing(Component::Engine, looked);
@@ -631,6 +911,9 @@ pub fn find_engine_pinned(
     if let Some(cfg) = config_dir {
         candidates.push(cfg.join("richos-engine"));
     }
+    // The one directory RichOS installs, and the only one any of these candidates is ever
+    // STAMPED in practice — judged by the same rule as the rest, because a rule that applied
+    // only here is what left the developer-pointer hole open (see [`EngineIdentity`]).
     if let Some(home) = paths.home.as_deref() {
         candidates.push(engine_install_dir(home));
     }
@@ -646,7 +929,7 @@ pub fn find_engine_pinned(
             continue;
         }
         seen.push(candidate.clone());
-        if let Some(found) = consider(&mut looked, &candidate, "", true) {
+        if let Some(found) = consider(&mut looked, &candidate, "", demand) {
             return found;
         }
     }
@@ -683,12 +966,10 @@ pub fn detect_with_pin(
 ) -> SetupStatus {
     SetupStatus {
         claude: find_claude(paths),
-        engine: find_engine_pinned(
-            paths,
-            extra_engine_candidates,
-            usable,
-            pin.map(|p| p.version.as_str()),
-        ),
+        // **ONE PIN ANSWERS BOTH HALVES, AND NOW BOTH HALVES OF THE PIN ARE ASKED.** Until
+        // 2026-09-18 this passed `p.version` and dropped `p.sha256` on the floor — the pin has
+        // carried the digest since it was written, and detection simply never looked at it.
+        engine: find_engine_demanded(paths, extra_engine_candidates, usable, EngineDemand::pinned(pin)),
         engine_installable: pin.is_some(),
         engine_pin_version: pin.map(|p| p.version.clone()),
         installed_now: false,

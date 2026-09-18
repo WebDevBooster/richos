@@ -27,7 +27,7 @@
 <body>
 
 <h1>RichOS phone probe</h1>
-<p class="lede">Five checks, about twenty minutes. They answer one question: can Rich on your phone be a web app, or does it have to be a real app from the App Store?</p>
+<p class="lede">Six checks, about twenty minutes. They answer one question: can Rich on your phone be a web app served by your own Mac, or does it have to be a real app from the App Store?</p>
 <p class="build" id="build">Loading&hellip;</p>
 
 <div class="banner" id="tab-banner" hidden>
@@ -36,6 +36,22 @@
 	bottom of Safari, choose <strong>Add to Home Screen</strong>, then open the new icon and start again
 	from here.
 </div>
+
+<!-- ===================== 0. Trust (the hosting step) ==================== -->
+<section class="step" id="step-0">
+	<div class="step-head"><span class="step-n">0</span><h2>Getting here<span class="gate">the hosting step</span></h2></div>
+	<p>This page is served by your own Mac on your own Wi-Fi &mdash; no company on the internet is
+	involved, and nothing here has a public address. That is the arrangement the real app will use, so
+	whether it worked is itself one of the results.</p>
+	<p class="plain" id="trust-facts">Checking what you reached&hellip;</p>
+	<div class="row" id="trust-row" hidden>
+		<button id="trust-clean" class="primary">It opened with no warning</button>
+		<button id="trust-warned">Safari warned me first</button>
+	</div>
+	<div class="verdict waiting" id="v0"><span class="label">Checking&hellip;</span>
+		<p class="detail" id="d0"></p>
+	</div>
+</section>
 
 <!-- ============================ 1. Install ============================ -->
 <section class="step" id="step-1">
@@ -116,8 +132,8 @@
 
 <!-- ============================ Results ============================= -->
 <section class="results">
-	<h2>The five results</h2>
-	<textarea id="results-text" readonly aria-label="The five results, as text you can copy"></textarea>
+	<h2>The six results</h2>
+	<textarea id="results-text" readonly aria-label="The six results, as text you can copy"></textarea>
 	<div class="row row-spaced">
 		<button id="copy" class="primary">Copy results</button>
 		<button id="reset">Start over</button>
@@ -127,7 +143,7 @@
 
 <p class="note">
 	<strong>What this stores.</strong> Your voice never leaves the phone &mdash; it is measured in
-	memory and discarded, and there is no upload of it anywhere in this page. The five results above
+	memory and discarded, and there is no upload of it anywhere in this page. The six results above
 	are saved on this phone only, and <strong>Start over</strong> erases them. The one thing the
 	server holds is the notification address from step 4, in memory, because a push cannot be sent
 	without it; it is forgotten when the server restarts, and <strong>Start over</strong> deletes it

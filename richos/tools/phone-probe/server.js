@@ -1,11 +1,33 @@
 'use strict';
 
-// The phone probe's whole back end: serve five static files, hold one push subscription in
-// memory, and send one encrypted push on a delay.
+// The phone probe's whole back end: two listeners, five static files, one push subscription in
+// memory, and one encrypted push on a delay.
+//
+// THE TWO LISTENERS, and why there have to be two:
+//
+//   HTTPS on 8443 — the probe itself, at `https://mm1.local:8443`. A PWA cannot exist without a
+//   secure origin: service workers, push and Add to Home Screen all require one. This is the origin
+//   the CEO's phone opens, and the port is the one the plan pins (§2.1) because THE PORT IS PART OF
+//   THE ORIGIN: :8443 and :9443 are two different origins with two different service workers and two
+//   different push subscriptions. 443 is refused because binding it needs root.
+//
+//   HTTP on 8442 — the trust step, and it is plain HTTP for a reason that cannot be designed away.
+//   The certificate the HTTPS listener presents is signed by an authority that exists only on this
+//   Mac, so before the phone has installed and trusted that authority it CANNOT open the HTTPS
+//   origin without a warning. The page that hands over the certificate therefore has to be served
+//   over something the phone already trusts, and over a LAN with no public name, that is HTTP.
+//   Nothing sensitive crosses it: a root certificate is a public key, and the profile is a wrapper
+//   around one.
+//
+// This replaced a Railway deployment on 2026-09-18 by CEO ruling (`wiki/ceo-decisions.md` §57):
+// *"the user is not expected to have something like Railway and I shouldn't provide that for a free
+// and open-source app. Instead, the RichOS app should have 'something' running on the user's device
+// (Mac in this case)."* The hosting step is now part of what the probe tests, because the real phone
+// client will be served exactly this way.
 //
 // It is deliberately not a relay. The relay described in the plan (§2) is the NEXT brief; this
-// process exists to answer §3.2's five questions and then be deleted. Nothing here is a
-// foundation for anything, and reading it as one would be a mistake.
+// process exists to answer §3.2's questions and then be deleted. Nothing here is a foundation for
+// anything, and reading it as one would be a mistake.
 //
 // WHAT IT STORES, exhaustively, because the page makes a promise about this:
 //   - one push subscription per device that presses "turn on notifications": the push-service
@@ -14,39 +36,92 @@
 //   - nothing else. No audio (it never leaves the phone), no check results (localStorage on the
 //     phone), no identity, no analytics, no request log of his traffic.
 // In memory only — a restart forgets everything, and there is no database and no disk write.
+// The ONE thing written to disk is the certificate authority, under the probe's own state directory
+// and never in the repository (lib/state.js).
 
 const http = require('node:http');
+const https = require('node:https');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { generateVapidKeys, sendNotification } = require('./lib/webpush.js');
+const { ensureCertificates } = require('./lib/tls-setup.js');
+const state = require('./lib/state.js');
+const localnames = require('./lib/localnames.js');
+const qr = require('./lib/qr.js');
 
-const PORT = Number(process.env.PORT || 8788);
+// PORT is still honored so an older invocation keeps working, but the two ports have their own
+// names now because there are two of them.
+const HTTPS_PORT = Number(process.env.PROBE_HTTPS_PORT || process.env.PORT || 8443);
+const TRUST_PORT = Number(process.env.PROBE_TRUST_PORT || 8442);
+const BIND = process.env.PROBE_BIND || '0.0.0.0'; // the phone is not on this machine
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:probe@richos.invalid';
+const TRUST_DIR = path.join(__dirname, 'trust');
+// The VAPID subject: WHO is sending this push, as told to Apple and Google.
+//
+// It is the PUBLIC PROJECT PAGE, not an email address. RFC 8292 §2.1 allows a `mailto:` or an
+// `https:` URL and Apple's push service accepts either. The URL is the better default for exactly one
+// reason: a personal address is never baked into a build, a config default or a record, and a default
+// is the one place a value ends up in all three. The app's own push sender will use the same URL.
+//
+// The placeholder it replaced (`mailto:probe@richos.invalid`) was worse than useless: Google's FCM
+// accepts a fabricated subject, Apple returns BadJwtToken for one, so check 4 would have failed on his
+// iPhone for a reason that has nothing to do with the phone.
+const VAPID_SUBJECT_DEFAULT = 'https://github.com/WebDevBooster/richos';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || VAPID_SUBJECT_DEFAULT;
 
 // An unguessable code, if one is set. The plan's own doctrine (§2, "one device set, everything
 // else 404") says an unpaired caller gets a flat 404 rather than an error that tells it what
-// exists — so that is what this does. Unset means open, which is fine for a local test and is
-// warned about at boot.
+// exists — so that is what this does. Unset means open, which is fine for a home LAN with no port
+// forwarding and is warned about at boot.
 const ACCESS_CODE = process.env.PROBE_ACCESS_CODE || '';
+
+function log(msg) {
+	process.stdout.write(`[phone-probe] ${msg}\n`);
+}
+
+// ---------------------------------------------------------------------------
+// TLS — the certificate this Mac presents
+// ---------------------------------------------------------------------------
+
+const tls = ensureCertificates({ log: (line) => log(line) });
+const HOST_NAME = localnames.primaryName();
+const HTTPS_ORIGIN = `https://${HOST_NAME}${HTTPS_PORT === 443 ? '' : `:${HTTPS_PORT}`}`;
+const TRUST_ORIGIN = `http://${HOST_NAME}${TRUST_PORT === 80 ? '' : `:${TRUST_PORT}`}`;
 
 // ---------------------------------------------------------------------------
 // VAPID keys
 // ---------------------------------------------------------------------------
 
+// A push subscription is taken against ONE public key. If the key changes, every subscription made
+// against the old one is dead, and check 4 fails for a reason that has nothing to do with the phone.
+//
+// When this probe was a hosted service there was nowhere to keep a pair, so it generated one per
+// process and warned loudly. Hosting it on the Mac removes that whole failure mode: there is a state
+// directory now, so the pair is generated once and kept beside the certificate, mode 0600. Restarting
+// the server — or the Mac — no longer costs him the subscription.
 let vapid = {
 	publicKey: process.env.VAPID_PUBLIC_KEY || '',
 	privateKey: process.env.VAPID_PRIVATE_KEY || ''
 };
-let vapidEphemeral = false;
+let vapidSource = 'the environment';
 if (!vapid.publicKey || !vapid.privateKey) {
-	// Generating a pair at boot keeps `npm start` working with no setup, but the pair dies with
-	// the process, which invalidates every subscription taken against it. That is tolerable for a
-	// local test and wrong for his phone, so it is said loudly rather than logged quietly.
-	vapid = generateVapidKeys();
-	vapidEphemeral = true;
+	const file = state.paths().vapid;
+	let stored = null;
+	try { stored = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first run, or unreadable */ }
+	if (stored && stored.publicKey && stored.privateKey) {
+		vapid = { publicKey: stored.publicKey, privateKey: stored.privateKey };
+		vapidSource = file;
+	} else {
+		vapid = generateVapidKeys();
+		state.writePrivate(file, `${JSON.stringify({ ...vapid, createdAt: new Date().toISOString() }, null, 2)}\n`);
+		vapidSource = `${file} (created now)`;
+	}
 }
+// Kept for the page's own reporting: there is no longer any path that produces a pair which dies with
+// the process, so this is now always false. The field stays because `/api/config` publishes it and the
+// page prints it — removing it would silently change what the results panel says.
+const vapidEphemeral = false;
 
 // ---------------------------------------------------------------------------
 // State — one Map, no disk
@@ -230,20 +305,16 @@ async function deliver(id, code) {
 	}
 }
 
-function log(msg) {
-	process.stdout.write(`[phone-probe] ${msg}\n`);
-}
-
 // ---------------------------------------------------------------------------
-// Routes
+// Routes — the HTTPS listener, which is the probe
 // ---------------------------------------------------------------------------
 
-const server = http.createServer(async (req, res) => {
-	const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+const handler = async (req, res) => {
+	const url = new URL(req.url, `https://${req.headers.host || HOST_NAME}`);
 	const route = url.pathname;
 
 	if (route === '/healthz') {
-		return sendJson(res, 200, { ok: true, devices: devices.size, vapidEphemeral });
+		return sendJson(res, 200, { ok: true, devices: devices.size, vapidEphemeral, tls: true });
 	}
 
 	// The manifest and the icons are fetched by the OS, which does not send our header, so they
@@ -262,7 +333,20 @@ const server = http.createServer(async (req, res) => {
 				vapidEphemeral,
 				// So the page can prove which build answered it, rather than assuming.
 				buildSha: process.env.PROBE_BUILD_SHA || 'unset',
-				serverTime: new Date().toISOString()
+				serverTime: new Date().toISOString(),
+				// Check 0's machine-checkable half. The page shows these so what the phone reached
+				// can be compared with what the profile said it was installing, rather than trusted.
+				tls: {
+					// `req.socket.encrypted` is the only honest answer to "did this request arrive
+					// over TLS" — a header could be anything.
+					secure: Boolean(req.socket && req.socket.encrypted),
+					hostReached: url.host,
+					names: tls.meta.leafSubjectAltName,
+					caFingerprintSha256: tls.meta.caFingerprintSha256,
+					caNotAfter: tls.meta.caNotAfter,
+					leafNotAfter: tls.meta.leafNotAfter
+				},
+				trustUrl: TRUST_ORIGIN
 			});
 		}
 
@@ -356,37 +440,187 @@ const server = http.createServer(async (req, res) => {
 	const gated = route === '/' || route === '/index.html';
 	if (ACCESS_CODE && gated && !codeOk(req, url)) return notFound(res);
 	return serveStatic(res, route);
-});
+};
 
-server.listen(PORT, () => {
-	log(`listening on http://localhost:${PORT}`);
+const server = https.createServer({ cert: tls.leafCertPem, key: tls.leafKeyPem }, handler);
+
+// ---------------------------------------------------------------------------
+// Routes — the HTTP listener, which is check 0 and nothing else
+// ---------------------------------------------------------------------------
+// Five paths, and no route to the probe itself. Anyone who finds this port gets a certificate they
+// can install and a page explaining what it is for; there is nothing else here to find.
+
+function trustPage() {
+	const template = fs.readFileSync(path.join(TRUST_DIR, 'index.html'), 'utf8');
+	const code = ACCESS_CODE ? `?k=${encodeURIComponent(ACCESS_CODE)}` : '';
+	const addresses = localnames.lanAddresses();
+	const filled = template
+		.replace(/\{\{HTTPS_URL\}\}/g, `${HTTPS_ORIGIN}/${code}`)
+		.replace(/\{\{HTTPS_URL_PLAIN\}\}/g, `${HTTPS_ORIGIN}/`)
+		.replace(/\{\{HOST\}\}/g, HOST_NAME)
+		.replace(/\{\{LAN_ADDRESS\}\}/g, addresses.length ? addresses[0].address : 'this Mac\'s address')
+		.replace(/\{\{TRUST_PORT\}\}/g, String(TRUST_PORT))
+		.replace(/\{\{CA_FINGERPRINT\}\}/g, tls.meta.caFingerprintSha256)
+		.replace(/\{\{CA_NAME\}\}/g, tls.meta.caCommonName)
+		.replace(/\{\{CERT_NAMES\}\}/g, tls.meta.leafSubjectAltName)
+		.replace(/\{\{CA_PATH\}\}/g, tls.paths.caCert);
+
+	// A page that still carries a placeholder is a page telling him to look for a switch whose label
+	// reads "{{CA_NAME}}". Better to fail at boot, here, than to be found on his phone.
+	const leftover = /\{\{[A-Z_]+\}\}/.exec(filled);
+	if (leftover) throw new Error(`the trust page still contains ${leftover[0]} — every placeholder must be filled`);
+	return filled;
+}
+
+const trustHandler = (req, res) => {
+	const url = new URL(req.url, `http://${req.headers.host || HOST_NAME}`);
+	const route = url.pathname;
+
+	if (route === '/healthz') return sendJson(res, 200, { ok: true, trustStep: true });
+
+	// Gated exactly like the probe's own page, for the same reason: if a code is set, an unpaired
+	// caller learns nothing. The download links on the page carry the code themselves.
+	if (ACCESS_CODE && !codeOk(req, url)) return notFound(res);
+	if (req.method !== 'GET' && req.method !== 'HEAD') return notFound(res);
+
+	if (route === '/' || route === '/index.html') {
+		const html = trustPage();
+		res.writeHead(200, {
+			'Content-Type': 'text/html; charset=utf-8',
+			'Content-Length': Buffer.byteLength(html),
+			'Cache-Control': 'no-store'
+		});
+		return res.end(html);
+	}
+
+	// The profile. `application/x-apple-aspen-config` is what makes iOS treat it as something to
+	// install rather than something to display, and the filename is what he sees in Settings.
+	if (route === '/ca.mobileconfig') {
+		const body = Buffer.from(tls.profile, 'utf8');
+		res.writeHead(200, {
+			'Content-Type': 'application/x-apple-aspen-config',
+			'Content-Disposition': 'attachment; filename="richos-local-ca.mobileconfig"',
+			'Content-Length': body.length,
+			'Cache-Control': 'no-store'
+		});
+		return res.end(body);
+	}
+
+	// The bare certificate, for a browser or a desktop that wants the certificate without a profile.
+	if (route === '/ca.crt') {
+		const body = Buffer.from(tls.caCertPem, 'utf8');
+		res.writeHead(200, {
+			'Content-Type': 'application/x-x509-ca-cert',
+			'Content-Disposition': 'attachment; filename="richos-local-ca.crt"',
+			'Content-Length': body.length,
+			'Cache-Control': 'no-store'
+		});
+		return res.end(body);
+	}
+
+	// The code that sends the phone to the HTTPS origin once the root is trusted.
+	if (route === '/qr.png') {
+		const code = ACCESS_CODE ? `?k=${encodeURIComponent(ACCESS_CODE)}` : '';
+		const rendered = qr.toPng(`${HTTPS_ORIGIN}/${code}`, { scale: 8 });
+		res.writeHead(200, {
+			'Content-Type': 'image/png',
+			'Content-Length': rendered.png.length,
+			'Cache-Control': 'no-store'
+		});
+		return res.end(rendered.png);
+	}
+
+	// The trust page shares the probe's stylesheet, so the two screens are one thing rather than
+	// two, and so the contrast test covers both.
+	if (route === '/styles.css') return serveStatic(res, '/styles.css');
+
+	return notFound(res);
+};
+
+const trustServer = http.createServer(trustHandler);
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+let listening = 0;
+const announce = () => {
+	if (++listening < 2) return;
+	const addresses = localnames.lanAddresses();
+	log('');
+	log(`  CHECK 0, the trust step — open this on the iPhone FIRST, in Safari:`);
+	log(`    ${TRUST_ORIGIN}/${ACCESS_CODE ? `?k=${ACCESS_CODE}` : ''}`);
+	if (addresses.length) log(`    or by address: http://${addresses[0].address}:${TRUST_PORT}/${ACCESS_CODE ? `?k=${ACCESS_CODE}` : ''}`);
+	log('');
+	log(`  CHECKS 1-5, the probe — this only opens after the root is trusted:`);
+	log(`    ${HTTPS_ORIGIN}/${ACCESS_CODE ? `?k=${ACCESS_CODE}` : ''}`);
+	log('');
+	log(`  certificate names: ${tls.meta.leafSubjectAltName}`);
+	log(`  root SHA-256:      ${tls.meta.caFingerprintSha256}`);
+	log(`  root on disk:      ${tls.paths.caCert}`);
+	log('');
+	if (process.env.PROBE_PRINT_QR !== '0') {
+		const trustUrl = `${TRUST_ORIGIN}/${ACCESS_CODE ? `?k=${ACCESS_CODE}` : ''}`;
+		log('  Point the iPhone camera at this to start the trust step:');
+		process.stdout.write(`\n${qr.toAnsi(trustUrl).text}\n\n`);
+	}
 	log(`VAPID public key: ${vapid.publicKey}`);
-	if (vapidEphemeral) {
+	log(`  from ${vapidSource} — it survives a restart, so a subscription taken today still works tomorrow.`);
+	log(`VAPID subject:    ${VAPID_SUBJECT}`);
+	if (!process.env.VAPID_SUBJECT) {
+		log('  VAPID_SUBJECT is not set, so the public project page is being used —');
+		log('  https://github.com/WebDevBooster/richos. RFC 8292 §2.1 allows a mailto: or an https:');
+		log('  URL and Apple accepts either; a personal address is never baked into a build, a config');
+		log('  default or a record, so the project URL is the default on purpose. Nothing to fix.');
 		log('');
-		log('  WARNING: no VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in the environment, so a pair was');
-		log('  generated for this process only. Every subscription taken against it dies when this');
-		log('  process restarts, and check 4 would then fail for a reason that has nothing to do');
-		log('  with the phone. Fine for a local test; wrong for his phone.');
-		log('  Run: npm run keys');
+	}
+	if (/\.invalid\b/.test(VAPID_SUBJECT)) {
+		log('  WARNING: VAPID_SUBJECT names a .invalid domain. Google accepts a fabricated subject;');
+		log('  Apple returns BadJwtToken for one, so check 4 would fail on his iPhone for a reason');
+		log('  that has nothing to do with the phone. Unset it to use the project URL.');
 		log('');
 	}
 	if (!ACCESS_CODE) {
-		log('  NOTE: PROBE_ACCESS_CODE is unset, so this origin is open to anyone who finds it.');
-		log('  Set one before this is on a public URL.');
+		log('  NOTE: PROBE_ACCESS_CODE is unset, so both origins are open to anything on this');
+		log('  Wi-Fi. Fine behind a home router with no port forwarding; set one otherwise.');
 	}
+};
+
+server.listen(HTTPS_PORT, BIND, () => {
+	log(`HTTPS on ${HTTPS_ORIGIN} (bound to ${BIND})`);
+	announce();
+});
+trustServer.listen(TRUST_PORT, BIND, () => {
+	log(`HTTP trust step on ${TRUST_ORIGIN} (bound to ${BIND})`);
+	announce();
 });
 
-// Railway stops a service with SIGTERM. Anything still pending is dropped on purpose — a probe
-// that fires a scheduled push after a redeploy is a probe that lies about which build sent it.
+for (const [name, listener] of [['https', server], ['trust', trustServer]]) {
+	listener.on('error', (err) => {
+		if (err.code === 'EADDRINUSE') {
+			log(`FATAL: the ${name} port is already in use. Another probe is probably running — stop it, or`);
+			log(`set PROBE_${name === 'https' ? 'HTTPS' : 'TRUST'}_PORT. Refusing to start half a probe.`);
+			process.exit(1);
+		}
+		log(`FATAL: the ${name} listener failed: ${err.message}`);
+		process.exit(1);
+	});
+}
+
+// Anything still pending at shutdown is dropped on purpose — a probe that fires a scheduled push
+// after a restart is a probe that lies about which build sent it.
 for (const signal of ['SIGTERM', 'SIGINT']) {
 	process.on(signal, () => {
 		log(`${signal} — closing`);
 		for (const timer of pending.values()) clearTimeout(timer);
 		pending.clear();
 		devices.clear();
-		server.close(() => process.exit(0));
+		let closed = 0;
+		const done = () => { if (++closed >= 2) process.exit(0); };
+		server.close(done);
+		trustServer.close(done);
 		setTimeout(() => process.exit(0), 3000).unref();
 	});
 }
 
-module.exports = { server };
+module.exports = { server, trustServer };
