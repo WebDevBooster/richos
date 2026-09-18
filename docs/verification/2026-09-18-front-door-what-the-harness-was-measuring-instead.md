@@ -24,7 +24,7 @@ the same shape as the `54e79b7f` correction Ray had to make to his own brief.
 | Row | Ray's finding | What it turned out to be | State |
 |---|---|---|---|
 | 1 | `Enter` is not a control; the slot announces `waking loro…` | TWO things. The absent `Enter` is the design `7ed03c68` landed. The `waking loro…` is a real defect: a faded-out layer that never left the tree. | half fixed, half was never broken |
-| 2 | Escape does not close the settings sheet | Unsettled. Half the evidence is void (see below); the handler is doubly correct in source; the native path could not be measured today. | **open**, with an instrument |
+| 2 | Escape does not close the settings sheet | DOES NOT REPRODUCE on the shipped window. Escape closes the settings menu, three runs out of three. Every red this instrument produced was its own — four harness defects, each measured. | **settled** — see the postscript |
 | 3 | The opening screen appears with its own switch OFF, twice a session | The switch is the CURTAIN's and was obeyed. The Dock restore is a real defect with a different cause: `home.js` never read the launch kind. | fixed |
 | 4 | Three sheets back to back; the first re-rendered under the cursor | One sheet re-rendering 47 px, which is what made it read as two. | fixed |
 | 5 | The approval sheet shows a raw shell command in a JSON object | As described. | fixed |
@@ -250,3 +250,194 @@ reported rather than dropped.
 
 Every one of them was run red before its fix and green after, and the red output is quoted in the
 commit that carries it.
+
+---
+
+# POSTSCRIPT, same day, 17:01Z — row 2 put to the real window
+
+Written by Echo after the screen came back. The branch above was paused at `c8f7f9d2` with row 2
+open and an instrument that had never completed a run; this is what the instrument found once it
+could. Everything below was measured on `v1.2.0-nightly.20260918.3`, `CFBundleVersion`
+`1.2.0-nightly.20260918.3`, `RichOSSourceCommit` `794eac7f`, driven through AppKit.
+
+## The answer
+
+**Row 2 does not reproduce. Escape closes the settings menu on the shipped window.** Three
+consecutive runs — 16:46:41Z, 16:47:57Z and 17:00:50Z, the last on the branch rebased onto
+`60458045` — each 7 of 7 green, exit 0:
+
+```
+PASS  C4  Escape closed the settings menu  (Techy Mode 95x20 -> absent)
+```
+
+and the accessibility dumps say it by name and box rather than by a count. With the menu open
+(107 nodes):
+
+```
+AXMenu       | 1375,196 267x637 | name=Settings
+AXStaticText | 1392,287 95x20   | name=Techy Mode
+AXCheckBox   | 1591,286 38x22   | name=Techy Mode
+AXStaticText | 1392,323 123x20  | name=Opening screen
+AXMenuItem   | 1382,513 253x36  | name=Memory folder
+```
+
+and after one Escape (48 nodes) the `AXMenu` and every row inside it is gone, leaving only the
+`AXPopUpButton | 1602,148 40x40 | name=Settings` that opens it. Both dumps are committed beside
+this file, in [`front-door-2026-09-18-logs/`](front-door-2026-09-18-logs/), so the claim can be
+read rather than taken.
+
+**The expectation was written before the run and it holds.** The paused note recorded *"`C1` or
+`C2` — the positive controls — are what I expect to go red, not `C4`"*; I ran with that standing
+and it was half right in the most useful way. `C1` and `C2` did go red, repeatedly, and `C4`
+never reproduced Ray's finding once the instrument could reach it. Every red was the harness's
+own.
+
+**What this does NOT settle, and it is the honest half.** A synthesized key is not a person's
+finger. Ray pressed Escape himself. This says the path from the window server to `main.js`'s
+document listener is sound on that surface today, three times; it cannot say what his keyboard
+did. `C3` is the control that keeps it honest — if the Escape this harness sends ever stops
+arriving, `C4`'s verdict is void rather than wrong.
+
+## Four defects in the instrument, in the order they were found
+
+**1. Every position and size in every dump was `? ?`.** `item 1 of (position of e)` reads like an
+index into a list and is not: `e` is a reference into `entire contents`, so AppleScript composes
+one specifier and System Events cannot resolve it. Both forms, same window, 4 of 4 elements each:
+
+```
+A  ((item 1 of (position of e)) as text)    ->  ERR Can't make item 1 of «class posn» of item 1 of {…}
+B  set p to position of e, then item 1 of p ->  260,102 1400x881
+```
+
+**2. The name was read from the wrong awk field.** A dump line is `role | x,y WxH | name=… |
+value=…`; `size_of`, `on_screen` and `middle_of` all tested `$4`, the value. Every lookup returned
+empty for every node in every dump the file has ever taken, which is why the door was never
+clicked and `Settings` looked absent from a tree it was plainly in:
+
+```
+field 4 (shipped)  Talk to Rich  size=[]        middle=[]
+field 3 (fixed)    Talk to Rich  size=[174x52]  middle=[381,705]
+```
+
+**3. `cliclick kp:esc` does not reach this app.** One launch, each step dumped:
+
+```
+A  Cmd-K   by cliclick (kd:cmd t:k ku:cmd)   ->  search overlay OPEN
+B  Escape  by cliclick (kp:esc)              ->  search overlay STILL OPEN
+C  Escape  by System Events (key code 53)    ->  search overlay CLOSED
+```
+
+Same window, same second, same frontmost process; its typing and its Cmd-K arrive and its Escape
+does not. **This is the one that would have shipped a false defect report** — the 16:30:15Z run
+said *"Escape did not close the search overlay"* about a key it never delivered. Escape is now
+sent by `key code 53`, still a synthesized key through window server -> NSApplication -> key
+window -> WKWebView -> document, still not WebKit's automation protocol.
+
+**4. The assertions were line counts, and they lied in both directions.** The search overlay is
+modal, so opening it takes the rest of the page out of the tree — 66 nodes to 17. *"More lines
+than before"* called a working Cmd-K broken; *"no more lines than before"* called an overlay still
+on screen closed, a false PASS at 16:27:45Z where `ax-4-esc` was byte-identical to `ax-3-cmdk`.
+
+## Two calibrations this record had wrong about its own subject
+
+**An unrendered subtree is not 0x0.** The Row 2 section above says to assert on size, *"0x0 for an
+unrendered subtree"*. It is not. All three `display:none` sheets report `260,130 1400x10` — the
+web area's own origin and a degenerate full-width 10pt strip:
+
+```
+AXGroup | 260,130 1400x10 | name=Connected repositories
+AXGroup | 260,130 1400x10 | name=Allow this action?
+AXGroup | 260,130 1400x10 | name=Quit while work is running?
+```
+
+A rule rejecting only zero would have called **every closed sheet in this app open**. The strip is
+now calibrated from a known-closed sheet on each run (C5 checks all three agree) and rejected by
+value.
+
+**A closed search overlay stays in the tree at its full box.** `260,130 1400x853`, byte-identical
+to the open state — the row-1 residue class, fixed on this branch and not in the .9 bundle. So
+nothing asks "is the overlay gone". The desk chrome is the signal, and it is exact: `Settings` is
+in the tree with a `40x40` box precisely when no modal covers the desk, and absent when one does.
+
+**And a first run is a queue of questions, not one.** `main.js:7294` defers the company question
+behind the setup and memory ones and `closeMemorySetup` asks it *"the moment that one is
+answered"* (`main.js:5250-5256`). One Escape does not return the desk — it advances the queue,
+which is what made three runs read `Which company is this copy of Rich for?` in the dump taken
+after C3 and conclude Escape had failed. **This is also a live hypothesis for what Ray saw**: a
+person pressing Escape on one popup and immediately meeting another can only report that nothing
+happened. It is a hypothesis and not a finding; nothing here measured his run.
+
+## Two things this harness put on the CEO's screen, and the fixes
+
+Both were the harness reaching outside the app it launched. Both are fixed structurally rather
+than by care.
+
+**A modal alert, for two minutes.** The 16:11:56Z run left *"RichOS could not open"* standing and
+he sent a screenshot. The scratch HOME was built under `$TMPDIR`, `/var` is a symlink to
+`private/var`, and `richos-user-update::root` (`crates/richos-user-update/src/lib.rs:147`) refuses
+a HOME that is not already its own `canonicalize()`.
+
+> **The first account of this blamed the doubled slash `${TMPDIR}/…` produces, and that account is
+> wrong.** Measured with a five-line probe on rustc 1.98.0: `Path::new("/a//b") ==
+> Path::new("/a/b")` is **true**; `/var/folders/…/T/pathprobe/home` with no doubled slash anywhere
+> canonicalizes **unequal**; `/private/var/folders/…/T//pathprobe//home` with two of them
+> canonicalizes **equal**. `Path`'s equality is component-wise. Trimming the slash would have
+> fixed nothing.
+
+And the alert is this harness's own doing, which is why the fix is structural: it asks for
+`RICHOS_ACTIVATION=regular` because a key window is what it measures, `activation.rs:72` grants
+that, and `startup_alert.rs:110-112` arms the CEO-facing modal on **exactly**
+`Presentation::Regular`. It is the one harness in this repository that can speak to the person at
+the Mac. So P4 now mirrors `root()`'s whole rule before launching (refusal with nothing launched,
+proved by pointing `$TMPDIR` at a 0777 directory), and P5 watches the boot log for
+`^\[richos\] application startup:` — which `cannot_start` writes **before** it raises the alert
+(`startup_alert.rs:222-228`) — and ends the instance at once. The alert's own timeout is ten
+minutes (`ALERT_TIMEOUT_SECONDS = 600.0`). Red then green on a stub bundle, so no dialog was put
+on anyone's screen to measure it: **135s of exposure before, 0.6s after.**
+
+**Finder's "Connect to Server" window, left open.** Same run. `cliclick` does not type into an
+application — it posts to the window server, which delivers to whatever is frontmost. The app copy
+had already quit, so C1's probe text and C2's Cmd-K went into his desktop. Every synthesized event
+now passes through one `send`, which reads the frontmost process's **unix id** immediately before
+posting and refuses by name on a mismatch; a failed launch stops the run at C0 before any key is
+sent. By id and not by name, because `process "richos-tauri"` matches his own installed RichOS
+just as happily — the tree dump and both `set frontmost` calls are addressed by id for the same
+reason. Proved both ways against a recorder standing in for `cliclick`, so "nothing was sent" is a
+line count on disk: wrong target -> refused, **0** recorder calls; right target -> sent, **1**.
+
+> One thing to own rather than bury: the *red* measurement of that guard was taken by running the
+> pre-fix script against a stub, and it posted its probe text and a Cmd-K into a **Terminal**
+> window at 17:19 local. No document of his was open to it and Finder had no window left behind
+> (checked), but it is the same class of leak and it is recorded here rather than left out.
+
+## Still open, still declared, still not mine
+
+`.desk-btn`'s border is `var(--line)` = `--line-strong`, **1.24:1 in dark and 1.50:1 in light**
+against a 3:1 floor for a non-text indicator, on **every** `.desk-btn` in the app including
+`Decline` and `Allow action`. Unchanged by this work and deliberately so: `--line-strong` is a
+global token and a restyle of every button in the product is a slice of its own. Row 6
+(`esc-20260918T143512Z-f198ca29`) remains the CEO's and nothing in that composition was touched.
+
+## What the checks hold now
+
+| File | What it holds |
+|---|---|
+| `app/scripts/front-door.test.sh` | row 2 on the real window — P1-P5 declared and refused by name, C0-C5 and Z, 7/7 green three times |
+| `app/ui/tests/front-door.js` | rows 1 and 3 under WebKit — 7 checks, 24 assertions |
+| `app/ui/tests/setup.js` case 17 | row 4, with 150 ms of deliberate bridge latency |
+| `app/ui/tests/permissions.js` check 4 | row 5 |
+
+Re-run on the rebased branch, one at a time, all exit 0: `front-door` (24 assertions), `home`,
+`setup`, `permissions`, `escape`, `affordances`, `contrast`, `splash`, `appearance`, `onboarding`,
+`first-run-sheet`, `control-names`, and `phone` (new on `60458045`).
+
+## One more thing the rebase had to re-derive
+
+`ui/tests/contrast-debt.json` was the only conflict against either main. This branch raised every
+surface's `considered` floor by **+2** (the approval sheet's disclosure label, shared markup); the
+phone channel that landed at `88499da5` raised the same floors by **+68** and reformatted the
+whole file to one-space indent. The resolution takes main's file and applies the +2 to all **39**
+surfaces — 37 before, plus `phone-pairing` and `phone-paired` — rather than replaying this
+branch's numbers over it. That is a claim, so it was checked the only way that counts: `contrast`
+exits 0 on the rebased tree, which is check 9z agreeing that no floor is now clearable by a bare
+shell. `floorReference.shell` is left at 448/92, as all five amendments before this one left it.
