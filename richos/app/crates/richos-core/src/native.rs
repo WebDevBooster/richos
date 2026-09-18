@@ -292,6 +292,40 @@ fn tool_search_from_init(init: &Value) -> InitFact {
     )
 }
 
+/// **What the reader says on stderr when the child offers its OWN [`TOOL_SEARCH_TOOL`] — and
+/// it depends on whether THIS lease ever asked for resident tools.**
+///
+/// A pure function of `residency` ([`ReaderState::tool_residency`]) so the two messages are a
+/// unit test rather than something only a real provider can show, exactly as
+/// [`tool_residency_env`] and [`child_args`] are.
+///
+/// - `Some(name)` — a lease that SET the variable is offered the discovery tool anyway. That
+///   is the knob having stopped working, it is the CEO's first words, and it is loud.
+/// - `None` — a lease that set nothing is deferring because nobody asked it not to. Expected,
+///   said once so a longer first tool call on that lease is not a mystery, and phrased so it
+///   can never be read as the sentence above.
+fn tool_search_notice(residency: Option<&str>) -> String {
+    match residency {
+        Some(name) => format!(
+            "[richos] THIS SESSION DEFERS ITS TOOLS. `{TOOL_SEARCH_TOOL}` is in the child's own \
+             init inventory, so the register has to be DISCOVERED before it can be called and \
+             the CEO waits a round trip for that (measured: 7.5 s of one 23 s turn). \
+             `{name}={TOOL_SEARCH_OFF}` is set for this lease and is no longer having that \
+             effect — check `claude --version` against the last release gate."
+        ),
+        // **It does not name the variable, deliberately.** Whoever is chasing the alarm above
+        // greps `app.log` for that name, and a line containing it that means the opposite is
+        // how candidate .10's audit came to blame a working binary. `native::tool_residency_env`
+        // is the thing to read, and it is named instead.
+        None => format!(
+            "[richos] this lease defers its tools, and it was spawned that way on purpose: \
+             `native::tool_residency_env` gives it no tool-residency variable at all, so \
+             `{TOOL_SEARCH_TOOL}` in its init inventory is expected and costs nobody a first \
+             word. This is NOT the front desk's lease and says nothing about the front desk's."
+        ),
+    }
+}
+
 /// How long [`NativeClient::spawn`] waits for the `initialize` handshake before refusing.
 ///
 /// **Measured, not guessed:** the handshake answered in **697.9 ms** on 2.1.252 with the
@@ -1061,6 +1095,23 @@ struct ReaderState {
     /// [`InitFact`], for the reason the three facts above it are: before the first turn,
     /// nobody has told us.
     tool_search_offered: InitFact,
+    /// **The tool-residency variable THIS lease was spawned with** — `Some("ENABLE_TOOL_SEARCH")`
+    /// on the conversation, `None` on the work lease, straight off [`tool_residency_env`].
+    ///
+    /// **It is here because the alarm above was firing at a binary that had done nothing
+    /// wrong.** The reader had no lease role, so one message served both leases, and it
+    /// asserted *"`ENABLE_TOOL_SEARCH=false` is set for this lease"* on a lease where
+    /// [`tool_residency_env`] deliberately sets nothing at all. On candidate .10 that is what
+    /// happened: the work lease's own init frame tripped it, in `app.log` immediately before
+    /// that lease's settlement line and AFTER the conversation lease had already called the
+    /// register — and the audit that read it named a working knob as the cause of an 8–12 s
+    /// first reply (`docs/verification/2026-09-18-nightly-1.2.0-nightly.20260918.5-onscreen-audit.md`,
+    /// rows 1 and 4). A loudness layer that cannot say WHICH lease it is talking about is a
+    /// false-alarm generator, and a false alarm that is believed costs more than silence.
+    ///
+    /// Set at spawn from the role, beside `permissions` and `continuity_tools_grant`, which
+    /// are the two other fields the reader cannot learn from the wire.
+    tool_residency: Option<&'static str>,
     /// Has the model said anything to the CEO YET on the turn in flight?
     ///
     /// **Host-owned, reset at the start of every turn, never set by a model frame** — the
@@ -1180,6 +1231,10 @@ impl Default for ReaderState {
             continuity_tools_loaded: false,
             engine_plugin_loaded: InitFact::NotYetReported,
             tool_search_offered: InitFact::NotYetReported,
+            // `None` — "this lease asks for nothing" — because that is the answer for a
+            // reader nobody has told, and it is the one that cannot manufacture an alarm.
+            // Production sets it from the role one statement after construction.
+            tool_residency: None,
             spoken_this_turn: false,
             continuity_tools_grant: None,
             register_call_id: None,
@@ -1492,6 +1547,11 @@ impl NativeClient {
         // [`ReaderState::he_has_now_been_spoken_to`].
         state.lock().unwrap().continuity_tools_grant =
             continuity_tools.map(|path| ActionGrant::ContinuityTools(path.into()));
+        // **The reader is told which lease it is on, from the same pure function that set the
+        // environment** — not from a second opinion about the role. See
+        // `ReaderState::tool_residency`: without this the work lease raised the front desk's
+        // alarm, and an audit believed it.
+        state.lock().unwrap().tool_residency = tool_residency_env(role).map(|(name, _)| name);
         let stderr_tail: Arc<Mutex<std::collections::VecDeque<String>>> =
             Arc::new(Mutex::new(std::collections::VecDeque::new()));
         // Reset at every `message_start`; read at every `assistant` frame. See
@@ -1882,13 +1942,10 @@ impl NativeClient {
             // anything the CEO sees (the stderr drain above says why).
             let tool_search = tool_search_from_init(&msg);
             if tool_search == InitFact::Yes && st.tool_search_offered != InitFact::Yes {
-                eprintln!(
-                    "[richos] THIS SESSION DEFERS ITS TOOLS. `{TOOL_SEARCH_TOOL}` is in the child's own \
-                     init inventory, so the register has to be DISCOVERED before it can be called and \
-                     the CEO waits a round trip for that (measured: 7.5 s of one 23 s turn). \
-                     `{TOOL_SEARCH_ENV}={TOOL_SEARCH_OFF}` is set for this lease and is no longer \
-                     having that effect — check `claude --version` against the last release gate."
-                );
+                // **It names the lease it is actually on.** See `ReaderState::tool_residency`:
+                // this message used to be one sentence for both leases, and the work lease —
+                // which is given no variable at all — set it off on candidate .10.
+                eprintln!("{}", tool_search_notice(st.tool_residency));
             }
             st.tool_search_offered = tool_search;
             let before = st.skills_verdict;
@@ -4128,6 +4185,71 @@ mod native_driver_tests {
             None,
             "nothing has been measured on the work lease, so nothing is changed there"
         );
+    }
+
+    #[test]
+    fn the_work_lease_deferring_its_tools_is_never_reported_as_a_broken_knob() {
+        // **RED-FIRST PROOF of the defect measured on candidate .10.** Before this fix there
+        // was one message for both leases, so this exact call produced the sentence below,
+        // about a variable that is not set on this lease and a binary that was working. Ray's
+        // audit read it out of `app.log` and named it the cause of an 8-12 s first reply
+        // (rows 1 and 4), and the brief that followed inherited the cause.
+        let work = tool_search_notice(None);
+        assert!(!work.contains(TOOL_SEARCH_ENV),
+            "a lease that sets no variable must not name one: {work}");
+        assert!(!work.contains("no longer having that effect"),
+            "a lease that sets no variable cannot have lost an effect it never had: {work}");
+        assert!(!work.contains("the CEO waits"),
+            "nobody is sitting in front of a work lease's first token: {work}");
+        assert!(work.contains("on purpose") && work.contains("expected"),
+            "the true reading has to be legible to whoever finds this line: {work}");
+
+        // THE POSITIVE CONTROL. The real alarm is unchanged and still able to be loud, which
+        // is what stops this fix from being "delete the warning".
+        let desk = tool_search_notice(Some(TOOL_SEARCH_ENV));
+        assert!(desk.contains("THIS SESSION DEFERS ITS TOOLS"), "{desk}");
+        assert!(desk.contains("ENABLE_TOOL_SEARCH=false"), "{desk}");
+        assert!(desk.contains("no longer having that effect"), "{desk}");
+        assert!(desk.contains(TOOL_SEARCH_TOOL), "{desk}");
+
+        // The two messages cannot be confused for one another by whoever greps for the alarm.
+        assert_ne!(work, desk);
+    }
+
+    #[test]
+    fn the_reader_is_told_which_lease_it_is_on() {
+        // The pure functions above prove the two messages. This proves the WIRING — that the
+        // field is actually set at spawn, from `tool_residency_env` and not from a second
+        // opinion — on a real `spawn_with_tools`, one per role. A pure-function pin alone
+        // would have passed on candidate .10's code, where the field did not exist at all.
+        let handshake = "read -r line\n\
+             printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{}}}'\n\
+             sleep 5\n";
+
+        let desk = NativeClient::spawn_with_tools(
+            &write_script("residency-desk", handshake), Path::new("/tmp"),
+            Some((doctrine_fixture().as_path(), skills_fixture().as_path())),
+            None, None, None, None, None, LeaseRole::Conversation,
+        ).expect("the handshake should succeed");
+        assert_eq!(desk.reader_state.lock().unwrap().tool_residency, Some(TOOL_SEARCH_ENV),
+            "the front desk sets the variable, so its reader must be able to say so");
+
+        let work = NativeClient::spawn_with_tools(
+            &write_script("residency-work", handshake), Path::new("/tmp"),
+            Some((doctrine_fixture().as_path(), skills_fixture().as_path())),
+            None, None, None, None, None, LeaseRole::Work,
+        ).expect("the handshake should succeed");
+        assert_eq!(work.reader_state.lock().unwrap().tool_residency, None,
+            "the work lease sets nothing, and its reader must not claim otherwise");
+    }
+
+    #[test]
+    fn a_default_reader_cannot_manufacture_the_front_desk_s_alarm() {
+        // The default is the answer for a reader NOBODY HAS TOLD, and the direction of that
+        // default is a decision: `None` can only ever under-claim. Production overwrites it
+        // from `tool_residency_env(role)` one statement after construction, which
+        // `the_reader_is_told_which_lease_it_is_on` pins on a real spawn.
+        assert_eq!(ReaderState::default().tool_residency, None);
     }
 
     #[test]
