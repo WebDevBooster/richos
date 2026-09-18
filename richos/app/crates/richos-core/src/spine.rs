@@ -274,6 +274,27 @@ struct Resident {
 /// measurement, not a constant with an argument behind it.
 pub const MAX_RESIDENT_FRONT_DESKS: usize = 8;
 
+/// **What happened when the app asked for the front desk to be ready BEFORE he types** —
+/// [`Spine::prime_front_desk`]'s answer.
+///
+/// Every variant is a fact about a LEASE, never a promise about a turn: nothing here changes what
+/// his next message does, only when the waiting for it happened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FrontDeskReady {
+    /// The lease was spawned and/or primed by this call. `millis` is what he would otherwise have
+    /// waited through on his first message.
+    Ready { millis: u64, spawned: bool },
+    /// It was already primed for this thread: nothing was spent and nothing was sent.
+    AlreadyReady,
+    /// A turn is in flight, so nothing was done. Priming is NEVER run underneath a turn — the
+    /// lease is the thing running it, and a second prompt into it is what the continuity design
+    /// forbids structurally (§3.1).
+    TurnInProgress,
+    /// It could not be done: the thread does not exist, has no entity home, or the priming turn
+    /// itself failed. His first message then primes the way it always did, which is the only cost.
+    NotReady(String),
+}
+
 pub struct Spine {
     ledger: Ledger,
     lease: Option<Box<dyn Cognition>>,
@@ -3229,6 +3250,80 @@ impl Spine {
         }
         if self.control.stop_claim().is_some() { return Ok(()); }
         self.prime_lease_if_needed(binding)
+    }
+
+    /// **PRIME THE FRONT DESK BEFORE HE TYPES — the CEO's §55, the half that is not about the
+    /// reply at all.**
+    ///
+    /// # The measurement this exists for, and the premise it corrects
+    ///
+    /// `docs/verification/first-reply-2026-09-18.md` measured the lease's first visible turn at
+    /// **13.464 s / 13.628 s / 15.513 s** against **7.128 s / 8.505 s / 8.920 s** warm, and
+    /// recorded the ~8 s difference as *"the lease waking up while he waits"*. It is more specific
+    /// than that, and the difference decides what can be done about it: **those seconds are a
+    /// whole model turn.** [`Spine::prime_lease_if_needed`] runs `Cognition::reprime`, which is a
+    /// real turn with the re-prime payload in it, and it is called from
+    /// [`Spine::prepare_request`] — which runs INSIDE `submit_prompt`. So his first message pays
+    /// for the continuity priming of the lease that is about to answer it, while he watches.
+    ///
+    /// **So priming cannot be made "a process start only", and that is a finding rather than a
+    /// preference.** The child process is already started before his first message reaches the
+    /// provider, in the app (`prepare_request` spawns from the lease factory) and in the probe
+    /// (`attach_lease`) alike. The seconds are the priming TURN. This method moves that turn off
+    /// his wait; it does not invent it.
+    ///
+    /// # What it spends
+    ///
+    /// **At most one model turn per lease, and it is the same turn his first message spends
+    /// today.** Called at launch, or when a thread is opened, that turn is paid before he is
+    /// waiting on it; his first message then finds the desk primed and goes straight to the
+    /// provider. The ONE case where this spends something that would not have been spent is a
+    /// launch where he never says anything at all — one priming turn on a desk that answered
+    /// nothing. Named here rather than discovered on a bill.
+    ///
+    /// # What it will not do
+    ///
+    /// - **Never underneath a turn.** [`FrontDeskReady::TurnInProgress`], not a wait: the lease is
+    ///   the thing running that turn.
+    /// - **Never for a thread that does not exist, and never by creating one.** A caller that
+    ///   wants a thread makes one; this makes a thread's desk ready.
+    /// - **Nothing about rotation.** It goes through `prepare_request`, so a rotation that was
+    ///   already pending is honored exactly as his next message would have honored it, and none is
+    ///   ever started on the strength of a launch.
+    ///
+    /// The caller holds the spine's lock for the whole of it (~8 s, measured). That is deliberate,
+    /// and it is never worse than today: a message he sends during priming waits for the priming
+    /// his message used to perform itself, and then runs on a primed desk.
+    pub fn prime_front_desk(&mut self, thread_id: &str) -> FrontDeskReady {
+        if self.turn_in_progress {
+            return FrontDeskReady::TurnInProgress;
+        }
+        let binding = match self.ledger.thread_binding(thread_id) {
+            Ok(binding) => binding,
+            Err(e) => return FrontDeskReady::NotReady(e.to_string()),
+        };
+        if self.lease.is_some()
+            && self.lease_primed
+            && self.lease_primed_thread.as_deref() == Some(thread_id)
+        {
+            return FrontDeskReady::AlreadyReady;
+        }
+        let spawned = self.lease.is_none();
+        let started = std::time::Instant::now();
+        match self.prepare_request(&binding) {
+            Ok(()) => FrontDeskReady::Ready { millis: started.elapsed().as_millis() as u64, spawned },
+            // **A FAILURE HERE IS NOT HIS PROBLEM AND MUST NOT BECOME ONE.** Priming only decides
+            // WHEN the waiting happens; if it cannot be done now, his first message takes the path
+            // it has always taken and primes on its own. So the reason is said once, on the
+            // machinery channel, and nothing is surfaced to him and nothing is retried.
+            Err(e) => {
+                eprintln!(
+                    "[richos] the front desk could not be made ready before he types ({e}); his \
+                     first message will prime it the way it did before, which is the only cost"
+                );
+                FrontDeskReady::NotReady(e.to_string())
+            }
+        }
     }
 
     /// Assemble + inject the re-prime payload once per lease (before its first turn).

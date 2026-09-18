@@ -1,0 +1,156 @@
+//! **The front desk is ready BEFORE he types** — the CEO's ruling §55, 2026-09-18, and the half
+//! of it that is not about the reply.
+//!
+//! *"Yes, a few seconds is fine. But 35 seconds of waiting for the first response is not. Go."*
+//!
+//! # The measurement these tests are about
+//!
+//! `docs/verification/first-reply-2026-09-18.md` measured the lease's FIRST visible turn at
+//! **13.464 s / 13.628 s / 15.513 s** and its warm turns at **7.128 s / 8.505 s / 8.920 s**, and
+//! attributed the ~8 s difference to "the lease waking up while he waits". The code says what that
+//! is, exactly: `Spine::prime_lease_if_needed` runs `Cognition::reprime` — a real model turn — and
+//! it is called from `prepare_request`, which runs INSIDE `submit_prompt`. His first message pays
+//! for the priming of the lease that is about to answer it.
+//!
+//! So the seconds are not a process start, they are a TURN, and the only thing that can be done
+//! about them is to spend that turn before he is waiting on it. That is `prime_front_desk`, and
+//! these are its invariants. Every one of them runs headless on `MockCognition` — no provider, no
+//! network, no model turn. The real-provider numbers are
+//! `examples/first_reply_timing_e2e.rs`'s job.
+
+use richos_core::cognition::{MockCognition, MockLeaseFactory};
+use richos_core::entity::EntityId;
+use richos_core::ledger::{Ledger, Source};
+use richos_core::spine::FrontDeskReady;
+
+mod support;
+
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
+
+fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
+    let path = std::env::temp_dir().join(format!(
+        "richos-priming-test-{tag}-{}-{}.jsonl",
+        std::process::id(),
+        richos_core::util::now_millis()
+    ));
+    let _ = std::fs::remove_file(&path);
+    let ledger = Ledger::open(&path).unwrap();
+    (path, ledger)
+}
+
+#[test]
+fn the_priming_turn_happens_before_he_types_and_his_first_message_no_longer_pays_for_it() {
+    // **THE WHOLE POINT, AS A SEQUENCE.** Before this call the lease has never been primed;
+    // after it, it has — and his first message runs on a primed desk, which is the ~8 s that
+    // used to sit in front of his first words.
+    let (path, ledger) = tmp_ledger("primed-before-he-types");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    let lease = MockCognition::new("sess-one", vec!["On it!"]);
+    let reprimes = lease.reprimes.clone();
+    let prompts = lease.prompts.clone();
+    spine.attach_lease(Box::new(lease));
+
+    // Nothing has been sent to the provider yet, in either lane.
+    assert!(reprimes.lock().unwrap().is_empty());
+    assert!(prompts.lock().unwrap().is_empty());
+
+    match spine.prime_front_desk(&thread) {
+        FrontDeskReady::Ready { spawned, .. } => {
+            // `attach_lease` supplied the lease, so nothing was spawned here; the turn is the cost.
+            assert!(!spawned, "this lease was attached, not spawned by the priming call");
+        }
+        other => panic!("the desk should have been made ready: {other:?}"),
+    }
+    // ONE priming turn, and it carries the re-prime payload rather than a greeting.
+    assert_eq!(reprimes.lock().unwrap().len(), 1, "priming is one turn, not a loop");
+    assert!(prompts.lock().unwrap().is_empty(), "priming must not put a visible prompt in his thread");
+
+    // **AND HIS MESSAGE DOES NOT PRIME AGAIN.** This is the assertion that makes the timing
+    // claim true rather than merely plausible: if priming still happened on his turn, the
+    // re-prime count would be 2 here and his first words would still be behind it.
+    let turn = spine.submit_prompt("Land the pricing branch and get the staging deploy done.", Source::Text).unwrap();
+    assert_eq!(reprimes.lock().unwrap().len(), 1, "his first message re-primed a desk that was ready");
+    assert_eq!(prompts.lock().unwrap().len(), 1);
+    assert_eq!(spine.ledger().turn(&turn).unwrap().assistant_text, "On it!");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn priming_a_desk_that_is_already_ready_spends_nothing_and_sends_nothing() {
+    // Launch, then a thread open, then a second thread open is three calls and one turn. An
+    // idempotence that cost a model turn each time would be a worse defect than the one this
+    // whole slice removes.
+    let (path, ledger) = tmp_ledger("already-ready");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    let lease = MockCognition::new("sess-one", vec!["On it!"]);
+    let reprimes = lease.reprimes.clone();
+    spine.attach_lease(Box::new(lease));
+
+    assert!(matches!(spine.prime_front_desk(&thread), FrontDeskReady::Ready { .. }));
+    for _ in 0..3 {
+        assert_eq!(spine.prime_front_desk(&thread), FrontDeskReady::AlreadyReady);
+    }
+    assert_eq!(reprimes.lock().unwrap().len(), 1, "an already-ready desk must cost nothing");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn priming_spawns_the_lease_when_there_is_none_which_is_what_a_launch_looks_like() {
+    // The app's real launch shape: no lease at all until something asks for one
+    // (`prepare_request` spawns from the lease factory on his FIRST message today). With this
+    // call at launch, the spawn AND the priming turn are both behind him before he types.
+    let (path, ledger) = tmp_ledger("spawn-at-launch");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    let factory = MockLeaseFactory::new(vec!["On it!"]);
+    let spawned_reprimes = factory.spawned.clone();
+    spine.set_lease_factory(Box::new(factory));
+
+    match spine.prime_front_desk(&thread) {
+        FrontDeskReady::Ready { spawned, .. } => assert!(spawned, "there was no lease to prime"),
+        other => panic!("a launch with a factory should reach a ready desk: {other:?}"),
+    }
+    let spawned = spawned_reprimes.lock().unwrap();
+    assert_eq!(spawned.len(), 1, "exactly one lease was spawned");
+    assert_eq!(spawned[0].lock().unwrap().len(), 1, "and it was primed once");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_thread_that_does_not_exist_is_refused_rather_than_created_or_guessed() {
+    // Fails closed, and says which fact is missing. A priming call that CREATED a thread would
+    // put a thread in his sidebar because the app started.
+    let (path, ledger) = tmp_ledger("no-such-thread");
+    let mut spine = support::spine(ledger);
+    let before = spine.threads().len();
+    let verdict = spine.prime_front_desk("thr_nothing_here");
+    match verdict {
+        FrontDeskReady::NotReady(why) => assert!(!why.is_empty(), "the refusal must name the fault"),
+        other => panic!("an unknown thread must be refused: {other:?}"),
+    }
+    assert_eq!(spine.threads().len(), before, "priming must never create a thread");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn priming_is_never_run_underneath_a_turn() {
+    // **THE CONTINUITY INVARIANT, IN ITS SMALLEST FORM** (design §3.1): the lease is the thing
+    // running his turn, and a second prompt into it mid-turn is exactly what must never happen.
+    // A launch-time optimization is not worth a millisecond of that, so the answer is a verdict
+    // and not a wait.
+    let (path, ledger) = tmp_ledger("never-under-a-turn");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    let lease = MockCognition::new("sess-one", vec!["On it!"]);
+    let reprimes = lease.reprimes.clone();
+    spine.attach_lease(Box::new(lease));
+    spine.debug_set_turn_in_progress(true);
+    assert_eq!(spine.prime_front_desk(&thread), FrontDeskReady::TurnInProgress);
+    assert!(reprimes.lock().unwrap().is_empty(), "nothing may be sent while a turn is in flight");
+    spine.debug_set_turn_in_progress(false);
+    let _ = std::fs::remove_file(&path);
+}
