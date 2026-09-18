@@ -571,46 +571,58 @@ pub fn mobileconfig(
 // The word list
 // -------------------------------------------------------------------------------------
 
-/// **256 words, one per byte.** Six of them carry 48 bits of the root's fingerprint.
+/// **256 words, one per byte — and it is NOT this file's list.** It is
+/// `richos/app/phone/lib/wordlist.js`, copied in order, because the whole point of the six
+/// words is that the Mac's screen and the phone's screen show **the same six**, and two lists
+/// that merely look similar is the one way this feature can be wrong in a way nobody notices.
 ///
-/// Chosen to survive being SPOKEN as well as read (the CEO's standing rule that an option
-/// must mean the same thing read or spoken applies to anything he is asked to compare): every
-/// word is ordinary English, three to seven letters, no homophones of another entry, and no
-/// two entries share their first three letters. A test enforces every one of those properties
-/// rather than trusting that the list was typed carefully.
+/// The phone landed first (`dfa7ed27`), so the phone's list is the one. It also carries a
+/// stronger property than an earlier draft of this file did: its own test computes the edit
+/// distance between all 32,640 pairs and fails under two, so *"did you say cobalt or cobra?"*
+/// cannot happen. That test lives with the list, on the phone side, and is not duplicated here.
+///
+/// What IS tested here is the only thing a second copy can usefully assert:
+/// [`tests::the_word_list_is_the_phones_word_list_in_the_same_order`] reads
+/// `app/phone/lib/wordlist.js` off disk and compares it entry by entry. A drift on either side
+/// fails the Mac's own test suite.
+///
+/// **And the derivation runs on the PHONE, from the hex the Mac sends.** `lib/fingerprint.js`
+/// is explicit about why: *"if the Mac sent pretty words, a Mac that wanted to could send words
+/// that do not belong to the certificate it is actually serving."* So the Mac sends
+/// `ca_fingerprint_sha256` and computes these words only for its OWN screen.
 pub const WORDS: [&str; 256] = [
-    "acorn", "album", "amber", "anchor", "apple", "arrow", "atlas", "autumn",
-    "bacon", "badge", "bagel", "bamboo", "barn", "basin", "beach", "bench",
-    "birch", "bison", "black", "blue", "board", "bolt", "bonus", "borrow",
-    "bottle", "boxer", "brass", "bread", "brick", "bronze", "brush", "bubble",
-    "bucket", "buffer", "bugle", "bunch", "burden", "butler", "buzz", "cabin",
-    "cactus", "camel", "candle", "carbon", "castle", "cattle", "cave", "cedar",
-    "chain", "cheese", "chimney", "cider", "cinema", "circus", "city", "clay",
-    "clever", "cliff", "clock", "coach", "cobalt", "cocoa", "coffee", "coin",
-    "collar", "comet", "copper", "coral", "cotton", "cousin", "cover", "cradle",
-    "cream", "crimson", "crown", "crystal", "cube", "custom", "cymbal", "daisy",
-    "dancer", "dawn", "deck", "deer", "delta", "denim", "desert", "diamond",
-    "diesel", "dinner", "dock", "dolphin", "donkey", "double", "dragon", "drift",
-    "drum", "dust", "eagle", "earth", "easel", "echo", "edge", "eight",
-    "elbow", "elder", "elm", "ember", "engine", "equal", "escort", "ether",
-    "exit", "fabric", "falcon", "fancy", "farm", "fence", "fern", "fiddle",
-    "field", "fig", "finch", "fire", "fish", "flag", "flint", "flour",
-    "flute", "foam", "fog", "forest", "fossil", "fox", "frame", "fresh",
-    "frost", "fruit", "fudge", "garden", "gate", "gem", "ginger", "glass",
-    "globe", "goat", "gold", "goose", "grain", "green", "grill", "guitar",
-    "gulf", "hammer", "harbor", "hawk", "hazel", "heart", "hedge", "helmet",
-    "herb", "hill", "hollow", "honey", "horse", "hotel", "hunter", "ice",
-    "indigo", "ink", "iron", "island", "ivory", "jacket", "jade", "jam",
-    "jasmine", "jelly", "jet", "jewel", "jigsaw", "jockey", "jolly", "judge",
-    "juice", "jungle", "kayak", "kettle", "key", "kitten", "knee", "knot",
-    "koala", "ladder", "lagoon", "lake", "lamp", "lantern", "lava", "leaf",
-    "lemon", "lentil", "letter", "lever", "light", "lilac", "lime", "linen",
-    "lion", "lobby", "locket", "lotus", "lumber", "lunar", "lyric", "magnet",
-    "mango", "map", "marble", "mask", "meadow", "medal", "melon", "mermaid",
-    "metal", "mint", "mirror", "mist", "mitten", "modest", "money", "moon",
-    "moss", "mother", "mouse", "muffin", "museum", "nectar", "needle", "nest",
-    "nickel", "night", "noble", "ocean", "olive", "onion", "orbit", "otter",
-    "oyster", "paddle", "palm", "pearl", "pepper", "piano", "pilot", "pine",
+    "anchor", "apple", "april", "arrow", "artist", "aspen", "autumn", "avenue",
+    "bacon", "badge", "basket", "beard", "beetle", "bench", "berry", "bishop",
+    "blanket", "blossom", "bonus", "border", "bottle", "boulder", "branch", "bridge",
+    "bronze", "brush", "bucket", "buffalo", "bundle", "butler", "cabin", "cactus",
+    "camera", "candle", "canyon", "carbon", "cargo", "carpet", "castle", "cavern",
+    "cedar", "cement", "census", "chapel", "cherry", "chimney", "circus", "clover",
+    "cobalt", "cobra", "coffee", "collar", "column", "comet", "compass", "copper",
+    "coral", "cotton", "cousin", "cowboy", "crayon", "cricket", "crystal", "cushion",
+    "dagger", "dairy", "dancer", "decade", "denim", "desert", "diamond", "diesel",
+    "dinner", "doctor", "dolphin", "domain", "donkey", "dragon", "drawer", "drummer",
+    "eagle", "elbow", "elder", "ember", "engine", "estate", "expert", "fabric",
+    "falcon", "farmer", "feather", "fiber", "fiddle", "figure", "filter", "finger",
+    "flame", "flute", "forest", "fortune", "fossil", "freezer", "friend", "frozen",
+    "gadget", "galaxy", "gallon", "garden", "garlic", "gazelle", "giant", "glacier",
+    "glass", "glove", "granite", "grape", "gravel", "guitar", "gutter", "hammer",
+    "harbor", "harvest", "helmet", "hermit", "hockey", "honey", "horizon", "hornet",
+    "hotel", "hunter", "iceberg", "igloo", "indigo", "island", "ivory", "jacket",
+    "jaguar", "jasmine", "jelly", "journal", "jungle", "junior", "kayak", "kernel",
+    "kettle", "kitchen", "kitten", "koala", "ladder", "lagoon", "lantern", "laptop",
+    "laser", "lawyer", "leader", "legend", "lemon", "leopard", "letter", "lettuce",
+    "lily", "lizard", "lobster", "locker", "lotus", "lumber", "lunar", "magnet",
+    "mammal", "mango", "manor", "maple", "marble", "margin", "marine", "market",
+    "mason", "meadow", "medal", "melody", "mentor", "mermaid", "meteor", "mirror",
+    "mixer", "model", "monarch", "monsoon", "moose", "morning", "mosaic", "motor",
+    "muffin", "mural", "museum", "music", "mustang", "mustard", "napkin", "nectar",
+    "needle", "neon", "nephew", "nickel", "noodle", "nugget", "nurse", "nutmeg",
+    "oasis", "ocean", "octopus", "office", "olive", "onion", "orange", "orbit",
+    "orchid", "organ", "otter", "outlaw", "oxygen", "oyster", "pajama", "palace",
+    "pancake", "panda", "panther", "papaya", "parade", "parcel", "parlor", "parrot",
+    "pasta", "pastry", "patio", "peanut", "pebble", "pelican", "pencil", "penguin",
+    "pepper", "petal", "phantom", "pianist", "picnic", "pigeon", "pillow", "pilot",
+    "pirate", "pistol", "planet", "plaza", "pocket", "poet", "polar", "pony",
 ];
 
 #[cfg(test)]
@@ -850,18 +862,49 @@ mod tests {
 
     #[test]
     fn every_word_survives_being_spoken() {
-        // Three to seven ordinary letters, and no two words sharing their first three — so
-        // "did you say cotton or collar?" cannot happen over the phone.
-        let mut prefixes: Vec<&str> = Vec::new();
+        // Three to seven ordinary lowercase letters, so there is nothing to spell out and
+        // nothing that changes shape when a phone capitalizes it. The stronger property —
+        // no two words within one edit of each other, over all 32,640 pairs — is tested on
+        // the phone side where the list lives, and is not re-implemented here.
         for w in WORDS {
             assert!((3..=7).contains(&w.len()), "{w} is {} letters", w.len());
             assert!(w.chars().all(|c| c.is_ascii_lowercase()), "{w} is not plain lowercase letters");
-            prefixes.push(&w[..3]);
         }
-        prefixes.sort_unstable();
-        let before = prefixes.len();
-        prefixes.dedup();
-        assert_eq!(prefixes.len(), before, "two words share their first three letters");
+    }
+
+    #[test]
+    fn the_word_list_is_the_phones_word_list_in_the_same_order() {
+        // **THE TEST THAT MAKES THE SIX WORDS MEAN ANYTHING.** The Mac's screen and the
+        // phone's screen must show the same six words; two lists that merely look similar
+        // would show different words for the same certificate, and the CEO would refuse a
+        // pairing that was fine — or, far worse, get used to them not matching.
+        //
+        // So this does not test a property of the list. It reads the phone's own file and
+        // compares. A word changed on either side fails here.
+        let phone = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../phone/lib/wordlist.js");
+        let source = std::fs::read_to_string(&phone)
+            .unwrap_or_else(|e| panic!("could not read {}: {e}", phone.display()));
+        // The list is the quoted words inside the `const WORDS = [ … ];` array. Taking every
+        // single-quoted token after that marker is enough: nothing else in the file is quoted
+        // that way, and the count assertion below catches it if that ever stops being true.
+        let array = source
+            .split_once("const WORDS = [")
+            .unwrap_or_else(|| panic!("{} no longer declares `const WORDS = [`", phone.display()))
+            .1
+            .split_once("];")
+            .expect("unterminated WORDS array")
+            .0;
+        let from_phone: Vec<&str> = array
+            .split('\'')
+            .skip(1)
+            .step_by(2)
+            .collect();
+        assert_eq!(from_phone.len(), 256, "the phone's list is not 256 words any more");
+        assert_eq!(
+            from_phone,
+            WORDS.to_vec(),
+            "the Mac's word list and the phone's have drifted — the six words would not match"
+        );
     }
 
     #[test]

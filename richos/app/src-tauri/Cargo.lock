@@ -1394,6 +1394,7 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -2826,6 +2827,7 @@ name = "richos-tauri"
 version = "1.2.0"
 dependencies = [
  "base64 0.22.1",
+ "bytes",
  "futures-util",
  "http-body-util",
  "hyper",

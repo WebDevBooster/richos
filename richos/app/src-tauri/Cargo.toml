@@ -94,8 +94,15 @@ tokio = { version = "1", features = ["time", "rt", "net", "io-util", "sync"] }
 # build does not have — which is exactly the kind of inherited default the CEO's standing rule
 # refuses. The proof is the Cargo.lock diff for this commit: it adds no [[package]] entry.
 reqwest = { version = "0.13", default-features = false, features = ["stream", "rustls-no-provider"] }
-# `StreamExt::next` over the response byte stream, and nothing else. Already in the lock.
+# `StreamExt::next` over the response byte stream, and — since the phone channel — `select` to
+# race one `accept()` against one shutdown signal. `futures_util::future::select` is used rather
+# than `tokio::select!` for one reason: the macro lives behind `tokio/macros`, which would pull
+# `tokio-macros` as a NEW `[[package]]`, and an attribute is not worth a package. Already in the
+# lock either way.
 futures-util = { version = "0.3", default-features = false }
+# `Bytes` for a response body. It arrives beneath hyper and tokio already; named here because
+# `src/phone/listen.rs` constructs it directly rather than only handling one.
+bytes = "1"
 # THE TLS CRYPTO PROVIDER, INSTALLED BY US RATHER THAN HOPED FOR.
 #
 # `reqwest/rustls-no-provider` means reqwest picks no cipher implementation: a process-level
