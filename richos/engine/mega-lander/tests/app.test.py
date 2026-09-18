@@ -482,6 +482,86 @@ class DesktopWork(unittest.TestCase):
             seen.clear();self.call("inspect")
             self.assertTrue(seen and all(value is None for value in seen),seen)
 
+    def test_a_work_lease_prepares_against_the_obligation_its_scope_carries_and_never_one_it_names(self):
+        """The fourth way a background job stalled, 2026-09-18.
+
+        The whole flow ran for real for the first time on 2026-09-18 and got as
+        far as this call and no further. The work lease's brief names the
+        repositories and the title and no identifier at all, deliberately; this
+        tool required an ``obligation_id``; so the model supplied the only thing
+        it could, a guess. It invented ``obl-add-notes-line`` where the real
+        obligation was ``qa-notes-line`` and was refused in 8 ms with "item is
+        absent or outside the active scope". Nothing was prepared, no worker ran,
+        and the fixture repository never gained its commit.
+
+        Arm B is the one that matters, and it is deliberately not "a wrong id is
+        refused": a wrong id must be IGNORED, because the scope already holds the
+        right one. It reuses arm A's ``request_id``, so if the invented id had
+        reached ``normalized`` at all the call would refuse with "already used
+        for different work" instead of returning arm A's own record.
+
+        Arms C and D are the controls. Without C the derivation could have been a
+        blanket "obligation_id is optional now"; without D it could have been
+        "any work scope prepares anything".
+        """
+        work, _ = self.work_lease()
+        # A. The lease names nothing. The scope's own binding answers.
+        first = self.app.call(work, "prepare", {key: value for key, value in self.args.items()
+                                                if key != "obligation_id"})
+        self.assertEqual(first["status"], "prepared")
+        self.assertEqual(self.call("inspect")["records"][0]["request"]["obligation_id"], "fixture-task")
+
+        # B. The lease names the WRONG one, which is exactly what happened. The
+        #    scope wins and the invented id is nowhere in the receipt.
+        again = self.app.call(work, "prepare", {**self.args, "obligation_id": "obl-add-notes-line"})
+        self.assertEqual(again["id"], first["id"])
+        self.assertEqual(again["request"]["obligation_id"], "fixture-task")
+        self.assertNotIn("obl-add-notes-line", json.dumps(self.call("inspect")["records"]))
+
+        # C. CONTROL -- a conversation scope carries no obligation in its binding
+        #    (its turn_id is a TURN), so there the argument is still required and
+        #    a wrong one is still refused by the ECS read.
+        with self.assertRaisesRegex(ValueError, "obligation_id must be a nonempty bounded string"):
+            self.call("prepare", {key: value for key, value in self.args.items()
+                                  if key != "obligation_id"})
+        with self.assertRaises(Exception):
+            self.call("prepare", {**self.args, "request_id": "ceo-wrong",
+                                  "obligation_id": "obl-add-notes-line"})
+
+        # D. CONTROL -- deriving is not the same as trusting. A work scope bound
+        #    to an obligation that does not exist is refused exactly as before,
+        #    and nothing is prepared for it.
+        absent, _ = self.work_lease(assignment="no-such-assignment")
+        with self.assertRaises(Exception):
+            self.app.call(absent, "prepare", {**self.args, "request_id": "absent-one"})
+        self.assertEqual(len(self.call("inspect")["records"]), 1)
+
+    def test_a_work_lease_completes_the_obligation_its_scope_carries(self):
+        """The same derivation on the call that CLOSES the assignment.
+
+        Fixing only ``prepare`` would have moved the defect one step later and
+        made it harder to see: a job that did every piece of its work and then
+        named the wrong obligation here leaves the obligation open, and the app's
+        settle reading reports a failure over work that actually landed.
+
+        The refusal asserted below is the completion gate doing its own job
+        ("unresolved execution"), reached only because the obligation resolved --
+        an invented id would have been refused earlier and for a different reason,
+        which is what the second arm pins.
+        """
+        worker = self.call("prepare", self.args)
+        work, _ = self.work_lease()
+        with self.assertRaisesRegex(ValueError, "unresolved execution"):
+            self.app.call(work, "complete", {"worker_ids": [worker["id"]]})
+        # The same call naming a guess reaches the same gate: the scope wins and
+        # the guess is never read.
+        with self.assertRaisesRegex(ValueError, "unresolved execution"):
+            self.app.call(work, "complete", {"obligation_id": "obl-add-notes-line",
+                                             "worker_ids": [worker["id"]]})
+        # CONTROL: on the conversation's scope the argument is still required.
+        with self.assertRaisesRegex(ValueError, "obligation_id must be a nonempty bounded string"):
+            self.call("complete", {"worker_ids": [worker["id"]]})
+
     def test_orphan_seats_are_reconciled_and_an_open_assignment_keeps_its_own(self):
         """6.3a. Settled, absent or unknown goes; open stays; his is never touched."""
         self.call("prepare",self.args)

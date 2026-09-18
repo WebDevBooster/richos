@@ -1005,10 +1005,55 @@ impl WorkHost {
                     self.forget_at_the_desk(record);
                     self.raise(record, NoticeKind::Failed, &tell(&record.title, &why));
                 }
+                // **NOTHING COULD BE WITNESSED FINISHING IT — AND THE TURN HAS ENDED, SO
+                // THAT IS A FAILURE AND NEVER "STILL RUNNING".**
+                //
+                // This arm used to write `Running` with the settle reading's own sentence,
+                // and that is the silent hang the first real run of the whole flow produced
+                // (`esc-20260918T115854Z-852c5f9c`): the back end's turn ended at t+350.207 s
+                // with nothing prepared, the record went to *"The work connection's records
+                // could not be read, so this counts as still running"*, and it sat there for
+                // the remaining 1,150 s with `notices: []`. **The CEO was told nothing at
+                // all**, which is worse for him than the failure card Ray complained about —
+                // a card at least ends the wait, and this state has no watcher that could
+                // ever end it: `run_one` returns here and nothing re-reads a `Running` row.
+                //
+                // **`StillRunning` is not a state; it is a MISSING WITNESS.** §0's rule —
+                // *"anything we cannot witness counts as still running"* — is a rule about
+                // what may be CLAIMED, and it holds while a turn is open. At this line the
+                // turn has provably ended: `prompt` returned `Ok`, the grant has been
+                // revoked (step 4), and the lease is idle. So "we could not witness it
+                // ending" and "it is still going" have come apart, and reporting the second
+                // is a claim about a job that is not running.
+                //
+                // **What he hears is read off the receipts, exactly like the arm above**, and
+                // that is deliberate: it is the same `what_happened` funnel, so this cannot
+                // invent a claim the `NotSettled` arm would not make. With no receipts at all
+                // it says *"No work was started, so nothing was landed."* — which is the run
+                // that produced this, said as what it was. With receipts that DO show a land
+                // it names the land, because a worker journal we could not read is no
+                // evidence at all about what the engine wrote under its land lock.
+                //
+                // **Why the technical reason goes to the log and not to him.** The four
+                // readings that reach here (worker evidence unreadable, workers still open,
+                // obligation absent, obligation unreadable) are four different things for an
+                // engineer and one thing for him: it did not finish and here is what it did.
                 Outcome::StillRunning(detail) => {
-                    // §0's honest sentence: "anything we cannot witness counts as still
-                    // running", never "nothing is running".
-                    advance(AssignmentState::Running, &detail);
+                    eprintln!(
+                        "[richos] work: this assignment's turn ended and nothing could be \
+                         witnessed finishing it: {detail}"
+                    );
+                    let why = self.what_happened(record);
+                    advance(AssignmentState::Failed, &why);
+                    self.forget_at_the_desk(record);
+                    // **A QUESTION HEARS NOTHING ABOUT LANDS.** `what_happened` reads the
+                    // WORK receipts, and for a question there are none — so it would say "No
+                    // work was started, so nothing was landed", which is literally true and a
+                    // non-sequitur about something he never asked for (§58). `could_not_answer`
+                    // has its own sentence for a reason it cannot name, and that is the honest
+                    // one here. The row's own `detail` above is unchanged: it is not spoken.
+                    let spoken = if record.kind.is_question() { "" } else { why.as_str() };
+                    self.raise(record, NoticeKind::Failed, &tell(&record.title, spoken));
                 }
             },
         }
@@ -1441,6 +1486,13 @@ impl WorkHost {
     ///
     /// The rules are unchanged (`app_workers.rs:33-47`): unattributed or unreadable
     /// evidence counts as still running, never as zero.
+    ///
+    /// **`StillRunning` here means "not witnessed as ended", and the sentence it carries is
+    /// only true while a turn is open.** This function answers what can be WITNESSED; it
+    /// does not answer what state an assignment is in. `run_one` is the one caller, it calls
+    /// this only after `prompt` has returned, and since 2026-09-18 it reads this answer as a
+    /// missing witness rather than as a running job — see the `Outcome::StillRunning` arm
+    /// there for the run that made the difference matter.
     pub fn settlement(&self, thread: &str) -> Settlement {
         // **No back end on this conversation is NOT a zero here.** It is the same reading it
         // has always been — no session, therefore nothing attributed, therefore *"still
@@ -1453,6 +1505,16 @@ impl WorkHost {
             .and_then(|backend| backend.inner.lock().unwrap().lease_session.clone());
         let view = crate::app_workers::status(&self.state, session.as_deref());
         if !view.is_attributed() {
+            // **WHICH of the reasons it was, in the log and never on his screen.** The
+            // sentence below is one thing for him; `Unattributed` is four different things
+            // for whoever has to fix it (no session, an unusable session id, an unreadable
+            // evidence directory, a callback row that did not belong to this session). The
+            // first real run of the whole flow ended on this branch and the record could not
+            // say which, because nothing wrote the reason down.
+            eprintln!(
+                "[richos] work: no worker evidence could be attributed to this back end: {:?}",
+                view.unattributed
+            );
             return Settlement::StillRunning(
                 "The work connection's records could not be read, so this counts as still running.".into(),
             );
@@ -2613,8 +2675,16 @@ mod tests {
         assert_eq!(h.host.lease_sessions(), vec!["work-session-one".to_string()]);
         // The work lease's own evidence directory is missing, so the honest answer is
         // "still running" and the assignment is NOT settled.
+        //
+        // **THIS LINE USED TO ASSERT `Running` AND WAS ASSERTING THE DEFECT.** The reading
+        // above is unchanged and still correct — nothing about these workers was witnessed —
+        // but the assignment's own turn has ENDED by the time the runner reads it, and a job
+        // whose turn has ended is not running. See the `Outcome::StillRunning` arm in
+        // `run_one`. The settle reading and the assignment's state are two different
+        // questions, and this test now asserts both rather than conflating them.
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
-        assert_eq!(row.state, AssignmentState::Running);
+        assert_eq!(row.state, AssignmentState::Failed);
+        assert_ne!(row.state, AssignmentState::Running, "a job whose turn has ended is reported as running");
         assert!(matches!(h.host.settlement("thread-one"), Settlement::StillRunning(_)));
 
         // Positive control: give the WORK session a readable, empty evidence file and the
@@ -2724,8 +2794,19 @@ mod tests {
         assert!(settled.text.contains("is finished."), "{}", settled.text);
         assert!(settled.text.contains("nothing was landed"), "the settled sentence claimed a land it has no record of: {}", settled.text);
 
-        // 3. The obligation cannot be read: still running. Never settled, never approved,
-        //    and — the arm §52 adds a way to get wrong — never called a failed land either.
+        // 3. The obligation cannot be read. **Never settled, never approved, and never
+        //    described as a land — and since 2026-09-18 never left sitting in `Running`
+        //    either.**
+        //
+        //    This arm used to assert `Running`, and the concern it was written to protect is
+        //    intact: the SENTENCE must not claim a land the app has no record of, and it
+        //    does not — it is `what_happened`, read off the receipts, which here says no work
+        //    was started. What changed is the state word. The turn has ended by the time this
+        //    is read, nothing re-reads a `Running` row, and the first real run of the whole
+        //    flow spent 1,150 s in exactly this state with `notices: []`
+        //    (`a_turn_that_has_ended_with_nothing_witnessed_fails_loudly_and_never_sits_in_running`).
+        //    An assignment that cannot be confirmed finished and is not running is a failure
+        //    he is told about, not a state with no watcher.
         *h.obligation.lock().unwrap() = None;
         let unknown = h
             .host
@@ -2733,8 +2814,11 @@ mod tests {
             .unwrap();
         assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
         let row = assignment::read(&h.state, "depot", "thread-one", &unknown.id).unwrap();
-        assert_eq!(row.state, AssignmentState::Running, "an unreadable record was called a failed land");
-        assert!(row.detail.contains("still running"));
+        assert_eq!(row.state, AssignmentState::Failed);
+        assert_ne!(row.state, AssignmentState::Settled, "an unreadable record was called finished");
+        assert!(!row.detail.contains("It landed"), "an unreadable record was called a land: {}", row.detail);
+        assert!(!row.detail.contains("still running"), "an ended turn was called running: {}", row.detail);
+        assert!(row.detail.contains("No work was started"), "{}", row.detail);
 
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
@@ -3035,6 +3119,95 @@ mod tests {
         assert_eq!(row.state, AssignmentState::Settled, "an assignment with nothing to land must still be able to close");
         assert!(row.detail.contains("nothing was landed"), "{}", row.detail);
         assert!(!row.detail.contains("It landed"), "a land was claimed with no record of one: {}", row.detail);
+
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A TURN THAT HAS ENDED IS NEVER "STILL RUNNING" — the fourth way a background job
+    /// stalled, and the worst of the four because he was told nothing at all.**
+    ///
+    /// The first real run of the whole flow (`esc-20260918T115854Z-852c5f9c`, and the record
+    /// at `docs/verification/2026-09-18-the-third-way-a-background-job-died.md` §5) reached
+    /// the back end, ran a turn, prepared nothing, and ended. The settle reading then found
+    /// no worker evidence it could attribute and the runner wrote `Running` with the reading's
+    /// own sentence at **t+350.207 s**. The row sat there for the remaining **1,150 s** with
+    /// `notices: []`. Nothing re-reads a `Running` row, so that state had no watcher and no
+    /// exit: a silent hang, which is worse for him than a failure card because a card at
+    /// least ends the wait.
+    ///
+    /// **Arm A is that run, in a harness.** Arms B and C are the controls, and both are
+    /// needed for different reasons:
+    ///
+    /// - **B** — a run whose work IS witnessed still finishes and still says what it landed.
+    ///   Without it, a build that failed every assignment would pass arm A.
+    /// - **C** — the identical assignment with READABLE worker evidence and the same open
+    ///   obligation produces the SAME sentence through the `NotSettled` arm. That is the
+    ///   assertion that arm A reports a missing witness with the reading the rest of this
+    ///   module already uses, rather than inventing a claim of its own.
+    #[test]
+    fn a_turn_that_has_ended_with_nothing_witnessed_fails_loudly_and_never_sits_in_running() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        // The obligation is OPEN and there is no worker evidence directory at all — the
+        // exact pair the real run ended on.
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        let _runner = h.host.start();
+
+        // ---- A. THE RUN THAT HUNG -------------------------------------------------------
+        let stalled = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &stalled.id).unwrap();
+        assert_ne!(row.state, AssignmentState::Running, "a job whose turn has ended still reads as running");
+        assert_eq!(row.state, AssignmentState::Failed);
+        // The settle reading's sentence is for an open turn and must not be what he is left
+        // with when the turn has ended.
+        assert!(
+            !row.detail.contains("counts as still running"),
+            "the ended turn kept the settle reading's sentence: {}",
+            row.detail
+        );
+        // What he IS told is read off the receipts, and with no receipts that is the truth
+        // about this run: nothing got as far as being prepared.
+        assert_eq!(row.detail, "No work was started, so nothing was landed.");
+        // **AND HE IS TOLD.** The real run's `notices` was `[]`; that is the half that made
+        // it a silent hang rather than a wrong card.
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Failed);
+        assert!(
+            notice.text.contains("No work was started, so nothing was landed."),
+            "he was not told what happened: {}",
+            notice.text
+        );
+        assert!(!notice.text.contains("still running"), "the notice says it is running: {}", notice.text);
+
+        // ---- B. CONTROL: a witnessed run with a receipt still finishes -------------------
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
+        engine_receipt(&h, "worker-b", "obligation-8", "worker", Some("cc/echo-b"), None);
+        engine_receipt(&h, "reviewer-b", "obligation-8", "reviewer", None, Some("passed"));
+        let fine = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &fine.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled, "a witnessed run must still be able to finish");
+        assert!(row.detail.contains("It landed on cc/echo-b in project."), "{}", row.detail);
+
+        // ---- C. CONTROL: the witness is what changed, not the verdict --------------------
+        // Readable worker evidence, the same open obligation, no receipts. This goes through
+        // `NotSettled` — the arm that was already correct — and must produce arm A's sentence
+        // word for word.
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        let witnessed_open = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-9".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &witnessed_open.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed);
+        assert_eq!(row.detail, "No work was started, so nothing was landed.");
 
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();

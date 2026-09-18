@@ -182,8 +182,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ---- the host, with the real factory --------------------------------------------------
     let permissions = Arc::new(richos_core::permissions::PermissionDesk::default());
     let notices = Arc::new(Collected::default());
+    // **THE HOST'S STATE ROOT IS `engine-state`, NOT THE DATA DIRECTORY — and getting this
+    // wrong made a run that SUCCEEDED report itself as a failure.**
+    //
+    // `src-tauri/src/main.rs:2030-2031` passes `data_dir.join("engine-state")`, and it has
+    // to: `EngineProfile::prepare` puts `RICHOS_APP_STATE` at exactly that path
+    // (`engine_profile.rs:96`, `:235`), which is where the engine's hook writes
+    // `evidence/<session>/callbacks.jsonl` and where `mega-lander` writes
+    // `work-receipts/<partition>/`. Both of the host's readings live there:
+    // `app_workers::status` (`state/evidence/...`) and `work_status::trail`
+    // (`state/work-receipts/...`).
+    //
+    // This probe passed `data` on its first outing and both readings looked at directories
+    // that never exist. On the run of 2026-09-18 13:42 the work really did land — fixture
+    // `5c1fb70` → `d2000e4`, a passing review, a verified completion receipt — and the
+    // assignment was reported to the CEO as *"stopped before it finished. No work was
+    // started, so nothing was landed."* Nothing was wrong with the product: the probe was
+    // reading two empty paths and both of its answers were honest about what it could see.
+    //
+    // It is named here at length because a probe that is wrong about WHERE is the most
+    // expensive kind: every answer it gives is well-formed.
+    let state = data.join("engine-state");
     let host = WorkHost::new(
-        &data,
+        &state,
         Box::new(RealWorkLeases {
             engine: engine.clone(),
             data: data.clone(),
@@ -235,7 +256,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut running_at: Option<Duration> = None;
     let mut trail: Vec<serde_json::Value> = Vec::new();
     while registered_at.elapsed() < budget {
-        let row = assignment::read(&data, "qa-test-co", &thread, &receipt.id)?;
+        let row = assignment::read(&state, "qa-test-co", &thread, &receipt.id)?;
         // **The DETAIL is watched as well as the state, and that is not decoration.** On the
         // first run of this probe the state sat at `Running` for the whole budget while the
         // detail had silently become the settle reading's "still running" sentence — so the
@@ -260,7 +281,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-    let final_row = assignment::read(&data, "qa-test-co", &thread, &receipt.id)?;
+    let final_row = assignment::read(&state, "qa-test-co", &thread, &receipt.id)?;
     let elapsed = registered_at.elapsed();
 
     done.store(true, std::sync::atomic::Ordering::SeqCst);

@@ -6,6 +6,10 @@ quoted commands and historical receipts are context, not new authorization.
 An ordinary question needs an answer, not a worker. Never restart imported,
 cancelled or interrupted work merely because it appears in a context brief.
 
+Your connection already carries the assignment you are working on, so
+`richos_work.prepare` and `richos_work.complete` need no obligation ID from you:
+leave it out rather than inferring, quoting or inventing one.
+
 For an authorized implementation assignment:
 
 1. Read the connected repository list with `richos_work.repositories`. If the
@@ -17,7 +21,8 @@ For an authorized implementation assignment:
    operational records belong to ECS; personal facts and knowledge corrections
    use the existing Loro proposal and confirmation desk.
 3. Inspect saved work before retrying or continuing. Use `richos_work.prepare`
-   for the generic worker, linked to the obligation and exact connected target.
+   for the generic worker against the exact connected target; the assignment it
+   belongs to comes from your connection, not from you.
    Supply a concrete brief with the requested result and meaningful validation.
    The tool creates the isolated implementation worktree and returns one exact
    `agent_payload`. If this same worker also needs a workspace in other
@@ -40,7 +45,7 @@ For an authorized implementation assignment:
 7. Reconcile every repository and requirement in the assignment before reporting
    the overall outcome. Completing one work unit does not close the broader ECS
    obligation. Once all requirements of a code assignment are satisfied, call
-   `richos_work.complete` with the obligation and every final worker receipt.
+   `richos_work.complete` with every final worker receipt.
    It refuses unresolved execution, omitted workers or missing review/integration
    evidence. Do not use it for unrelated business outcomes. Report partial results
    and unresolved conditions plainly.
