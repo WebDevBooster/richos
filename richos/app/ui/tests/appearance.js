@@ -654,9 +654,16 @@ async function main() {
     const rows = await menuRows(page);
     assertEqual(
       rows,
-      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Home screen", "Connected repositories", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
+      // "Splash screen" AND NOT "Opening screen" SINCE 2026-09-18 — audit-10 row 1. The
+      // ORDER is untouched; only the fourth row's word changed. It had to: this list holds
+      // BOTH "Opening screen" (the 3 s curtain, `splash.js`) and, two rows below, "Home
+      // screen" (the landing surface, `home.js`) — and two audits in a row read the first
+      // name as governing the second surface and filed a FAIL against a switch that was
+      // working. The full argument is beside the control in `index.html`; the check that
+      // pins it, with the home screen as its negative control, is `splash.js` 11b.
+      ["Theme", "Text size", "Techy Mode", "Splash screen", "Company", "Home screen", "Connected repositories", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
-        "that, a Techy Mode toggle'. The opening screen's off switch sits below them — that ruling " +
+        "that, a Techy Mode toggle'. The splash screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +
         "Updates (RICH-TODOs row 12) was added on 2026-08-31 BELOW all four and ABOVE the floor, for " +
         "the same reason the opening-screen row sits where it does: the ruling does not name it, and " +

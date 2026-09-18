@@ -4212,7 +4212,7 @@ function registryUnreadableLine(path) {
 /// `docs/verification/2026-09-17-nightly-1.2.0-20260917.1-onscreen-audit.md` §D5 walked a
 /// clean install and counted what stood between the CEO and an input box:
 ///
-///   1. the splash              — a preference, not a question (Settings → Opening screen)
+///   1. the splash              — a preference, not a question (Settings → Splash screen)
 ///   2. the ENGINE sheet        — "There's one thing I need on this Mac"      · Not now
 ///   3. the CORPUS sheet        — "Where should I keep what you tell me?"     · Not now
 ///   4. the COMPANY question    — "Which company is this copy of Rich for?"   · NOT NOW MISSING

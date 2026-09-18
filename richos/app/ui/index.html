@@ -250,8 +250,8 @@
                is reported back in `#techy-hint`, which says which of the three is holding
                this conversation on.
 
-               THE HEADING AND THE LABEL SPLIT THE WAY THE OPENING-SCREEN GROUP BELOW
-               ALREADY SPLITS THEM: the title names the SUBJECT ("Opening screen") and the
+               THE HEADING AND THE LABEL SPLIT THE WAY THE SPLASH-SCREEN GROUP BELOW
+               ALREADY SPLITS THEM: the title names the SUBJECT ("Splash screen") and the
                label names the ACT ("Show it when RichOS starts"). This group's old title
                WAS its act, which is why the first draft of this change deleted the title
                and then had to put a different one back.
@@ -303,7 +303,7 @@
           <label class="popover-option"><input type="radio" name="raw-retention" value="forever" /> Forever</label>
           <p class="popover-hint" id="retention-hint"></p>
 
-          <!-- THE OPENING SCREEN'S OFF SWITCH, shipped in the same commit as the screen it
+          <!-- THE SPLASH SCREEN'S OFF SWITCH, shipped in the same commit as the screen it
                turns off, and put where a CEO would look for it: behind the same gear as the
                only other preference this product has.
 
@@ -311,9 +311,33 @@
                to say a splash screen was beneath them, they switch it off - so this control
                is the only honest instrument we will ever have for knowing whether the
                surface is wanted (`richos-splash-micro-game-2026-08-30.md` §7, richos-hq).
-               A splash without a switch cannot be measured and must not ship. -->
+               A splash without a switch cannot be measured and must not ship.
+
+               THIS TITLE READ "Opening screen" UNTIL 2026-09-18, AND THAT NAME COST TWO
+               AUDITS — audit-10 row 1.
+
+               There are two surfaces at launch and they are different things: the CURTAIN
+               (`splash.js` - the mark, the line, a loading bar, three seconds, click-through)
+               and the HOME SCREEN (`home.js` - the picture, the counters, "Talk to Rich").
+               This switch has only ever governed the curtain. The home screen has never had
+               one, by the CEO's own ruling of 2026-09-01: the home screen "must be shown in
+               the app after the splash screen".
+
+               "Opening screen" is neither of their names, and it is the phrase a person maps
+               onto the first thing they see - which is the home screen. Ray read it that way
+               on candidate .9, `home.js:1548` recorded the correction IN A CODE COMMENT, and
+               he read it the same way again on candidate .10 and filed it as a FAIL with the
+               switch photographed OFF beside a home screen that was on. It was not ignored.
+               It was never that screen's switch, and re-derived in WebKit across five
+               launch shapes the curtain obeys it every time: durable OFF draws no curtain
+               node at all, and the home screen opens in all five.
+
+               So the name is the defect, and a comment no walker reads was never going to
+               fix it. It is the CEO's own word for this surface, from the same sentence:
+               "the splash screen". `tests/splash.js` check 11b is where that is now pinned,
+               with the home screen as the negative control. -->
           <hr class="popover-rule" />
-          <p class="popover-title">Opening screen</p>
+          <p class="popover-title">Splash screen</p>
           <label class="popover-option"
             ><input type="checkbox" id="splash-enabled" /> Show it when RichOS starts</label
           >

@@ -1849,6 +1849,93 @@ async function main() {
     );
   });
 
+  await run.check("11b  the switch names the CURTAIN, and the home screen is the negative control", async () => {
+    // AUDIT-10 ROW 1, AND IT IS THE SECOND AUDIT TO FILE IT.
+    //
+    // Ray relaunched candidate .10 into a complete setup — the build's own log says
+    // "first-run setup: nothing missing" — photographed the first thing on screen
+    // (`52-relaunch-first-screen.png`) and photographed `Opening screen` sitting OFF in
+    // Settings (`53`, `54`), and filed "the opening screen appears with its own switch off,
+    // and the first-run excuse is dead". He is right about both photographs. The conclusion
+    // does not follow, because THE TWO PHOTOGRAPHS ARE OF DIFFERENT SURFACES.
+    //
+    //   the CURTAIN     `splash.js`  the mark, one line, a loading bar, 3 s, click-through
+    //   the HOME SCREEN `home.js`    the picture, the counters, "Talk to Rich" / "Enter"
+    //
+    // Frame 52 is the home screen — it carries "Talk to Rich", "Enter", CUSTOMERS, CAPITAL,
+    // SOURCES UNDERSTOOD, none of which exist on the curtain. This switch has only ever been
+    // the curtain's, and the home screen has never had one by the CEO's ruling of 2026-09-01
+    // that it "must be shown in the app after the splash screen".
+    //
+    // THIS EXACT MISREADING WAS ALREADY FOUND AND ALREADY WRITTEN DOWN — in `home.js:1548`,
+    // after audit-9, IN A CODE COMMENT. A walker does not read code comments. So the record
+    // was corrected and the misleading label was left on the screen, and it produced the
+    // same FAIL again one audit later. The label is what changed this time.
+    //
+    // THE CHECK IS TWO THINGS THE OLD NAME MADE INDISTINGUISHABLE:
+    //
+    //   1. the switch GOVERNS the curtain — durable OFF, no curtain, every launch shape;
+    //   2. the switch does NOT govern the home screen — the negative control, and the whole
+    //      reason the row was filed.
+    //
+    // Check 11 above cannot do this: it never looks at the home screen, so it would pass
+    // unchanged if the switch silently started suppressing it.
+    const seen = [];
+    for (const durable of [true, false]) {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const p = await newPage(ctx);
+      await p.addInitScript((v) => {
+        window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "fresh", ordinal: 1, splashEnabled: v });
+      }, durable);
+      await p.goto(APP);
+      await p.waitForFunction("typeof window.RichHome === 'object'", { timeout: 15000 });
+      const got = await p.evaluate(() => {
+        const home = document.getElementById("home");
+        const cs = home ? getComputedStyle(home) : null;
+        return {
+          curtainNodes: document.querySelectorAll("#splash, .splash").length,
+          curtainShown: !!(window.RichSplash && window.RichSplash.state.shown),
+          homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
+          homeVisible: !!(cs && cs.display !== "none" && cs.visibility === "visible"),
+          // The word the CEO would look for, off the rendered control rather than the source.
+          title: (() => {
+            const box = document.getElementById("splash-enabled");
+            if (!box) return null;
+            const group = box.closest(".popover-option");
+            let n = group ? group.previousElementSibling : null;
+            while (n && !n.classList.contains("popover-title")) n = n.previousElementSibling;
+            return n ? n.textContent.trim() : null;
+          })(),
+        };
+      });
+      const drew = got.curtainNodes > 0 || got.curtainShown;
+      assertEqual(drew, durable, "the switch did not decide the curtain with splashEnabled=" + durable);
+      // THE NEGATIVE CONTROL. The home screen is up either way, and that is the answer to the
+      // row: it was never ignoring a switch, it has never had one.
+      assert(
+        got.homeOpen && got.homeVisible,
+        "splashEnabled=" + durable + ": the home screen is not up. The CEO ruled on 2026-09-01 " +
+          "that it \"must be shown in the app after the splash screen\", so the curtain's switch " +
+          "must never reach it — in either direction."
+      );
+      // AND THE NAME. "Opening screen" is the phrase a person maps onto the first thing they
+      // see, which is the home screen, and it cost two audits. The CEO's own word for what
+      // this switch governs, in the same sentence, is "the splash screen".
+      assertEqual(got.title, "Splash screen", "the switch's title does not name the surface it governs");
+      seen.push("splashEnabled=" + durable + " -> " + (drew ? "curtain" : "plain") + ", home up");
+      await ctx.close();
+    }
+    // The other door to the same state carries the same word — `settings-button.js` builds
+    // its own row, so a rename in one place is a rename in one place.
+    const setbtn = fs.readFileSync(path.join(UI_DIR, "settings-button.js"), "utf8");
+    assert(
+      /label\.textContent = "Splash screen";/.test(setbtn),
+      "the settings button's own row still calls this the opening screen, so the two doors " +
+        "into one state now read differently"
+    );
+    return seen.join(" · ") + " · both doors say “Splash screen”";
+  });
+
   await run.check("12a  the DURABLE answer decides the curtain, and the mirror only when there isn't one", async () => {
     // **AUDIT-8 ROW 5.** The CEO switched the opening screen off, `config.json` recorded it
     // (`"splash_enabled": false`, `splash_disabled_at` stamped), and it came back on the next

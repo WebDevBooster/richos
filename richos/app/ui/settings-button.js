@@ -192,7 +192,13 @@ window.RichSettings = (function () {
   function buildSplashRow() {
     var row = elem("div", "set-row", { id: "set-splash-row" });
     var label = elem("span", "set-name", { id: "set-splash-label" });
-    label.textContent = "Opening screen";
+    // "Splash screen", not "Opening screen" — audit-10 row 1, and the full argument is
+    // beside the same switch's other door in `index.html`. Short version: there are two
+    // surfaces at launch, this switch governs only the CURTAIN, and "Opening screen" is the
+    // phrase a person maps onto the HOME screen — which has no switch, by the CEO's ruling
+    // that it "must be shown in the app after the splash screen". Two consecutive audits
+    // read the old name that way and filed a FAIL.
+    label.textContent = "Splash screen";
     var input = elem("input", "set-switch", {
       type: "checkbox",
       id: "set-splash",
