@@ -358,3 +358,94 @@ it is routed there.**
 Nothing was merged, pushed or deployed. `nightly-local.py` was not run. `~/RichOS`,
 `~/.richos-signing`, the installed app, pid `98757` and the `richos-qa-cand7` HOME were not
 touched.
+
+---
+
+## 11. Candidate .8's four rows, added mid-task — one fixed, three answered
+
+Ray's candidate-.8 walk (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md`,
+source `a7c875d6`) sharpened four rows. **The first thing to establish, because three of the four
+turn on it:**
+
+    git diff 9da3c7d5..a7c875d6 -- richos/app/ui/     ->     EMPTY
+
+**The UI is byte-identical between candidate .7 and candidate .8.** Whatever changed between
+those two builds, none of it is in the renderer.
+
+### .8 row 3 — `Enter` is `static text`. FIXED, and it is the cause my row 3a measured.
+
+His accessibility transcript is the cause audit-7 could only observe, and it agrees with the
+measurement in §1 above exactly: a `<p>`, no role, not focusable. The click half was already
+fixed here; the tree half is fixed now — `aria-hidden="true"`, no role, no tab stop, with the
+fact the word carries left where the platform looks for it (`aria-keyshortcuts` on the door).
+
+### .8 row 4 — "the Return key never sends". CANNOT BE A UI REGRESSION, and does not reproduce.
+
+He calls it "a regression from 'annoying' to 'the keyboard does not send'", on the basis that
+.7's second Return worked and .8's third did not. **The renderer did not change between those
+builds**, so a regression in it is impossible. And "never sends" does not reproduce here: on a
+settled desk, under real WebKit, one `page.keyboard.press("Enter")` into `#input` sends —
+measured before any fix on this branch (zero user bubbles to one, box emptied).
+
+What IS real and is fixed is the narrower thing: a Return pressed while the thread is still
+opening was silently dropped (§4 above), which at 400 ms of bridge latency is a window seconds
+wide on a cold boot and is exactly "the first Return does not send".
+
+**The common factor in what does not reproduce is his input method, and it is worth naming.**
+Across both walks: his synthetic CLICKS always reach the app (every positive control passes),
+and his synthetic KEY events — Return on the opening screen (.7 row 3, .8 row 3), Return in the
+composer (.8 row 4), Escape on the settings menu (.8 row 11) — reach it inconsistently or not at
+all, while the same keystrokes reproduce green here through WebKit's own event path. That is a
+harness question, not a renderer one, and it is the same class my own definition warns about for
+audio: a defect found with a synthetic stand-in is a harness artifact until a human at the desk
+reproduces it. **Recorded, not concluded** — and it is a claim about the instrument, so it is
+worth an actual test rather than more argument: one person at the keyboard, three keystrokes.
+
+### .8 row 11 — Escape does not close the settings panel. DOES NOT REPRODUCE.
+
+Measured under WebKit, from the opening screen, both from the control and with focus on a switch
+inside the open menu — which is where his hand was, he had just flipped `Opening screen`:
+
+    click #set-btn      ->  menu open
+    Escape              ->  menu CLOSED, focus back on set-btn
+    reopen, focus #set-techy, click it
+    Escape              ->  menu CLOSED, focus back on set-btn
+
+Two independent handlers close it (`settings-button.js`'s own Escape, and `main.js`'s
+`dismissTopmostPopup`), and `escape.js` in the acceptance suite refuses any
+structurally-a-popup element that carries no dismissal declaration. Nothing to fix in source
+from this evidence.
+
+### .8 row 5 — turning the opening screen off is ignored. DIAGNOSED; THE FIX IS NOT IN `ui/`.
+
+Traced end to end, and every step but the last one is sound:
+
+  * `set_splash_enabled` persists — his `config.json` proves it (`"splash_enabled": false`,
+    `splash_disabled_at` stamped);
+  * `splash_enabled` returns a bare `bool`, so `syncSplashFromBackend`'s
+    `(await invoke) !== false` cannot poison the mirror;
+  * `setSplashEnabled` writes the `localStorage` mirror synchronously at the press;
+  * `splash.js`'s `enabled()` reads **only** that mirror, at parse time in the head;
+  * `main.js` reconciles the mirror from the backend at the very END of `init()`, under a
+    comment that says so outright: *"neither call affects anything the CEO can see this launch"*.
+
+**So the curtain's first-paint decision is taken from a CACHE, and the durable answer is never
+consulted before it is taken.** On any launch where that cache is absent, the CEO's "off" is
+ignored — and given the four sound steps above, a missing cache is the only remaining mechanism
+for it coming back on the next two launches.
+
+The honest fix is for the durable answer to be in the document before any script runs — a
+`src-tauri` initialization script — because the alternatives inside `ui/` are a delayed first
+paint (§5.5 forbids it) or drawing the curtain and yanking it away (worse than the defect).
+**That is outside this brief's footprint, so it is escalated rather than faked:**
+`esc-20260918T111438Z-8f6a1a75`.
+
+### AND IT PUTS A QUESTION UNDER TWO OF MY OWN FIXES, raised rather than allowed to land quietly
+
+Rows 12 and 13a both persist in `localStorage`, and both pass every test. **If the installed
+webview's storage does not survive a relaunch — the only remaining explanation for .8 row 5 —
+then both are inert on the installed app while being green here.** The decisive experiment is
+one minute on the installed app and it is in the same escalation, because one answer settles all
+three rows: flip `Opening screen` off, quit, relaunch, read `richos.splash.enabled`. If it is
+absent, `memory_setup_declined` and the illustrative-counter delta both belong in `config.rs`
+too, and it is said in the code at both sites.
