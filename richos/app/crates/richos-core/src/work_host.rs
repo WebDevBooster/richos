@@ -327,6 +327,41 @@ const WORKER_ENDED_CONTINUATION: &str =
      then closing the assignment. Do not prepare another worker for work that is already \
      done. Nothing about the assignment has changed and your seat is the same one.";
 
+/// **What the back end is told when the helper that ended was the REVIEWER, and it passed.**
+///
+/// The sentence above names the next step for a WORKER that has ended, and it is the wrong
+/// sentence for the step after that: read at the end of a review it tells the back end to
+/// prepare a reviewer for work a reviewer has just passed. On the green run of 2026-09-18
+/// that is exactly the turn that was lost — the reviewer passed the commit byte for byte
+/// (`docs/verification/worker-turn-grant-2026-09-18.md` §5) and nothing ever asked for the
+/// land.
+///
+/// **Which of the two is sent is read off the receipts, never off a counter in this
+/// process**: [`crate::work_status::trail`] says a reviewer's own receipt recorded `passed`
+/// and that no land is recorded against the worker. A host that guessed from "how many times
+/// have I waited" would say this on a second worker's first pass.
+const REVIEW_PASSED_CONTINUATION: &str =
+    "The helper you started has ended — that is this app telling you, from its own record of \
+     the run, not a guess. A reviewer's own receipt says it PASSED this work, and the app's \
+     records carry no land for it: the next step is the land itself (`integrate`), and then \
+     closing the assignment. Do not prepare another helper and do not prepare another \
+     reviewer for work that has already passed. Nothing about the assignment has changed and \
+     your seat is the same one.";
+
+/// How many times ONE continuation may be asked again after a turn that produced nothing.
+///
+/// **A turn that streams no item at all is a turn this host did not get**, and the run that
+/// proved it is the same one: the host's second continuation returned 1.847 s after the
+/// reviewer ended with zero tool calls, because the `result` of a turn the platform injected
+/// was handed to it. `native.rs` now correlates the two (see `PendingTurn`), and this is the
+/// second line of that defense for the degraded case where the child names no turn at all:
+/// ask once more rather than report a job failed on the strength of a turn that never ran.
+///
+/// **ONE, and the number is a spend decision rather than a taste.** Every ask is a real model
+/// turn on a real subscription. One re-ask covers a single stolen result; a second would be
+/// this host guessing, and a loop would be this host paying for its own guess.
+const CONTINUATION_REASK_LIMIT: usize = 1;
+
 /// How many times one assignment's turn may be resumed after waiting for a helper.
 ///
 /// Six is the shape of the flow rather than a round number: a worker, a reviewer, a revision
@@ -830,8 +865,13 @@ impl WorkHost {
         } else {
             "The back end has started on it."
         };
-        let mut say = |lease: &mut Box<dyn Cognition>, text: &str| {
+        // **HOW MANY ITEMS THIS ONE TURN DELIVERED** — passed in rather than captured, so the
+        // caller can read it per turn. `confirmed` above is the whole run's "did the back end
+        // ever take a turn"; this is "did THIS turn produce anything at all", and the two are
+        // different questions. See [`CONTINUATION_REASK_LIMIT`].
+        let mut say = |lease: &mut Box<dyn Cognition>, text: &str, items: &mut usize| {
             lease.prompt(text, &mut |item: TurnItem| {
+                *items += 1;
                 if !confirmed {
                     confirmed = true;
                     advance(AssignmentState::Running, started_detail);
@@ -858,10 +898,11 @@ impl WorkHost {
                 }
             })
         };
+        let mut items = 0usize;
         let mut outcome = {
             let mut lease = backend.lease.lock().unwrap();
             match lease.as_mut() {
-                Some(lease) => say(lease, &prompt),
+                Some(lease) => say(lease, &prompt, &mut items),
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
             }
         };
@@ -916,13 +957,36 @@ impl WorkHost {
             if !self.wait_for_owned_workers(backend, record, &session) {
                 break;
             }
-            outcome = {
-                let mut lease = backend.lease.lock().unwrap();
-                match lease.as_mut() {
-                    Some(lease) => say(lease, WORKER_ENDED_CONTINUATION),
-                    None => Err(CognitionError::Protocol("The work connection closed.".into())),
+            // **WHAT THE NEXT STEP ACTUALLY IS, READ OFF THE RECEIPTS.** A worker that has
+            // ended and a reviewer that has passed are two different places to be, and the
+            // one sentence that used to serve both sent the back end to prepare a reviewer
+            // for work a reviewer had already passed.
+            let continuation = self.continuation_after_a_helper_ended(record);
+            let mut asked_again = 0usize;
+            loop {
+                let mut items = 0usize;
+                outcome = {
+                    let mut lease = backend.lease.lock().unwrap();
+                    match lease.as_mut() {
+                        Some(lease) => say(lease, &continuation, &mut items),
+                        None => Err(CognitionError::Protocol("The work connection closed.".into())),
+                    }
+                };
+                // **A TURN THAT PRODUCED NOTHING IS A TURN THIS HOST DID NOT GET.** Not
+                // inferred from elapsed time and not inferred from silence on a timer: the
+                // child answered with a terminal `result` and delivered no item at all
+                // between the send and it, which no turn that prepares, reviews or lands
+                // anything can do. `native.rs` now refuses such a result outright when the
+                // child names its turns; this is the same claim made where the child does
+                // not. Asked again ONCE — see [`CONTINUATION_REASK_LIMIT`].
+                if !(outcome.is_ok() && items == 0 && asked_again < CONTINUATION_REASK_LIMIT) {
+                    break;
                 }
-            };
+                asked_again += 1;
+                eprintln!(
+                    "[richos] work: the continuation turn produced nothing at all, which is                      not a turn this assignment was given. Asking once more."
+                );
+            }
         }
         {
             let mut inner = backend.inner.lock().unwrap();
@@ -1188,6 +1252,44 @@ impl WorkHost {
                     self.raise(record, NoticeKind::Failed, &tell(&record.title, spoken));
                 }
             },
+        }
+    }
+
+    /// **Which continuation this assignment's back end is handed, decided by the receipts.**
+    ///
+    /// Two sentences exist ([`WORKER_ENDED_CONTINUATION`] and
+    /// [`REVIEW_PASSED_CONTINUATION`]) and the choice between them is a reading, never a
+    /// count of how many times this loop has been round:
+    ///
+    /// - a reviewer's OWN receipt recorded `passed` ([`crate::work_status::WorkTrail::reviews_passed`]),
+    /// - and the app's records carry no land for this assignment (`lands` is empty),
+    /// - and a worker's run has ended with nothing landed (`not_landed`), so there is
+    ///   something to land.
+    ///
+    /// All three, because any two of them are also true of a state that needs a different
+    /// next step. An unreadable trail falls back to the worker sentence, which is the one
+    /// that is right at the start of the flow and wrong only later — the safe direction for
+    /// a reading that failed.
+    fn continuation_after_a_helper_ended(&self, record: &Assignment) -> String {
+        match crate::work_status::trail(
+            &self.state,
+            &record.entity_id,
+            &record.thread_id,
+            &record.obligation_id,
+        ) {
+            Ok(trail)
+                if trail.reviews_passed > 0 && trail.lands.is_empty() && trail.not_landed > 0 =>
+            {
+                REVIEW_PASSED_CONTINUATION.to_string()
+            }
+            Ok(_) => WORKER_ENDED_CONTINUATION.to_string(),
+            Err(why) => {
+                eprintln!(
+                    "[richos] work: this assignment's receipts could not be read, so the back \
+                     end was told a helper ended and nothing more: {why}"
+                );
+                WORKER_ENDED_CONTINUATION.to_string()
+            }
         }
     }
 
@@ -2316,6 +2418,10 @@ mod tests {
         /// grant revocations and the worker-settlement check), so an `Err` from `prompt` is
         /// the one case where the lease left standing is a corpse.
         turn_error: Arc<Mutex<Option<String>>>,
+        /// **Every WORK turn's prompt, in order.** `handoffs` already keeps the rotation
+        /// asks; this keeps the ones that carry the job, so a test can read what the back
+        /// end was actually told at each step rather than assume the constant.
+        work_prompts: Arc<Mutex<Vec<String>>>,
     }
 
     impl Cognition for WorkLease {
@@ -2334,6 +2440,7 @@ mod tests {
             Ok("end_turn".to_string())
         }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+            self.work_prompts.lock().unwrap().push(_text.to_string());
             if let Some(why) = self.turn_error.lock().unwrap().clone() {
                 return Err(CognitionError::Protocol(why));
             }
@@ -2403,6 +2510,7 @@ mod tests {
         answer_reply: Arc<Mutex<String>>,
         readiness: Arc<Mutex<Option<String>>>,
         turn_error: Arc<Mutex<Option<String>>>,
+        work_prompts: Arc<Mutex<Vec<String>>>,
         /// The next `spawn_work` fails once, so the "a successor that cannot be opened
         /// leaves the incumbent working" branch has a way to happen.
         refuse_next: Arc<AtomicBool>,
@@ -2438,6 +2546,7 @@ mod tests {
                 answer_reply: self.answer_reply.lock().unwrap().clone(),
                 readiness: self.readiness.clone(),
                 turn_error: self.turn_error.clone(),
+                work_prompts: self.work_prompts.clone(),
             }))
         }
     }
@@ -2469,6 +2578,7 @@ mod tests {
         refuse_next: Arc<AtomicBool>,
         readiness: Arc<Mutex<Option<String>>>,
         turn_error: Arc<Mutex<Option<String>>>,
+        work_prompts: Arc<Mutex<Vec<String>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -2491,6 +2601,7 @@ mod tests {
         let refuse_next = Arc::new(AtomicBool::new(false));
         let readiness = Arc::new(Mutex::new(None));
         let turn_error = Arc::new(Mutex::new(None));
+        let work_prompts = Arc::new(Mutex::new(Vec::new()));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
@@ -2506,11 +2617,13 @@ mod tests {
             refuse_next: refuse_next.clone(),
             readiness: readiness.clone(),
             turn_error: turn_error.clone(),
+            work_prompts: work_prompts.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
-            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error }
+            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
+            work_prompts }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -3186,6 +3299,93 @@ mod tests {
         )
         .unwrap();
         (path.clone(), crate::permissions::ScopedPermissions { desk: Arc::clone(&h.desk), scope: path })
+    }
+
+    /// **THE TURN THAT LANDS THE WORK — the leg that survived both slices before it.**
+    ///
+    /// The green `work_lease_roundtrip` run of 2026-09-18 got a worker to commit and a
+    /// reviewer to pass the commit byte for byte, and the job still did not land
+    /// (`docs/verification/worker-turn-grant-2026-09-18.md` §5). Two things were wrong on
+    /// this side of it and both are driven here:
+    ///
+    /// 1. **The continuation named the wrong next step.** One sentence served every wait,
+    ///    so at the end of a REVIEW it told the back end to prepare a reviewer — for work a
+    ///    reviewer had just passed. The choice is now read off the receipts.
+    /// 2. **A turn that produced nothing was accepted as the answer.** The host's second
+    ///    continuation came back in 1.847 s with zero tool calls because a turn the platform
+    ///    injected was answered in its place. `native.rs` refuses that result outright when
+    ///    the child names its turns; here the host asks once more when a turn delivered no
+    ///    item at all, which no turn that prepares, reviews or lands anything can do.
+    ///
+    /// The third case is the negative control: with no reviewer receipt the sentence is the
+    /// worker one, unchanged, so case 1 is not this function saying the same thing twice.
+    #[test]
+    fn after_a_passing_review_the_continuation_asks_for_the_land_and_a_silent_turn_is_asked_once_more() {
+        for (reviewed, answers, asks, expected) in [
+            (true, false, 2usize, REVIEW_PASSED_CONTINUATION),
+            (true, true, 1usize, REVIEW_PASSED_CONTINUATION),
+            (false, true, 1usize, WORKER_ENDED_CONTINUATION),
+        ] {
+            let h = harness(5);
+            // The receipts, in the engine's own shape: a worker whose run ended with no land,
+            // and (for the first two cases) a reviewer whose own receipt says it passed.
+            engine_receipt(&h, "worker-1", "obligation-7", "worker", None, None);
+            if reviewed {
+                engine_receipt(&h, "reviewer-1", "obligation-7", "reviewer", None, Some("passed"));
+            }
+            // The back end's own journal: one helper the platform answered `async_launched`
+            // for, still open. This is what makes the host wait rather than settle.
+            witnessed(&h.state, "work-session-one");
+            let journal = h.state.join("evidence").join("work-session-one").join("callbacks.jsonl");
+            let row = |body: serde_json::Value| {
+                serde_json::json!({"schema": 1, "callback": body}).to_string() + "\n"
+            };
+            std::fs::write(
+                &journal,
+                row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStart","agent_id":"helper-1"}))
+                    + &row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"PostToolUse",
+                        "tool_name":"Agent","tool_response":{"isAsync":true,"status":"async_launched","agentId":"helper-1"}})),
+            )
+            .unwrap();
+            if answers {
+                *h.answer_reply.lock().unwrap() = "carrying on".to_string();
+            }
+            let _runner = h.host.start();
+            let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+
+            // **The helper is witnessed ending only once the host is actually waiting for
+            // it.** Witnessing it earlier would have the loop break before it ever asked,
+            // and the test would pass by testing nothing.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+                if row.detail == "A helper is doing the work." {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline, "the host never waited for the helper");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            let stop = row(serde_json::json!({"session_id":"work-session-one",
+                "hook_event_name":"SubagentStop","agent_id":"helper-1"}));
+            let mut file = std::fs::OpenOptions::new().append(true).open(&journal).unwrap();
+            std::io::Write::write_all(&mut file, stop.as_bytes()).unwrap();
+            drop(file);
+
+            assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)));
+            let prompts = h.work_prompts.lock().unwrap().clone();
+            assert_eq!(
+                prompts.len(),
+                1 + asks,
+                "reviewed={reviewed} answers={answers}: the back end was given {} turns",
+                prompts.len(),
+            );
+            assert!(prompts[0].contains("landing the three branches"), "the first turn is the brief");
+            for ask in &prompts[1..] {
+                assert_eq!(ask, expected, "reviewed={reviewed} answers={answers}");
+            }
+            h.host.shutdown();
+            let _ = std::fs::remove_dir_all(&h.root);
+        }
     }
 
     /// **A work receipt as the ENGINE writes it**, in the partition the engine writes it to
@@ -4308,6 +4508,7 @@ mod tests {
                 refuse_next: h.refuse_next.clone(),
                 readiness: h.readiness.clone(),
                 turn_error: h.turn_error.clone(),
+                work_prompts: h.work_prompts.clone(),
             }),
             counter.clone(),
             Arc::clone(&h.desk),

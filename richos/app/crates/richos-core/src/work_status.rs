@@ -135,6 +135,16 @@ pub struct WorkTrail {
     /// Reviewer receipts on this assignment whose observed verdict asked for changes. A
     /// reason a land did not happen, and a real one: the reviewer refused it.
     pub changes_requested: usize,
+    /// Reviewer receipts whose observed verdict PASSED. Counted from the reviewer's own
+    /// receipt, exactly as `changes_requested` is, and never from a land having happened.
+    ///
+    /// **It is here because "the review passed and the work has not landed" is a state the
+    /// host has to be able to name.** Without it the only readable facts were "a land
+    /// happened" and "a reviewer refused", so the one case in between — the green run of
+    /// 2026-09-18, where a passing review sat on the worker's branch and nothing landed —
+    /// was indistinguishable from a worker that simply had not been reviewed yet, and the
+    /// back end was told to prepare a reviewer it had already had.
+    pub reviews_passed: usize,
     /// Worker receipts whose run has ended and which carry no verified integration. The
     /// honest count of work that was done and not landed.
     pub not_landed: usize,
@@ -217,6 +227,7 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
     }
     let mut trail = WorkTrail {
         changes_requested: verdicts.iter().filter(|(_, v)| v == "changes-requested").count(),
+        reviews_passed: verdicts.iter().filter(|(_, v)| v == "passed").count(),
         ..Default::default()
     };
     for row in &rows {
