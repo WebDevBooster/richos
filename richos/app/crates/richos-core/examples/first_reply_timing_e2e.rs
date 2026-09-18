@@ -517,6 +517,95 @@ fn does_it_dispatch(
     Ok(failures)
 }
 
+/// **A `LeaseFactory` for this probe** — what `EngineLeaseFactory::spawn_chat` is to the app,
+/// reduced to the four things a conversation lease is made of.
+///
+/// It exists because a SPARE front desk is spawned by the spine rather than attached to it: the
+/// spine reserves a thread id and asks the factory for a child scoped to it, which is the whole
+/// point (`EngineProfile::scope_to` pins `(entity, thread)` into the child's environment before
+/// the spawn). `attach_lease` cannot express that.
+///
+/// A fresh `EngineProfile` per spawn, exactly as the app does it: `prepare` mints a new
+/// `engine-profiles/<uuid>` plugin directory each call, and `NativeCognition::drop` removes its
+/// OWN — two leases sharing one would have the first drop take the second's plugin out from
+/// under it.
+struct ProbeLeaseFactory {
+    engine: PathBuf,
+    data: PathBuf,
+    runtime: richos_core::runtime::EngineRuntime,
+    doctrine: PathBuf,
+    skills: PathBuf,
+    bin: PathBuf,
+    executable: PathBuf,
+    bridge: EcsBridge,
+}
+
+impl richos_core::cognition::LeaseFactory for ProbeLeaseFactory {
+    fn spawn(&self) -> Result<Box<dyn Cognition>, richos_core::cognition::CognitionError> {
+        Err(richos_core::cognition::CognitionError::Protocol(
+            "this probe only ever spawns SCOPED leases — an unscoped one would be a child with no              company and no conversation, which the app never creates either".into(),
+        ))
+    }
+
+    fn spawn_scoped(
+        &self,
+        binding: &richos_core::entity::ThreadBinding,
+        control: &richos_core::steering::TurnControl,
+    ) -> Result<Box<dyn Cognition>, richos_core::cognition::CognitionError> {
+        use richos_core::cognition::CognitionError;
+        let mut profile =
+            richos_core::engine_profile::EngineProfile::prepare(&self.engine, &self.data, self.runtime.clone())
+                .map_err(|e| CognitionError::Io(e.to_string()))?;
+        profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?;
+        let cognition = NativeCognition::start_with_engine(
+            &self.bin, &self.doctrine, &self.skills, &self.executable,
+            self.bridge.clone(), profile, Some(control),
+        )?;
+        Ok(Box::new(cognition))
+    }
+}
+
+/// **What the spare's child costs while it sits there** — RSS and CPU of the whole process tree
+/// under this probe, sampled with `ps`.
+///
+/// `ps` rather than anything clever, and the tree rather than the direct child, because the
+/// question is what the MACHINE carries: `claude` is a Node process that starts its own children,
+/// and a number that counted only the one this process forked would understate it by whatever
+/// those weigh. `rss` is in kilobytes on macOS; `%cpu` is the process's share since it started,
+/// which is why the sample is a SERIES — a single reading of it would be dominated by the
+/// priming turn that just finished.
+fn sample_tree(root: u32) -> Option<(u64, f64, usize)> {
+    let pids = {
+        let mut all = vec![root];
+        let mut frontier = vec![root];
+        while let Some(parent) = frontier.pop() {
+            let out = std::process::Command::new("pgrep").arg("-P").arg(parent.to_string()).output().ok()?;
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    all.push(pid);
+                    frontier.push(pid);
+                }
+            }
+        }
+        all
+    };
+    let mut command = std::process::Command::new("ps");
+    command.arg("-o").arg("rss=,%cpu=");
+    for pid in &pids {
+        command.arg("-p").arg(pid.to_string());
+    }
+    let out = command.output().ok()?;
+    let (mut rss, mut cpu, mut seen) = (0u64, 0f64, 0usize);
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(r), Some(c)) = (parts.next(), parts.next()) else { continue };
+        rss += r.parse::<u64>().unwrap_or(0);
+        cpu += c.parse::<f64>().unwrap_or(0.0);
+        seen += 1;
+    }
+    Some((rss, cpu, seen))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     // **The app-owned MCP servers are served by THIS executable**, because `mcp_config` points
@@ -589,6 +678,300 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     spine.set_machinery_observer(Box::new(ForwardMachinery(before.clone())));
+
+    // ====================================================================================
+    // `RICHOS_PROBE_SELF_RSS=<seconds>` — THE SUBTRAHEND, AND IT COSTS NOTHING
+    // ====================================================================================
+    //
+    // `RICHOS_PROBE_SPARE_COST` samples the whole process tree under this probe, because that is
+    // what the machine actually carries — but the tree's root is this probe itself, and the ECS
+    // bridge's Python is in it too. A number that included them and called itself "the cost of a
+    // spare" would be wrong by however much they weigh.
+    //
+    // So this mode runs everything above (the same engine profile, the same bridge, the same
+    // `hello`) and NO lease, and samples the same tree with the same function. The difference
+    // between the two runs is the spare, and it is arithmetic a reader can redo rather than an
+    // apportionment somebody made. **No lease, no provider, no model turn.**
+    if let Some(seconds) = std::env::var("RICHOS_PROBE_SELF_RSS").ok().and_then(|v| v.parse::<u64>().ok()) {
+        eprintln!("RICHOS_PROBE_SELF_RSS: no lease is started and no model turn is spent.");
+        let me = std::process::id();
+        for tick in 0..=seconds {
+            if tick > 0 { std::thread::sleep(std::time::Duration::from_secs(1)); }
+            if let Some((rss, cpu, procs)) = sample_tree(me) {
+                eprintln!("  t+{tick:>4} s : {procs} processes, {rss:>9} KB RSS total, {cpu:>6.1} % CPU (since start)");
+            }
+        }
+        eprintln!("---");
+        eprintln!("PASS: this is the probe's own tree with no lease in it — the subtrahend for \
+                   RICHOS_PROBE_SPARE_COST.");
+        return Ok(());
+    }
+
+    // ====================================================================================
+    // `RICHOS_PROBE_PRIMED=1` — THE DESK IS PRIMED BEFORE THE THREAD EXISTS (CEO §55)
+    // ====================================================================================
+    //
+    // **The shape run F could not measure, because it did not exist.** Run F opened a brand-new
+    // thread and typed 500 ms into its pre-prime: the Send was accepted in 4 ms and his first
+    // words still arrived at 9.647 s, 2.368 s of which was the remainder of the priming turn he
+    // was queued behind (`docs/verification/first-words-2026-09-18-sendlock.md` §2).
+    //
+    // And the app's real path is worse than that remainder. `ui/main.js:1688` creates the thread
+    // INSIDE the Send handler, so the prime and the send are back-to-back and he pays the whole
+    // priming turn. This mode measures the answer: a spare front desk, spawned and primed against
+    // a RESERVED thread id while no thread exists, adopted by `create_thread` when he sends.
+    //
+    // **The sequence is the app's, in order:** ready the spare (one model turn, before anything
+    // he does) -> he presses Send, which creates the thread (`create_thread_in`) -> the timeline
+    // read primes the desk (`get_timeline` -> `ready_the_front_desk`) -> he types 500 ms later,
+    // exactly as in run F. If the spare worked, the third step finds nothing to do and the fourth
+    // is uncontended.
+    //
+    // **TWO MODEL TURNS**, the same as `RICHOS_PROBE_CONTENDED` — the spare's priming turn (which
+    // is the SAME turn run F spent, moved off his clock, not an extra one) and one task turn.
+    //
+    // `RICHOS_PROBE_SPARE_COST=<seconds>` is the other half of §6's question 3, and it spends
+    // ONE model turn: ready a spare, then sample the child's RSS and CPU for that many seconds
+    // and stop. What an idle primed desk costs, measured rather than estimated.
+    let primed_mode = std::env::var_os("RICHOS_PROBE_PRIMED").is_some();
+    let spare_cost_secs = std::env::var("RICHOS_PROBE_SPARE_COST").ok().and_then(|v| v.parse::<u64>().ok());
+    if primed_mode || spare_cost_secs.is_some() {
+        use richos_core::steering::TurnControl;
+        let entity = EntityId::parse("depot")?;
+        let control = TurnControl::open(data.join("intake.jsonl"))?;
+        spine.set_turn_control(control.clone());
+        spine.set_central_root(data.join("corpus"));
+        spine.set_onboarding_record(data.join("onboarding.json"));
+        // **BOTH SETTERS BEFORE THE SPARE, NOT AFTER.** Each calls `unprime_every_front_desk`,
+        // which now reaches the spare too — priming first and configuring second would throw the
+        // turn away and measure the un-primed fallback while printing the primed shape.
+        spine.set_lease_factory(Box::new(ProbeLeaseFactory {
+            engine: engine.clone(), data: data.clone(), runtime: runtime.clone(),
+            doctrine: doctrine.clone(), skills: skills.clone(),
+            bin: resolve_claude_bin(), executable: std::env::current_exe()?,
+            bridge: bridge.clone(),
+        }));
+
+        let spare_started = Instant::now();
+        let spare_verdict = spine.ready_a_spare_front_desk(&entity);
+        let spare_took = match spare_verdict {
+            richos_core::spine::SpareReady::Ready { millis } => millis as f64 / 1000.0,
+            ref other => return Err(format!("no spare front desk was made ready: {other:?}").into()),
+        };
+        let reserved = spine.spare_front_desk_reserved_thread()
+            .ok_or("the spare reported Ready and then held no reserved thread")?.to_string();
+        eprintln!("---");
+        eprintln!("the spare front desk was primed in   : {spare_took:.3} s  (reserved thread {reserved})");
+        eprintln!("no thread record exists yet          : {}", spine.threads().len() == 0);
+        eprintln!("(the priming thread returned after {:.3} s)", spare_started.elapsed().as_secs_f64());
+
+        // ------------------------------------------------------------------ what it costs idle
+        if let Some(seconds) = spare_cost_secs {
+            eprintln!("---");
+            eprintln!("RICHOS_PROBE_SPARE_COST: sampling the spare's process tree for {seconds} s.");
+            eprintln!("  (one model turn was spent, above; nothing below spends anything)");
+            let me = std::process::id();
+            let mut samples = Vec::new();
+            for tick in 0..=seconds {
+                if tick > 0 { std::thread::sleep(std::time::Duration::from_secs(1)); }
+                if let Some((rss, cpu, procs)) = sample_tree(me) {
+                    // The tree includes this probe and the ECS bridge's Python.
+                    // `RICHOS_PROBE_SELF_RSS` measures exactly those with no lease in them, and
+                    // the difference is the spare — arithmetic a reader can redo rather than an
+                    // apportionment somebody made.
+                    samples.push((tick, rss, cpu, procs));
+                }
+            }
+            for (tick, rss, cpu, procs) in &samples {
+                eprintln!("  t+{tick:>4} s : {procs} processes, {rss:>9} KB RSS total, {cpu:>6.1} % CPU (since start)");
+            }
+            if let (Some(first), Some(last)) = (samples.first(), samples.last()) {
+                eprintln!("  RSS drift over the window : {} KB -> {} KB", first.1, last.1);
+                eprintln!("  CPU at the end            : {:.1} % of one core, cumulative since each process started", last.2);
+            }
+            eprintln!("---");
+            eprintln!("PASS: the cost of one idle primed spare is above, measured with ps and not estimated.");
+            return Ok(());
+        }
+
+        // ------------------------------------------------------------------ he sends
+        let text = "Land the pricing branch and get the staging deploy done.";
+        // Step 1 of the app's own sequence: `create_thread_in`. The thread takes the spare's
+        // reserved id — asserted rather than assumed, because if it did not, everything below
+        // would be measuring a fresh desk and saying otherwise.
+        let thread = spine.create_thread("First reply probe", &entity)?;
+        if thread != reserved {
+            return Err(format!(
+                "the thread was created as {thread} but the spare was scoped to {reserved} — the                  desk below is not the one that was primed"
+            ).into());
+        }
+        let spine = Arc::new(std::sync::Mutex::new(spine));
+        // Step 2: the timeline read primes the desk, on its own thread exactly as
+        // `ready_the_front_desk` does it.
+        let prime_started = Instant::now();
+        let priming = {
+            let spine = spine.clone();
+            let thread = thread.clone();
+            std::thread::spawn(move || spine.lock().unwrap().prime_front_desk(&thread))
+        };
+        // Step 3: **he types 500 ms in** — run F's condition, unchanged, so the two runs are
+        // comparable term by term.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let sent = Instant::now();
+        *first_words.at.lock().unwrap() = None;
+        first_words.runs.lock().unwrap().clear();
+        *first_words.start.lock().unwrap() = Some(sent);
+        *before.start.lock().unwrap() = Some(sent);
+        before.trace.lock().unwrap().clear();
+
+        let shut_at_send = spine.try_lock().is_err();
+        let asked_at = Instant::now();
+        let accepted = control.defer_send(&thread, Some(entity.clone()), text)?;
+        let accepted_in = asked_at.elapsed();
+        let deferred = accepted.is_some();
+        // A send that was NOT deferred took the ordinary road, which means the prime was already
+        // over — which is the whole point. It is submitted here, as `send_message` would.
+        if !deferred {
+            let mut spine = spine.lock().unwrap();
+            spine.switch_thread(&thread)?;
+            spine.submit_prompt(text, Source::Text)?;
+        }
+
+        let verdict = priming.join().unwrap();
+        let prime_took = match verdict {
+            richos_core::spine::FrontDeskReady::Ready { millis, spawned } => {
+                if spawned {
+                    return Err("the desk was SPAWNED for his thread — the spare was not adopted,                                 and the numbers below would be a fresh desk wearing this shape".into());
+                }
+                millis as f64 / 1000.0
+            }
+            richos_core::spine::FrontDeskReady::AlreadyReady => 0.0,
+            ref other => return Err(format!("the desk was not ready: {other:?}").into()),
+        };
+        let joined_after = prime_started.elapsed().as_secs_f64();
+        let to_first_words = first_words.at.lock().unwrap().map(|at| at.duration_since(sent).as_secs_f64());
+        let runs = first_words.runs.lock().unwrap().clone();
+
+        let spine = spine.lock().unwrap();
+        let binding = spine.ledger().thread_binding(&thread)?;
+        let turns = spine.ledger().thread_turns_scoped(&binding)?;
+        let primings = turns.iter().filter(|t| t.source == Source::Internal && t.user_text == "[re-prime]").count();
+        let spare_primings = spine.ledger().actions().iter()
+            .filter(|a| a.kind == "spare_front_desk_reprime").count();
+        let visible: Vec<&richos_core::ledger::Turn> =
+            turns.iter().copied().filter(|t| t.source == Source::Text).collect();
+
+        eprintln!("---");
+        eprintln!("PRE-PRIMED: the desk was primed before the thread existed; he opened it and typed 500 ms later.");
+        eprintln!("the pre-prime he actually waited for : {prime_took:.3} s  ({verdict:?})");
+        eprintln!("the priming thread returned after    : {joined_after:.3} s");
+        eprintln!("the spine was shut when he pressed Send : {shut_at_send}");
+        eprintln!(
+            "his Send was ACCEPTED in               : {} ms  ({})",
+            accepted_in.as_millis(),
+            match &accepted {
+                Some(r) => format!("deferred behind a prime, intake {}", r.id()),
+                None => "taken straight — nothing was priming".to_string(),
+            }
+        );
+        match to_first_words {
+            Some(d) => {
+                eprintln!("send -> first words                  : {d:.3} s");
+                eprintln!("    of which the prime's remainder   : {:.3} s", (prime_took - 0.500).max(0.0));
+                eprintln!("    of which the turn itself         : {:.3} s", d - (prime_took - 0.500).max(0.0));
+            }
+            None => eprintln!("send -> first words                  : NOT OBSERVED"),
+        }
+        eprintln!("priming turns charged to HIS thread  : {primings}");
+        eprintln!("spare primings in the action ledger  : {spare_primings}");
+        eprintln!("visible turns in the ledger          : {}", visible.len());
+        for turn in &visible {
+            eprintln!("    {:?} -> {:?}", turn.user_text, turn.assistant_text);
+        }
+        eprintln!("intake still pending after the turn  : {}", control.pending_intake().len());
+        eprintln!("runs of prose he can see             : {}", runs.len());
+        eprintln!("the turn, in arrival order:");
+        for (name, at) in before.trace.lock().unwrap().iter() {
+            eprintln!("  {at:>9.3} s  {name}");
+        }
+
+        let mut failures = Vec::new();
+        if primings != 0 {
+            failures.push(format!(
+                "his thread was primed {primings} time(s) on his own clock — the spare was not adopted"
+            ));
+        }
+        if spare_primings != 1 {
+            failures.push(format!("expected exactly one spare priming turn, the ledger holds {spare_primings}"));
+        }
+        if visible.len() != 1 {
+            failures.push(format!("expected one visible turn, got {}", visible.len()));
+        }
+        if !control.pending_intake().is_empty() {
+            failures.push("something he said is still sitting in the intake".into());
+        }
+        // ============================================================================
+        // WHAT IS SCORED, AND WHY IT IS NOT THE TOTAL
+        // ============================================================================
+        //
+        // **The scored rule is that the PRIME is gone from his wait**, because that is the
+        // term this slice moves and the only one it can move. It is scored at ZERO rather
+        // than under a threshold: an adopted desk primes in no time at all, so there is no
+        // number to pick and nothing to tune.
+        //
+        // **The brief's target was `send -> first words` inside run E's 5.995 s + 1 s, and it
+        // is REPORTED rather than scored, because it is a target built from a different day's
+        // TURN.** Three measurements of this same sentence exist on this path: run E 5.995 s,
+        // run F 7.279 s, run I 7.263 s — and the last two are within 16 ms of each other, on
+        // either side of every line of this slice. The turn is what the provider charges for
+        // the sentence today, and run F measured it outside that target on `e2c59243`, before
+        // any of this existed. Scoring a total against it would make this probe go red for
+        // something no code here touches, and green only on a fast morning, which is how a
+        // check stops being read.
+        //
+        // The sendlock record's own §2.3 already refused to conclude anything from run F
+        // against run E — "one run against one run, both against a live service". This is the
+        // same refusal, stated where it is enforced.
+        if prime_took > 0.001 {
+            failures.push(format!(
+                "he waited {prime_took:.3} s for the desk on a thread whose desk was already \
+                 primed — the spare was not adopted"
+            ));
+        }
+        if shut_at_send {
+            failures.push(
+                "the spine was SHUT when he pressed Send — a pre-primed thread has nothing \
+                 holding it, so a Send that had to take the deferred road means a prime was \
+                 still running".into(),
+            );
+        }
+        match to_first_words {
+            None => failures.push("his first words never arrived".into()),
+            Some(d) => {
+                let prime_remainder = (prime_took - 0.500).max(0.0);
+                eprintln!("---");
+                eprintln!("AGAINST THE EARLIER RUNS — reported, not concluded from:");
+                eprintln!("  run F (`e2c59243`, no spare) : 9.647 s send -> first words, 2.368 s of it prime");
+                eprintln!("  this run                     : {d:.3} s, {prime_remainder:.3} s of it prime");
+                eprintln!("  the turn alone               : run E 5.995 s, run F 7.279 s, this run {:.3} s", d - prime_remainder);
+                eprintln!("  the brief's target was 6.995 s (run E + 1 s); this run is {:+.3} s against it —", d - 6.995);
+                eprintln!("  a target built from run E's TURN, which run F had already measured at 7.279 s");
+                eprintln!("  before any of this existed. The PRIME is what this slice removes, and it is gone.");
+            }
+        }
+        if !failures.is_empty() {
+            for why in &failures { eprintln!("FAIL: {why}"); }
+            return Err(format!("{} check(s) failed", failures.len()).into());
+        }
+        eprintln!("---");
+        eprintln!(
+            "PASS: the priming turn was spent before his thread existed; his thread adopted that \
+             desk, was never primed on his own clock, and his Send found nothing holding the \
+             spine. His first words arrived in {:.3} s, ALL of it the turn itself.",
+            to_first_words.unwrap()
+        );
+        return Ok(());
+    }
 
     let thread = spine.create_thread("First reply probe", &EntityId::parse("depot")?)?;
     profile.scope_to(&spine.ledger().thread_binding(&thread)?)?;
