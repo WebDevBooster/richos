@@ -1158,9 +1158,27 @@ body.home-open {
   z-index: 10;
   transition: opacity 0.8s ease;
 }
+/* A LAYER THAT HAS FADED OUT IS GONE FROM EVERY SENSE, NOT ONLY FROM THE EYE — audit-9 row 1.
+   `opacity: 0` and `pointer-events: none` were the whole of this rule, and neither takes a
+   node out of the accessibility tree. Measured on the .9 bundle's own window, in the slot
+   directly under the door:
+
+       AXButton     | name=Talk to Rich
+       AXStaticText | name=waking loro…
+
+   A screen reader arriving there was told the app is "waking loro…" while the picture had been
+   up for minutes. `visibility: hidden` is what the tree reads, and it is DELAYED BY THE FADE so
+   the 0.8s dissolve still runs — `transition: visibility 0s linear 0.8s` flips it in one step at
+   the end rather than transitioning it. It also takes the layer out of the hit test and out of
+   find-in-page, which `pointer-events` alone does not.
+
+   Removing the class puts everything back in the same frame (the base rule transitions opacity
+   only), which is what `degrade()` relies on. */
 #home-loading.gone {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.8s ease, visibility 0s linear 0.8s;
 }
 #home-loading .pulse {
   width: 9px;

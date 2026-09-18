@@ -1093,6 +1093,13 @@ window.RichHome = (function () {
     if (!root) return;
     var loading = root.querySelector("#home-loading");
     if (!loading) return;
+    // THE SENTENCE HAS TO BE READABLE, AND `.gone` IS WHAT WOULD HAVE HIDDEN IT. `field-engine.js`
+    // adds that class as it starts its first frame, so a picture that starts and then fails
+    // reaches here with the layer already faded — and since audit-9 row 1 the class also carries
+    // `visibility: hidden`, which would have made this honest failure silent to a screen reader
+    // as well as invisible on screen. Removing it is one line and it is what makes the fade safe
+    // to strengthen.
+    loading.classList.remove("gone");
     loading.innerHTML = "";
     var txt = elem("div", "txt");
     txt.textContent = "I couldn't draw the picture on this display. Everything else works.";
