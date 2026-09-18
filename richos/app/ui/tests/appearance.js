@@ -50,6 +50,7 @@ const {
   awaitSettled,
   flushFrames,
   bootSettled,
+  openThread,
   settleOnThread,
   HOLD_CURTAIN,
   assertCurtainHeld,
@@ -232,6 +233,15 @@ async function openApp(browser, opts) {
   // left `start()`'s internal ceiling armed — so every walk below silently had four seconds
   // from `goto` to its last assertion, and a `macos-latest` runner does not have four seconds
   // spare. `lib/harness.js`'s `HOLD_CURTAIN` carries the diagnosis and the measurement.
+  // A PRE-BOOT MOCK PRESET, for the one state a setter cannot reach: "no conversation is
+  // open" is decided before `init()` branches on whether a thread is active, so it has to be
+  // in place before any of the page's own scripts run. `mock.js` says the same thing from the
+  // other side where it defines `__RICHOS_MOCK_PRESET__`.
+  if (opts.preset) {
+    await page.addInitScript((v) => {
+      window.__RICHOS_MOCK_PRESET__ = v;
+    }, opts.preset);
+  }
   if (opts.holdSplash) await page.addInitScript(HOLD_CURTAIN);
   // The bridge ledger every wait below is built on, installed before any of the page's own
   // scripts run so no call can be missed. It carries the lag knob too, at the seam where lag
@@ -282,6 +292,44 @@ async function openMenu(page) {
     if (m) await Promise.all(m.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
   });
   await flushFrames(page);
+}
+
+/// The three-way scope sheet §7.1 puts in front of EVERY techy switch, answered with the
+/// option it opens on.
+///
+/// The CEO's sentence is the acceptance criterion: "when the user toggles the techy mode on
+/// while being inside a conversation thread, then there should be something like a radio
+/// button choice between 3 choices ... And the first choice should be preselected". So the
+/// whole act from the settings menu is: click the row, the sheet opens, confirm what it
+/// already offers — which is "For all conversations in all companies", the tier the row used
+/// to write directly through `set_techy_default`.
+///
+/// It waits on `set_techy_scope` COMPLETING and then on the technical rows being in the
+/// document, because those are two different facts: the write is the store's, the rows are
+/// `loadTimeline`'s, and a check that read the page between them would be reading the calm
+/// view and calling it the technical one.
+async function confirmTechyScope(page) {
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  const before = await invokeCount(page, "set_techy_scope");
+  const preselected = await page.evaluate(() => {
+    const on = document.querySelector('#techy-scope input[name="techy-scope"]:checked');
+    return on ? on.value : null;
+  });
+  await page.click("#techy-scope-confirm");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
+  await afterInvoke(page, "set_techy_scope", before);
+  return preselected;
+}
+
+/// Turn the technical view on everywhere, through the settings menu — the one piece of chrome
+/// on every screen, and the door the CEO's own words name ("from settings").
+async function techyOnEverywhere(page) {
+  await openMenu(page);
+  await page.click("#set-techy");
+  const picked = await confirmTechyScope(page);
+  assertEqual(picked, "all-companies", "the sheet's preselected option is not the all-companies tier");
+  await page.waitForFunction(() => document.querySelectorAll(".tl-tech").length > 0, { timeout: 15000 });
+  await settledPage(page);
 }
 
 async function main() {
@@ -768,20 +816,40 @@ async function main() {
     return "row 100->110 by click, 110->100 by ⌘-, and the row's reading tracked both";
   });
 
-  await run.check("11  Techy Mode: the menu row and the rail preference are ONE state", async () => {
+  await run.check("11  Techy Mode: the menu row and the rail preference are ONE state, through the choice §7.1 asks for", async () => {
+    // THIS CHECK WAS RED ON MAIN, AND IT WAS THE CHECK THAT WAS WRONG. It asserted that
+    // clicking `#set-techy` calls `set_techy_default` — the behavior this row had until
+    // `68a91f0e`. Since 2026-09-18 every scope-ambiguous switch goes through
+    // `requestTechyToggle` (main.js), and inside a conversation that opens the CEO's
+    // three-way sheet instead: "when the user toggles the techy mode on while being inside a
+    // conversation thread, then there should be something like a radio button choice between
+    // 3 choices ... And the first choice should be preselected". The behavior IS the ruling,
+    // so the assertion moved to it. `set_techy_default` is still what the row writes with no
+    // conversation open, and the second half below is that branch, measured rather than
+    // assumed.
+    //
+    // WHAT THIS CHECK OWNS, and why it is not a duplicate of `techy.js` 23-29: those drive
+    // the RAIL switch, the chip and ⌘⇧T, and they own the sheet's contents. This owns the
+    // SETTINGS MENU door — the one piece of chrome on every screen — and the claim that the
+    // menu row and the rail preference are ONE state rather than two that agree.
     const page = track(await openApp(browser));
+    await openThread(page, "acme");
     await openMenu(page);
-    // THE WRITE IS THREE ROUND TRIPS, NOT ONE, and the rail's own checkbox is painted by the
-    // SECOND. `setTechyDefault` is `await set_techy_default` -> `await refreshTechy` (a
-    // `techy_mode` read, which is what runs `renderTechySettings` and sets
-    // `#techy-default.checked`) -> `await loadTimeline`. Waiting only for the write leaves the
-    // rail one round trip behind, and at 300 ms of latency this check read `false` off a
-    // checkbox that was about to be `true`.
-    const viaMenu = await invokeCount(page, "set_techy_default");
-    const menuRead = await invokeCount(page, "techy_mode");
+
+    // ---- the menu door asks, and the answer reaches the rail ----------------------------
+    const directWrite = await invokeCount(page, "set_techy_default");
     await page.click("#set-techy");
-    await afterInvoke(page, "set_techy_default", viaMenu);
-    await afterInvoke(page, "techy_mode", menuRead);
+    assertEqual(
+      await confirmTechyScope(page),
+      "all-companies",
+      "his FIRST option is the one the sheet opens on — the whole act is a click and a confirm"
+    );
+    assertEqual(
+      await invokeCount(page, "set_techy_default"),
+      directWrite,
+      "the menu row wrote the global default DIRECTLY from inside a conversation, which is " +
+        "the path §7.1 replaced: with one open, every switch asks where it applies"
+    );
     await page.click("#rail-settings");
     await overlayOpen(page, "#assertiveness-popover");
     assertEqual(
@@ -789,12 +857,14 @@ async function main() {
       true,
       "the rail's own preference followed the menu"
     );
-    // ...and back the other way, which is the direction a one-way binding still passes.
-    const viaRail = await invokeCount(page, "set_techy_default");
-    const railRead = await invokeCount(page, "techy_mode");
+
+    // ---- and back the other way, which is the direction a one-way binding still passes ---
+    // THE RAIL SWITCH IS SCOPE-AMBIGUOUS TOO, so this half asks as well. The popover is
+    // deliberately left open behind the sheet: the sheet is an `.overlay` (z-index 60) and
+    // the popover a `.popover` (20), so tidying the popover away first would be clicking the
+    // gear through a modal — `techy.js`'s own helper carries the same measurement.
     await page.click("#techy-default");
-    await afterInvoke(page, "set_techy_default", viaRail);
-    await afterInvoke(page, "techy_mode", railRead);
+    assertEqual(await confirmTechyScope(page), "all-companies", "the same first option, in the off direction");
     await page.click("#rail-settings");
     await openMenu(page);
     assertEqual(
@@ -803,7 +873,27 @@ async function main() {
       "and the menu followed the rail — a binding that only works one way is two states with a lag"
     );
     await page.close();
-    return "menu -> rail, and rail -> menu, both observed";
+
+    // ---- with NO conversation open, the row writes the only tier that has a referent -----
+    // `{ chosenEntity: null }` is the one boot with nothing active. Two of the three options
+    // would have no referent there, so `requestTechyToggle` applies the global default
+    // directly — asserted here because "it asks, except when it cannot" is exactly the kind
+    // of exception that rots into "it asks sometimes".
+    const bare = track(await openApp(browser, { preset: { chosenEntity: null } }));
+    await openMenu(bare);
+    const before = await invokeCount(bare, "set_techy_default");
+    const reread = await invokeCount(bare, "techy_mode");
+    await bare.click("#set-techy");
+    await afterInvoke(bare, "set_techy_default", before);
+    await afterInvoke(bare, "techy_mode", reread);
+    assert(await bare.locator("#techy-scope").isHidden(), "nothing to scope, so nothing is asked");
+    assertEqual(
+      await bare.evaluate(() => document.getElementById("set-techy").checked),
+      true,
+      "and the row shows what was taken"
+    );
+    await bare.close();
+    return "in a conversation: menu -> sheet (first option preselected) -> rail, and rail -> sheet -> menu; with none open: straight to set_techy_default, no sheet";
   });
 
   await run.check("11b  the splash off switch survived the rebuild, and is ONE state behind two doors", async () => {
@@ -858,7 +948,7 @@ async function main() {
 
   // ---- 12-13. the type scale itself ------------------------------------------------------
 
-  await run.check("12  every font-size in the SHIPPED CSS scales, or is declared with its reason", async () => {
+  await run.check("12  every font-size in the SHIPPED CSS scales, and every unit is measured against §15's floor", async () => {
     // "THE SHIPPED CSS" MEANT ONE STYLESHEET OUT OF FOUR. This read `STYLE_CSS` — a single
     // `fs.readFileSync` of `style.css` — under a title claiming every font-size the app
     // ships. `index.html` links four: `style.css`, `home.css`, `splash.css` and
@@ -876,14 +966,30 @@ async function main() {
     // and a `px` size does not. A surviving px size is a node that silently refuses to
     // scale, and it is invisible until someone with poor eyesight is looking at the one line
     // that did not grow.
-    const decls = SOURCES.cssDeclarations("font-size");
-    assert(decls.length >= 150, "only " + decls.length + " font-size declarations found — that is not this tree");
+    // AND IT ENUMERATED ONE UNIT OUT OF FIVE, which is the half this check got wrong for
+    // longer. The floor below read `px.filter(...)` — the PIXEL declarations — under a
+    // sentence about §15, and reported "smallest 14px" on a tree whose smallest readable
+    // size was 11px in `rem`. Eighteen `rem` sizes sat under the floor and nothing in this
+    // directory could see one of them. `cssRules` carries the SELECTOR and the rule's other
+    // declarations now, which is what makes both halves below possible: a `rem` resolves
+    // against a root size that is itself a declaration in this tree, and an exemption gets
+    // checked rather than believed.
+    const rules = SOURCES.cssRules("font-size");
+    assert(rules.length >= 150, "only " + rules.length + " font-size declarations found — that is not this tree");
     assert(
       SOURCES.styleSources().length === 4,
       "the shell links " + SOURCES.styleSources().length + " stylesheets, not the four this check was measured against"
     );
+    // THE TWO DERIVATIONS ARE JOINED, the way `lib/harness.js` joins its two PNG decoders: a
+    // brace-counting walk and the property regex must see the same declarations, or the walk
+    // is skipping some of the tree and every count below is about a subset nobody named.
+    assertEqual(
+      rules.length,
+      SOURCES.cssDeclarations("font-size").length,
+      "the rule walk and the property scan disagree about how many font-size declarations this tree has"
+    );
 
-    const px = decls.filter((d) => /^[0-9.]+px$/.test(d.value));
+    const px = rules.filter((d) => /^[0-9.]+px$/.test(d.value));
 
     /// THE DECLARATION, AND WHY IT IS NOT THE TYPED LIST AGAIN. It is per FILE, and it names
     /// an EXACT COUNT and a FLOOR, both recomputed from the tree on every run. A px size
@@ -933,14 +1039,174 @@ async function main() {
       assert(DECLARED[f].why.length >= 40, f + ": a declaration needs a reason, not a marker");
     }
 
-    // §15's FLOOR, ACROSS ALL FOUR — the thing the narrow version could not have checked and
-    // the reason widening it was worth a red run. "Nothing readable below 14px."
-    const belowFloor = px.filter((d) => parseFloat(d.value) < 14);
+    // =====================================================================================
+    // §15's FLOOR, IN EVERY UNIT — "nothing readable sits below 14px"
+    // =====================================================================================
+    //
+    // THE ROOT SIZE IS READ OUT OF THE TREE, never typed. `rem` means nothing without it,
+    // and it is a declaration in this same stylesheet — so a build that moved the root from
+    // 16px to 15px would move every `rem` size with it, and this resolution follows rather
+    // than reporting yesterday's pixels.
+    const rootDecl = rules.find((d) => /^calc\(\s*[0-9.]+px\s*\*\s*var\(--app-font-scale/.test(d.value));
+    assert(rootDecl, "the root font size is not driven by --app-font-scale, so nothing scales");
+    const ROOT = parseFloat(rootDecl.value.match(/^calc\(\s*([0-9.]+)px/)[1]);
+    assertEqual(rootDecl.selector, "html", "the --app-font-scale root moved off `html` — the rem resolution below assumes it");
+
+    /// One declaration, resolved to the pixels it paints at the 100% scale.
+    ///
+    /// `em` AND `%` ARE RESOLVED AGAINST A BASE DERIVED FROM THE SELECTOR, not against a
+    /// typed table. `.tl-prose .tl-md-h { font-size: 1.06em }` is 1.06 x whatever `.tl-prose`
+    /// declares, and `.tl-prose` is right there in the selector — so the base is found by
+    /// dropping the last compound and looking the remainder up in this same list. A relative
+    /// size whose base cannot be found that way FAILS, with the selector named: an
+    /// unresolvable size is a failure to measure, never a pass. (`inherit` is the one value
+    /// that introduces no size of its own; it is counted and reported, not silently dropped.)
+    const resolve = (d, seen) => {
+      seen = seen || [];
+      if (seen.indexOf(d.site) >= 0) return { px: null, why: "a circular font-size: " + seen.join(" -> ") };
+      const v = d.value.trim();
+      let m;
+      if ((m = /^([0-9.]+)px$/.exec(v))) return { px: parseFloat(m[1]), unit: "px" };
+      if ((m = /^([0-9.]+)rem$/.exec(v))) return { px: parseFloat(m[1]) * ROOT, unit: "rem" };
+      if (/^calc\(\s*[0-9.]+px\s*\*\s*var\(--app-font-scale/.test(v)) {
+        return { px: parseFloat(v.match(/^calc\(\s*([0-9.]+)px/)[1]), unit: "root" };
+      }
+      if (v === "inherit") return { px: null, inherits: true };
+      if ((m = /^([0-9.]+)(em)$/.exec(v)) || (m = /^([0-9.]+)(%)$/.exec(v))) {
+        const factor = m[2] === "%" ? parseFloat(m[1]) / 100 : parseFloat(m[1]);
+        const parts = d.selector.split(/\s+/);
+        if (parts.length < 2) {
+          return { px: null, why: d.selector + " is " + v + " with no ancestor in its own selector to resolve against" };
+        }
+        const ancestor = parts.slice(0, -1).join(" ");
+        const base = rules.find((r) => r.selector === ancestor && r.value !== "inherit");
+        if (!base) return { px: null, why: v + " resolves against `" + ancestor + "`, which declares no font-size" };
+        const b = resolve(base, seen.concat(d.site));
+        if (b.px === null) return { px: null, why: "its base " + ancestor + " is unresolvable: " + (b.why || "inherit") };
+        return { px: factor * b.px, unit: m[2], base: ancestor + " = " + b.px + "px" };
+      }
+      return { px: null, why: "a font-size value this resolution does not know" };
+    };
+
+    const resolved = rules.map((d) => Object.assign({ d }, resolve(d)));
+    const unresolvable = resolved.filter((r) => r.px === null && !r.inherits);
     assertEqual(
-      belowFloor.map((d) => d.site + " = " + d.value),
+      unresolvable.map((r) => r.d.site + " (" + r.d.selector + ") = " + r.d.value + " — " + r.why),
       [],
-      "§15: a font-size below the 14px floor in the shipped CSS"
+      "a font-size this check cannot resolve to pixels: that is a failure to measure, never a pass"
     );
+    const inherited = resolved.filter((r) => r.inherits);
+
+    /// §15's TWO EXEMPT CLASSES, BY SELECTOR, WHERE A REVIEWER SEES THEM — and each one is
+    /// CHECKED rather than taken on the word of the person who typed it.
+    ///
+    ///   `caps`  an all-caps micro-label. The claim is about the RULE, so the rule answers
+    ///           it: it must declare `text-transform: uppercase` beside its own font-size.
+    ///           A label that stops being uppercase stops being exempt, in the same edit.
+    ///   `glyph` a symbol with no text of its own. Checked IN THE PAGE below: every instance
+    ///           carries at most two characters and not one letter or digit.
+    ///   `mono`  the monogram in the rail's identity circle — two uppercase initials, and
+    ///           `config.rs`'s `initials_from` is what makes that true rather than this list.
+    ///
+    /// An undeclared size under the floor fails. A declaration for a size that is no longer
+    /// under the floor fails as STALE — which is what would have caught this list going quiet
+    /// after the three labels raised in the commit before this one.
+    const BELOW_FLOOR = {
+      ".rail-initials": {
+        kind: "mono",
+        why:
+          "the identity circle at the foot of the rail: at most two initials, uppercased by " +
+          "`initials_from` in richos-core's config.rs, in a 26px disc. A monogram, not a run " +
+          "of text — the NAME beside it is `.rail-user-name` at 1rem and is what is read.",
+      },
+      ".send-glyph": { kind: "glyph", why: "the send arrow inside the send button — the button's accessible name carries the word" },
+      ".rail-icon-btn": { kind: "glyph", why: "the rail's icon buttons (close, menu): one symbol each, each with an aria-label of its own" },
+      ".nav-disclosure": { kind: "glyph", why: "the group disclosure triangle in the rail — rotation is the state, and the group's label is beside it" },
+      ".nav-status": { kind: "glyph", why: "the per-conversation status mark, a SHAPE (§18: a state is never carried by color alone), with the word in the row's accessible label" },
+      ".tl-chevron": { kind: "glyph", why: "the turn's expand/collapse chevron; the row it belongs to carries the readable label" },
+      ".tl-activity-mark": { kind: "glyph", why: "the activity row's status shape, the same symbol vocabulary as .nav-status, beside 16px text that says the state" },
+      ".tl-tech-chevron": { kind: "glyph", why: "the technical row's expand chevron. Its ink is measured on the painted glass by contrast.js check 17 (6.46:1 dark, 5.14:1 light) against a 4.5:1 floor, which is stricter than the 3:1 a non-text indicator owes" },
+      ".chrome-select-chevron": { kind: "glyph", why: "the `this opens a list` cue on a <select>; aria-hidden and pointer-events:none, so the control's own accessible name is the whole of what is read" },
+      ".nav-group-label": { kind: "caps", why: "the company eyebrow over a group of conversations — all caps, letter-spaced, the app's standard micro-label" },
+      ".entity-block-title": { kind: "caps", why: "the entity view's section eyebrow — all caps, letter-spaced" },
+      ".result-group": { kind: "caps", why: "the search results' group eyebrow — all caps, letter-spaced" },
+      ".inspector-eyebrow": { kind: "caps", why: "the worker inspector's eyebrow over its title — all caps, letter-spaced" },
+      ".insp-label": { kind: "caps", why: "the worker inspector's field labels — all caps, letter-spaced, each one word over the value it names" },
+    };
+
+    const below = resolved.filter((r) => r.px !== null && r.px < 14);
+    const undeclaredFloor = below.filter((r) => !BELOW_FLOOR[r.d.selector]);
+    assertEqual(
+      undeclaredFloor.map((r) => r.d.site + "  " + r.d.selector + " = " + r.d.value + " = " + r.px + "px"),
+      [],
+      "§15: a font-size under the 14px floor with no declaration. Raise it to 0.875rem, or " +
+        "declare it in BELOW_FLOOR with the class that excuses it and why"
+    );
+    const staleFloor = Object.keys(BELOW_FLOOR).filter((sel) => !below.some((r) => r.d.selector === sel));
+    assertEqual(
+      staleFloor,
+      [],
+      "BELOW_FLOOR excuses a selector that is no longer under the floor (or no longer exists) — " +
+        "a stale exemption is how a list like this stops meaning anything"
+    );
+    for (const r of below) {
+      const dec = BELOW_FLOOR[r.d.selector];
+      assert(dec.why.length >= 40, r.d.selector + ": an exemption needs a reason, not a marker");
+      if (dec.kind === "caps") {
+        assertEqual(
+          (r.d.rule["text-transform"] || "").trim(),
+          "uppercase",
+          r.d.selector + " is excused as an all-caps micro-label and its own rule does not " +
+            "declare `text-transform: uppercase`. The exemption is the claim; this is the claim's proof."
+        );
+      }
+    }
+
+    // ---- and the glyphs are checked WHERE THEY ARE PAINTED ------------------------------
+    //
+    // A "symbol with no text of its own" cannot be proven from a stylesheet — the text is in
+    // the JavaScript that builds the node, and three of these eight are only in the document
+    // once the technical view is on. So this half opens the app, takes the CEO's own path to
+    // the technical view (the settings row asks WHERE, and the preselected first option is
+    // all conversations in all companies — §7.1), and reads every declared glyph off the
+    // page. Each one must be reachable — an exemption over a selector nothing renders is an
+    // exemption nobody can check — and each instance must be at most two characters with no
+    // letter and no digit in it.
+    const page = track(await openApp(browser, { stored: { theme: "dark", font_scale: 100, user_name: "Alex Booster" } }));
+    await openThread(page, "acme");
+    await techyOnEverywhere(page);
+    const glyphSelectors = Object.keys(BELOW_FLOOR).filter((s) => BELOW_FLOOR[s].kind !== "caps");
+    const painted = await page.evaluate((sels) => {
+      const out = {};
+      for (const sel of sels) {
+        out[sel] = [...document.querySelectorAll(sel)].map((n) =>
+          [...n.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join("").trim()
+        );
+      }
+      return out;
+    }, glyphSelectors);
+    const unreachable = glyphSelectors.filter((s) => !painted[s].length);
+    assertEqual(
+      unreachable,
+      [],
+      "declared exempt as a glyph and NOT ON THE PAGE this check drives, so the claim cannot be " +
+        "checked: reach it from here or stop excusing it"
+    );
+    const notGlyphs = [];
+    for (const sel of glyphSelectors) {
+      for (const text of new Set(painted[sel])) {
+        const forbidden = BELOW_FLOOR[sel].kind === "mono" ? /[\p{N}]/u : /[\p{L}\p{N}]/u;
+        const capsOk = BELOW_FLOOR[sel].kind !== "mono" || text === text.toUpperCase();
+        if ([...text].length > 2 || forbidden.test(text) || !capsOk) notGlyphs.push(sel + " renders " + JSON.stringify(text));
+      }
+    }
+    assertEqual(
+      notGlyphs,
+      [],
+      "§15: declared exempt as a symbol, and painting something a person reads as text"
+    );
+    const glyphCount = glyphSelectors.reduce((a, s) => a + painted[s].length, 0);
+    await page.close();
 
     // THE ONE DUPLICATE, CHECKED RATHER THAN ASSERTED. `splash.css`'s declaration is
     // overridden by `splash.js`'s inline `LINE_SIZE` on every composition, so the two are
@@ -955,15 +1221,25 @@ async function main() {
       "splash.css's .splash-line disagrees with the size splash.js actually paints (" + inline[1] + ")"
     );
 
-    assert(
-      SOURCES.cssDeclarations("font-size").some((d) => /^calc\(16px \* var\(--app-font-scale/.test(d.value)),
-      "the root font size is not driven by --app-font-scale, so nothing scales"
-    );
+    // THE SMALLEST READABLE SIZE IN THE SHIPPED CSS, which is the number this check could not
+    // say until it could resolve a `rem`. Everything under the floor is an excused symbol or
+    // micro-label, so the minimum over what is LEFT is the real answer.
+    const readable = resolved.filter((r) => r.px !== null && !BELOW_FLOOR[r.d.selector]);
+    const smallest = Math.min(...readable.map((r) => r.px));
+    const smallestSites = readable.filter((r) => r.px === smallest).map((r) => r.d.selector);
 
     return (
-      decls.length + " font-size declaration(s) across " + SOURCES.styleSources().join(" + ") +
-      "; " + px.length + " in px, every one declared (style.css 2, home.css 13, splash.css 1), " +
-      "smallest " + Math.min(...px.map((d) => parseFloat(d.value))) + "px — at or above §15's floor"
+      rules.length + " font-size declaration(s) across " + SOURCES.styleSources().join(" + ") +
+      "; " + px.length + " in px, every one declared (style.css 2, home.css 13, splash.css 1). " +
+      "RESOLVED IN EVERY UNIT against a root of " + ROOT + "px: " + readable.length + " readable, " +
+      "smallest " + smallest + "px (" + [...new Set(smallestSites)].slice(0, 3).join(", ") + ") — at §15's floor; " +
+      below.length + " under it, every one declared AND checked: " +
+      below.filter((r) => BELOW_FLOOR[r.d.selector].kind === "glyph").length + " icon glyph(s) and " +
+      below.filter((r) => BELOW_FLOOR[r.d.selector].kind === "mono").length + " monogram, read off the page as " +
+      glyphCount + " painted instance(s) carrying no word; " +
+      below.filter((r) => BELOW_FLOOR[r.d.selector].kind === "caps").length +
+      " all-caps micro-label(s), each proven uppercase by its own rule. " +
+      inherited.length + " `inherit`, which introduces no size of its own"
     );
   });
 
@@ -1297,6 +1573,21 @@ main().catch((e) => {
 //      notifies, and this file is a subscriber, so that call was dead code that LOOKED
 //      load-bearing. It is now deleted from `stepFont`, `resetFont` and `applyTheme`, and
 //      the subscription is the single path, which is what makes check 10 able to fail.
+//  11  main.js `requestTechyToggle`: drop the `if (!activeThreadId)` guard so every switch
+//      writes `set_techy_default` directly -> checks 11 AND 12. This is the behavior check 11
+//      used to ASSERT, before §7.1; the sheet never opens and the check waits 30s for it and
+//      says so. It reds 12 as well, deliberately not hidden: 12's glyph half reaches the
+//      technical view through the same door, because that door is the CEO's own path to it
+//      and a second private entrance would be a check measuring a state he cannot reach.
+//  11b NOT A MUTATION — THE SHIPPED SOURCE TURNED IT RED, and the CHECK was the thing that
+//      was wrong. Check 11 was red on main from `68a91f0e` to 2026-09-18 asserting the
+//      pre-§7.1 behavior (`page.waitForFunction: Timeout 10000ms exceeded` on a
+//      `set_techy_default` that no longer happens inside a conversation). A red check whose
+//      assertion has been overtaken by a ruling is not evidence of a defect; it is a check
+//      that has stopped reading the product. The ruling is the specification, so the
+//      assertion moved to it — and the branch that DOES still write the default (no
+//      conversation open) is now asserted too, so the exception cannot rot into "it asks
+//      sometimes".
 //  12  style.css `.rail-company`: `1rem` -> `13px` -> check 12.
 //  12b style.css `html`: `calc(16px * var(--app-font-scale, 1))` -> `16px` -> checks 9, 12,
 //      13. Every size is still rem and NONE of them moves — the failure that looks most
@@ -1322,6 +1613,26 @@ main().catch((e) => {
 //      2026-09-05: `home.css has 14 px font-size(s), declared 13`. This is the proof that
 //      the widened check can SEE the CEO's landing surface; the old one read `style.css` and
 //      would have stayed green through it.
+//  12e style.css `.tl-tech-title`: `0.875rem` -> `0.6875rem` (what it shipped as until
+//      2026-09-18) -> check 12. The value the OLD check could not see, now named with the
+//      pixels it resolves to. Run 2026-09-18:
+//
+//          §15: a font-size under the 14px floor with no declaration...
+//          expected []
+//          actual   ["style.css:4346  .tl-tech-title = 0.6875rem = 11px"]
+//
+//      This is the mutation that matters most here, because it is not hypothetical: it is
+//      the shipped state of this stylesheet on `c8bcfe90`, and check 12 reported "smallest
+//      14px" over it on every run for two weeks.
+//  12f style.css `.nav-group-label`: delete `text-transform: uppercase` -> check 12. The
+//      all-caps exemption loses its proof and the check refuses it by name — `expected
+//      "uppercase" / actual ""` — rather than going on excusing an 11px label that is no
+//      longer a micro-label. The mutation a designer would make without thinking about this
+//      file at all.
+//  12g appearance.js `BELOW_FLOOR`: re-declare `.nav-group-label` as `kind: "glyph"` ->
+//      check 12, off the PAGE rather than the stylesheet: `.nav-group-label renders
+//      "Northwind Traders"`, and six more. A false claim about what a node paints cannot be
+//      made to stick by typing it in the exemption table.
 //  13  style.css `.tl-prose`: `1.125rem` -> `1rem` -> check 13. Rich's answers back below
 //      the CEO's stated 18px default.
 //  14a tauri.conf.json: `"zoomHotkeysEnabled": true` -> check 14.

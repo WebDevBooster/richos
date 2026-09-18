@@ -2568,10 +2568,20 @@ async function main() {
       // the node into view and shoots THAT node, so the frame and the element can never be one
       // scroll apart.
       const WANT = [
-        [".tl-tech[data-vendor] .tl-tech-title", "vendor label, 11px italic mono"],
+        // THE SIZES IN THESE LABELS ARE THE SHIPPED ONES AND THEY MOVED ON 2026-09-18. The
+        // vendor label was 11px italic mono when this check was written and is 14px now
+        // (§15's floor, escalation `esc-20260918T211347Z-d7e05a01`) — and the rendered
+        // column moved with it, from 6.28:1 to 7.37:1 in light and 7.49:1 to 8.51:1 in
+        // dark, against a declared 7.39/8.50 that did not change. That is this check's own
+        // premise arriving as evidence: the gap between declared and rendered was the
+        // thin-stroke penalty of the SIZE, and it closes to 0.02 at 14px. The chevron and
+        // the status mark stay at 11px as declared icon glyphs (style.css, and
+        // `appearance.js` check 12's `GLYPHS`), so the chevron is still measured here as
+        // the one 11px node in the cluster.
+        [".tl-tech[data-vendor] .tl-tech-title", "vendor label, 14px italic mono"],
         [".tl-tech-summary", "the bounded preview, 14px"],
         [".tl-tech-path", "a touched path, 14px mono"],
-        [".tl-tech-chevron", "the expand chevron, 11px"],
+        [".tl-tech-chevron", "the expand chevron, 11px glyph"],
       ];
       const nodes = [];
       for (const [sel, what] of WANT) {
