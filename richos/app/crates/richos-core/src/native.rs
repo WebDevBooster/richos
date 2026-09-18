@@ -229,6 +229,18 @@ pub fn tool_residency_env(role: LeaseRole) -> Option<(&'static str, &'static str
     }
 }
 
+/// **What the app says on stderr when it withheld prose the model added after the receipt.**
+///
+/// The withheld run is, every time it has been measured, a second copy of the sentence the app has
+/// just said — `"On it!On it!"` in the CEO's own conversation, run 1 of
+/// `docs/verification/first-reply-2026-09-18.md`. It is withheld rather than shown, and SAID rather
+/// than dropped, because a host that silently swallows the model's words is the silent degrade §16
+/// forbids: whoever debugs a turn where Rich said something unexpected needs to see that the host
+/// took it, and what it was.
+pub const WITHHELD_AFTER_THE_RECEIPT: &str =
+    "[richos] the register's receipt had already been said, so the model's own words after it were \
+     withheld from the conversation";
+
 /// The continuity checkpoint tool — the front desk's own bookkeeping.
 pub const CONTINUITY_CHECKPOINT_TOOL: &str = "mcp__richos_continuity__checkpoint";
 
@@ -254,6 +266,36 @@ pub const CHECKPOINT_BEFORE_REPLY: &str =
 /// doctrine's case 1, "you know the answer"), and refusing it would make a fast answer
 /// impossible in the name of making a reply fast. The work lease is not reached by this at all
 /// — it is never given the continuity server (§5.8a-ii seam 1).
+///
+/// # MEASURED 2026-09-18: THIS GATE DOES NOT FIRE ON THE REAL WIRE. Read this before trusting it.
+///
+/// The paragraphs above describe it as the enforcement the doctrine sentence could not be. **It is
+/// not, in production, and the measurement is
+/// `docs/verification/first-words-2026-09-18-logs/run-B-the-pre-reply-checkpoint-is-not-refused-on-the-real-wire.log`.**
+/// On both turns of that run the model wrote the checkpoint BEFORE it said anything (8.932 s and
+/// 5.429 s), the ECS write succeeded, and his first words arrived at 15.714 s and 12.176 s against
+/// 7.998 s and 6.358 s on the same code with no pre-reply checkpoint (run A).
+///
+/// **Why:** this function is reachable only from a `can_use_tool` control request
+/// ([`NativeClient::handle_agent_request`]), and **no permission frame appears anywhere in that
+/// run** — the probe traces every one it is handed. The lease is spawned with
+/// `--permission-mode auto` and the `autoMode` settings block (`engine_profile.rs:214-222`), under
+/// which the binary classifies and auto-approves its own trusted MCP tools and never asks the
+/// app's desk about them. The desk sees `Bash` and the things auto mode will not take by itself;
+/// it does not see `mcp__richos_continuity__checkpoint`.
+///
+/// **What IS enforceable, and why neither half is taken here.** The engine's own adapter gates both
+/// continuity tools on the app-written `actions_allowed` flag and re-reads the scope file on every
+/// call (`engine/ecs/adapters/mcp.py:18-26`), so the app could refuse a pre-reply checkpoint by
+/// deferring that grant until it has spoken — with no engine change, but it would close `inspect`
+/// before the reply too, which this function's own paragraph above deliberately keeps open.
+/// Gating `checkpoint` alone needs a field in that scope and a change in the adapter, which is an
+/// engine release. **Which of the two is a design call about what the front desk may do before it
+/// speaks, so it is raised rather than taken:** `esc-20260918T141320Z-49570979`.
+///
+/// The function stays, tests and all: it is correct, it is cheap, and a build or a permission mode
+/// that does ask the desk gets the ordering it describes. What it must not be is quoted as the
+/// reason the pre-reply checkpoint cannot happen. It can, and it was measured happening.
 fn bookkeeping_before_the_reply(request: &Value, spoken: bool) -> bool {
     !spoken && request.get("tool_name").and_then(|v| v.as_str()) == Some(CONTINUITY_CHECKPOINT_TOOL)
 }
@@ -1037,6 +1079,22 @@ struct ReaderState {
     /// waiting for his first word (`front-desk.md`, "The record").
     /// [`NativeClient::handle_agent_request`] reads it.
     spoken_this_turn: bool,
+    /// **The `tool_use` id of the register call on the turn in flight**, so its result can be
+    /// recognized when it comes back.
+    ///
+    /// Keyed on the id and never on the tool name, because a `tool_result` carries no name at
+    /// all (`machinery.rs`: *"a `tool_result` knows no tool name"*) — the id is the only thing
+    /// that ties the answer to the question on this wire. Host-owned, reset with the send.
+    register_call_id: Option<String>,
+    /// **The sentence the APP said on this turn, off the register's own answer.**
+    ///
+    /// `Some` means his first words have already reached him from the host, at the instant the
+    /// register returned, and the model's own copy of them is therefore withheld
+    /// ([`WITHHELD_AFTER_THE_RECEIPT`]). `None` is every other turn, on which this file behaves
+    /// exactly as it did before 2026-09-18.
+    receipt_said: Option<String>,
+    /// What was withheld after the receipt, kept so the turn's end can SAY what it took.
+    withheld_after_receipt: String,
 }
 
 impl Default for ReaderState {
@@ -1056,6 +1114,9 @@ impl Default for ReaderState {
             engine_plugin_loaded: InitFact::NotYetReported,
             tool_search_offered: InitFact::NotYetReported,
             spoken_this_turn: false,
+            register_call_id: None,
+            receipt_said: None,
+            withheld_after_receipt: String::new(),
         }
     }
 }
@@ -1667,6 +1728,19 @@ impl NativeClient {
         // ---- the terminal frame --------------------------------------------------------
         if ty == "result" {
             let mut st = state.lock().unwrap();
+            // **THE LOUDNESS LAYER FOR THE WITHHOLDING**, at the one point in a turn that is
+            // guaranteed to be reached. Said here rather than per delta: the deltas arrive in
+            // pieces and a notice per piece would be a notice per token.
+            if !st.withheld_after_receipt.is_empty() {
+                let said = st.receipt_said.clone().unwrap_or_default();
+                let withheld = st.withheld_after_receipt.trim().to_string();
+                let same = withheld == said;
+                eprintln!(
+                    "{WITHHELD_AFTER_THE_RECEIPT} ({} chars, {}): {withheld:?}",
+                    withheld.chars().count(),
+                    if same { "the same sentence again" } else { "NOT the sentence the app said" },
+                );
+            }
             // Learn the denominator for the NEXT turn's watermark, by NAME (finding §10).
             if let (Some(model), Some(usage)) = (st.session_model.clone(), msg.get("modelUsage")) {
                 if let Some(w) = usage.get(&model).and_then(|m| m.get("contextWindow")).and_then(|v| v.as_u64()) {
@@ -1756,6 +1830,23 @@ impl NativeClient {
             if ev_ty == "message_start" {
                 text_deltas.store(0, Ordering::SeqCst);
             }
+            // **THE REGISTER'S CALL, RECOGNIZED AS IT OPENS.** The id arrives here, on the
+            // streamed block start, ~0.3 s to 0.9 s before the complete arguments and ~2 s
+            // before the answer (run 3's own frames: 3.122 s, 4.040 s, 6.034 s). Taken from
+            // whichever of the two frames arrives first — this one, or the whole `assistant`
+            // message below — because a build that stops streaming partial messages must not
+            // stop the app from speaking.
+            if ev_ty == "content_block_start" {
+                let block = ev.get("content_block").unwrap_or(&Value::Null);
+                if block.get("type").and_then(|v| v.as_str()) == Some("tool_use")
+                    && block.get("name").and_then(|v| v.as_str())
+                        == Some(crate::assignment_tools::QUALIFIED_RECORD_TOOL)
+                {
+                    if let Some(id) = block.get("id").and_then(|v| v.as_str()) {
+                        state.lock().unwrap().register_call_id = Some(id.to_string());
+                    }
+                }
+            }
             if ev_ty == "content_block_delta"
                 && ev.get("delta").and_then(|d| d.get("type")).and_then(|v| v.as_str()) == Some("text_delta")
             {
@@ -1764,7 +1855,20 @@ impl NativeClient {
                     // **He has now heard something.** Set at the FIRST delta, not at the end
                     // of the message: the measure §55 is written against is his first word,
                     // and everything the gate above protects is protected from that instant.
-                    state.lock().unwrap().spoken_this_turn = true;
+                    let mut st = state.lock().unwrap();
+                    st.spoken_this_turn = true;
+                    // **AND HE HAS ALREADY HEARD IT ONCE IF THE APP SAID THE RECEIPT.** The
+                    // register's answer IS the whole of a hand-over turn's reply
+                    // (`front-desk.md`), the app has already said it, and everything the model
+                    // adds afterwards is the doubled line that was measured in his own
+                    // conversation. Withheld and RECORDED, never silently dropped.
+                    if st.receipt_said.is_some() {
+                        st.withheld_after_receipt.push_str(t);
+                        drop(st);
+                        Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
+                        return;
+                    }
+                    drop(st);
                     Self::route(ChunkMsg::Text(t.to_string()), current, between, &msg);
                     return;
                 }
@@ -1786,6 +1890,68 @@ impl NativeClient {
             }
         }
 
+        // ---- HIS FIRST WORDS, SAID BY THE APP AT THE REGISTER'S RETURN -------------------
+        //
+        // **The CEO's §55, and the round trip nothing in the front desk could remove.** The
+        // register hands back the sentence and the model then says it, which cost 1.094 s on the
+        // warm turn and 1.427 s on the cold one of run 3
+        // (`docs/verification/first-reply-2026-09-18.md`) — a whole model round trip spent
+        // repeating four of the app's own words back to the app. So the app says them, here, the
+        // instant the register's answer goes past on the wire.
+        //
+        // **It routes as TEXT, which is what makes one line reach all three surfaces.** The
+        // timeline bubble, the status read and the speaker are all downstream of
+        // `TurnItem::Text` — `ui/main.js`'s `rich://chunk` listener relays exactly this to
+        // `voice_speak_delta` — so there is no second rendering path to keep in step and no UI
+        // change at all. It is also the ledger's own record of what he was told, at its
+        // shared-sequence position, so a crash-recovered conversation shows the same words.
+        //
+        // **Nothing here decides WHAT to say.** `first_reply::receipt_sentence` reads the
+        // register's own answer and yields nothing at all unless it says `recorded: true`; a
+        // refused registration is therefore never announced, and every other outcome degrades to
+        // this morning's behavior — the model says its copy a round trip later and he is
+        // answered. The context-only turn is excluded because a priming turn is not his.
+        //
+        // **AND THE DOCTRINE IS DELIBERATELY NOT CHANGED, which is what makes that degradation
+        // real.** `front-desk.md` still tells the front desk to say the words the register hands
+        // back. Telling it to stay silent instead would be one flag away from a SILENT Rich: a
+        // build that stops emitting the `tool_result` the way this reader expects would leave a
+        // model that has been instructed to say nothing and a host that cannot say anything. So
+        // the model keeps its instruction, the app beats it to the words by a round trip, and the
+        // duplicate is withheld HERE — where the host can see both and he can only ever see one.
+        if ty == "user" && !state.lock().unwrap().context_only {
+            let said = {
+                let st = state.lock().unwrap();
+                st.register_call_id.clone().filter(|_| st.receipt_said.is_none())
+            };
+            if let Some(call_id) = said {
+                let receipt = msg
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array())
+                    .map(|blocks| blocks.as_slice())
+                    .unwrap_or(&[])
+                    .iter()
+                    .filter(|block| {
+                        block.get("type").and_then(|v| v.as_str()) == Some("tool_result")
+                            && block.get("tool_use_id").and_then(|v| v.as_str()) == Some(call_id.as_str())
+                    })
+                    .find_map(crate::first_reply::receipt_sentence);
+                if let Some(sentence) = receipt {
+                    {
+                        let mut st = state.lock().unwrap();
+                        // Set BEFORE the text is routed, so a delta that arrives in the same
+                        // instant is withheld rather than racing the flag it is tested against.
+                        st.receipt_said = Some(sentence.clone());
+                        // He has heard something — the same fact the text path sets, and the
+                        // checkpoint gate above reads it exactly as it would for model text.
+                        st.spoken_this_turn = true;
+                    }
+                    Self::route(ChunkMsg::Text(sentence), current, between, &msg);
+                }
+            }
+        }
+
         // ---- THE ANTI-SILENT-DEGRADE GUARD ----------------------------------------------
         //
         // If `--include-partial-messages` ever stops working, no `text_delta` arrives and
@@ -1793,6 +1959,29 @@ impl NativeClient {
         // §16 forbids. So a whole-message `assistant` frame whose text was NEVER streamed is
         // delivered as text here. Costs one integer compare per frame on the healthy path,
         // where the count is always non-zero and this never fires.
+        // The register's id off the COMPLETE message, for the same reason the anti-degrade
+        // guard below exists: `--include-partial-messages` is a flag, and the app must not stop
+        // speaking because it stopped working. Whichever frame arrives first wins; both name the
+        // same id.
+        if ty == "assistant" {
+            for block in msg
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+                .map(|blocks| blocks.as_slice())
+                .unwrap_or(&[])
+            {
+                if block.get("type").and_then(|v| v.as_str()) == Some("tool_use")
+                    && block.get("name").and_then(|v| v.as_str())
+                        == Some(crate::assignment_tools::QUALIFIED_RECORD_TOOL)
+                {
+                    if let Some(id) = block.get("id").and_then(|v| v.as_str()) {
+                        state.lock().unwrap().register_call_id = Some(id.to_string());
+                    }
+                }
+            }
+        }
+
         if ty == "assistant" && text_deltas.load(Ordering::SeqCst) == 0 {
             let whole: String = msg
                 .get("message")
@@ -1811,8 +2000,16 @@ impl NativeClient {
                 // The same fact, on the path that exists for `--include-partial-messages`
                 // having stopped working. A degraded stream must not also silently re-open
                 // the pre-reply checkpoint.
-                state.lock().unwrap().spoken_this_turn = true;
-                Self::route(ChunkMsg::Text(whole), current, between, &msg);
+                let mut st = state.lock().unwrap();
+                st.spoken_this_turn = true;
+                // And the withholding is on this path too, for the reason it is on the other:
+                // a degraded stream must not hand him the receipt twice either.
+                if st.receipt_said.is_some() {
+                    st.withheld_after_receipt.push_str(&whole);
+                } else {
+                    drop(st);
+                    Self::route(ChunkMsg::Text(whole), current, between, &msg);
+                }
             }
         }
 
@@ -2033,7 +2230,16 @@ impl NativeClient {
                 // here — with the send, under the same lock that decides a turn is in flight —
                 // rather than at the previous turn's end, where a lease that never ran a
                 // second turn would leave a stale `true` behind.
-                self.reader_state.lock().unwrap().spoken_this_turn = false;
+                //
+                // The receipt's three fields reset with it, for the same reason and in the same
+                // place: a register call belongs to ONE turn, and a sentence carried into the
+                // next one would suppress that turn's reply on the strength of this one's.
+                let mut state = self.reader_state.lock().unwrap();
+                state.spoken_this_turn = false;
+                state.register_call_id = None;
+                state.receipt_said = None;
+                state.withheld_after_receipt.clear();
+                drop(state);
             }
             if let Err(error) = Self::write_line(&self.stdin, &msg) {
                 *self.current_prompt.lock().unwrap() = None;
@@ -4302,6 +4508,179 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         // child exits 6 if the checkpoint it tries before speaking is allowed on the strength
         // of the PREVIOUS turn's reply.
         assert_eq!(client.prompt("And the second thing", &mut |_| {}).unwrap(), "end_turn");
+    }
+
+    /// One turn of a front desk that hands work over, as the wire actually carries it.
+    ///
+    /// `receipt` is the `tool_result` content the register answers with, and `after` is whatever
+    /// the model says once it has been handed that answer — the two variables this behavior is
+    /// entirely about.
+    fn a_handover_turn(tag: &str, call_id: &str, receipt: &str, error: bool, after: &str) -> Vec<TurnItem2> {
+        let script = write_script(tag, &format!(r#"
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start"}}}}'
+printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_start","content_block":{{"type":"tool_use","id":"{call_id}","name":"mcp__richos_assignments__record","input":{{}}}}}}}}'
+printf '%s\n' '{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"{call_id}","name":"mcp__richos_assignments__record","input":{{"assignment":"Land the pricing branch","kind":"task"}}}}]}}}}'
+printf '%s\n' '{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"{call_id}","is_error":{error},"content":"{receipt}"}}]}}}}'
+printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{after}"}}}}}}'
+printf '%s\n' '{{"type":"result","stop_reason":"end_turn"}}'
+"#));
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut log = Vec::new();
+        {
+            let mut collect = |item: TurnItem| match item {
+                TurnItem::Text { text, .. } => log.push(TurnItem2::Said(text.to_string())),
+                TurnItem::Machinery(record) => log.push(TurnItem2::Machinery(
+                    record.kind,
+                    record.title.clone(),
+                    record.summary.clone().unwrap_or_default(),
+                )),
+            };
+            assert_eq!(client.prompt("Land the pricing branch", &mut collect).unwrap(), "end_turn");
+        }
+        log
+    }
+
+    /// An owned, comparable copy of what the turn delivered — `TurnItem` borrows its text.
+    #[derive(Debug, PartialEq)]
+    enum TurnItem2 {
+        Said(String),
+        Machinery(crate::machinery::MachineryKind, String, String),
+    }
+
+    #[test]
+    fn the_app_says_the_register_s_words_at_the_register_s_return_and_he_never_reads_them_twice() {
+        // **THE CEO'S §55, AND THE ROUND TRIP NOTHING IN THE FRONT DESK COULD REMOVE.** Run 3 of
+        // `docs/verification/first-reply-2026-09-18.md` measured his first words at 7.128 s warm,
+        // of which the last 1.094 s was the model saying back to the app the four words the app
+        // had just handed it. This test is the wire proof that the app now says them itself, at
+        // the tool result, and that the model's copy reaches him nowhere.
+        let receipt = r#"{\"recorded\":true,\"say\":\"On it!\"}"#;
+        let log = a_handover_turn("receipt-spoken-by-the-app", "toolu_R", receipt, false, "On it!");
+
+        // Exactly ONE run of prose, and it is the register's sentence.
+        let said: Vec<&String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t), _ => None }).collect();
+        assert_eq!(said, vec!["On it!"], "he must be told once, by the app: {log:#?}");
+
+        // **AND IT CAME OFF THE TOOL RESULT, NOT OFF THE MODEL'S LATER DELTA.** The ordering is
+        // the evidence: the app's text is delivered BEFORE the machinery record that closes the
+        // register's row, which is built from the very frame the sentence was read out of.
+        let words = log.iter().position(|i| matches!(i, TurnItem2::Said(t) if t == "On it!")).unwrap();
+        let closed = log
+            .iter()
+            .position(|i| matches!(i, TurnItem2::Machinery(kind, title, summary)
+                if *kind == crate::machinery::MachineryKind::ToolCall
+                    && title.is_empty()
+                    && summary.contains("recorded")))
+            .unwrap_or_else(|| panic!("the register's closing record is not here: {log:#?}"));
+        assert!(words < closed, "the app must speak as the result goes past, not after it: {log:#?}");
+
+        // The register's own row is still fully reported — the conversation gained a line, the
+        // technical lane lost nothing.
+        assert!(log.iter().any(|i| matches!(i, TurnItem2::Machinery(_, title, _)
+            if title == crate::assignment_tools::QUALIFIED_RECORD_TOOL)), "{log:#?}");
+    }
+
+    #[test]
+    fn a_refused_registration_is_never_announced_and_the_model_still_answers_him() {
+        // **THE DEGRADATION, AND IT IS THE HALF THAT KEEPS THIS SAFE.** The app speaks only on
+        // the register's own `recorded: true`; on anything else it says nothing at all and the
+        // turn behaves exactly as it did before 2026-09-18 — the model says its line a round trip
+        // later and he is answered. A host that spoke on the strength of the CALL having been
+        // made would tell him "On it!" for work that was refused.
+        let refused = r#"This conversation is not open for new assignments right now. Nothing was recorded."#;
+        for (tag, receipt, error) in [
+            ("register-refused", refused, true),
+            ("register-refused-without-the-flag", refused, false),
+            ("register-said-no", r#"{\"recorded\":false,\"say\":\"On it!\"}"#, false),
+        ] {
+            let log = a_handover_turn(tag, "toolu_R", receipt, error, "On it!");
+            let said: Vec<&String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t), _ => None }).collect();
+            assert_eq!(said, vec!["On it!"], "{tag}: the model's own reply must still reach him: {log:#?}");
+        }
+    }
+
+    #[test]
+    fn only_the_register_s_own_result_is_read_and_only_on_its_own_id() {
+        // A result that happens to carry the same two fields, on a DIFFERENT call, says nothing:
+        // the id is what ties an answer to a question on this wire, and the app is speaking about
+        // the register or it is not speaking.
+        let receipt = r#"{\"recorded\":true,\"say\":\"Anyone can say this\"}"#;
+        let log = a_handover_turn("the-registers-own-result", "toolu_R", receipt, false, "Done.");
+        let said: Vec<String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t.clone()), _ => None }).collect();
+        // The app says what its OWN server handed back, whatever that is — the sentences are
+        // `assignment::Receipt`'s and this host does not second-guess them. The model's "Done."
+        // after it is withheld, which is the other half of the same rule.
+        assert_eq!(said, vec!["Anyone can say this".to_string()], "{log:#?}");
+
+        // The same frames with the result attributed to a call the register never made.
+        let script = write_script("foreign-tool-result", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"toolu_BASH","name":"Bash","input":{}}}}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_BASH","content":"{\"recorded\":true,\"say\":\"NOT RICH\"}"}]}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Done."}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        {
+            let mut collect = |item: TurnItem| { if let TurnItem::Text { text, .. } = item { said.push_str(text) } };
+            assert_eq!(client.prompt("Run the tests", &mut collect).unwrap(), "end_turn");
+        }
+        assert_eq!(said, "Done.", "a tool that is not the register must not be able to put words in his mouth");
+    }
+
+    #[test]
+    fn the_receipt_is_a_fact_about_one_turn_and_the_next_turn_starts_again() {
+        // The three fields reset with the SEND, like `spoken_this_turn` beside them. Without
+        // this, turn 2's own reply would be withheld on the strength of turn 1's receipt — which
+        // is a silent Rich, the worst failure this change could have.
+        let script = write_script("receipt-resets-per-turn", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"toolu_R","name":"mcp__richos_assignments__record","input":{}}}}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_R","content":"{\"recorded\":true,\"say\":\"On it!\"}"}]}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"On it!"}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"It landed at four."}}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        for (prompt, expected) in [("Land the pricing branch", "On it!"), ("Did it land?", "It landed at four.")] {
+            let mut said = String::new();
+            let mut collect = |item: TurnItem| { if let TurnItem::Text { text, .. } = item { said.push_str(text) } };
+            assert_eq!(client.prompt(prompt, &mut collect).unwrap(), "end_turn");
+            assert_eq!(said, expected, "turn {prompt:?}");
+        }
+    }
+
+    #[test]
+    fn a_priming_turn_is_not_his_turn_and_nothing_is_said_on_it() {
+        // The context-only turn carries no conversation at all (its text is discarded by the
+        // spine), and the register cannot be called on it — `actions_allowed` is false for a
+        // priming turn. The exclusion is asserted rather than assumed, because "the app now
+        // speaks" must never mean "the app speaks on a turn he cannot see".
+        let script = write_script("no-receipt-on-a-priming-turn", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","id":"toolu_R","name":"mcp__richos_assignments__record","input":{}}}}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_R","content":"{\"recorded\":true,\"say\":\"On it!\"}"}]}}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let mut client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        {
+            let mut collect = |item: TurnItem| { if let TurnItem::Text { text, .. } = item { said.push_str(text) } };
+            assert_eq!(client.prompt_context_only("[re-prime]", &mut collect).unwrap(), "end_turn");
+        }
+        assert_eq!(said, "", "a priming turn is not his turn: {said:?}");
     }
 
     #[test]
