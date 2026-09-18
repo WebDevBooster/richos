@@ -50,8 +50,13 @@
 # SO A NODE'S PRESENCE IN THAT TREE IS NOT EVIDENCE THAT IT IS ON SCREEN, and a check that
 # asserts on presence will report a closed sheet as open. Ray's row 2 rested partly on "the
 # tree still returns the sheet's 5 nodes"; that half of it is void, and his screenshots are
-# what the row actually stands on. Every assertion below is on the node's SIZE, which is 0x0
-# for an unrendered subtree and its real box otherwise.
+# what the row actually stands on. Every assertion below is on the node's SIZE.
+#
+# AND THE SIZE IS NOT 0x0 — the first draft of this file said it was, and it is not. Measured
+# on the .9 window at 16:27:45Z, all three of those closed sheets report `260,130 1400x10`:
+# the WEB AREA's own origin and a degenerate full-width 10pt strip. A rule that rejected only
+# a zero box would have called every closed sheet in this app open, so the strip is calibrated
+# from a known-closed sheet on each run (C5) and rejected by value.
 #
 # =========================================================================================
 # THE PRECONDITIONS, DECLARED, BECAUSE THIS CHECK IS WORTHLESS WITHOUT THEM
@@ -376,9 +381,24 @@ tell application "System Events"
           try
             set vl to (value of e as text)
           end try
+          -- THE PROPERTY IS FETCHED INTO A LOCAL LIST BEFORE IT IS INDEXED, AND THAT IS THE
+          -- WHOLE OF IT. `item 1 of (position of e)` reads like an index into a list and is
+          -- not: `e` is a REFERENCE into `entire contents`, so AppleScript composes one
+          -- specifier — `item 1 of «class posn» of item 1 of {…}` — sends it to System
+          -- Events, and System Events cannot resolve it. Every element failed that way, so
+          -- every `pz` in the dump was `? ?`, so `size_of`/`on_screen`/`middle_of` were
+          -- empty for every node in the window, so the door was never clicked and C1/C2/C4
+          -- were red about a harness bug. Measured both forms against the .9 window in one
+          -- run on 2026-09-18:
+          --   A  ((item 1 of (position of e)) as text)  ->  ERR Can't make item 1 of
+          --      «class posn» of item 1 of {…}          (4 of 4 elements)
+          --   B  set p to position of e, then item 1 of p
+          --                                             ->  260,102 1400x881   (4 of 4)
           set pz to "? ?"
           try
-            set pz to ((item 1 of (position of e)) as text) & "," & ((item 2 of (position of e)) as text) & " " & ((item 1 of (size of e)) as text) & "x" & ((item 2 of (size of e)) as text)
+            set p to position of e
+            set z to size of e
+            set pz to ((item 1 of p) as text) & "," & ((item 2 of p) as text) & " " & ((item 1 of z) as text) & "x" & ((item 2 of z) as text)
           end try
           if nm is not "" or vl is not "" then
             set out to out & r & " | " & pz & " | name=" & nm & " | value=" & vl & linefeed
@@ -391,22 +411,49 @@ tell application "System Events"
     return out
   end tell
 end tell
+end run
 APPLESCRIPT
 
-ax() { osascript "$AXDUMP" > "$TMP/ax-$1.txt" 2>&1; }
+ax() { osascript "$AXDUMP" "$PID" > "$TMP/ax-$1.txt" 2>&1; }
 windows_in() { head -1 "$TMP/ax-$1.txt" | sed 's/^windows://'; }
+# A dump line is `role | x,y WxH | name=… | value=…`, so the NAME is field 3. It was read
+# from field 4 — the value — which never equals `name=<anything>`, so `size_of`, `on_screen`
+# and `middle_of` returned EMPTY for every node in every dump this file has ever taken. That
+# is what made the door unclickable and `Settings` look absent from a tree it was plainly in:
+#
+#   $ awk -F' \| ' 'NR==69 {for(i=1;i<=NF;i++) printf "$%d=[%s]\n", i, $i}' ax-0-rest.txt
+#     $1=[AXButton]  $2=[294,679 174x52]  $3=[name=Talk to Rich]  $4=[value=missing value]
+#
 # The node named $2 in dump $1, as "WxH". Empty when there is no such node at all.
 size_of() {
-  awk -F' \\| ' -v want="$2" '$4 == "name=" want { split($2, a, " "); print a[2]; exit }' "$TMP/ax-$1.txt"
+  awk -F' \\| ' -v want="$2" '$3 == "name=" want { split($2, a, " "); print a[2]; exit }' "$TMP/ax-$1.txt"
 }
-# Does dump $1 carry a node named $2 with a non-zero box? THIS is "on screen".
+# Does dump $1 carry a node named $2 with a REAL box? THIS is "on screen".
+#
+# THE HEADER'S CLAIM THAT AN UNRENDERED SUBTREE IS 0x0 IS WRONG, AND IT IS WRONG IN THE
+# DIRECTION THAT MATTERS. Measured on the .9 window at 16:27:45Z, at rest, nothing open:
+#
+#   AXGroup | 260,130 1400x10 | name=Connected repositories
+#   AXGroup | 260,130 1400x10 | name=Allow this action?
+#   AXGroup | 260,130 1400x10 | name=Quit while work is running?
+#
+# all three `display: none` in the renderer, all three reporting the WEB AREA's own origin
+# (260,130) and a degenerate full-width 10pt strip — never 0x0. A rule that only rejected
+# zero would have called every closed sheet in this app OPEN.
+#
+# So the degenerate box is not a constant typed here; it is CALIBRATED from a sheet known to
+# be closed in the same run (`$CLOSED_BOX`, set beside C5 below) and rejected by value. On a
+# build where that calibration cannot be taken the rule falls back to rejecting only zero,
+# which is stricter about nothing and is said out loud at C5 rather than assumed.
+CLOSED_BOX=""
 on_screen() {
   local s; s="$(size_of "$1" "$2")"
+  [ -n "$CLOSED_BOX" ] && [ "$s" = "$CLOSED_BOX" ] && return 1
   case "$s" in ""|0x0|0x*|*x0) return 1 ;; *) return 0 ;; esac
 }
 middle_of() {
   awk -F' \\| ' -v want="$2" '
-    $4 == "name=" want {
+    $3 == "name=" want {
       split($2, a, " "); split(a[1], p, ","); split(a[2], z, "x");
       if (z[1] + 0 > 0 && z[2] + 0 > 0) { printf "%d,%d\n", p[1] + z[1] / 2, p[2] + z[2] / 2; exit }
     }' "$TMP/ax-$1.txt"
@@ -567,7 +614,88 @@ if [ -n "$DOOR" ]; then
   send "c:$DOOR"
   sleep 2
 fi
-ax 1-desk
+
+# ---------------------------------------------------------------------------------------
+# THE DESK CHROME IS THIS RUN'S "NOTHING IS COVERING THE WINDOW" SIGNAL, and it was found by
+# measurement rather than chosen. Across every dump of the 16:35:36Z run, the `Settings`
+# popup button is in the tree with a 40x40 box exactly when no modal is up, and absent
+# exactly when one is:
+#
+#   0-rest 40x40   1-desk 40x40   2-typed 40x40   3-cmdk (search up) ABSENT
+#   4-esc ABSENT (the first-run question had surfaced)   4b (it was dismissed) 40x40
+#
+# That is a far better signal than the search overlay's own nodes, which on this build stay
+# in the tree at their full `260,130 1400x853` box AFTER the overlay closes — byte-identical
+# to the open state. (That is the row-1 residue class, fixed on this branch and not in the
+# .9 bundle.) So nothing below asks "is the overlay gone"; it asks "is the desk back".
+desk_open() { [ -n "$(size_of "$1" 'Settings')" ]; }
+
+# ---------------------------------------------------------------------------------------
+# A SCRATCH HOME IS A FIRST RUN, AND A FIRST RUN ASKS A QUESTION — cleared BEFORE the checks
+# rather than in the middle of them.
+#
+# The company question is modal and takes the rest of the page out of the tree. It does not
+# arrive with the desk; it surfaces a few seconds later, which at 16:35:36Z put it on screen
+# between C2 and C3 and made two assertions read the wrong state. It is waited for, then
+# cleared with ESCAPE — that is the CEO's rule for it too, and `setup.js` case 14 holds that
+# Escape there is equivalent to its Not now button. The button is the fallback, so a failure
+# to dismiss it cannot silently cost the row this file exists for.
+# ---------------------------------------------------------------------------------------
+FIRST_RUN='Which company is this copy of Rich for?'
+# A FIRST RUN IS A QUEUE OF QUESTIONS, NOT ONE QUESTION, AND CLOSING ONE RAISES THE NEXT.
+# `main.js:7294` defers the company question behind the setup and memory ones and
+# `closeMemorySetup`/`closeSetup` ask it "the moment that one is answered"
+# (main.js:5250-5256, 4710-4717). So a single Escape on a fresh HOME does not return the
+# desk — it advances the queue, which is exactly what made the 16:41:22Z run read
+# `Which company is this copy of Rich for?` in the dump it took right after C3's Escape and
+# conclude the desk never came back.
+#
+# The queue is therefore DRAINED before any check, and Escape is what drains it (the CEO's
+# rule applies to every one of them). A named button is the fallback for any question Escape
+# will not close, so a first-run dialog that ignores the key cannot silently cost the row
+# this file exists for — it is reported and stepped over.
+drain_first_run() {
+  local tag="$1" deadline=$((SECONDS + 120)) n=0 before after
+  while [ "$SECONDS" -lt "$deadline" ] && [ "$n" -lt 8 ]; do
+    ax "$tag-settle-$n"
+    if desk_open "$tag-settle-$n"; then
+      sleep 3
+      ax "$tag-settle-${n}b"
+      if desk_open "$tag-settle-${n}b"; then
+        [ "$n" -gt 0 ] && note "the first-run queue is drained after $n Escape(s); the desk is clear"
+        return 0
+      fi
+      n=$((n + 1))
+      continue
+    fi
+    before="$(wc -l < "$TMP/ax-$tag-settle-$n.txt")"
+    send_key 53 Escape
+    sleep 1.5
+    ax "$tag-settle-${n}esc"
+    after="$(wc -l < "$TMP/ax-$tag-settle-${n}esc.txt")"
+    if [ "$before" = "$after" ] && cmp -s "$TMP/ax-$tag-settle-$n.txt" "$TMP/ax-$tag-settle-${n}esc.txt"; then
+      note "a first-run question did not change under Escape; trying its own button"
+      for label in 'Not now' 'Close' 'Skip' 'Later'; do
+        BTN="$(middle_of "$tag-settle-${n}esc" "$label")"
+        if [ -n "$BTN" ]; then
+          note "  pressing '$label'"
+          send "c:$BTN"
+          sleep 1.5
+          break
+        fi
+      done
+    fi
+    n=$((n + 1))
+  done
+  return 1
+}
+if drain_first_run 1a; then
+  ax 1-desk
+else
+  ax 1-desk
+  note "the first-run questions could not be cleared within the deadline; a check below that"
+  note "finds one on screen will say so rather than blame the key."
+fi
 
 # ---------------------------------------------------------------------------------------
 # C1 — a native keystroke reaches the web content AT ALL
@@ -584,39 +712,84 @@ else
   note "about the product. Fix the control before reading them."
 fi
 
+# AND THE QUEUE IS DRAINED AGAIN HERE, because C1's own typing is what raises it. Waiting for
+# it before C1 does not work and was measured not to: the 16:41:22Z run polled the tree for
+# 75 s with the desk clear and never saw the company question, then found it on screen four
+# seconds after C1 typed into the composer. The composer is blocked until a company is
+# chosen (`requireCompanyChoice`, main.js:4421), so putting text in it is the trigger. A
+# second drain is cheap and it is the only placement that holds.
+drain_first_run 2a || note "a first-run question is still up after C1; the checks below will say so"
+
 # ---------------------------------------------------------------------------------------
 # C2 — the SAME document-level keydown listener that owns Escape, on a native key
 # ---------------------------------------------------------------------------------------
+# A LINE COUNT WAS THE WRONG INSTRUMENT AND IT LIED IN BOTH DIRECTIONS. The search overlay
+# is modal, so opening it takes the REST of the page out of the tree: the .9 window's dump
+# went from 66 lines to 17 when Cmd-K landed. "More lines than before" therefore reported a
+# working Cmd-K as broken, and "no more lines than before" reported a search overlay that
+# was still plainly on screen as closed — a false PASS on C3 at 16:27:45Z, where `ax-4-esc`
+# was byte-identical to `ax-3-cmdk`. Every assertion here names its node and reads its box.
 send kd:cmd t:k ku:cmd
 sleep 1.5
 ax 3-cmdk
-if [ "$(wc -l < "$TMP/ax-3-cmdk.txt")" -gt "$(wc -l < "$TMP/ax-2-typed.txt")" ]; then
-  ok "C2  positive control — Cmd-K reached main.js's document keydown listener"
+if on_screen 3-cmdk 'Search' && ! desk_open 3-cmdk; then
+  ok "C2  positive control — Cmd-K reached main.js's document keydown listener  (the Search"
+  note "    overlay measures $(size_of 3-cmdk 'Search') and the desk chrome is gone behind it)"
 else
-  bad "C2  positive control FAILED — Cmd-K changed nothing, so that listener is not running on"
+  bad "C2  positive control FAILED — Cmd-K opened nothing, so that listener is not running on"
   note "native keys. Escape is three lines below Cmd-K in the SAME listener, so C4 cannot"
   note "distinguish a broken handler from a key that never arrived."
+  note "Search measures '$(size_of 3-cmdk 'Search')', Settings measures '$(size_of 3-cmdk 'Settings')'"
 fi
 
 # ---------------------------------------------------------------------------------------
-# C3 — Escape closes what Cmd-K opened
+# C3 — Escape closes what Cmd-K opened. THIS IS ALSO THE POSITIVE CONTROL FOR THE ESCAPE
+# KEY ITSELF: C4 below is only meaningful while this one is green.
 # ---------------------------------------------------------------------------------------
-send kp:esc
+send_key 53 Escape
 sleep 1.5
 ax 4-esc
-if [ "$(wc -l < "$TMP/ax-4-esc.txt")" -le "$(wc -l < "$TMP/ax-2-typed.txt")" ]; then
-  ok "C3  Escape closed the search overlay"
+# "IS THE DESK BACK" IS TOO STRONG, AND IT WAS WRONG THREE RUNS RUNNING. The search overlay
+# is modal, so while it is up NOTHING else is in the tree — including the first-run company
+# question, which on this build is raised while the overlay covers it and is REVEALED the
+# moment the overlay closes. Measured at 16:45:10Z: the desk was clean at `2a-settle-0b`
+# (66 nodes, Settings 40x40), `3-cmdk` was 17 nodes of search and nothing else, and `4-esc`
+# was 52 nodes with the company question in it and no search overlay at all. Escape plainly
+# acted; what it uncovered was not the desk.
+#
+# So the assertion is the one the state actually supports: the search overlay was the WHOLE
+# tree before the key and it is not there after it.
+search_only() { on_screen "$1" 'Search' && ! desk_open "$1"; }
+if search_only 3-cmdk && ! on_screen 4-esc 'Search'; then
+  if desk_open 4-esc; then
+    ok "C3  positive control — Escape closed the search overlay and the desk is back"
+  else
+    ok "C3  positive control — Escape closed the search overlay (it was the whole tree at"
+    note "    $(wc -l < "$TMP/ax-3-cmdk.txt" | tr -d ' ') nodes and is absent from the $(wc -l < "$TMP/ax-4-esc.txt" | tr -d ' ') it left behind); what it uncovered is the"
+    note "    first-run company question, not the desk, which is a queue and not a failure"
+  fi
 else
-  bad "C3  Escape did not close the search overlay"
-  diff "$TMP/ax-3-cmdk.txt" "$TMP/ax-4-esc.txt" | head -8 | while IFS= read -r l; do note "$l"; done
+  bad "C3  Escape did not close the search overlay — the key did not arrive, or the handler"
+  note "did not act. Either way C4 below cannot tell a product defect from a dead key, so"
+  note "read it as void rather than as a verdict."
+  note "Search measured '$(size_of 3-cmdk 'Search')' open and '$(size_of 4-esc 'Search')' after Escape"
 fi
+
+# The queue advanced under the overlay, so it is drained once more before the row itself.
+drain_first_run 3a || note "a first-run question is still up; C4 below will say so"
 
 # ---------------------------------------------------------------------------------------
 # C4 — THE ROW. The settings menu, opened by its own control, closed by Escape.
 # ---------------------------------------------------------------------------------------
-SET="$(middle_of 0-rest 'Settings')"
+# THE SETTINGS CONTROL IS LOCATED IN THE CURRENT DUMP, NEVER IN `0-rest`. `0-rest` is the
+# OPENING SCREEN, four states ago; clicking a box read off it is clicking where a control
+# used to be. At 16:30:15Z that put the click under a search overlay that was still up, and
+# C4 reported "the settings menu did not open" about a click that never reached it.
+ax 4b-before-settings
+SET="$(middle_of 4b-before-settings 'Settings')"
 if [ -z "$SET" ]; then
   bad "C4  the settings control has no box in the tree, so the menu could not be opened"
+  note "the tree carries $(wc -l < "$TMP/ax-4b-before-settings.txt" | tr -d ' ') nodes; the first-run question is $(on_screen 4b-before-settings "$FIRST_RUN" && echo 'ON SCREEN' || echo 'not up')"
 else
   send "c:$SET"
   sleep 1.5
@@ -626,7 +799,7 @@ else
     note "Techy Mode measures '$(size_of 5-setmenu 'Techy Mode')'"
   else
     OPEN_SIZE="$(size_of 5-setmenu 'Techy Mode')"
-    send kp:esc
+    send_key 53 Escape
     sleep 1.5
     ax 6-setmenu-esc
     AFTER="$(size_of 6-setmenu-esc 'Techy Mode')"
