@@ -98,15 +98,20 @@
           connects them.</p>
         <ol class="phone-steps">
           <li class="overlay-note">Install Tailscale from the store.</li>
-          <li class="overlay-note">Sign in with the <strong>same</strong> identity you used on this
-            Mac — Google, Microsoft, GitHub, whichever it was. A different provider makes a
-            different network, and then the two will never see each other.</li>
+          <li class="overlay-note" id="phone-ts-step2">Sign in with the <strong>same</strong>
+            identity you used on this Mac. A different provider makes a different network, and then
+            the two will never see each other.</li>
           <li class="overlay-note">Allow the VPN connection your phone asks about.</li>
           <li class="overlay-note">The switch says Connected.</li>
         </ol>
         <p class="overlay-note phone-url" id="phone-ts-store"></p>
         <p class="overlay-note"><strong>There is no pairing step in Tailscale.</strong> Sign in with
           the same account on both devices and they are connected.</p>
+        <!-- THE MISMATCH IS DETECTED, NOT ONLY DESCRIBED — the CEO puts it at 9 in 10 users. A
+             phone on the SAME account shows up in the daemon's own Peer list; one on a different
+             provider's account is in a different tailnet and shows up nowhere. So this line is
+             evidence rather than advice, and it names the account to use. -->
+        <p class="overlay-note" id="phone-ts-peer" role="status"></p>
         <p class="overlay-note">There is no certificate to install on this path. If your phone asks
           you to install a profile, something is wrong — tell me.</p>
       </div>
@@ -308,6 +313,29 @@
   /// trap, and re-asking costs one screen that is already there. `null` means Screen 1.
   let route = null;
 
+  /// When the phone step first appeared, so "it has not joined" can be told from "it has not
+  /// finished signing in". `null` whenever that screen is not up.
+  let waitingForPhoneSince = null;
+
+  /// **How long a phone is given to appear on the tailnet before the screen calls it a mismatch.**
+  ///
+  /// `unverified:` **sixty seconds is a judgment, not a measurement.** Measuring it properly needs
+  /// a second device signing in to a fresh account while this Mac watches, and I had one Mac and no
+  /// phone. What decided the number is which way the error costs more: too SHORT and a user who is
+  /// still typing their password is told they got it wrong — which would send them to re-do a
+  /// sign-in that was correct, the exact loop that had the CEO uninstalling the app three times.
+  /// Too long merely means a few more seconds of "waiting". So it is biased long on purpose.
+  /// Settled by one measurement with a real phone, and the constant is here to be changed.
+  const PHONE_JOIN_GRACE_MS = 60000;
+
+  /// Escape text destined for `innerHTML`. Only one string needs it — the account name, which comes
+  /// from another program's output — and it gets it rather than being trusted for being ours.
+  function escapeText(text) {
+    const box = document.createElement("span");
+    box.textContent = String(text);
+    return box.innerHTML;
+  }
+
   /// Every external address these screens name, each one verified against Tailscale's own install
   /// documentation rather than recalled — see `docs/verification/tailscale-path-2026-09-18.md` §4a.
   ///
@@ -396,9 +424,10 @@
     field("phone-pairing").hidden = status.paired || !pairing;
     field("phone-off").hidden = status.paired || pairing || choosing || waiting || ready;
 
-    // Rows 2, 3 and 5 poll; nothing else does. The screen redraws itself as he installs and signs
-    // in, with no action of his — which is the whole reason there is no Next button.
-    setPolling(waiting);
+    // Rows 2, 3 and 5 poll — and so does the phone step, because a phone joining the tailnet is
+    // another thing that happens elsewhere and has to move the screen on its own. Nothing else
+    // polls. This is the whole reason there is no Next button anywhere in the flow.
+    setPolling(waiting || (onTailscale && pairing && !status.paired));
 
     if (status.paired) {
       field("phone-device-name").textContent = status.deviceName || "Your phone";
@@ -426,7 +455,12 @@
     }
 
     if (ready) {
-      field("phone-ts-name").textContent = tailnet.name || "";
+      // THE SAME LINE THE PHONE SCREEN WILL REPEAT, on the Mac, after sign-in. The identity has to
+      // be visible here or the user cannot know which one to reuse — that is the CEO's own
+      // experience, and it is why the account is shown rather than only the machine name.
+      field("phone-ts-name").textContent = tailnet.account
+        ? tailnet.name + "\n\nYou signed in with " + tailnet.account + ". Use exactly this on your phone."
+        : tailnet.name || "";
       return;
     }
 
@@ -445,6 +479,39 @@
     field("phone-ts-store").textContent = onTailscale
       ? "iPhone: " + LINKS.phone + "      Android: " + LINKS.android
       : "";
+
+    if (onTailscale) {
+      // STEP 2, FILLED IN. The CEO signed in with Apple on the Mac and Google on the Android and
+      // "had no way to know they were different networks, or which to reuse". Naming the account
+      // is the difference between an instruction he can follow and one he cannot.
+      field("phone-ts-step2").innerHTML = tailnet.account
+        ? "Sign in with <strong>" + escapeText(tailnet.account) +
+          "</strong> — the same one this Mac is signed in to. A different provider makes a " +
+          "different network, and then the two will never see each other."
+        : "Sign in with the <strong>same</strong> identity you used on this Mac. A different " +
+          "provider makes a different network, and then the two will never see each other.";
+
+      // WAITING, THEN SAYING SO. The watch starts when this screen first appears; before the
+      // window elapses "not here yet" is indistinguishable from "still signing in", and calling
+      // that a mistake would be the screen guessing.
+      if (waitingForPhoneSince === null) waitingForPhoneSince = Date.now();
+      const waited = Date.now() - waitingForPhoneSince;
+      const line = field("phone-ts-peer");
+      if (tailnet.phone) {
+        line.textContent =
+          "Your phone (" + tailnet.phone + ") is on this network. Scan the code below.";
+      } else if (waited >= PHONE_JOIN_GRACE_MS) {
+        line.textContent = tailnet.account
+          ? "Your phone is not on this network yet. On the phone, sign in with " +
+            tailnet.account + ", then come back here."
+          : "Your phone is not on this network yet. On the phone, sign in with the same account " +
+            "this Mac uses, then come back here.";
+      } else {
+        line.textContent = "Waiting for your phone to join…";
+      }
+    } else {
+      waitingForPhoneSince = null;
+    }
     field("phone-code-title").textContent = onTailscale
       ? "Then point your phone's camera at this"
       : "2. Then point it at this, to open Rich";

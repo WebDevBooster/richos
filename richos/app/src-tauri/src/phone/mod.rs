@@ -351,6 +351,20 @@ pub struct TailnetView {
     pub origin: Option<String>,
     /// One sentence he can read, in his terms. A floor for the screen's copy, never a ceiling.
     pub sentence: &'static str,
+    /// **"Apple as alex@icloud.com"** — which account this Mac is signed in to, phrased once here
+    /// so the Mac's screen and the phone's screen cannot word it differently.
+    ///
+    /// The CEO signed in with Apple on the Mac and Google on the Android and *"had no way to know
+    /// they were different networks, or which to reuse"*. Two providers are two tailnets; the
+    /// devices never meet, and the phone just says it cannot connect. A screen saying *"use the
+    /// same account"* cannot fix that, because he does not know which one he used. This does.
+    pub account: Option<String>,
+    /// **The name of a phone that is already on this tailnet**, or `None`.
+    ///
+    /// The CEO's estimate is that the mismatched-account failure hits 9 in 10 users, so the screen
+    /// DETECTS it rather than only warning about it. `None` while the user is on the phone step
+    /// means the phone has not joined — which, after a reasonable wait, means a different account.
+    pub phone: Option<String>,
 }
 
 impl From<&tailnet::TailnetState> for TailnetView {
@@ -360,6 +374,8 @@ impl From<&tailnet::TailnetState> for TailnetView {
             name: state.name().map(|n| n.to_string()),
             origin: state.origin(),
             sentence: state.sentence(),
+            account: state.account().map(|a| a.described()),
+            phone: state.phone().map(|p| p.to_string()),
         }
     }
 }
@@ -746,21 +762,30 @@ fn phone_assets() -> assets::PhoneApp {
 mod tests {
     use super::*;
 
-    /// **The four key names `ui/phone.js` reads.** A rename on this side is a screen that draws
+    /// **The six key names `ui/phone.js` reads.** A rename on this side is a screen that draws
     /// nothing, silently, and serde's `rename_all` makes that a one-character mistake — so the
     /// wire shape is asserted rather than left to the attribute.
     #[test]
-    fn the_view_the_screens_read_is_four_camel_case_fields() {
+    fn the_view_the_screens_read_is_six_camel_case_fields() {
         let view = TailnetView::from(&tailnet::TailnetState::Ready {
             name: "mm1.tail1a2b3c.ts.net".into(),
             addresses: vec![],
+            account: Some(tailnet::Account {
+                login_name: "someone@icloud.com".into(),
+                provider: Some("Apple"),
+            }),
+            phone: Some("alexs-iphone".into()),
         });
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["state"], "ready");
         assert_eq!(json["name"], "mm1.tail1a2b3c.ts.net");
         assert_eq!(json["origin"], "https://mm1.tail1a2b3c.ts.net:8443");
         assert!(json["sentence"].as_str().unwrap().len() > 30);
-        assert_eq!(json.as_object().unwrap().len(), 4, "the view grew a field the screens do not read");
+        // THE PHRASE THE PHONE SCREEN REPEATS BACK, built once on this side so the Mac's screen
+        // and the phone's screen cannot word it differently.
+        assert_eq!(json["account"], "Apple as someone@icloud.com");
+        assert_eq!(json["phone"], "alexs-iphone");
+        assert_eq!(json.as_object().unwrap().len(), 6, "the view grew a field the screens do not read");
     }
 
     #[test]
@@ -779,7 +804,11 @@ mod tests {
         // The state whose whole job is "I know which Mac you mean, and it cannot be certified
         // yet". Dropping the name here would leave Urban's screen 7 with nothing to name.
         let json = serde_json::to_value(TailnetView::from(
-            &tailnet::TailnetState::CertificatesOff { name: "mm1.tail1a2b3c.ts.net".into() },
+            &tailnet::TailnetState::CertificatesOff {
+                name: "mm1.tail1a2b3c.ts.net".into(),
+                account: None,
+                phone: None,
+            },
         ))
         .unwrap();
         assert_eq!(json["state"], "certificates-off");

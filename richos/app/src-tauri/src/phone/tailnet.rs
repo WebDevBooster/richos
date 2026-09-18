@@ -181,16 +181,98 @@ pub enum TailnetState {
     /// Another user account on this Mac is using Tailscale. `ipn.State`'s `InUseOtherUser`.
     InUseByAnotherUser,
     /// Signed in and up, but the tailnet will not be issued certificates.
-    CertificatesOff { name: String },
+    CertificatesOff { name: String, account: Option<Account>, phone: Option<String> },
     /// Everything this path needs: a name, and a control plane that will certify it.
-    Ready { name: String, addresses: Vec<IpAddr> },
+    Ready { name: String, addresses: Vec<IpAddr>, account: Option<Account>, phone: Option<String> },
+}
+
+/// **WHICH account this Mac is signed in to, in the words the user will see on their phone.**
+///
+/// CEO, from his own live attempt: he signed in with **Apple** on the Mac and with **Google** on
+/// the Android, *"and had no way to know they were different networks, or which to reuse."* Two
+/// providers make two tailnets, the devices never see each other, and from the phone it looks like
+/// "cannot connect" with nothing naming the cause — Sage §2.3's silent failure, arrived at by
+/// following the instructions.
+///
+/// A screen that says *"use the same account"* cannot prevent that, because the user does not know
+/// which one they used. A screen that says *"sign in with Apple as alex@icloud.com"* can. So this
+/// is read off the Mac and put INTO the instruction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    /// The login name exactly as the daemon reports it — normally an email address.
+    pub login_name: String,
+    /// `"Apple"`, `"Google"`, `"GitHub"`, `"Microsoft"` — or `None` when it cannot be known.
+    pub provider: Option<&'static str>,
+}
+
+impl Account {
+    /// **The provider, inferred from the login domain, because the JSON does not name it.**
+    ///
+    /// `tailscale status --json` reports a `LoginName` and no provider field, so the domain is the
+    /// only evidence there is. Each arm below is a domain the provider actually owns.
+    ///
+    /// **`None` is a real answer and it is the common one.** A Google Workspace account logs in as
+    /// `someone@their-own-company.com`, and a self-hosted or SSO login can be any domain at all —
+    /// so a guess would be wrong precisely for the users most likely to have two identities. When
+    /// it is `None` the screen shows the address alone, which is still the thing the CEO could not
+    /// get: *which* account to reuse.
+    pub fn infer_provider(login_name: &str) -> Option<&'static str> {
+        let domain = login_name.rsplit('@').next()?.to_lowercase();
+        // GitHub logins do not always carry an `@` at all, so it is matched on the whole string.
+        let whole = login_name.to_lowercase();
+        if whole.contains("github") {
+            return Some("GitHub");
+        }
+        match domain.as_str() {
+            "icloud.com" | "me.com" | "mac.com" => Some("Apple"),
+            "gmail.com" | "googlemail.com" => Some("Google"),
+            "outlook.com" | "hotmail.com" | "live.com" | "msn.com" | "microsoft.com" => {
+                Some("Microsoft")
+            }
+            _ => None,
+        }
+    }
+
+    /// *"Apple as alex@icloud.com"*, or just the address when the provider cannot be known.
+    /// One phrase, so the Mac's screen and the phone's screen cannot word it differently.
+    pub fn described(&self) -> String {
+        match self.provider {
+            Some(provider) => format!("{provider} as {}", self.login_name),
+            None => self.login_name.clone(),
+        }
+    }
 }
 
 impl TailnetState {
     /// The machine's tailnet name, when there is one — lowercase, no trailing dot.
     pub fn name(&self) -> Option<&str> {
         match self {
-            TailnetState::CertificatesOff { name } | TailnetState::Ready { name, .. } => Some(name),
+            TailnetState::CertificatesOff { name, .. } | TailnetState::Ready { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    /// Which account this Mac is signed in to, when it is signed in to one.
+    pub fn account(&self) -> Option<&Account> {
+        match self {
+            TailnetState::CertificatesOff { account, .. }
+            | TailnetState::Ready { account, .. } => account.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// **The name of a phone already on this tailnet, if one is.**
+    ///
+    /// The CEO's estimate is that the mismatched-account failure hits **9 in 10 users**, so it is
+    /// DETECTED rather than only warned about: a phone signed in to the same account appears in
+    /// the daemon's own `Peer` map with an `OS` of `iOS` or `android`. Its presence is the one
+    /// piece of evidence that the two devices really are on one network — which is exactly the
+    /// thing no amount of screen copy can assert on its own.
+    pub fn phone(&self) -> Option<&str> {
+        match self {
+            TailnetState::CertificatesOff { phone, .. } | TailnetState::Ready { phone, .. } => {
+                phone.as_deref()
+            }
             _ => None,
         }
     }
@@ -377,6 +459,19 @@ struct StatusDocument {
     self_peer: Option<PeerDocument>,
     #[serde(rename = "CertDomains", default)]
     cert_domains: Option<Vec<String>>,
+    /// The signed-in identities, keyed by user id as a STRING — JSON object keys always are, even
+    /// when the id is a number both in Go and in the `ID` field inside the value.
+    #[serde(rename = "User", default)]
+    users: Option<std::collections::HashMap<String, UserDocument>>,
+    /// Every other node on this tailnet, keyed by node key. This is where a phone shows up.
+    #[serde(rename = "Peer", default)]
+    peers: Option<std::collections::HashMap<String, PeerDocument>>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct UserDocument {
+    #[serde(rename = "LoginName", default)]
+    login_name: Option<String>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -387,6 +482,25 @@ struct PeerDocument {
     tailscale_ips: Option<Vec<String>>,
     #[serde(rename = "Online", default)]
     online: bool,
+    /// Which entry of the top-level `User` map is this node's owner. `0` when signed out.
+    #[serde(rename = "UserID", default)]
+    user_id: Option<u64>,
+    /// `"macOS"`, `"iOS"`, `"android"`, `"windows"`, `"linux"`. How a phone is told from a laptop.
+    #[serde(rename = "OS", default)]
+    os: Option<String>,
+    /// The node's own name, which is what the screen calls it.
+    #[serde(rename = "HostName", default)]
+    host_name: Option<String>,
+}
+
+/// Is this peer a phone or a tablet?
+///
+/// Matched case-insensitively against the two values Tailscale's mobile clients report. A
+/// desktop peer is not evidence of anything here: the user's other Mac being on the tailnet
+/// says nothing about whether their phone is.
+fn is_phone(os: &str) -> bool {
+    let os = os.trim().to_lowercase();
+    os == "ios" || os == "android" || os == "ipados"
 }
 
 /// **The whole decision, as one pure function over the document.**
@@ -430,13 +544,45 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
     // name?", and it is the ONLY place that question is answered without asking for a certificate.
     // Comparing normalized on both sides: upstream says these are FQDNs *without* trailing
     // periods, but normalizing both is free and survives that changing.
+    // WHICH ACCOUNT, in the words the phone screen will repeat back. Looked up by `Self.UserID`
+    // rather than by taking the only entry: the `User` map carries every identity the node has
+    // seen, so "the only one" is true right up until it is not.
+    let account = peer
+        .user_id
+        .filter(|id| *id != 0)
+        .and_then(|id| document.users.as_ref().and_then(|users| users.get(&id.to_string())))
+        .and_then(|user| user.login_name.as_deref())
+        .map(str::trim)
+        .filter(|login| !login.is_empty())
+        .map(|login| Account {
+            login_name: login.to_string(),
+            provider: Account::infer_provider(login),
+        });
+
+    // IS A PHONE ALREADY ON THIS TAILNET? The CEO puts the mismatched-account failure at 9 in 10
+    // users, and this is the only evidence that answers it: a phone signed in to the SAME account
+    // appears here; one signed in to a different provider's account appears in a different tailnet
+    // and therefore nowhere. Deterministic order, because a HashMap's is not, and a name that
+    // changes between two identical polls is a screen that flickers.
+    let mut phones: Vec<String> = document
+        .peers
+        .unwrap_or_default()
+        .into_values()
+        .filter(|peer| peer.os.as_deref().map(is_phone).unwrap_or(false))
+        .filter_map(|peer| peer.host_name)
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    phones.sort();
+    let phone = phones.into_iter().next();
+
     let certified = document
         .cert_domains
         .unwrap_or_default()
         .iter()
         .any(|domain| normalize_name(domain) == name);
     if !certified {
-        return Ok(TailnetState::CertificatesOff { name });
+        return Ok(TailnetState::CertificatesOff { name, account, phone });
     }
 
     // Taken from the status document rather than from `ifconfig`, deliberately. `names.rs` reads
@@ -451,7 +597,7 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
         .iter()
         .filter_map(|text| text.trim().parse::<IpAddr>().ok())
         .collect();
-    Ok(TailnetState::Ready { name, addresses })
+    Ok(TailnetState::Ready { name, addresses, account, phone })
 }
 
 // -------------------------------------------------------------------------------------
@@ -696,6 +842,91 @@ mod tests {
   "User": {"1": {"ID": 1, "LoginName": "scrubbed", "DisplayName": "scrubbed"}},
   "ClientVersion": null
 }"#;
+
+    /// `REAL_SIGNED_IN_NO_CERTS` with a phone added to `Peer`, in the shape the daemon reports a
+    /// mobile node: an `OS` of `iOS` or `android`, and a `HostName`.
+    fn with_phone(os: &str) -> String {
+        with(
+            REAL_SIGNED_IN_NO_CERTS,
+            r#""Peer": null"#,
+            &format!(
+                r#""Peer": {{
+      "nodekey:aaa": {{"HostName": "alexs-macbook", "OS": "macOS", "Online": true}},
+      "nodekey:bbb": {{"HostName": "alexs-phone", "OS": "{os}", "Online": true}}
+    }}"#
+            ),
+        )
+    }
+
+    #[test]
+    fn a_phone_on_the_same_tailnet_is_detected_and_one_on_a_different_account_is_not() {
+        // THE FAILURE THE CEO PUTS AT 9 IN 10 USERS, detected rather than described. A phone signed
+        // in to the SAME account appears in `Peer`; one signed in with a different provider is in a
+        // different tailnet and so appears NOWHERE. That asymmetry is the whole mechanism.
+        for os in ["iOS", "android", "ipados", "ANDROID"] {
+            let state = parse_status(&with_phone(os)).expect("the document was refused");
+            assert_eq!(
+                state.phone(),
+                Some("alexs-phone"),
+                "a peer running {os} was not recognized as a phone"
+            );
+        }
+
+        // THE CONTROL, and the reason the above means anything: the SAME document with NO phone
+        // peer — which is exactly what a mismatched account looks like — reports none. The macOS
+        // peer is present in both, so this is about the OS test and not about `Peer` being read.
+        let no_phone = parse_status(REAL_SIGNED_IN_NO_CERTS).unwrap();
+        assert_eq!(no_phone.phone(), None);
+
+        // And a tailnet with only a second DESKTOP on it is still "no phone". The user's other Mac
+        // being reachable says nothing about whether their phone is.
+        let desktops = with(
+            REAL_SIGNED_IN_NO_CERTS,
+            r#""Peer": null"#,
+            r#""Peer": {"nodekey:aaa": {"HostName": "alexs-macbook", "OS": "macOS", "Online": true}}"#,
+        );
+        assert_eq!(parse_status(&desktops).unwrap().phone(), None);
+    }
+
+    #[test]
+    fn the_account_is_read_off_the_mac_so_the_phone_screen_can_name_it() {
+        // The CEO signed in with Apple on the Mac and Google on the Android and "had no way to
+        // know they were different networks, or which to reuse". This is what lets the screen say
+        // WHICH.
+        let document = with(
+            REAL_SIGNED_IN_NO_CERTS,
+            r#""User": {"1": {"ID": 1, "LoginName": "scrubbed", "DisplayName": "scrubbed"}}"#,
+            r#""User": {"7": {"ID": 7, "LoginName": "someone@icloud.com", "DisplayName": "Someone"}}"#,
+        );
+        let document = with(&document, r#""HostName": "MM1","#, r#""HostName": "MM1", "UserID": 7,"#);
+        let account = parse_status(&document).unwrap().account().cloned().expect("no account read");
+        assert_eq!(account.login_name, "someone@icloud.com");
+        assert_eq!(account.provider, Some("Apple"));
+        assert_eq!(account.described(), "Apple as someone@icloud.com");
+    }
+
+    #[test]
+    fn the_provider_is_inferred_from_the_domain_and_is_none_when_it_cannot_be_known() {
+        let cases = [
+            ("someone@icloud.com", Some("Apple")),
+            ("someone@me.com", Some("Apple")),
+            ("someone@gmail.com", Some("Google")),
+            ("someone@outlook.com", Some("Microsoft")),
+            ("someone@hotmail.com", Some("Microsoft")),
+            ("alex@github", Some("GitHub")),
+            // THE HONEST `None`s, and they are the important half. A Google Workspace login is the
+            // user's own company domain and a self-hosted or SSO login can be anything at all — so
+            // a guess would be wrong for exactly the people most likely to keep two identities.
+            ("someone@their-own-company.com", None),
+            ("someone@example.org", None),
+        ];
+        for (login, expected) in cases {
+            assert_eq!(Account::infer_provider(login), expected, "wrong provider for {login}");
+        }
+        // With no provider the screen still gets the thing the CEO could not get: WHICH account.
+        let bare = Account { login_name: "someone@their-own-company.com".into(), provider: None };
+        assert_eq!(bare.described(), "someone@their-own-company.com");
+    }
 
     #[test]
     fn the_real_signed_in_document_lands_in_certificates_off_with_the_name_known() {
@@ -945,8 +1176,8 @@ mod tests {
             TailnetState::NeedsApproval,
             TailnetState::Stopped,
             TailnetState::InUseByAnotherUser,
-            TailnetState::CertificatesOff { name: "mm1.example.ts.net".into() },
-            TailnetState::Ready { name: "mm1.example.ts.net".into(), addresses: vec![] },
+            TailnetState::CertificatesOff { name: "mm1.example.ts.net".into(), account: None, phone: None },
+            TailnetState::Ready { name: "mm1.example.ts.net".into(), addresses: vec![], account: None, phone: None },
         ];
         let mut seen: Vec<&str> = Vec::new();
         for state in &all {
@@ -975,12 +1206,12 @@ mod tests {
             TailnetState::NeedsApproval,
             TailnetState::Stopped,
             TailnetState::InUseByAnotherUser,
-            TailnetState::CertificatesOff { name: "mm1.example.ts.net".into() },
+            TailnetState::CertificatesOff { name: "mm1.example.ts.net".into(), account: None, phone: None },
         ] {
             assert_eq!(state.origin(), None, "{} offered an origin", state.token());
             assert!(state.addresses().is_empty(), "{} offered addresses", state.token());
         }
-        assert!(TailnetState::Ready { name: "mm1.example.ts.net".into(), addresses: vec![] }
+        assert!(TailnetState::Ready { name: "mm1.example.ts.net".into(), addresses: vec![], account: None, phone: None }
             .origin()
             .is_some());
     }
