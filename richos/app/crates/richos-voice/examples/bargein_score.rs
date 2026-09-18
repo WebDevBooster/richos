@@ -66,6 +66,7 @@
 
 use richos_voice::aec::{AecMetrics, EchoCanceller, AEC_BLOCK, FAR_END_ACTIVE_RMS};
 use richos_voice::bargein::{AEC_BARGE_IN_REQUIRED_FRAMES, AEC_BARGE_IN_WINDOW_FRAMES, BARGE_IN_DEBOUNCE_FRAMES};
+use richos_voice::private_fixtures;
 use richos_voice::vad::{frames_to_secs, Vad, VadConfig, SAMPLE_RATE};
 use richos_voice::wav;
 use std::path::{Path, PathBuf};
@@ -86,12 +87,34 @@ fn arg(name: &str) -> Option<String> {
     a.iter().position(|x| x == name).and_then(|i| a.get(i + 1)).cloned()
 }
 
-fn paths(prefix: &Path) -> (PathBuf, PathBuf) {
+/// **The `-mic` half of a pair may live in another repository, and exactly one of them does.**
+///
+/// `ceo-rig-2026-09-18-nearend2-mic.wav` is a recording of the CEO's own voice, so it is not
+/// committed to this public tree; it is in the private `richos-hq` repository. `--pair` still
+/// names ONE prefix, as it always did — if the `-mic.wav` is not beside the `-reference.wav`, the
+/// same basename is looked for through [`private_fixtures`], which checks
+/// `$RICHOS_PRIVATE_FIXTURES` and then `<repo-root>/../richos-hq/fixtures/echo-path`. Nothing is
+/// substituted if it is not there: [`main`] prints the reason and exits 2.
+fn paths(prefix: &Path) -> (PathBuf, PathBuf, Option<private_fixtures::Unavailable>) {
     let mut mic = prefix.as_os_str().to_owned();
     mic.push("-mic.wav");
     let mut r = prefix.as_os_str().to_owned();
     r.push("-reference.wav");
-    (PathBuf::from(mic), PathBuf::from(r))
+    let mic = PathBuf::from(mic);
+    if mic.is_file() {
+        return (mic, PathBuf::from(r), None);
+    }
+    let name = mic
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "-mic.wav".to_string());
+    match private_fixtures::locate(Path::new(env!("CARGO_MANIFEST_DIR")), &name) {
+        Ok(p) => {
+            eprintln!("  -mic.wav is not beside the pair; resolved privately: {}", p.display());
+            (p, PathBuf::from(r), None)
+        }
+        Err(u) => (mic, PathBuf::from(r), Some(u)),
+    }
 }
 
 /// **Replay a pair through the SHIPPED canceller and VAD and keep every frame's verdict.**
@@ -434,7 +457,17 @@ fn main() {
             .collect()
     });
 
-    let (mic_path, ref_path) = paths(&prefix);
+    let (mic_path, ref_path, unavailable) = paths(&prefix);
+    if let Some(u) = unavailable {
+        // **EXIT 2, NOT EXIT 0.** The tests SKIP when this file is absent, and are reported
+        // `ignored` with a reason so nobody counts them as passes. A harness is the other case: an
+        // operator named this pair on the command line and is watching for a table. Printing the
+        // reason and exiting 0 would be a command that looks like it did something, which is the
+        // defect `build.rs` exists to prevent, pointed the other way. Same exit code as "you did
+        // not say which pair", because this is the same kind of answer: nothing was scored.
+        eprintln!("{}", u.reason());
+        std::process::exit(2);
+    }
     let mut mic = read(&mic_path);
     let reference = read(&ref_path);
     let n = mic.len().min(reference.len());

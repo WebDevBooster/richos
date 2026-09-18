@@ -34,6 +34,15 @@
 //!   ceo-rig-2026-09-18-nearend2  24.784 s   THE CEO'S OWN VOICE over Rich, 4.880 s of it
 //! ```
 //!
+//! **ONE OF THOSE SEVEN FILES IS NOT IN THIS REPOSITORY.** `-nearend2-mic.wav` is the microphone
+//! track of the third pair and the CEO is audible in it; `richos` is public, so it is committed to
+//! the private `richos-hq` repository at `fixtures/echo-path/` and resolved at run time by
+//! [`richos_voice::private_fixtures`]. Its `-reference.wav` and both sidecars stay here — the
+//! reference is the synthetic `say` signal that went to the DAC, and the sidecars carry his
+//! intervals and his levels and not one word he said. Without the private file
+//! [`the_ceos_own_voice_over_rich_interrupts_him_and_his_words_are_kept`] reports `ignored` with a
+//! reason naming it; the other two tests in this file run everywhere and are unaffected.
+//!
 //! `-nearend2` is the one that matters and it exists because §53 (richos-hq
 //! `wiki/ceo-decisions.md`, 2026-09-18) is right: the Mac's own speakers cannot stand in for the
 //! person. Anything played through them takes the same acoustic path as Rich's echo and is
@@ -51,13 +60,27 @@ use richos_voice::bargein::{
     BARGE_IN_DEBOUNCE_FRAMES,
 };
 use richos_voice::controller::{CapMsg, CaptureBrain};
+use richos_voice::private_fixtures;
 use richos_voice::vad::{frames_to_secs, SAMPLE_RATE, VAD_FRAME_SAMPLES};
 use richos_voice::wav;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const ECHO_ONLY_MORNING: &str = "tests/fixtures/echo-path/ceo-rig-2026-09-17";
 const ECHO_ONLY_VOL60: &str = "tests/fixtures/echo-path/ceo-rig-2026-09-18-nearend";
 const HIS_VOICE: &str = "tests/fixtures/echo-path/ceo-rig-2026-09-18-nearend2";
+
+/// **THE `-nearend2` PAIR IS SPLIT ACROSS TWO REPOSITORIES, AND ONLY THE MICROPHONE TRACK MOVES.**
+///
+/// `-nearend2-mic.wav` is the CEO's own voice. `richos` is public, so it is committed to the
+/// private `richos-hq` repository instead and found through [`private_fixtures`]; its sidecars and
+/// its `-reference.wav` (the synthetic `say` signal that went to the DAC) stay here, because
+/// nothing in them is him. The split changes nothing this file measures — the same bytes are
+/// opened, from a different directory — and the one test that needs those bytes reports
+/// `ignored, PRIVATE FIXTURE …` rather than `ok` on a machine that does not have them.
+///
+/// **`richs_own_echo_never_interrupts_him_at_any_volume` needs none of this** and runs everywhere:
+/// its two recordings contain no near-end voice, which is why they are public in the first place.
+const HIS_VOICE_MIC_IS_PRIVATE: &str = private_fixtures::CEO_MIC_TRACK;
 
 /// **WHERE THE CEO ACTUALLY SPEAKS IN `-nearend2`, and how those numbers were arrived at.**
 ///
@@ -87,10 +110,24 @@ const HIS_INTERVALS: &[(f32, f32)] = &[
 fn read(prefix: &str, suffix: &str) -> Vec<f32> {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push(format!("{prefix}{suffix}"));
-    let bytes = std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+    read_wav(&p)
+}
+
+fn read_wav(p: &Path) -> Vec<f32> {
+    let bytes = std::fs::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
     let pcm = wav::read_pcm16(&bytes).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
     assert_eq!(pcm.sample_rate, SAMPLE_RATE, "{} is not 16 kHz", p.display());
     wav::to_mono(&pcm.samples, pcm.channels)
+}
+
+/// **The CEO's microphone track, from the private repository.** Panics with the full reason if it
+/// is absent — see [`private_fixtures::require_ceo_mic_track`] for why a panic and not a `return`.
+/// Every caller is behind `#[cfg_attr(not(private_fixtures), ignore = …)]`, so this is reached on
+/// a machine without it only via `--include-ignored`.
+fn read_his_mic() -> Vec<f32> {
+    let p = private_fixtures::require_ceo_mic_track();
+    println!("[fixture] the CEO's microphone track, private: {}", p.display());
+    read_wav(&p)
 }
 
 fn rms(x: &[f32]) -> f32 {
@@ -349,10 +386,36 @@ fn richs_own_echo_never_interrupts_him_at_any_volume() {
 /// `richs_own_echo_never_interrupts_him_at_any_volume` replays the SAME PASSAGE at the SAME
 /// VOLUME on the SAME RIG recorded 14 minutes earlier with nobody speaking, and fires nothing.
 /// One recording differs from the other by one thing — him — and so does the verdict.
+///
+/// **THE RECORDING OF HIM IS NOT IN THIS REPOSITORY.** It is his voice and `richos` is public, so
+/// `-nearend2-mic.wav` lives in the private `richos-hq` repository. Without it this test reports
+/// `ignored, PRIVATE FIXTURE: …` and is counted in libtest's own `N ignored` column — never `ok`,
+/// because a test that did not run must not print `ok` (`build.rs`). To run it, point
+/// `RICHOS_PRIVATE_FIXTURES` at `richos-hq/fixtures/echo-path`.
 #[test]
+#[cfg_attr(
+    not(private_fixtures),
+    ignore = "PRIVATE FIXTURE: ceo-rig-2026-09-18-nearend2-mic.wav is a recording of the CEO's \
+              own voice and is not committed to this public repository. It is in the private \
+              richos-hq repository at fixtures/echo-path/. Set RICHOS_PRIVATE_FIXTURES to that \
+              directory to run this."
+)]
 fn the_ceos_own_voice_over_rich_interrupts_him_and_his_words_are_kept() {
-    let mic = read(HIS_VOICE, "-mic.wav");
+    let mic = read_his_mic();
     let reference = read(HIS_VOICE, "-reference.wav");
+    // The pair shares one index (`-nearend2-session.json`: "reference[i] is what went to the
+    // speakers for mic[i]"), and the two halves now come from two different repositories. If they
+    // ever stop being the same recording, every number below is about nothing — so it is checked
+    // here rather than assumed, and it is the cheapest check in the file.
+    assert_eq!(
+        mic.len(),
+        reference.len(),
+        "the private microphone track ({} samples) and the committed reference track ({} \
+         samples) are not the same recording — a wrong or stale file is in {}",
+        mic.len(),
+        reference.len(),
+        private_fixtures::ENV_DIR
+    );
 
     // THE PREMISE, RE-DERIVED RATHER THAN QUOTED: his voice really is in this recording, and the
     // separation really is what the sidecar says. If a fixture is ever replaced these fail first
@@ -496,10 +559,52 @@ fn every_duration_in_this_file_is_the_frame_math() {
     assert!((ratio - 12.52).abs() < 0.01, "{ratio}");
 
     // And the intervals this file pins are inside the fixture they name.
-    let mic = read(HIS_VOICE, "-mic.wav");
-    let secs = mic.len() as f32 / SAMPLE_RATE as f32;
+    //
+    // **MEASURED ON THE `-reference` TRACK, WHICH IS PUBLIC, SO THIS RUNS EVERYWHERE.** The
+    // microphone half of this pair is the CEO's voice and lives in the private repository; its
+    // LENGTH is not a private fact, and the two halves are one recording sharing one index
+    // (`-nearend2-session.json`). The substitution is therefore exact, and it is not taken on
+    // trust: when the private track IS present the equality is asserted below, and
+    // `the_ceos_own_voice_over_rich_interrupts_him_and_his_words_are_kept` asserts it again
+    // before using either. Deriving this bound from the private file instead would have made a
+    // frame-math test unrunnable on every machine but one, to learn a duration.
+    let reference = read(HIS_VOICE, "-reference.wav");
+    let secs = reference.len() as f32 / SAMPLE_RATE as f32;
     for (a, b) in HIS_INTERVALS {
         assert!(*a < *b, "interval {a}..{b} is empty or inverted");
         assert!(*b <= secs, "interval {a}..{b} runs past the {secs:.3} s fixture");
+    }
+
+    // THE ARITHMETIC THE SIDECAR GOT WRONG, PINNED HERE SO IT CANNOT COME BACK. Every interval is
+    // a whole number of 256-sample frames, and they sum to 305 — not the 299 that
+    // `-nearend2-nearend.json` carried until 2026-09-18. 119 + 69 + 52 + 18 + 47 = 305, and
+    // 305 x 256 / 16000 = 4.880 s, which is the total the same sidecar states.
+    let mut total_frames = 0usize;
+    for (a, b) in HIS_INTERVALS {
+        let n = (b - a) * SAMPLE_RATE as f32 / VAD_FRAME_SAMPLES as f32;
+        assert!(
+            (n - n.round()).abs() < 1e-3,
+            "interval {a}..{b} is {n} frames — not a whole number of VAD frames"
+        );
+        total_frames += n.round() as usize;
+    }
+    assert_eq!(total_frames, 305);
+    let total_secs = total_frames as f32 * VAD_FRAME_SAMPLES as f32 / SAMPLE_RATE as f32;
+    assert!((total_secs - 4.880).abs() < 1e-6, "{total_secs}");
+
+    // When the private track is here, the length substitution above is proven rather than argued.
+    if let Ok(p) = private_fixtures::ceo_mic_track() {
+        assert_eq!(
+            read_wav(&p).len(),
+            reference.len(),
+            "the private microphone track and the committed reference track are not the same \
+             recording, so the duration bound above was measured on the wrong file"
+        );
+    } else {
+        println!(
+            "[note] {HIS_VOICE_MIC_IS_PRIVATE} is not on this machine, so the duration bound \
+             above was measured on the committed -reference track alone (same recording, same \
+             index). Everything else in this test is frame math and needs no fixture at all."
+        );
     }
 }

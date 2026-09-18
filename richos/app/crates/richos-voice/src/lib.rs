@@ -84,6 +84,12 @@ pub mod noaudio;
 // The transport lives in the Tauri shell and makes no judgments of its own, which is the same
 // split `engine/voice/provisioning/{model-integrity,model-fetch}.js` already uses.
 pub mod provision;
+// Finding the one echo-path fixture that is NOT committed here, because the CEO's own voice is in
+// it and `richos` is public. `build.rs` `include!`s this same file so the compile-time
+// `private_fixtures` cfg and the run-time file open can never disagree about where it is; see the
+// module docs for the two locations and `build.rs` for why a missing fixture must report
+// `ignored` and never `ok`.
+pub mod private_fixtures;
 pub mod state;
 // Which whisper binary, which ggml backends and which weights are about to hear the CEO. Pure
 // except for four I/O functions, and native-dependency-free — it hashes with `sha2` rather than
