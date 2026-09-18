@@ -263,13 +263,55 @@ missing tailnet.
 6. **The six words over the tailnet leaf** — §1 above. The decision is made and the copy is
    settled; the plumbing (SNI name → which fingerprint the pair answer reports) is not written.
 
+## 4a. Every link these screens may use, verified, and the one in Urban's spec that must change
+
+**The requirement, from the CEO's own experience on 2026-09-19:** he could not find the download
+from `tailscale.com`'s home page, nor from the admin console. So every link goes **directly** to
+the thing to do — never to a landing page he has to navigate.
+
+I enumerated every URL in Urban's specification (`grep -oE 'https?://…'`). There are exactly three,
+and one of them is the example origin `https://mm1.tail9a3b2.ts.net/` rather than a link.
+
+| What the user is doing | Link to use | Where it came from |
+|---|---|---|
+| Install on **this Mac** | `https://tailscale.com/download/mac` | Urban's, fetched live 2026-09-19 — **correct, keep it** |
+| Install on **iPhone or iPad** | `https://apps.apple.com/app/tailscale/id1470499037` | `tailscale.com/docs/install/ios` |
+| Install on **Android** | `https://play.google.com/store/apps/details?id=com.tailscale.ipn` | `tailscale.com/docs/install/android` |
+| Turn **HTTPS certificates** on | `https://console.tailscale.com/admin/dns` | `tailscale.com/kb/1153/enabling-https` |
+| Mac App Store, if he prefers it | `https://apps.apple.com/app/tailscale/id1475387142` | `tailscale.com/docs/install/mac` |
+
+**The one link in Urban's spec that must be replaced:** `https://login.tailscale.com/admin`
+(his §6 seam 3, which he marked `unverified:` himself). It is the console **root** — exactly the
+page the CEO says he could not find it from. It becomes `https://console.tailscale.com/admin/dns`,
+which is two changes in one: the host Tailscale's own documentation now uses, **and** a deep link
+to the page the switch is actually on.
+
+**And a gap rather than a wrong link: Urban's spec contains no store link at all.** Screen 5 tells
+the user to install Tailscale on the phone, and there is no `apps.apple.com` or `play.google.com`
+URL anywhere in the document. That is precisely the CEO's complaint, one screen further on, so the
+two rows above are new copy rather than a substitution.
+
+**The two Apple IDs are different and are easy to swap**, which would send him to a listing his
+device cannot install from: **`id1470499037` is the iPhone/iPad app; `id1475387142` is the Mac
+app.** Stated here because a digit is not something to carry in anyone's head.
+
+**The console steps, for Screen 7's copy**, quoted from `kb/1153`: open the DNS page of the admin
+console; enable MagicDNS if it is not already; then *"Under **HTTPS Certificates**, select **Enable
+HTTPS**."* This also settles Urban's seam 2 in his own terms — his screen 7 says *"MagicDNS and
+HTTPS certificates"*, and those are the two things on that one page, in that order.
+
+`unverified:` that `login.tailscale.com/admin/dns` redirects to the `console.` host. I did not test
+it and nothing needs it to: the table above uses the host the current documentation uses.
+
 ## 5. Answers to Urban's other three seams
 
 - **Seam 2, the precondition for a usable name.** It is two things, and `CertDomains` answers the
   second directly: a name (MagicDNS) **and** the tailnet's HTTPS-certificates switch. His screen 7
   copy naming both is correct. `unverified:` against a live account.
-- **Seam 3, the admin console URL.** Not verified here either — it is behind a sign-in and I did not
-  have one.
+- **Seam 3, the admin console URL.** Answered in §4a: it becomes
+  `https://console.tailscale.com/admin/dns`. Still `unverified:` in the sense that the page itself
+  is behind a sign-in I do not have — but the URL and the two steps on it are quoted from
+  Tailscale's own `kb/1153`, which is a better source than a guess at the console root.
 - **Seam 4, the poll interval.** Answered: `TAILNET_RECHECK_MS = 2000` in `phone/mod.rs`, with
   `recheck_tailnet()` as the Mac's half of `Check again`. Asserted in a test so the screens'
   document and the code cannot drift.
