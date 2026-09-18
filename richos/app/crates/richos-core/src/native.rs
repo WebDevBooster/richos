@@ -1303,6 +1303,14 @@ struct ReaderState {
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
     /// server (every work lease, and any lease started without a bridge).
     continuity_tools_grant: Option<ActionGrant>,
+    /// **Has this child ever named a turn THIS client sent?** — the loudness layer for
+    /// [`PendingTurn`], announced once per lease on stderr.
+    ///
+    /// It exists because the correlation has a silent fallback, and a silent fallback that
+    /// is silently doing all the work is indistinguishable from the correlation working.
+    /// The same argument as `tool_search_offered` and `skills_verdict` above: the fact is on
+    /// the wire, so it is READ rather than assumed. Machinery — it never reaches the CEO.
+    turns_named_by_the_child: bool,
 }
 
 impl ReaderState {
@@ -1403,6 +1411,7 @@ impl Default for ReaderState {
             register_call_id: None,
             receipt_said: None,
             withheld_after_receipt: String::new(),
+            turns_named_by_the_child: false,
         }
     }
 }
@@ -2041,6 +2050,20 @@ impl NativeClient {
                 let mut guard = current.lock().unwrap();
                 if let Some(pending) = guard.as_mut() {
                     if pending.command_uuid == command {
+                        // **THE LOUDNESS LAYER**: said once, at the transition, on stderr.
+                        // See `ReaderState::turns_named_by_the_child` — a fallback quietly
+                        // carrying the whole load looks exactly like the thing working.
+                        let mut st = state.lock().unwrap();
+                        if !st.turns_named_by_the_child {
+                            st.turns_named_by_the_child = true;
+                            eprintln!(
+                                "[richos] this connection NAMES the turns it is sent \
+                                 (`command_lifecycle` for our own `command_uuid`), so a \
+                                 prompt is correlated with its own turn rather than with \
+                                 whichever `result` arrives next."
+                            );
+                        }
+                        drop(st);
                         match lifecycle {
                             // In the queue, behind whatever is running. Everything until
                             // `started` belongs to that other turn.
