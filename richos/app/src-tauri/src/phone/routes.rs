@@ -2,7 +2,7 @@
 //! contract `docs/architecture/phone-channel.md`.
 //!
 //! **RECONCILED 2026-09-18 with the landed phone app.** Every route name, header, field name and
-//! status code below comes from `richos/app/phone/lib/api.js`, which shipped first (`dfa7ed27`).
+//! status code below comes from `richos/web/web-app/lib/api.js`, which shipped first (`dfa7ed27`).
 //! The phone is a tested artifact and this Rust was not yet reachable from anywhere, so this is
 //! the side that moved.
 //!
@@ -127,7 +127,7 @@ pub struct Channel {
     pub assets: Option<PathBuf>,
     pub vapid_public: String,
     /// The certificate authority's SHA-256 as colon-separated hex. **The Mac sends the hash and
-    /// the phone renders the six words itself** (`app/phone/lib/fingerprint.js`): *"if the Mac
+    /// the phone renders the six words itself** (`web/web-app/lib/fingerprint.js`): *"if the Mac
     /// sent pretty words, a Mac that wanted to could send words that do not belong to the
     /// certificate it is actually serving."*
     pub fingerprint_hex: String,
@@ -734,7 +734,7 @@ mod tests {
         Fixture { dir, channel, phone, device_id, challenge, bridge }
     }
 
-    /// Build a signed request exactly as `app/phone/lib/api.js` does.
+    /// Build a signed request exactly as `web/web-app/lib/api.js` does.
     fn signed(f: &Fixture, method: &str, path: &str, query: &str, body: &str) -> Incoming {
         let path_with_query =
             if query.is_empty() { path.to_string() } else { format!("{path}?{query}") };
@@ -857,7 +857,7 @@ mod tests {
 
     #[test]
     fn a_forgotten_phone_is_told_so_once_rather_than_refused_forever() {
-        // The one deliberate non-404: `app/phone/lib/api.js` treats 403 + `{"revoked":true}` as
+        // The one deliberate non-404: `web/web-app/lib/api.js` treats 403 + `{"revoked":true}` as
         // final, clears its credential and says so. A 404 would be a phone that hammers his Mac.
         let f = fixture("revoked");
         f.channel.devices.forget().unwrap();
@@ -977,7 +977,7 @@ mod tests {
                 assert!(v["device_id"].as_str().unwrap().starts_with("dev_"));
                 assert_eq!(v["api_base"], "https://mm1.local:8443");
                 assert_eq!(v["vapid_public_key"], "BExampleVapidKey");
-                // THE HASH, NOT THE WORDS. `app/phone/lib/fingerprint.js` renders the six words
+                // THE HASH, NOT THE WORDS. `web/web-app/lib/fingerprint.js` renders the six words
                 // itself, deliberately: words the Mac chose could belong to a different
                 // certificate than the one it is serving.
                 assert_eq!(v["ca_fingerprint_sha256"], "3D:9C:A1");

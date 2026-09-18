@@ -334,7 +334,7 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
 /// Turn a described response into an HTTP one, with a fresh challenge attached.
 ///
 /// **Every response carries `X-RichOS-Challenge`, including a 404 and a 429.** That is how the
-/// phone gets the next thing to sign (`app/phone/lib/api.js` reads the header on every response),
+/// phone gets the next thing to sign (`web/web-app/lib/api.js` reads the header on every response),
 /// and it is why the contract needs no challenge route. A refusal that omitted it would leave a
 /// phone whose challenge had aged out with no way back.
 fn render(channel: &Channel, outcome: Outcome) -> Response<BoxBody> {
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn a_revoked_phone_gets_the_one_body_the_phone_acts_on() {
-        // `app/phone/lib/api.js` looks for exactly `{"revoked":true}` and treats it as final.
+        // `web/web-app/lib/api.js` looks for exactly `{"revoked":true}` and treats it as final.
         let response = render_with(Outcome::Revoked, None);
         assert_eq!(response.status().as_u16(), 403);
         assert_eq!(response.headers().get("content-type").unwrap(), "application/json; charset=utf-8");
@@ -923,7 +923,7 @@ mod tests {
         assert_eq!(status, 404, "an unsigned POST was answered");
         assert!(body.is_empty(), "a refusal carried a body: {}", String::from_utf8_lossy(&body));
 
-        // 3. POST HIS WORDS, signed exactly as `app/phone/lib/api.js` signs them.
+        // 3. POST HIS WORDS, signed exactly as `web/web-app/lib/api.js` signs them.
         let words = "where are we on the proposal?";
         let message_body = serde_json::json!({
             "client_id": "01JE2E",

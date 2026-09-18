@@ -53,7 +53,7 @@ const localnames = require('./lib/localnames.js');
 // all in one line on the second page." He was right about the cause, and the fix is not to wrap the
 // hash — it is to stop showing him one. The product's own six-word rendering is used rather than a
 // second copy of it, so the probe teaches exactly what the app does.
-const fingerprintWords = require('../../app/phone/lib/fingerprint.js');
+const fingerprintWords = require('../../web/web-app/lib/fingerprint.js');
 const qr = require('./lib/qr.js');
 
 // PORT is still honored so an older invocation keeps working, but the two ports have their own

@@ -3,7 +3,7 @@
 
 // The Home Screen icon — the app's OWN icon, resized here rather than drawn again.
 //
-// `node bin/make-icons.js`, run from `richos/app/phone`.
+// `node bin/make-icons.js`, run from `richos/web/web-app`.
 //
 // WHY THIS EXISTS AT ALL rather than four committed PNGs nobody can re-derive: the icon he taps on
 // his Home Screen is the RichOS icon, and it must stay the RichOS icon when that one changes. The
@@ -23,7 +23,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const SOURCE = path.join(__dirname, '..', '..', 'icon-source', 'richos-icon-1024.png');
+// `richos/app/icon-source/` — three levels up from `richos/web/web-app/bin/`, and then across.
+// It was two-up-and-one-across until 2026-09-18, when this app moved out of `richos/app/`.
+const SOURCE = path.join(__dirname, '..', '..', '..', 'app', 'icon-source', 'richos-icon-1024.png');
 const OUT_DIR = path.join(__dirname, '..', 'icons');
 
 // `--ground` from richos/app/ui/style.css. The maskable icon's safe zone is the middle 80%, so the

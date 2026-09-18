@@ -14,7 +14,7 @@
 //! **RECONCILED 2026-09-18 with the landed phone app.** The phone shipped first (`dfa7ed27`)
 //! with its own contract stub, and the Mac side adopts its wire shapes rather than the other
 //! way round — the phone is a tested artifact and this Rust was not yet reachable from
-//! anywhere, so this is the cheaper side to move. `richos/app/phone/lib/api.js` is the
+//! anywhere, so this is the cheaper side to move. `richos/web/web-app/lib/api.js` is the
 //! authority for every byte below.
 //!
 //! At pairing the phone generates a **non-extractable** WebCrypto ECDSA P-256 key and
@@ -138,7 +138,7 @@ impl PairingWindow {
 /// **All but one become a flat 404 with an empty body.** The exception is [`Refusal::Revoked`],
 /// which is a deliberate 403 with `{"revoked":true}` — the phone treats that as final, clears
 /// its credential and says so, instead of retrying forever against a Mac that has forgotten it
-/// (`app/phone/lib/api.js`). A 404 there would be a phone that hammers his Mac and a CEO who is
+/// (`web/web-app/lib/api.js`). A 404 there would be a phone that hammers his Mac and a CEO who is
 /// never told why his phone stopped working.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -176,7 +176,7 @@ pub struct Presented<'a> {
     pub body: &'a [u8],
 }
 
-/// **The exact bytes both ends sign** — `app/phone/lib/api.js`'s `signingInput`, in Rust.
+/// **The exact bytes both ends sign** — `web/web-app/lib/api.js`'s `signingInput`, in Rust.
 ///
 /// Note the last field: the body hash is the **empty string** when there is no body, not the
 /// SHA-256 of zero bytes. That is what the phone sends (`payload === undefined ? '' : …`), and
@@ -731,7 +731,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_signed_string_is_the_one_the_landed_phone_builds() {
-        // `app/phone/lib/api.js`:
+        // `web/web-app/lib/api.js`:
         //   `${challenge}\n${method.toUpperCase()}\n${pathWithQuery}\n${bodyHashHex || ''}`
         // Pinned byte for byte, because a difference of one newline is a day of two people
         // each being sure they are right.

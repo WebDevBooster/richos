@@ -630,7 +630,7 @@ fn phone_assets() -> Option<std::path::PathBuf> {
             }
         }
     }
-    let from_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../phone");
+    let from_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/web-app");
     if from_source.join("index.html").is_file() {
         return Some(from_source);
     }
