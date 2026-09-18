@@ -48,6 +48,12 @@ const { generateVapidKeys, sendNotification } = require('./lib/webpush.js');
 const { ensureCertificates } = require('./lib/tls-setup.js');
 const state = require('./lib/state.js');
 const localnames = require('./lib/localnames.js');
+// SIX WORDS INSTEAD OF A HASH. The CEO's own finding from the 2026-09-18 walk: "On the second page
+// ... an ugly horizontal scroll bar appeared. I suspect that was caused by the long SHA256 which was
+// all in one line on the second page." He was right about the cause, and the fix is not to wrap the
+// hash — it is to stop showing him one. The product's own six-word rendering is used rather than a
+// second copy of it, so the probe teaches exactly what the app does.
+const fingerprintWords = require('../../app/phone/lib/fingerprint.js');
 const qr = require('./lib/qr.js');
 
 // PORT is still honored so an older invocation keeps working, but the two ports have their own
@@ -342,7 +348,10 @@ const handler = async (req, res) => {
 					secure: Boolean(req.socket && req.socket.encrypted),
 					hostReached: url.host,
 					names: tls.meta.leafSubjectAltName,
+					// The hash stays in the API because a machine may want it; the PAGE renders the
+					// words. Nothing he reads is a hash.
 					caFingerprintSha256: tls.meta.caFingerprintSha256,
+					caWords: fingerprintWords.phraseFromHex(tls.meta.caFingerprintSha256),
 					caNotAfter: tls.meta.caNotAfter,
 					leafNotAfter: tls.meta.leafNotAfter
 				},
@@ -461,6 +470,7 @@ function trustPage() {
 		.replace(/\{\{LAN_ADDRESS\}\}/g, addresses.length ? addresses[0].address : 'this Mac\'s address')
 		.replace(/\{\{TRUST_PORT\}\}/g, String(TRUST_PORT))
 		.replace(/\{\{CA_FINGERPRINT\}\}/g, tls.meta.caFingerprintSha256)
+		.replace(/\{\{CA_WORDS\}\}/g, fingerprintWords.phraseFromHex(tls.meta.caFingerprintSha256))
 		.replace(/\{\{CA_NAME\}\}/g, tls.meta.caCommonName)
 		.replace(/\{\{CERT_NAMES\}\}/g, tls.meta.leafSubjectAltName)
 		.replace(/\{\{CA_PATH\}\}/g, tls.paths.caCert);
@@ -556,7 +566,11 @@ const announce = () => {
 	log(`    ${HTTPS_ORIGIN}/${ACCESS_CODE ? `?k=${ACCESS_CODE}` : ''}`);
 	log('');
 	log(`  certificate names: ${tls.meta.leafSubjectAltName}`);
+	// The terminal is a place for a hash: it is not his phone, it wraps, and an operator may need to
+	// compare it with something else. The six words are printed beside it because they are what the
+	// two SCREENS show.
 	log(`  root SHA-256:      ${tls.meta.caFingerprintSha256}`);
+	log(`  root in six words: ${fingerprintWords.phraseFromHex(tls.meta.caFingerprintSha256)}`);
 	log(`  root on disk:      ${tls.paths.caCert}`);
 	log('');
 	if (process.env.PROBE_PRINT_QR !== '0') {

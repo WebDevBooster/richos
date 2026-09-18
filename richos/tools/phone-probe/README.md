@@ -284,7 +284,7 @@ and separately, a recording under 0.5 s is reported as "hold it longer", never a
 **Check 0's verdict is his, not the page's.** After tapping through a "this connection is not private"
 interstitial the origin is still HTTPS and `isSecureContext` is still true — so a page that inferred
 trust from those two would report a pass for the exact arrangement the step exists to test. The page
-shows the machine facts (the host reached, the certificate's names, the root fingerprint) and asks him
+shows the machine facts (the host reached, the certificate's names, the root's six-word name) and asks him
 which of the two things happened.
 
 **The service worker caches nothing and has no `fetch` handler.** A probe that serves a cached page
