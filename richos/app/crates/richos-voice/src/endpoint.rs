@@ -89,6 +89,14 @@ impl Endpointer {
         self.total_frames
     }
 
+    /// Consecutive speech frames counted so far. Before an utterance opens this is the run
+    /// climbing toward [`SPEECH_ONSET_FRAMES`] — the "it nearly started" diagnostic, and the
+    /// difference between *the VAD never called it speech* and *it was speech but never for
+    /// 7 frames in a row*. Those two have different fixes and the log could not tell them apart.
+    pub fn speech_run_frames(&self) -> u32 {
+        self.speech_run
+    }
+
     /// Abandon the in-flight utterance (mode exit, barge-in promotion, error).
     pub fn reset(&mut self) {
         *self = Endpointer::new();
