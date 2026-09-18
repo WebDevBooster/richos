@@ -147,8 +147,11 @@ hyper = { version = "1", default-features = false, features = ["server", "http1"
 # deliberately not enabled: shutdown here is a channel the listener selects on, which is
 # already how the rest of this app stops things it owns.
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
-# `Full<Bytes>` for a fixed response, `BodyExt` to read a request body with a size limit.
-http-body-util = "0.1"
+# `Full<Bytes>` for a fixed response, `Limited` to refuse an oversized request body BEFORE
+# reading it, and `channel` for the event stream's body — an SSE response is a body that stays
+# open and is written to from a task, which is exactly what `http_body_util::Channel` is. That
+# feature's only dependency is `dep:tokio`, which is already here, so it adds no package.
+http-body-util = { version = "0.1", features = ["channel"] }
 # THE TLS ACCEPTOR. `ring` rather than `aws-lc-rs` for the reason `rustls` above already
 # gives: `aws-lc-rs` needs a C toolchain this build does not have. Same provider as the one
 # `voice_provision.rs` installs, so there is one crypto provider in this process, not two.
