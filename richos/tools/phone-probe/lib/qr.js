@@ -430,4 +430,32 @@ function toPng(text, options = {}) {
 	return { png: encodePng(pixelSize, pixelSize, px), version, mask, size, pixelSize };
 }
 
-module.exports = { encode, toPng, reedSolomon, generatorPoly, formatInformation, pickVersion, dataCodewords, interleave, VERSIONS, BitBuffer };
+/**
+ * The code as text for a terminal, so the first URL can be scanned off the screen it is printed on.
+ *
+ * This is the bootstrap: before the phone trusts anything it has to reach the trust page, and the
+ * only place that URL exists is the console. A scannable code there means nothing is ever typed.
+ *
+ * The shades are set as explicit ANSI BACKGROUND colors rather than drawn with block characters,
+ * because a dark terminal would otherwise render the quiet zone dark and the code would not scan —
+ * the quiet zone is part of the symbol, not the page behind it.
+ */
+function toAnsi(text, options = {}) {
+	const quiet = options.quietZone === undefined ? 2 : options.quietZone;
+	const { modules, size, version, mask } = encode(text);
+	const LIGHT = '[107m  [0m'; // bright white background, two columns per module
+	const DARK = '[40m  [0m';
+	const lines = [];
+	const blankRow = LIGHT.repeat(size + quiet * 2);
+	for (let i = 0; i < quiet; i++) lines.push(blankRow);
+	for (let r = 0; r < size; r++) {
+		let line = LIGHT.repeat(quiet);
+		for (let c = 0; c < size; c++) line += modules[r][c] ? DARK : LIGHT;
+		line += LIGHT.repeat(quiet);
+		lines.push(line);
+	}
+	for (let i = 0; i < quiet; i++) lines.push(blankRow);
+	return { text: lines.join('\n'), version, mask, size };
+}
+
+module.exports = { encode, toPng, toAnsi, reedSolomon, generatorPoly, formatInformation, pickVersion, dataCodewords, interleave, VERSIONS, BitBuffer };
