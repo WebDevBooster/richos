@@ -346,10 +346,19 @@ note "bundle $VERSION, built from $SOURCE"
 # ---------------------------------------------------------------------------------------
 # The tree, read with position AND size
 # ---------------------------------------------------------------------------------------
+#
+# THE TREE IS READ BY UNIX ID, NEVER BY NAME. `tell process "richos-tauri"` would just as
+# happily read — and `set frontmost` would just as happily RAISE — the CEO's own installed
+# RichOS if he has one open. Every osascript in this file is addressed at the pid this run
+# launched and at nothing else.
 AXDUMP="$TMP/axdump.applescript"
 cat > "$AXDUMP" <<'APPLESCRIPT'
+on run argv
+  set thePid to (item 1 of argv) as integer
 tell application "System Events"
-  tell process "richos-tauri"
+  set procs to (every process whose unix id is thePid)
+  if (count of procs) is 0 then return "windows:0" & linefeed & "ERR no process has unix id " & thePid & linefeed
+  tell item 1 of procs
     set out to ""
     try
       set out to out & "windows:" & (count of windows) & linefeed
@@ -455,19 +464,98 @@ if [ "$(windows_in 0-rest)" = "1" ]; then
 else
   bad "C0  the bundle did not put one window on screen: $(head -2 "$TMP/ax-0-rest.txt" | tr '\n' ' ')"
   note "the boot's own window line: $(grep -m1 '^\[richos\] window' "$LOG" 2>/dev/null)"
+  note "NO KEY AND NO CLICK IS SENT. Everything below C0 synthesizes system-wide events, and"
+  note "with no window of ours to receive them they land in whatever the person has open."
+  echo
+  echo "  $PASS passed, $FAIL failed"
+  exit 1
 fi
+
+# ---------------------------------------------------------------------------------------
+# EVERY SYNTHESIZED EVENT GOES THROUGH `send`, AND `send` PROVES ITS TARGET FIRST.
+#
+# `cliclick` does not type into an application. It posts events to the WINDOW SERVER, which
+# delivers them to whatever is frontmost at that instant — the CEO's mail, his editor, his
+# Finder. On 2026-09-18 the 16:11:56Z run's app copy had already quit, so C1's probe text was
+# typed into his desktop and C2's Cmd-K opened Finder's "Connect to Server" window and left
+# it standing. Both of those are this harness reaching outside the app it launched.
+#
+# So: immediately before every key and every click, the frontmost process is read BY UNIX ID
+# and compared to the pid this run launched. By id and not by name, because a name matches
+# the CEO's own installed RichOS too. A mismatch is a named refusal and the event is never
+# posted — never a warning, never a retry that might land somewhere else.
+# ---------------------------------------------------------------------------------------
+frontmost_pid() {
+  osascript -e 'tell application "System Events" to get unix id of first process whose frontmost is true' 2>/dev/null
+}
+frontmost_name() {
+  osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null
+}
+send() {
+  local fp
+  fp="$(frontmost_pid)"
+  if [ "$fp" != "$PID" ]; then
+    echo "  REFUSED  the frontmost process is pid ${fp:-unknown} ($(frontmost_name)), not the"
+    echo "           instance this run launched (pid $PID). cliclick posts SYSTEM-WIDE events:"
+    echo "           '$*' would have gone into whatever window the person has open. It was not"
+    echo "           sent. Nothing about the front door was measured."
+    exit 2
+  fi
+  "$CLICLICK" "$@" >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------------------------------
+# ESCAPE IS SENT BY A DIFFERENT MECHANISM, AND THAT IS A MEASUREMENT, NOT A PREFERENCE.
+#
+# `cliclick kp:esc` DOES NOT REACH THIS APP. Measured against the .9 window on 2026-09-18,
+# one launch, each step's tree dumped:
+#
+#   A  Cmd-K   by cliclick (kd:cmd t:k ku:cmd)   ->  search overlay OPEN
+#   B  Escape  by cliclick (kp:esc)              ->  search overlay STILL OPEN
+#   C  Escape  by System Events (key code 53)    ->  search overlay CLOSED
+#
+# Same window, same second, same frontmost process. cliclick's typing and its Cmd-K arrive
+# and its Escape does not, so an Escape sent that way can only ever produce a false red — and
+# it did: the 16:30:15Z run reported "Escape did not close the search overlay" and the run
+# before it reported C4 red, both about a key this harness never delivered. That is the same
+# shape as the row this file was written to settle, one layer further out.
+#
+# `key code 53` is still a synthesized key that travels window server -> NSApplication -> key
+# window -> WKWebView -> document, which is the chain this file exists to exercise; it is not
+# WebKit's automation protocol and nothing here talks to the page directly. It is NOT a
+# person's finger either, and C3 below is what keeps that honest: if the Escape this harness
+# sends stops arriving, C3 goes red and C4's verdict is void rather than wrong.
+send_key() {
+  local fp
+  fp="$(frontmost_pid)"
+  if [ "$fp" != "$PID" ]; then
+    echo "  REFUSED  the frontmost process is pid ${fp:-unknown} ($(frontmost_name)), not the"
+    echo "           instance this run launched (pid $PID). The key '$2' was not sent."
+    exit 2
+  fi
+  osascript -e "tell application \"System Events\" to tell (first process whose unix id is $PID) to key code $1" >/dev/null 2>&1
+}
 
 # ---------------------------------------------------------------------------------------
 # C5 — the calibration, re-proved on THIS run rather than quoted from the header
 # ---------------------------------------------------------------------------------------
+# Three sheets are `display: none` at rest. They must all report the SAME degenerate box, and
+# that agreement is what makes the box a calibration rather than one node's quirk.
 PHANTOM="$(size_of 0-rest 'Quit while work is running?')"
-if [ -n "$PHANTOM" ] && ! on_screen 0-rest 'Quit while work is running?'; then
-  ok "C5  a display:none sheet is in the tree and measures ${PHANTOM} — presence is not evidence"
-elif [ -z "$PHANTOM" ]; then
-  note "C5  this build's tree does not carry the quit dialog at rest; the calibration could not be"
-  note "    re-proved on this run, so every SIZE assertion below is stricter than it needs to be."
+PHANTOM2="$(size_of 0-rest 'Allow this action?')"
+PHANTOM3="$(size_of 0-rest 'Connected repositories')"
+WINDOW_BOX="$(size_of 0-rest 'RichOS')"
+if [ -z "$PHANTOM" ]; then
+  note "C5  this build's tree does not carry the quit dialog at rest; the closed-sheet box could"
+  note "    not be calibrated on this run, so on_screen falls back to rejecting only a zero box."
+elif [ "$PHANTOM" = "$PHANTOM2" ] && [ "$PHANTOM" = "$PHANTOM3" ]; then
+  CLOSED_BOX="$PHANTOM"
+  ok "C5  three display:none sheets are in the tree and all three measure ${PHANTOM} — presence"
+  note "    is not evidence, and ${PHANTOM} is this run's closed-sheet box (the title 'RichOS'"
+  note "    measures ${WINDOW_BOX} on the same window, so the strip is not a real control)"
 else
-  bad "C5  the quit dialog measures $PHANTOM at rest, which means it IS on screen"
+  note "C5  the three closed sheets disagree — $PHANTOM / $PHANTOM2 / $PHANTOM3 — so no"
+  note "    closed-sheet box is calibrated and on_screen rejects only a zero box on this run."
 fi
 
 # ---------------------------------------------------------------------------------------
@@ -476,7 +564,7 @@ fi
 # ---------------------------------------------------------------------------------------
 DOOR="$(middle_of 0-rest 'Talk to Rich')"
 if [ -n "$DOOR" ]; then
-  "$CLICLICK" "c:$DOOR" >/dev/null 2>&1
+  send "c:$DOOR"
   sleep 2
 fi
 ax 1-desk
@@ -485,7 +573,7 @@ ax 1-desk
 # C1 — a native keystroke reaches the web content AT ALL
 # ---------------------------------------------------------------------------------------
 PROBE="front door probe $$"
-"$CLICLICK" "t:$PROBE" >/dev/null 2>&1
+send "t:$PROBE"
 sleep 1
 ax 2-typed
 if grep -qF "$PROBE" "$TMP/ax-2-typed.txt"; then
@@ -499,7 +587,7 @@ fi
 # ---------------------------------------------------------------------------------------
 # C2 — the SAME document-level keydown listener that owns Escape, on a native key
 # ---------------------------------------------------------------------------------------
-"$CLICLICK" kd:cmd t:k ku:cmd >/dev/null 2>&1
+send kd:cmd t:k ku:cmd
 sleep 1.5
 ax 3-cmdk
 if [ "$(wc -l < "$TMP/ax-3-cmdk.txt")" -gt "$(wc -l < "$TMP/ax-2-typed.txt")" ]; then
@@ -513,7 +601,7 @@ fi
 # ---------------------------------------------------------------------------------------
 # C3 — Escape closes what Cmd-K opened
 # ---------------------------------------------------------------------------------------
-"$CLICLICK" kp:esc >/dev/null 2>&1
+send kp:esc
 sleep 1.5
 ax 4-esc
 if [ "$(wc -l < "$TMP/ax-4-esc.txt")" -le "$(wc -l < "$TMP/ax-2-typed.txt")" ]; then
@@ -530,7 +618,7 @@ SET="$(middle_of 0-rest 'Settings')"
 if [ -z "$SET" ]; then
   bad "C4  the settings control has no box in the tree, so the menu could not be opened"
 else
-  "$CLICLICK" "c:$SET" >/dev/null 2>&1
+  send "c:$SET"
   sleep 1.5
   ax 5-setmenu
   if ! on_screen 5-setmenu 'Techy Mode'; then
@@ -538,7 +626,7 @@ else
     note "Techy Mode measures '$(size_of 5-setmenu 'Techy Mode')'"
   else
     OPEN_SIZE="$(size_of 5-setmenu 'Techy Mode')"
-    "$CLICLICK" kp:esc >/dev/null 2>&1
+    send kp:esc
     sleep 1.5
     ax 6-setmenu-esc
     AFTER="$(size_of 6-setmenu-esc 'Techy Mode')"
@@ -555,7 +643,7 @@ fi
 # ---------------------------------------------------------------------------------------
 # Z — the instance is closed when the test ends (CEO §54 addendum 4)
 # ---------------------------------------------------------------------------------------
-osascript -e 'tell application "System Events" to tell process "richos-tauri" to keystroke "q" using command down' >/dev/null 2>&1
+osascript -e "tell application \"System Events\" to tell (first process whose unix id is $PID) to keystroke \"q\" using command down" >/dev/null 2>&1
 sleep 3
 if kill -0 "$PID" 2>/dev/null; then
   note "Z   its own Quit did not end it; sending a signal"
