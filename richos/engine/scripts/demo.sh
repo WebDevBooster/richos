@@ -111,7 +111,13 @@ beat_fail() {
 # straight to the CEO — e.g. "...demo.XXXXXX.k3ryLSxK9V"); GNU substitutes
 # the X's directly. This form gives byte-for-byte identical, clean output on
 # both platforms. (See docs/ci-portability-notes.md.)
-SAMPLE_ROOT="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/richos-engine-demo.XXXXXX")" && pwd -P)"
+# ALLOCATED, NOT NAMED — see scripts/lib/scratch.sh. The portability note above
+# is now moot for this line and is kept because it documents why the OLD form
+# was written the way it was: the allocator builds the name itself, identically
+# on both platforms, so there are no trailing X's to substitute at all.
+# shellcheck source=lib/scratch.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/scratch.sh"
+SAMPLE_ROOT="$(scratch_new richos-engine-demo)"
 # THE WORKSPACE REGISTRY IS PINNED INSIDE THE SAMPLE REPO, for the reason
 # CLAUDE_CONFIG_DIR is redirected below: clause 7 of guard-worktree-isolation.sh
 # REGISTERS every allowed file-capable spawn (docs/plans/worktree-spec-2026-09-

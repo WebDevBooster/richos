@@ -70,6 +70,11 @@ set -uo pipefail
 SRC_ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../lib/mutation-harness.sh
 . "$SRC_ENG/scripts/lib/mutation-harness.sh"
+# scratch_new is used by this harness's own mutant loop, which does not go
+# through mutation_begin, so the allocator is sourced explicitly rather than
+# inherited.
+# shellcheck source=../lib/scratch.sh
+. "$SRC_ENG/scripts/lib/scratch.sh"
 # shellcheck source=../lib/tree-witness.sh
 . "$SRC_ENG/scripts/lib/tree-witness.sh"
 
@@ -117,7 +122,11 @@ MUT_WALL_T0="$(sw_now_ms)"
 # the worker's own files. RICHOS_WORKSPACES_DIR is exported per worker, which is
 # safe because a pool worker is its own subshell.
 _mut_worker_sandbox() {
-    W_DIR="$(cd "$(mktemp -d -t mutant-sandbox.XXXXXX)" && pwd -P)" || return 1
+    # ALLOCATED, NOT NAMED — see scripts/lib/scratch.sh. `mktemp -d -t
+    # mutant-sandbox.XXXXXX` named a sandbox the sweeper could only find if
+    # somebody had thought to declare the name, and on 2026-09-17 a sibling
+    # harness left 105.3 GB behind exactly that way.
+    W_DIR="$(scratch_new mutant-sandbox)" || return 1
     ENG="$W_DIR/engine"
     mkdir -p "$ENG"
     if ! mutation_copy_engine "$ENG" "$SRC_ENG"; then

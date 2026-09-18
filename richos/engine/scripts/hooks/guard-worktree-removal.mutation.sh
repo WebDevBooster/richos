@@ -26,6 +26,10 @@ set -uo pipefail
 SRC_ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../lib/mutation-harness.sh
 . "$SRC_ENG/scripts/lib/mutation-harness.sh"
+# scratch_new is used by this harness's own mutant loop, which does not go
+# through mutation_begin, so the allocator is sourced explicitly.
+# shellcheck source=../lib/scratch.sh
+. "$SRC_ENG/scripts/lib/scratch.sh"
 # shellcheck source=../lib/tree-witness.sh
 . "$SRC_ENG/scripts/lib/tree-witness.sh"
 
@@ -68,7 +72,9 @@ MUT_WALL_T0="$(sw_now_ms)"
 # block already says about "$GUARD" and "$SUITE" keeps working unchanged against
 # the worker's own files.
 _mut_worker_sandbox() {
-    W_DIR="$(cd "$(mktemp -d -t mutant-sandbox.XXXXXX)" && pwd -P)" || return 1
+    # ALLOCATED, NOT NAMED — see scripts/lib/scratch.sh and the 105 GB night
+    # recorded in scripts/lib/mutation-harness.sh.
+    W_DIR="$(scratch_new mutant-sandbox)" || return 1
     ENG="$W_DIR/engine"
     mkdir -p "$ENG"
     if ! mutation_copy_engine "$ENG" "$SRC_ENG"; then
