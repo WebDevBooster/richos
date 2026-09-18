@@ -165,24 +165,122 @@ pub fn check_addresses(addresses: &[IpAddr]) -> Result<(), PhoneError> {
     Ok(())
 }
 
+/// Turn a leaf (or a chain, leaf first) and its PKCS#8 key into something rustls can present.
+///
+/// Separated from [`tls_config`] because the listener now holds **two** of these and the awkward
+/// part — a key that is SEC1 where rustls wants PKCS#8 — is identical for both.
+fn certified_key(
+    chain_der: Vec<Vec<u8>>,
+    key_pkcs8: &[u8],
+) -> Result<Arc<rustls::sign::CertifiedKey>, PhoneError> {
+    let chain: Vec<rustls::pki_types::CertificateDer<'static>> =
+        chain_der.into_iter().map(rustls::pki_types::CertificateDer::from).collect();
+    if chain.is_empty() {
+        return Err(PhoneError::Crypto("a certificate chain with nothing in it".into()));
+    }
+    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(key_pkcs8.to_vec().into());
+    let signing_key = rustls::crypto::ring::sign::any_supported_type(&key)
+        .map_err(|e| PhoneError::Crypto(format!("rustls refused a private key: {e}")))?;
+    Ok(Arc::new(rustls::sign::CertifiedKey::new(chain, signing_key)))
+}
+
+/// **Which certificate this Mac presents, decided by the name the phone asked for.**
+///
+/// The Tailscale path (CEO §61, reach document §2.3) gives this Mac a SECOND name —
+/// `mm1.<tailnet>.ts.net` — with a **publicly trusted** certificate, which is what deletes the
+/// sixteen taps. It does not replace `mm1.local`: a Mac can be reachable both ways at once, and
+/// the brief is explicit that the home case keeps working unchanged.
+///
+/// # Home is the fallback for EVERY name, and that is the safety property
+///
+/// [`resolve`](CertDesk::resolve) returns the tailnet key **only** for an exact,
+/// case-insensitive match on the tailnet name, and the Mac-CA leaf for everything else — another
+/// name, a bare IP address (which carries no SNI at all), or a client too old to send one. So the
+/// worst a wrong or missing SNI can do is produce exactly the behavior this listener had before
+/// the tailnet existed. A resolver that returned `None` on no match would instead turn "connect by
+/// IP" into a handshake failure, which is the home path breaking for a Tailscale user.
+pub struct CertDesk {
+    /// The Mac's own leaf, from [`super::ca`]. Always present: the listener does not start without
+    /// it, and it is what every address and `mm1.local` are served with.
+    home: Arc<rustls::sign::CertifiedKey>,
+    /// The tailnet name, normalized, and the publicly trusted chain for it. `None` until Tailscale
+    /// is signed in, certificates are enabled for the tailnet, and `tailscale cert` has answered.
+    tailnet: Option<(String, Arc<rustls::sign::CertifiedKey>)>,
+}
+
+impl CertDesk {
+    /// The name this desk will answer to with the tailnet certificate, if it has one.
+    pub fn tailnet_name(&self) -> Option<&str> {
+        self.tailnet.as_ref().map(|(name, _)| name.as_str())
+    }
+}
+
+impl std::fmt::Debug for CertDesk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // No key material, ever, in a formatter. The name is the only interesting part.
+        f.debug_struct("CertDesk").field("tailnet", &self.tailnet_name()).finish()
+    }
+}
+
+impl rustls::server::ResolvesServerCert for CertDesk {
+    fn resolve(
+        &self,
+        client_hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        if let (Some(asked), Some((name, key))) = (client_hello.server_name(), &self.tailnet) {
+            // ASCII-case-insensitive, because a DNS name is, and the phone is not the only thing
+            // that will ever open this socket. `super::tailnet::normalize_name` already lowercased
+            // our side.
+            if asked.eq_ignore_ascii_case(name) {
+                return Some(Arc::clone(key));
+            }
+        }
+        Some(Arc::clone(&self.home))
+    }
+}
+
 /// Build the TLS configuration from the leaf the certificate authority issued.
+///
+/// The home-only case, unchanged in behavior: one certificate, presented for every name.
 pub fn tls_config(
     leaf_der: &[u8],
     leaf_key_pkcs8: &[u8],
+) -> Result<Arc<rustls::ServerConfig>, PhoneError> {
+    tls_config_with_tailnet(leaf_der, leaf_key_pkcs8, None)
+}
+
+/// [`tls_config`], plus the publicly trusted certificate for this Mac's tailnet name.
+///
+/// `tailnet` is `(name, chain leaf-first, PKCS#8 key)`. The chain has more than one member here
+/// and exactly one in the home case: `tailscale cert` returns a leaf **and its issuing
+/// intermediate**, and a public chain that omits the intermediate is the classic "works in curl,
+/// fails on a phone" certificate — desktop trust stores often cache intermediates and a freshly
+/// wiped phone does not.
+pub fn tls_config_with_tailnet(
+    leaf_der: &[u8],
+    leaf_key_pkcs8: &[u8],
+    tailnet: Option<(String, Vec<Vec<u8>>, Vec<u8>)>,
 ) -> Result<Arc<rustls::ServerConfig>, PhoneError> {
     // The same `ring` provider `voice_provision.rs` installs, installed idempotently here for the
     // same reason it does: a process-level provider must exist before a config is built, and
     // depending on which unrelated feature ran first is a defect waiting for one first run.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let cert = rustls::pki_types::CertificateDer::from(leaf_der.to_vec());
-    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(leaf_key_pkcs8.to_vec().into());
-    // The ROOT is deliberately not in the chain. The phone installed it; sending it again would be
-    // a bigger handshake that proves nothing.
+    // The ROOT is deliberately not in the home chain. The phone installed it; sending it again
+    // would be a bigger handshake that proves nothing.
+    let home = certified_key(vec![leaf_der.to_vec()], leaf_key_pkcs8)
+        .map_err(|e| PhoneError::Crypto(format!("rustls refused our own leaf: {e}")))?;
+
+    let tailnet = match tailnet {
+        Some((name, chain, key)) => {
+            Some((super::tailnet::normalize_name(&name), certified_key(chain, &key)?))
+        }
+        None => None,
+    };
+
     let mut config = rustls::ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(vec![cert], key)
-        .map_err(|e| PhoneError::Crypto(format!("rustls refused our own leaf: {e}")))?;
+        .with_cert_resolver(Arc::new(CertDesk { home, tailnet }));
     // HTTP/1.1 only, matching plan §2.6's *"No WebSocket on either side. Upgrade later only if a
     // measurement demands it"* — one protocol, one code path.
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
@@ -637,6 +735,143 @@ mod tests {
         assert_eq!(config.alpn_protocols, vec![b"http/1.1".to_vec()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// **ONE LISTENER, TWO NAMES, TWO AUTHORITIES — the whole of the Tailscale path's TLS half,
+    /// proved without a tailnet.**
+    ///
+    /// CEO §61 and reach document §2.3: the Tailscale path gives this Mac a second name with a
+    /// **publicly trusted** certificate, and the brief requires that `mm1.local` keep working
+    /// unchanged beside it. Those are two claims about one socket, and this is where they are
+    /// settled.
+    ///
+    /// **The stand-in is honest about what it stands in for.** There is no Tailscale on this Mac
+    /// (see `phone/tailnet.rs`'s header for the eight checks), so the "publicly trusted" chain here
+    /// is a SECOND `PhoneCa`, issued for the tailnet name under its own separate root. What matters
+    /// for SNI selection is exactly the property that makes it a good stand-in: **it is signed by
+    /// an authority the home root knows nothing about**, so a client that trusts only the home root
+    /// cannot accept it, and the third case below turns that into the control.
+    ///
+    /// `unverified:` that a real Let's Encrypt chain from `tailscale cert` is accepted. That is a
+    /// claim about certificate *contents*, which this test does not make; it makes a claim about
+    /// *which* certificate the resolver hands out, which is the part we wrote.
+    #[test]
+    fn the_tailnet_name_gets_the_tailnet_certificate_and_every_other_name_still_gets_our_own() {
+        use crate::phone::ca::PhoneCa;
+        use crate::phone::names::LocalNames;
+        use crate::phone::secrets::MemorySecrets;
+        use std::net::Ipv4Addr;
+
+        const TAILNET: &str = "mm1.tail1a2b3c.ts.net";
+
+        fn authority(bonjour: &str, tag: &str) -> (PhoneCa, std::path::PathBuf) {
+            let dir = std::env::temp_dir().join(format!(
+                "richos-phone-sni-{tag}-{}-{}",
+                std::process::id(),
+                super::super::now_millis()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let names = LocalNames {
+                host: "MM1".into(),
+                bonjour: bonjour.into(),
+                // LOOPBACK, so case 4 below can connect to a bare address and have the leaf it is
+                // served actually cover it. `names.rs` includes loopback in the real list for the
+                // same kind of reason.
+                addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            };
+            // A FRESH secret store per authority. Sharing one would hand the second `PhoneCa` the
+            // first's key, and the two roots would silently be one root — which would make the
+            // control below pass for the wrong reason.
+            let ca = PhoneCa::open(&dir, &MemorySecrets::default(), names).unwrap();
+            (ca, dir)
+        }
+
+        let (home, home_dir) = authority("mm1.local", "home");
+        let (tailnet, tailnet_dir) = authority(TAILNET, "tailnet");
+        assert_ne!(home.ca_der, tailnet.ca_der, "the two authorities are the same authority");
+
+        let config = tls_config_with_tailnet(
+            &home.leaf_der,
+            &home.leaf_key_pkcs8,
+            Some((TAILNET.to_string(), vec![tailnet.leaf_der.clone()], tailnet.leaf_key_pkcs8.clone())),
+        )
+        .expect("rustls refused a two-certificate configuration");
+
+        // A socket that accepts three connections and does nothing but the handshake.
+        let listener = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server_config = Arc::clone(&config);
+        let server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                let Ok((mut socket, _)) = listener.accept() else { return };
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).ok();
+                let Ok(mut connection) = rustls::ServerConnection::new(Arc::clone(&server_config))
+                else {
+                    continue;
+                };
+                // Errors are expected on the refusal case: the client sends an alert and goes.
+                let _ = connection.complete_io(&mut socket);
+            }
+        });
+
+        /// Handshake only — no HTTP, because what is being proved is which certificate came back.
+        fn handshake(port: u16, root_der: &[u8], sni: &str) -> Result<(), String> {
+            let mut roots = rustls::RootCertStore::empty();
+            roots.add(rustls::pki_types::CertificateDer::from(root_der.to_vec())).unwrap();
+            let config = rustls::ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let name = rustls::pki_types::ServerName::try_from(sni).unwrap().to_owned();
+            let mut connection =
+                rustls::ClientConnection::new(Arc::new(config), name).map_err(|e| e.to_string())?;
+            let mut socket =
+                std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).map_err(|e| e.to_string())?;
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).ok();
+            while connection.is_handshaking() {
+                connection.complete_io(&mut socket).map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
+
+        // 1. THE HOME PATH IS UNTOUCHED. `mm1.local`, validated against the Mac's own root.
+        assert!(
+            handshake(port, &home.ca_der, "mm1.local").is_ok(),
+            "the home name stopped working when the tailnet certificate was added"
+        );
+
+        // 2. THE TAILNET NAME GETS THE OTHER CERTIFICATE. Validated against the OTHER root, which
+        //    is only possible if the resolver actually switched on the SNI name.
+        assert!(
+            handshake(port, &tailnet.ca_der, TAILNET).is_ok(),
+            "the tailnet name was not served the tailnet certificate"
+        );
+
+        // 3. THE CONTROL, and the reason cases 1 and 2 mean anything. The SAME tailnet name,
+        //    validated against the HOME root, must FAIL — because what came back was signed by an
+        //    authority that root has never heard of. If the resolver had ignored SNI and served the
+        //    home leaf for everything, this would have succeeded and case 2 would have failed; if
+        //    it had served the tailnet leaf for everything, case 1 would have failed. Only the
+        //    resolver actually working makes all three come out as asserted.
+        assert!(
+            handshake(port, &home.ca_der, TAILNET).is_err(),
+            "the home root accepted the tailnet certificate, so the two authorities are not distinct"
+        );
+
+        // 4. A CONNECTION THAT NAMES NOTHING STILL GETS THE MAC'S OWN CERTIFICATE. An IP-literal
+        //    `ServerName` sends NO SNI extension at all — which is what reaching the Mac by its
+        //    address does, and what a client too old to send one does. This is why `resolve`
+        //    falls back to home instead of returning `None`: `None` would turn "connect by
+        //    address" into a handshake failure, breaking the home path for the one user who took
+        //    the Tailscale path.
+        assert!(
+            handshake(port, &home.ca_der, "127.0.0.1").is_ok(),
+            "a connection carrying no server name was not served the Mac's own certificate"
+        );
+
+        let _ = server.join();
+        let _ = std::fs::remove_dir_all(&home_dir);
+        let _ = std::fs::remove_dir_all(&tailnet_dir);
+    }
+
 
     // -----------------------------------------------------------------------------------
     // THE WHOLE CHANNEL, END TO END, OVER REAL TLS
