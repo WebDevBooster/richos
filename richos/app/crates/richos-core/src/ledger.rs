@@ -175,6 +175,12 @@ pub enum LedgerError {
     /// The one-way, once-only adoption of a legacy unbound thread was attempted twice.
     #[error("thread {thread_id} is already bound to {entity_id} — a thread's entity home is immutable")]
     ThreadAlreadyBound { thread_id: String, entity_id: String },
+    /// A reserved thread id was presented to [`Ledger::create_thread_with_reserved_id`] and a
+    /// record already carries it. **Never expected and never recovered from by picking another
+    /// id**: the ids are uuid v4, so a collision here means the reservation was used twice,
+    /// which would put two conversations in one partition.
+    #[error("thread id {0} is already in this ledger — a reserved id may be spent exactly once")]
+    ThreadIdAlreadySpent(String),
 }
 
 /// Lifecycle state of a single conversational turn (§5.1 of the continuity design).
@@ -1469,6 +1475,43 @@ impl Ledger {
         self.create_thread_for(&PersonId::default_ceo(), title, entity_id)
     }
 
+    /// **A thread id minted WITHOUT a record** — the one thing a spare front desk needs and
+    /// the one thing UX §3.3 does not forbid.
+    ///
+    /// §3.3 is *"no pre-created thread record until the CEO sends the first message"*, and
+    /// this writes nothing: no event, no file, no append. It hands back a uuid v4 under the
+    /// `thr` prefix so that a child process can be SCOPED to the conversation the CEO is
+    /// about to start — `EngineProfile::scope_to` pins `(entity_id, thread_id)` into the
+    /// child's environment and workspace partition before it is spawned, and a spare that
+    /// was spawned under some other thread's id and later adopted would be that child
+    /// writing under a name that is not its own.
+    ///
+    /// **An id that is never spent costs nothing**, because nothing was written. A reserved
+    /// id is spent exactly once, by [`Ledger::create_thread_with_reserved_id`], which
+    /// refuses a second spend rather than appending a duplicate.
+    pub fn reserve_thread_id() -> String {
+        new_id("thr")
+    }
+
+    /// Create a thread under an id [`Ledger::reserve_thread_id`] handed out earlier.
+    ///
+    /// Identical to [`Ledger::create_thread`] in every other respect — same event, same
+    /// immutable entity home, same fresh binding revision — so the record the CEO's first
+    /// send produces is the record he would have got anyway. The id is the only thing that
+    /// was decided in advance, and it was decided so that a child spawned before this moment
+    /// is scoped to THIS conversation.
+    pub fn create_thread_with_reserved_id(
+        &mut self,
+        thread_id: &str,
+        title: &str,
+        entity_id: &EntityId,
+    ) -> Result<String, LedgerError> {
+        if self.threads.iter().any(|t| t.id == thread_id) {
+            return Err(LedgerError::ThreadIdAlreadySpent(thread_id.to_string()));
+        }
+        self.append_thread_created(&PersonId::default_ceo(), thread_id, title, entity_id)
+    }
+
     pub fn create_thread_for(
         &mut self,
         person_id: &PersonId,
@@ -1476,6 +1519,17 @@ impl Ledger {
         entity_id: &EntityId,
     ) -> Result<String, LedgerError> {
         let id = new_id("thr");
+        self.append_thread_created(person_id, &id, title, entity_id)
+    }
+
+    fn append_thread_created(
+        &mut self,
+        person_id: &PersonId,
+        id: &str,
+        title: &str,
+        entity_id: &EntityId,
+    ) -> Result<String, LedgerError> {
+        let id = id.to_string();
         let binding_revision = self.take_revision();
         self.append(
             Event::ThreadCreated {
@@ -2048,6 +2102,41 @@ fn truncate_detail(detail: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A RESERVED ID IS NOT A RECORD** — UX §3.3, *"no pre-created thread record until the CEO
+    /// sends the first message"*. Reserving one appends nothing, lists nothing and survives
+    /// nothing; spending it produces exactly the record `create_thread` would have produced; and
+    /// spending it twice is refused rather than duplicated, because two conversations under one
+    /// id would be two conversations in one workspace partition
+    /// (`EngineProfile::workspace_state` hashes `(entity, thread)`).
+    #[test]
+    fn a_reserved_thread_id_writes_nothing_until_it_is_spent_and_is_spent_only_once() {
+        let path = std::env::temp_dir().join(crate::util::new_id("ledger-reserved"));
+        let entity = EntityId::parse("acme").unwrap();
+        let mut ledger = Ledger::open(&path).unwrap();
+
+        let reserved = Ledger::reserve_thread_id();
+        assert!(reserved.starts_with("thr_"));
+        assert_eq!(ledger.threads().len(), 0, "reserving appended nothing");
+        assert!(ledger.thread_binding(&reserved).is_err(), "and it is not a thread");
+
+        // The app is quit before he types: nothing about the reservation is on disk.
+        drop(ledger);
+        let mut ledger = Ledger::open(&path).unwrap();
+        assert_eq!(ledger.threads().len(), 0);
+
+        // He sends. The id is spent, and the record is the ordinary one.
+        let id = ledger.create_thread_with_reserved_id(&reserved, "Pricing", &entity).unwrap();
+        assert_eq!(id, reserved);
+        let binding = ledger.thread_binding(&id).unwrap();
+        assert_eq!(binding.entity_id(), &entity);
+        assert_eq!(ledger.threads().len(), 1);
+
+        let again = ledger.create_thread_with_reserved_id(&reserved, "Pricing again", &entity);
+        assert!(matches!(again, Err(LedgerError::ThreadIdAlreadySpent(_))), "{again:?}");
+        assert_eq!(ledger.threads().len(), 1, "the refused call appended nothing");
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn accepted_prompt_survives_restart_after_a_torn_tail() {

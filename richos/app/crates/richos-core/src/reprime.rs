@@ -402,6 +402,36 @@ impl RePrimePayload {
             .filter(|t| t.source != Source::Internal && t.superseded_by.is_none())
             .filter(|t| !exclude_pending || !matches!(t.state, TurnState::Received | TurnState::InFlight))
             .collect();
+        Ok(Self::from_turns(ledger, binding, turns, tail_turns, session_id))
+    }
+
+    /// **The payload for a thread whose RECORD DOES NOT EXIST YET** — a spare front desk's
+    /// priming, for an id [`Ledger::reserve_thread_id`] has handed out and nothing has spent.
+    ///
+    /// **It is infallible, and that is the finding rather than a convenience.** Every other
+    /// assembler starts at `ledger.thread_turns_scoped(binding)`, which fails closed on an
+    /// unknown thread — correctly, because a binding for a thread that is not in the ledger
+    /// must never be served. A reserved id has no record, so it has no turns: not "the turns
+    /// were skipped", but *there are none, provably, because nothing has ever been written
+    /// under this id*. So the tail, the current intent, the pending decisions and the rolling
+    /// summary are empty BY CONSTRUCTION here, exactly as they would be a microsecond after
+    /// the record is created.
+    ///
+    /// What is NOT empty, and is the whole reason this is worth a model turn: the identity
+    /// assertion (which names this conversation and its entity scope), the ENTITY-scoped
+    /// action-ledger digest, and — added by the caller, as everywhere else — Tier C, Tier E
+    /// and the company block. Those are what the CEO's first sentence would otherwise wait
+    /// for.
+    pub fn assemble_for_a_reserved_thread(
+        ledger: &Ledger, binding: &ThreadBinding, tail_turns: usize, session_id: Option<&str>,
+    ) -> Self {
+        Self::from_turns(ledger, binding, Vec::new(), tail_turns, session_id)
+    }
+
+    fn from_turns(
+        ledger: &Ledger, binding: &ThreadBinding, turns: Vec<&crate::ledger::Turn>,
+        tail_turns: usize, session_id: Option<&str>,
+    ) -> Self {
         let thread_id = binding.thread_id();
 
         // Tier A #4 — last N verbatim (user + assistant).
@@ -510,7 +540,7 @@ impl RePrimePayload {
             .map(|i| format!("[{}] {}", i.state, i.label))
             .collect();
 
-        Ok(RePrimePayload {
+        RePrimePayload {
             identity_assertion: Self::identity_assertion_scoped(binding),
             pending_decisions,
             current_intent,
@@ -521,7 +551,7 @@ impl RePrimePayload {
             worker_state_unknown,
             loro: LoroTier::NotWired,
             evidence: EvidenceTier::NotWired,
-        })
+        }
     }
 
     /// Tier A #1 — the assertion that kills the false-attribution class at the root

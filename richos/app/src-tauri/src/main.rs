@@ -824,6 +824,70 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
             // everywhere else too. His first message primes as it always did.
             other => eprintln!("[richos] the front desk was not made ready before he types: {other:?}"),
         }
+        // **AND THEN THE ONE FOR THE THREAD AFTER THIS ONE** (CEO §55). Opening a conversation
+        // is the best evidence the app gets that he is here and working, and the next thing he
+        // starts may be a brand-new thread, which is the case `ready_the_front_desk` cannot
+        // help with. The entity comes from THIS thread's immutable home rather than from the
+        // active context, because the active context is whatever was switched to last and a
+        // spare primed for the wrong company can never be adopted.
+        //
+        // It runs after the prime above rather than beside it, on this same thread, because
+        // both take the spine's mutex for a model turn and two of those racing would hold the
+        // lock for the sum of them with his own Send arriving in the middle.
+        let entity = state.spine.lock().unwrap().ledger().thread_binding(&thread_id).map(|b| b.entity_id().clone());
+        if let Ok(entity) = entity {
+            ready_a_spare_front_desk(&app, entity);
+        }
+    });
+}
+
+/// **Make a desk ready for the thread he has NOT started yet** — the CEO's §55, and the half
+/// [`ready_the_front_desk`] structurally cannot reach.
+///
+/// # Why a second function, and why the timeline read is not the hook for this one
+///
+/// `ready_the_front_desk` primes the desk of a thread that EXISTS. On a brand-new thread that
+/// is always too late, and the reason is in `ui/main.js` rather than in anything here:
+/// `create_thread_in` is called inside the Send handler (`ui/main.js:1688`, the `draftEntityId`
+/// branch — *"NOTHING was persisted when the CEO opened the new-thread screen"*), and
+/// `openThread` -> `get_timeline` -> `ready_the_front_desk` runs microseconds later with
+/// `send_message` right behind it. So his first sentence into a new thread does not wait for a
+/// REMAINDER of the prime, it waits for all of it. `Spine::ready_a_spare_front_desk` spends that
+/// turn earlier, against a thread id that has been reserved and not written.
+///
+/// # WHERE IT IS CALLED, and the one place it should be and is not
+///
+/// Three hooks, all of them Rust: at the end of the boot, after a thread's own pre-prime, and
+/// after a thread is created (which consumes the spare, so the next one is prepared). Together
+/// they cover the measured case — the first brand-new thread of a session, which is Ray's
+/// measurement 1 — and every new thread started after he has opened or created another.
+///
+/// **The hook that is MISSING is the entity's new-thread screen itself, and that is a gap, not
+/// a design.** `showEntityView` in `ui/main.js` makes no bridge call at all: it is pure local
+/// rendering, so nothing in Rust can know he is sitting on that screen. One `Bridge.invoke` there
+/// would close it and would be the exactly-right hook (it is the window in which he is typing his
+/// first sentence). It is not taken here because `app/ui/**` is another agent's live surface
+/// today. Until it is, the uncovered case is: he uses eight threads, comes back to the entity
+/// screen much later, and starts a ninth — the spare readied after his last thread open is still
+/// standing, so even that case is usually covered; it fails only if the entity changed in
+/// between.
+///
+/// **One attempt per call and nothing is surfaced to him.** The verdict goes to stderr like its
+/// sibling's: this is an optimization of WHEN the waiting happens, so a failure is not his
+/// business, and a UI that said anything about it would be telling him about the machinery §55
+/// exists to hide.
+fn ready_a_spare_front_desk(app: &AppHandle, entity: richos_core::EntityId) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let Some(state) = app.try_state::<AppState>() else { return };
+        let verdict = state.spine.lock().unwrap().ready_a_spare_front_desk(&entity);
+        match verdict {
+            richos_core::spine::SpareReady::Ready { millis } => eprintln!(
+                "[richos] a front desk is primed and waiting for the next new thread in {entity}:                  {millis} ms — that is what his first message into it used to wait through (CEO §55)"
+            ),
+            richos_core::spine::SpareReady::AlreadyReady => {}
+            other => eprintln!("[richos] no spare front desk was made ready for {entity}: {other:?}"),
+        }
     });
 }
 
@@ -2714,6 +2778,21 @@ fn main() {
             // It is also the honest answer to an operator reading a terminal: the lines
             // above are all of it, so nothing further is coming and a missing line is
             // missing rather than late.
+            // **A DESK FOR HIS FIRST NEW THREAD, STARTED AFTER THE BOOT HAS FINISHED RESOLVING**
+            // (CEO §55). This is the case Ray measured on candidate .10: launch, start a brand-new
+            // thread, type immediately — and it is the one hook that cannot come from a thread
+            // being opened, because at this point none has been. It is a background thread and it
+            // takes the spine's mutex for a model turn, so it is placed AFTER the marker's
+            // resolution work and after the window exists; first paint's own reads
+            // (`list_threads`, `active_context`, `get_timeline`) are already served by then, and
+            // if one is not, it waits exactly as it waits for a pre-prime today.
+            //
+            // No entity means no spare and no complaint: a launch that has not been told which
+            // company it works for refuses his first sentence anyway (`ENTITY_UNRESOLVED_MESSAGE`),
+            // and priming for a company nobody has chosen would be inventing one.
+            if let Some(entity) = app.try_state::<AppState>().and_then(|s| s.entity.lock().unwrap().clone()) {
+                ready_a_spare_front_desk(app.handle(), entity);
+            }
             eprintln!("[richos] boot complete — every line above is what this launch resolved");
             // AND THE FAILURE ALERT STANDS DOWN ON THE SAME LINE, for the reason the marker
             // above exists at all: this is the program stating where "starting up" ends.
@@ -4019,15 +4098,27 @@ fn thread_scope(state: State<AppState>, thread_id: String) -> Result<ActiveConte
 /// §3.3: *"no pre-created thread record until the CEO sends the first message"* — so the
 /// UI holds a draft with no record and calls this on first send, not on picker open.
 #[tauri::command(async)]
-fn create_thread_in(state: State<AppState>, entity_id: String, title: String) -> Result<String, String> {
+fn create_thread_in(app: AppHandle, state: State<AppState>, entity_id: String, title: String) -> Result<String, String> {
     let entity = EntityId::parse(entity_id.trim()).map_err(|e| e.to_string())?;
     let title = if title.trim().is_empty() { "New thread".to_string() } else { title.trim().to_string() };
-    let mut spine = state.spine.lock().unwrap();
-    let id = spine.create_thread(&title, &entity).map_err(|e| e.to_string())?;
-    // Activate it: `Spine::create_thread` only auto-activates when nothing is active, and
-    // a thread the CEO just started must become the scope every subsequent send runs under.
-    spine.switch_thread(&id).map_err(|e| e.to_string())?;
-    Ok(id)
+    {
+        let mut spine = state.spine.lock().unwrap();
+        // **AND THIS IS WHERE A SPARE FRONT DESK IS SPENT** — `Spine::create_thread` gives the
+        // thread the id the spare was already scoped to and files the spare as its desk, primed.
+        // `get_timeline` -> `ready_the_front_desk` then finds nothing left to do, which is the
+        // whole of the saving (CEO §55).
+        let id = spine.create_thread(&title, &entity).map_err(|e| e.to_string())?;
+        // Activate it: `Spine::create_thread` only auto-activates when nothing is active, and
+        // a thread the CEO just started must become the scope every subsequent send runs under.
+        spine.switch_thread(&id).map_err(|e| e.to_string())?;
+        // THE LOCK IS RELEASED BEFORE THE NEXT SPARE IS ASKED FOR, and the scope block is what
+        // guarantees it: the spare's priming is a model turn, and starting one while this
+        // command still held the mutex would put it in front of the `send_message` that is
+        // microseconds behind this return. The ordering is the point, not the thread.
+        drop(spine);
+        ready_a_spare_front_desk(&app, entity);
+        Ok(id)
+    }
 }
 
 // ---- WHICH COMPANY THIS COPY OF RICH WORKS FOR (slice 4) ------------------------------
@@ -5017,6 +5108,54 @@ mod send_wait_tests {
         assert!(
             call[..call.find(')').unwrap()].contains("&thread_id"),
             "the deferral must name the thread he typed into: {}",
+            &call[..80]
+        );
+    }
+
+    /// INVARIANT: `create_thread_in` RELEASES the spine's mutex before it asks for the next
+    /// spare front desk.
+    ///
+    /// **Why this is a scrape of the source rather than a call, for the same reason as above.**
+    /// Readying a spare is a MODEL TURN. `create_thread_in` returns into `openThread` and then
+    /// straight into `send_message`, microseconds later — so asking for the spare while this
+    /// command still held the mutex would put a fresh multi-second hold in front of the very
+    /// Send this whole slice exists to stop making him wait for. The version that does that
+    /// compiles, passes every behavioral test in `richos-core`, and is the defect.
+    ///
+    /// The `drop(spine)` is therefore load-bearing and not tidiness: `ready_a_spare_front_desk`
+    /// spawns a thread whose first act is `state.spine.lock()`, and the lock would otherwise be
+    /// held until the end of the function.
+    ///
+    /// The needles are assembled rather than written for the reason `lease_gate_tests` gives:
+    /// `SOURCE` is this file, and a literal needle would match itself.
+    #[test]
+    fn creating_a_thread_lets_go_of_the_spine_before_it_asks_for_the_next_spare() {
+        const SOURCE: &str = include_str!("main.rs");
+        let start = SOURCE.find(concat!("fn create_thread_", "in(app: AppHandle")).unwrap();
+        let end = SOURCE[start..].find("// ---- WHICH COMPANY THIS COPY OF RICH").unwrap() + start;
+        let body = &SOURCE[start..end];
+
+        let release = concat!("drop(", "spine)");
+        let ask = concat!("ready_a_spare_front_", "desk(&app");
+        let release_at = body.find(release).expect(
+            "create_thread_in must let go of the spine explicitly — the guard lives to the end \
+             of the function otherwise",
+        );
+        let ask_at = body.find(ask).expect("create_thread_in must ready the NEXT spare at all");
+        assert!(
+            release_at < ask_at,
+            "the spine must be released BEFORE the next spare is asked for — a model turn \
+             started under this lock lands in front of the Send that is microseconds behind \
+             this return"
+        );
+
+        // And the spare is for the company he just filed the thread under, never the active
+        // context: a spare primed for the wrong company can never be adopted, so asking for one
+        // would spend a model turn on a desk that is guaranteed to be thrown away.
+        let call = &body[ask_at..];
+        assert!(
+            call[..call.find(')').unwrap()].contains("entity"),
+            "the spare must be asked for by entity: {}",
             &call[..80]
         );
     }

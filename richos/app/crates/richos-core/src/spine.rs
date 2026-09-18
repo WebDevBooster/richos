@@ -231,6 +231,92 @@ pub const STOPPED_BY_CEO: &str = "stopped_by_ceo";
 /// would have thrown that correction away rather than merely quoting nothing.
 pub const ANCHOR_WINDOW_MESSAGES: usize = 8;
 
+/// **THE DESK THAT IS PRIMED BEFORE THE THREAD IT WILL SERVE EXISTS** — the CEO's §55, and
+/// the only shape that removes the seconds `docs/verification/first-words-2026-09-18-sendlock.md`
+/// §2.2 measured and could not move.
+///
+/// # Why a spare has to exist at all, re-derived rather than assumed
+///
+/// A brand-new thread's record is created by `create_thread_in`, which `ui/main.js` calls
+/// **inside the Send handler** (`ui/main.js:1688`, the `draftEntityId` branch, whose own
+/// comment reads *"NOTHING was persisted when the CEO opened the new-thread screen"*), and
+/// `openThread` -> `get_timeline` -> `ready_the_front_desk` runs microseconds later with
+/// `send_message` right behind it. So on the path that matters the prime and the send are
+/// back-to-back by construction: he pays the WHOLE priming turn, not a remainder of it, and
+/// no hook in that chain can be moved early enough to change it. Starting the prime at
+/// thread CREATION — the cheap null hypothesis §6 asked to be priced first — buys **nothing**,
+/// because thread creation is already inside the send.
+///
+/// The window that IS free is the one before Send: the CEO is on the entity's new-thread
+/// screen, typing. Nothing existed to prime during it. This is that thing.
+///
+/// # The invariant the thread scoping protects, and how it is kept
+///
+/// `EngineProfile::scope_to` pins `(entity_id, thread_id)` into the child's environment
+/// (`RICHOS_APP_ENTITY` / `RICHOS_APP_THREAD`) and into its workspace partition
+/// (`workspace_state`'s sha256 of that pair) **before the child is spawned**, and
+/// `engine/mega-lander/app.py:62` refuses any dispatch whose binding disagrees with those two
+/// variables. That is a real boundary, not bookkeeping: a spare spawned under thread A and
+/// later adopted by thread B would be a child dispatching work under a name that is not its
+/// own and writing into another conversation's workspace.
+///
+/// **So the scoping does not move.** The spare is spawned already bound to the thread it will
+/// serve, under an id [`crate::ledger::Ledger::reserve_thread_id`] mints with no record behind
+/// it. UX §3.3's *"no pre-created thread record until the CEO sends the first message"* is kept
+/// to the letter: nothing is appended, nothing is listed, and an id he never spends costs
+/// nothing because nothing was written.
+///
+/// # What it costs
+///
+/// One live `claude` child and one priming model turn per spare — measured, not estimated, in
+/// `docs/verification/first-words-2026-09-18-primed.md` §2. It is the same priming turn his
+/// first message pays for today, moved off his clock, plus — in the one case where he opens the
+/// app, looks at a new-thread screen and never types — a turn that would not otherwise have
+/// been spent. That is the identical bargain [`Spine::prime_front_desk`] already accepts and
+/// names in its own documentation.
+struct SpareFrontDesk {
+    lease: Box<dyn Cognition>,
+    /// The entity this spare was primed FOR. A spare primed for one entity is never adopted by
+    /// another — the same entity-boundary rule `IntakeRecord::Steer::thread_id` states — and the
+    /// re-prime payload is entity-scoped (`reprime.rs`'s action digest, `company_block`), so a
+    /// cross-entity adoption would hand one company's Rich to another company's first sentence.
+    entity: EntityId,
+    /// The id this desk is scoped to: reserved and unspent. **No ledger record carries it.**
+    reserved_thread: String,
+    /// Whether its priming turn completed. A spare can be un-primed after the fact — the central
+    /// folder moved, the memory wiring was torn down — and an un-primed spare is NOT discarded:
+    /// it is adopted anyway and primes at his first send, which is exactly what every thread did
+    /// before this existed. The degrade is the old path rather than a new failure.
+    primed: bool,
+    /// The company material it was primed with, moved into the chair with it. Without this the
+    /// chair compares the adopted desk against whatever the PREVIOUS desk was primed with and
+    /// re-primes it for nothing — which is the defect run H measured.
+    onboarding_block: Option<String>,
+    /// The watermark baseline its priming turn established, moved into the chair with it.
+    context_chars: usize,
+}
+
+/// **What happened when the app asked for a spare front desk** —
+/// [`Spine::ready_a_spare_front_desk`]'s answer, and a deliberate mirror of [`FrontDeskReady`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpareReady {
+    /// A spare was spawned and primed by this call. `millis` is what the CEO's first message
+    /// into the next brand-new thread would otherwise have waited through.
+    Ready { millis: u64 },
+    /// A primed spare for this entity was already standing there: nothing was spent, nothing
+    /// was sent.
+    AlreadyReady,
+    /// A turn is in flight. Priming the spare is a model turn on its OWN child, so it breaks no
+    /// continuity-§3.1 invariant — but the caller holds the spine's mutex for the whole of it,
+    /// and taking it here would put a second multi-second hold in front of everything the
+    /// running turn needs. Refused for the reason [`FrontDeskReady::TurnInProgress`] is.
+    TurnInProgress,
+    /// It could not be done: no lease factory, an unregistered entity, or the priming turn
+    /// itself failed. The next brand-new thread then primes the way it does today, which is the
+    /// only cost, and nothing is surfaced to the CEO.
+    NotReady(String),
+}
+
 /// **ONE THREAD'S FRONT DESK, PARKED WHILE ANOTHER THREAD IS SPEAKING** — the CEO's Two
 /// Riches page: *"each conversation thread always holds one front desk Rich and one
 /// back-end Rich"*, and *"each conversation thread in the app can go forever."*
@@ -247,6 +333,9 @@ pub const ANCHOR_WINDOW_MESSAGES: usize = 8;
 struct Resident {
     lease: Box<dyn Cognition>,
     primed: bool,
+    /// The company material THIS desk was primed with — see [`Spine::onboarding_primed_block`].
+    /// Parked and restored with the lease, because it is a fact about the lease.
+    onboarding_block: Option<String>,
     /// Its own consumption, so a thread coming back is not rotated on another thread's
     /// numbers. `install_lease` clears these for a FRESH lease and this restores them for
     /// a returning one — a resident that inherited the chair's usage would rotate itself on
@@ -301,6 +390,15 @@ pub struct Spine {
     /// **The other front desks** — every thread that has spoken, keyed by thread id, minus
     /// whichever one currently holds [`Spine::lease`]. See [`Resident`].
     resident: std::collections::HashMap<String, Resident>,
+    /// **The desk for the thread he has not started yet.** See [`SpareFrontDesk`].
+    ///
+    /// **ONE, and the bound comes from the product rather than from the price.** A spare covers
+    /// "the next brand-new thread", and there is exactly one of those at any instant: the app
+    /// has one composer and one new-thread screen, so a second spare could only ever be adopted
+    /// by a second brand-new thread opened before the first had been spoken in, which no
+    /// sequence of clicks can produce. `MAX_RESIDENT_FRONT_DESKS` bounds desks he HAS used and
+    /// answers a different question.
+    spare: Option<SpareFrontDesk>,
     /// THE ACTIVE CONTEXT (ECS §3.3): person + entity + thread + binding revision. Not a
     /// bare thread id — holding the full binding is what lets every downstream call be
     /// scoped without re-deriving (or re-guessing) the entity.
@@ -429,7 +527,18 @@ pub struct Spine {
     /// `None` behaves as "no declination on file", which leans toward asking — see
     /// `OnboardingRecord::load` on why the failure leans that way and only that way.
     onboarding_record: Option<std::path::PathBuf>,
-    /// Last successfully primed onboarding content. External MCP saves/declines invalidate it.
+    /// **The company material THE CHAIR'S DESK was last primed with.** External MCP
+    /// saves/declines invalidate it, and `prime_lease_if_needed` re-primes when what the
+    /// thread about to speak needs is not what the desk in the chair is holding.
+    ///
+    /// **It travels with the desk** — parked into [`Resident`], carried on
+    /// [`SpareFrontDesk`], restored by `resume_front_desk`. It did not until 2026-09-19, and a
+    /// spine-wide field describing one lease was wrong the moment a second lease could take the
+    /// chair. A spare front desk made that cost the whole slice: the spare primed WITH the
+    /// company block, the chair's field still read `None`, and the comparison below un-primed
+    /// the adopted desk and spent the priming turn again on his clock — 2.123 s of run H, with
+    /// the spare's own 4.709 s thrown away. It is also why a parked desk could be re-primed for
+    /// nothing after a switch between two companies.
     onboarding_primed_block: Option<String>,
     /// Where [`Spine::timeline`] reads the engine's worker-lifecycle stream from, so a
     /// `Task` tool call can be joined to the worker it spawned (UX §7).
@@ -509,6 +618,7 @@ impl Spine {
             ledger,
             lease: None,
             resident: std::collections::HashMap::new(),
+            spare: None,
             active: None,
             registry: EntityRegistry::empty(),
             turn_in_progress: false,
@@ -826,6 +936,7 @@ impl Spine {
         self.resident.insert(thread, Resident {
             lease,
             primed: self.lease_primed,
+            onboarding_block: self.onboarding_primed_block.take(),
             context_chars: self.context_chars,
             context_usage: self.context_usage.take(),
             context_pressure: self.context_pressure.take(),
@@ -859,6 +970,10 @@ impl Spine {
         // that came back with an empty watermark would be a session claiming it had used
         // nothing when it has been talking to him for an hour.
         self.lease_primed = resident.primed;
+        // **RESTORED WITH THE DESK, for the reason the field's own doc gives.** A desk that came
+        // back to a chair still describing the previous desk's company material is un-primed by
+        // `prime_lease_if_needed`'s comparison and re-primed on his clock, for nothing.
+        self.onboarding_primed_block = resident.onboarding_block;
         self.lease_primed_thread = Some(thread_id.to_string());
         self.context_chars = resident.context_chars;
         self.context_usage = resident.context_usage;
@@ -881,6 +996,14 @@ impl Spine {
         for resident in self.resident.values_mut() {
             resident.primed = false;
         }
+        // **AND THE SPARE**, for the reason the doc above gives about parked desks and one
+        // more: a spare is primed EARLIER than any of them — before its thread exists — so it
+        // is the desk most likely to be holding material the app has since stopped believing
+        // in. It is not discarded; an un-primed spare is adopted and primes at his first send,
+        // which is the behavior every thread had before spares existed.
+        if let Some(spare) = self.spare.as_mut() {
+            spare.primed = false;
+        }
     }
 
     /// Retire the least recently spoken PARKED desk while there are more than the cap.
@@ -897,6 +1020,195 @@ impl Spine {
             // child. That is deliberate and it is the old behavior for this one thread.
             self.resident.remove(&oldest);
         }
+    }
+
+    /// **PRIME A DESK FOR THE THREAD HE HAS NOT STARTED YET** — the CEO's §55, and the only
+    /// shape that recovers the seconds `first-words-2026-09-18-sendlock.md` §2.2 measured.
+    ///
+    /// See [`SpareFrontDesk`] for why a spare has to exist, why its thread id is reserved
+    /// rather than created, and what it costs. This is the operation: reserve an id, spawn a
+    /// child SCOPED to it, and spend its priming turn now, so that
+    /// [`Spine::create_thread`] can hand the CEO's first brand-new thread a desk that is
+    /// already primed and [`Spine::prime_front_desk`] finds nothing left to do.
+    ///
+    /// **Idempotent per entity.** A primed spare for `entity` already standing there is
+    /// [`SpareReady::AlreadyReady`] and costs nothing, so the shell may call this on every
+    /// view change without a second thought. A spare for a DIFFERENT entity is retired here
+    /// and replaced — see [`Spine::discard_spare`] for why that is the decision and not a
+    /// per-entity pool.
+    ///
+    /// **It never creates a thread and never touches the chair.** The spine's lease,
+    /// `lease_primed`, the resident map and the active context are all untouched: a spare is a
+    /// child standing beside the app, not a front desk in the chair, until `create_thread`
+    /// adopts it.
+    pub fn ready_a_spare_front_desk(&mut self, entity: &EntityId) -> SpareReady {
+        if self.turn_in_progress {
+            return SpareReady::TurnInProgress;
+        }
+        if !self.registry.contains(entity) {
+            return SpareReady::NotReady(SpineError::UnknownEntity(entity.to_string()).to_string());
+        }
+        if self.spare.as_ref().is_some_and(|spare| &spare.entity == entity && spare.primed) {
+            return SpareReady::AlreadyReady;
+        }
+        // Anything else standing here is for the wrong entity, or was un-primed by a change
+        // the whole app made (`unprime_every_front_desk`). Either way it is retired BEFORE the
+        // replacement is spawned, so two spare children never exist at once.
+        self.discard_spare();
+        if self.control.stop_claim().is_some() {
+            return SpareReady::NotReady("a stop is claimed".into());
+        }
+        let Some(factory) = self.lease_factory.as_ref() else {
+            return SpareReady::NotReady(SpineError::NoLeaseFactory.to_string());
+        };
+        // **THE ID IS MINTED HERE AND WRITTEN NOWHERE** (UX §3.3). The binding built around it
+        // is for SPAWN SCOPING only — `EngineProfile::scope_to` and nothing else — and it is
+        // deliberately unable to pass `Ledger::verify_binding`: the thread does not exist, so
+        // every scoped read or write through it fails closed, which is the property that makes
+        // it safe to hold a binding for a conversation that has not started.
+        let reserved = crate::ledger::Ledger::reserve_thread_id();
+        let binding = crate::entity::ThreadBinding::new(
+            crate::entity::PersonId::default_ceo(),
+            entity.clone(),
+            &reserved,
+            self.ledger.take_revision(),
+        );
+        let started = std::time::Instant::now();
+        let lease = match factory.spawn_scoped(&binding, &self.control) {
+            Ok(lease) => lease,
+            Err(e) => return SpareReady::NotReady(e.to_string()),
+        };
+        let context_chars = 0;
+        self.spare = Some(SpareFrontDesk {
+            lease,
+            entity: entity.clone(),
+            reserved_thread: reserved,
+            primed: false,
+            onboarding_block: None,
+            context_chars,
+        });
+        match self.prime_the_spare(&binding) {
+            Ok(()) => SpareReady::Ready { millis: started.elapsed().as_millis() as u64 },
+            Err(e) => {
+                // **A SPARE THAT COULD NOT BE PRIMED IS KEPT, NOT KILLED.** Its child is alive
+                // and correctly scoped; what it lacks is the priming turn, which his first
+                // message will then take exactly as it does today. Throwing it away would turn
+                // a failed optimization into a spawn he also has to wait for.
+                SpareReady::NotReady(e.to_string())
+            }
+        }
+    }
+
+    /// The priming turn itself — [`Spine::prime_lease_if_needed`]'s counterpart for a desk
+    /// whose thread has no record.
+    ///
+    /// **Three things differ from the chair's priming, and each is forced by the absence of a
+    /// record rather than chosen.**
+    ///
+    /// 1. The payload comes from [`RePrimePayload::assemble_for_a_reserved_thread`], which is
+    ///    infallible because a reserved id provably has no turns — see its own documentation.
+    /// 2. **No `record_prompt_received`.** That call verifies the binding and would fail
+    ///    closed, correctly: there is no thread to file an Internal turn against. The durable
+    ///    record that this happened is the ACTION below, which is thread-agnostic.
+    /// 3. **The between-turn residue is drained and DISCARDED**, where the chair's is stamped
+    ///    against its thread. A fresh child announces its commands on the between-turn lane at
+    ///    session start; `pump_between_turn_stamped` would refuse the reserved binding and
+    ///    leave those records sitting in the lease, where the CEO's FIRST REAL TURN would drain
+    ///    them and stamp them against a turn he is watching. That is the rotation-tell shape
+    ///    §1.5 exists to exclude, arriving by a new road. They belong to a desk he has never
+    ///    seen, so they are read off and dropped here.
+    fn prime_the_spare(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+        let onboarding_block = self.company_block(binding);
+        let (session, workers) = match self.spare.as_ref() {
+            Some(spare) => (spare.lease.session_id().to_string(), spare.lease.worker_status()),
+            None => return Err(SpineError::NoLease),
+        };
+        let mut payload = RePrimePayload::assemble_for_a_reserved_thread(
+            &self.ledger, binding, DEFAULT_TAIL_TURNS, Some(session.as_str()),
+        );
+        if let Some(workers) = workers {
+            payload.worker_state_unknown = workers.unattributed;
+            payload.worker_state = workers.items.into_iter().map(|i| format!("[{}] {}", i.state, i.label)).collect();
+        }
+        self.fill_loro_tier(&mut payload, binding);
+        let mut priming = payload.to_priming_prompt();
+        if let Some(block) = &onboarding_block { priming.push_str(block); }
+        // Claim-then-execute, Internal visibility, exactly like the chair's `session_reprime`.
+        // **"The spare WAS primed" is the fact the whole saving rests on**, so it is durable
+        // even though the thread it names does not exist yet — and naming the reserved id is
+        // what lets a later reader join this line to the thread it became.
+        let reprime_action = self.ledger.record_action_with(
+            None,
+            "spare_front_desk_reprime",
+            &format!(
+                "entity={}; reserved_thread={}; session={session}; priming_chars={}",
+                binding.entity_id(), binding.thread_id(), priming.len()
+            ),
+            ActionVisibility::Internal,
+            ActionStatus::Claimed,
+        )?;
+        let scope = self.onboarding_tool_scope(binding);
+        let journal = self.machinery_journal.as_ref();
+        let machinery_observer = self.machinery_observer.as_deref();
+        let thread_id = binding.thread_id().to_string();
+        let Some(spare) = self.spare.as_mut() else { return Err(SpineError::NoLease) };
+        let scoped = match &scope {
+            Some(scope) => spare.lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
+            None => Ok(()),
+        };
+        let primed = {
+            let mut on_item = |item: TurnItem| {
+                if let TurnItem::Machinery(record) = item {
+                    // `internal: true` and `turn_id: None`, like every priming turn's machinery.
+                    // The thread id is the reserved one: it is the conversation these records
+                    // will belong to the moment the CEO sends into it.
+                    let record = record.stamp(&thread_id, None, true);
+                    Self::retain_and_emit_machinery(journal, machinery_observer, record);
+                }
+            };
+            scoped.and_then(|_| spare.lease.reprime(&priming, &mut on_item))
+        };
+        if let Err(e) = primed {
+            self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
+            return Err(e.into());
+        }
+        // See (3) in this function's documentation.
+        let _ = spare.lease.drain_between_turn();
+        spare.primed = true;
+        // **WHAT IT WAS PRIMED WITH, kept on the desk**, so the chair it is adopted into
+        // compares his thread's company material against THIS desk's rather than against the
+        // previous occupant's. Run H is what its absence cost.
+        spare.onboarding_block = onboarding_block;
+        spare.context_chars = priming.len();
+        self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
+        Ok(())
+    }
+
+    /// Retire the spare: its `Box<dyn Cognition>` is dropped, whose `Drop` kills the child.
+    ///
+    /// **This is the answer to "what happens to the spare on an entity switch", and it is
+    /// discard-and-re-prime rather than one-spare-per-entity.** The cost decision follows the
+    /// measurement in `docs/verification/first-words-2026-09-18-primed.md` §2: an idle primed
+    /// child is not free, and a pool sized by the number of companies the CEO has registered
+    /// would hold that many children open for a surface that can only ever consume one of them
+    /// next. The thing thrown away is one priming turn, and it is thrown away only when he has
+    /// moved to a different company — at which point the spare was primed with the wrong
+    /// company's material and could not have been adopted anyway.
+    fn discard_spare(&mut self) {
+        self.spare = None;
+    }
+
+    /// Is a PRIMED spare standing ready for this entity? **Test scaffolding and the shell's
+    /// own log line** — nothing in the product branches on it.
+    pub fn spare_front_desk_is_ready_for(&self, entity: &EntityId) -> bool {
+        self.spare.as_ref().is_some_and(|spare| &spare.entity == entity && spare.primed)
+    }
+
+    /// The thread id the spare is scoped to, reserved and unspent. **Test scaffolding** — it is
+    /// how a test proves the id the child was spawned under is the id the thread ends up with.
+    #[doc(hidden)]
+    pub fn spare_front_desk_reserved_thread(&self) -> Option<&str> {
+        self.spare.as_ref().map(|spare| spare.reserved_thread.as_str())
     }
 
     /// How many front desks this spine is holding open, the chair included. **A
@@ -1421,11 +1733,54 @@ impl Spine {
 
     /// Create a thread with its IMMUTABLE entity home. The entity must be registered —
     /// an unknown one is refused, never invented (ECS §3.3).
+    ///
+    /// **AND THIS IS WHERE A SPARE FRONT DESK IS ADOPTED** (see [`SpareFrontDesk`]). If a
+    /// primed spare is standing ready for this entity, the thread takes ITS reserved id and the
+    /// spare is filed as this thread's resident desk, already primed. The CEO's first message
+    /// then finds `prepare_request` resuming a primed desk instead of spawning and priming one,
+    /// which is the whole of the saving.
+    ///
+    /// **The record is identical either way.** Same event, same immutable entity home, same
+    /// fresh binding revision, same auto-activation. Only the id was decided earlier, and only
+    /// so that the child already running was scoped to THIS conversation rather than to a name
+    /// it would have had to borrow.
+    ///
+    /// **A spare for another entity is left standing.** It is not this thread's and adopting it
+    /// would be the cross-entity leak its own doc names; it is retired at the next
+    /// [`Spine::ready_a_spare_front_desk`] for a different entity, not here, because "he
+    /// started a thread in company A" is not evidence about company B.
     pub fn create_thread(&mut self, title: &str, entity_id: &EntityId) -> Result<String, SpineError> {
         if !self.registry.contains(entity_id) {
             return Err(SpineError::UnknownEntity(entity_id.to_string()));
         }
-        let id = self.ledger.create_thread(title, entity_id)?;
+        let adopted = match &self.spare {
+            Some(spare) if &spare.entity == entity_id => Some(spare.reserved_thread.clone()),
+            _ => None,
+        };
+        let id = match adopted {
+            // **THE ID IS SPENT BEFORE THE DESK IS FILED, AND THE ORDER MATTERS.** If the
+            // append fails the spare is still standing, unspent and re-usable by the next
+            // attempt; if it succeeded, the desk is filed against a thread that now exists.
+            // Filing first would leave a resident desk keyed to a thread nobody can read.
+            Some(reserved) => {
+                let id = self.ledger.create_thread_with_reserved_id(&reserved, title, entity_id)?;
+                let spare = self.spare.take().expect("checked directly above");
+                self.resident.insert(id.clone(), Resident {
+                    lease: spare.lease,
+                    primed: spare.primed,
+                    onboarding_block: spare.onboarding_block,
+                    context_chars: spare.context_chars,
+                    context_usage: None,
+                    context_pressure: None,
+                    parked_at_ms: now_millis(),
+                });
+                // Never the desk just filed — it is the most recently parked, and the cap
+                // retires the LEAST recently spoken.
+                self.evict_beyond_the_cap();
+                id
+            }
+            None => self.ledger.create_thread(title, entity_id)?,
+        };
         if self.active.is_none() {
             self.activate(&id)?;
         }
@@ -3344,7 +3699,32 @@ impl Spine {
         Ok(self.ledger.turn(&turn_id).map(|t| t.assistant_text.clone()).unwrap_or_default())
     }
 
-    fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+    /// Get the chair ready to take a turn for `binding`.
+    ///
+    /// **Returns whether a CHILD WAS STARTED**, which is not the same question as "was the chair
+    /// empty" and stopped being answerable from outside on the day a spare could fill an empty
+    /// chair without starting anything. Only this function knows: it is the one place a
+    /// conversation lease is spawned outside rotation, and rotation reports through it too.
+    /// [`Spine::prime_front_desk`] prints the answer into `app.log` through the shell, so the
+    /// value has to come from the code that did the thing rather than from a proxy for it.
+    fn prepare_request(&mut self, binding: &ThreadBinding) -> Result<bool, SpineError> {
+        let mut spawned = false;
+        // **THE DESK THAT IS ALREADY THIS THREAD'S TAKES THE CHAIR FIRST.**
+        //
+        // The isolation branch below has resumed parked desks since residency landed, but it
+        // can only fire when a lease is IN the chair and primed for some OTHER thread — which
+        // was every case that could produce a resident, because parking was the only way into
+        // the map. `create_thread` now files an adopted spare there, and it does so in the two
+        // states that branch never reaches: an empty chair (first thread after launch) and a
+        // chair holding an un-primed lease. Without this, the spare would be left in the map
+        // and a second child spawned and primed beside it — the exact cost this is here to
+        // remove, paid twice.
+        if self.lease_primed_thread.as_deref() != Some(binding.thread_id())
+            && self.resident.contains_key(binding.thread_id())
+        {
+            self.park_current_front_desk();
+            self.resume_front_desk(binding.thread_id());
+        }
         if self.lease_primed_thread.as_deref().map(|thread| thread != binding.thread_id()).unwrap_or(false)
             && self.lease.as_ref().map(|lease| lease.requires_thread_isolation()).unwrap_or(false) {
             // Never carry one entity's provider context or ECS session into another thread.
@@ -3369,19 +3749,21 @@ impl Spine {
         if let Some(reason) = self.pending_rotation_reason.take() {
             if self.lease.is_some() {
                 self.rotate_lease(binding, &reason)?;
+                spawned = true;
             }
         }
         if self.lease.is_none() {
             let factory = self.lease_factory.as_ref().ok_or(SpineError::NoLease)?;
             let fresh = factory.spawn_scoped(binding, &self.control)?;
             self.install_lease(fresh);
+            spawned = true;
             if let Some(active) = self.control.active_turn() {
                 let session = self.lease_session_id().unwrap().to_string();
                 self.ledger.mark_turn_started(&active.turn_id, &session)?;
             }
         }
-        if self.control.stop_claim().is_some() { return Ok(()); }
-        self.prime_lease_if_needed(binding)
+        if self.control.stop_claim().is_some() { return Ok(spawned); }
+        self.prime_lease_if_needed(binding).map(|()| spawned)
     }
 
     /// **PRIME THE FRONT DESK BEFORE HE TYPES — the CEO's §55, the half that is not about the
@@ -3440,7 +3822,16 @@ impl Spine {
         {
             return FrontDeskReady::AlreadyReady;
         }
-        let spawned = self.lease.is_none();
+        // **WHETHER A CHILD WAS STARTED IS `prepare_request`'s ANSWER, NOT A GUESS TAKEN HERE.**
+        //
+        // This used to read `let spawned = self.lease.is_none();` on this line — which answers
+        // "was the chair empty", and that was the same question only while an empty chair could
+        // be filled in exactly one way. It no longer can: `prepare_request` now puts an ADOPTED
+        // desk in an empty chair (a spare that `create_thread` filed, or a parked resident), and
+        // the old reading called that a spawn. The shell prints this flag verbatim into
+        // `app.log` as *", including the lease's own start"* — so a wrong value here is a wrong
+        // number in a log and then in a record two days later, which is §3 of
+        // `first-words-2026-09-18-sendlock.md` happening to the other field of this same struct.
         let started = std::time::Instant::now();
         // ===================================================================================
         // FROM HERE THE SPINE IS SHUT FOR A MODEL TURN, AND HIS SEND MUST NOT WAIT ON IT
@@ -3488,7 +3879,7 @@ impl Spine {
             eprintln!("[richos] a message sent during the front desk's priming could not be delivered yet ({e})");
         }
         match prepared {
-            Ok(()) => FrontDeskReady::Ready { millis: primed_in.as_millis() as u64, spawned },
+            Ok(spawned) => FrontDeskReady::Ready { millis: primed_in.as_millis() as u64, spawned },
             // **A FAILURE HERE IS NOT HIS PROBLEM AND MUST NOT BECOME ONE.** Priming only decides
             // WHEN the waiting happens; if it cannot be done now, his first message takes the path
             // it has always taken and primes on its own. So the reason is said once, on the
