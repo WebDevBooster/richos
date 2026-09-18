@@ -893,6 +893,36 @@ impl WorkHost {
                 advance(AssignmentState::Failed, &sentence);
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Failed, &tell(&record.title, &sentence));
+                // **A BACK END THAT FAILED A TURN IS RETIRED, NOT HANDED THE NEXT ONE.**
+                //
+                // `ensure_lease` short-circuits on `lease.is_some()` — *"this conversation's
+                // back end opens once and stands"* — and several of the errors that reach
+                // this arm have already killed the child on their way here: the three grant
+                // revocations and the worker-settlement check in `native.rs` all do
+                // `child.kill()` before returning. So the lease that stays in this slot is a
+                // corpse, and the next assignment on this thread talks to it.
+                //
+                // **That is the second half of Ray's candidate-.10 walk, on his screen.**
+                // Attempt 1 ended at the settlement check, which stopped the child. Attempt 2
+                // — Rich's own offer, accepted — came back *"The first attempt stopped before
+                // finishing did not start"*: `did not start` because `prompt` on the dead
+                // child returned before anything streamed, so `took_the_turn` was false. Two
+                // different failures, one cause, and the second one told him nothing true
+                // about itself. There is only one work-lease evidence session in that state
+                // root for two attempts, which is the same fact from the other side.
+                //
+                // Retiring is cheap and always safe: `ensure_lease` opens a fresh back end on
+                // the next assignment (seconds, and `run_one` step 1 says that is where those
+                // seconds belong), the register is durable so nothing is lost with the
+                // connection, and dropping the lease runs its own shutdown. It is done for
+                // EVERY `Err` rather than only the ones known to kill, because "which errors
+                // leave the child alive" is a list that goes stale silently, and the cost of
+                // being wrong in this direction is one extra spawn.
+                *backend.lease.lock().unwrap() = None;
+                let mut inner = backend.inner.lock().unwrap();
+                inner.lease_session = None;
+                inner.context_chars = 0;
+                inner.context_usage = None;
             }
             Ok(reason) if stopped || reason == crate::native::STOP_REASON_CANCELLED => {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
@@ -2119,6 +2149,11 @@ mod tests {
         /// `Some(sentence)` is a lease that came up without one of them and could only say so
         /// once its first turn had brought the frame that reports them.
         readiness: Arc<Mutex<Option<String>>>,
+        /// **A turn that FAILS, which no fake here could produce before 2026-09-18.** The
+        /// real `native.rs` kills its child on its way out of several of these (the three
+        /// grant revocations and the worker-settlement check), so an `Err` from `prompt` is
+        /// the one case where the lease left standing is a corpse.
+        turn_error: Arc<Mutex<Option<String>>>,
     }
 
     impl Cognition for WorkLease {
@@ -2137,6 +2172,9 @@ mod tests {
             Ok("end_turn".to_string())
         }
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+            if let Some(why) = self.turn_error.lock().unwrap().clone() {
+                return Err(CognitionError::Protocol(why));
+            }
             if !self.answer_reply.is_empty() {
                 _on(TurnItem::Text { seq: 0, text: &self.answer_reply });
             }
@@ -2202,6 +2240,7 @@ mod tests {
         handoff_reply: Arc<Mutex<String>>,
         answer_reply: Arc<Mutex<String>>,
         readiness: Arc<Mutex<Option<String>>>,
+        turn_error: Arc<Mutex<Option<String>>>,
         /// The next `spawn_work` fails once, so the "a successor that cannot be opened
         /// leaves the incumbent working" branch has a way to happen.
         refuse_next: Arc<AtomicBool>,
@@ -2236,6 +2275,7 @@ mod tests {
                 handoff_reply: self.handoff_reply.lock().unwrap().clone(),
                 answer_reply: self.answer_reply.lock().unwrap().clone(),
                 readiness: self.readiness.clone(),
+                turn_error: self.turn_error.clone(),
             }))
         }
     }
@@ -2266,6 +2306,7 @@ mod tests {
         answer_reply: Arc<Mutex<String>>,
         refuse_next: Arc<AtomicBool>,
         readiness: Arc<Mutex<Option<String>>>,
+        turn_error: Arc<Mutex<Option<String>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -2287,6 +2328,7 @@ mod tests {
         let answer_reply = Arc::new(Mutex::new(String::new()));
         let refuse_next = Arc::new(AtomicBool::new(false));
         let readiness = Arc::new(Mutex::new(None));
+        let turn_error = Arc::new(Mutex::new(None));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
@@ -2301,11 +2343,12 @@ mod tests {
             answer_reply: answer_reply.clone(),
             refuse_next: refuse_next.clone(),
             readiness: readiness.clone(),
+            turn_error: turn_error.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
-            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness }
+            usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -3805,6 +3848,70 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
+    /// **A BACK END WHOSE TURN FAILED IS RETIRED, AND THE NEXT ASSIGNMENT GETS A FRESH
+    /// ONE** — the second half of Ray's candidate-.10 walk, which nothing in this file could
+    /// produce until `turn_error` existed.
+    ///
+    /// `ensure_lease` stands the back end up once and reuses it, which is right. But several
+    /// of the errors that reach `run_one`'s `Err` arm have already killed the child on their
+    /// way there — the three grant revocations and the worker-settlement check in
+    /// `native.rs` all call `child.kill()` before returning — so without this, the slot holds
+    /// a corpse and every later assignment on the thread is handed it.
+    ///
+    /// On the shipped candidate that is exactly what he saw: attempt 1 died at the
+    /// settlement check; attempt 2, which he accepted from Rich's own offer, came back
+    /// *"did not start"*, because `prompt` on the dead child returned before anything
+    /// streamed and `took_the_turn` was therefore false. Two different failures, one cause,
+    /// and the second told him nothing true about itself. The state root has ONE work-lease
+    /// evidence session for those two attempts, which is the same fact from the other side.
+    ///
+    /// The assertion is the spawn count, not a message: 1 before, 2 after, with the second
+    /// assignment settling on the fresh back end.
+    #[test]
+    fn a_work_turn_that_failed_retires_its_back_end_instead_of_handing_on_a_dead_one() {
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        // The successor's session has its own evidence directory, so the second assignment
+        // is settled by the same witnessed-ending rule and not by an unreadable view.
+        let folder = h.state.join("evidence").join("work-session-rotated-1");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(".lock"), "").unwrap();
+        std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        let _runner = h.host.start();
+
+        *h.turn_error.lock().unwrap() =
+            Some("Worker settlement could not be verified at turn end.".into());
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "the first assignment did not open a back end");
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &first.id).unwrap().state,
+            AssignmentState::Failed,
+        );
+        assert!(
+            h.host.lease_sessions().is_empty(),
+            "the failed back end is still standing, so the next assignment would be handed it",
+        );
+
+        // The next assignment opens a NEW connection and runs to a proper end on it.
+        *h.turn_error.lock().unwrap() = None;
+        let second = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 2, "the second assignment reused the failed back end");
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &second.id).unwrap().state,
+            AssignmentState::Settled,
+            "the fresh back end could not settle a perfectly ordinary assignment",
+        );
+        assert_eq!(h.host.lease_sessions(), vec!["work-session-rotated-1".to_string()]);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     /// **TWO CONVERSATIONS RUN AT ONCE, AND NEITHER WAITS FOR THE OTHER.** The CEO's own
     /// reason for the shape: *"the CEO could open and run multiple things in parallel"*, and
     /// *"the CEO's conversation with Rich is never blocked by any work that's going on in the
@@ -4038,6 +4145,7 @@ mod tests {
                 answer_reply: h.answer_reply.clone(),
                 refuse_next: h.refuse_next.clone(),
                 readiness: h.readiness.clone(),
+                turn_error: h.turn_error.clone(),
             }),
             counter.clone(),
             Arc::clone(&h.desk),
