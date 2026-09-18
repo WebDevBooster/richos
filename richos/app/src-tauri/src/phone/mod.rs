@@ -38,6 +38,7 @@
 
 pub mod ca;
 pub mod names;
+pub mod push;
 pub mod secrets;
 
 use std::fmt;
