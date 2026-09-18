@@ -148,6 +148,15 @@ struct Inner {
     lease_session: Option<String>,
     /// Assignments a stop reached while they were queued rather than live.
     stopped: Vec<String>,
+    /// **The assignment currently parked on a locked screen, and the wait it is parked in**
+    /// — the CEO's ruling §56.
+    ///
+    /// It is a field of its own and NOT `live`, because `live` means *on the lease* and the
+    /// screen gate runs strictly before the lease is opened. It exists so a stop and a quit
+    /// can REACH a parked runner: [`crate::screen::ScreenWatch`] sleeps on its own condition
+    /// variable, so `backend.wake.notify_all()` does not touch it, and without this handle a
+    /// locked screen would make the app unquittable — §56 gives the wait no timeout.
+    screen_wait: Option<(String, Arc<crate::screen::ScreenWatch>)>,
     /// The ledger's thread binding for this conversation, kept from whatever put an
     /// assignment on the queue. A resume needs one and must never reconstruct it: only the
     /// ledger can say which company a thread belongs to (`entity.rs`).
@@ -204,6 +213,7 @@ impl Backend {
                 cancel: None,
                 lease_session: None,
                 stopped: Vec::new(),
+                screen_wait: None,
                 binding: None,
                 closing: false,
                 completed: 0,
@@ -255,6 +265,19 @@ pub struct WorkHost {
     /// repository is read, and so a build with no verified runtime says it could not look
     /// rather than implying it did.
     repositories: Mutex<Box<dyn crate::recovery::Repositories>>,
+    /// **How the Mac's screen is read** — the CEO's ruling §56. Injected for the same reason
+    /// `repositories` is: this crate keeps no framework link and no opinion about an operating
+    /// system, and the shell supplies the real reader (`src-tauri/src/screen.rs`).
+    ///
+    /// The default is [`crate::screen::UnknownScreen`], and because `Unknown` never blocks
+    /// ([`crate::screen`]'s polarity rule) a host nobody gave a reader to runs every
+    /// screen-bound assignment immediately rather than parking it forever. That is the honest
+    /// failure for a build that cannot see the screen.
+    screen: Mutex<Arc<dyn crate::screen::ScreenSource>>,
+    /// How often a screen wait looks. [`crate::screen::SCREEN_POLL`] in production; this suite
+    /// shortens it for the same reason [`WorkHost::set_context_budget`] exists — a test that
+    /// slept two seconds per sample is a test nobody runs.
+    screen_poll: Mutex<std::time::Duration>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -305,7 +328,29 @@ impl WorkHost {
             // construction: with no reader, an assignment is pinned with `head: None` and
             // recovery says it could not look (`recovery.rs`).
             repositories: Mutex::new(Box::new(crate::recovery::UnreadableRepositories)),
+            // No reader until the shell installs one. `Unknown` never blocks, so this is a
+            // host that loses the feature rather than one that loses the work.
+            screen: Mutex::new(Arc::new(crate::screen::UnknownScreen)),
+            screen_poll: Mutex::new(crate::screen::SCREEN_POLL),
         })
+    }
+
+    /// How often a screen wait looks. Test scaffolding, same reason and same shape as
+    /// [`Self::set_context_budget`].
+    #[doc(hidden)]
+    pub fn set_screen_poll(&self, poll: std::time::Duration) {
+        *self.screen_poll.lock().unwrap() = poll;
+    }
+
+    /// **How the Mac's screen is read for the CEO's ruling §56 wait.** Installed by the shell,
+    /// which is the only place a framework call belongs.
+    pub fn set_screen(&self, screen: Arc<dyn crate::screen::ScreenSource>) {
+        *self.screen.lock().unwrap() = screen;
+    }
+
+    /// One reading of the screen, for a caller that wants to look rather than wait.
+    pub fn screen_reading(&self) -> crate::screen::ScreenReading {
+        self.screen.lock().unwrap().read()
     }
 
     /// The window and the watermark, same meaning as [`crate::spine::Spine::set_context_budget`].
@@ -517,12 +562,71 @@ impl WorkHost {
         }
     }
 
+    /// **WAIT FOR THE SCREEN IF THIS ASSIGNMENT NEEDS IT** — the CEO's ruling §56.
+    ///
+    /// Returns `true` when the assignment may go on, `false` when the runner must put it down
+    /// — which happens only on a stop or a quit, and in both of those cases the state on disk
+    /// is written by the path that did the stopping (`stop_assignment`, `shutdown`) rather than
+    /// here. That division matters: two writers for one ending is how a receipt ends up saying
+    /// `running` after a quit.
+    ///
+    /// **Nothing is said to him.** No notice is raised, because §56 is a wait that looks after
+    /// itself and a push about one would be a nag. The state and its detail are the whole of
+    /// the visibility, and they are there for as long as the wait lasts — which is why
+    /// `on_wait` writes them rather than the caller writing them afterwards.
+    fn screen_gate(
+        self: &Arc<Self>,
+        backend: &Arc<Backend>,
+        record: &Assignment,
+        advance: &impl Fn(AssignmentState, &str),
+    ) -> bool {
+        if !record.needs_screen {
+            return true;
+        }
+        let source = Arc::clone(&*self.screen.lock().unwrap());
+        let poll = *self.screen_poll.lock().unwrap();
+        let watch = crate::screen::ScreenWatch::with_poll(source, poll);
+        {
+            // **The two races this block closes, both of which end with a runner parked on a
+            // locked screen that nobody can reach.** A stop or a quit that landed between this
+            // assignment being dequeued and this line would otherwise be invisible to a wait
+            // that had not begun yet — so the watch is pre-stopped instead of hoping the
+            // ordering held.
+            let mut inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.stopped.iter().any(|held| *held == record.id) {
+                watch.stop();
+            }
+            inner.screen_wait = Some((record.id.clone(), Arc::clone(&watch)));
+        }
+        let outcome = watch.wait_for_screen(|_| {
+            advance(AssignmentState::WaitingForScreen, crate::screen::says::detail());
+        });
+        backend.inner.lock().unwrap().screen_wait = None;
+        outcome.is_available()
+    }
+
     /// One assignment, start to the end of its back end's own turn.
     fn run_one(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment, resumed: bool) {
         let scope = (record.entity_id.clone(), record.thread_id.clone(), record.id.clone());
         let advance = |to: AssignmentState, detail: &str| {
             let _ = assignment::advance(&self.state, &scope.0, &scope.1, &scope.2, to, detail);
         };
+
+        // 0. **THE SCREEN, AND IT IS STEP ZERO BECAUSE NOTHING MAY HAVE BEEN ASKED OF THE
+        //    BACK END WHILE THIS WAITS.** The CEO's ruling §56: *"when Rich needs the screen
+        //    and it is locked, the app waits for the unlock on its own and carries on."*
+        //
+        //    Being strictly before `ensure_lease` is what makes every other decision about
+        //    this state honest: no provider connection is spent sitting on a locked screen, no
+        //    seat is bound, nothing is in flight, and so `recovery.rs` can say truthfully that
+        //    an assignment found here had not started. Putting it one line later would have
+        //    made all three of those sentences false.
+        //
+        //    An unlocked or unreadable screen costs ONE reading and this block is invisible.
+        if !self.screen_gate(backend, record, &advance) {
+            return;
+        }
+
         advance(AssignmentState::Preparing, "Opening the work connection.");
 
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
@@ -1353,6 +1457,18 @@ impl WorkHost {
                 if !inner.stopped.iter().any(|held| held == id) {
                     inner.stopped.push(id.to_string());
                 }
+                // **A stop must reach an assignment parked on a locked screen** (the CEO's
+                // ruling §56). It is not `live` — the screen gate runs before the lease — and
+                // its wait sleeps on its own condition variable, so neither the cancel handle
+                // below nor `backend.wake` would touch it. Stopping the watch makes the runner
+                // return, and the `None` arm below then writes the honest state: "Stopped
+                // before it started. Nothing was prepared." — which is exactly true of a
+                // screen wait.
+                if let Some((waiting, watch)) = inner.screen_wait.as_ref() {
+                    if waiting == id {
+                        watch.stop();
+                    }
+                }
                 let live = inner.live.as_ref().is_some_and(|live| live.id == id);
                 if live {
                     inner.cancel.clone()
@@ -1460,6 +1576,15 @@ impl WorkHost {
                 let mut inner = backend.inner.lock().unwrap();
                 inner.closing = true;
                 inner.queue.clear();
+                // **A QUIT MUST REACH A RUNNER PARKED ON A LOCKED SCREEN** (the CEO's ruling
+                // §56). Its wait has no timeout by design, and it sleeps on its OWN condition
+                // variable — so `backend.wake.notify_all()` below does not wake it and the
+                // `live.is_some()` drain further down never sees it, because a screen wait
+                // happens before the lease is opened and `live` is still `None`. Without this
+                // line a locked screen would make the app unquittable.
+                if let Some((_, watch)) = inner.screen_wait.as_ref() {
+                    watch.stop();
+                }
                 inner.cancel.clone()
             };
             backend.wake.notify_all();
@@ -1997,7 +2122,14 @@ mod tests {
             instruction_sha256: "a".repeat(64),
             title: "landing the three branches".into(),
             repositories: vec!["/fictional/project".into()],
+            needs_screen: false,
         }
+    }
+
+    /// The same registration, declaring that its work needs the Mac's screen — the CEO's
+    /// ruling §56's one input.
+    fn screen_registration(harness: &Harness) -> Registration {
+        Registration { needs_screen: true, ..registration(harness) }
     }
 
     /// Give one back-end session a readable, empty evidence file: every worker it started
@@ -2068,6 +2200,220 @@ mod tests {
             assert_eq!(one.instruction_ledger_ref, "ledger:thread-one:turn-7");
         }
         assert_eq!(h.revoked.load(Ordering::SeqCst), 2, "a grant was left standing");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    // ----------------------------------------------------------------------------------
+    // THE CEO's RULING §56 — "WAITING FOR THE SCREEN"
+    //
+    // `richos-hq/wiki/ceo-decisions.md` §56 (2026-09-18): *"I like that "Watch for the Mac's
+    // screen to unlock" feature that you had running here. Should be added to the RichOS app
+    // for automatic use when Rich needs it."*
+    //
+    // The acceptance is his sentence, so the first test below is his sentence and nothing
+    // else: a job that needs the screen, on a locked screen, waits — and carries on by itself
+    // when the screen comes back, with nobody touching anything.
+    // ----------------------------------------------------------------------------------
+
+    /// Read the record until it reaches `want`, or give up loudly. Never a bare sleep on a
+    /// guess: the same reasoning `wait_for_completed` carries.
+    fn await_state(h: &Harness, id: &str, want: AssignmentState) -> Assignment {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let row = assignment::read(&h.state, "depot", "thread-one", id).unwrap();
+            if row.state == want {
+                return row;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the assignment never reached {want:?}; it is {:?} ({})",
+                row.state,
+                row.detail
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    /// **§56, END TO END, AND IT IS THE WHOLE ACCEPTANCE.**
+    ///
+    /// A screen-bound assignment on a locked screen reaches `waiting-for-screen`, spends
+    /// NOTHING while it is there, and runs to the lease by itself the moment the screen
+    /// unlocks. No approval, no notice, no retry, nobody touching anything.
+    #[test]
+    fn a_screen_bound_assignment_waits_for_a_locked_screen_and_carries_on_when_it_unlocks() {
+        let h = harness(5);
+        let screen = crate::screen::FakeScreen::locked();
+        h.host.set_screen(screen.clone());
+        h.host.set_screen_poll(std::time::Duration::from_millis(2));
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &screen_registration(&h)).unwrap();
+
+        // 1. IT WAITS, and the durable record says so in the app's own words.
+        let waiting = await_state(&h, &receipt.id, AssignmentState::WaitingForScreen);
+        assert_eq!(waiting.detail, crate::screen::says::detail());
+
+        // 2. IT IS WAITING ON THE SCREEN AND NOT ON HIM. Each of these three is a different
+        //    surface reading the same state, and a `Blocked`-shaped answer to any of them
+        //    would put a decision in front of him that is not his.
+        assert!(waiting.state.is_open(), "an update must not install over it");
+        assert!(!waiting.state.awaits_his_word(), "he has nothing to decide about a lock");
+        assert!(waiting.state.waits_for_the_world());
+
+        // 3. NOTHING HAS BEEN SPENT. The gate is before `ensure_lease`, so no provider
+        //    connection is sitting on a locked screen and no seat has been bound. This is the
+        //    assertion that makes `recovery.rs`'s "had not started" truthful.
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "a locked screen must not open a lease");
+        assert!(h.bound.lock().unwrap().is_empty(), "a seat was bound while the screen was locked");
+
+        // 4. HE IS TOLD NOTHING. §56 is a wait that looks after itself; a push about it would
+        //    be the nag. (The state above is the visibility.)
+        assert!(
+            h.notices.0.lock().unwrap().is_empty(),
+            "a screen wait must raise no notice: {:?}",
+            h.notices.0.lock().unwrap()
+        );
+
+        // 5. THE SCREEN COMES BACK, AND IT CARRIES ON BY ITSELF.
+        screen.set(crate::screen::ScreenReading::unlocked());
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(h.bound.lock().unwrap().len(), 1, "it never reached the lease after the unlock");
+        let done = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_ne!(done.state, AssignmentState::WaitingForScreen, "it is still claiming to wait");
+        assert!(!done.state.waits_for_the_world());
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **The negative control for the test above**, and the reason the whole feature costs
+    /// ordinary work nothing: an assignment that did not declare a screen need never reads the
+    /// screen at all, even while it is locked.
+    #[test]
+    fn work_that_does_not_need_the_screen_never_looks_at_it() {
+        let h = harness(5);
+        let screen = crate::screen::FakeScreen::locked();
+        h.host.set_screen(screen.clone());
+        h.host.set_screen_poll(std::time::Duration::from_millis(2));
+        let _runner = h.host.start();
+        // `registration`, not `screen_registration` — needs_screen is false.
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        assert_eq!(screen.reads(), 0, "the screen was read for work that does not need it");
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_ne!(row.state, AssignmentState::WaitingForScreen);
+        assert_eq!(h.bound.lock().unwrap().len(), 1);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **THE POLARITY RULE AT THE HOST LEVEL, and it is the inverse of the update gate's.**
+    /// A build that cannot read the screen runs screen-bound work immediately rather than
+    /// parking it forever — because §56's wait has no timeout, so an unbounded wait on an
+    /// unestablished reading is the worse failure. A host nobody installed a reader on is
+    /// exactly this case, so the default is asserted too.
+    #[test]
+    fn a_screen_that_cannot_be_read_runs_the_work_rather_than_waiting_forever() {
+        let h = harness(5);
+        // No `set_screen` call at all: the host's default is `UnknownScreen`.
+        h.host.set_screen_poll(std::time::Duration::from_millis(2));
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &screen_registration(&h)).unwrap();
+        assert!(
+            h.host.wait_for_completed(1, std::time::Duration::from_secs(10)),
+            "an unreadable screen stranded the work, which is the one thing it must never do"
+        );
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_ne!(row.state, AssignmentState::WaitingForScreen);
+        assert_eq!(h.bound.lock().unwrap().len(), 1);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **WORK PARKED ON A LOCKED SCREEN MUST NOT COME BACK FROM THE DEAD AFTER A QUIT.**
+    ///
+    /// **This test was WRONG on its first draft and the mistake is worth keeping in writing,
+    /// because it is the kind that leaves a green suite guarding nothing.** The first version
+    /// asserted that `shutdown()` RETURNS QUICKLY and that the receipt says `interrupted`. It
+    /// passed with `shutdown`'s `watch.stop()` deleted — so it proved nothing. `shutdown` never
+    /// blocks on a screen wait in the first place: its drain loop waits on `inner.live`, and a
+    /// screen wait happens strictly BEFORE the lease, so `live` is `None` and the drain returns
+    /// at once whether or not the wait was ever reached.
+    ///
+    /// **The real defect is the opposite of a hang, and it is much worse than one.** Without
+    /// the stop, the runner thread stays parked on its own condition variable after the app has
+    /// quit, the sweep writes `interrupted`, and then — when the screen is unlocked, minutes or
+    /// hours later — that thread WAKES UP, returns from the wait and carries on: it advances the
+    /// receipt to `preparing`, opens a provider lease and binds a seat, all on behalf of an
+    /// assignment the app already told him was stopped. Work resurrecting over an `interrupted`
+    /// receipt is exactly the class of lie `recovery.rs` exists to refuse.
+    ///
+    /// So the test quits, THEN unlocks the screen, then asserts nothing moved. Proven to fail
+    /// with the `watch.stop()` removed from `shutdown`.
+    #[test]
+    fn a_quit_leaves_an_assignment_parked_on_a_locked_screen_stopped_for_good() {
+        let h = harness(5);
+        let screen = crate::screen::FakeScreen::locked();
+        h.host.set_screen(screen.clone());
+        // Short, so that IF the wait survived the quit it would certainly notice the unlock
+        // below. A long poll here would hide the defect rather than expose it.
+        h.host.set_screen_poll(std::time::Duration::from_millis(2));
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &screen_registration(&h)).unwrap();
+        let waiting = await_state(&h, &receipt.id, AssignmentState::WaitingForScreen);
+        assert_eq!(waiting.detail, crate::screen::says::detail());
+
+        let started = std::time::Instant::now();
+        h.host.shutdown();
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "quit did not return");
+
+        // Witnessed, never invented: a quit is a stop somebody made.
+        let stopped = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(stopped.state, AssignmentState::Interrupted, "detail was: {}", stopped.detail);
+
+        // **THE ASSERTIONS THAT ACTUALLY GUARD SOMETHING.** The screen comes back AFTER the
+        // quit. Nothing may stir.
+        screen.set(crate::screen::ScreenReading::unlocked());
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let after = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+
+        // **`updated_at_ms` IS THE WITNESS, AND THE FINAL STATE IS NOT.** Measured while
+        // proving this test can fail: with the stop removed, the resurrected runner advanced
+        // the receipt and something downstream settled it back to `interrupted`, so the state
+        // check alone stayed green while the record had been rewritten 51-59 ms after the app
+        // had quit. A "did anything touch this at all" assertion catches a resurrection that
+        // a "what does it say now" assertion cannot, so it goes first.
+        assert_eq!(
+            after.updated_at_ms, stopped.updated_at_ms,
+            "the receipt was written {} ms AFTER the app quit: a runner parked on the locked \
+             screen woke up on the unlock and carried on with work that had been stopped",
+            after.updated_at_ms.saturating_sub(stopped.updated_at_ms)
+        );
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "a lease was opened after the app quit");
+        assert!(h.bound.lock().unwrap().is_empty(), "a seat was bound after the app quit");
+        assert_eq!(after.state, AssignmentState::Interrupted, "{:?} ({})", after.state, after.detail);
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **His stop reaches a parked assignment too**, and the state it writes is the one that
+    /// is exactly true of a screen wait: nothing was prepared.
+    #[test]
+    fn his_stop_reaches_an_assignment_parked_on_a_locked_screen() {
+        let h = harness(5);
+        let screen = crate::screen::FakeScreen::locked();
+        h.host.set_screen(screen.clone());
+        h.host.set_screen_poll(std::time::Duration::from_secs(3600));
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &screen_registration(&h)).unwrap();
+        await_state(&h, &receipt.id, AssignmentState::WaitingForScreen);
+
+        h.host.stop_assignment("depot", "thread-one", &receipt.id).unwrap();
+        let row = await_state(&h, &receipt.id, AssignmentState::Interrupted);
+        assert!(
+            row.detail.contains("Nothing was prepared"),
+            "a screen wait that is stopped had nothing prepared: {}",
+            row.detail
+        );
+        assert!(h.bound.lock().unwrap().is_empty());
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
@@ -2357,6 +2703,7 @@ mod tests {
             notices: Vec::new(),
             work_session: None,
             repository_pins: Vec::new(),
+            needs_screen: false,
         };
         let brief = brief_for(&record, false);
         assert!(brief.contains("landing the three branches"));

@@ -279,6 +279,15 @@ pub fn reconcile(state: &Path, repositories: &dyn Repositories) -> Reconciliatio
 fn detail_for(record: &Assignment) -> String {
     let was = match record.state {
         AssignmentState::Registered => "It had been written down and had not started",
+        // **The CEO's ruling §56 state, and it says the true thing about it: nothing had
+        // begun.** The screen gate is strictly before the lease (`work_host.rs`), so an
+        // assignment found here was parked on a locked screen with nothing asked of the back
+        // end. That is a better position than `Registered` and it still becomes `Unknown`
+        // below, for spec §6.3's reason — see `AssignmentState::WaitingForScreen`'s own doc
+        // for why the wait is not re-armed.
+        AssignmentState::WaitingForScreen => {
+            "It was waiting for the screen to unlock and had not started"
+        }
         AssignmentState::Preparing => "It was opening its work connection",
         _ => "It was running",
     };
@@ -606,7 +615,57 @@ mod tests {
             instruction_sha256: digest(),
             title: format!("landing {obligation}"),
             repositories: vec!["/fictional/project".into()],
+            needs_screen: false,
         }
+    }
+
+    /// **A relaunch over work that was waiting for the screen** — the CEO's ruling §56 meeting
+    /// spec §6.3, and the outcome is `unknown` rather than a re-armed wait.
+    ///
+    /// **The alternative was considered and rejected, and the reason is a comparison rather
+    /// than a preference.** Re-arming would mean an assignment that got as far as parking on a
+    /// locked screen is resumed automatically, while a `Registered` assignment that got
+    /// strictly LESS far is not — `Registered` already lands in the `_` arm and becomes
+    /// `unknown`. Treating the further-along one more permissively is not something §56 asks
+    /// for: §56 is about a wait inside a running app, and §6.3 — *"Nothing restarts work by
+    /// itself"* — is the standing rule it does not override.
+    ///
+    /// **Nothing is silently dropped, which is the property that matters.** The receipt names
+    /// what it was doing, in words that do not imply it got anywhere, and it is
+    /// `awaits_his_word` so it is on the list he can act on.
+    #[test]
+    fn work_that_was_waiting_for_the_screen_comes_back_as_unknown_and_says_it_had_not_started() {
+        let state = root();
+        let receipt = assignment::register(&state, &registration("obligation-7")).unwrap();
+        assignment::advance(
+            &state,
+            "depot",
+            "thread-one",
+            &receipt.id,
+            AssignmentState::WaitingForScreen,
+            crate::screen::says::detail(),
+        )
+        .unwrap();
+
+        let report = reconcile(&state, &Fixed(HashMap::new()));
+        assert_eq!(report.unknown.len(), 1, "it was dropped or left as though it were running");
+        assert!(report.untouched.is_empty());
+
+        let row = assignment::read(&state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Unknown);
+        // Never softened into a completion or into a stop somebody made.
+        assert_ne!(row.state, AssignmentState::Settled);
+        assert_ne!(row.state, AssignmentState::Interrupted);
+        // It is on his list, because only he decides whether to pick it up (§6.3).
+        assert!(row.state.awaits_his_word());
+        // And the receipt says the true thing: it had not started. The screen gate is before
+        // the lease, so this is a fact rather than a hopeful reading.
+        assert!(
+            row.detail.contains("waiting for the screen to unlock and had not started"),
+            "the receipt does not say what it was doing: {}",
+            row.detail
+        );
+        std::fs::remove_dir_all(state).unwrap();
     }
 
     /// Repositories that answer whatever a test says they answer.

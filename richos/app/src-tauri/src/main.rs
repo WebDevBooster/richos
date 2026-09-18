@@ -2046,6 +2046,12 @@ fn main() {
                 // The same reader the host pins an assignment's starting point with, so the
                 // "before" and the "after" of a comparison are taken by one thing.
                 work.set_repositories(reader());
+                // **HOW THE MAC'S SCREEN IS READ** — the CEO's ruling §56. Installed beside
+                // the Git reader and for the same reason: `richos-core` links no framework, so
+                // the real reading comes from the shell. Without this line the host keeps its
+                // honest default (`UnknownScreen`), which never blocks — so a missing
+                // installation loses the feature and never loses the work.
+                work.set_screen(std::sync::Arc::new(screen::MacScreen));
                 let report =
                     richos_core::recovery::reconcile(&data_dir.join("engine-state"), reader().as_ref());
                 eprintln!("[richos] {}", report.log_message());
