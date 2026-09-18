@@ -1519,7 +1519,14 @@ fn main() {
                     // window that cannot be made small enough to fit is a window that does
                     // not fit.
                     .min_inner_size(placement.min_width, placement.min_height)
-                    .initialization_script(launch_init_script(kind, start_ordinal))
+                    // The durable opening-screen answer travels with the launch kind, because
+                    // the curtain decides in the `<head>` and no command can answer by then
+                    // (audit-8 row 5 — see `launch_init_script`).
+                    .initialization_script(launch_init_script(
+                        kind,
+                        start_ordinal,
+                        durable_splash_enabled(&data_dir),
+                    ))
                     // FOCUS IS ASKED FOR AT CONSTRUCTION, not corrected afterwards, so
                     // there is no instant in which the keyboard moved and came back.
                     .focused(activation.presentation == activation::Presentation::Regular)
@@ -6534,12 +6541,53 @@ fn remember_window_geometry(window: &tauri::WebviewWindow, path: std::path::Path
     });
 }
 
-fn launch_init_script(kind: LaunchKind, ordinal: Option<u64>) -> String {
+/// `splash_enabled` IS IN HERE BECAUSE THE CURTAIN DECIDES BEFORE ANY COMMAND CAN ANSWER —
+/// audit-8 row 5.
+///
+/// The CEO switched the opening screen off, `config.json` recorded it
+/// (`"splash_enabled": false`, `splash_disabled_at` stamped), and it came back on the next two
+/// launches. Every step of the write path is sound; the read path is not. `splash.js` runs in
+/// the `<head>` and decides from a `localStorage` MIRROR alone, and `main.js` reconciles that
+/// mirror from the backend at the very end of `init()`, under a comment that says so outright:
+/// *"neither call affects anything the CEO can see this launch"*.
+///
+/// **AND THE MIRROR IS SHARED BETWEEN INSTALLS THAT DISAGREE.** WebKit keys its website data by
+/// BUNDLE ID and ignores `$HOME`
+/// (`~/Library/WebKit/com.richos.app/WebsiteData/…/LocalStorage/localstorage.sqlite3`), so a
+/// candidate walked under a QA scratch `HOME` shares one `localStorage` with the CEO's own
+/// installed app while reading a DIFFERENT `config.json`. Whichever instance booted last wrote
+/// its own durable answer into the shared mirror, so a scratch instance that had been switched
+/// off read back the installed app's `true`. Ray's earlier runs used
+/// `com.richos.app.RAY-101-RUN-A/B/C` ids for exactly this reason; the walks that found this
+/// did not.
+///
+/// So the durable answer travels in the script that is ALREADY in front of every page script,
+/// beside the launch kind, and costs nothing: it is one boolean from a file this process is
+/// about to open anyway. `null` means "this process could not read it", and `splash.js` falls
+/// back to the mirror exactly as it does today — a degraded path that is no worse than the
+/// current behavior, never a curtain drawn on a guess.
+fn launch_init_script(kind: LaunchKind, ordinal: Option<u64>, splash_enabled: Option<bool>) -> String {
     format!(
-        "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?}, ordinal: {} }});",
+        "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?}, ordinal: {}, splashEnabled: {} }});",
         kind.as_str(),
-        ordinal.map(|n| n.to_string()).unwrap_or_else(|| "null".to_string())
+        ordinal.map(|n| n.to_string()).unwrap_or_else(|| "null".to_string()),
+        splash_enabled
+            .map(|b| b.to_string())
+            .unwrap_or_else(|| "null".to_string())
     )
+}
+
+/// The durable opening-screen answer, read straight off disk before the window exists.
+///
+/// `ConfigStore::open` is opened again fifty lines later for the app's own use and never fails
+/// on a missing or corrupt file — it degrades to defaults internally — so this is a second cheap
+/// read of one file rather than a new dependency or a new failure mode. It returns `None` only
+/// when the store genuinely could not be opened, which is the one case where guessing would be
+/// worse than falling back to the mirror.
+fn durable_splash_enabled(data_dir: &std::path::Path) -> Option<bool> {
+    ConfigStore::open(&data_dir.join("config.json"))
+        .ok()
+        .map(|store| store.splash_enabled())
 }
 
 /// The whole record, for a caller that supplies its own UTC offset.
@@ -6954,6 +7002,7 @@ fn reopen_window(app: &AppHandle) {
         .initialization_script(launch_init_script(
             richos_core::launch::LaunchKind::SecondWindow,
             None,
+            durable_splash_enabled(&data_dir),
         ))
         // He asked for it by clicking the Dock icon, so it is visible and focused — the
         // unattended-boot reasoning at the setup site is about a launch nobody asked for.

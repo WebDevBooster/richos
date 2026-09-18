@@ -654,7 +654,7 @@ async function main() {
     const rows = await menuRows(page);
     assertEqual(
       rows,
-      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Home screen", "Connected repositories", "Account connection", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Techy Mode", "Opening screen", "Company", "Home screen", "Connected repositories", "Account connection", "Memory folder", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The opening screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +
@@ -665,7 +665,13 @@ async function main() {
         "Updates is a status panel. Home screen (2026-09-01 — what the home screen\'s company " +
         "buttons say, and which of them show) went in directly under Company, because it is " +
         "about the same six things Company is about, and above Updates for the same reason " +
-        "Company is: a preference outranks a status panel. The floor is still the floor."
+        "Company is: a preference outranks a status panel. The floor is still the floor. " +
+        "Memory folder (2026-09-18, audit-7 row 13) went in directly under Account connection " +
+        "and above Updates, on the same reasoning as every row before it: the ruling does not " +
+        "name it, it is a preference rather than a status panel, and the floor stays the floor. " +
+        "It sits with the other two rows that open a sheet about where something of his lives, " +
+        "and it EXISTS because 'Not now' is now remembered — an offer that stops being asked " +
+        "needs a door that is not a question."
     );
     await page.close();
     return rows.join(" -> ");

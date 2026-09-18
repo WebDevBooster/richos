@@ -1849,6 +1849,90 @@ async function main() {
     );
   });
 
+  await run.check("12a  the DURABLE answer decides the curtain, and the mirror only when there isn't one", async () => {
+    // **AUDIT-8 ROW 5.** The CEO switched the opening screen off, `config.json` recorded it
+    // (`"splash_enabled": false`, `splash_disabled_at` stamped), and it came back on the next
+    // two launches. Check 11 above passes and always did, because it flips the switch and
+    // relaunches in ONE webview where the mirror is intact — which is exactly the case that
+    // was never broken.
+    //
+    // WHAT BREAKS IT IS THAT THE MIRROR IS A SHARED CACHE. WebKit keys website data by BUNDLE
+    // ID and ignores `$HOME`
+    // (`~/Library/WebKit/com.richos.app/WebsiteData/…/LocalStorage/localstorage.sqlite3`,
+    // verified on this machine, written during both walks), so a candidate walked under a QA
+    // scratch `HOME` shares one `localStorage` with the CEO's installed app while reading a
+    // DIFFERENT `config.json` — and `main.js` writes each instance's own durable answer into
+    // that one mirror at the end of every boot. Last writer wins, and the loser draws a
+    // curtain its owner switched off. (Ray's earlier runs used `com.richos.app.RAY-101-RUN-A`
+    // and friends for exactly this reason; the walks that found this did not.)
+    //
+    // So this check is the one check 11 cannot be: the mirror and the durable answer DISAGREE,
+    // and the durable one has to win. `window.__RICHOS_LAUNCH__` is the Tauri initialization
+    // script that already carried the launch kind, which is the only thing in front of
+    // `splash.js` — it runs in the `<head>` and cannot await a command.
+    const cases = [
+      { durable: false, mirror: "true", draws: false, what: "he switched it off; a sibling install wrote true into the shared mirror" },
+      { durable: true, mirror: "false", draws: true, what: "he has it on; a sibling install wrote false into the shared mirror" },
+      { durable: null, mirror: "false", draws: false, what: "no Tauri behind the page — the mirror decides, exactly as it did before" },
+      { durable: null, mirror: null, draws: true, what: "nothing stored anywhere — absent means ON, on both sides" },
+    ];
+    const seen = [];
+    for (const c of cases) {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const p = await newPage(ctx);
+      await p.addInitScript(
+        ([durable, mirror]) => {
+          if (durable !== null) {
+            window.__RICHOS_LAUNCH__ = Object.freeze({ kind: "fresh", ordinal: 1, splashEnabled: durable });
+          }
+          try {
+            if (mirror === null) window.localStorage.removeItem("richos.splash.enabled");
+            else window.localStorage.setItem("richos.splash.enabled", mirror);
+          } catch (e) {
+            /* a context that refuses storage is a case this check does not cover */
+          }
+        },
+        [c.durable, c.mirror]
+      );
+      await p.goto(APP);
+      await p.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+      const got = await p.evaluate(() => ({
+        nodes: document.querySelectorAll("#splash, .splash").length,
+        shown: window.RichSplash.state.shown,
+        declined: window.RichSplash.state.declined,
+      }));
+      const drew = got.nodes > 0 || got.shown === true;
+      assertEqual(
+        drew,
+        c.draws,
+        `durable=${c.durable}, mirror=${JSON.stringify(c.mirror)} (${c.what}) — expected the curtain ` +
+          `${c.draws ? "to draw" : "NOT to draw"}, and it ${drew ? "drew" : "did not"} ` +
+          `(declined: ${JSON.stringify(got.declined)})`
+      );
+      if (!c.draws) assertEqual(got.declined, "switched off", "it declined for some other reason than the setting");
+      seen.push(`durable=${c.durable} mirror=${JSON.stringify(c.mirror)} -> ${drew ? "curtain" : "plain"}`);
+      await ctx.close();
+    }
+
+    // AND THE DURABLE ANSWER COMES FROM RUST, not from something the page could have written
+    // for itself. Read off the shipped source, both sides.
+    const rs = fs.readFileSync(MAIN_RS, "utf8");
+    assert(
+      /fn durable_splash_enabled\(/.test(rs),
+      "src-tauri no longer reads the durable opening-screen answer before the window is built"
+    );
+    assert(
+      /splashEnabled: \{\}/.test(rs) || /splashEnabled/.test(rs),
+      "the initialization script no longer carries splashEnabled"
+    );
+    const js = fs.readFileSync(RENDERER_FILE, "utf8");
+    assert(
+      /__RICHOS_LAUNCH__/.test(js) && /typeof launch\.splashEnabled === "boolean"/.test(js),
+      "splash.js no longer prefers the durable answer, so it is back to deciding from a shared cache"
+    );
+    return seen.join(" · ");
+  });
+
   // ---- the number the whole thing turns on -------------------------------------------------
 
   await run.check("12b  THREE SECONDS, named once, measured — and five when a screen asks for it", async () => {

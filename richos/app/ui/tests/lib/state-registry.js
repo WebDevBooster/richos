@@ -3644,6 +3644,20 @@ module.exports = [
       "count and its control are the chip itself, classified below with the rest of it.",
   },
   {
+    "s": "waiting for the screen",
+    "c": "FRAGMENT",
+    "why":
+      "The tail of the work chip's own count for CEO §56's state — '1 assignment waiting for " +
+      "the screen' — classified beside `waiting for you` directly above it and for the same " +
+      "reason: it never renders alone, and the count IS the affordance, because the chip is " +
+      "the only way to open the pane the assignments live in. It is deliberately NOT the same " +
+      "words as `waiting for you`: `AssignmentState::waits_for_the_world` is not " +
+      "`awaits_his_word`, the wait clears itself when the Mac is unlocked, and telling him a " +
+      "self-resolving wait is his to act on is the nag §56 was given to avoid. Before it had a " +
+      "count of its own, an assignment in that state as his only open work left the chip empty " +
+      "and hidden — no chip, no pane, no way to see the work (esc-20260918T114550Z-64ae379a).",
+  },
+  {
     "s": "Waiting on you:",
     "c": "FRAGMENT",
     "why":
@@ -3717,5 +3731,39 @@ module.exports = [
       "An engineer's detail passed to PartFile::interrupted. It reaches Finding::describe on " +
       "stderr and never Finding::ceo_message, so it cannot appear on his screen. What he reads " +
       "for the same event is the STOPPED_BY_REQUEST sentence above.",
+  },
+  {
+    s: "That folder is there and I couldn't use it. Everything else works as it does now — our conversations are kept somewhere else and are untouched — and there's nothing for you to fix.",
+    c: "INFORMATIONAL",
+    why:
+      "`MemoryStatus.state === \"unusable\"`, reached from the settings menu's `Memory folder` " +
+      "row (audit-7 row 13). NOT actionable and NOT needs-someone-else, and both halves of that " +
+      "are deliberate. He cannot clear it — the corpus resolved and something refused, and " +
+      "`MemoryStatus.detail` carries the machine-facing half which never reaches this screen by " +
+      "that field's own contract. And it names no party, for the same reason MEMORY_NO_READER " +
+      "stopped naming one on 2026-09-04: on a customer's Mac the person who set RichOS up IS " +
+      "him, so pointing him at a third party who does not exist is worse than saying nothing. " +
+      "It says what is off, what is still on, and that nothing is required of him — the three " +
+      "things that shape is for. Provisioning is not offered, because a corpus already exists.",
+  },
+  {
+    s: "I couldn't read where your memory is kept just now. Nothing has changed.",
+    c: "INFORMATIONAL",
+    why:
+      "`memory_status` itself would not answer when he pressed the `Memory folder` row. Nothing " +
+      "was attempted and nothing was changed, and the row is still there to press again — so " +
+      "this is a statement rather than a request, and it deliberately offers no control: a " +
+      "`Try again` button here would be a second name for the row he just used.",
+  },
+  {
+    "s": "body > .overlay",
+    "c": "NOT-RENDERED",
+    "why":
+      "A CSS SELECTOR, not a sentence. It is the argument to `document.querySelectorAll` in " +
+      "home.js's `giveWayToOpenDeskSheet` (audit-7 row 5): a `.overlay` that is a direct child " +
+      "of `<body>` is what a DESK SHEET structurally is, and the opening screen gives way when " +
+      "one appears rather than sitting on top of it. It is never assigned to textContent, an " +
+      "attribute or a label, and the prose filter caught it because a two-word string with a " +
+      "period in it is the one shape it cannot tell from a fragment of copy.",
   },
 ];

@@ -221,6 +221,101 @@ async function main() {
     return "the result is still on screen after a reload, and it sits where it happened";
   });
 
+  await run.check("after a relaunch a held result lands where it happened, not under the newest answer", async () => {
+    // **AUDIT-7 ROW 9, and it is the RELAUNCH case rather than the reload case above.** Within
+    // one session a notice is CARRIED across the snapshot and keeps the `createdAt` it was born
+    // with, which the check above pins. Across a relaunch nothing is carried: the thread is
+    // rebuilt from the ledger and `take_work_notices` hands back everything he has not been
+    // told, each `PendingNotice` carrying its own `raisedAtMs`. `main.js` read `.text` and threw
+    // the rest away, so every one was stamped `Date.now()` and `addLocalNotice` pushed it to the
+    // END of `turnOrder`.
+    //
+    // What Ray saw: two assignments failed at `08:13:10Z` and about `08:14`; he asked "name the
+    // capital of France" and was answered at about `08:16`; the app was relaunched at
+    // `08:19:35Z`; and both failure cards came back AFTER "Paris." — "his scrollback no longer
+    // matches the order of events". This is that, at the same three timestamps.
+    const page = await openFixture(browser);
+    const T_FIRST = 1787948400000; // he asks, and is answered
+    const T_RAISED = 1787948590000; // the job fails, three minutes later
+    const T_SECOND = 1787948760000; // he asks something else, and is answered
+    const say = (turnId, at, text) => ({
+      id: turnId + ":text:0",
+      entityId: "northwind",
+      threadId: "thr_fem",
+      turnId,
+      bindingRevision: 1,
+      createdAt: at,
+      sequence: 0,
+      slot: "stream",
+      visibility: "ceo",
+      kind: "rich_message",
+      phase: "unknown",
+      text,
+    });
+    // The thread as a relaunch rebuilds it: both answers from the ledger, no notices at all.
+    await page.evaluate(
+      ([items]) => {
+        window.__render(
+          { entityId: "northwind", threadId: "thr_fem", mode: "ceo", bindingRevision: 1, items },
+          {}
+        );
+      },
+      [[say("turn_one", T_FIRST, "Twelve."), say("turn_two", T_SECOND, "Paris.")]]
+    );
+    assertEqual(await page.locator("article.tl-rich").count(), 2, "the rebuilt thread does not hold both answers");
+
+    // ...and then the durable drain hands the held failure over, with the time it was RAISED.
+    await page.evaluate(
+      ([text, at]) => {
+        window.RichTimeline.addLocalNotice(window.__model, text, at);
+        window.__renderOnly();
+      },
+      ["Landing the three branches stopped before it finished.", T_RAISED]
+    );
+
+    // The message's own words, not `innerText`'s first line — that is the screen-reader-only
+    // "Rich said", which would have made this read `Rich said | notice | Rich said` and told a
+    // reader nothing about WHICH answer the card landed between.
+    const order = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#messages .tl-notice, #messages article.tl-rich")).map((n) =>
+        n.classList.contains("tl-notice")
+          ? "notice"
+          : ((n.querySelector(".tl-prose") || {}).textContent || "").trim()
+      )
+    );
+    assertEqual(
+      JSON.stringify(order),
+      JSON.stringify(["Twelve.", "notice", "Paris."]),
+      "the held failure is not where it happened — his scrollback does not match the order of events. Got: " +
+        order.join(" | ")
+    );
+
+    // AND A NOTICE RAISED NOW STILL GOES AT THE END, which is the ordinary live case and the
+    // thing a fix for the above could easily have broken.
+    await page.evaluate(() => {
+      window.RichTimeline.addLocalNotice(window.__model, "I'm listening now.", Date.now());
+      window.__renderOnly();
+    });
+    const withLive = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#messages .tl-notice, #messages article.tl-rich")).map((n) =>
+        (
+          (n.querySelector(".tl-notice-body") || n.querySelector(".tl-prose") || {}).textContent || ""
+        ).trim()
+      )
+    );
+    assertEqual(
+      withLive[withLive.length - 1],
+      "I'm listening now.",
+      "a notice raised NOW no longer lands at the end of the thread: " + withLive.join(" | ")
+    );
+    assertEqual(page.__errors.length, 0, "the renderer logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return (
+      "a failure raised between two answers comes back between them after a relaunch " +
+      "(Twelve. / notice / Paris.), and one raised now still comes last"
+    );
+  });
+
   for (const theme of ["dark", "light"]) {
     await run.check(`the notice clears WCAG AA in ${theme} mode, computed`, async () => {
       const page = await withBoth(browser, theme);

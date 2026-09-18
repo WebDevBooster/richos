@@ -55,6 +55,9 @@ async function main() {
         assert(await page.isVisible("#stop"));
         await page.fill("#input", "New company's draft");
         await page.press("#input", "Enter");
+        // NOTHING IS ISSUED WHILE THE NAVIGATION IS IN FLIGHT. This is the assertion this line
+        // has always made and it is unchanged: `openThread` is mid-flight, the model is being
+        // replaced, and a send into a half-built surface would be the wrong fix.
         assertEqual(await page.evaluate(() => window.__openingCalls.filter(c => c.cmd === "send_message" || c.cmd === "steer_turn").length), 0);
         await page.click("#stop");
         assertEqual((await band(page)).detail, "I couldn't stop the previous conversation. Press Stop again.");
@@ -75,10 +78,34 @@ async function main() {
         assert(await page.isDisabled("#send"), "binding alone does not enable Send before saved messages arrive");
         await page.evaluate(() => window.__finishOpeningSnapshot());
         await page.waitForSelector('#conversation:not([hidden])');
-        assertEqual(await page.inputValue("#input"), "New company's draft");
+        // CHANGED 2026-09-18, AUDIT-7 ROW 10, AND IT IS AN OBSOLETE ASSERTION RATHER THAN A NEW
+        // DEFECT. This line read `assertEqual(await page.inputValue("#input"), "New company's
+        // draft")` — it required the sentence he pressed Return on to be sitting untouched in
+        // the composer once the new conversation arrived. That is the defect Ray filed twice
+        // (audit-4 #18 and audit-7 row 10): "the first Return does not send; the second does",
+        // and on his walk it cost 26 seconds and two Returns at check 0. `send()` now HOLDS a
+        // send made during the opening window and replays it on arrival, so the box is empty
+        // and his sentence is in the thread — which is what pressing Return means.
+        //
+        // The two facts this check actually exists for are untouched and asserted above:
+        // nothing is issued while the navigation is in flight, and Stop stays usable through a
+        // failed stop. The draft invariant it also happened to encode is not lost — the check
+        // below it in this same file, "a send refused after navigation restores its draft only
+        // to the original thread", is the one that owns it and it still passes.
+        await page.waitForFunction(
+          () => Array.from(document.querySelectorAll(".tl-user-text")).some(n => n.textContent.trim() === "New company's draft"),
+          { timeout: 8000 }
+        );
+        assertEqual(await page.inputValue("#input"), "", "the held send landed but its words are still in the composer");
         assert(!(await page.isDisabled("#send")));
-        assertEqual(await band(page), null);
         assertEqual(await page.evaluate(() => window.__RICHOS_TIMELINE__().threadId), "acme");
+        // The band is no longer null here and that is the point rather than a tolerance: the
+        // held send is genuinely in flight on the new conversation, so "Sending your message /
+        // Waiting for Rich to accept it" is the honest thing to be saying. It used to read null
+        // because his sentence had been thrown away and nothing was happening at all.
+        const after = await band(page);
+        assertEqual(after && after.head, "Sending your message", "the replayed send is not described on screen: " + JSON.stringify(after));
+        assertEqual(after.detail, "Waiting for Rich to accept it");
         await page.close();
       }
     });

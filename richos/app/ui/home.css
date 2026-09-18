@@ -1117,6 +1117,13 @@ body.home-open {
   line-height: 1.2;
   color: #a6b3cb; /* 8.23:1 on the plate's worst composite */
   letter-spacing: 0.02em;
+  /* The word is part of the door and answers a click (audit-7 row 3, `home.js`'s note beside
+     the handler). The pointer is the only appearance change: the type, the color, the size
+     and the spacing are the ruling's and are untouched. `width: max-content` keeps the hit
+     area to the word itself rather than to the whole column — a click 300px to the right of
+     `Enter` should not be a way into the desk. */
+  cursor: pointer;
+  width: max-content;
 }
 
 /* =============================================================================================

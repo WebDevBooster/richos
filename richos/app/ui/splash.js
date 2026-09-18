@@ -338,7 +338,39 @@
   /// ABSENT MEANS ON. An absent key is an absent opinion, not a decision to switch the
   /// surface off - the same rule `config.rs` states on the Rust side, and the two have to
   /// agree or a first launch would disagree with itself.
+  /// THE DURABLE ANSWER FIRST, THE MIRROR ONLY WHEN THERE ISN'T ONE — audit-8 row 5.
+  ///
+  /// This read used to be `read(KEY_ENABLED) !== "false"` and nothing else, and it decided the
+  /// curtain in the `<head>`, before any command could answer. The CEO switched the opening
+  /// screen off, `config.json` recorded it, and it came back on the next two launches.
+  ///
+  /// THE MIRROR IS A CACHE AND IT IS SHARED BETWEEN INSTALLS THAT DISAGREE. WebKit keys its
+  /// website data by BUNDLE ID and ignores `$HOME`, so a candidate walked under a QA scratch
+  /// `HOME` shares one `localStorage` with the CEO's installed app while reading a different
+  /// `config.json` — and `main.js`'s `syncSplashFromBackend` writes each instance's own durable
+  /// answer into that one shared mirror at the end of every boot. Last writer wins, and the
+  /// loser draws a curtain its owner switched off.
+  ///
+  /// `window.__RICHOS_LAUNCH__.splashEnabled` is the durable answer, put in front of every page
+  /// script by the Tauri initialization script that already carries the launch kind. `null`
+  /// means this process could not read the store, and only then does the mirror decide — which
+  /// is exactly today's behavior, so the degraded path is no worse than what shipped.
+  ///
+  /// The mirror stays: it is what `main.js`'s settings row reads synchronously to paint the
+  /// switch, and it is the only answer a page with no Tauri behind it (the acceptance suite,
+  /// a browser) can have.
+  function durableEnabled() {
+    try {
+      var launch = window.__RICHOS_LAUNCH__;
+      return launch && typeof launch.splashEnabled === "boolean" ? launch.splashEnabled : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function enabled() {
+    var durable = durableEnabled();
+    if (durable !== null) return durable;
     return read(KEY_ENABLED) !== "false";
   }
 

@@ -716,8 +716,49 @@ window.RichHome = (function () {
     });
     box.appendChild(b);
 
-    var cap = elem("p", null, { id: "home-door-cap" });
+    // THE WORD IS PART OF THE DOOR, AND UNTIL 2026-09-18 IT WAS A TRAP (audit-7 row 3).
+    //
+    // Ray walked candidate .7 and could not get in: he clicked the word `Enter` four times
+    // across two launches and the screen did not move. It was not a broken handler — there
+    // was no handler. This was a bare `<p>` with `cursor: auto`, under a button, in the one
+    // place on the screen a person looks for a way in. `elementFromPoint` at the middle of
+    // it returns `home-door-cap`, so every one of those four clicks landed exactly where he
+    // aimed and nothing was listening. Reproduced under WebKit before this change: click the
+    // caption -> `RichHome.isOpen()` still true, focus dropped to `<body>`.
+    //
+    // It stays a `<p>` and its typography is untouched, so the owner's ruling (his own words
+    // are in the private record) is exactly as it was: the label, and the word `Enter` under
+    // it in V1's type. What changes is that the word now does what a person reading it
+    // expects. NO SECOND ACCESSIBLE CONTROL: the button above already carries
+    // `aria-keyshortcuts="Enter"`, and announcing a second button for the same door would
+    // describe the screen worse than it describes it now, so this gets no role and no
+    // tab stop — the key already works from anywhere, which is the whole point of the word.
+    // AND IT IS OUT OF THE ACCESSIBILITY TREE, which is audit-8 row 3's other half. Ray ran
+    // the accessibility inspector over candidate .8 and got the cause audit-7 could only
+    // observe:
+    //
+    //     button Talk to Rich of UI element 1 of scroll area 1 of ...
+    //     static text Enter of group 15 of UI element 1 of scroll area 1 of ...
+    //
+    // "A screen-reader user hears 'Talk to Rich, button' and then a stray unlabeled 'Enter'."
+    // That is true and it is worth fixing, and the fix is NOT a second button. The fact the
+    // word carries — the Enter key opens this — is already in the tree, in the one place the
+    // platform looks for it: `aria-keyshortcuts="Enter"` on the door itself. The visible word
+    // is a redundant RENDERING of that fact for a reader's eye, so it is decoration to
+    // assistive technology and says so.
+    //
+    // NO FUNCTION IS LOST BY HIDING IT. The usual objection to `aria-hidden` on something
+    // clickable is that a keyboard user loses the action; here the action is the door, the door
+    // is focusable, and `onHomeKey` makes the key work from anywhere on the screen — so the
+    // only thing this element adds is a pointer target for a person aiming at a word that
+    // looks like part of the control. Announcing it as a second control with the same name is
+    // the thing `lib/state-registry.js` calls "two controls with one name is the thing a
+    // screen reader cannot tell apart".
+    var cap = elem("p", null, { id: "home-door-cap", "aria-hidden": "true" });
     cap.textContent = DOOR_CAPTION;
+    cap.addEventListener("click", function () {
+      hide("caption");
+    });
     box.appendChild(cap);
 
     return box;
@@ -731,16 +772,103 @@ window.RichHome = (function () {
   /// keystroke is on a control inside the home screen that already answers it, which is the
   /// case every time the CEO arrives, because `focusHome()` puts focus on the door; or
   /// something else has already handled it.
+  ///
+  /// THE SETTINGS REFUSAL IS SCOPED TO AN OPEN MENU NOW, AND THAT IS AUDIT-7 ROW 3's SECOND
+  /// HALF. `t.closest(".settings")` was reading the wrong fact. The settings CONTROL lives in
+  /// `.settings` and `settings-button.js` deliberately gives focus back to it when the menu
+  /// closes (`close(true)` on Escape), so from the first moment the CEO touches that control —
+  /// which is the only other control on this screen, and therefore the first thing anyone
+  /// touches — the button kept focus and this function refused every Return for the rest of the
+  /// screen's life. Measured under WebKit, before this change:
+  ///
+  ///   click the settings control   -> menu open,  activeElement BODY
+  ///   Escape                       -> menu closed, activeElement set-btn
+  ///   Return                       -> home still up; the settings menu toggled back OPEN
+  ///   Return                       -> home still up; the menu toggled closed
+  ///
+  /// So `Enter` under the door was a promise the screen stopped keeping, silently, after one
+  /// click somewhere else. The menu's own Enter is still its own: while `#set-menu` is on
+  /// screen the keystroke belongs to whatever row has focus. What is gone is the refusal that
+  /// outlived the menu.
   function onHomeKey(e) {
     if (!state.open || !e || e.key !== "Enter") return;
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     var t = e.target;
     if (t && t.closest) {
-      if (t.closest(".settings") || t.closest(".home-prefs")) return;
+      if (t.closest(".home-prefs")) return;
+      if (t.closest(".settings") && settingsMenuUp()) return;
       if (t.closest("#home button, #home a[href], #home input, #home textarea, #home select, #home [tabindex]")) return;
     }
     e.preventDefault();
     hide("enter-key");
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // A DESK SHEET OPENED FROM THIS SCREEN BRINGS THE DESK WITH IT — audit-7 row 5.
+  //
+  // Ray reached `Connected repositories` from the settings menu while the opening screen was
+  // up, "clicked it twice, saw nothing both times, and concluded it was dead". It was not
+  // dead. It had opened on the desk, BEHIND this composition, and was still sitting there
+  // when `Talk to Rich` finally let him through. Measured under WebKit, before this change:
+  //
+  //     #home                  computed z-index 150, position fixed
+  //     #repositories-sheet    computed z-index  60, position fixed
+  //     elementFromPoint at the middle of the sheet's own panel  ->  home-overlay
+  //
+  // AND IT WAS WORSE THAN INVISIBLE: `repositories.js`'s `open()` focuses the company select,
+  // and `onFocusIn` above pulled focus straight back to the door (measured: sheet open,
+  // `activeElement` = `home-enter`). So even painted in front it could not have been typed
+  // into. That is the same defect `#home-prefs` was given an exception for, in the note above
+  // — a second surface with the same shape and no exception.
+  //
+  // WHY THE SCREEN GIVES WAY RATHER THAN THE SHEET BEING RAISED. The owner's 2026-09-02 ruling
+  // is that nothing covers the spectacle of this composition, and every door that did was
+  // rejected on that ground alone; raising `.overlay` above `#home` would put an arbitrary
+  // modal over it. These sheets LIVE on the desk — the settings menu that opens them floats
+  // above every screen by §15, the sheets do not — so a row that opens one is a way through,
+  // exactly like the door. Giving way also settles the focus half in the same move, with no
+  // second exception list to keep.
+  //
+  // DERIVED, NOT ENUMERATED. The trigger is "a `.overlay` that is a direct child of `<body>`
+  // stopped being hidden", which is what a DESK SHEET structurally is — the same argument
+  // `main.js`'s `POPUP_SELECTOR` makes for Escape. `#repositories-sheet`, `#permission-sheet`
+  // and `#quit-question` are the three today; one added next month is covered with nothing to
+  // remember here. `#home-prefs` is body-level too and is deliberately NOT an `.overlay`: it is
+  // this screen's own panel and floats above it.
+  function giveWayToOpenDeskSheet() {
+    if (!state.open) return false;
+    var sheets = document.querySelectorAll("body > .overlay");
+    for (var i = 0; i < sheets.length; i++) {
+      if (!sheets[i].hidden) {
+        hide("desk-sheet");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function watchForDeskSheets() {
+    if (typeof MutationObserver !== "function") return; // then the screen behaves as it did
+    new MutationObserver(giveWayToOpenDeskSheet).observe(document.body, {
+      attributes: true,
+      attributeFilter: ["hidden"],
+      childList: true,
+      subtree: true,
+    });
+    giveWayToOpenDeskSheet();
+  }
+
+  /// Is the universal settings menu actually ON SCREEN? Asked of the DOM rather than of
+  /// `settings-button.js`, which exposes no "is it open" reader and is loaded after this file.
+  /// A missing menu answers false, which is the safe direction: with no menu there is nothing
+  /// that owns Enter, so the door does.
+  function settingsMenuUp() {
+    try {
+      var m = document.getElementById("set-menu");
+      return !!m && !m.hidden;
+    } catch (e) {
+      return false;
+    }
   }
 
   /// Put the door where the left column ends.
@@ -1076,6 +1204,12 @@ window.RichHome = (function () {
     });
 
     focusHome();
+
+    // ...unless a desk sheet is already open behind it, which `show()` would otherwise bury —
+    // the CEO pressing the logo with `Connected repositories` still up. No mutation fires for a
+    // sheet that has not changed, so coming back reads the state once. See
+    // `giveWayToOpenDeskSheet`.
+    giveWayToOpenDeskSheet();
   }
 
   function toggle() {
@@ -1439,6 +1573,9 @@ window.RichHome = (function () {
         document.fonts.ready.then(measureChips).catch(function () {});
       }
       focusHome();
+      // A sheet that lives on the desk takes the CEO to the desk (audit-7 row 5). Installed
+      // here rather than in the module body because `document.body` is what it observes.
+      watchForDeskSheets();
 
       // The settings menu gets ONE row — "Home screen", with a button that opens the panel
       // above. §15 puts that menu on every screen, so this reaches him from the home screen

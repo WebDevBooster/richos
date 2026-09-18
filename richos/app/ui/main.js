@@ -1085,6 +1085,11 @@ async function openThread(threadId, opts) {
   restoreThreadViewState(threadId);
   resetWaitBandForThread();
   scheduleRender();
+  // AND THE SEND HE ALREADY MADE, if he pressed Return while this was still opening — audit-7
+  // row 10. AFTER `restoreThreadViewState`, which is what puts his sentence back in the box,
+  // and before the awaited calls below: `replayHeldSend` compares the box against what he
+  // actually submitted, so it has to run while that is still the box's state.
+  replayHeldSend(threadId);
   // WHERE ONBOARDING STANDS FOR THIS THREAD'S COMPANY. Re-derived on every thread open
   // rather than once at boot, because a thread's company is immutable and moving between
   // threads can move between companies — a notice left over from the last one would be a
@@ -1544,8 +1549,65 @@ function restoreUnsentText(text, threadId) {
   parkViewStateNow();
 }
 
+/// A send the CEO issued while the thread he is arriving at was still opening. Held, never
+/// dropped. See the note in `send()` below — audit-7 row 10.
+let sendHeldWhileOpening = null;
+
+/// Replay the send he already made, now that there is somewhere for it to go.
+///
+/// THE HOLD IS DROPPED RATHER THAN GUESSED AT in all three cases where it would be a guess: a
+/// different thread finished opening (his words are still in that thread's draft, and one more
+/// Return sends them); the composer no longer holds exactly the sentence he pressed Return on,
+/// so he has edited it since and a send would submit words he never submitted; or the surface
+/// did not end up on a conversation at all.
+///
+/// AT MOST ONE, which is the other half of the defect. Three Returns during the opening window
+/// are one held send, not three: `send()` overwrites the hold rather than queueing, and a
+/// person hammering Return because nothing happened must not find three copies of his sentence
+/// in the thread.
+function replayHeldSend(threadId) {
+  const held = sendHeldWhileOpening;
+  sendHeldWhileOpening = null;
+  if (!held) return;
+  if (held.threadId !== threadId) return;
+  if (mainView !== "conversation") return;
+  if (inputEl.value !== held.text) return;
+  send();
+}
+
 async function send(explicitText) {
-  if (mainView === "opening") return;
+  // AUDIT-7 ROW 10, AND IT WAS A SILENT DROP, NOT A REFUSAL. `mainView === "opening"` is the
+  // window between a thread being asked for and its timeline being on screen — six bridge
+  // round trips on a cold boot. Through that whole window the composer looks completely idle:
+  // it is editable, and `syncComposerMode` gives it the IDLE placeholder `Talk to Rich…`. So
+  // the CEO types, presses Return, and this line threw his sentence away without a word.
+  //
+  // Reproduced under WebKit with the harness's own slow-bridge lever at 400ms, which is what
+  // a cold first run costs:
+  //
+  //     click a thread   -> composer mode "opening", placeholder "Talk to Rich…",
+  //                         send visible but disabled, input editable
+  //     type + Return    -> text still in the box, ZERO user bubbles
+  //     6 s later        -> mode "idle", text still in the box, nothing sent
+  //     Return again     -> sent
+  //
+  // Which is exactly what Ray filed twice: "the first Return after clicking into the composer
+  // does not send; the second does" (audit-7 row 10, carried from audit-4 #18). His check 0
+  // took 26 seconds and two Returns on the CEO's own screen.
+  //
+  // It is NOT fixed by sending into a half-built surface. The refusal is right — `openThread`
+  // is mid-flight, the model is being replaced, and `drafts.set(threadId, inputEl.value)` a
+  // few lines into its tail already declares that typing during this window belongs to the
+  // thread being opened. What was missing is that the same declaration was never made for the
+  // SEND. So the send is held and replayed the moment the thread is on screen, by
+  // `replayHeldSend` above.
+  if (mainView === "opening") {
+    const text = (typeof explicitText === "string" ? explicitText : inputEl.value).trim();
+    if (text && openingThread) {
+      sendHeldWhileOpening = { threadId: openingThread.threadId, text: inputEl.value };
+    }
+    return;
+  }
   // Start/Resume sends its own acceptance without silently submitting or deleting a draft.
   const preserveDraft = typeof explicitText === "string";
   const text = preserveDraft ? explicitText.trim() : inputEl.value.trim();
@@ -2915,9 +2977,47 @@ function renderDrillChip() {
   // pane, no approve control, however plainly the notice said it was ready for him.
   const rows = assignments.rows || [];
   const awaiting = rows.filter((row) => row.awaitingYou).length;
-  const openWork = rows.filter((row) => ["registered", "preparing", "running"].includes(row.state)).length;
+  // **A JOB THAT HAS BEEN WRITTEN DOWN IS NOT RUNNING**, and this chip said it was. The line
+  // here counted `["registered", "preparing", "running"]` together and printed
+  // "N assignments running" — so the instant an assignment was registered, before a workspace
+  // existed and before anything had been dispatched, his chip claimed work was under way.
+  //
+  // That is Ray's row 2 on the UI side: "Rich tells him a job is running when it has already
+  // failed ... a CEO who reads the first answer and looks away has been told something false."
+  // `AssignmentState`'s own doc comments are precise about the difference and `work-summary.js`
+  // has always relayed them precisely — `registered` is "Written down. Nothing has been
+  // prepared yet.", `preparing` is "Getting a workspace ready.", `running` is "Running." The
+  // chip was the one surface that flattened three states into the strongest of the three.
+  //
+  // `running` now means what it says on the backend too: it is written once the back end's own
+  // stream proves the turn was taken, rather than at dispatch. So "starting" covers exactly the
+  // two states where the job exists and nothing has yet proved it is under way, and neither
+  // count is ever folded into the other.
+  //
+  // THE NOUN STAYS on both, because `${active} working` two parts up is about WORKERS: a chip
+  // reading "2 working · 3 running" would be two different things counted in the same voice.
+  // **AND `waiting-for-screen` GETS ITS OWN COUNT, OR THE PANE BECOMES UNREACHABLE.** CEO §56
+  // added a first-class state for work that is waiting on the Mac being unlocked. It is
+  // `is_open` in `AssignmentState` and deliberately NOT `awaits_his_word` — it resolves itself,
+  // and "waiting for you" would be the nag §56 was given to avoid. So it appears in neither
+  // `awaiting` above nor the two counts below, and an assignment in that state was his ONLY
+  // open work would leave `parts` empty, hide the chip, and take the assignments pane with it —
+  // no chip, no pane, no way to see the work at all. Raised by `echo-opus-screenwait1` as
+  // `esc-20260918T114550Z-64ae379a`.
+  //
+  // ITS OWN WORD, NEVER FOLDED INTO "running", for the same reason `registered` is not:
+  // "waiting for the screen" is the truth and it is the one thing that tells him why nothing is
+  // moving. `work-summary.js` already carries the sentence for the row itself ("Waiting for the
+  // screen to unlock — I'll carry on the moment it's back."); this is the count that gets him to
+  // it. **MOST STUCK FIRST** is the order: his decision, then a wait that clears itself, then
+  // what is starting, then what is running.
+  const forScreen = rows.filter((row) => row.state === "waiting-for-screen").length;
+  const starting = rows.filter((row) => row.state === "registered" || row.state === "preparing").length;
+  const running = rows.filter((row) => row.state === "running").length;
   if (awaiting) parts.push(`${awaiting} waiting for you`);
-  if (openWork) parts.push(`${openWork} ${openWork === 1 ? "assignment" : "assignments"} running`);
+  if (forScreen) parts.push(`${forScreen} ${forScreen === 1 ? "assignment" : "assignments"} waiting for the screen`);
+  if (starting) parts.push(`${starting} ${starting === 1 ? "assignment" : "assignments"} starting`);
+  if (running) parts.push(`${running} ${running === 1 ? "assignment" : "assignments"} running`);
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
   // error code; this says what actually happened.
   if (unknown) parts.push(`${unknown} I can't see`);
@@ -3244,25 +3344,36 @@ function calmEnoughForANotice() {
 
 /// Say one background result on the calm timeline, as an attributed local line — never as
 /// Rich's own turn text, and never a stack trace (§3.3, §3.7).
-function sayWorkNotice(text) {
+///
+/// `raisedAt` IS WHEN IT HAPPENED, NOT WHEN HE WAS TOLD, and carrying it is audit-7 row 9.
+/// `PendingNotice` has always reported `raisedAtMs`; this file read `.text` and threw the rest
+/// away, so `addLocalNotice` stamped `Date.now()` and put the card at the end of the thread.
+/// After a relaunch that is wrong by however long the notice waited on disk: Ray watched two
+/// failures raised at `08:13:10Z` and `08:14` come back, after the relaunch at `08:19:35Z`,
+/// BELOW an answer given at about `08:16` — "his scrollback no longer matches the order of
+/// events". Omitted (the live `rich://` lane, a relayed refusal) it still means now.
+function sayWorkNotice(text, raisedAt) {
   if (!text) return;
-  richVoiceSays(text);
+  richVoiceSays(text, raisedAt);
 }
 
 function flushWorkNotices() {
   if (!heldWorkNotices.length || !calmEnoughForANotice()) return;
   const pending = heldWorkNotices;
   heldWorkNotices = [];
-  for (const text of pending) sayWorkNotice(text);
+  for (const held of pending) sayWorkNotice(held.text, held.raisedAt);
 }
 
-function receiveWorkNotice(text) {
+function receiveWorkNotice(text, raisedAt) {
   if (!text) return;
+  // HELD WITH ITS OWN TIME. A notice that waits for a turn boundary can wait minutes, and
+  // stamping it at the moment the boundary arrives would misplace it for the same reason the
+  // relaunch did.
   if (!calmEnoughForANotice()) {
-    heldWorkNotices.push(text);
+    heldWorkNotices.push({ text, raisedAt });
     return;
   }
-  sayWorkNotice(text);
+  sayWorkNotice(text, raisedAt);
 }
 
 /// Everything he has not been told yet on this conversation. Called when a thread opens and
@@ -3279,14 +3390,23 @@ async function drainWorkNotices() {
     // honest, temporary answers (§3.2). The notices stay on disk; the next call gets them.
     return;
   }
-  for (const notice of pending || []) receiveWorkNotice(notice.text);
+  // `raisedAtMs` comes straight off `assignment::PendingNotice` and is what puts the card where
+  // it happened rather than at the end of his thread (audit-7 row 9). These are the notices that
+  // may be OLD — this read is the durable half, and it is the one a relaunch takes.
+  for (const notice of pending || []) receiveWorkNotice(notice.text, notice.raisedAtMs);
 }
 
 /// A line Rich says LOCALLY — a voice-mode failure he explains himself. Not a turn and not
 /// evidence: it carries a synthetic turn id with no turn record, so it can never grow a
-/// duration row claiming work that never happened, and the next snapshot drops it.
-function richVoiceSays(text) {
-  window.RichTimeline.addLocalNotice(timelineModel, text, Date.now());
+/// duration row claiming work that never happened.
+///
+/// `at` defaults to now, which is what every caller in the voice path means. A background
+/// result handed over by `take_work_notices` passes its own `raisedAtMs` instead, so it lands
+/// where it happened in his scrollback rather than under the newest answer (audit-7 row 9);
+/// `timeline.js`'s `placeByTime` does the placing, and for a notice raised now it appends
+/// exactly as it always did.
+function richVoiceSays(text, at) {
+  window.RichTimeline.addLocalNotice(timelineModel, text, typeof at === "number" ? at : Date.now());
   followBottom = true;
   scheduleRender();
 }
@@ -3698,7 +3818,7 @@ Bridge.listen("rich://voice-notice", ({ payload }) => {
 Bridge.listen("rich://work-notice", ({ payload }) => {
   if (!payload || !payload.notice || !payload.notice.text) return;
   if (payload.threadId !== activeThreadId) return;
-  receiveWorkNotice(payload.notice.text);
+  receiveWorkNotice(payload.notice.text, payload.notice.raisedAtMs);
 });
 
 // Relay the reply stream to the speaker. Separate listeners so the render path above is
@@ -5007,11 +5127,55 @@ el("first-run-later").addEventListener("click", declineFirstRunInterview);
 /// produce.
 window.__RICHOS_FIRST_RUN__ = () => renderFirstRunNotice();
 
+/// WHERE "NOT NOW" IS REMEMBERED — audit-7 row 13, and the honest fallback rather than the
+/// right home for it.
+///
+/// THE RIGHT HOME IS `config.rs`. Every other durable preference in this window is a Rust
+/// `ConfigStore` value with a `localStorage` mirror in front of it for the first paint, and
+/// this one has no backend field to mirror. Adding one is `richos-core`, which this branch is
+/// not permitted to touch, so what ships is the mirror on its own: it survives a relaunch,
+/// which is the whole of the defect, and it is lost if the webview's storage is cleared, which
+/// costs him one dismissal. SAID PLAINLY rather than left to be discovered — the durable half
+/// is a `memory_setup_declined` flag on the config record, and until it exists this is a
+/// per-webview answer and not a per-install one.
+const MEMORY_DECLINED_KEY = "richos.memorySetupDeclined";
+
+function memorySetupDeclined() {
+  try {
+    return window.localStorage.getItem(MEMORY_DECLINED_KEY) === "true";
+  } catch (_e) {
+    // Storage denied: fall back to asking, which is today's behavior and never a lost offer.
+    return false;
+  }
+}
+
+function rememberMemorySetupDeclined() {
+  try {
+    window.localStorage.setItem(MEMORY_DECLINED_KEY, "true");
+  } catch (_e) {
+    /* Then he is asked again next launch, which is the old behavior rather than a new fault. */
+  }
+}
+
 /// Ask, or say what is wrong, or do nothing at all. Returns true when a dialog opened, so
 /// `init` can hold the company question back rather than stacking it.
 function maybeAskAboutMemory() {
   if (!memoryState) return false;
   if (memoryState.state === "none") {
+    // **"NOT NOW" IS AN ANSWER, AND IT USED TO BE FORGOTTEN AT EVERY LAUNCH.** Ray saw the
+    // corpus sheet twice in one walk, over the home screen both times, and audit-6 saw it
+    // before that: on a machine with no memory folder this branch had no record of a decline,
+    // so it re-asked forever. It is the same defect the `no-compiler` branch immediately below
+    // was fixed for on 2026-09-04 — "on a provisioned machine with no compiler that is EVERY
+    // launch forever ... a permanent interruption rather than a one-time notice" — and this,
+    // the branch above it, was left with it.
+    //
+    // THE OFFER IS NOT LOST BY GOING QUIET. A question that stops being asked and leaves no way
+    // to answer it would trade a nag for a dead end, and the affordance rule would be right to
+    // refuse it — so the settings menu carries a `Memory folder` row (`registerMemory` below),
+    // which opens this same sheet in whatever state the backend reports. That row is the
+    // control this state now names.
+    if (memorySetupDeclined()) return false;
     openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
     return true;
   }
@@ -5110,10 +5274,69 @@ async function provisionMemory() {
 }
 
 memorySetupGoEl.addEventListener("click", provisionMemory);
-memorySetupLaterEl.addEventListener("click", closeMemorySetup);
+// "NOT NOW" IS THE ANSWER THAT GETS REMEMBERED, and only this control records it — audit-7 row
+// 13. `Close`, the scrim and Escape all dismiss the sheet in its DONE state, which is a
+// different screen with nothing to decline; recording a decline there would suppress an offer
+// he had just accepted. It records at the press rather than inside `closeMemorySetup` for that
+// reason, and `provisionMemory` never touches the flag at all.
+memorySetupLaterEl.addEventListener("click", () => {
+  rememberMemorySetupDeclined();
+  closeMemorySetup();
+});
 memorySetupCloseEl.addEventListener("click", closeMemorySetup);
 memorySetupEl.addEventListener("click", (e) => {
   if (e.target === memorySetupEl) closeMemorySetup();
+});
+
+/// THE WAY BACK TO AN OFFER HE PUT OFF (audit-7 row 13). §15's universal settings menu already
+/// carries `Connected repositories` and `Account connection`; this is the third of the same
+/// kind, in the app's own word for it — `provisionMemory`'s finished heading is "Your memory
+/// folder."
+///
+/// It opens the sheet in whatever state the backend reports, re-read at the press rather than
+/// from the boot's answer: `provision_memory` can be run from this window, so the answer can
+/// have changed since launch. An unreadable `memory_status` says so in the sheet rather than
+/// leaving the row dead.
+/// The sentence for `unusable`, and it is the ONE string this row needed that did not already
+/// exist. `MemoryStatus` has four states; `MEMORY_ASK`, `MEMORY_DONE` and `MEMORY_NO_READER`
+/// cover three, and `unusable` had none because the boot path deliberately says nothing for it
+/// ("an operator's problem with its own boot line and no sentence worth interrupting him with").
+/// A row he presses himself has to answer, so it answers in the same register as
+/// `MEMORY_NO_READER`: what does not work, what still does, and that nothing is required of him.
+/// `detail` is the machine-facing half and stays off this screen, exactly as `MemoryStatus`'s own
+/// doc comment says it must.
+const MEMORY_UNUSABLE =
+  "That folder is there and I couldn't use it. Everything else works as it does now — our " +
+  "conversations are kept somewhere else and are untouched — and there's nothing for you to fix.";
+
+window.RichSettings.registerMemory({
+  open: async () => {
+    const fresh = await invokeQuiet("memory_status");
+    if (fresh) memoryState = fresh;
+    if (!memoryState) {
+      openMemorySetup("I couldn't read where your memory is kept just now. Nothing has changed.", null, {
+        canProvision: false,
+      });
+      return;
+    }
+    if (memoryState.state === "none") {
+      openMemorySetup(MEMORY_ASK, memoryState.offered_location, { canProvision: true });
+      return;
+    }
+    memorySetupTitleEl.textContent = "Your memory folder.";
+    // The state's own sentence, never a guess: `ready`, `no-compiler` and `unusable` are three
+    // different facts and `MemoryStatus`'s own doc comment says why collapsing two of them would
+    // "offer to create a corpus he already has".
+    const note =
+      memoryState.state === "ready"
+        ? MEMORY_DONE
+        : memoryState.state === "no-compiler"
+          ? MEMORY_NO_READER
+          : MEMORY_UNUSABLE;
+    // `root`, which is where it actually IS — and from the backend, never composed here: the
+    // acceptance suite forbids a corpus path in this surface that the backend did not supply.
+    openMemorySetup(note, memoryState.root || null, { canProvision: false });
+  },
 });
 
 // ---------------------------------------------------------------------------------------

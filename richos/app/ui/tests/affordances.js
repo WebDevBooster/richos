@@ -2154,6 +2154,484 @@ async function main() {
     return out.join("; ");
   });
 
+  // -------------------------------------------------------------------------------------
+  // PART 6 — THE OPENING SCREEN HAS NO DEAD CONTROL.  BLOCKING, real DOM, real clicks.
+  //
+  // WHAT IT IS FOR, AND WHY PARTS 1-3 COULD NOT SEE IT. Parts 1-3 ask "does this classified
+  // STATE have a control?". Audit-7 row 3 was the mirror image: a control with no state
+  // behind it. The word `Enter` sat under `Talk to Rich` as a bare `<p>` with no handler, so
+  // Ray clicked it four times across two launches and the front door did not open — eleven
+  // minutes to get into the app, with the only working way in being the button that also
+  // turns the microphone on. Every check in this file was green over it, and so was
+  // `home.js`'s own `Enter`-is-a-promise check, because BOTH drive the screen through
+  // `RichHome.hide()` / `page.keyboard` and neither had ever clicked that word.
+  //
+  // THE RULE, and it is derived from the DOM rather than from a list: on the opening screen,
+  // anything that PRESENTS as a control must ACT as one. Presenting as a control is
+  // `<button>`, `<a href>`, `[role=button]`, or `cursor: pointer` — the four things a person
+  // reads as "this is for pressing", asked of the computed style so a new control is covered
+  // the day it is written with nothing to remember here. Acting as one is: a real
+  // `page.mouse.click` at its middle changes something observable — the screen leaves, or a
+  // panel opens, or the menu opens.
+  //
+  // A control that must NOT answer a press declares itself with `data-inert-control` and a
+  // reason, the same discipline `data-dismiss` uses. There are none today.
+  //
+  // IT ASKS "IS IT WIRED?", NOT "DID THE SCREEN MOVE?", AND THE FIRST DRAFT ASKED THE WRONG
+  // ONE. Clicking three observables (screen left / panel open / menu open) called all seven
+  // company chips dead: a chip changes `aria-pressed` and re-filters the picture, and the one
+  // that is ALREADY selected legitimately changes nothing at all. An observable set is a list,
+  // and this file's own thesis is that a list drifts. So `addEventListener` is wrapped before
+  // the page's scripts run and every element that takes a press handler is recorded — the
+  // question the defect actually poses, asked of the DOM, with no observable to enumerate and
+  // no no-op to misread. Delegation counts: a handler on an ancestor wires its children.
+  // -------------------------------------------------------------------------------------
+  /// THE LOADING LAYER COVERS THE WHOLE COMPOSITION UNTIL THE PICTURE IS UP, and it is
+  /// `z-index: 10` with pointer events until it gets `.gone`. A click aimed at the door in the
+  /// first second lands on `#home-loading` instead, which is a real thing a person can hit and
+  /// is NOT what these checks are about — so they wait for the screen to settle, and say so if
+  /// it never does rather than clicking into a curtain and reporting the result.
+  ///
+  /// `startField()` is driven directly because the picture is normally started from
+  /// `requestIdleCallback`, which a headless run may never deliver; `home.js` exports it for
+  /// exactly this. A machine with no WebGL takes `degrade()` instead, which also stops that
+  /// layer taking the pointer and leaves the way through — both endings settle.
+  async function settleOpeningScreen(page) {
+    await page.evaluate(() => window.RichHome.startField && window.RichHome.startField());
+    await page.waitForFunction(
+      () => {
+        const l = document.querySelector("#home-loading");
+        return !l || l.classList.contains("gone") || getComputedStyle(l).pointerEvents === "none";
+      },
+      { timeout: 20000 }
+    );
+    // The 0.8s opacity transition still has to run out before `elementFromPoint` agrees.
+    await page.waitForTimeout(250);
+  }
+
+  const HANDLER_SPY = () => {
+    const PRESS = ["click", "pointerdown", "mousedown", "pointerup", "mouseup"];
+    const orig = EventTarget.prototype.addEventListener;
+    const wired = new WeakSet();
+    // Delegation counts: a press handler on an ancestor wires everything under it. A
+    // document- or window-level handler does NOT count — `settings-button.js` has one for
+    // "click outside closes the menu", and letting that vouch for every element on the page
+    // would make this check pass over anything.
+    window.__wiredForPress = (node) => {
+      for (let n = node; n; n = n.parentElement) if (wired.has(n)) return true;
+      return false;
+    };
+    EventTarget.prototype.addEventListener = function (type, fn, opts) {
+      if (PRESS.indexOf(type) >= 0 && this instanceof Element) wired.add(this);
+      return orig.call(this, type, fn, opts);
+    };
+  };
+
+  await run.check("a job that has only been written down is never counted as running", async () => {
+    // **AUDIT-7 ROW 2, ON THE UI SIDE.** Ray's finding was "Rich tells him a job is running
+    // when it has already failed ... a CEO who reads the first answer and looks away has been
+    // told something false." The same overclaim was on the chip, independently of any backend
+    // state: `renderDrillChip` counted `["registered", "preparing", "running"]` together and
+    // printed "N assignments running", so an assignment that had been written down and had no
+    // workspace yet appeared on his screen as work under way.
+    //
+    // `AssignmentState`'s doc comments keep the three apart and `work-summary.js` has always
+    // relayed them apart — "Written down. Nothing has been prepared yet." / "Getting a
+    // workspace ready." / "Running." The chip was the one surface that flattened them, and it
+    // flattened them to the strongest of the three.
+    //
+    // THREE ROWS, ONE OF EACH STATE, so the check can fail in both directions: a chip that
+    // said "3 assignments running" and a chip that said "3 assignments starting" are both
+    // wrong, and only "2 assignments starting · 1 assignment running" is the screen.
+    const row = (id, state, title) => ({
+      id,
+      title,
+      state,
+      detail: "",
+      repositories: [],
+      registeredAtMs: 1,
+      canStop: true,
+      onTheConnection: false,
+      awaitingYou: null,
+    });
+    const page = await openApp(browser, undefined, {
+      assignments: {
+        hiring: [
+          row("a-registered", "registered", "adding a line to notes.txt"),
+          row("a-preparing", "preparing", "reviewing the hiring plan"),
+          row("a-running", "running", "landing the three branches"),
+          // CEO §56's state, counted in its own words. It is `is_open` and NOT
+          // `awaits_his_word`, so it appears in neither `awaitingYou` nor the other two counts
+          // and had no count of its own — see the check below this one for what that costs.
+          row("a-screen", "waiting-for-screen", "the overnight import"),
+          // Neither counted, and both are on the fixture deliberately: a terminal state must
+          // not creep into either number if somebody widens one of the filters later.
+          row("a-settled", "settled", "the quarterly summary"),
+          row("a-unknown", "unknown", "the branch that was running when we last looked"),
+        ],
+      },
+    });
+    await dismissEntityPicker(page);
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    await page.waitForFunction(() =>
+      document.getElementById("drill-chip-zone").textContent.includes("assignment")
+    );
+    const chip = await page.evaluate(() => {
+      const n = document.querySelector(".drill-chip");
+      return { text: (n.textContent || "").trim(), label: n.getAttribute("aria-label") || "" };
+    });
+    assert(
+      chip.text.includes("2 assignments starting"),
+      `the chip does not say that two jobs are only starting: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      chip.text.includes("1 assignment running"),
+      `the chip does not say that exactly one job is running: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !chip.text.includes("3 assignments running"),
+      `the chip counts a job that has only been written down as running: ${JSON.stringify(chip.text)}`
+    );
+    // CEO §56's state gets its own words and is never folded into either of the other two.
+    assert(
+      chip.text.includes("1 assignment waiting for the screen"),
+      `the chip does not say a job is waiting for the screen: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !chip.text.includes("2 assignments running") && !chip.text.includes("3 assignments starting"),
+      `a screen-waiting job was folded into another count: ${JSON.stringify(chip.text)}`
+    );
+    // The spoken form says the same thing. §Options must survive being spoken.
+    assert(
+      chip.label.includes("2 assignments starting") && chip.label.includes("1 assignment running"),
+      `the accessible name disagrees with the chip: ${JSON.stringify(chip.label)}`
+    );
+
+    // AND THE PANE BEHIND IT SAYS WHICH IS WHICH, in the words `work-summary.js` already had.
+    await page.click(".drill-chip");
+    await page.waitForSelector("#slideover-body .assignment-title");
+    const said = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#slideover-body .slide-item")).map((n) => (n.textContent || "").trim())
+    );
+    const written = said.find((s) => s.includes("adding a line to notes.txt")) || "";
+    assert(
+      written.includes("Written down. Nothing has been prepared yet."),
+      `the pane does not say that the written-down job has not been prepared: ${JSON.stringify(written)}`
+    );
+    assert(
+      !/\brunning\b/i.test(written),
+      `the pane calls a written-down job running: ${JSON.stringify(written)}`
+    );
+    assertEqual(page.__errors, [], "the shell logged errors while the chip was read");
+    await page.close();
+    return `chip: ${JSON.stringify(chip.text)}; the pane says "Written down. Nothing has been prepared yet." for the registered one`;
+  });
+
+  await run.check("a job waiting for the screen, alone, still reaches the pane it lives in", async () => {
+    // **THE CASE THAT COSTS THE PANE, and it is the whole reason CEO §56's state needs a count
+    // of its own rather than a sentence in the pane.** `waiting-for-screen` is `is_open` in
+    // `AssignmentState` and deliberately NOT `awaits_his_word` — it resolves itself when the Mac
+    // is unlocked, and "waiting for you" would be the nag §56 was given to avoid. So it lands in
+    // neither `awaitingYou` nor the running/starting counts.
+    //
+    // With it as his ONLY open work, `parts` was empty, `drill-chip-zone` was hidden, and the
+    // chip is the only way to open the pane the assignments live in — so there was no chip, no
+    // pane, and no way to see the work at all. Every other check in this suite was green over
+    // it, because every other fixture has something else on the chip. Raised by
+    // `echo-opus-screenwait1` as `esc-20260918T114550Z-64ae379a`.
+    //
+    // ONE ROW, AND NOTHING ELSE ON THE FIXTURE. That is the point: a second row of any other
+    // state would put a part on the chip and the check would pass without touching the defect.
+    const page = await openApp(browser, undefined, {
+      assignments: {
+        hiring: [
+          {
+            id: "only-waiting",
+            title: "the overnight import",
+            state: "waiting-for-screen",
+            detail: "",
+            repositories: [],
+            registeredAtMs: 1,
+            canStop: true,
+            onTheConnection: false,
+            awaitingYou: null,
+          },
+        ],
+      },
+    });
+    await dismissEntityPicker(page);
+    await page.click('.nav-thread[data-thread-id="hiring"]');
+    // BOUNDED, AND THE FAILURE IS NAMED. With the count removed this wait can never be
+    // satisfied, and a 30s `waitForFunction` reports "Timeout exceeded" — true, and useless to
+    // whoever reads it, when the thing to say is "the chip is hidden and the pane is
+    // unreachable". Verified by removing the `forScreen` part from `renderDrillChip`.
+    const appeared = await page
+      .waitForFunction(
+        () => document.getElementById("drill-chip-zone").textContent.includes("waiting for the screen"),
+        { timeout: 8000 }
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!appeared) {
+      const stuck = await page.evaluate(() => {
+        const zone = document.getElementById("drill-chip-zone");
+        return { hidden: zone.hidden, text: (zone.textContent || "").trim() };
+      });
+      throw new Error(
+        `an assignment waiting for the screen is his ONLY open work and the chip does not name it: ` +
+          `zone hidden=${stuck.hidden}, text=${JSON.stringify(stuck.text)}. The chip is the only way into ` +
+          `the assignments pane, so this is no chip, no pane, and no way to see the work at all`
+      );
+    }
+    const chip = await page.evaluate(() => {
+      const zone = document.getElementById("drill-chip-zone");
+      const n = zone.querySelector(".drill-chip");
+      return {
+        zoneHidden: zone.hidden,
+        text: n ? (n.textContent || "").trim() : null,
+        label: n ? n.getAttribute("aria-label") || "" : null,
+      };
+    });
+    assert(!chip.zoneHidden, "the chip zone is hidden with open work on it — the pane is unreachable");
+    assert(chip.text, "there is no chip at all, so there is no way to open the pane");
+    assert(
+      chip.text.includes("1 assignment waiting for the screen"),
+      `the chip does not name the wait in its own words: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !/\brunning\b/.test(chip.text) && !/\bstarting\b/.test(chip.text),
+      `a job waiting for the screen is described as running or starting: ${JSON.stringify(chip.text)}`
+    );
+    assert(
+      !chip.text.includes("waiting for you"),
+      `a wait that resolves itself is presented as his to act on: ${JSON.stringify(chip.text)}`
+    );
+    // Spoken-safe, and the two waits must not read as one another.
+    assert(
+      chip.label.includes("1 assignment waiting for the screen") && !chip.label.includes("waiting for you"),
+      `the accessible name disagrees with the chip: ${JSON.stringify(chip.label)}`
+    );
+
+    // AND THE CHIP OPENS THE PANE, which is the thing that was actually lost.
+    await page.click(".drill-chip");
+    await page.waitForSelector("#slideover-body .assignment-title");
+    const reached = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#slideover-body .assignment-title")).map((n) => (n.textContent || "").trim())
+    );
+    assertEqual(reached, ["the overnight import"], "the pane does not carry the waiting assignment");
+    // The pane's own SENTENCE for this state belongs to `work-summary.js` and arrives with CEO
+    // §56's own branch, not this one — this check deliberately asserts the row is REACHABLE
+    // rather than what it says, so it cannot go red on a tree where that sentence has not landed
+    // yet and cannot go green on one where the row never arrives.
+    assertEqual(page.__errors, [], "the shell logged errors while the waiting chip was read");
+    await page.close();
+    return `chip: ${JSON.stringify(chip.text)}, and it opens a pane carrying "${reached[0]}"`;
+  });
+
+  await run.check("PART 6: nothing on the opening screen presents as a control and does nothing", async () => {
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    const pageErrors = [];
+    page.on("pageerror", (e) => pageErrors.push(String(e)));
+    await page.addInitScript(HANDLER_SPY);
+    await page.goto(APP);
+    await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    // The curtain, out of the way — it sits ABOVE this screen and would eat the first click.
+    await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.waitForSelector("#home-switch #home-enter", { state: "visible" });
+    await settleOpeningScreen(page);
+
+    const seen = await page.evaluate(() => {
+      const root = document.getElementById("home");
+      const out = [];
+      for (const n of root.querySelectorAll("*")) {
+        const r = n.getBoundingClientRect();
+        const s = getComputedStyle(n);
+        if (r.width < 1 || r.height < 1) continue;
+        if (s.visibility === "hidden" || s.display === "none" || s.pointerEvents === "none") continue;
+        const native =
+          n.tagName === "BUTTON" ||
+          (n.tagName === "A" && n.hasAttribute("href")) ||
+          n.getAttribute("role") === "button";
+        if (!native && s.cursor !== "pointer") continue;
+        // A part INSIDE a control is the outer one's business (`#home-enter > .dot`).
+        if (n.parentElement && n.parentElement.closest("button, a[href], [role=button]")) continue;
+        out.push({
+          sel: n.id ? "#" + n.id : n.tagName + "." + String(n.className || "").trim().split(/\s+/).join("."),
+          tag: n.tagName,
+          text: (n.textContent || "").trim().slice(0, 34),
+          why: native ? "natively interactive" : "cursor: pointer",
+          inert: n.getAttribute("data-inert-control"),
+          wired: window.__wiredForPress(n),
+        });
+      }
+      return out;
+    });
+    assertEqual(pageErrors, [], "the opening screen threw while it was being read");
+    assert(
+      seen.length >= 3,
+      `the opening screen offered ${seen.length} controls to test — it has at least the door, its caption and the settings rows`
+    );
+    const dead = seen
+      .filter((c) => !c.wired && !c.inert)
+      .map((c) => `${c.sel} (${c.tag}, ${c.why}) ${JSON.stringify(c.text)}`);
+    assertEqual(
+      dead,
+      [],
+      "something on the opening screen presents as a control and has no press handler — this is " +
+        "audit-7 row 3, and it cost the CEO eleven minutes at his own front door:\n            " +
+        dead.join("\n            ")
+    );
+    await page.close();
+    return `${seen.length} presenting-as-a-control element(s) on the opening screen, every one wired: ` +
+      seen.map((c) => c.sel).join(", ");
+  });
+
+  await run.check("PART 6 POSITIVE CONTROL: a dead control IS caught", async () => {
+    // Plant exactly audit-7 row 3 — a word that looks like a control and has no handler —
+    // and watch the same criterion find it. Without this, part 6 is a check that has only
+    // ever been observed passing.
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    await page.addInitScript(HANDLER_SPY);
+    await page.goto(APP);
+    await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    const verdict = await page.evaluate(() => {
+      const box = document.getElementById("home-switch");
+      const dead = document.createElement("p");
+      dead.id = "planted-dead-control";
+      dead.textContent = "Press me";
+      dead.style.cursor = "pointer";
+      dead.style.width = "max-content";
+      box.appendChild(dead);
+      const alive = document.createElement("p");
+      alive.id = "planted-live-control";
+      alive.textContent = "Press me too";
+      alive.style.cursor = "pointer";
+      alive.style.width = "max-content";
+      alive.addEventListener("click", () => {});
+      box.appendChild(alive);
+      const r = dead.getBoundingClientRect();
+      return {
+        deadWired: window.__wiredForPress(dead),
+        aliveWired: window.__wiredForPress(alive),
+        deadHasBox: r.width > 0 && r.height > 0,
+        deadCursor: getComputedStyle(dead).cursor,
+      };
+    });
+    assert(verdict.deadHasBox, "the planted control did not get a box, so nothing was tested");
+    assertEqual(verdict.deadCursor, "pointer", "the sweep's own criterion would not have picked the planted control up");
+    assertEqual(verdict.deadWired, false, "the spy reported a handler on a paragraph that has none");
+    assertEqual(verdict.aliveWired, true, "the spy missed a handler that IS there — it would pass everything");
+    await page.close();
+    return "a `cursor: pointer` paragraph reads as unwired; the same paragraph with one listener reads as wired";
+  });
+
+  await run.check("PART 6: the word `Enter` under the door both answers a click and keeps its promise", async () => {
+    // Row 3 in full, with real input rather than through `RichHome.hide()`: the caption is a
+    // `<p>`, so a native-button check could never have covered it, and every existing check
+    // on this screen drove it through the API. Two launches of the app answered neither the
+    // click nor — once the settings control had held focus — the key.
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    const pageErrors = [];
+    page.on("pageerror", (e) => pageErrors.push(String(e)));
+    await page.goto(APP);
+    await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForSelector("#home-door-cap", { state: "visible" });
+    await settleOpeningScreen(page);
+
+    const capBox = await page.evaluate(() => {
+      const r = document.getElementById("home-door-cap").getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    // The click has to land on the caption itself and not on something painted over it.
+    const onTop = await page.evaluate(
+      (p) => {
+        const el = document.elementFromPoint(p.x, p.y);
+        return el ? el.id || el.tagName : null;
+      },
+      capBox
+    );
+    assertEqual(onTop, "home-door-cap", "something is painted over the word `Enter`, so this check is not testing it");
+    await page.mouse.click(capBox.x, capBox.y);
+    await page.waitForFunction(() => document.getElementById("home").hidden, { timeout: 4000 });
+    const capWhy = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+
+    // ...and the KEY still works after the settings control has held focus, which is where it
+    // stopped working. `settings-button.js` gives focus back to `#set-btn` when the menu
+    // closes, and the old refusal keyed on `.settings` containing the focused element, so one
+    // click on the only other control on the screen killed the key for the rest of the launch.
+    await page.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.click("#set-btn");
+    await page.waitForFunction(() => !document.getElementById("set-menu").hidden);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.getElementById("set-menu").hidden);
+    const focus = await page.evaluate(() => (document.activeElement && document.activeElement.id) || null);
+    assertEqual(focus, "set-btn", "the settings control no longer keeps focus after Escape, so this is testing nothing");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.getElementById("home").hidden, { timeout: 4000 });
+    const keyWhy = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+    assertEqual(keyWhy, "enter-key", "Return did not enter while the settings control held focus");
+
+    // AND THE MENU'S OWN Enter IS STILL THE MENU'S. Open it, put focus on a row, press Return:
+    // the screen must stay, because that keystroke belongs to the row.
+    await page.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.click("#set-btn");
+    await page.waitForFunction(() => !document.getElementById("set-menu").hidden);
+    await page.evaluate(() => document.getElementById("font-up").focus());
+    const leaveBefore = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+    await page.keyboard.press("Enter");
+    const after = await page.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      reason: window.RichHome.state.lastLeaveReason,
+    }));
+    assertEqual(
+      after.reason,
+      leaveBefore,
+      `Return on a row of the OPEN settings menu recorded a leave ("${after.reason}") — the screen went`
+    );
+    assert(after.open, "Return inside the open settings menu walked out of the opening screen");
+
+    // AND THE ACCESSIBILITY TREE CARRIES ONE DOOR, NOT A STRAY WORD BESIDE IT — audit-8 row 3's
+    // other half. Ray's accessibility inspector on candidate .8 reported `static text Enter`
+    // beside `button Talk to Rich`, so a screen-reader user met an unlabeled "Enter" with no
+    // role. The fact the word carries is in the tree where the platform looks for it, on the
+    // door; the word itself is a redundant rendering of it and is declared decoration.
+    await page.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    const tree = await page.evaluate(() => {
+      const cap = document.getElementById("home-door-cap");
+      const door = document.getElementById("home-enter");
+      return {
+        capHidden: cap.getAttribute("aria-hidden"),
+        capRole: cap.getAttribute("role"),
+        capTabIndex: cap.getAttribute("tabindex"),
+        capText: (cap.textContent || "").trim(),
+        doorRole: door.tagName,
+        doorName: (door.textContent || "").trim(),
+        doorKeys: door.getAttribute("aria-keyshortcuts"),
+      };
+    });
+    assertEqual(tree.capHidden, "true", "the word `Enter` is still announced as a stray unlabeled node beside the door");
+    assertEqual(tree.capRole, null, "the caption claims a role — then it is a second control with the door's own name");
+    assertEqual(tree.capTabIndex, null, "the caption is a tab stop — then it is a second control in the tab order");
+    assertEqual(tree.capText, "Enter", "the word is no longer on screen, which is the ruling's own wording");
+    assertEqual(tree.doorKeys, "Enter", "the door no longer carries the shortcut, so the hidden word's fact left the tree with it");
+    assertEqual(tree.doorRole, "BUTTON", "the door is not a button");
+
+    assertEqual(pageErrors, [], "the opening screen threw during the walk");
+    await page.close();
+    return (
+      `a click on the word leaves ("${capWhy}"); Return leaves ("${keyWhy}") with #set-btn focused; ` +
+      `Return inside the open menu does not; the tree carries one BUTTON "${tree.doorName}" with ` +
+      `aria-keyshortcuts="${tree.doorKeys}" and the word "${tree.capText}" is aria-hidden with no role and no tab stop`
+    );
+  });
+
   await run.check("POSITIVE CONTROL: an unclassified new state IS flagged", async () => {
     // The drift comparator, run against a corpus with one extra string, so the part-1 check
     // is proven able to fail rather than merely observed passing.
