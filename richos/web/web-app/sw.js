@@ -21,6 +21,10 @@
 // that shows none can have the subscription revoked, so every path below ends in one.
 
 importScripts('/lib/storage.js');
+// The two values a push payload can put in front of this worker, and the rules that decide whether
+// either is usable. Imported rather than reimplemented, because the page validates the same
+// `api_base` with the same function and two copies of a rule are two rules.
+importScripts('/lib/inbound.js');
 
 const SHELL_CACHE = 'richos-phone-shell-v1';
 
@@ -41,6 +45,7 @@ const SHELL = [
 	'/lib/api.js',
 	'/lib/link.js',
 	'/lib/storage.js',
+	'/lib/inbound.js',
 	'/manifest.webmanifest',
 	'/icons/apple-touch-icon.png',
 	'/icons/icon-192.png',
@@ -130,9 +135,21 @@ self.addEventListener('push', (event) => {
 	const declared = payload.notification || {};
 	const title = declared.title || 'Rich';
 	const body = declared.body || 'Rich has something for you. Open the app to read it.';
-	const target = declared.navigate || '/';
+
+	// THE LINK IS VALIDATED HERE, BEFORE IT REACHES ANYTHING. `target` below is handed to
+	// `clients.openWindow()` and posted to the page, and `openWindow` will open a cross-origin
+	// address — so this is the last point at which a value that came off the network is still
+	// only data. A payload that names no link at all is the ordinary case and is not a refusal;
+	// a payload that names one this app does not issue lands him on the app instead, and the
+	// reason is written down rather than dropped (plan §2 C).
+	const link = declared.navigate === undefined || declared.navigate === null
+		? { ok: true, value: RichOSInbound.NAVIGATE_FALLBACK, reason: null }
+		: RichOSInbound.validateNavigate(declared.navigate);
+	const target = link.ok ? link.value : RichOSInbound.NAVIGATE_FALLBACK;
 
 	event.waitUntil((async () => {
+		if (!link.ok) await noteRefusal('navigate', declared.navigate, link.reason);
+
 		// Written BEFORE the notification is shown: if the phone is closed again the moment he
 		// swipes it away, the reply is still on the phone for the next time he opens the app.
 		await rememberMessage(payload);
@@ -158,6 +175,27 @@ self.addEventListener('push', (event) => {
 	})());
 });
 
+/// A value that arrived from outside and was refused, written down where it can be found.
+///
+/// "Refusing anything else with a reason" is the half of plan §2 C that makes the check honest
+/// rather than merely safe: a phone that quietly ignores what its Mac tells it is a phone whose
+/// misbehavior has no cause anybody can name. The stored shape is deliberately small — what
+/// arrived, why it was refused, and when — and nothing reads it on the screen today, which is
+/// stated here so nobody looks for a message that is not there.
+async function noteRefusal(key, value, reason, existingDb) {
+	try {
+		const db = existingDb || (await RichOSStorage.open());
+		await RichOSStorage.settings(db).set(`${key}Refusal`, {
+			value: typeof value === 'string' ? value.slice(0, 200) : String(value),
+			reason,
+			at: new Date().toISOString()
+		});
+	} catch {
+		// Storage refused, which is the same condition `rememberMessage` survives. The refusal
+		// itself already happened; this is only the record of it.
+	}
+}
+
 async function rememberMessage(payload) {
 	if (!payload || !payload.message || !payload.message.id) return;
 	try {
@@ -169,8 +207,16 @@ async function rememberMessage(payload) {
 		await RichOSStorage.messages(db).put(row);
 		await RichOSStorage.messages(db).trim();
 		// The address the Mac can currently be reached at travels with the push (plan §10.7). It is
-		// DATA, and this is one of the two places it is updated.
-		if (payload.api_base) await RichOSStorage.settings(db).set('apiBase', payload.api_base);
+		// DATA, and this is one of the three places it is set — the other two are the stream's
+		// `hello` and the pair response, both in `lib/api.js`, both through the same function.
+		//
+		// IT BECOMES THE PREFIX OF EVERY LATER REQUEST, so an unchecked value here redirects the
+		// conversation, the send queue and the signed credential at whatever it names.
+		if (payload.api_base) {
+			const base = RichOSInbound.validateApiBase(payload.api_base, RichOSInbound.pageOrigin());
+			if (base.ok) await RichOSStorage.settings(db).set('apiBase', base.value);
+			else await noteRefusal('apiBase', payload.api_base, base.reason, db);
+		}
 	} catch {
 		// Storage refused. The notification still shows, and the app will fetch the reply from the
 		// Mac when it is next reachable — which is the whole reason the Mac is the record.
@@ -179,7 +225,13 @@ async function rememberMessage(payload) {
 
 self.addEventListener('notificationclick', (event) => {
 	event.notification.close();
-	const target = (event.notification.data && event.notification.data.url) || '/';
+	// Re-validated rather than trusted. What is in `data.url` was built by the handler above and
+	// is already safe, but a notification outlives the worker that showed it — it is read back out
+	// of the system's own store, possibly by a later build — and the cost of proving that here
+	// instead of remembering it is one function call.
+	const held = event.notification.data && event.notification.data.url;
+	const link = held ? RichOSInbound.validateNavigate(held) : null;
+	const target = link && link.ok ? link.value : RichOSInbound.NAVIGATE_FALLBACK;
 
 	event.waitUntil((async () => {
 		if (self.navigator && self.navigator.clearAppBadge) {

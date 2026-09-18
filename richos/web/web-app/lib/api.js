@@ -55,6 +55,19 @@
 	///   3. A later Mac can answer it 200 with an empty body and this file does not change.
 	const CHALLENGE_PROBE = '/api/challenge';
 
+	/// The rules for the values that arrive from outside (`lib/inbound.js`). Resolved lazily so
+	/// script order cannot matter: the page has it as a global long before a `hello` arrives, the
+	/// service worker `importScripts`es it, and Node resolves it from disk on first use.
+	let INBOUND = null;
+	function inbound() {
+		if (INBOUND) return INBOUND;
+		const here = typeof globalThis !== 'undefined' ? globalThis : null;
+		if (here && here.RichOSInbound) INBOUND = here.RichOSInbound;
+		else if (typeof require === 'function') INBOUND = require('./inbound.js');
+		else throw new Error('lib/inbound.js is not loaded, so nothing can validate what the Mac sends');
+		return INBOUND;
+	}
+
 	class ApiError extends Error {
 		constructor(reason, message, status, aboutThisMessage) {
 			super(message);
@@ -115,6 +128,12 @@
 		const state = opts.state;              // { apiBase, challenge, deviceId }
 		const signer = opts.signer || null;
 		const onState = opts.onState || function () {};
+		// THE PAGE'S OWN ORIGIN — the app's identity, which never changes, as opposed to
+		// `state.apiBase`, which is data and does. It is what every advertised `api_base` is
+		// measured against until the Mac's listener speaks CORS (plan §2 C). The browser has it on
+		// `location`; a test has no page and passes one in. Unknown is a REFUSAL of every
+		// advertised base and never a pass — see `inbound.validateApiBase`.
+		const origin = typeof opts.origin === 'string' && opts.origin ? opts.origin : inbound().pageOrigin();
 
 		if (!state) throw new Error('createApi needs a state object');
 
@@ -125,11 +144,43 @@
 			}
 		}
 
+		/// THE ONE DOOR THE ADVERTISED ADDRESS COMES THROUGH, and it is now a checked one.
+		///
+		/// Two of the three places `api_base` is set are here — the stream's `hello` and the pair
+		/// response — and the third is the service worker's push handler, which calls the same
+		/// `inbound.validateApiBase`. It used to take any string at all and store it; every later
+		/// request is `base + path` (`joinBase`), so that was "point this phone's whole
+		/// conversation, its send queue and its signed credential wherever this frame says".
+		///
+		/// A frame that says nothing about the address is not a refusal — the stub Mac and every
+		/// build before the address desk existed send `api_base: null`, and silence means "carry
+		/// on with what you have". A frame that names an address this app cannot use IS a refusal,
+		/// and it leaves a reason on the state rather than a phone that quietly stopped moving.
 		function setApiBase(next) {
-			if (next && next !== state.apiBase) {
-				state.apiBase = next;
+			if (next === undefined || next === null || next === '') return;
+			const checked = inbound().validateApiBase(next, origin);
+			if (!checked.ok) {
+				state.apiBaseRefusal = {
+					value: String(next).slice(0, 200),
+					reason: checked.reason,
+					at: new Date().toISOString()
+				};
 				onState(state);
+				return;
 			}
+			// A refusal that has been superseded is a stale claim, so it does not outlive the
+			// address that replaced it — and clearing it is itself a change worth persisting,
+			// which is why `changed` exists rather than a second `onState` call.
+			let changed = false;
+			if (state.apiBaseRefusal) {
+				state.apiBaseRefusal = null;
+				changed = true;
+			}
+			if (checked.value !== state.apiBase) {
+				state.apiBase = checked.value;
+				changed = true;
+			}
+			if (changed) onState(state);
 		}
 
 		/// REPLACED on every `hello`, never merged. A capability that was true once is not evidence

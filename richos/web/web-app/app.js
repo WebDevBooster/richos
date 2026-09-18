@@ -133,6 +133,11 @@ async function persistState() {
 	await settings.set('apiBase', apiState.apiBase);
 	await settings.set('challenge', apiState.challenge);
 	await settings.set('deviceId', apiState.deviceId);
+	// An address the Mac advertised that this app would not take, kept where it can be found.
+	// Nothing renders it — said here so nobody goes looking for a message on the screen — but a
+	// phone that declined to move to a new address now has the reason attached to it rather than
+	// having silently ignored its Mac (plan §2 C).
+	await settings.set('apiBaseRefusal', apiState.apiBaseRefusal || null);
 }
 
 function makeApi(keys) {
