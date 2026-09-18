@@ -95,6 +95,41 @@ class LocalTests(unittest.TestCase):
             r.command("codesign", credentials=True)
         self.assertEqual({name: seen[-1][name] for name in self.CREDENTIALS}, self.CREDENTIALS)
 
+    def test_one_declared_host_gap_reaches_the_runner_and_nothing_else(self):
+        # The nightly build of candidate .10 failed on front-door.test.sh, a suite that
+        # drives the shipped window and has no window on a build host. run-tests.sh
+        # tolerates its "this host cannot answer" ONLY under a caller declaration naming
+        # it WITH a reason. This asserts the declaration is on the runner's step and on
+        # NOTHING else, and that it is ONE well-formed line -- run-tests.sh:117-133
+        # refuses a bare name, and a second suite smuggled in here would be tolerated
+        # without anyone reading it.
+        base = {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list",
+                "RUN_TESTS_DECLARED_GAPS": "smuggled.test.sh: from the operator's shell"}
+        r = m.Runner(self.root, self.root / "state", dict(base), io.StringIO(), self.CREDENTIALS)
+        seen = []
+
+        def record(args, **kwargs):
+            seen.append((args, kwargs["env"]))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+            r.gates()
+        declared = [(args, env["RUN_TESTS_DECLARED_GAPS"]) for args, env in seen
+                    if env.get("RUN_TESTS_DECLARED_GAPS") != base["RUN_TESTS_DECLARED_GAPS"]]
+        self.assertEqual(len(declared), 1)
+        args, value = declared[0]
+        self.assertTrue(args[-1].endswith("run-tests.sh"), args)
+        lines = [line for line in value.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1, lines)
+        suite, _, reason = lines[0].partition(":")
+        self.assertEqual(suite, "front-door.test.sh")
+        self.assertGreater(len(reason.strip()), 40, reason)
+        # Every other gate keeps whatever the environment held: this value is stated about
+        # one step, and the pop in local_environment() is what keeps a shell out of it.
+        for other_args, env in seen:
+            if other_args is not args:
+                self.assertEqual(env["RUN_TESTS_DECLARED_GAPS"], base["RUN_TESTS_DECLARED_GAPS"])
+
     def test_an_exported_commit_identity_leaves_the_release_environment(self):
         # These override every level of git config, so a stray export in the operator's
         # shell would author the release as someone else while `git config user.email`
