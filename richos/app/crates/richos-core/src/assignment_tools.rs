@@ -32,8 +32,42 @@
 //! (`work_host::adopt_registered`). That makes registration crash-safe by construction —
 //! spec §0 row 1's *"a crash between 'he asked' and 'a workspace exists' leaves a record of
 //! what he asked for, not a gap"* — rather than by a second mechanism.
+//!
+//! # THE REGISTER OPENS THE OBLIGATION ITSELF (2026-09-18)
+//!
+//! **The obligation was a MODEL ARGUMENT until today, and that made §55 and the dispatch
+//! contract contradict each other.** `mega-lander/app.py:318-321` refuses a dispatch unless
+//! the assignment's obligation names an ECS item whose status is `accepted`/`active`/
+//! `pending`/`blocked`; the only tool the front desk holds that can create one is
+//! `mcp__richos_continuity__checkpoint`. So on 2026-09-18 both halves were measured and both
+//! were wrong (`docs/verification/first-words-2026-09-18.md`):
+//!
+//! - run A obeyed §55 — the register first, nothing before the reply — and wrote **no ECS
+//!   record at all**, so both of its assignments carried an obligation that had never been
+//!   opened and `prepare` would have refused them;
+//! - run B opened the obligation first and cost him **3.0 s and 2.4 s** of silence for it,
+//!   because a model-written checkpoint is a whole extra round trip.
+//!
+//! **So the app opens it, here, in the same call that writes the assignment down.** The id is
+//! the app's (`work-<uuid>`), the model never sees it and never types it, and one ECS
+//! `checkpoint` through [`crate::ecs::EcsBridge`] measured **143.4 ms** on this Mac against
+//! the 6.358 s his warm first words took (2026-09-18, `hello` alone is 148.4 ms, so the whole
+//! of it is interpreter start). That is 2.2% of his wait instead of a round trip, and it is
+//! spent on the register's own thread while the model is already finished talking.
+//!
+//! **Order, and what a crash can leave behind.** The obligation is opened BEFORE the
+//! assignment file is written, so the only residue a crash between them can leave is an open
+//! item nothing is working on — never an assignment whose obligation is missing, which is the
+//! state `prepare` and `work_host::outcome` cannot recover from. A registration that fails
+//! after the open cancels it on the way out ([`ObligationOpener::abandon`]), best effort.
+//!
+//! **It is idempotent by construction, and that is measured too.** The `request_id` is derived
+//! from the obligation, so the identical call twice returns the engine's own receipt with
+//! `duplicate: true` and ONE item; and if a model ever opened the same id afterwards under its
+//! own `request_id`, the engine rejects that one statement with *"continuity item already
+//! exists"* rather than making a second item (both measured 2026-09-18).
 
-use crate::assignment::{self, Registration};
+use crate::assignment::{self, AssignmentKind, Registration};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
@@ -83,6 +117,116 @@ pub struct AssignmentToolScope {
     /// The host's SHA-256 of that turn's exact ledger text. **His words are not copied
     /// here**; the digest is what attests them, and it is computed where they already are.
     pub instruction_sha256: String,
+    /// **Where this register opens the obligation** — see the module doc.
+    ///
+    /// `#[serde(default)]`, so a scope written by an older build still reads; and a register
+    /// that finds no desk REFUSES rather than recording an assignment nothing could ever
+    /// dispatch (`no_obligation_desk_records_nothing`). Fail-closed is the only safe
+    /// direction here: the failure it replaces was silent and only showed up on the work
+    /// lease, minutes later, as a refused `prepare`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub obligation_desk: Option<ObligationDesk>,
+}
+
+/// The app's own seat at the engine's continuity store, carried into the register's
+/// short-lived process so it can open the obligation without a model round trip.
+///
+/// **Every field here is the host's.** They are the same three values `prepare_work_turn`
+/// wrote into the continuity scope one line earlier — the bridge it just spoke to, the binding
+/// it just bound, and the CEO's own per-thread seat — so the item opens on his cursor, in his
+/// thread, fenced exactly as a checkpoint of his own would be (`engine/ecs/adapters/app.py`'s
+/// `CONVERSATION_ONLY`: `checkpoint` is refused on any seat but the conversation's).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObligationDesk {
+    pub bridge: crate::ecs::EcsBridge,
+    pub binding: crate::ecs::Binding,
+    /// `ceo-thread:<thread_id>`, or `None` on an engine without per-thread seats — the same
+    /// value the continuity scope carries, for the reason stated there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat: Option<String>,
+}
+
+/// Opening the obligation, as a seam — **so the refusal paths are unit-tested without a
+/// Python interpreter and `cargo test -p richos-core` stays native-dep-free.**
+///
+/// The production implementation is [`EcsObligations`]; the real wire is exercised by
+/// `examples/first_reply_timing_e2e.rs`, which drives `prepare` against what this wrote.
+pub trait ObligationOpener {
+    /// Open the obligation, or say why not in a sentence that can be read aloud.
+    fn open(&self, desk: &ObligationDesk, obligation: &str, title: &str, kind: AssignmentKind)
+        -> Result<(), String>;
+    /// Best-effort undo for an obligation whose assignment then failed to be written. It
+    /// cannot be relied on — hence "best effort" — and a failure here is never reported to the
+    /// CEO, because the thing he is waiting to hear is that his request was not recorded.
+    fn abandon(&self, desk: &ObligationDesk, obligation: &str);
+}
+
+/// The engine's own terminal status for an obligation the app opened and could not use
+/// (`engine/ecs/core/ecs_core.py:1067`), which needs no evidence where `completed` would.
+const ABANDONED_OBLIGATION_STATUS: &str = "cancelled"; // dialect-exempt: the engine's protocol literal, never prose he reads.
+
+/// The real thing: one `checkpoint` through the engine's own ECS bridge.
+pub struct EcsObligations;
+
+impl ObligationOpener for EcsObligations {
+    fn open(&self, desk: &ObligationDesk, obligation: &str, title: &str, kind: AssignmentKind)
+        -> Result<(), String> {
+        // **A piece of work is a `commitment`; a question of his is an `open_loop`.** Both are
+        // in the engine's `CONTINUITY_ITEM_TYPES` and both open `status: "active"`, which is in
+        // the set `prepare` accepts (`mega-lander/app.py:320`, measured). The distinction is not
+        // decoration: this item is what his executive brief shows him next turn, and "a
+        // commitment to know why the nightly is red" is not what he asked for.
+        let verb = if kind.is_question() { "open_loop" } else { "commitment" };
+        let result = desk
+            .bridge
+            .request(
+                "checkpoint",
+                crate::ecs::seated_request(
+                    desk.seat.as_deref(),
+                    json!({
+                        "binding": desk.binding,
+                        // Derived from the obligation, which is a fresh id per registration.
+                        // The identical call twice is a duplicate receipt and one item.
+                        "request_id": format!("assignment-obligation:{obligation}"),
+                        "checkpoint": {"statements": [{"verb": verb, "fields": {
+                            "id": obligation, "title": title,
+                        }}]},
+                    }),
+                ),
+            )
+            .map_err(|e| e.0)?;
+        // **The engine's own verdict, not the absence of an error.** A checkpoint can succeed
+        // as a command and reject the statement inside it (`ecs_extract.py`'s
+        // `apply_statements` *"never raise past a statement"*), and a rejected statement means
+        // no item — which is exactly the state this whole change exists to stop happening
+        // silently.
+        if result["accepted"] != true {
+            let why = result["rejections"].as_array().and_then(|rows| rows.first())
+                .and_then(Value::as_str).unwrap_or("the operational record would not take it");
+            return Err(why.to_string());
+        }
+        Ok(())
+    }
+
+    fn abandon(&self, desk: &ObligationDesk, obligation: &str) {
+        // The app adapter refuses only `completed` and a bare `close`
+        // (`engine/ecs/adapters/app.py:186-192`), so this transition is allowed to a model and
+        // is certainly allowed to the host that opened the item one call ago.
+        let _ = desk.bridge.request(
+            "checkpoint",
+            crate::ecs::seated_request(
+                desk.seat.as_deref(),
+                json!({
+                    "binding": desk.binding,
+                    "request_id": format!("assignment-obligation-abandoned:{obligation}"),
+                    "checkpoint": {"statements": [{"verb": "close", "fields": {
+                        "id": obligation, "status": ABANDONED_OBLIGATION_STATUS,
+                    }}]},
+                }),
+            ),
+        );
+    }
 }
 
 pub fn write_scope(path: &Path, scope: &AssignmentToolScope) -> Result<(), String> {
@@ -121,14 +265,6 @@ fn read_scope(path: &Path) -> Result<AssignmentToolScope, String> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecordArguments {
-    /// The ECS obligation this assignment carries out, opened by the conversation before it
-    /// records the assignment. **It is a model argument and the only one that is an
-    /// identifier**, because the model is the thing that just created it: the engine
-    /// refuses a dispatch without an accepted open obligation
-    /// (`richos/engine/mega-lander/app.py:267-270`), and the seat reconciler maps a seat
-    /// back to its assignment through it (`app.py:704`). It cannot redirect anything: the
-    /// engine fences every `inspect` of it on this scope's own entity and thread.
-    obligation_id: String,
     assignment: String,
     #[serde(default)]
     repositories: Vec<String>,
@@ -173,26 +309,38 @@ struct RecordArguments {
 pub fn tools() -> Value {
     json!({"tools":[
         {"name":RECORD_TOOL_NAME,
-         "description":"Write down a piece of work the CEO has asked for — OR a question of his you cannot answer yourself — so it can run in the background, and END YOUR TURN with what this returns, which is a few words. CALL THIS FIRST, BEFORE ANY OTHER TOOL: he is waiting, and every search, lookup or check you do before it is time he spends looking at nothing. Do not look up status first, do not read anything first, do not plan first. If the request is clear, this is your first call and its answer is your whole reply; if it genuinely is not clear, ask him the question instead and call this once he has answered, with after_questions set. It records the assignment and returns the exact words to say; it does not do the work and does not wait for it. The work, and all the looking, then runs on a separate connection and he is told when there is something for him to look at. Say only what this returns: no restating his task or his question back to him, no claim that the work is running, started, prepared or finished. A question you ALREADY KNOW the answer to is answered on the spot and never written down here.",
+         "description":"Write down a piece of work the CEO has asked for — OR a question of his you cannot answer yourself — so it can run in the background, and END YOUR TURN with what this returns, which is a few words. CALL THIS FIRST, BEFORE ANY OTHER TOOL: he is waiting, and every search, lookup or check you do before it is time he spends looking at nothing. Do not look up status first, do not read anything first, do not plan first, and do not open or save any operational record first — this opens the record for this work itself, so there is nothing whatsoever to do ahead of it. If the request is clear, this is your first call and its answer is your whole reply; if it genuinely is not clear, ask him the question instead and call this once he has answered, with after_questions set. It records the assignment and returns the exact words to say; it does not do the work and does not wait for it. The work, and all the looking, then runs on a separate connection and he is told when there is something for him to look at. Say only what this returns: no restating his task or his question back to him, no claim that the work is running, started, prepared or finished. A question you ALREADY KNOW the answer to is answered on the spot and never written down here.",
          "inputSchema":{"type":"object","properties":{
-             "obligation_id":{"type":"string","minLength":1,"maxLength":128,"description":"The open ECS obligation this assignment carries out. Open it first; a background assignment with no obligation behind it cannot be prepared or reconciled."},
              "assignment":{"type":"string","minLength":1,"maxLength":4096,"description":"What he asked for, in HIS OWN TERMS, as one plain sentence you would be happy to read back to him. For a question, his question in his own terms. No identifiers, no internal names."},
              "repositories":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":4096},"description":"Absolute paths of the repositories this assignment touches, if he named any. Omit when he did not."},
              "after_questions":{"type":"boolean","description":"True only if you asked him a clarifying question about this work and he has now answered it. It changes which short reply you are handed and nothing else. Omit it otherwise."},
              "needs_screen":{"type":"boolean","description":"True if this work needs the Mac's screen to be unlocked — it drives the app's own window, takes screenshots, walks a build on screen, or otherwise cannot be done while the screen is locked. If the screen is locked when this comes up, the app waits for the unlock and carries on by itself; nobody is asked anything. Omit it for ordinary work, which is almost all work."},
              "kind":{"type":"string","enum":["task","check","investigate"],"description":"What this is. `task` — work he asked for; omit it and you get this. `check` — a QUESTION of his whose answer you expect quickly, because it is on file somewhere and only has to be looked up. `investigate` — a QUESTION of his that needs real digging: repositories, logs, the web, several places. A rough estimate of the kind of work is all that is wanted here; nobody is timing it, and the app says the right thing either way if it takes longer than you thought."}
-         },"required":["obligation_id","assignment"],"additionalProperties":false},
+         },"required":["assignment"],"additionalProperties":false},
          "annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":false,"openWorldHint":false}}
     ]})
 }
 
-/// Validation and the record, shared by the protocol adapter and the tests.
+/// Validation and the record, with the real ECS desk behind it.
 pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, String> {
+    call_with(scope_path, name, arguments, &EcsObligations)
+}
+
+/// Validation and the record, shared by the protocol adapter and the tests.
+///
+/// `opener` is how the obligation is opened — [`EcsObligations`] in production, a stub in the
+/// unit tests, which is what keeps every refusal path here provable without an interpreter.
+pub fn call_with(
+    scope_path: &Path,
+    name: &str,
+    arguments: Value,
+    opener: &dyn ObligationOpener,
+) -> Result<Value, String> {
     if name != RECORD_TOOL_NAME {
         return Err("That assignment tool does not exist. Nothing was recorded.".into());
     }
     let args: RecordArguments = serde_json::from_value(arguments).map_err(|_| {
-        "Use only obligation_id, assignment, repositories, after_questions, needs_screen and kind. Nothing was recorded."
+        "Use only assignment, repositories, after_questions, needs_screen and kind. Nothing was recorded."
             .to_string()
     })?;
     let after_questions = args.after_questions;
@@ -213,21 +361,49 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             "This conversation is not open for new assignments right now. Nothing was recorded.".into(),
         );
     }
+    // ===================================================================================
+    // THE OBLIGATION, OPENED HERE, WITH AN ID THE MODEL NEVER SEES
+    // ===================================================================================
+    //
+    // **The title is sanitized BEFORE the obligation is opened**, and that ordering is the
+    // cheap half of "no orphan": a title the app would refuse is refused with nothing written
+    // anywhere. Everything else `register_kind` validates is the scope's, which this function
+    // has already read.
+    let title = assignment::sanitize_title(&args.assignment)
+        .map_err(|e| assignment::failed_registration_sentence(&format!("{e}.")))?;
+    let Some(desk) = scope.obligation_desk else {
+        // Fail-closed, and it names what is missing without implying a start — the same shape
+        // the closed-grant refusal above uses. An assignment recorded with no obligation behind
+        // it is the defect this whole change removes; recording one anyway to be helpful would
+        // be reproducing it.
+        return Err("RichOS cannot open a record for new work in this conversation right now. Nothing was recorded.".into());
+    };
+    // `work-<uuid>`: no colon (the seat is spelled `work-seat:<obligation_id>`), inside the
+    // engine's own `SAFE_ID` and inside `assignment.rs`'s `usable_identity`.
+    let obligation_id = format!("work-{}", uuid::Uuid::new_v4().simple());
+    opener
+        .open(&desk, &obligation_id, &title, kind)
+        .map_err(|why| assignment::failed_registration_sentence(&format!("{why}.")))?;
     let receipt = assignment::register_kind(
         &scope.state_root,
         &Registration {
             entity_id: scope.entity_id,
             thread_id: scope.thread_id,
-            obligation_id: args.obligation_id,
+            obligation_id: obligation_id.clone(),
             instruction_ledger_ref: scope.instruction_ledger_ref,
             instruction_sha256: scope.instruction_sha256,
-            title: args.assignment,
+            title,
             repositories: args.repositories,
             needs_screen: args.needs_screen,
         },
         kind,
     )
-    .map_err(|e| assignment::failed_registration_sentence(&format!("{e}.")))?;
+    .map_err(|e| {
+        // The obligation is open and nothing will ever carry it out, so it is taken back
+        // before the refusal goes out. Best effort: see [`ObligationOpener::abandon`].
+        opener.abandon(&desk, &obligation_id);
+        assignment::failed_registration_sentence(&format!("{e}."))
+    })?;
     // **What comes back is the words, not an id.** `desktop-work.md:42-43` puts receipt ids on
     // Rich's side of that line; a tool result that handed the model an id would be handing it
     // something to say. Under the CEO's ruling §55 the words are three of them, so there is
@@ -245,7 +421,12 @@ fn error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-fn response(scope: &Path, request: Value, initialized: &mut bool) -> Option<Value> {
+fn response(
+    scope: &Path,
+    request: Value,
+    initialized: &mut bool,
+    opener: &dyn ObligationOpener,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0") || method.is_none() {
@@ -274,7 +455,7 @@ fn response(scope: &Path, request: Value, initialized: &mut bool) -> Option<Valu
                 return Some(error(id, -32602, "A tool name is required"));
             };
             let args = request.pointer("/params/arguments").cloned().unwrap_or_else(|| json!({}));
-            match call(scope, name, args) {
+            match call_with(scope, name, args, opener) {
                 Ok(value) => json!({"content":[{"type":"text","text":value.to_string()}],"isError":false}),
                 Err(why) => json!({"content":[{"type":"text","text":why}],"isError":true}),
             }
@@ -286,7 +467,17 @@ fn response(scope: &Path, request: Value, initialized: &mut bool) -> Option<Valu
 
 /// Newline-delimited JSON-RPC with bounded allocation. An oversized message is drained
 /// through its newline, rejected, and cannot be read as the command that follows it.
-pub fn serve(scope_path: &Path, mut reader: impl BufRead, mut writer: impl Write) -> io::Result<()> {
+pub fn serve(scope_path: &Path, reader: impl BufRead, writer: impl Write) -> io::Result<()> {
+    serve_with(scope_path, reader, writer, &EcsObligations)
+}
+
+/// The transport, with the obligation desk injected — see [`call_with`].
+pub fn serve_with(
+    scope_path: &Path,
+    mut reader: impl BufRead,
+    mut writer: impl Write,
+    opener: &dyn ObligationOpener,
+) -> io::Result<()> {
     let mut initialized = false;
     loop {
         let mut frame = Vec::new();
@@ -315,7 +506,7 @@ pub fn serve(scope_path: &Path, mut reader: impl BufRead, mut writer: impl Write
             Some(error(Value::Null, -32600, "Message too large"))
         } else {
             match serde_json::from_slice::<Value>(&frame) {
-                Ok(value) => response(scope_path, value, &mut initialized),
+                Ok(value) => response(scope_path, value, &mut initialized, opener),
                 Err(_) => Some(error(Value::Null, -32700, "Invalid JSON")),
             }
         };
@@ -346,13 +537,64 @@ pub fn loaded_from_init(init: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
-    fn fixture() -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!("assignment-tools-{}", uuid::Uuid::new_v4()));
+    /// **The fixture cleans itself up however the test ends** (CEO §54, 2026-09-18).
+    ///
+    /// The escalation that made this a rule: the richos-core suite left one directory per
+    /// fixture in `TMPDIR`, **66,922 of them counted on main at `32238312`**, because every
+    /// fixture here removed its root on the LAST line of the test and an assertion that fired
+    /// earlier skipped it. A drop guard runs on the panic path too, which is the path that
+    /// leaked.
+    struct Fixture {
+        root: PathBuf,
+        scope: PathBuf,
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    impl Fixture {
+        fn state(&self) -> PathBuf {
+            self.root.join("engine-state")
+        }
+        fn rows(&self) -> Vec<assignment::Assignment> {
+            assignment::read_all(&self.state(), "depot", "thread-one").unwrap()
+        }
+    }
+
+    /// A desk whose three values are never dereferenced by the stub opener below. The paths are
+    /// absolute because the type is the host's and an absolute path is what the host writes.
+    fn desk() -> ObligationDesk {
+        ObligationDesk {
+            bridge: crate::ecs::EcsBridge {
+                python: PathBuf::from("/fictional/runtime/bin/python3"),
+                component: PathBuf::from("/fictional/engine/ecs"),
+                state_root: PathBuf::from("/fictional/state/ecs"),
+            },
+            binding: crate::ecs::Binding {
+                entity_id: "depot".into(),
+                thread_id: "thread-one".into(),
+                session_id: "session-one".into(),
+                turn_id: "turn-7".into(),
+                audience: "ceo".into(),
+                revision: 3,
+            },
+            seat: Some("ceo-thread:thread-one".into()),
+        }
+    }
+
+    fn fixture() -> Fixture {
+        fixture_with_desk(Some(desk()))
+    }
+
+    fn fixture_with_desk(obligation_desk: Option<ObligationDesk>) -> Fixture {
+        let root = std::env::temp_dir().join(format!("richos-assignment-tools-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let scope_path = root.join("assignments.json");
+        let scope = root.join("assignments.json");
         write_scope(
-            &scope_path,
+            &scope,
             &AssignmentToolScope {
                 version: 1,
                 actions_allowed: true,
@@ -361,18 +603,55 @@ mod tests {
                 thread_id: "thread-one".into(),
                 instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
                 instruction_sha256: "a".repeat(64),
+                obligation_desk,
             },
         )
         .unwrap();
-        (root, scope_path)
+        Fixture { root, scope }
     }
 
-    /// Spec §1.1/§1.2: one call, a durable record, and a sentence to end the turn with.
+    /// What the register asked the ECS desk to do, recorded rather than performed — so every
+    /// path through [`call_with`] is provable with no interpreter, no engine and no store.
+    #[derive(Default)]
+    struct Opened {
+        opens: Mutex<Vec<(String, String, String)>>,
+        abandoned: Mutex<Vec<String>>,
+        refuse: Option<String>,
+    }
+    impl Opened {
+        fn refusing(why: &str) -> Self {
+            Opened { refuse: Some(why.into()), ..Default::default() }
+        }
+        fn ids(&self) -> Vec<String> {
+            self.opens.lock().unwrap().iter().map(|(id, _, _)| id.clone()).collect()
+        }
+    }
+    impl ObligationOpener for Opened {
+        fn open(&self, _desk: &ObligationDesk, obligation: &str, title: &str, kind: AssignmentKind)
+            -> Result<(), String> {
+            if let Some(why) = &self.refuse {
+                return Err(why.clone());
+            }
+            self.opens.lock().unwrap().push((
+                obligation.to_string(),
+                title.to_string(),
+                kind.as_str().to_string(),
+            ));
+            Ok(())
+        }
+        fn abandon(&self, _desk: &ObligationDesk, obligation: &str) {
+            self.abandoned.lock().unwrap().push(obligation.to_string());
+        }
+    }
+
+    /// Spec §1.1/§1.2: one call, a durable record, and a sentence to end the turn with — and
+    /// since 2026-09-18, the OBLIGATION opened by the same call.
     #[test]
-    fn recording_writes_the_assignment_and_returns_the_sentence_to_say() {
-        let (root, scope) = fixture();
-        let result = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"landing the three branches",
-            "repositories":["/fictional/project"]}))
+    fn recording_opens_the_obligation_and_returns_the_sentence_to_say() {
+        let fixture = fixture();
+        let desk = Opened::default();
+        let result = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the three branches","repositories":["/fictional/project"]}), &desk)
             .unwrap();
         assert_eq!(result["recorded"], true);
         // **This is the wire both defects came off.** `say` is handed to the model verbatim and
@@ -385,25 +664,125 @@ mod tests {
         assert_eq!(result["say_nothing_else"], true);
         assert!(!say.contains("landing the three branches"), "his task was read back to him: {say}");
         assert!(!say.to_lowercase().contains("running"), "the receipt told him it was running: {say}");
-        let second_reply_check = |scope: &std::path::Path| {
-            // The other reply, and the only thing that selects it: a fact the model reports,
-            // never words the model composes.
-            let asked = call(scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-8","assignment":"the pricing review",
-                "after_questions":true}))
-                .unwrap();
-            assert_eq!(asked["say"], "Got it. On it!");
-        };
-        let rows = assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap();
+        // **THE OBLIGATION WAS OPENED, ONCE, BY THIS CALL, WITH THE RECORD'S OWN ID.** That
+        // identity is the join the work lease depends on: `prepare` reads the obligation off
+        // the seat's binding and refuses a dispatch unless its item is open
+        // (`mega-lander/app.py:318-321`).
+        let rows = fixture.rows();
         assert_eq!(rows.len(), 1);
+        let opens = desk.opens.lock().unwrap().clone();
+        assert_eq!(opens.len(), 1, "one registration must open exactly one obligation: {opens:?}");
+        assert_eq!(opens[0].0, rows[0].obligation_id, "the record and the obligation disagree");
+        assert_eq!(opens[0].1, "landing the three branches", "his own words did not reach the record");
+        assert_eq!(opens[0].2, "task");
+        assert!(desk.abandoned.lock().unwrap().is_empty(), "a successful registration took its obligation back");
+        // The id is the APP's: bounded, colon-free (the seat is spelled `work-seat:<id>`), and
+        // nothing the model could have named.
+        assert!(rows[0].obligation_id.starts_with("work-"), "{}", rows[0].obligation_id);
+        assert_eq!(rows[0].seat, format!("work-seat:{}", rows[0].obligation_id));
         assert_eq!(rows[0].state, assignment::AssignmentState::Registered);
         assert_eq!(rows[0].instruction_ledger_ref, "ledger:thread-one:turn-7");
         assert_eq!(rows[0].repositories, vec!["/fictional/project".to_string()]);
         // §1.2: nothing the model can say back carries an identifier.
         assert!(!say.contains(&rows[0].id));
         assert!(!say.contains(&rows[0].seat));
-        // Last, because it writes a second record: the reply after a clarifying question.
-        second_reply_check(&scope);
-        std::fs::remove_dir_all(root).unwrap();
+        assert!(!say.contains(&rows[0].obligation_id));
+        // The other reply, and the only thing that selects it: a fact the model reports, never
+        // words the model composes. It is a second registration, so it opens a second
+        // obligation — a different one, because it is different work.
+        let asked = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"the pricing review","after_questions":true}), &desk).unwrap();
+        assert_eq!(asked["say"], "Got it. On it!");
+        let ids = desk.ids();
+        assert_eq!(ids.len(), 2);
+        assert_ne!(ids[0], ids[1], "two assignments shared one obligation, and so one seat");
+    }
+
+    /// **THE MODEL CANNOT NAME, GUESS OR REDIRECT THE OBLIGATION, because it is not an
+    /// argument any more** — the CEO's §55 leg landed 2026-09-18.
+    ///
+    /// The engine reached this conclusion first, for the sibling field one level down:
+    /// *"Naming the obligation in the brief instead would have been the wrong fix: it puts an
+    /// identifier in front of a model, which is the thing that invites an invented one"*
+    /// (`mega-lander/app.py`'s `carried_obligation`). An `obligation_id` the model still sent
+    /// is refused outright rather than ignored, because an ignored field is how a caller learns
+    /// it was accepted.
+    #[test]
+    fn the_obligation_is_not_a_model_argument_at_all() {
+        let fixture = fixture();
+        let desk = Opened::default();
+        let refused = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"obligation_id":"obl-add-notes-line","assignment":"landing the branches"}), &desk)
+            .unwrap_err();
+        assert!(refused.contains("Nothing was recorded."), "{refused}");
+        assert!(fixture.rows().is_empty());
+        assert!(desk.opens.lock().unwrap().is_empty(), "a refused shape still opened an obligation");
+        // It is not in the tool's own schema either, so a model reading the description is not
+        // being asked for one.
+        let schema = tools()["tools"][0]["inputSchema"].clone();
+        assert!(schema["properties"].get("obligation_id").is_none(), "{schema}");
+        assert_eq!(schema["required"], json!(["assignment"]));
+        // And the description tells it there is nothing to open first — the sentence that used
+        // to say the opposite is what produced the pre-reply checkpoint that cost him 3.0 s.
+        let description = tools()["tools"][0]["description"].as_str().unwrap().to_string();
+        assert!(description.contains("do not open or save any operational record first"), "{description}");
+        // Positive control: the same call without the identifier records.
+        assert!(call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &desk).is_ok());
+    }
+
+    /// **A register with no desk RECORDS NOTHING** — fail-closed, because the alternative is
+    /// the state this change removes: an assignment on disk whose obligation never existed,
+    /// which `prepare` refuses minutes later with nothing on his screen to explain it.
+    #[test]
+    fn no_obligation_desk_records_nothing() {
+        let fixture = fixture_with_desk(None);
+        let desk = Opened::default();
+        let refused = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &desk).unwrap_err();
+        assert!(refused.contains("Nothing was recorded."), "{refused}");
+        assert!(!refused.to_lowercase().contains("started"), "{refused}");
+        assert!(fixture.rows().is_empty());
+        assert!(desk.opens.lock().unwrap().is_empty());
+        // A scope written before this field existed reads back as no desk, rather than failing
+        // to parse — which is what makes the refusal above the observable behavior on an
+        // older scope file rather than a crash.
+        let legacy = fixture.root.join("legacy.json");
+        std::fs::write(&legacy, json!({"version":1,"actions_allowed":true,
+            "state_root":fixture.state(),"entity_id":"depot","thread_id":"thread-one",
+            "instruction_ledger_ref":"ledger:thread-one:turn-7",
+            "instruction_sha256":"a".repeat(64)}).to_string()).unwrap();
+        let read = read_scope(&legacy).unwrap();
+        assert!(read.obligation_desk.is_none());
+    }
+
+    /// **AN OBLIGATION THAT WOULD NOT OPEN MEANS NOTHING IS RECORDED**, and an obligation
+    /// opened for a registration that then failed is TAKEN BACK.
+    #[test]
+    fn a_refused_obligation_records_nothing_and_a_failed_record_takes_its_obligation_back() {
+        let fixture = fixture();
+        let refusing = Opened::refusing("the operational record is unavailable");
+        let refused = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &refusing).unwrap_err();
+        // The register's own refusal sentence, which claims nothing and starts nothing —
+        // `assignment::failed_registration_sentence`, the same one a failed write uses.
+        assert!(refused.contains("could not write that assignment down"), "{refused}");
+        assert!(refused.contains("Nothing is running and nothing was started"), "{refused}");
+        assert!(refused.contains("the operational record is unavailable"), "the reason was swallowed: {refused}");
+        assert!(fixture.rows().is_empty());
+
+        // The other half: the obligation opens, and the record cannot be written. The state
+        // root is made a FILE, so `register_kind`'s own write fails after the open.
+        let blocked = fixture_with_desk(Some(desk()));
+        std::fs::write(blocked.state(), "not a directory").unwrap();
+        let desk_for_blocked = Opened::default();
+        let failed = call_with(&blocked.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &desk_for_blocked).unwrap_err();
+        assert!(failed.contains("Nothing is running"), "{failed}");
+        let opened = desk_for_blocked.ids();
+        assert_eq!(opened.len(), 1);
+        assert_eq!(*desk_for_blocked.abandoned.lock().unwrap(), opened,
+            "the obligation was left open with nothing to carry it out");
     }
 
     /// **The CEO's ruling §55 reaches the model, not just this file's tests.**
@@ -446,14 +825,14 @@ mod tests {
     /// here is what he reads and hears.
     #[test]
     fn a_question_is_recorded_as_a_question_and_answered_with_its_own_sentence() {
-        let (root, scope) = fixture();
-        let quick = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7",
-            "assignment":"whether the pricing review ever landed","kind":"check"}))
-            .unwrap();
+        let fixture = fixture();
+        let desk = Opened::default();
+        let quick = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"whether the pricing review ever landed","kind":"check"}), &desk).unwrap();
         assert_eq!(quick["say"], "I'll check.");
         assert_eq!(quick["say_nothing_else"], true);
-        let deep = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-8",
-            "assignment":"why the nightly has been red since Tuesday","kind":"investigate"}))
+        let deep = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"why the nightly has been red since Tuesday","kind":"investigate"}), &desk)
             .unwrap();
         assert_eq!(deep["say"], "I'll investigate.");
         // Nothing reads his question back, nothing says "working", nothing claims a start.
@@ -465,26 +844,26 @@ mod tests {
             assert!(!say.contains("On it"), "a question got the task reply: {say}");
         }
         // The kind is on the record, which is what the timer and the status read use.
-        let rows = assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap();
+        let rows = fixture.rows();
         assert_eq!(rows.len(), 2);
         let kinds: Vec<&str> = rows.iter().map(|r| r.kind.as_str()).collect();
         assert!(kinds.contains(&"check") && kinds.contains(&"investigate"), "{kinds:?}");
+        // **AND THE OBLIGATION KNOWS WHICH IT IS.** A question of his is an `open_loop` and a
+        // piece of work is a `commitment` — both open in a live state `prepare` accepts, and the
+        // difference is what his own executive brief shows him next turn.
+        let opens = desk.opens.lock().unwrap().clone();
+        assert_eq!(opens.iter().map(|(_, _, kind)| kind.as_str()).collect::<Vec<_>>(), ["check", "investigate"]);
         // An omitted kind is a task — every caller before today, unchanged.
-        let task = call(&scope, RECORD_TOOL_NAME,
-            json!({"obligation_id":"obligation-9","assignment":"landing the three branches"})).unwrap();
+        let task = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the three branches"}), &desk).unwrap();
         assert_eq!(task["say"], "On it!");
-        // **A kind the model mistyped is REFUSED, not defaulted.** A typo that became a task
-        // would hand him "On it!" for a question, which is the defect §58 removes.
-        let typo = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-10",
-            "assignment":"whether the branch landed","kind":"checking"}))
-            .unwrap_err();
+        // **A kind the model mistyped is REFUSED, not defaulted** — and refused before anything
+        // is opened, which is why the kind is parsed ahead of the desk.
+        let typo = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"whether the branch landed","kind":"checking"}), &desk).unwrap_err();
         assert!(typo.contains("Nothing was recorded."), "{typo}");
-        assert_eq!(
-            assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap().len(),
-            3,
-            "a refused kind still wrote a record"
-        );
-        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(fixture.rows().len(), 3, "a refused kind still wrote a record");
+        assert_eq!(desk.ids().len(), 3, "a refused kind still opened an obligation");
     }
 
     /// **§58 reaches the model, not only this file's tests.**
@@ -518,21 +897,24 @@ mod tests {
     /// ignored — an ignored extra field is how a caller learns it was accepted.
     #[test]
     fn arguments_cannot_redirect_the_company_the_conversation_or_the_instruction() {
-        let (root, scope) = fixture();
+        let fixture = fixture();
+        let desk = Opened::default();
         for sneaky in [
-            json!({"obligation_id":"obligation-7","assignment":"x","entity_id":"other"}),
-            json!({"obligation_id":"obligation-7","assignment":"x","thread_id":"thread-two"}),
-            json!({"obligation_id":"obligation-7","assignment":"x","state_root":"/tmp"}),
-            json!({"obligation_id":"obligation-7","assignment":"x","instruction_ledger_ref":"ledger:thread-one:turn-9"}),
+            json!({"assignment":"x","entity_id":"other"}),
+            json!({"assignment":"x","thread_id":"thread-two"}),
+            json!({"assignment":"x","state_root":"/tmp"}),
+            json!({"assignment":"x","instruction_ledger_ref":"ledger:thread-one:turn-9"}),
+            json!({"assignment":"x","obligation_desk":{}}),
         ] {
-            assert!(call(&scope, RECORD_TOOL_NAME, sneaky).is_err());
+            assert!(call_with(&fixture.scope, RECORD_TOOL_NAME, sneaky, &desk).is_err());
         }
-        assert!(call(&scope, "prepare", json!({"obligation_id":"obligation-7","assignment":"x"})).is_err());
-        assert!(call(&scope, RECORD_TOOL_NAME, json!({})).is_err());
-        assert!(call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"   "})).is_err());
+        assert!(call_with(&fixture.scope, "prepare", json!({"assignment":"x"}), &desk).is_err());
+        assert!(call_with(&fixture.scope, RECORD_TOOL_NAME, json!({}), &desk).is_err());
+        assert!(call_with(&fixture.scope, RECORD_TOOL_NAME, json!({"assignment":"   "}), &desk).is_err());
+        assert!(desk.opens.lock().unwrap().is_empty(), "a refused call opened an obligation");
         // Positive control: the plain form records.
-        assert!(call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"landing the branches"})).is_ok());
-        std::fs::remove_dir_all(root).unwrap();
+        assert!(call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &desk).is_ok());
     }
 
     /// With no visible turn the grant is closed and nothing is recorded — spec §5.1. This
@@ -540,33 +922,40 @@ mod tests {
     /// server at all, and if it somehow did, its scope carries no grant.
     #[test]
     fn a_closed_grant_records_nothing_and_says_so_without_implying_a_start() {
-        let (root, scope) = fixture();
-        set_actions_allowed(&scope, false).unwrap();
-        let refused = call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"landing the branches"})).unwrap_err();
+        let fixture = fixture();
+        let desk = Opened::default();
+        set_actions_allowed(&fixture.scope, false).unwrap();
+        let refused = call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &desk).unwrap_err();
         assert!(refused.contains("Nothing was recorded."));
         assert!(!refused.to_lowercase().contains("started"));
-        assert!(assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap().is_empty());
-        // Positive control: re-open it and the same call records.
-        set_actions_allowed(&scope, true).unwrap();
-        assert!(call(&scope, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"landing the branches"})).is_ok());
-        std::fs::remove_dir_all(root).unwrap();
+        assert!(fixture.rows().is_empty());
+        // **AND NOTHING WAS OPENED EITHER.** The grant is checked before the obligation, so a
+        // conversation that is not open for work leaves no item behind in his continuity.
+        assert!(desk.opens.lock().unwrap().is_empty());
+        // Positive control: re-open it and the same call records. It also proves the desk
+        // survived the grant rewrite, which reads and writes the whole scope.
+        set_actions_allowed(&fixture.scope, true).unwrap();
+        assert!(call_with(&fixture.scope, RECORD_TOOL_NAME,
+            json!({"assignment":"landing the branches"}), &desk).is_ok());
+        assert_eq!(desk.ids().len(), 1);
     }
 
     #[test]
     fn a_missing_or_damaged_scope_records_nothing() {
-        let root = std::env::temp_dir().join(format!("assignment-tools-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let absent = root.join("nothing.json");
-        assert!(call(&absent, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"x"})).is_err());
-        let damaged = root.join("damaged.json");
+        let fixture = fixture();
+        let desk = Opened::default();
+        let absent = fixture.root.join("nothing.json");
+        assert!(call_with(&absent, RECORD_TOOL_NAME, json!({"assignment":"x"}), &desk).is_err());
+        let damaged = fixture.root.join("damaged.json");
         std::fs::write(&damaged, "{\"version\":").unwrap();
-        assert!(call(&damaged, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"x"})).is_err());
-        let relative = root.join("relative.json");
+        assert!(call_with(&damaged, RECORD_TOOL_NAME, json!({"assignment":"x"}), &desk).is_err());
+        let relative = fixture.root.join("relative.json");
         std::fs::write(&relative, json!({"version":1,"actions_allowed":true,"state_root":"engine-state",
             "entity_id":"depot","thread_id":"thread-one","instruction_ledger_ref":"ledger:thread-one:t",
             "instruction_sha256":"a".repeat(64)}).to_string()).unwrap();
-        assert!(call(&relative, RECORD_TOOL_NAME, json!({"obligation_id":"obligation-7","assignment":"x"})).is_err());
-        std::fs::remove_dir_all(root).unwrap();
+        assert!(call_with(&relative, RECORD_TOOL_NAME, json!({"assignment":"x"}), &desk).is_err());
+        assert!(desk.opens.lock().unwrap().is_empty());
     }
 
     /// The readiness verdict is a fact from the child, not from the config being accepted.
@@ -582,21 +971,22 @@ mod tests {
     /// the command behind it, and a tool call reaches `call`.
     #[test]
     fn the_stdio_transport_gates_on_initialize_and_bounds_a_frame() {
-        let (root, scope) = fixture();
+        let fixture = fixture();
+        let desk = Opened::default();
         let mut input = String::new();
         input.push_str(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}).to_string());
         input.push('\n');
         input.push_str(&json!({"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}).to_string());
         input.push('\n');
         input.push_str(&json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":RECORD_TOOL_NAME,
-            "arguments":{"obligation_id":"obligation-7","assignment":"landing the three branches"}}}).to_string());
+            "arguments":{"assignment":"landing the three branches"}}}).to_string());
         input.push('\n');
         // Oversized, then a valid call: the second must not be swallowed by the first.
         input.push_str(&format!("{}\n", "x".repeat(MAX_FRAME_BYTES + 10)));
         input.push_str(&json!({"jsonrpc":"2.0","id":4,"method":"ping"}).to_string());
         input.push('\n');
         let mut out = Vec::new();
-        serve(&scope, io::Cursor::new(input.into_bytes()), &mut out).unwrap();
+        serve_with(&fixture.scope, io::Cursor::new(input.into_bytes()), &mut out, &desk).unwrap();
         let replies: Vec<Value> = String::from_utf8(out)
             .unwrap()
             .lines()
@@ -607,7 +997,7 @@ mod tests {
         assert_eq!(replies[2]["result"]["isError"], false);
         assert_eq!(replies[3]["error"]["code"], -32600);
         assert_eq!(replies[4]["id"], 4);
-        assert_eq!(assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap().len(), 1);
-        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(fixture.rows().len(), 1);
+        assert_eq!(desk.ids().len(), 1, "the transport recorded without opening an obligation");
     }
 }

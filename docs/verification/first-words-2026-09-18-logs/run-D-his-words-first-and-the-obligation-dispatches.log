@@ -1,0 +1,193 @@
+$ cargo run -q -p richos-core --example first_reply_timing_e2e -- \
+    /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine /Users/alex/.richos-nightly/runtime
+# captured stderr, verbatim. Three model turns: the priming turn, a task, a question.
+# The same probe as run C, on `cddea51e`. PASS. His first words at 5.612 s and 5.702 s; the
+# continuity grant first seen open at 5.617 s and 5.708 s, i.e. AFTER them; never open at all
+# across the priming turn; both obligations the register opened read Open from the WORK seat
+# and reach `prepare`'s dispatch step; the old shape reads Absent and is refused by name.
+---
+---
+front desk made ready before he types : 2.686 s  (Ready { millis: 2686, spawned: false })
+the continuity grant across the priming turn : shut at its start = true, opened at = None
+[richos] the register's receipt had already been said, so the model's own words after it were withheld from the conversation (6 chars, the same sentence again): "On it!"
+---
+he said    : Land the pricing branch and get the staging deploy done.
+Rich said  : "On it!"
+send -> first words : 5.612 s
+send -> turn ended  : 6.786 s
+tool calls before he spoke : 2
+      3.047 s  mcp__richos_assignments__record
+      3.533 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+runs of prose he can see : 1
+      5.612 s  "On it!"  (turn_1c71362a50d44f86bcfe9662c701a219:text:0)
+the turn, in arrival order:
+      3.047 s  mcp__richos_assignments__record
+      3.533 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+      5.612 s  HIS FIRST WORDS
+      5.621 s  tool_call closed: {"recorded":true,"say":"On it!","say_nothing_else":true}
+the continuity grant : shut at the send = true, first seen open at = 5.617 s
+[richos] the register's receipt had already been said, so the model's own words after it were withheld from the conversation (17 chars, the same sentence again): "I'll investigate."
+---
+he said    : Why has the nightly build been failing since Tuesday? I want to know what's actually causing it.
+Rich said  : "I'll investigate."
+send -> first words : 5.702 s
+send -> turn ended  : 7.006 s
+tool calls before he spoke : 2
+      3.224 s  mcp__richos_assignments__record
+      3.820 s  {"assignment":"Why has the nightly build been failing since Tuesday, and what is act…
+runs of prose he can see : 1
+      5.702 s  "I'll investigate."  (turn_0c5e822f1fc74464801b1c2729770759:text:0)
+the turn, in arrival order:
+      3.224 s  mcp__richos_assignments__record
+      3.820 s  {"assignment":"Why has the nightly build been failing since Tuesday, and what is act…
+      5.702 s  HIS FIRST WORDS
+      5.712 s  tool_call closed: {"recorded":true,"say":"I'll investigate.","say_nothing_else":true}
+the continuity grant : shut at the send = true, first seen open at = 5.708 s
+---
+assignments written: 2
+  kind=task state=registered title="Land the pricing branch and get the staging deploy done"
+  kind=investigate state=registered title="Why has the nightly build been failing since Tuesday, and what is actually causing it?"
+[task] reply was "On it!"
+[question] reply was "I'll investigate."
+---
+prepare against the REGISTER's own obligation work-7ff2270731cd4705ba873bd561d1638d
+    the store says its status is : Open
+    prepare refused : ValueError: 
+spawn: refused by 1 of 9 guard(s) - NOTHING WAS CREATED.
+
+  [1] guard-owned-state.sh REFUSES this spawn  (engine: /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine/hooks/hooks.json)
+      === A SYSTEM YOU OWN THE HEALTH OF IS UNHEALTHY AND NOTHING HAS BEEN DONE ABOUT IT THIS SESSION — REFUSING THIS DISPATCH ===
+      
+        system   : ci — Continuous integration across every governed repository
+        standing : first observed 0.0h ago
+        decided  : bash /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine/scripts/ci-status.sh --offline
+        taken    : 2026-09-18T16:31:45Z
+      
+        THE EVIDENCE, VERBATIM:
+          ====================================================================================================
+          CI SURFACE — 2026-09-18T16:31:45Z — branch main
+          ====================================================================================================
+          PAUSED WebDevBooster/richos                Operator requested a CI pause to resume product work. Do not repair, retry or re-enable CI without an explicit instruction.
+      
+        why this is watched: Three workflows were red on main for 13, 10 and 4 days and the founder was the one who noticed.
+      
+        Also standing, and NOT what this gate is asking about right now:
+          escalations  UNHEALTHY first observed 0.0h ago
+          executables  UNKNOWN   first observed 0.0h ago
+          unlanded     UNKNOWN   first observed 0.0h ago
+      
+        On 2026-09-10 the founder found a workflow red for thirteen days, 30 GB
+        of unreclaimable worktrees and the engine's own hook text on his screen.
+        The worktree state was ALREADY in that session's start-up notice and was
+        read past. Surfacing had already failed. So a known-bad state now costs
+        the one thing that changes behavior: getting on with something else.
+      
+        ONE of these, and this session is clear — all of it, not one per system:
+      
+          1. DISPATCH SOMEBODY AT IT. A spawn whose prompt is about a standing
+             system is allowed, silently, and satisfies this gate. That is the
+             answer this is asking for.
+      
+          2. SAY IT CAN WAIT, ON THE RECORD. Add this line to the spawn prompt:
+      
+               owned-state-ack: ci — <why this can wait>
+      
+             It has to name ci, which is the OLDEST standing system —
+             naming a cheaper one is how a thirteen-day red survives thirteen
+             days. The reason needs 15 characters or more; a bare marker exempts
+             nothing. It is logged to .claude/state/owned-state-acks.log, which
+             notice-waiver-repetition.py reads, so the same excuse repeated
+             session after session gets named.
+      
+        Full report, every system including the healthy ones:
+          /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine/scripts/owned-state.sh /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos first reply ae64f4d6-8feb-4625-a163-c0bc35dd7e91/app data/coordination
+      (hook: scripts/hooks/guard-owned-state.sh)
+
+  1 problem(s). Fix them together and run the same command again.
+  guards evaluated (all of them, every time):
+    ok      guard-sealed-worktree.sh               engine     0.2s
+    ok      guard-worktree-isolation.sh            engine     0.5s
+    ok      guard-definition-drift.sh              engine     0.1s
+    ok      verify-agent-prompt.sh                 engine     0.5s
+    ok      guard-ceo-ask-first.sh                 engine     0.0s
+    ok      guard-model-ceiling.sh                 engine     0.2s
+    ok      guard-stale-staging.sh                 engine     0.0s
+    REFUSED guard-owned-state.sh                   engine     0.9s
+    ok      guard-brief-scope.sh                   engine     0.2s
+
+
+---
+prepare against the REGISTER's own obligation work-3dfcefc5afc74d85ac7a9a01b021c8ac
+    the store says its status is : Open
+    prepare refused : ValueError: 
+spawn: refused by 1 of 9 guard(s) - NOTHING WAS CREATED.
+
+  [1] guard-owned-state.sh REFUSES this spawn  (engine: /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine/hooks/hooks.json)
+      === A SYSTEM YOU OWN THE HEALTH OF IS UNHEALTHY AND NOTHING HAS BEEN DONE ABOUT IT THIS SESSION — REFUSING THIS DISPATCH ===
+      
+        system   : ci — Continuous integration across every governed repository
+        standing : first observed 0.0h ago
+        decided  : bash /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine/scripts/ci-status.sh --offline
+        taken    : 2026-09-18T16:31:45Z (cached)
+      
+        THE EVIDENCE, VERBATIM:
+          ====================================================================================================
+          CI SURFACE — 2026-09-18T16:31:45Z — branch main
+          ====================================================================================================
+          PAUSED WebDevBooster/richos                Operator requested a CI pause to resume product work. Do not repair, retry or re-enable CI without an explicit instruction.
+      
+        why this is watched: Three workflows were red on main for 13, 10 and 4 days and the founder was the one who noticed.
+      
+        Also standing, and NOT what this gate is asking about right now:
+          escalations  UNHEALTHY first observed 0.0h ago
+          executables  UNKNOWN   first observed 0.0h ago
+          unlanded     UNKNOWN   first observed 0.0h ago
+      
+        On 2026-09-10 the founder found a workflow red for thirteen days, 30 GB
+        of unreclaimable worktrees and the engine's own hook text on his screen.
+        The worktree state was ALREADY in that session's start-up notice and was
+        read past. Surfacing had already failed. So a known-bad state now costs
+        the one thing that changes behavior: getting on with something else.
+      
+        ONE of these, and this session is clear — all of it, not one per system:
+      
+          1. DISPATCH SOMEBODY AT IT. A spawn whose prompt is about a standing
+             system is allowed, silently, and satisfies this gate. That is the
+             answer this is asking for.
+      
+          2. SAY IT CAN WAIT, ON THE RECORD. Add this line to the spawn prompt:
+      
+               owned-state-ack: ci — <why this can wait>
+      
+             It has to name ci, which is the OLDEST standing system —
+             naming a cheaper one is how a thirteen-day red survives thirteen
+             days. The reason needs 15 characters or more; a bare marker exempts
+             nothing. It is logged to .claude/state/owned-state-acks.log, which
+             notice-waiver-repetition.py reads, so the same excuse repeated
+             session after session gets named.
+      
+        Full report, every system including the healthy ones:
+          /Users/alex/ab/richos-wt/echo-opus-obligation2/richos/engine/scripts/owned-state.sh /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos first reply ae64f4d6-8feb-4625-a163-c0bc35dd7e91/app data/coordination
+      (hook: scripts/hooks/guard-owned-state.sh)
+
+  1 problem(s). Fix them together and run the same command again.
+  guards evaluated (all of them, every time):
+    ok      guard-sealed-worktree.sh               engine     0.2s
+    ok      guard-worktree-isolation.sh            engine     0.5s
+    ok      guard-definition-drift.sh              engine     0.1s
+    ok      verify-agent-prompt.sh                 engine     0.5s
+    ok      guard-ceo-ask-first.sh                 engine     0.0s
+    ok      guard-model-ceiling.sh                 engine     0.2s
+    ok      guard-stale-staging.sh                 engine     0.0s
+    REFUSED guard-owned-state.sh                   engine     0.4s
+    ok      guard-brief-scope.sh                   engine     0.2s
+
+
+---
+prepare against the OLD SHAPE's never-opened obligation land-pricing-branch-staging-deploy
+    the store says its status is : Absent
+    prepare refused : ScopeError: item is absent or outside the active scope
+---
+PASS: the register was the first tool call on every turn that handed work over, and nothing was discovered or written down ahead of his first word.
+slowest send -> first words this run: 5.702 s (budgets: 9 s warm, 11 s on the lease's first VISIBLE turn; §55: a few seconds, 35 s is a defect)
+the priming turn, which every figure above is now WITHOUT: 2.686 s, spent before he typed. Three model turns were spent by this run.
