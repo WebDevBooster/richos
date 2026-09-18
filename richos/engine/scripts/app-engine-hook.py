@@ -41,6 +41,42 @@ def scope():
     return value
 
 
+def a_worker_this_lease_already_dispatched(active, payload):
+    """Is this tool call a BACKGROUND WORKER's, under a standing grant that survives the
+    turn that dispatched it?
+
+    **THE DEFECT THIS ANSWERS, measured on 2026-09-18 and quoted from the worker's own last
+    words** (`engine-state/evidence/<session>/callbacks.jsonl`, row 21 of a
+    `work_lease_roundtrip` run): *"Unable to complete or report via tools - the host's
+    PreToolUse hook is blocking all tool actions this turn, including SubagentHandback
+    itself, with: 'RichOS desktop engine: This app turn is stopped or is supplying context.
+    New actions are unavailable.'"*
+
+    `actions_allowed` is the TURN's grant, opened and closed by `NativeCognition::prompt`.
+    A background worker outlives the turn that dispatched it BY DESIGN — `mega-lander/app.py`
+    stamps `run_in_background: true` on every payload, the provider answers
+    `{"status":"async_launched"}`, and the turn ends with the worker just getting started.
+    So the worker did all of its work in the window where the flag was false and had every
+    single call refused, produced nothing, and was then disposed of as landed (an agent that
+    produced nothing IS landed, worktree-spec point 7) with its worktree deleted.
+
+    **What authorizes the worker instead is its RECEIPT, and those checks are all still
+    ahead of it in `handle`:** `guard-sealed-worktree.sh` refuses a run the platform has
+    already ended, `validate_shell_target` refuses a Git command whose target it cannot
+    read, and `app.py`'s `worker_context` refuses any `agent_id` that does not join exactly
+    one live receipt of this session and this binding, refuses the CEO-scoped `mcp__richos_*`
+    tools outright, and fences every write inside the registered target worktree. Nothing is
+    waved through here; a different, narrower gate answers for a worker than for the lease.
+
+    **A stop still stops it.** The flag is written true in one place (`bind_work_assignment`'s
+    standing §5.4 grant) and cleared by `ecs::revoke` — the CEO's stop, the end of the
+    assignment, a crash-recovery sweep — and a stop also kills the process group the worker
+    lives in. Absent means false, so an older app, a conversation lease, or a scope written
+    by anything else refuses a worker exactly as before.
+    """
+    return bool(payload.get("agent_id")) and active.get("background_work_allowed") is True
+
+
 def handle(payload):
     root = Path(os.environ["RICHOS_APP_STATE"])
     coordination = Path(os.environ["RICHOS_ENTITY_ROOT"])
@@ -49,7 +85,8 @@ def handle(payload):
     event = payload.get("hook_event_name")
     if event == "PreToolUse":
         active = scope()
-        if active.get("actions_allowed") is not True:
+        if active.get("actions_allowed") is not True \
+                and not a_worker_this_lease_already_dispatched(active, payload):
             raise ValueError("This app turn is stopped or is supplying context. New actions are unavailable.")
     evidence = load("richos_app_evidence", ENGINE / "scripts/lib/app-evidence.py")
     instruction = None
