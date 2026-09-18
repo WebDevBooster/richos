@@ -282,7 +282,7 @@ are never built** (standing rule).
 
 | event | data | what it is |
 |---|---|---|
-| `hello` | `{challenge, api_base, thread_id, latest_cursor, threads:[{id,title}], vapid_public_key, messages:[…]}` | the opening. Carries the rows too, so the first paint needs no second request |
+| `hello` | `{challenge, api_base, thread_id, latest_cursor, threads:[{id,title}], vapid_public_key, capabilities:[…], build, messages:[…]}` | the opening. Carries the rows too, so the first paint needs no second request |
 | `message` | a full message row | a row to merge |
 | `delta` | `{message_id, cursor, text}` | text appended to a reply that is still arriving |
 | `state` | `{message_id, state}` | one row's state changed |
@@ -295,6 +295,28 @@ A message row:
  "created_at":"2026-09-18T13:00:00.000Z","client_id":null,"has_audio":false,
  "from_microphone":false,"state":"…","complete":true}
 ```
+
+**`capabilities` is what this Mac can be asked for, and the phone assumes nothing it is not told.**
+A list of names; `["text"]` in this build, because voice transcription is slice B and the route
+answers every voice note `503`. **The phone renders a control only where the capability behind it
+is named here** — it shipped a "Hold to record" button as one of its two biggest controls against a
+Mac that could not take one, and a control that cannot work is worse than an absent one.
+
+It is **default-deny in both directions**. An absent, empty or malformed list offers nothing, which
+is the true answer for every build that predates this key: not one of them could take a voice note.
+And the Mac's list is checked against its own routes rather than maintained beside them
+(`routes.rs`, `voice_is_offered_exactly_when_the_route_would_take_one`), so advertising something
+that does not work and building something that is never advertised are both test failures.
+
+`capabilities` rides **every** `hello`, not the pairing response, because the phone outlives the
+build it paired with: he updates the Mac and the app on his phone is the same app, holding whatever
+it was last told. The phone **replaces** its answer from each frame and never merges — a capability
+that was true once is not evidence about the Mac answering now.
+
+**`build` is which RichOS is answering**, as the version string (`1.2.0`), from
+`app/src-tauri/Cargo.toml` via `CARGO_PKG_VERSION` and from nowhere else. It is diagnostic: nothing
+on the phone branches on it today. The phone is never shown it — plan §3's *"nothing he reads is an
+identifier"* covers a build number as squarely as a hash.
 
 **The cursor is issued by the Mac and is the only ordering** (plan §4.2 vi). It is a **monotone
 integer: the row's 1-based position among the message rows of the CEO-gated projection.** That is a
@@ -403,17 +425,40 @@ Plan §10.7, and it is what keeps the phone app from being rewritten twice.
 | a device this Mac has forgotten | **403** | `{"revoked":true}` |
 | body over 64 KiB | 413 | empty |
 | over the rate limit | 429 | empty, `Retry-After: 60` |
-| the Mac could not save the message, or a voice note | 503 | `{"accepted":false,"reason":"…"}` |
+| the Mac could not save the message — **try again** | 503 | `{"accepted":false,"reason":"…"}` |
+| the Mac will not take that KIND of message in this build — a voice note today | 503 | `{"accepted":false,"retry":false,"reason":"…"}` |
 | accepted | 200 | as above |
 
 **404 for nearly everything is deliberate.** A caller that is not the paired phone gets one answer
 to every question, so it cannot map the surface by the shape of the refusals.
 
+**`retry` is the only thing separating the two 503s, and for one day there was nothing.** They were
+one row here: same status, same body shape, same `accepted: false`. One of them MUST be retried —
+the Mac failed to write his words down and the phone is holding the only copy — and the other must
+never be, because the answer will be identical every time this build is asked. A phone that guesses
+either strands a message he wrote or hammers a Mac that has already answered, so **the Mac says
+which it is and the phone reads it, never the other way round.**
+
+The rules, exactly as `api.js` implements them:
+
+- **`"retry": false` and only that**, the JSON boolean. A missing key, a body that is not JSON, the
+  string `"false"` and the number `0` are all read as retryable. That default costs one wasted
+  request; the other default costs a message he has to type again.
+- **It is not tied to 503.** Any status the Mac refuses on may carry it, and a refusal that names
+  itself final is final whatever the number above it says.
+- **It is about the MESSAGE, not about the phone.** This is the distinction the send queue turns on.
+  A final refusal of one message leaves everything queued behind it free to go, and the queue carries
+  on past it. A refusal about the PHONE — `403 {"revoked":true}`, the flat `404` — applies
+  identically to everything still queued, so the queue stops rather than walking the rest of his
+  messages into the same answer.
+- **`reason` is shown to him**, so it is a sentence about his message and never an internal name.
+
 ---
 
 ## 10. What this contract deliberately does not contain
 
-Voice transcription (slice B — the route answers 503 and says so), thread creation or renaming,
+Voice transcription (slice B — the route answers 503 and says so, `capabilities` leaves it out, and
+the phone therefore shows no control for it), thread creation or renaming,
 more than one paired device, more than one company, any machinery or drill-down view, settings,
 permission approvals, and any route that takes a file path. Plan §6 is the full list and none of it
 comes back through this door.
