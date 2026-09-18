@@ -75,7 +75,14 @@ tauri-plugin-updater = "2.11.0"
 # on a current-thread runtime so a real download can be proven without launching the app.
 # `tauri` already builds on tokio's runtime, so features unify and the Cargo.lock diff for this
 # line is empty.
-tokio = { version = "1", features = ["time", "rt"] }
+# `net`, `io-util` and `sync` join them for the phone channel's listener (src/phone/): a
+# TCP accept loop, the TLS acceptor's reads and writes, and the broadcast the event stream
+# is fed from. All three are already enabled in this graph beneath tauri — `mio`, `socket2`
+# and `libc` are in tokio's lock entry today — so naming them adds no package. `macros` is
+# deliberately NOT named: it is the one tokio feature that would pull a new `[[package]]`
+# (`tokio-macros` is absent from the lock), so the tests in `src/phone/` build their own
+# current-thread runtime rather than buy a package for an attribute.
+tokio = { version = "1", features = ["time", "rt", "net", "io-util", "sync"] }
 # THE SPEECH-MODEL DOWNLOAD (src/voice_provision.rs).
 #
 # NO NEW CRATE, AND THE FEATURE LIST IS WHY IT IS SPELLED OUT RATHER THAN LEFT TO A DEFAULT.
@@ -100,6 +107,60 @@ futures-util = { version = "0.3", default-features = false }
 # `voice_provision.rs` therefore installs the same `ring` provider itself, idempotently, before
 # building its client. Already in the lock at 0.23.43 beneath the updater plugin.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+# THE PHONE CHANNEL'S HTTPS LISTENER (src/phone/). RichOS's first inbound socket.
+#
+# THE ASSUMPTION THIS BLOCK WAS SUPPOSED TO CONFIRM, AND DID NOT.
+#
+# The phone-client plan's §3.5 assumption 2 reads: *"`hyper`'s `server` feature adds no
+# `[[package]]` line. Every crate is in the lock today (§2.3)."* Measured here rather than
+# quoted: the five crates named in §2.3 are indeed all in the lock already — hyper 1.11.1,
+# hyper-util 0.1.20, http-body-util 0.1.5, rustls 0.23.43, tokio-rustls 0.26.4 — and
+# enabling `hyper/server` on top of them adds EXACTLY ONE package:
+#
+#     + httpdate 1.0.3    (checksum df3b4640…49a9)
+#
+# hyper's server pulls it to format the `Date:` response header, which is a header an HTTP
+# server is required to send. So the assumption is false by one crate, and the plan's own
+# answer to that case — *"that is a dependency review and half a day"* — is discharged here
+# rather than absorbed, because this file's own standing rule is that an inherited default
+# is argued for.
+#
+# THE REVIEW, on the copy in the local registry:
+#   - 580 lines of Rust in two files (`src/lib.rs` 160, `src/date.rs` 420).
+#   - `#![forbid(unsafe_code)]` at `src/lib.rs:19`. There is no other occurrence of the word.
+#   - ZERO runtime dependencies. Its only dev-dependency is `criterion`, which a consumer
+#     never builds.
+#   - No build script, no proc macro, no network, no filesystem, no `std::process`.
+#   - What it does is arithmetic on a `u64` of seconds: format and parse the three date forms
+#     RFC 7231 §7.1.1.1 defines.
+#   - MIT OR Apache-2.0, `github.com/pyfisch/httpdate`, and it already ships inside every
+#     binary that has ever run an HTTP server in Rust.
+# A date formatter with no dependencies and no unsafe code is about the smallest thing a new
+# `[[package]]` line can be, and the alternative is writing the same 580 lines ourselves.
+# Accepted, with the count named so the next reader does not have to re-derive it.
+#
+# EVERYTHING ELSE BELOW ADDS NO PACKAGE, and the Cargo.lock diff for this commit is the
+# proof: the only `[[package]]` it introduces is the one above.
+hyper = { version = "1", default-features = false, features = ["server", "http1"] }
+# `TokioIo` only — the `tokio` feature and nothing else. `server-graceful` and `service` are
+# deliberately not enabled: shutdown here is a channel the listener selects on, which is
+# already how the rest of this app stops things it owns.
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+# `Full<Bytes>` for a fixed response, `BodyExt` to read a request body with a size limit.
+http-body-util = "0.1"
+# THE TLS ACCEPTOR. `ring` rather than `aws-lc-rs` for the reason `rustls` above already
+# gives: `aws-lc-rs` needs a C toolchain this build does not have. Same provider as the one
+# `voice_provision.rs` installs, so there is one crypto provider in this process, not two.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+# THE CRYPTO THE PHONE CHANNEL ITSELF NEEDS, and it is all in one crate that is already in
+# the lock beneath rustls: ECDSA P-256 verification (the phone's request signatures) and
+# signing (the VAPID JWT, RFC 8292), ECDH P-256 (RFC 8291 §3.3), HKDF-SHA256, AES-128-GCM,
+# SHA-256 and a CSPRNG. No second implementation of any of them enters this binary.
+ring = "0.17"
+# base64url, which is the only encoding RFC 8291 and RFC 8292 use. Already a dev-dependency
+# of this crate and already in the lock at 0.22.1.
+base64 = "0.22"
 
 # THE REAL DOWNLOAD, WITHOUT A WINDOW. Compiles src/voice_provision.rs by path, exactly as
 # examples/window_placement.rs compiles src/window_geometry.rs, and substitutes only the observer.
