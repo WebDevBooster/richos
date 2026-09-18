@@ -1174,6 +1174,46 @@ pub mod says {
         )
     }
 
+    /// **A QUESTION THAT DID NOT GET ANSWERED, SAID AS THAT.**
+    ///
+    /// [`failed`] and [`did_not_start`] both put the title where a job's name goes —
+    /// *"{title} stopped before it finished."* A question's title is his question, so those
+    /// produce *"why the nightly is red stopped before it finished"*, which is not English
+    /// and not a thing anybody would say to him. Same fact, said the way a person says it:
+    /// the answer is what did not arrive, and the reason follows.
+    ///
+    /// **It does not distinguish "did not start" from "stopped part way", and that is
+    /// deliberate.** For a piece of work the difference matters, because it decides what he
+    /// asks next ("how far did it get?"). For a question it does not exist: either he has the
+    /// answer or he does not, and nothing was half-answered. The reason still travels, so
+    /// nothing is hidden — only the distinction that would be about work he never asked for.
+    pub fn could_not_answer(question: &str, why: &str) -> String {
+        let why = why.trim();
+        if why.is_empty() {
+            return format!("I couldn't get you an answer on {question}. Ask me again and I'll try it a different way.");
+        }
+        format!("I couldn't get you an answer on {question}. {why}")
+    }
+
+    /// The failure sentence for whichever kind of thing this was — work, or a question.
+    ///
+    /// **The dispatch lives here rather than at the three call sites in `work_host.rs`**, so
+    /// that a fourth failure path added later gets the right shape without anybody
+    /// remembering this rule. `took_the_turn` is the evidence-based distinction the work
+    /// sentences need (Ray's candidate-.7 row 2: a job that got nowhere must not be described
+    /// as one that stopped part way) and it is ignored for a question, which has no such
+    /// middle state — see [`could_not_answer`].
+    pub fn failure(kind: super::AssignmentKind, title: &str, why: &str, took_the_turn: bool) -> String {
+        if kind.is_question() {
+            return could_not_answer(title, why);
+        }
+        if took_the_turn {
+            failed(title, why)
+        } else {
+            did_not_start(title, why)
+        }
+    }
+
     /// **THE ANSWER TO A QUESTION, SAID AS AN ANSWER** — the CEO's ruling §58, 2026-09-18:
     /// *"The answer arrives on the timeline as an answer, never as 'done'."*
     ///
