@@ -112,7 +112,7 @@ fn read_scope(path: &Path) -> Result<StatusToolScope, String> {
 pub fn tools() -> Value {
     json!({"tools":[
         {"name":LOOK_TOOL_NAME,
-         "description":"Look at the background work in THIS conversation: what is starting, what is running, what is waiting for the CEO to decide, and what has finished. Read this before answering any question of his about how work is going — it is the shared record, it is current as of the moment you call it, and it is the only thing you may base such an answer on. `starting` and `running` are different answers and must not be merged: work under `starting` is written down and has not been confirmed to be underway, so say it is starting. It reads and changes nothing: it cannot start, stop, approve or retry anything. Do NOT call it before writing an assignment down — a new request is not a question about how work is going, and the CEO waits while you look. To START work, write it down with the assignment register first; to stop or approve a step, tell him the control is on the assignment itself, or pass his instruction to the back end.",
+         "description":"Look at the background work in THIS conversation: what is starting, what is running, what is waiting for the CEO to decide, and what has finished — and, separately, which of those are QUESTIONS of his still being answered rather than work (every row carries a `kind` of `task`, `check` or `investigate`; a question is being checked or looked into, never `running`, and an answered one is never `finished`). Read this before answering any question of his about how work is going — it is the shared record, it is current as of the moment you call it, and it is the only thing you may base such an answer on. `starting` and `running` are different answers and must not be merged: work under `starting` is written down and has not been confirmed to be underway, so say it is starting. It reads and changes nothing: it cannot start, stop, approve or retry anything. Do NOT call it before writing an assignment down — a new request is not a question about how work is going, and the CEO waits while you look. To START work, write it down with the assignment register first; to stop or approve a step, tell him the control is on the assignment itself, or pass his instruction to the back end.",
          "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
          "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}}
     ]})
@@ -132,6 +132,18 @@ fn row(item: &Assignment) -> Value {
         .collect();
     json!({
         "what": item.title,
+        // **WORK HE ASKED FOR, OR A QUESTION HE ASKED** — the CEO's ruling §58, 2026-09-18.
+        //
+        // Without it the front desk reads its own question back under the heading "running"
+        // and tells him his question is a job in progress. The two are different things to
+        // be told about, and the difference is on the record rather than guessable from the
+        // title, so it travels.
+        //
+        // It is the KIND HE WAS TOLD, not a re-estimate: what the model reported when it
+        // answered him. The sixty-second flip to the word "investigating" happens on his
+        // screen and deliberately does not rewrite this — the record keeps the estimate,
+        // which is the only thing that can be compared against what actually happened.
+        "kind": item.kind.as_str(),
         "state": item.state.as_str(),
         "detail": item.detail,
         "asked_for_at_ms": item.registered_at_ms,
@@ -246,7 +258,7 @@ pub fn call(
         // comment the model never sees — and the `starting`/`running` line is in it for the
         // same reason: the distinction is only worth having if the thing reading it is told
         // what it means.
-        "this_answer_covers": "Background work in this conversation only, as recorded on disk. It does not cover other conversations, and it is not a claim that a running assignment is making progress this second. Work under `starting` has been written down and the back end has not been confirmed to have taken it up yet: say it is starting, never that it is running. Work under `waiting_for_the_screen` needs the Mac's screen and the screen is locked; it is NOT waiting on him and there is nothing for him to do about it — it carries on by itself when the screen is unlocked, so say that and never ask him to unlock anything. `screen` is the one live reading here and everything else is from disk; its `state` is `unknown` when this build could not establish the screen at all, which is not the same as unlocked and must never be reported as either.",
+        "this_answer_covers": "Background work in this conversation only, as recorded on disk. It does not cover other conversations, and it is not a claim that a running assignment is making progress this second. Work under `starting` has been written down and the back end has not been confirmed to have taken it up yet: say it is starting, never that it is running. Work under `waiting_for_the_screen` needs the Mac's screen and the screen is locked; it is NOT waiting on him and there is nothing for him to do about it — it carries on by itself when the screen is unlocked, so say that and never ask him to unlock anything. `screen` is the one live reading here and everything else is from disk; its `state` is `unknown` when this build could not establish the screen at all, which is not the same as unlocked and must never be reported as either. Every row carries a `kind`: `task` is work he asked for, and `check` or `investigate` is a QUESTION of his that is still being answered — say a question is being checked or looked into, never that it is running or working, and never call an answered question `finished`.",
     }))
 }
 
@@ -385,7 +397,7 @@ pub fn loaded_from_init(init: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assignment::Registration;
+    use crate::assignment::{AssignmentKind, Registration};
     use crate::screen::{FakeScreen, ScreenReading, UnknownScreen};
 
     fn fixture() -> (PathBuf, PathBuf) {
@@ -406,7 +418,11 @@ mod tests {
     }
 
     fn register(root: &Path, thread: &str, title: &str) -> String {
-        assignment::register(
+        register_kind(root, thread, title, AssignmentKind::Task)
+    }
+
+    fn register_kind(root: &Path, thread: &str, title: &str, kind: AssignmentKind) -> String {
+        assignment::register_kind(
             &root.join("engine-state"),
             &Registration {
                 entity_id: "depot".into(),
@@ -418,6 +434,7 @@ mod tests {
                 repositories: vec![],
                 needs_screen: false,
             },
+            kind,
         )
         .unwrap()
         .id
@@ -550,6 +567,54 @@ mod tests {
         // The model is told what `unknown` means, in the answer rather than in a comment.
         let covers = unknown["this_answer_covers"].as_str().unwrap();
         assert!(covers.contains("not the same as unlocked"), "{covers}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **A QUESTION IN FLIGHT IS TOLD APART FROM A TASK** — the CEO's ruling §58,
+    /// 2026-09-18.
+    ///
+    /// Without the kind on the row, the front desk reads its own question back under the
+    /// heading "running" and tells him a question he asked is a job in progress. The
+    /// positive control is in the same test: a real task is still a task, so this cannot
+    /// pass by a reader that has stopped classifying anything.
+    #[test]
+    fn a_question_in_flight_is_not_reported_as_a_job_that_is_running() {
+        let (root, scope) = fixture();
+        let state = root.join("engine-state");
+        let quick = register_kind(&root, "thread-one", "whether the pricing review landed", AssignmentKind::Check);
+        let deep = register_kind(&root, "thread-one", "why the nightly is red", AssignmentKind::Investigate);
+        let task = register(&root, "thread-one", "landing the three branches");
+        for id in [&quick, &deep, &task] {
+            assignment::advance(&state, "depot", "thread-one", id, AssignmentState::Running, "The back end has started on it.")
+                .unwrap();
+        }
+        // The screen source the landed §56 slice added: this test is about the kind on the
+        // row and says nothing about the screen, so the honest source is the one that
+        // establishes nothing.
+        let answer = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
+        let running = answer["running"].as_array().unwrap();
+        assert_eq!(running.len(), 3);
+        let kind_of = |what: &str| -> String {
+            running
+                .iter()
+                .find(|r| r["what"] == what)
+                .unwrap_or_else(|| panic!("{what} is missing from the read"))["kind"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(kind_of("whether the pricing review landed"), "check");
+        assert_eq!(kind_of("why the nightly is red"), "investigate");
+        // Positive control: work is still work.
+        assert_eq!(kind_of("landing the three branches"), "task");
+        // The model is TOLD what the kind means, in the payload it reads rather than in a
+        // tool description it may have summarized — the same rule §55's `say_nothing_else`
+        // follows.
+        let covers = answer["this_answer_covers"].as_str().unwrap();
+        assert!(covers.contains("`check` or `investigate` is a QUESTION"), "{covers}");
+        assert!(covers.contains("never that it is running"), "{covers}");
+        // Still no identifier on the way back out.
+        assert!(!answer.to_string().contains(&quick), "an identifier reached the front desk");
         std::fs::remove_dir_all(root).unwrap();
     }
 
