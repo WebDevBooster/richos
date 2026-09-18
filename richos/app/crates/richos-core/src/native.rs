@@ -4338,6 +4338,21 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         // permission it lacks.
         assert!(doctrine.contains("refused if you try it before you have spoken"),
             "the doctrine does not say the gate exists");
+        // **AND THE REGRESSION THE PAIR ITSELF CAUSED.** Moving the checkpoint after the reply
+        // made the model close its turn with a SECOND copy of the line it had already said, and
+        // the CEO read `"On it!On it!"` (this probe's own first run, 2026-09-18). The
+        // instruction against it lives in the same paragraph, and
+        // `examples/first_reply_timing_e2e.rs` fails on it.
+        assert!(doctrine.contains("**Say it once, and let the checkpoint be the last thing on the turn.**"),
+            "nothing tells it to say its line once");
+        // **AND THE PART THAT ACTUALLY STOPPED IT.** "Say it once" alone was measured NOT
+        // WORKING (two identical runs of prose, 4.3 s and 17.0 s apart, run 2 of
+        // `docs/verification/first-reply-2026-09-18.md`): a tool call made after the reply
+        // forces the model to produce another assistant message, and it fills it with the line
+        // it has just been handed. So a hand-over turn carries no checkpoint at all — the
+        // register already wrote that turn down.
+        assert!(doctrine.contains("carries no checkpoint at all"),
+            "a hand-over turn is not fenced off from the checkpoint");
         // Negative: the clause that produced the measured defect is gone. "written as you go"
         // is what a model obeys by checkpointing first.
         assert!(!doctrine.contains("as you go with the continuity tools"), "the superseded clause survives");
