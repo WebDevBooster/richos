@@ -150,6 +150,102 @@ pub const APPEND_SYSTEM_PROMPT_FILE: &str = "--append-system-prompt-file";
 ///   exists for [`PERMISSION_PROMPT_TOOL`]; for this one it does, and it is used.
 pub const PLUGIN_DIR: &str = "--plugin-dir";
 
+/// The environment variable that decides whether the child DEFERS its own tools, and the
+/// value that stops it deferring them on the conversation.
+///
+/// **This is the third undocumented dependency in this file, and it is here because a
+/// deferred register costs the CEO two round trips before he hears a word.** Measured on the
+/// shipped path, `docs/verification/question-receipt-2026-09-18.md` run 2, one question turn:
+///
+/// ```text
+///       3.934 s  ToolSearch                                        <- discovering the register
+///       3.940 s  select:mcp__richos_assignments__record
+///       4.999 s  tool_call
+///       7.593 s  ToolSearch                                        <- discovering the continuity tools
+///       7.653 s  select:mcp__richos_continuity__checkpoint,…
+///      11.027 s  tool_call
+///      17.982 s  mcp__richos_assignments__record                   <- the register, FOURTH
+///      22.956 s  his first word
+/// ```
+///
+/// The doctrine has said *"the register is your FIRST tool call"* since the front desk
+/// existed, and it cannot be obeyed by a model that has to look the register up first. §55 is
+/// *"a few seconds"*; seven of those twenty-three seconds were discovery.
+///
+/// **Why an environment variable and not a flag: there is no flag.** Re-derived from the
+/// shipped binary rather than from documentation — `claude` 2.1.275, the module that decides
+/// it (`chunk-gxmxm8v7`/`chunk-fp50hwzg` region at byte offset 173_562_000):
+///
+/// ```text
+/// function EYe(){ if(f_t())return"standard"; if(u())return"tst";
+///   let e=process.env.ENABLE_TOOL_SEARCH, r=e?UQn(e):null;
+///   if(r===0)return"tst"; if(r===100)return"standard";
+///   if(m(e))return"tst-auto"; if(Oe(e))return"tst"; if(To(e))return"standard";
+///   return"tst" }                                   // <- UNSET MEANS DEFERRAL IS ON
+/// function To(e){ … return["0","false","no","off"].includes(String(e).toLowerCase().trim()) }
+/// function Mg(){ let e=EYe(); if(e==="standard"){ …; return!1 } … }
+/// ```
+///
+/// So `"false"` is one of five spellings `To` accepts, `EYe()` returns `"standard"`, and
+/// `Mg()` — the session's one "is tool search on" decision — returns false. The DEFAULT is
+/// deferral, which is exactly the third-party default this project refuses to inherit
+/// unexamined.
+///
+/// **Three defenses, the same three the flags above it get:**
+///
+/// - it is set unconditionally for [`LeaseRole::Conversation`] by [`tool_residency_env`],
+///   pinned by `the_conversation_asks_for_resident_tools`;
+/// - an unknown variable cannot fail a spawn, so the loudness is built rather than inherited:
+///   the reader reads `ToolSearch` out of the child's own init inventory into
+///   `ReaderState::tool_search_offered` and says so on stderr. A knob that is renamed, or a
+///   binary that starts deferring for a different reason, shows up as the tool being offered
+///   again;
+/// - and the number itself is re-measured end to end by
+///   `examples/first_reply_timing_e2e.rs`, which refuses a turn whose first tool call is not
+///   the register.
+///
+/// **Not set on the work lease, deliberately.** Nobody is sitting in front of a work lease's
+/// first token, its inventory is a different size, and one measurement on one lease is not
+/// evidence about the other. Changing both on the strength of the front desk's numbers would
+/// be scope this measurement does not cover.
+pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
+
+/// The value [`TOOL_SEARCH_ENV`] is given. See that constant for the five spellings the
+/// binary accepts and why this is one of them.
+pub const TOOL_SEARCH_OFF: &str = "false";
+
+/// The name of the child's own tool-discovery tool, as it appears in `system/init.tools`.
+pub const TOOL_SEARCH_TOOL: &str = "ToolSearch";
+
+/// The environment a lease is spawned with so its tools are RESIDENT from the first turn —
+/// `None` where RichOS has measured nothing and therefore changes nothing.
+///
+/// A pure function so the pin is a unit test rather than a spawned process, exactly as
+/// [`child_args`] is.
+pub fn tool_residency_env(role: LeaseRole) -> Option<(&'static str, &'static str)> {
+    match role {
+        LeaseRole::Conversation => Some((TOOL_SEARCH_ENV, TOOL_SEARCH_OFF)),
+        LeaseRole::Work => None,
+    }
+}
+
+/// Is the child deferring its tools, according to the child?
+///
+/// The one reading that can catch [`TOOL_SEARCH_ENV`] silently stopping work. Its own tool is
+/// in the inventory exactly when discovery is live, so this is a fact from the wire and not an
+/// inference from the variable having been set.
+///
+/// **And the MCP tools being listed proves nothing about this**, which is the trap worth
+/// naming: `assignment_tool_loaded`, `status_tool_loaded` and `continuity_tools_loaded` were
+/// all `true` on the run whose model still had to `ToolSearch` for the register
+/// (`docs/verification/question-receipt-2026-09-18.md`). A deferred tool is still in the init
+/// inventory. Only the presence of the discovery tool separates the two.
+fn tool_search_from_init(init: &Value) -> InitFact {
+    InitFact::reported(
+        init["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool.as_str() == Some(TOOL_SEARCH_TOOL))),
+    )
+}
+
 /// How long [`NativeClient::spawn`] waits for the `initialize` handshake before refusing.
 ///
 /// **Measured, not guessed:** the handshake answered in **697.9 ms** on 2.1.252 with the
@@ -890,6 +986,28 @@ struct ReaderState {
     /// [`InitFact::NotYetReported`] and stays there for a lease that has never run a turn —
     /// a third state, not a pessimistic default, exactly as `skills_verdict` above it.
     engine_plugin_loaded: InitFact,
+    /// Did the child offer **its own** `ToolSearch` tool on this session?
+    ///
+    /// **The loudness layer for [`TOOL_SEARCH_ENV`], and the one fact that can catch the
+    /// knob going away.** When the binary defers tools, the model has to DISCOVER the
+    /// register before it can call it, and that discovery is a round trip the CEO waits
+    /// through: measured at 3.9 s and again at 7.6 s on one question turn
+    /// (`docs/verification/question-receipt-2026-09-18.md`, run 2). `ToolSearch` in the
+    /// child's own init inventory is the wire saying deferral is live, so it is READ here
+    /// rather than inferred from the environment variable having been set — exactly the
+    /// argument `skills_verdict` above makes about `--plugin-dir`.
+    ///
+    /// [`InitFact`], for the reason the three facts above it are: before the first turn,
+    /// nobody has told us.
+    tool_search_offered: InitFact,
+    /// Has the model said anything to the CEO YET on the turn in flight?
+    ///
+    /// **Host-owned, reset at the start of every turn, never set by a model frame** — the
+    /// same shape as `context_only` above. It exists for one gate: the continuity
+    /// checkpoint is bookkeeping, and bookkeeping must not be written while he is still
+    /// waiting for his first word (`front-desk.md`, "The record").
+    /// [`NativeClient::handle_agent_request`] reads it.
+    spoken_this_turn: bool,
 }
 
 impl Default for ReaderState {
@@ -907,6 +1025,8 @@ impl Default for ReaderState {
             onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
             continuity_tools_loaded: false,
             engine_plugin_loaded: InitFact::NotYetReported,
+            tool_search_offered: InitFact::NotYetReported,
+            spoken_this_turn: false,
         }
     }
 }
@@ -1153,6 +1273,16 @@ impl NativeClient {
             supervisor
         } else { Command::new(bin) };
         crate::owned_process::OwnedChild::configure(&mut command);
+        // **The conversation's tools are RESIDENT from its first turn** ([`TOOL_SEARCH_ENV`]
+        // says what that costs when they are not, with the frame timings). Set here rather
+        // than in `EngineProfile::configure` because that function does not know the role,
+        // and this is a per-role decision: it is set before `configure` runs and survives it,
+        // which strips only `RICHOS_`/`LORO_`/`ECS_`/`GIT_` names. It reaches the provider
+        // through `provider-supervisor.py` too — that supervisor `os.execvp`s, so the child
+        // inherits `os.environ` unchanged (`engine/scripts/provider-supervisor.py:24`).
+        if let Some((name, value)) = tool_residency_env(role) {
+            command.env(name, value);
+        }
         if let Some(profile) = profile {
             let scope = continuity.ok_or_else(|| NativeError::Protocol("desktop engine needs a scoped continuity bridge".into()))?.1;
             profile.configure(&mut command, &session_id, scope);
@@ -1551,6 +1681,22 @@ impl NativeClient {
             st.automatic_permissions = InitFact::reported(msg["permissionMode"] == "auto");
             st.engine_plugin_loaded = InitFact::reported(msg["plugins"].as_array().is_some_and(|plugins|
                 plugins.iter().any(|plugin| plugin["name"] == crate::engine_profile::PLUGIN_NAME)));
+            // **THE LOUDNESS LAYER FOR [`TOOL_SEARCH_ENV`].** Read every init frame, like the
+            // `--plugin-dir` verdict above: the variable is undocumented, so the only honest
+            // evidence that it is still doing its job is the child NOT offering its own
+            // discovery tool. Announced once, at the transition, on stderr — machinery, never
+            // anything the CEO sees (the stderr drain above says why).
+            let tool_search = tool_search_from_init(&msg);
+            if tool_search == InitFact::Yes && st.tool_search_offered != InitFact::Yes {
+                eprintln!(
+                    "[richos] THIS SESSION DEFERS ITS TOOLS. `{TOOL_SEARCH_TOOL}` is in the child's own \
+                     init inventory, so the register has to be DISCOVERED before it can be called and \
+                     the CEO waits a round trip for that (measured: 7.5 s of one 23 s turn). \
+                     `{TOOL_SEARCH_ENV}={TOOL_SEARCH_OFF}` is set for this lease and is no longer \
+                     having that effect — check `claude --version` against the last release gate."
+                );
+            }
+            st.tool_search_offered = tool_search;
             let before = st.skills_verdict;
             st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
@@ -1738,6 +1884,14 @@ impl NativeClient {
     /// fact. It is three states for that reason.
     pub fn skills_verdict(&self) -> crate::skills::SkillsVerdict {
         self.reader_state.lock().map(|s| s.skills_verdict).unwrap_or(crate::skills::SkillsVerdict::NotYetReported)
+    }
+
+    /// Did this session defer its tools? See [`tool_search_from_init`].
+    ///
+    /// [`InitFact::NotYetReported`] until the first turn, for the reason `skills_verdict`
+    /// gives above: the init frame lands with the turn, not with the handshake.
+    pub fn tool_search_offered(&self) -> InitFact {
+        self.reader_state.lock().map(|s| s.tool_search_offered).unwrap_or(InitFact::NotYetReported)
     }
 
     pub fn onboarding_tools_verdict(&self) -> crate::onboarding_tools::OnboardingToolsVerdict {
@@ -3477,6 +3631,53 @@ mod native_driver_tests {
         assert!(chat_child_args("x", doctrine, skills).iter().any(|a| a == APPEND_SYSTEM_PROMPT_FILE));
         std::env::remove_var("RICHOS_APPEND_SYSTEM_PROMPT_FILE");
         std::env::remove_var("RICHOS_DOCTRINE");
+    }
+
+    #[test]
+    fn the_conversation_asks_for_resident_tools_and_the_work_lease_asks_for_nothing() {
+        // THE PIN FOR `TOOL_SEARCH_ENV`. A pure function, so this proves it for every spawn
+        // rather than for one: `spawn_with_tools` has no branch that can drop it.
+        assert_eq!(
+            tool_residency_env(LeaseRole::Conversation),
+            Some(("ENABLE_TOOL_SEARCH", "false")),
+            "the front desk must not have to DISCOVER the register before it can call it"
+        );
+        // Spelled out rather than compared to the constants, because the value is the one
+        // thing here the shipped binary parses: `To()` accepts 0/false/no/off and nothing
+        // else, so a value edited to `"0"` is fine and one edited to `"off "` with a space is
+        // too (it trims) — but one edited to `"disabled"` would silently mean DEFERRAL ON.
+        assert_eq!(TOOL_SEARCH_OFF, "false");
+        assert_eq!(
+            tool_residency_env(LeaseRole::Work),
+            None,
+            "nothing has been measured on the work lease, so nothing is changed there"
+        );
+    }
+
+    #[test]
+    fn a_deferring_session_is_read_off_the_child_s_own_inventory() {
+        // The POSITIVE CONTROL for the loudness layer. The negative alone — no `ToolSearch`
+        // in a frame — passes just as well when the reading is broken, which is the failure
+        // `feedback_negative_tests_pass_for_wrong_reason` names.
+        let deferring = json!({"type":"system","subtype":"init",
+            "tools":["Read","Bash","ToolSearch","mcp__richos_assignments__record"]});
+        assert_eq!(tool_search_from_init(&deferring), InitFact::Yes);
+
+        let resident = json!({"type":"system","subtype":"init",
+            "tools":["Read","Bash","mcp__richos_assignments__record","mcp__richos_continuity__checkpoint"]});
+        assert_eq!(tool_search_from_init(&resident), InitFact::No);
+
+        // **AND THE TRAP THIS FACT EXISTS FOR.** Both frames list the register, so every
+        // init fact the app already reads is identical between them — `loaded_from_init` was
+        // `true` on the very run whose model spent 7.5 s discovering that same tool.
+        for frame in [&deferring, &resident] {
+            assert!(crate::assignment_tools::loaded_from_init(frame),
+                "the register is listed either way; that is why it cannot answer this question");
+        }
+
+        // A frame with no `tools` key at all is `No` and not a panic: it is a statement that
+        // the child offered no discovery tool, which is what the reading claims.
+        assert_eq!(tool_search_from_init(&json!({"type":"system","subtype":"init"})), InitFact::No);
     }
 
     #[test]
