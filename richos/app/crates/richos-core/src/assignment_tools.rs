@@ -354,6 +354,38 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// **The CEO's ruling §55 reaches the model, not just this file's tests.**
+    ///
+    /// The doctrine is what the conversation lease is actually given
+    /// (`engine_profile.rs:158` hands it `FRONT_DESK_DOCTRINE`), so a rule that lives only in a
+    /// tool description the model may skim is a rule with one carrier. §55's measure is the time
+    /// from his send to "On it!" on screen, and the only thing that can spend that time is a tool
+    /// call made before the register.
+    #[test]
+    fn the_doctrine_tells_the_front_desk_to_register_first_and_reply_in_three_words() {
+        let doctrine = crate::doctrine::FRONT_DESK_DOCTRINE;
+        // His two replies, verbatim, in the text the model reads.
+        assert!(doctrine.contains("On it!"), "the reply itself is not in the doctrine");
+        assert!(doctrine.contains("Got it. On it!"), "the after-a-question reply is not in the doctrine");
+        // The register is the FIRST call — the half of §55 that costs the 35 seconds.
+        assert!(doctrine.contains("FIRST tool call"), "the ordering rule is not stated");
+        // Wrap-safe: the doctrine is hard-wrapped prose, so assertions stay inside one line.
+        assert!(
+            doctrine.contains("never before writing a new"),
+            "the read is not fenced off from a new work request"
+        );
+        // And the distinction job 2 put on the wire is explained where the model will read it.
+        assert!(doctrine.contains("two different answers"), "starting vs running is not explained");
+        // Negative: the superseded clauses are gone from the doctrine too, not just from the
+        // sentence. A doctrine still promising "the work is written down. Say that" would have
+        // the model narrating instead of saying three words.
+        assert!(!doctrine.contains("you'll find it with your saved work"), "a superseded clause survives");
+        assert!(!doctrine.contains("It's running now"), "a superseded clause survives");
+        // Positive control: the doctrine was actually loaded and is not an empty string.
+        assert!(doctrine.len() > 500, "the doctrine did not load: {} bytes", doctrine.len());
+        assert!(doctrine.contains("richos_assignments.record"));
+    }
+
     /// The model supplies WHAT, never WHERE or WHOSE. Every redirection field is in the
     /// scope, and an argument that tries to carry one is refused outright rather than
     /// ignored — an ignored extra field is how a caller learns it was accepted.
