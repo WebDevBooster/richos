@@ -1,7 +1,7 @@
 # The phone app, verified — 2026-09-18
 
 The RichOS phone app (`richos/app/phone`), walked end to end in two browser engines against a stub
-Mac over a real TLS origin. **98 checks pass, 1 documented skip, in Chromium and WebKit.** The full
+Mac over a real TLS origin. **108 checks pass, 1 documented skip, in Chromium and WebKit.** The full
 output of the run this record was written from is beside it in `desktop-verify.log`; the screenshots
 are the same run's.
 
@@ -26,6 +26,8 @@ npm run verify    # the run this record describes
 | **Older messages** | Scrolling to the top loaded earlier messages (13 rows became 53). No page number, no pagination control, anywhere. |
 | **Contrast** | The shipped app's own contrast walker measured **151 text nodes and 1 indicator in each theme**: zero failures, zero colors that could not be proved, and **zero exemptions claimed**. |
 | **No horizontal scroll** | The document was never wider than the viewport at 320, 375, 390 and 430 pixels, in dark and in light. |
+| **The picker, and what v1 does not do** | With one conversation there is no picker at all; a second one brings it, listing what exists — and nothing anywhere offers a way to create a conversation, which v1 deliberately does not do. |
+| **The shell is kept** | The service worker registers at the root of the origin — which is what scopes the push subscription — and holds 17 entries, so the app OPENS where `.local` does not resolve. |
 | **A phone the Mac forgot** | A 403 carrying `revoked` stops the app, says so, and clears what the phone held. It is never retried. |
 | **Affordances** | Every visible container that carries a state either carries the control that changes it or names where that control is. |
 

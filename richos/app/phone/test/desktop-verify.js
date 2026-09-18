@@ -291,6 +291,44 @@ async function runEngine(playwright, engine) {
 		check('his reply STREAMS in rather than arriving whole', grown.length > firstToken.length,
 			`${firstToken.length} characters, then ${grown.length}`);
 
+		// --- the thread picker: only when there IS more than one, and it lists rather than creates ---
+		check('with one conversation there is no picker to ignore',
+			await page.isHidden('#thread-picker-label'));
+
+		mac.state.threads = [{ id: mac.threadId, title: 'Rich' }, { id: 'thread-two', title: 'The proposal' }];
+		await page.evaluate(() => window.__richosPhone.connectStream());
+		await page.waitForFunction(() => !document.getElementById('thread-picker-label').hidden, null, { timeout: 15000 });
+		const options = await page.evaluate(() => Array.from(document.querySelectorAll('#thread-picker option')).map((o) => o.textContent));
+		check('a second conversation brings the picker, listing what exists',
+			options.length === 2 && options.includes('The proposal'), options.join(', '));
+		// It LISTS threads; it does not create them (plan §3.4, and §6's "not in v1").
+		const createControl = await page.evaluate(() => {
+			const text = document.body.innerText;
+			return /new conversation|new thread|start a conversation|create/i.test(text);
+		});
+		check('and offers no way to create one, which v1 deliberately does not do', createControl === false);
+		mac.state.threads = [{ id: mac.threadId, title: 'Rich' }];
+		await page.evaluate(() => window.__richosPhone.connectStream());
+
+		// --- the shell is kept, so the app OPENS where his Mac does not resolve ---
+		const worker = await page.evaluate(async () => {
+			if (!('serviceWorker' in navigator)) return { supported: false };
+			const registration = await navigator.serviceWorker.getRegistration();
+			if (!registration) return { supported: true, registered: false };
+			const names = await caches.keys();
+			let cached = 0;
+			for (const name of names) cached += (await (await caches.open(name)).keys()).length;
+			return { supported: true, registered: true, scope: registration.scope, caches: names, cached };
+		});
+		if (!worker.supported) {
+			skip('the shell is cached for a train', 'this engine has no service worker container on this origin');
+		} else {
+			check('the service worker registers at the root of the origin, which is what scopes the push subscription',
+				worker.registered === true, JSON.stringify(worker));
+			check('and it kept the shell, so the app opens where the Mac does not resolve',
+				worker.cached >= 10, `${worker.cached} entries in ${(worker.caches || []).join(', ')}`);
+		}
+
 		// ---------------------------------------------------------------------------------------
 		section(`${engine}: away from his Mac — the queue, and whether it survives a relaunch`);
 		// ---------------------------------------------------------------------------------------
