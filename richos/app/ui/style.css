@@ -3968,14 +3968,21 @@ body.bp-narrow .tl-user-bubble {
    than declared exempt, because calling a heading skippable to keep a gate green is the
    exemption-wearing-a-justification the standing contrast rule names.
 
-   §15'S OTHER TIER IS THE OPEN QUESTION AND IT IS NOT TAKEN HERE. The ruling reads 16px
-   minimum for text meant to be easily read and 14px minimum for the skippable, and a section
-   heading can be argued either way. 14px is the floor the escalation was ruled at
-   (`esc-20260918T211347Z-d7e05a01`), so 14px is what this takes; moving the desk's headings
-   to 16px is a design decision and it is the CEO's, not a gate's. */
+   §15'S OTHER TIER WAS THE OPEN QUESTION, AND IT IS NOW ANSWERED: 16px.
+   The comment above left it at 14px and said out loud that moving to 16 was a decision and not
+   a gate's to take. It was taken — ruled from §15 on `esc-20260918T211347Z-d7e05a01`, 2026-09-19:
+   these are headings a person READS ("What I believe", "Words I may have got wrong", "What's on
+   this machine", "Never ask again"), §15's readable tier is 16px, and 14px is the floor for text
+   that is meant to be skipped. Neither of these is meant to be skipped, so neither sits in that
+   tier.
+
+   NO CONTRAST CONSEQUENCE, and that is computed rather than assumed: 16px normal-weight text and
+   14px normal-weight text owe the SAME 4.5:1 — WCAG's large-text tier begins at 18.66px bold or
+   24px, and neither of these is within reach of it. `--ink-faint` on `--card` is 5.51:1 dark and
+   5.37:1 light; on `--ground`, 6.16:1 and 4.99:1. All four clear 4.5:1 and none of them moved. */
 .desk-section-title {
   margin: 0 0 10px;
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--ink-faint);
@@ -3983,7 +3990,7 @@ body.bp-narrow .tl-user-bubble {
 
 .desk-sub-title {
   margin: 16px 0 8px;
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--ink-faint);
@@ -4193,14 +4200,17 @@ body.bp-narrow .tl-user-bubble {
   margin: 0 0 12px;
 }
 
-/* 14px, not the 11px it shipped at: a `<legend>` is the accessible NAME of the group of
-   radios under it ("What kind of failure was it?", "How many times this session?", "What went
-   wrong", "What let it happen" — main.js `renderFeedback`; the comment above says why it needs a name
-   at all), so it is read both by the screen reader and by the eye. §15's floor applies —
-   same finding, same widened check, as the two desk headings above. */
+/* 16px, not the 11px it shipped at and not the 14px it was raised to: a `<legend>` is the
+   accessible NAME of the group of radios under it ("What kind of failure was it?", "How many
+   times this session?", "What went wrong", "What let it happen" — main.js `renderFeedback`; the
+   comment above says why it needs a name at all), so it is read both by the screen reader and by
+   the eye. A question a person is being asked is not skippable text, so §15's READABLE tier
+   applies and that tier is 16px — ruled 2026-09-19 with the two desk headings above, and for the
+   same reason. `--ink-soft` on `--card`: 5.78:1 dark, 6.36:1 light, unchanged by the size because
+   WCAG's large-text tier starts at 18.66px bold or 24px and this is neither. */
 .feedback-group-legend {
   padding: 0 4px;
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--ink-soft);
 }
