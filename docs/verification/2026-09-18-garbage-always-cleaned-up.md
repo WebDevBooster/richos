@@ -379,6 +379,44 @@ Two of those mutants earned their keep **during** this change rather than after:
 
 ---
 
+## 7b. The contract-integrity probe, diffed rather than waved off
+
+Running the probe from a worktree reported **26 broken layers**. The tempting
+reading is "that is the usual worktree penalty" — so it was diffed against the
+unmodified main checkout instead.
+
+```
+main checkout:   1 layer(s) broken
+  ✗ Q. registry content hash mismatch — live file differs from manifest
+       (pre-existing, unrelated to this work; install.sh regenerates it)
+
+this worktree:  26 layer(s) broken
+  25 x "manifest missing or unreadable" / "unhashed"   <- .sha256 sidecars are
+                                                          gitignored and never
+                                                          exist in a worktree
+   1 x REAL, and mine:
+  ✗ R. hook(s) do NOT source the root-resolution contract: notice-disk-alert.
+       A hook that resolves its root any other way has silently gone back to
+       trusting its own on-disk location.
+```
+
+**That one was a genuine defect in my new hook** and it would have been invisible
+inside the noise. Fixed by carrying the canonical bootstrap block verbatim — Layer
+R compares it byte-for-byte from the `# --- ROOT RESOLUTION ---` marker, so a
+hand-written equivalent is a failure by design. The first attempt at the fix still
+failed as `notice-disk-alert(no-bootstrap)` because it lacked that marker.
+
+After the fix:
+
+```
+this worktree:  25 layer(s) broken — every one "manifest missing" / "unhashed"
+                ZERO non-sidecar failures
+```
+
+**`install.sh` must re-run from the main checkout after this lands** — that
+regenerates the sidecars and the `hooks.json` manifest hash this branch changes,
+and it is also what arms the two launchd timers.
+
 ## 8. The lint ships with a baseline, and why that is honest
 
 The first run found 51 unallocated `mktemp -d` sites. Migrating all 51 would have
