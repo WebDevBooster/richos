@@ -763,7 +763,22 @@ mod tests {
 
         const TAILNET: &str = "mm1.tail1a2b3c.ts.net";
 
-        fn authority(bonjour: &str, tag: &str) -> (PhoneCa, std::path::PathBuf) {
+        /// **A temporary directory that goes away even when the test panics.**
+        ///
+        /// CEO §54: *"a ROCK-SOLID … mechanism that always guarantees that garbage like this will
+        /// be always cleaned up afterwards."* A trailing `remove_dir_all` is not that mechanism —
+        /// it is skipped by the very failure that makes somebody run the test in the first place.
+        /// **Proved on 2026-09-18 by defeating it:** a deliberate mutation probe of this test left
+        /// two authority directories behind in `$TMPDIR`, because the panic jumped over the
+        /// cleanup at the bottom. `Drop` runs during unwinding; that line does not.
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        fn authority(bonjour: &str, tag: &str) -> (PhoneCa, Scratch) {
             let dir = std::env::temp_dir().join(format!(
                 "richos-phone-sni-{tag}-{}-{}",
                 std::process::id(),
@@ -782,11 +797,11 @@ mod tests {
             // first's key, and the two roots would silently be one root — which would make the
             // control below pass for the wrong reason.
             let ca = PhoneCa::open(&dir, &MemorySecrets::default(), names).unwrap();
-            (ca, dir)
+            (ca, Scratch(dir))
         }
 
-        let (home, home_dir) = authority("mm1.local", "home");
-        let (tailnet, tailnet_dir) = authority(TAILNET, "tailnet");
+        let (home, _home_dir) = authority("mm1.local", "home");
+        let (tailnet, _tailnet_dir) = authority(TAILNET, "tailnet");
         assert_ne!(home.ca_der, tailnet.ca_der, "the two authorities are the same authority");
 
         let config = tls_config_with_tailnet(
@@ -867,9 +882,9 @@ mod tests {
             "a connection carrying no server name was not served the Mac's own certificate"
         );
 
+        // The two authority directories need no line here: `Scratch` removes them on the way out,
+        // including on the way out through a panic.
         let _ = server.join();
-        let _ = std::fs::remove_dir_all(&home_dir);
-        let _ = std::fs::remove_dir_all(&tailnet_dir);
     }
 
 
