@@ -528,9 +528,21 @@ function computeBlockers() {
   }
 }
 const hitsRect = (b, x0, y0, x1, y1) => x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1];
-function blockedBox(x0, y0, x1, y1) {
+/// `also` is a list of `{x0, y0, x1, y1}` boxes that are not chrome — the domain names ALREADY
+/// PLACED this frame. Two names could overlap each other freely before it existed, which is
+/// audit-7 row 13's second half: `CAPITAL 558` was sitting under `LEGAL & RISK` on the CEO's
+/// home screen, and had been since audit-6. The chrome rects are kept in `blockRects` because
+/// they are re-read per frame from the DOM; a label's box is only known part-way through the
+/// label pass, so it arrives as an argument rather than being pushed into that array.
+function blockedBox(x0, y0, x1, y1, also) {
   if (x0 < 0 || x1 > W || y0 < 0 || y1 > H) return true;
   for (let k = 0; k < blockRects.length; k++) if (hitsRect(blockRects[k], x0, y0, x1, y1)) return true;
+  if (also) {
+    for (let k = 0; k < also.length; k++) {
+      const a = also[k];
+      if (hitsRect([a.x0, a.y0, a.x1, a.y1], x0, y0, x1, y1)) return true;
+    }
+  }
   return inTickerZone(x0, y0, x1, y1);
 }
 // THE SMALLEST SIDEWAYS MOVE THAT CLEARS EVERYTHING, or `null` for "there isn't one".
@@ -546,22 +558,81 @@ function blockedBox(x0, y0, x1, y1) {
 // its own stars. It is a budget rather than an unbounded solve because an unbounded one would
 // happily park a domain name over somebody else's cluster to keep it on screen.
 const LABEL_NUDGE_MAX = 64;
-function clearingShift(x0, y0, x1, y1) {
-  if (!blockedBox(x0, y0, x1, y1)) return 0;
+function clearingShift(x0, y0, x1, y1, also) {
+  if (!blockedBox(x0, y0, x1, y1, also)) return 0;
   const tries = [];
   for (let k = 0; k < blockRects.length; k++) {
     const b = blockRects[k];
     if (!hitsRect(b, x0, y0, x1, y1)) continue;
     tries.push(b[0] - x1, b[2] - x0);
   }
+  // The same two candidate moves for a name already on screen: just clear of its left edge, or
+  // just clear of its right. A domain name is 100-250px wide, so one of these is usually well
+  // inside the 64px budget and the other is not — and when neither is, `null` fades this label
+  // rather than printing it on top of somebody else's, which is this file's own rule ("A label
+  // is either legible or absent").
+  if (also) {
+    for (let k = 0; k < also.length; k++) {
+      const a = also[k];
+      if (!hitsRect([a.x0, a.y0, a.x1, a.y1], x0, y0, x1, y1)) continue;
+      tries.push(a.x0 - x1, a.x1 - x0);
+    }
+  }
   if (tickerZone && inTickerZone(x0, y0, x1, y1)) tries.push(tickerZone[0] - x1, tickerZone[2] - x0);
   tries.push(-x0, W - x1);
   tries.sort((a, b) => Math.abs(a) - Math.abs(b));
   for (const s of tries) {
     if (Math.abs(s) > LABEL_NUDGE_MAX) continue;
-    if (!blockedBox(x0 + s, y0, x1 + s, y1)) return s;
+    if (!blockedBox(x0 + s, y0, x1 + s, y1, also)) return s;
   }
   return null;
+}
+// A NAME-ON-NAME COLLISION IS RESOLVED UP OR DOWN FIRST, and the numbers are why.
+//
+// `clearingShift` is horizontal-only for a good reason that does not hold here: every rect in
+// `blockRects` is a tall column or a wide band at the top, so against CHROME the axis with room
+// in it is x. Two domain names are neither. Measured on the shipped composition at 1024x700 —
+// the `CAPITAL 558` / `LEGAL & RISK` pair audit-7 row 13 names, at cursor 380,90:
+//
+//     CAPITAL      [370.2, 404.7 -> 478.7, 446.7]
+//     LEGAL & RISK [391.2, 435.5 -> 556.3, 477.5]
+//     horizontal overlap  87.5px       vertical overlap  11.2px
+//
+// So sideways it needs 87.5px, which is past the 64px budget and would fade the name; a 12px
+// lift clears it outright. The whole 132-position sweep, measured three ways at 1024x700 —
+// domain names on screen per cursor position, and overlapping pairs found:
+//
+//     as it shipped (no name-vs-name test at all)   7.28 names   189 overlaps
+//     horizontal-only                               5.82 names     0 overlaps
+//     lift first, then horizontal                   6.87 names     0 overlaps
+//
+// Horizontal-only bought the clean screen by fading 1.46 names per position, and nearly all of
+// those were collisions a few pixels of height would have settled. 1400x880 moves the same way:
+// 11.38 with overlaps, 10.36 clean with the lift.
+//
+// 22px IS THE LIFT BUDGET. The line box is 42px tall (`y0 = sy - 14`, `y1 = sy + 28`, the name
+// and the count beneath it), so 22 is just over half of it — enough to separate two names that
+// are stacked, and far short of moving a name off the cluster it belongs to, which spans
+// 150-250px on screen at this size. It is tried only against the OTHER NAMES: a lift into the
+// chrome is refused by `blockedBox` on the next line like any other position.
+const LABEL_LIFT_MAX = 22;
+function clearingNudge(x0, y0, x1, y1, also) {
+  if (!blockedBox(x0, y0, x1, y1, also)) return { dx: 0, dy: 0 };
+  if (also && also.length) {
+    const tries = [];
+    for (let k = 0; k < also.length; k++) {
+      const a = also[k];
+      if (!hitsRect([a.x0, a.y0, a.x1, a.y1], x0, y0, x1, y1)) continue;
+      tries.push(a.y0 - y1, a.y1 - y0);
+    }
+    tries.sort((p, q) => Math.abs(p) - Math.abs(q));
+    for (const dy of tries) {
+      if (Math.abs(dy) > LABEL_LIFT_MAX) continue;
+      if (!blockedBox(x0, y0 + dy, x1, y1 + dy, also)) return { dx: 0, dy };
+    }
+  }
+  const dx = clearingShift(x0, y0, x1, y1, also);
+  return dx === null ? null : { dx, dy: 0 };
 }
 // The rows themselves are erased completely; the erase feathers out around them, so a big soft thing
 // (the core, a ripple) that drifts under the block fades rather than being cut by a rectangle.
@@ -1163,18 +1234,24 @@ function drawOverlay(now, t, src, hoverActive) {
     // `clearQuiet()` a few lines later. `shift === null` means no move inside the budget
     // clears it, which fades the label exactly as the ticker zone already did — one fewer
     // name on screen, never half a name. See `clearingShift` for the measured numbers.
-    const shift = clearingShift(sx - half, sy - 14, sx + half, sy + 28);
-    const blocked = shift === null;
-    // Everything the label draws hangs off `lx`, including the count beneath it and the box
-    // exported to `domLabelRects`, so the shifted label and the rect that claims its space
-    // cannot come apart.
-    const lx = sx + (shift || 0);
+    // ...AND AGAINST THE NAMES ALREADY PLACED THIS FRAME (audit-7 row 13). `domLabelRects` is
+    // filled as this loop runs, so passing it in tests each name against every name before it.
+    // The order is the dataset's own domain order, which is fixed, so which name holds its place
+    // and which one moves is deterministic rather than frame-dependent.
+    const nudge = clearingNudge(sx - half, sy - 14, sx + half, sy + 28, domLabelRects);
+    const blocked = nudge === null;
+    // Everything the label draws hangs off `lx`/`ly`, including the count beneath it and the box
+    // exported to `domLabelRects`, so the moved label and the rect that claims its space cannot
+    // come apart. `ly` is new with the lift (`clearingNudge`) and is 0 for every move against
+    // the chrome, which stays horizontal-only for the reason written above `clearingShift`.
+    const lx = sx + (nudge ? nudge.dx : 0);
+    const ly = sy + (nudge ? nudge.dy : 0);
     let a = easeTo(domEase, d, q < 0.18 || blocked ? 0 : (0.78 + 0.20 * near * near) * Math.min(1, LABEL_FLOOR + (q - 0.18) * 0.9), edt);
     if (hoverActive) a *= 0.86;
     if (domHover >= 0) a = blocked ? 0 : domHover === d ? 1 : 0.86;
     a *= clamp((t - 2.5) / 1.5, 0, 1);
     if (a < 0.05) continue;
-    ctx.save(); ctx.translate(lx, sy);
+    ctx.save(); ctx.translate(lx, ly);
     ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = `rgba(${HALO},${0.98 * a})`;
     ctx.strokeText(label, 0, 0);
     ctx.fillStyle = `rgba(${INK},${a})`;
@@ -1194,7 +1271,7 @@ function drawOverlay(now, t, src, hoverActive) {
     // and a count that cannot tell those apart cannot say which one happened. The engine keeps
     // the WHOLE box clear, margin included, because the 2.5px halo `strokeText` lays down under
     // the ink is what buys the label its contrast ratio.
-    if (a > 0.15) domLabelRects.push({ d, x0: lx - half, x1: lx + half, y0: sy - 14, y1: sy + 28, pad: 8 });
+    if (a > 0.15) domLabelRects.push({ d, x0: lx - half, x1: lx + half, y0: ly - 14, y1: ly + 28, pad: 8 });
   }
   ctx.letterSpacing = '0px';
   // node labels: which

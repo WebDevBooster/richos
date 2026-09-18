@@ -106,7 +106,7 @@ async function openHome(browser, viewport) {
 /// Walk the grid and collect EVERY offense, not the first one. A single failing position is
 /// an anecdote; the count is what says whether a fix held.
 async function sweep(page, viewport) {
-  const found = { clipped: [], inkClipped: [], underBanner: [], onDomainName: [], offScreen: [] };
+  const found = { clipped: [], inkClipped: [], underBanner: [], onDomainName: [], nameOnName: [], offScreen: [] };
   let positions = 0;
   let domainsSeen = 0;
   let chipsSeen = 0;
@@ -147,6 +147,24 @@ async function sweep(page, viewport) {
       for (const chip of got.node) {
         for (const name of got.dom) {
           if (overlaps(chip, name)) found.onDomainName.push(`${at}: chip ${fmt(chip)} over domain ${fmt(name)}`);
+        }
+      }
+      // ONE DOMAIN NAME OVER ANOTHER — audit-7 row 13, `CAPITAL 558` sitting under
+      // `LEGAL & RISK` on the CEO's home screen, carried from audit-6. This sweep read the
+      // names against the chrome, against the banner, against the erase rects and against the
+      // node chips, and never against each other: `clearingShift` tested a label's box against
+      // `blockRects` (which is chrome, re-read from the DOM) and against nothing else, so two
+      // names were free to land on top of one another. Each pair is reported ONCE (`i < j`),
+      // because a pair counted twice would make a single defect read as two.
+      for (let i = 0; i < got.dom.length; i++) {
+        for (let j = i + 1; j < got.dom.length; j++) {
+          if (!overlaps(got.dom[i], got.dom[j])) continue;
+          const bite = Math.min(got.dom[i].x1, got.dom[j].x1) - Math.max(got.dom[i].x0, got.dom[j].x0);
+          const ink = overlaps(inkBox(got.dom[i]), inkBox(got.dom[j]));
+          found.nameOnName.push(
+            `${at}: domain ${fmt(got.dom[i])} over domain ${fmt(got.dom[j])} by ${bite.toFixed(1)}px` +
+              (ink ? " — GLYPHS" : " — margin only")
+          );
         }
       }
     }
@@ -236,6 +254,21 @@ async function main() {
     return "0 of " + smallSweep.chipsSeen + " chip samples over a domain name";
   });
 
+  await run.check("1024x700: no domain name lands on another domain name", async () => {
+    // AUDIT-7 ROW 13, carried from audit-6: `CAPITAL 558` overlapped by `LEGAL & RISK` on the
+    // CEO's home screen. This sweep already read the names against the chrome, the banner, the
+    // erase rects and the node chips — and never against each other, which is exactly the gap
+    // `clearingShift` had: it tested a label's box against `blockRects`, which is chrome
+    // re-read from the DOM, and against nothing else.
+    assertEqual(
+      smallSweep.found.nameOnName.length,
+      0,
+      "one domain name over another — this is CAPITAL 558 under LEGAL & RISK:\n          " +
+        smallSweep.found.nameOnName.slice(0, 5).join("\n          ")
+    );
+    return "0 overlapping pairs across " + smallSweep.domainsSeen + " domain-name samples";
+  });
+
   await run.check("1024x700: no label leaves the window", async () => {
     assertEqual(
       smallSweep.found.offScreen.length,
@@ -272,6 +305,7 @@ async function main() {
     const all = roomySweep.found.clipped
       .concat(roomySweep.found.underBanner)
       .concat(roomySweep.found.onDomainName)
+      .concat(roomySweep.found.nameOnName)
       .concat(roomySweep.found.offScreen);
     assertEqual(all.length, 0, "the control size regressed:\n          " + all.slice(0, 5).join("\n          "));
     assert(roomySweep.domainsSeen > 0 && roomySweep.chipsSeen > 0, "the control sweep saw an empty picture");
