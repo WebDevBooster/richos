@@ -244,6 +244,18 @@ pub const WITHHELD_AFTER_THE_RECEIPT: &str =
 /// The continuity checkpoint tool — the front desk's own bookkeeping.
 pub const CONTINUITY_CHECKPOINT_TOOL: &str = "mcp__richos_continuity__checkpoint";
 
+/// **Every tool that can reach the ECS store from the front desk**, by the one thing they
+/// share: they are all served by `richos_continuity` (`mcp_config`'s `richos_continuity`
+/// entry), and that server is gated by one file — the copy
+/// [`ReaderState::he_has_now_been_spoken_to`] opens at his first words.
+///
+/// The prefix and not the two names, because the rule that uses it
+/// ([`crate::first_reply::first_reply_faults`]) exists to catch an ECS write ahead of his
+/// reply, and a third tool added to that server would otherwise walk past a list of two.
+/// [`tests::the_checkpoint_is_one_of_the_continuity_server_s_tools`] keeps the two constants
+/// from drifting apart.
+pub const CONTINUITY_TOOL_PREFIX: &str = "mcp__richos_continuity__";
+
 /// # WHERE THE PRE-REPLY ORDER IS ENFORCED — and why there is no gate here any more
 ///
 /// **`bookkeeping_before_the_reply` and `CHECKPOINT_BEFORE_REPLY` were removed on 2026-09-18,
@@ -3382,6 +3394,24 @@ mod native_driver_tests {
             );
         }
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// **The two constants that must not drift apart**, because one of them is a rule's whole
+    /// coverage. `first_reply::first_reply_faults` scores an ECS write ahead of his reply by
+    /// [`CONTINUITY_TOOL_PREFIX`]; if the checkpoint ever stopped matching it the rule would go
+    /// quiet rather than red, which is the failure mode this project keeps meeting.
+    #[test]
+    fn the_checkpoint_is_one_of_the_continuity_server_s_tools() {
+        assert!(CONTINUITY_CHECKPOINT_TOOL.starts_with(CONTINUITY_TOOL_PREFIX));
+        // The prefix is the SERVER's name as `mcp_config` registers it, spelled the way the
+        // binary qualifies a tool of it — not a guess at a naming convention.
+        assert_eq!(CONTINUITY_TOOL_PREFIX, "mcp__richos_continuity__");
+        // And it never matches the other app-owned servers, whose calls are allowed before the
+        // reply — the register above all, which is the one call §55 asks to come first.
+        for other in [crate::assignment_tools::QUALIFIED_RECORD_TOOL,
+                      "mcp__richos_status__background_work", "mcp__richos_onboarding__record"] {
+            assert!(!other.starts_with(CONTINUITY_TOOL_PREFIX), "{other}");
+        }
     }
 
     /// **THE FRONT DESK'S WHOLE TOOL INVENTORY, AND THE BACK END'S**, asserted as two

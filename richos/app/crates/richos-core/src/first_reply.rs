@@ -18,7 +18,7 @@
 //! | On his turn, before his first word | Verdict | Why |
 //! |---|---|---|
 //! | `ToolSearch`, or a `select:…` frame | **fault** | tool DISCOVERY, 7.5 s of one measured turn, and it is removed by `native::TOOL_SEARCH_ENV` rather than asked for |
-//! | the continuity checkpoint | **fault** | bookkeeping; `front-desk.md` puts it after the reply and `native::bookkeeping_before_the_reply` refuses it before |
+//! | ANY tool of `richos_continuity` (`native::CONTINUITY_TOOL_PREFIX`) | **fault** | an ECS round trip he waited through; `front-desk.md` puts the record after the reply, and since 2026-09-18 that server's scope is closed until `ReaderState::he_has_now_been_spoken_to` opens it — so a frame here means the closure did not hold |
 //! | the register, but not first | **fault** | a hand-over that happens after something else is the §55 defect exactly |
 //! | the register, first | fine | this is the shape §55 asks for |
 //! | `richos_status.background_work` on a turn with no register | **fine** | the doctrine's case 2: *"a question about how work is going is answered from the read, at once"* — the one case where it looks before it speaks |
@@ -42,7 +42,7 @@ use std::time::Duration;
 /// | | measured | what it was |
 /// |---|---|---|
 /// | **run A, question, warm** | **6.358 s** | register call at 3.968 s, arguments complete at 4.321 s, the register's answer AND his first words at 6.358 s |
-/// | run B, question, warm | 12.176 s | **excluded, and the reason is named:** the model wrote a pre-reply continuity checkpoint (5.429 s → 7.813 s), which nothing on the real wire refuses (`native::bookkeeping_before_the_reply`'s own doc, and `esc-20260918T141320Z-49570979`). The probe fails that turn by name on the checkpoint, so the budget does not need to absorb it |
+/// | run B, question, warm | 12.176 s | **excluded, and the reason is named:** the model wrote a pre-reply continuity checkpoint (5.429 s → 7.813 s), which nothing on the real wire refused at the time (`esc-20260918T141320Z-49570979`; the gate that was quoted as refusing it, `native::bookkeeping_before_the_reply`, answered a `can_use_tool` request the binary never sends under `--permission-mode auto` and was removed the next day — the closure is now `ReaderState::he_has_now_been_spoken_to`). The probe fails that turn by name on the checkpoint, so the budget does not need to absorb it |
 /// | the three warm turns before this slice | 7.128 / 8.505 / 8.920 s | the model repeating the sentence back, a round trip after the register answered |
 ///
 /// 9 s is the one clean warm measurement plus ~42%, which is wider headroom than the 35% the
@@ -121,11 +121,30 @@ pub fn first_reply_faults(
                  resident from its first turn (native::TOOL_SEARCH_ENV)"
             ));
         }
-        if name == crate::native::CONTINUITY_CHECKPOINT_TOOL {
-            faults.push(format!(
-                "the continuity checkpoint was written at {at:.3} s, before he had heard anything — \
-                 it is bookkeeping and front-desk.md puts it after the reply"
-            ));
+        // **NO ECS WRITE AHEAD OF HIS FIRST WORDS — scored against the SERVER, not against one
+        // tool of it.** Every way the front desk can reach the continuity store is a tool of
+        // `richos_continuity` (`native::CONTINUITY_TOOL_PREFIX`), and since 2026-09-18 that
+        // server's scope file is closed until `ReaderState::he_has_now_been_spoken_to` opens it
+        // — so a frame matching this prefix before his first word means the closure did not
+        // hold on the real wire, whichever of that server's tools it was.
+        //
+        // **The register's own ECS write is deliberately not in scope here, and it is not an
+        // omission.** Opening the obligation is now the app's, inside
+        // `assignment_tools::call`, measured at 143.4 ms through the bridge and invisible on
+        // this wire because it is not a tool call at all. What this rule is about is the ~3 s
+        // MODEL round trip run B spent writing a checkpoint before saying anything.
+        if name.starts_with(crate::native::CONTINUITY_TOOL_PREFIX) {
+            faults.push(if name == crate::native::CONTINUITY_CHECKPOINT_TOOL {
+                format!(
+                    "the continuity checkpoint was written at {at:.3} s, before he had heard anything — \
+                     it is bookkeeping and front-desk.md puts it after the reply"
+                )
+            } else {
+                format!(
+                    "an ECS call reached the store at {at:.3} s, before he had heard anything \
+                     ({name}) — the front desk's continuity grant is not open until his first words"
+                )
+            });
         }
     }
 
@@ -457,6 +476,43 @@ mod tests {
         // No content at all, and a content shape nobody has seen.
         assert_eq!(receipt_sentence(&json!({"type":"tool_result"})), None);
         assert_eq!(receipt_sentence(&json!({"type":"tool_result","content":7})), None);
+    }
+
+    /// **ANY ECS WRITE AHEAD OF HIS REPLY IS RED, and the checkpoint is only the one that was
+    /// measured doing it.** Run B wrote `mcp__richos_continuity__checkpoint` at 8.932 s and
+    /// 5.429 s on a turn whose first words came at 15.714 s and 12.176 s; the rule has caught
+    /// that by name since it was written. What this test adds is the general case: the front
+    /// desk's grant on `richos_continuity` is closed until
+    /// `ReaderState::he_has_now_been_spoken_to` opens it, so ANY tool of that server appearing
+    /// ahead of his first word means the closure did not hold — including one nobody has added
+    /// yet.
+    #[test]
+    fn no_ecs_write_reaches_the_store_before_his_first_words() {
+        // Run B's own frame, verbatim, on the warm turn. One fault, named.
+        let run_b = calls(&[
+            (crate::native::CONTINUITY_CHECKPOINT_TOOL, 5.429),
+            (crate::assignment_tools::QUALIFIED_RECORD_TOOL, 9.8),
+        ]);
+        let faults = first_reply_faults(&run_b, Some(12.176), FIRST_WORDS_BUDGET);
+        assert!(faults.iter().any(|f| f.contains("continuity checkpoint was written at 5.429 s")), "{faults:#?}");
+
+        // `inspect` is the OTHER tool that server already has, and reading the store ahead of
+        // the reply costs him the same round trip a write does.
+        let read_first = calls(&[("mcp__richos_continuity__inspect", 4.2)]);
+        let faults = first_reply_faults(&read_first, Some(6.1), FIRST_WORDS_BUDGET);
+        assert_eq!(faults.len(), 1, "{faults:#?}");
+        assert!(faults[0].contains("an ECS call reached the store at 4.200 s"), "{faults:#?}");
+
+        // And a tool of that server that does not exist yet, which is the point of the prefix.
+        let future = calls(&[("mcp__richos_continuity__amend", 3.0)]);
+        assert_eq!(first_reply_faults(&future, Some(6.1), FIRST_WORDS_BUDGET).len(), 1);
+
+        // **THE NEGATIVE CONTROL, and it is the shape this slice SHIPS.** The register is the
+        // first and only call ahead of the reply, and the obligation it opens is an ECS write
+        // that is NOT a tool call — it happens inside `assignment_tools::call`, 143.4 ms
+        // measured, on the app's own bridge. A rule that scored it would fail the fix.
+        let shipped = calls(&[(crate::assignment_tools::QUALIFIED_RECORD_TOOL, 3.968)]);
+        assert!(first_reply_faults(&shipped, Some(6.358), FIRST_WORDS_BUDGET).is_empty());
     }
 
     #[test]
