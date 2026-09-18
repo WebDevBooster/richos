@@ -314,22 +314,25 @@ impl Receipt {
     }
 }
 
-/// The punctuation a sentence needs after the title, which is `""` when the title brought
-/// its own.
-///
-/// **Ray's row 8, at its source.** His candidate-.7 walk caught *"… and land it.. It's
-/// running now"* on the timeline — a double period, built here and not in the UI: the model
-/// supplied a title ending in a period and every sentence in this module embeds the title
-/// and then keeps talking. [`sanitize_title`] now strips a trailing period at the source,
-/// which covers that case; this covers the one it deliberately cannot, because a truncated
-/// title ends in an ellipsis the truncation has to keep.
-fn after_title(title: &str) -> &'static str {
-    if matches!(title.chars().next_back(), Some('.' | '…' | '!' | '?')) {
-        ""
-    } else {
-        "."
-    }
-}
+// **Where Ray's row 8 double period went, and why there is no helper here for it.**
+//
+// He saw *"… and land it.. It's running now"*: the model's title ended in a period and the
+// receipt put its own straight after it. Two things removed that, and between them nothing in
+// this module now writes a period directly after a title:
+//
+//   1. [`sanitize_title`] strips a trailing period at the source. That is the production fix,
+//      and it is the one that matters for the seven sentences in [`says`] — a title of *"land
+//      it."* used to make every one of them read *"land it. is finished."*
+//   2. The CEO's ruling §55 took the title out of the receipt altogether, which was the only
+//      sentence in the module that appended punctuation to one.
+//
+// A first pass here added an `after_title` helper for the case `sanitize_title` deliberately
+// leaves — a truncated title keeps the ellipsis it needs. It is gone because after (2) nothing
+// calls it: every sentence in [`says`] continues with a word rather than a mark (*"{title} is
+// finished"*, *"{title} did not start"*), so an ellipsis is followed by a space and reads
+// correctly. A helper kept for a case that cannot occur is dead code whose doc comment claims a
+// guarantee nothing is enforcing. The tests assert the property over every [`says`] sentence
+// instead, which is what would actually catch a future sentence that got this wrong.
 
 /// Spec §1.4: *"A failed registration is never softened into 'I have started it'."*
 ///
@@ -1000,15 +1003,15 @@ mod tests {
         // and the sentence added its own.
         let title = sanitize_title("review the branches and land it.").unwrap();
         assert_eq!(title, "review the branches and land it", "the trailing period survived the sanitizer");
-        // The truncation path keeps its ellipsis — terminal punctuation it needs — so
-        // `after_title`, not the sanitizer, is what keeps a second mark off that one.
+        // The truncation path keeps its ellipsis, which is terminal punctuation it needs, and is
+        // asserted through the sentences themselves rather than through a helper — see the note
+        // above `sanitize_title`'s neighbors for why there is no helper.
         let truncated = sanitize_title(&"branch ".repeat(60)).unwrap();
         assert!(truncated.ends_with('…'));
-        assert_eq!(after_title(&truncated), "", "a title that ended itself was given a second mark");
-        assert_eq!(after_title(&title), ".", "a title that did not end itself was left unpunctuated");
 
-        // Every sentence that embeds a title, over both shapes.
-        for embedded in [title.as_str(), "review the branches and land it…"] {
+        // Every sentence that embeds a title, over all three shapes: his own period, an
+        // ellipsis, and a real truncated title.
+        for embedded in [title.as_str(), "review the branches and land it…", truncated.as_str()] {
             for line in [
                 says::ready_to_approve(embedded),
                 says::settled(embedded, "It landed on a branch in his depot."),
