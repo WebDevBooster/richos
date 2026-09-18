@@ -165,21 +165,44 @@ pub fn check_addresses(addresses: &[IpAddr]) -> Result<(), PhoneError> {
     Ok(())
 }
 
-/// Turn a leaf (or a chain, leaf first) and its PKCS#8 key into something rustls can present.
+/// **The key, in whichever of the two encodings it actually arrived in.**
+///
+/// MEASURED ON THIS MAC, 2026-09-19, and it is the reason this function exists rather than a
+/// `PrivateKeyDer::Pkcs8` at the call site. Counting the PEM labels that
+/// `tailscale cert --cert-file - --key-file -` printed for this Mac's real tailnet name:
+/// **four `CERTIFICATE` blocks and one `EC PRIVATE KEY` block.**
+///
+/// `EC PRIVATE KEY` is **SEC1**, not PKCS#8. Wrapped as PKCS#8 — which is what this file did
+/// until this line — `ring` refuses it and the whole tailnet configuration fails to build with
+/// "rustls refused a private key". `tailnet::KeyDer` has carried the distinction since the parser
+/// was written; the TLS side threw it away. Nothing caught it because every test fed it a PKCS#8
+/// key minted by our own authority, and the one encoding a real `tailscale cert` produces is the
+/// other one.
+fn private_key_der(key: &super::tailnet::KeyDer) -> rustls::pki_types::PrivateKeyDer<'static> {
+    match key {
+        super::tailnet::KeyDer::Pkcs8(der) => {
+            rustls::pki_types::PrivateKeyDer::Pkcs8(der.clone().into())
+        }
+        super::tailnet::KeyDer::Sec1(der) => {
+            rustls::pki_types::PrivateKeyDer::Sec1(der.clone().into())
+        }
+    }
+}
+
+/// Turn a leaf (or a chain, leaf first) and its key into something rustls can present.
 ///
 /// Separated from [`tls_config`] because the listener now holds **two** of these and the awkward
 /// part — a key that is SEC1 where rustls wants PKCS#8 — is identical for both.
 fn certified_key(
     chain_der: Vec<Vec<u8>>,
-    key_pkcs8: &[u8],
+    key: &super::tailnet::KeyDer,
 ) -> Result<Arc<rustls::sign::CertifiedKey>, PhoneError> {
     let chain: Vec<rustls::pki_types::CertificateDer<'static>> =
         chain_der.into_iter().map(rustls::pki_types::CertificateDer::from).collect();
     if chain.is_empty() {
         return Err(PhoneError::Crypto("a certificate chain with nothing in it".into()));
     }
-    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(key_pkcs8.to_vec().into());
-    let signing_key = rustls::crypto::ring::sign::any_supported_type(&key)
+    let signing_key = rustls::crypto::ring::sign::any_supported_type(&private_key_der(key))
         .map_err(|e| PhoneError::Crypto(format!("rustls refused a private key: {e}")))?;
     Ok(Arc::new(rustls::sign::CertifiedKey::new(chain, signing_key)))
 }
@@ -259,7 +282,7 @@ pub fn tls_config(
 pub fn tls_config_with_tailnet(
     leaf_der: &[u8],
     leaf_key_pkcs8: &[u8],
-    tailnet: Option<(String, Vec<Vec<u8>>, Vec<u8>)>,
+    tailnet: Option<(String, Vec<Vec<u8>>, super::tailnet::KeyDer)>,
 ) -> Result<Arc<rustls::ServerConfig>, PhoneError> {
     // The same `ring` provider `voice_provision.rs` installs, installed idempotently here for the
     // same reason it does: a process-level provider must exist before a config is built, and
@@ -268,8 +291,11 @@ pub fn tls_config_with_tailnet(
 
     // The ROOT is deliberately not in the home chain. The phone installed it; sending it again
     // would be a bigger handshake that proves nothing.
-    let home = certified_key(vec![leaf_der.to_vec()], leaf_key_pkcs8)
-        .map_err(|e| PhoneError::Crypto(format!("rustls refused our own leaf: {e}")))?;
+    let home = certified_key(
+        vec![leaf_der.to_vec()],
+        &super::tailnet::KeyDer::Pkcs8(leaf_key_pkcs8.to_vec()),
+    )
+    .map_err(|e| PhoneError::Crypto(format!("rustls refused our own leaf: {e}")))?;
 
     let tailnet = match tailnet {
         Some((name, chain, key)) => {
@@ -807,7 +833,11 @@ mod tests {
         let config = tls_config_with_tailnet(
             &home.leaf_der,
             &home.leaf_key_pkcs8,
-            Some((TAILNET.to_string(), vec![tailnet.leaf_der.clone()], tailnet.leaf_key_pkcs8.clone())),
+            Some((
+            TAILNET.to_string(),
+            vec![tailnet.leaf_der.clone()],
+            crate::phone::tailnet::KeyDer::Pkcs8(tailnet.leaf_key_pkcs8.clone()),
+        )),
         )
         .expect("rustls refused a two-certificate configuration");
 
@@ -1077,6 +1107,206 @@ mod tests {
         let other = b.local_addr().unwrap().port();
         drop(b);
         (port, other)
+    }
+
+    /// **THE LIVE PROOF: this Mac, its real tailnet name, a publicly trusted certificate, and
+    /// `curl` with no `-k` and no `--cacert`.**
+    ///
+    /// `#[ignore]` for the same reason the detection one is: its answer depends on somebody's
+    /// Tailscale account, and a suite may not depend on that. Run it deliberately:
+    ///
+    /// ```text
+    /// cargo test --bin richos-tauri phone::listen::tests::live -- --ignored --nocapture
+    /// ```
+    ///
+    /// It SKIPS, loudly, on any state but `ready` — a proof that quietly passes on a Mac with no
+    /// Tailscale would be worse than no proof. On a ready Mac it proves, in one run:
+    ///
+    /// 1. detection reports `ready` with the tailnet name;
+    /// 2. `tailscale cert` hands over a chain and a key **through a pipe** — the key is never
+    ///    written to disk, which is the whole reason `fetch_cert` asks for stdout;
+    /// 3. the listener stands up on the tailnet address at the shipping port;
+    /// 4. **curl, using the system trust store and nothing of ours, reaches it by NAME** — which
+    ///    is the entire promise of this path, and the thing that deletes the sixteen taps;
+    /// 5. the API layer answers over that origin, not just the static app;
+    /// 6. the pairing URL a QR would carry is the tailnet origin.
+    ///
+    /// It binds the SHIPPING port, 8443, deliberately: an ephemeral port would prove a handshake
+    /// and not the thing a phone will actually dial. So it refuses to run against a RichOS that is
+    /// already serving, rather than fighting it for the socket.
+    #[test]
+    #[ignore = "depends on this machine's real Tailscale state; run with --ignored"]
+    fn live_the_tailnet_name_is_served_with_a_publicly_trusted_certificate() {
+        use crate::phone::tailnet;
+
+        let (state, diagnostic) = tailnet::detect();
+        println!("state      = {} {:?}", state.token(), diagnostic.map(|d| d.label()));
+        let (Some(name), Some(origin)) = (state.name(), state.origin()) else {
+            println!(
+                "SKIPPED: this Mac is `{}`, not `ready`. Nothing to prove and nothing claimed.",
+                state.token()
+            );
+            return;
+        };
+        println!("name       = {name}");
+        println!("origin     = {origin}");
+        println!("addresses  = {:?}", state.addresses());
+        println!("account    = {:?}", state.account().map(|a| a.described()));
+        println!("phone      = {:?}", state.phone());
+
+        let cli = tailnet::find_cli().expect("ready with no command line is not a reachable state");
+        let cert = tailnet::fetch_cert(&cli, name, super::super::TAILNET_MIN_VALIDITY)
+            .expect("tailscale cert refused");
+        println!(
+            "cert       = {} certificate(s) in the chain, key is {}",
+            cert.chain_der.len(),
+            match cert.key {
+                tailnet::KeyDer::Pkcs8(_) => "PKCS#8",
+                tailnet::KeyDer::Sec1(_) => "SEC1 (`EC PRIVATE KEY`)",
+            }
+        );
+
+        // --- the Mac, built the way `PhoneRuntime::start` builds it ---------------------------
+        let dir = std::env::temp_dir().join(format!(
+            "richos-phone-live-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secrets = MemorySecrets::default();
+        let names = LocalNames {
+            host: "MM1".into(),
+            bonjour: "mm1.local".into(),
+            addresses: state.addresses().to_vec(),
+        };
+        let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
+        let profile = Arc::new(ca.mobileconfig());
+
+        let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
+        spine.set_entity_registry(
+            EntityRegistry::new(vec![
+                Entity::new("femcboost", "FemcBoost", &["/fixture/femcboost"]).unwrap()
+            ])
+            .unwrap(),
+        );
+        let entity = EntityId::parse("femcboost").unwrap();
+        let thread = spine.create_thread("the proposal", &entity).unwrap();
+        spine.switch_thread(&thread).unwrap();
+        spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["On it!"])));
+        let control = TurnControl::open(dir.join("intake.jsonl")).unwrap();
+        spine.set_turn_control(control.clone());
+        let hub = PhoneHub::new();
+        spine.set_live_observer(Box::new(crate::phone::stream::PhoneLiveEmitter::new(
+            Arc::clone(&hub),
+        )));
+        let spine = Arc::new(StdMutex::new(spine));
+
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let vapid = crate::phone::push::VapidKey::generate().unwrap();
+        let channel = Arc::new(Channel {
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(ApiBaseDesk::home_only(origin.clone())),
+            hub: Arc::clone(&hub),
+            bridge: Arc::new(SpineBridge {
+                spine: Arc::clone(&spine),
+                control,
+                thread: thread.clone(),
+                entity,
+            }) as Arc<dyn Bridge>,
+            assets: crate::phone::assets::PhoneApp::embedded(),
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: ca.fingerprint_hex(),
+        });
+
+        devices.open_pairing().unwrap();
+        let code = devices.pairing_window().unwrap().code;
+        let tls = tls_config_with_tailnet(
+            &ca.leaf_der,
+            &ca.leaf_key_pkcs8,
+            Some((name.to_string(), cert.chain_der.clone(), cert.key.clone())),
+        )
+        .expect("rustls refused the tailnet certificate");
+
+        let mut listener = match Listener::start(
+            Arc::clone(&channel),
+            tls,
+            Arc::clone(&profile),
+            state.addresses(),
+            HTTPS_PORT,
+            TRUST_PORT,
+        ) {
+            Ok(listener) => listener,
+            Err(e) => {
+                println!("SKIPPED: port {HTTPS_PORT} would not bind ({e}). Quit RichOS and retry.");
+                let _ = std::fs::remove_dir_all(&dir);
+                return;
+            }
+        };
+        println!(
+            "listening  = {}",
+            listener.bound.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")
+        );
+
+        // --- curl, with NOTHING of ours in its trust store ------------------------------------
+        //
+        // No `--insecure`, no `--cacert`, no `--resolve`: the name is resolved by MagicDNS and the
+        // certificate is validated against the system's own roots. If either half were missing
+        // this would fail, which is exactly why it is the proof.
+        let curl = |args: &[&str]| -> (String, String, bool) {
+            let out = std::process::Command::new("/usr/bin/curl")
+                .args(["--silent", "--show-error", "--max-time", "20"])
+                .args(args)
+                .output()
+                .expect("curl did not run");
+            (
+                String::from_utf8_lossy(&out.stdout).to_string(),
+                String::from_utf8_lossy(&out.stderr).to_string(),
+                out.status.success(),
+            )
+        };
+
+        let app_url = format!("{origin}/");
+        let (body, stderr, ok) = curl(&[&app_url]);
+        println!("GET {app_url} -> {} bytes, curl {}", body.len(), if ok { "ok" } else { "failed" });
+        assert!(ok && stderr.is_empty(), "curl refused the public certificate or the name: {stderr}");
+        assert!(
+            body.contains("<script src=\"/app.js\""),
+            "what was served over the tailnet name is not the phone app: {body}"
+        );
+
+        // AND THE API, not only the static app: an unsigned, unpaired POST is the one request the
+        // channel answers without a credential, so it proves the route layer is reached.
+        let phone = crate::phone::device::tests::Phone::new();
+        let pair_body = serde_json::json!({
+            "code": code,
+            "public_key_jwk": phone.jwk(),
+            "device_name": "the live proof",
+        })
+        .to_string();
+        let pair_url = format!("{origin}/api/pair");
+        let (body, stderr, ok) = curl(&[
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            &pair_body,
+            &pair_url,
+        ]);
+        println!("POST {pair_url} -> {body}");
+        assert!(ok && stderr.is_empty(), "curl could not reach the API over the tailnet: {stderr}");
+        let paired: Value = serde_json::from_str(&body).expect("the API did not answer JSON");
+        assert!(paired.get("device_id").is_some(), "pairing over the tailnet was refused: {body}");
+
+        // 6. AND THE CODE A QR WOULD CARRY IS THIS ORIGIN. Built the same way `status()` builds it.
+        println!("pair url   = {origin}/#pair={code}");
+        assert!(
+            format!("{origin}/#pair={code}").starts_with(&format!("https://{name}:")),
+            "the pairing URL is not the tailnet origin"
+        );
+
+        listener.stop();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -112,6 +112,11 @@ mod voice_provision;
 /// rule somebody has to remember.
 mod phone;
 
+/// **Opening one of five known addresses, and nothing else** (CEO §61.1). An allowlist rather
+/// than a URL opener: the how-to screens need five fixed destinations, so the command takes the
+/// address as a key into a table rather than as data to act on.
+mod opener;
+
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
 /// the spine (assistant text only), so this layer just relays name + payload verbatim.
@@ -688,6 +693,20 @@ fn phone_begin_pairing(
         eprintln!("[richos] the phone channel could not start: {e}");
         e.ceo_sentence()
     })
+}
+
+/// **Open one of the addresses the how-to screens print** (CEO §61.1).
+///
+/// `target` is the address exactly as the screen prints it, and it is a KEY rather than a URL:
+/// `opener::resolve` matches the whole string against a five-entry table and refuses anything
+/// else. See `opener.rs` for why that is the shape and not a general URL opener.
+///
+/// The screens keep the address written out beside every one of these controls, so a Mac where
+/// `open` does not work is a Mac where the user reads the address — not one where the step is
+/// impossible.
+#[tauri::command(async)]
+fn open_external(target: String) -> Result<(), String> {
+    opener::open(&target)
 }
 
 /// "Forget this phone": the socket, the device record and the Keychain keys, all of it.
@@ -2894,6 +2913,8 @@ fn main() {
             feedback_preview,
             feedback_record,
             feedback_history,
+            // --- the how-to screens' links (CEO §61.1, 2026-09-19) — appended, never reordered ---
+            open_external,
             // --- techy mode Phase 2 (2026-08-30) — appended, never reordered ---
             get_machinery,
             get_machinery_raw,

@@ -4107,11 +4107,6 @@ module.exports = [
     "why": "#set-phone-open — the settings-menu row that opens the pairing screen."
   },
   {
-    "s": "<div class=\"overlay-panel\"> <h2 id=\"phone-title\" class=\"overlay-title\">Use Rich from your phone</h2> <p class=\"overlay-note\">Your phone talks to this Mac directly, over your own home network. Nothing of what you say goes anywhere else, and there is no account to make.</p> <div id=\"phone-paired\" hidden> <p class=\"overlay-note\"><strong id=\"phone-device-name\"></strong> is paired. Open Rich on it and keep talking.</p> <p class=\"overlay-note\" id=\"phone-push-state\"></p> <p class=\"overlay-note\">Forgetting it here stops this Mac answering it, and deletes the keys. It does <strong>not</strong> remove the certificate from your phone. To remove that too, on your phone open Settings, then General, then VPN and Device Management, then the RichOS profile, then Remove Profile.</p> <div class=\"desk-card-actions\"> <button id=\"phone-forget\" class=\"desk-btn\" type=\"button\">Forget this phone</button> </div> </div> <div id=\"phone-pairing\" hidden> <p class=\"overlay-note phone-warn\"><strong>Two things before you start.</strong></p> <p class=\"overlay-note\">Your phone will call this certificate <strong>Unverified</strong>, in red. That is not a fault and it is not something I can fix. It means nobody vouched for the file except your own Mac — which is the entire point. Making that warning go away would need a certificate from a company Apple already trusts, and Rich is free and open, so there is no such company involved.</p> <p class=\"overlay-note\">Some iPhones running iOS 18.0 and 18.1 never show the switch you need at step 15. That is Apple's own fault rather than mine, and it is fixed in later versions. If you get there and the switch is simply not on the screen, stop and tell me — your phone cannot use this until it is.</p> <h3 class=\"phone-step-title\">1. Point your camera at this, to install the certificate</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-trust\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <p class=\"overlay-note phone-url\" id=\"phone-trust-url\"></p> </div> <ol id=\"phone-steps\" class=\"phone-steps\"></ol> <h3 class=\"phone-step-title\">2. Then point it at this, to open Rich</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-pair\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <div> <p class=\"overlay-note phone-url\" id=\"phone-pair-url\"></p> <p class=\"overlay-note\" id=\"phone-countdown\" role=\"status\"></p> </div> </div> <h3 class=\"phone-step-title\">3. Check the six words match</h3> <p class=\"overlay-note\">Your phone will show six words. They have to be these six, in this order. If they are not, something other than this Mac answered — tap Cancel and tell me.</p> <p class=\"phone-words\" id=\"phone-words\"></p> <p class=\"overlay-note\" id=\"phone-bound\"></p> <p class=\"overlay-note\" id=\"phone-message\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-refresh\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Show me another code</button> </div> </div> <div id=\"phone-off\"> <p class=\"overlay-note\" id=\"phone-off-message\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-start\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up</button> </div> </div> <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE. The first version of this sheet had three, one inside each state block, and ui/tests/escape.js refused it on the spot: data-dismiss names ONE control, the document-level Escape handler clicks it, and a button hidden with its block does nothing at all. Two of the three states could not be dismissed from the keyboard. One button that is always on screen is both the simpler markup and the only shape that can satisfy the contract. --> <div class=\"desk-card-actions\"> <button id=\"phone-close\" class=\"desk-btn\" type=\"button\">Close</button> </div> </div>",
-    "c": "FRAGMENT",
-    "why": "Composite HTML for the pairing screen. Its wording and its controls are exercised by `ui/tests/phone.js` — eleven checks including both warnings, their order against the codes, the sixteen steps and the six words — and by two `contrast.js` surfaces. This literal is parsed as markup rather than rendered as one sentence."
-  },
-  {
     "s": "qr: bytes does not fit in a version 1-6 level-M symbol (106 bytes is the ceiling). Shorten the URL or extend the version table — do not silently truncate.",
     "c": "NOT-RENDERED",
     "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
@@ -4325,5 +4320,212 @@ module.exports = [
     "s": "{address} is not an address a server binds",
     "c": "NOT-RENDERED",
     "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/listen.rs:160)"
+  },
+  // -------------------------------------------------------------------------------------
+  // THE TAILSCALE PATH AND THE IDENTITY TRAP (CEO §61 / §61.1, 2026-09-19) — `ui/phone.js`,
+  // `src-tauri/src/phone/tailnet.rs` and `src-tauri/src/opener.rs`.
+  //
+  // THE SHAPE OF THIS BLOCK IS THE SHAPE OF THE SCREENS. Most of it is FRAGMENTs, and that
+  // is the point rather than an evasion: every sentence §61.1 required is composed at run
+  // time around a string the Mac read off `tailscale status --json` — the provider and the
+  // login name — because *"use the same account"* is advice nobody can follow when the one
+  // thing they do not know is which account they used. A literal that ends mid-sentence is
+  // what naming the account looks like in source.
+  //
+  // THE INSTRUCTIONS ARE ACTIONABLE AND THEY POINT AT `#phone-ts-open`, the control that
+  // opens the exact thing the sentence names. Before 2026-09-19 the app could not open a
+  // URL at all, so these sentences were instructions with nothing beside them but an
+  // address to retype.
+  // -------------------------------------------------------------------------------------
+  {
+    "s": ") is on this network but Tailscale is switched off on it. Turn it on in the Tailscale app.",
+    "c": "FRAGMENT",
+    "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
+  },
+  {
+    "s": ") is on this network.",
+    "c": "FRAGMENT",
+    "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
+  },
+  {
+    "s": ", then come back here. Reinstalling the app will not help — the identity is the only thing that decides it.",
+    "c": "FRAGMENT",
+    "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
+  },
+  {
+    "s": "2. Then point it at this, to open Rich",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "The home route's second step heading, set at run time because the Tailscale route numbers its steps differently — there, the trust code does not exist. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+  },
+  {
+    "s": "3. Check the six words match",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "The home route's third step heading, set at run time for the same reason as the second. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+  },
+  {
+    "s": "</strong> — exactly what this Mac used — even if you would normally keep your phone and your Mac apart. Nothing else connects them.",
+    "c": "FRAGMENT",
+    "why": "The tail of the phone step's why-line, joined to the account phrase the Mac read off `status --json`. It never renders on its own; `ui/tests/phone.js` check 13 asserts the whole sentence names the provider and login name."
+  },
+  {
+    "s": "</strong> — the same one this Mac is signed in to. A different provider makes a different network, and then the two will never see each other.",
+    "c": "FRAGMENT",
+    "why": "The tail of step 2 of the phone steps, joined to the account phrase. It never renders on its own — the sentence it belongs to is the one that tells the user WHICH identity to use, which is the whole of §61.1."
+  },
+  {
+    "s": "<div class=\"overlay-panel\"> <h2 id=\"phone-title\" class=\"overlay-title\">Use Rich from your phone</h2> <p class=\"overlay-note\">Your phone talks to this Mac directly, over your own home network. Nothing of what you say goes anywhere else, and there is no account to make.</p> <div id=\"phone-paired\" hidden> <p class=\"overlay-note\"><strong id=\"phone-device-name\"></strong> is paired. Open Rich on it and keep talking.</p> <p class=\"overlay-note\" id=\"phone-push-state\"></p> <!-- SCREEN 6's LIMIT, on the one screen where they live with it. Said on Screen 1 where they commit, and here — and on none of the four screens in between, because a limitation repeated on every screen is nagging. --> <p class=\"overlay-note\" id=\"phone-ts-limit\" hidden>You can use this away from the office. Both devices have to be signed in to Tailscale for it to connect — including at home.</p> <!-- THE FORGET NOTE IS CONDITIONAL, and that is the point. On the Tailscale route there is no profile, and telling someone to go and remove one that does not exist is the kind of leftover that makes a product feel untended. --> <p class=\"overlay-note\" id=\"phone-forget-note-home\">Forgetting it here stops this Mac answering it, and deletes the keys. It does <strong>not</strong> remove the certificate from your phone. To remove that too, on your phone open Settings, then General, then VPN and Device Management, then the RichOS profile, then Remove Profile.</p> <p class=\"overlay-note\" id=\"phone-forget-note-ts\" hidden>Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac answering at its Tailscale name. There is nothing to remove from your phone.</p> <div class=\"desk-card-actions\"> <button id=\"phone-forget\" class=\"desk-btn\" type=\"button\">Forget this phone</button> </div> </div> <div id=\"phone-pairing\" hidden> <!-- SCREEN 5 — YOUR PHONE, THREE THINGS. Shown on the Tailscale route INSTEAD of the two warnings, the trust code and the sixteen steps below, which are the home path's and are absent here rather than hidden. The no-certificate note is a tripwire, not a boast: a user on this path who is asked to install a profile is on the wrong origin, and the only person who can notice that is the user. --> <!-- THESE FOUR STEPS ARE THE CEO'S OWN, AND THEY OVERRIDE URBAN'S THREE. He installed and uninstalled Tailscale on Android THREE TIMES looking for a \"connect to Mac\" step that does not exist. Urban's Screen 5 had three steps and stopped at \"sign in\", which is where that hunt begins: the app is signed in, nothing says it is finished, and the user goes looking for the pairing screen Tailscale does not have. So the two missing steps — the VPN permission prompt, and the switch reading Connected — are what end the hunt, and the sentence below says outright that the thing he was hunting for is not there. Recorded in docs/verification/tailscale-path-2026-09-18.md. NOTHING ABOUT TAILNETS, MagicDNS OR MACHINE NAMES ON THIS SCREEN, by the same ruling. Those words belong on the Mac's own screens; here they are vocabulary for a thing the user does not have to think about. --> <div id=\"phone-ts-steps\" hidden> <h3 class=\"phone-step-title\">On your phone, four things</h3> <!-- THE WHY COMES BEFORE THE STEPS, and it is here because the CEO said it is not obvious: *\"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same identity on the Mac and on the phone.\"* A person whose habit is to keep two identities apart will follow a step that says \"sign in\" and use the WRONG one, correctly by their own lights, and the result is two networks that never see each other with nothing on either screen saying why. So the reason is given before the instruction, and it names the habit it is asking them to break. --> <p class=\"overlay-note\" id=\"phone-ts-why\"></p> <ol class=\"phone-steps\"> <li class=\"overlay-note\">Install Tailscale from the store.</li> <li class=\"overlay-note\" id=\"phone-ts-step2\">Sign in with the <strong>same</strong> identity you used on this Mac. A different provider makes a different network, and then the two will never see each other.</li> <li class=\"overlay-note\">Allow the VPN connection your phone asks about.</li> <li class=\"overlay-note\">The switch says Connected.</li> </ol> <p class=\"overlay-note phone-url\" id=\"phone-ts-store\"></p> <p class=\"overlay-note\"><strong>There is no pairing step in Tailscale.</strong> Sign in with the same account on both devices and they are connected.</p> <!-- THE MISMATCH IS DETECTED, NOT ONLY DESCRIBED — the CEO puts it at 9 in 10 users. A phone on the SAME account shows up in the daemon's own Peer list; one on a different provider's account is in a different tailnet and shows up nowhere. So this line is evidence rather than advice, and it names the account to use. --> <p class=\"overlay-note\" id=\"phone-ts-peer\" role=\"status\"></p> <p class=\"overlay-note\">There is no certificate to install on this path. If your phone asks you to install a profile, something is wrong — tell me.</p> </div> <div id=\"phone-home-warnings\"> <p class=\"overlay-note phone-warn\"><strong>Two things before you start.</strong></p> <p class=\"overlay-note\">Your phone will call this certificate <strong>Unverified</strong>, in red. That is not a fault and it is not something I can fix. It means nobody vouched for the file except your own Mac — which is the entire point. Making that warning go away would need a certificate from a company Apple already trusts, and Rich is free and open, so there is no such company involved.</p> <p class=\"overlay-note\">Some iPhones running iOS 18.0 and 18.1 never show the switch you need at step 15. That is Apple's own fault rather than mine, and it is fixed in later versions. If you get there and the switch is simply not on the screen, stop and tell me — your phone cannot use this until it is.</p> <h3 class=\"phone-step-title\">1. Point your camera at this, to install the certificate</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-trust\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <p class=\"overlay-note phone-url\" id=\"phone-trust-url\"></p> </div> <ol id=\"phone-steps\" class=\"phone-steps\"></ol> </div> <h3 class=\"phone-step-title\" id=\"phone-code-title\">2. Then point it at this, to open Rich</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-pair\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <div> <p class=\"overlay-note phone-url\" id=\"phone-pair-url\"></p> <p class=\"overlay-note\" id=\"phone-countdown\" role=\"status\"></p> </div> </div> <h3 class=\"phone-step-title\" id=\"phone-words-title\">3. Check the six words match</h3> <p class=\"overlay-note\">Your phone will show six words. They have to be these six, in this order. If they are not, something other than this Mac answered — tap Cancel and tell me.</p> <p class=\"phone-words\" id=\"phone-words\"></p> <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure mode is that the name simply stops resolving; from the phone that looks like \"cannot connect\" with nothing saying why, and two different Tailscale accounts produce exactly that, silently. --> <p class=\"overlay-note\" id=\"phone-ts-failure\" hidden>If the code opens to a page that cannot connect, your phone is signed in to a different Tailscale account than this Mac.</p> <p class=\"overlay-note\" id=\"phone-bound\"></p> <p class=\"overlay-note\" id=\"phone-message\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-refresh\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Show me another code</button> </div> </div> <!-- SCREEN 1 — WHERE WILL YOU USE IT? Urban's §2, in front of the shipped one-route block. The order is fixed and is never reordered by what detection happens to find: §61 says a phone app inside the home network is the weaker tool, so \"Anywhere\" is first, always. A screen whose options move is a screen that cannot be learned. --> <div id=\"phone-route\" hidden> <p class=\"overlay-note\">This is an extra. Rich on this Mac does not need it.</p> <h3 class=\"phone-step-title\">Where do you want to use it?</h3> <div class=\"phone-route\"> <button id=\"phone-route-anywhere\" class=\"desk-btn\" type=\"button\">Anywhere, including away from the office</button> <p class=\"overlay-note phone-route-note\">On the go, on cellular, anywhere your phone has a signal. It costs you two app installs, one free Tailscale account, and no certificate at all.</p> <p class=\"overlay-note phone-route-note\">Rich on your phone stops connecting whenever Tailscale is off or signed out on either device — at home too.</p> </div> <div class=\"phone-route\"> <button id=\"phone-route-home\" class=\"desk-btn\" type=\"button\">At home only</button> <p class=\"overlay-note phone-route-note\">Your phone talks to this Mac over your own home network, with no account and no third party. Away from the house it will not connect, and setting it up means installing a certificate on your phone: sixteen taps, once.</p> </div> </div> <!-- SCREEN 0 — THE IDENTITY TRAP, AND IT COMES BEFORE THE DOWNLOAD. CEO §61.1, his ruling in his own words: *\"this barrier or I would call it stupidity would need to be made ABSOLUTELY UBER MEGA SUPER CRYSTAL-CLEAR to ever user of RichOS\"*. What he hit: Tailscale has no email-and-password sign-in, only \"Sign in with Apple / Google / Microsoft / GitHub\"; the account IS the network; he signed in with Apple on the Mac and Google on the Android, got two networks that cannot see each other, and REINSTALLED Tailscale on the Android three times looking for a \"connect to Mac\" step that does not exist. Nothing on Tailscale's screens says any of this. **WHY IT IS ITS OWN SCREEN AND NOT A LINE ON THE DOWNLOAD SCREEN.** By the time somebody is on the download screen the next thing they do is create the account, and the choice of identity is made inside somebody else's sign-in sheet where nothing of ours can reach them. A warning that arrives after that choice is a warning that costs a sign-out. His own sentence is the reason it cannot be a footnote: *\"in hindsight this sounds obvious, but it's absolutely NOT obvious at all. Especially given that I would normally absolutely NEVER use the same identity on the Mac and on the phone.\"* It is shown while the Mac has no Tailscale account yet — which is exactly the window in which the choice can still be made freely — and never again after detection can name one, because from then on the screens say WHICH account rather than warning about the choice. --> <div id=\"phone-identity\" hidden> <h3 class=\"phone-step-title\">First: Tailscale has no password</h3> <p class=\"overlay-note\">Tailscale has no username and password. It only offers <strong>Sign in with Google</strong>, <strong>Apple</strong>, <strong>Microsoft</strong> or <strong>GitHub</strong> — and whichever one you pick, that identity <strong>is</strong> your private network.</p> <p class=\"overlay-note\">So this Mac and your phone have to sign in with the <strong>same</strong> one. Two different identities make two separate networks that cannot see each other, and neither device says so — the phone simply never finds this Mac.</p> <p class=\"overlay-note\">There is no \"connect to my Mac\" step in Tailscale, on either device. Signing in on both with the same identity is the whole connection. If the phone cannot find this Mac, reinstalling Tailscale will not help — the identity is the only thing that decides it.</p> <p class=\"overlay-note\">If you would rather not use a personal identity on both devices, make one that is only for this — a new Google account, which costs nothing — and sign in with that one here and on the phone.</p> <div class=\"desk-card-actions\"> <button id=\"phone-identity-ok\" class=\"desk-btn desk-btn--confirm\" type=\"button\">I understand — show me what to do</button> <button id=\"phone-identity-back\" class=\"desk-btn\" type=\"button\">Pick a different way</button> </div> </div> <!-- SCREENS 2, 3 and 7 — the three \"something is happening elsewhere\" states. One block, because they differ only in their words and their one address: each is a thing the user does in somebody else's software, and detection is what moves the screen on. --> <div id=\"phone-ts-wait\" hidden> <h3 class=\"phone-step-title\" id=\"phone-ts-heading\"></h3> <p class=\"overlay-note\" id=\"phone-ts-note1\"></p> <p class=\"overlay-note\" id=\"phone-ts-note2\"></p> <p class=\"overlay-note phone-url\" id=\"phone-ts-url\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-ts-open\" class=\"desk-btn desk-btn--confirm\" type=\"button\"></button> <button id=\"phone-ts-recheck\" class=\"desk-btn\" type=\"button\">Check again</button> <button id=\"phone-ts-back\" class=\"desk-btn\" type=\"button\">Pick a different way</button> </div> </div> <!-- SCREEN 4 — THIS MAC IS READY. No separate \"turn serving on\": once the name is known there is no decision left, so \"Set my phone up\" does both, under the label the product already uses. --> <div id=\"phone-ts-ready\" hidden> <h3 class=\"phone-step-title\">This Mac is ready</h3> <p class=\"phone-tailnet-name\" id=\"phone-ts-name\"></p> <!-- WHICH IDENTITY IT SIGNED IN WITH, READ OFF THE MAC (§61.1). \"Use the same account\" is advice nobody can follow, because the one thing the user does not know is which one they used — that is the CEO's own account of the evening. This names it. --> <p class=\"overlay-note\" id=\"phone-ts-account\"></p> <p class=\"overlay-note\">That is this Mac's name on your own Tailscale network. Only devices signed in to your Tailscale account can reach it, and no port on this Mac is open to the internet.</p> <!-- AND THE WATCH LIVES HERE TOO, not only on the phone step. MEASURED: the pairing window is 60 s (PAIRING_WINDOW_MS) and the join grace is 60 s, and the watch starts strictly AFTER the window opens — so on the phone step alone the mismatch sentence could never be reached at all: by the time it was due, the code had expired and the block was hidden. Installing Tailscale on a phone and signing in takes minutes, not seconds, so this screen — the one the user is returned to when the code runs out — is where the sentence has to be able to appear. --> <p class=\"overlay-note\" id=\"phone-ts-peer-ready\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-ts-start\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up</button> <button id=\"phone-ts-ready-back\" class=\"desk-btn\" type=\"button\">Pick a different way</button> </div> </div> <div id=\"phone-off\" hidden> <p class=\"overlay-note\" id=\"phone-off-message\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-start\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up</button> </div> </div> <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE. The first version of this sheet had three, one inside each state block, and ui/tests/escape.js refused it on the spot: data-dismiss names ONE control, the document-level Escape handler clicks it, and a button hidden with its block does nothing at all. Two of the three states could not be dismissed from the keyboard. One button that is always on screen is both the simpler markup and the only shape that can satisfy the contract. --> <div class=\"desk-card-actions\"> <button id=\"phone-close\" class=\"desk-btn\" type=\"button\">Close</button> </div> </div>",
+    "c": "FRAGMENT",
+    "why": "Composite HTML for the phone sheet, all eight of its screens. Its wording and its controls are exercised by `ui/tests/phone.js` — seventeen checks, including the identity screen's five required sentences, the account the Mac names after sign-in, and the three states of the phone-watch line — and by four `contrast.js` surfaces. This literal is parsed as markup rather than rendered as one sentence."
+  },
+  {
+    "s": "Check the six words match",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "The Tailscale route's six-words heading, unnumbered because that route has three steps where the home one has sixteen. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+  },
+  {
+    "s": "Download it, install it, then come back here. This screen moves on by itself when it sees it.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "Screen 2, the second half: what to do and that the screen will move on by itself. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "I can only open the pages these screens name.",
+    "c": "NOT-RENDERED",
+    "why": "`src-tauri/src/opener.rs`'s own refusal. It does NOT reach the screen: `openExternal` in `phone.js` discards the error and shows its own sentence, because a Mac that would not open a page needs to be told to read the address printed above it rather than told which table the address was not in. The string exists for the Mac's log."
+  },
+  {
+    "s": "I cannot tell which identity this Mac is signed in to. Whichever it is, sign in with exactly the same one on your phone.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-start",
+    "why": "The honest answer when the daemon reports a name but no identity for it: the screen cannot say WHICH account to reuse, so it says so and still says what to do. §61.1's whole point is that \"use the same account\" is advice nobody can follow — this is the one case where that is all there is, and it is said plainly rather than dressed up."
+  },
+  {
+    "s": "I could not find Tailscale on this Mac to open it.",
+    "c": "NOT-RENDERED",
+    "why": "`src-tauri/src/opener.rs`'s own refusal. It does NOT reach the screen: `openExternal` in `phone.js` discards the error and shows its own sentence, because a Mac that would not open a page needs to be told to read the address printed above it rather than told which table the address was not in. The string exists for the Mac's log."
+  },
+  {
+    "s": "I could not open that on this Mac. The address is written out above — type it into your browser.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "What the screen says when the Mac would not open the address. The control is the one that just failed — trying again is the first thing to do — and the sentence points at the address printed above it, which is why it is printed: Urban's §2, a control that opens somewhere the user cannot see first is asking for trust it has not earned."
+  },
+  {
+    "s": "Install Tailscale on this Mac",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "Screen 2's heading. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "Open the Tailscale console",
+    "c": "CONTROL",
+    "why": "#phone-ts-open's label on Screen 7. It opens `console.tailscale.com/admin/dns`, which is one of five addresses `src-tauri/src/opener.rs` will open and the only one that screen names."
+  },
+  {
+    "s": "Sign in to Tailscale on this Mac",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "Screen 3's heading. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "Sign in with <strong>",
+    "c": "FRAGMENT",
+    "why": "The head of step 2 of the phone steps, joined to the account phrase. Never rendered alone."
+  },
+  {
+    "s": "Sign in with the <strong>same</strong> identity you used on this Mac. A different provider makes a different network, and then the two will never see each other.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "Step 2 of the phone steps when the Mac cannot name its own account — the generic form of the sentence §61.1 exists for. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+  },
+  {
+    "s": "Tailscale gives each machine a name on your network, and this Mac does not have one I can use. In Tailscale's own admin console, turn on MagicDNS and HTTPS certificates for your network, then come back.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "Screen 7: signed in, and the tailnet has not been told to issue certificates. MagicDNS is named because it is Tailscale's own label for the switch and the only string that will let somebody find it. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "Tailscale is installed here but not signed in. Open it and sign in. Any of the sign-in choices it offers is fine, and the free plan is enough. I cannot do this part for you.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "Screen 3's first note. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "Tailscale is not running.",
+    "c": "NOT-RENDERED",
+    "why": "The `tailscale` command line's OWN stderr sentence, quoted in `tailnet.rs` only so `Diagnostic::classify` can recognize it. The raw text never leaves that module — it can carry a `tskey-…` — and what the screen shows is the state's own sentence instead."
+  },
+  {
+    "s": "Tailscale is signed in, but this Mac has no name yet",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "Screen 7's heading. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "Tailscale is somebody else's app, and it is free for one person. It gives this Mac a name your phone can reach from anywhere, and it is the whole reason this path has no certificate in it.",
+    "c": "INFORMATIONAL",
+    "why": "What Tailscale is and why this path uses somebody else's app, said once before the user installs it. Nothing to do in this sentence — the doing is in the note under it and in `#phone-ts-open` beside it, which is where the instruction lives."
+  },
+  {
+    "s": "Then point your phone's camera at this",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "The Tailscale route's code heading, unnumbered because that route has no trust code to be the first of. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+  },
+  {
+    "s": "Waiting for your phone to join…",
+    "c": "INFORMATIONAL",
+    "why": "The phone-watch line before the grace window elapses. Genuinely nothing to do: the phone is being installed and signed in to somewhere else, and calling that a mistake before a measured wait would be the screen guessing — which is the failure §61.1 is about, in the other direction."
+  },
+  {
+    "s": "Whichever you pick, you will sign in to the SAME one on your phone — your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-open",
+    "why": "The identity warning in its short form, on the screen where the account is actually created — §61.1's \"before a RichOS user creates any Tailscale account\". Telling somebody afterwards is telling them after they have already chosen, and the fix by then is a sign-out. One of Urban's three \"something is happening in somebody else's software\" screens (§3 rows 2, 3 and 5). Detection moves the screen on by itself; `#phone-ts-open` is the control that opens the exact thing the sentence names — the download page, the Tailscale app, or the admin console — and the address stays written out beside it. `ui/tests/phone.js` check 16 asserts both, on all three screens."
+  },
+  {
+    "s": "You signed in with",
+    "c": "FRAGMENT",
+    "why": "The head of the sentence that names the identity the Mac signed in with; the account phrase and the instruction are appended at run time. `ui/tests/phone.js` check 12 asserts the whole of it."
+  },
+  {
+    "s": "Your Tailscale account <strong>is</strong> your private network. Devices signed in to it can reach each other. So on your phone, sign in with <strong>",
+    "c": "FRAGMENT",
+    "why": "The head of the phone step's why-line when the Mac CAN name its account; the account phrase and the tail are appended. Never rendered alone."
+  },
+  {
+    "s": "Your Tailscale account <strong>is</strong> your private network. Devices signed in to it can reach each other. So sign in on your phone with the same account you used on your Mac, even if you normally keep them separate. Nothing else connects them.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "The phone step's why-line when the Mac cannot name its account. It comes before the steps deliberately: it is asking the user to break a habit — *\"I would normally absolutely NEVER use the same identity on the Mac and on the phone\"* — and an instruction without its reason is one they will follow correctly and wrongly. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+  },
+  {
+    "s": "Your phone (",
+    "c": "FRAGMENT",
+    "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
+  },
+  {
+    "s": "Your phone is not on this network yet. On the phone, sign in with",
+    "c": "FRAGMENT",
+    "why": "Part of the sentence that says where the phone is (CEO §61.1 detection half). Composed at run time from the device name the daemon reports, so it never renders on its own. The whole sentence is one of three — on this network; on this network but switched off; not here yet, sign in with <account> — and `ui/tests/phone.js` checks 14 and 15 assert all three."
+  },
+  {
+    "s": "Your phone is not on this network yet. On the phone, sign in with the same account this Mac uses, then come back here. Reinstalling the app will not help — the identity is the only thing that decides it.",
+    "c": "ACTIONABLE",
+    "control": "#phone-ts-start",
+    "why": "The mismatch, named, when the Mac cannot name its own account. A phone signed in to a different identity is in a different tailnet and appears nowhere at all, so its absence is the evidence — and the sentence also closes the loop the CEO actually ran: reinstalling the app three times. The control is the one on the screen this renders on."
+  },
+  {
+    "s": "a certificate chain with nothing in it",
+    "c": "NOT-RENDERED",
+    "why": "`listen.rs`'s own refusal when a certificate chain arrives empty. It becomes `PhoneError::Crypto`, and every phone error the screen can reach goes through `ceo_sentence()` — the detail goes to the log, exactly as the thirty rows above this block record."
+  },
+  {
+    "s": "this Mac would not open it.",
+    "c": "NOT-RENDERED",
+    "why": "`src-tauri/src/opener.rs`'s own refusal. It does NOT reach the screen: `openExternal` in `phone.js` discards the error and shows its own sentence, because a Mac that would not open a page needs to be told to read the address printed above it rather than told which table the address was not in. The string exists for the Mac's log."
   },
 ];

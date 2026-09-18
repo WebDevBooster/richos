@@ -355,6 +355,50 @@ const SURFACES = [
     },
   },
   {
+    // THE TWO SCREENS CEO §61.1 ADDED, and they are their own surfaces for the same reason the
+    // pairing and paired states are two: they share almost no words with either. The route screen
+    // is the only place in the app where a control's BORDER is the thing separating two decisions
+    // — `.desk-btn`'s `--line` computes 1.24:1 dark and 1.50:1 light on this panel, which is why
+    // `.phone-route > button` takes `--line-control` instead. Walking the pairing screen and
+    // calling the phone sheet covered would leave that unmeasured.
+    name: "phone-identity",
+    what: "the route choice and the identity warning that precedes any Tailscale account",
+    preset: {phoneTailnet: {state: "absent"}},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-phone-open");
+      await p.waitForSelector("#phone-route:not([hidden])");
+      await p.click("#phone-route-anywhere");
+      await p.waitForSelector("#phone-identity:not([hidden])");
+      await overlaySettled(p, "#phone-sheet");
+    },
+  },
+  {
+    name: "phone-tailscale-ready",
+    what: "this Mac's tailnet name, the account it signed in with, and what the phone has not done yet",
+    preset: {phoneTailnet: {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+      phone: "HONOR X6b",
+      phoneOnline: false,
+    }},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-phone-open");
+      await p.waitForSelector("#phone-route:not([hidden])");
+      await p.click("#phone-route-anywhere");
+      // The tailnet name is the last thing this screen paints, so its presence is the signal that
+      // the state is up rather than a guess at a delay.
+      await p.waitForFunction(() => {
+        const name = document.getElementById("phone-ts-name");
+        return name && name.textContent.trim().length > 0;
+      });
+      await overlaySettled(p, "#phone-sheet");
+    },
+  },
+  {
     name: "permission",
     what: "a native action request with its description, input and scoped decision controls",
     preset: {pendingPermission: {id: "contrast-permission", binding: {entity_id: "depot"}, tool: "Write", input: {file_path: "/fictional/example.txt"}, description: "Write the requested example file"}},

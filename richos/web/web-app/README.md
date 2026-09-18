@@ -18,6 +18,19 @@ rests on was answered on the CEO's own iPhone X (iOS 16.7) on 2026-09-18: trust,
 microphone, push with the app closed, tap-to-open — all passing, with one cost, which the section
 below is about.
 
+## Reaching the Mac from outside the house: the one thing that decides it
+
+This app talks to the user's own Mac and to nothing else, which is the whole design — and away from
+the house that reach is their own Tailscale network. **Tailscale has no username and password.** You
+sign in with a Google, Apple, Microsoft or GitHub identity, and that identity **is** the private
+network: the Mac and the phone must sign in with the **same** one. Two different identities make two
+separate networks that cannot see each other, and neither device says so — from this app it looks
+exactly like a Mac that is not answering. If you would rather not use a personal identity on both
+devices, make one that is only for this — a new Google account costs nothing — and use it on both.
+
+Setup and every dead end, in full: [`richos/mobile/TAILSCALE-SETUP-AND-TROUBLESHOOTING.md`](../../mobile/TAILSCALE-SETUP-AND-TROUBLESHOOTING.md).
+The desktop app says the same thing on its own screens before the account is ever created (CEO §61.1).
+
 ## The route contract
 
 `CONTRACT-STUB.md` in this directory is **provisional**. The real contract is Echo's `phone-channel.md`,

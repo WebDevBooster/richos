@@ -72,6 +72,18 @@ pub const MAX_BODY_BYTES: usize = 65536;
 /// How long a pairing window stays open. Plan §4.1: *"a 60-second one-shot pairing code"*.
 pub const PAIRING_WINDOW_MS: u64 = 60_000;
 
+/// **How much life a tailnet certificate must have left before this Mac asks for a new one.**
+///
+/// `tailscale cert --min-validity <d>` renews only when the cached certificate has less than this
+/// remaining, so the number is "how stale may the certificate we serve be", not "how often do we
+/// fetch". Thirty days against a ninety-day public certificate leaves two thirds of its life as
+/// slack — a Mac that is off for a fortnight still comes up with a valid one.
+///
+/// MEASURED, so the cost of asking at every start is known rather than assumed: three consecutive
+/// cached fetches on this Mac on 2026-09-19 took **0.055 s, 0.053 s and 0.045 s**. That is what
+/// makes it safe to call from `start`, which a boot with a paired phone goes through.
+pub const TAILNET_MIN_VALIDITY: &str = "720h";
+
 /// The keep-alive comment interval on an open event stream. Long enough not to be a poll,
 /// short enough that a dead stream is obvious to the phone. Plan §6 forbids a loop that
 /// wakes the Mac; this only writes to a socket that is already open.
@@ -299,6 +311,11 @@ struct Running {
     bridge: Arc<bridge::PhoneBridge>,
     vapid: Arc<push::VapidKey>,
     names: names::LocalNames,
+    /// **The origin the pairing code is handed out under**, which is not always
+    /// `names.origin()`. On the Tailscale path it is `https://<name>.ts.net:8443`, and a QR that
+    /// carried `https://mm1.local:8443` instead would be a code that only works in the house —
+    /// on the one path whose entire promise is that it works away from it.
+    origin: String,
     fingerprint_words: Vec<&'static str>,
     fingerprint_hex: String,
 }
@@ -365,6 +382,12 @@ pub struct TailnetView {
     /// DETECTS it rather than only warning about it. `None` while the user is on the phone step
     /// means the phone has not joined — which, after a reasonable wait, means a different account.
     pub phone: Option<String>,
+    /// **And whether Tailscale is switched ON on that phone.** `false` with a `phone` present is
+    /// its own screen sentence, because it is its own fix: a switch in the Tailscale app, not a
+    /// sign-in. Measured on this Mac 2026-09-19 — the CEO's Android is registered twice and both
+    /// registrations are offline, which is exactly the state that would otherwise render as
+    /// "your phone is on this network" over a phone that cannot answer.
+    pub phone_online: bool,
 }
 
 impl From<&tailnet::TailnetState> for TailnetView {
@@ -375,9 +398,69 @@ impl From<&tailnet::TailnetState> for TailnetView {
             origin: state.origin(),
             sentence: state.sentence(),
             account: state.account().map(|a| a.described()),
-            phone: state.phone().map(|p| p.to_string()),
+            phone: state.phone().map(|p| p.name.clone()),
+            phone_online: state.phone().map(|p| p.online).unwrap_or(false),
         }
     }
+}
+
+/// **What the channel will actually serve**, once detection and `tailscale cert` have had their
+/// say: which addresses to bind, which origin the pairing code goes out under, and whether there
+/// is a second certificate to present.
+struct Serving {
+    addresses: Vec<std::net::IpAddr>,
+    origin: String,
+    tailnet: Option<(String, Vec<Vec<u8>>, tailnet::KeyDer)>,
+}
+
+/// **The Tailscale decision, as one function over a detected state.**
+///
+/// Everything under this path — detection, [`tailnet::fetch_cert`], the two-certificate resolver
+/// in `listen.rs` — existed at `ec678bae` and **nothing called any of it**: [`PhoneRuntime::start`]
+/// built a home-only TLS configuration, bound the home addresses and handed out a `mm1.local`
+/// pairing URL whatever Tailscale was doing. Measured by grep on that commit: zero production
+/// callers of `tailnet::fetch_cert` and of `listen::tls_config_with_tailnet`. The how-to screens
+/// were therefore promising a path the channel did not open.
+///
+/// It is a free function so the decision can be tested without a `tauri::AppHandle`, which
+/// `start` needs and a test cannot have.
+///
+/// **Only `ready` takes the tailnet branch**, and that is the state whose own contract is that the
+/// control plane will certify this name — [`tailnet::TailnetState::origin`] answers `Some` for it
+/// and for nothing else. Every other state leaves the home path exactly as it was.
+///
+/// **A refusal is not fatal and is not silent.** The label goes to the log, never the output:
+/// `tailnet::Diagnostic` exists because that stderr can carry a `tskey-…`.
+fn serving_plan(
+    state: &tailnet::TailnetState,
+    cli: Option<&std::path::Path>,
+    names: &names::LocalNames,
+) -> Serving {
+    let home = Serving { addresses: names.addresses.clone(), origin: names.origin(), tailnet: None };
+    let (Some(name), Some(origin)) = (state.name(), state.origin()) else { return home };
+    let Some(cli) = cli else { return home };
+    let cert = match tailnet::fetch_cert(cli, name, TAILNET_MIN_VALIDITY) {
+        Ok(cert) => cert,
+        Err(diagnostic) => {
+            eprintln!(
+                "[richos] the phone channel is on the home path only: {}",
+                diagnostic.label()
+            );
+            return home;
+        }
+    };
+    // The tailnet addresses are ADDED to the home ones rather than replacing them: a Mac is
+    // reachable both ways at once, and the home path keeps working for a phone on the sofa.
+    // `names.rs` reads `ifconfig`, where a Tailscale address may or may not already appear
+    // depending on which of the three client variants is installed, so this de-duplicates rather
+    // than assuming either way.
+    let mut addresses = names.addresses.clone();
+    for address in state.addresses() {
+        if !addresses.contains(address) {
+            addresses.push(*address);
+        }
+    }
+    Serving { addresses, origin, tailnet: Some((name.to_string(), cert.chain_der, cert.key)) }
 }
 
 impl PhoneRuntime {
@@ -469,7 +552,7 @@ impl PhoneRuntime {
             trust_url: Some(running.names.trust_url()),
             pair_url: window
                 .as_ref()
-                .map(|w| format!("{}/#pair={}", running.names.origin(), w.code)),
+                .map(|w| format!("{}/#pair={}", running.origin, w.code)),
             fingerprint_words: running.fingerprint_words.iter().map(|w| w.to_string()).collect(),
             fingerprint_hex: Some(running.fingerprint_hex.clone()),
             bound: running.listener.bound.iter().map(|a| a.to_string()).collect(),
@@ -549,11 +632,16 @@ impl PhoneRuntime {
         };
         let vapid = Arc::new(vapid);
 
+        // **THE TAILSCALE PATH, ACTUALLY SERVED** (CEO §61) — see [`serving_plan`] for what that
+        // decision is and why it is a function rather than four lines here.
+        let Serving { addresses, mut origin, tailnet: tailnet_tls } =
+            serving_plan(&self.tailnet_now(), tailnet::find_cli().as_deref(), &names);
+
         let devices = Arc::new(device::DeviceDesk::open(&self.data_dir)?);
         let bridge = Arc::new(bridge::PhoneBridge::new(app));
         let channel = Arc::new(routes::Channel {
             devices: Arc::clone(&devices),
-            api_base: Arc::new(api_base::ApiBaseDesk::home_only(names.origin())),
+            api_base: Arc::new(api_base::ApiBaseDesk::home_only(origin.clone())),
             hub: Arc::clone(&self.hub),
             bridge: Arc::clone(&bridge) as Arc<dyn routes::Bridge>,
             assets: phone_assets(),
@@ -565,19 +653,43 @@ impl PhoneRuntime {
         if open_window {
             devices.open_pairing()?;
         }
-        let tls = listen::tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8)?;
-        let listener = listen::Listener::start(
+        let tls =
+            listen::tls_config_with_tailnet(&ca.leaf_der, &ca.leaf_key_pkcs8, tailnet_tls)?;
+        // **AND IF THE EXTRA ADDRESSES WILL NOT BIND, THE CHANNEL STILL COMES UP.** `Listener`
+        // fails the whole start if any one socket fails, which is right — a half-bound listener is
+        // worse than none. But an interface that has gone away since `status --json` answered must
+        // not take the home path down with it, so the tailnet set is retried without.
+        let listener = match listen::Listener::start(
             Arc::clone(&channel),
-            tls,
+            Arc::clone(&tls),
             Arc::clone(&profile),
-            &names.addresses,
+            &addresses,
             HTTPS_PORT,
             TRUST_PORT,
-        )?;
+        ) {
+            Ok(listener) => listener,
+            Err(e) if addresses.len() > names.addresses.len() => {
+                eprintln!(
+                    "[richos] the Tailscale addresses would not bind, so the phone channel is on \
+                     the home path only: {e}"
+                );
+                origin = names.origin();
+                listen::Listener::start(
+                    Arc::clone(&channel),
+                    tls,
+                    Arc::clone(&profile),
+                    &names.addresses,
+                    HTTPS_PORT,
+                    TRUST_PORT,
+                )?
+            }
+            Err(e) => return Err(e),
+        };
 
         eprintln!(
-            "[richos] the phone channel is listening on {} — trust page {}",
+            "[richos] the phone channel is listening on {} — pairing at {}, trust page {}",
             listener.bound.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "),
+            origin,
             names.trust_url()
         );
         *running = Some(Running {
@@ -586,6 +698,7 @@ impl PhoneRuntime {
             bridge,
             vapid,
             names,
+            origin,
             fingerprint_words,
             fingerprint_hex,
         });
@@ -762,11 +875,11 @@ fn phone_assets() -> assets::PhoneApp {
 mod tests {
     use super::*;
 
-    /// **The six key names `ui/phone.js` reads.** A rename on this side is a screen that draws
+    /// **The seven key names `ui/phone.js` reads.** A rename on this side is a screen that draws
     /// nothing, silently, and serde's `rename_all` makes that a one-character mistake — so the
     /// wire shape is asserted rather than left to the attribute.
     #[test]
-    fn the_view_the_screens_read_is_six_camel_case_fields() {
+    fn the_view_the_screens_read_is_seven_camel_case_fields() {
         let view = TailnetView::from(&tailnet::TailnetState::Ready {
             name: "mm1.tail1a2b3c.ts.net".into(),
             addresses: vec![],
@@ -774,7 +887,7 @@ mod tests {
                 login_name: "someone@icloud.com".into(),
                 provider: Some("Apple"),
             }),
-            phone: Some("alexs-iphone".into()),
+            phone: Some(tailnet::PhonePeer { name: "alexs-iphone".into(), online: true }),
         });
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["state"], "ready");
@@ -785,7 +898,28 @@ mod tests {
         // and the phone's screen cannot word it differently.
         assert_eq!(json["account"], "Apple as someone@icloud.com");
         assert_eq!(json["phone"], "alexs-iphone");
-        assert_eq!(json.as_object().unwrap().len(), 6, "the view grew a field the screens do not read");
+        assert_eq!(json["phoneOnline"], true);
+        assert_eq!(json.as_object().unwrap().len(), 7, "the view grew a field the screens do not read");
+    }
+
+    /// **A phone that is registered and switched off is not a phone that can answer**, and the
+    /// wire says so in its own field rather than by leaving `phone` out.
+    ///
+    /// This is the CEO's own Mac on 2026-09-19: his Android is in `Peer`, and Tailscale on it is
+    /// off. `phone` present with `phoneOnline` false is what lets the screen say "turn it on in
+    /// the Tailscale app" instead of sending him back to a sign-in he already did.
+    #[test]
+    fn a_registered_but_switched_off_phone_arrives_as_present_and_not_online() {
+        let json = serde_json::to_value(TailnetView::from(
+            &tailnet::TailnetState::CertificatesOff {
+                name: "mm1.tail1a2b3c.ts.net".into(),
+                account: None,
+                phone: Some(tailnet::PhonePeer { name: "his-android".into(), online: false }),
+            },
+        ))
+        .unwrap();
+        assert_eq!(json["phone"], "his-android");
+        assert_eq!(json["phoneOnline"], false);
     }
 
     #[test]
@@ -814,6 +948,154 @@ mod tests {
         assert_eq!(json["state"], "certificates-off");
         assert_eq!(json["name"], "mm1.tail1a2b3c.ts.net");
         assert!(json["origin"].is_null(), "an origin was offered with no certificate behind it");
+    }
+
+    /// A `tailscale` command line that prints whatever it is told to. Same shape as the one in
+    /// `tailnet.rs`'s tests and deliberately not shared: a test helper that two modules reach into
+    /// is a third thing to keep working.
+    fn fake_cli(tag: &str, stdout_text: &str, code: i32) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "richos-serving-{tag}-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("tailscale");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\ncat <<'RICHOS_OUT'\n{stdout_text}\nRICHOS_OUT\nexit {code}\n"),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        script
+    }
+
+    fn home_names() -> names::LocalNames {
+        names::LocalNames {
+            host: "MM1".into(),
+            bonjour: "mm1.local".into(),
+            addresses: vec!["192.168.1.249".parse().unwrap()],
+        }
+    }
+
+    /// A bundle in the shape a real `tailscale cert` prints — one certificate and one **SEC1**
+    /// key, which is the encoding this Mac's own client returned on 2026-09-19. The bytes are not
+    /// a real certificate: `serving_plan` does not parse them, and `listen.rs` is where rustls
+    /// does. The PEM delimiter is assembled rather than written out, so no line in this file
+    /// looks like a key block to a scanner that is right to be suspicious of one.
+    fn a_bundle() -> String {
+        const EDGE: &str = "-----";
+        let block = |label: &str, der: &[u8]| {
+            format!("{EDGE}BEGIN {label}{EDGE}\n{}\n{EDGE}END {label}{EDGE}\n", b64std(der))
+        };
+        block("CERTIFICATE", &[0x30, 0x03, 0x02, 0x01, 0x01])
+            + &block("EC PRIVATE KEY", &[0x30, 0x03, 0x02, 0x01, 0x02])
+    }
+
+    #[test]
+    fn a_ready_tailnet_is_served_at_its_own_origin_and_its_own_address() {
+        // THE WIRING THIS FUNCTION EXISTS TO PIN. Before it, `start` ignored all of this and the
+        // pairing QR went out as `https://mm1.local:8443` on a path whose entire promise is that
+        // it works away from the house.
+        let state = tailnet::TailnetState::Ready {
+            name: "mm1.tail1a2b3c.ts.net".into(),
+            addresses: vec!["100.68.9.4".parse().unwrap()],
+            account: None,
+            phone: None,
+        };
+        let cli = fake_cli("ready", &a_bundle(), 0);
+        let plan = serving_plan(&state, Some(&cli), &home_names());
+        assert_eq!(plan.origin, "https://mm1.tail1a2b3c.ts.net:8443");
+        // BOTH addresses: the house keeps working, which is the half a replacement would lose.
+        assert_eq!(
+            plan.addresses,
+            vec![
+                "192.168.1.249".parse::<std::net::IpAddr>().unwrap(),
+                "100.68.9.4".parse::<std::net::IpAddr>().unwrap()
+            ]
+        );
+        let (name, chain, key) = plan.tailnet.expect("no certificate was carried to the listener");
+        assert_eq!(name, "mm1.tail1a2b3c.ts.net");
+        assert_eq!(chain.len(), 1);
+        // AND THE ENCODING SURVIVES. A SEC1 key flattened to PKCS#8 somewhere along here is the
+        // defect `listen::private_key_der` was written for, and it is invisible until a handshake.
+        assert!(matches!(key, tailnet::KeyDer::Sec1(_)), "the key encoding was lost on the way");
+        let _ = std::fs::remove_dir_all(cli.parent().unwrap());
+    }
+
+    #[test]
+    fn a_tailnet_address_already_in_the_home_list_is_not_bound_twice() {
+        // `names.rs` reads `ifconfig`, and a Tailscale address is on a `utun` that CAN appear
+        // there. Binding the same socket twice fails the whole start, so this is not tidiness.
+        let state = tailnet::TailnetState::Ready {
+            name: "mm1.tail1a2b3c.ts.net".into(),
+            addresses: vec!["100.68.9.4".parse().unwrap()],
+            account: None,
+            phone: None,
+        };
+        let mut names = home_names();
+        names.addresses.push("100.68.9.4".parse().unwrap());
+        let cli = fake_cli("dedup", &a_bundle(), 0);
+        let plan = serving_plan(&state, Some(&cli), &names);
+        assert_eq!(plan.addresses.len(), 2, "an address was bound twice: {:?}", plan.addresses);
+        let _ = std::fs::remove_dir_all(cli.parent().unwrap());
+    }
+
+    #[test]
+    fn every_state_short_of_ready_leaves_the_home_path_exactly_as_it_was() {
+        // The safety property. `certificates-off` is the interesting one: it HAS a name, and
+        // offering its origin would put a certificate warning on the phone on the one path whose
+        // promise is that there is not one.
+        let cli = fake_cli("notready", &a_bundle(), 0);
+        for state in [
+            tailnet::TailnetState::Absent,
+            tailnet::TailnetState::NeedsSignIn,
+            tailnet::TailnetState::Stopped,
+            tailnet::TailnetState::CertificatesOff {
+                name: "mm1.tail1a2b3c.ts.net".into(),
+                account: None,
+                phone: None,
+            },
+        ] {
+            let plan = serving_plan(&state, Some(&cli), &home_names());
+            assert_eq!(plan.origin, "https://mm1.local:8443", "{} offered an origin", state.token());
+            assert!(plan.tailnet.is_none(), "{} carried a certificate", state.token());
+            assert_eq!(
+                plan.addresses,
+                home_names().addresses,
+                "{} changed the bind list",
+                state.token()
+            );
+        }
+        let _ = std::fs::remove_dir_all(cli.parent().unwrap());
+    }
+
+    #[test]
+    fn a_refused_certificate_is_the_home_path_rather_than_a_failure_to_start() {
+        // §2.3's own failure mode is a STATE, not an error. A Mac whose tailnet will not issue a
+        // certificate still answers on the home path, and the screens still say what detection
+        // says — what must never happen is the phone channel refusing to come up at all.
+        let state = tailnet::TailnetState::Ready {
+            name: "mm1.tail1a2b3c.ts.net".into(),
+            addresses: vec!["100.68.9.4".parse().unwrap()],
+            account: None,
+            phone: None,
+        };
+        let refusing = fake_cli("refused", "", 1);
+        let plan = serving_plan(&state, Some(&refusing), &home_names());
+        assert_eq!(plan.origin, "https://mm1.local:8443");
+        assert!(plan.tailnet.is_none());
+        assert_eq!(plan.addresses, home_names().addresses);
+
+        // And no command line at all is the same answer rather than a panic.
+        let plan = serving_plan(&state, None, &home_names());
+        assert_eq!(plan.origin, "https://mm1.local:8443");
+        assert!(plan.tailnet.is_none());
+        let _ = std::fs::remove_dir_all(refusing.parent().unwrap());
     }
 
     /// The recheck interval is Urban's seam 4, so the number is asserted where a reader of the

@@ -92,10 +92,7 @@
              result is two networks that never see each other with nothing on either screen saying
              why. So the reason is given before the instruction, and it names the habit it is
              asking them to break. -->
-        <p class="overlay-note">Your Tailscale account <strong>is</strong> your private network.
-          Devices signed in to it can reach each other. So sign in on your phone with the same
-          account you used on your Mac, even if you normally keep them separate. Nothing else
-          connects them.</p>
+        <p class="overlay-note" id="phone-ts-why"></p>
         <ol class="phone-steps">
           <li class="overlay-note">Install Tailscale from the store.</li>
           <li class="overlay-note" id="phone-ts-step2">Sign in with the <strong>same</strong>
@@ -170,19 +167,62 @@
     <div id="phone-route" hidden>
       <p class="overlay-note">This is an extra. Rich on this Mac does not need it.</p>
       <h3 class="phone-step-title">Where do you want to use it?</h3>
-      <div class="desk-card-actions">
+      <div class="phone-route">
         <button id="phone-route-anywhere" class="desk-btn" type="button">Anywhere, including away from the office</button>
+        <p class="overlay-note phone-route-note">On the go, on cellular, anywhere your phone has a
+          signal. It costs you two app installs, one free Tailscale account, and no certificate at
+          all.</p>
+        <p class="overlay-note phone-route-note">Rich on your phone stops connecting whenever
+          Tailscale is off or signed out on either device — at home too.</p>
       </div>
-      <p class="overlay-note">On the go, on cellular, anywhere your phone has a signal. It costs you
-        two app installs, one free Tailscale account, and no certificate at all.</p>
-      <p class="overlay-note">Rich on your phone stops connecting whenever Tailscale is off or
-        signed out on either device — at home too.</p>
-      <div class="desk-card-actions">
+      <div class="phone-route">
         <button id="phone-route-home" class="desk-btn" type="button">At home only</button>
+        <p class="overlay-note phone-route-note">Your phone talks to this Mac over your own home
+          network, with no account and no third party. Away from the house it will not connect, and
+          setting it up means installing a certificate on your phone: sixteen taps, once.</p>
       </div>
-      <p class="overlay-note">Your phone talks to this Mac over your own home network, with no
-        account and no third party. Away from the house it will not connect, and setting it up means
-        installing a certificate on your phone: sixteen taps, once.</p>
+    </div>
+
+    <!-- SCREEN 0 — THE IDENTITY TRAP, AND IT COMES BEFORE THE DOWNLOAD.
+         CEO §61.1, his ruling in his own words: *"this barrier or I would call it stupidity would
+         need to be made ABSOLUTELY UBER MEGA SUPER CRYSTAL-CLEAR to ever user of RichOS"*. What he
+         hit: Tailscale has no email-and-password sign-in, only "Sign in with Apple / Google /
+         Microsoft / GitHub"; the account IS the network; he signed in with Apple on the Mac and
+         Google on the Android, got two networks that cannot see each other, and REINSTALLED
+         Tailscale on the Android three times looking for a "connect to Mac" step that does not
+         exist. Nothing on Tailscale's screens says any of this.
+
+         **WHY IT IS ITS OWN SCREEN AND NOT A LINE ON THE DOWNLOAD SCREEN.** By the time somebody
+         is on the download screen the next thing they do is create the account, and the choice of
+         identity is made inside somebody else's sign-in sheet where nothing of ours can reach
+         them. A warning that arrives after that choice is a warning that costs a sign-out. His
+         own sentence is the reason it cannot be a footnote: *"in hindsight this sounds obvious,
+         but it's absolutely NOT obvious at all. Especially given that I would normally absolutely
+         NEVER use the same identity on the Mac and on the phone."*
+
+         It is shown while the Mac has no Tailscale account yet — which is exactly the window in
+         which the choice can still be made freely — and never again after detection can name one,
+         because from then on the screens say WHICH account rather than warning about the choice. -->
+    <div id="phone-identity" hidden>
+      <h3 class="phone-step-title">First: Tailscale has no password</h3>
+      <p class="overlay-note">Tailscale has no username and password. It only offers
+        <strong>Sign in with Google</strong>, <strong>Apple</strong>, <strong>Microsoft</strong> or
+        <strong>GitHub</strong> — and whichever one you pick, that identity <strong>is</strong> your
+        private network.</p>
+      <p class="overlay-note">So this Mac and your phone have to sign in with the
+        <strong>same</strong> one. Two different identities make two separate networks that cannot
+        see each other, and neither device says so — the phone simply never finds this Mac.</p>
+      <p class="overlay-note">There is no "connect to my Mac" step in Tailscale, on either device.
+        Signing in on both with the same identity is the whole connection. If the phone cannot find
+        this Mac, reinstalling Tailscale will not help — the identity is the only thing that
+        decides it.</p>
+      <p class="overlay-note">If you would rather not use a personal identity on both devices, make
+        one that is only for this — a new Google account, which costs nothing — and sign in with
+        that one here and on the phone.</p>
+      <div class="desk-card-actions">
+        <button id="phone-identity-ok" class="desk-btn desk-btn--confirm" type="button">I understand — show me what to do</button>
+        <button id="phone-identity-back" class="desk-btn" type="button">Pick a different way</button>
+      </div>
     </div>
 
     <!-- SCREENS 2, 3 and 7 — the three "something is happening elsewhere" states. One block,
@@ -194,7 +234,8 @@
       <p class="overlay-note" id="phone-ts-note2"></p>
       <p class="overlay-note phone-url" id="phone-ts-url"></p>
       <div class="desk-card-actions">
-        <button id="phone-ts-recheck" class="desk-btn desk-btn--confirm" type="button">Check again</button>
+        <button id="phone-ts-open" class="desk-btn desk-btn--confirm" type="button"></button>
+        <button id="phone-ts-recheck" class="desk-btn" type="button">Check again</button>
         <button id="phone-ts-back" class="desk-btn" type="button">Pick a different way</button>
       </div>
     </div>
@@ -204,10 +245,22 @@
          uses. -->
     <div id="phone-ts-ready" hidden>
       <h3 class="phone-step-title">This Mac is ready</h3>
-      <p class="overlay-note phone-url" id="phone-ts-name"></p>
+      <p class="phone-tailnet-name" id="phone-ts-name"></p>
+      <!-- WHICH IDENTITY IT SIGNED IN WITH, READ OFF THE MAC (§61.1). "Use the same account" is
+           advice nobody can follow, because the one thing the user does not know is which one they
+           used — that is the CEO's own account of the evening. This names it. -->
+      <p class="overlay-note" id="phone-ts-account"></p>
       <p class="overlay-note">That is this Mac's name on your own Tailscale network. Only devices
         signed in to your Tailscale account can reach it, and no port on this Mac is open to the
         internet.</p>
+      <!-- AND THE WATCH LIVES HERE TOO, not only on the phone step. MEASURED: the pairing window
+           is 60 s (PAIRING_WINDOW_MS) and the join grace is 60 s, and the watch starts strictly
+           AFTER the window opens — so on the phone step alone the mismatch sentence could never
+           be reached at all: by the time it was due, the code had expired and the block was
+           hidden. Installing Tailscale on a phone and signing in takes minutes, not seconds, so
+           this screen — the one the user is returned to when the code runs out — is where the
+           sentence has to be able to appear. -->
+      <p class="overlay-note" id="phone-ts-peer-ready" role="status"></p>
       <div class="desk-card-actions">
         <button id="phone-ts-start" class="desk-btn desk-btn--confirm" type="button">Set my phone up</button>
         <button id="phone-ts-ready-back" class="desk-btn" type="button">Pick a different way</button>
@@ -313,6 +366,12 @@
   /// trap, and re-asking costs one screen that is already there. `null` means Screen 1.
   let route = null;
 
+  /// **Whether the identity screen has been read, this open.** Same lifetime as `route` and for
+  /// the same reason: it is a thing the user has been told, not a thing the Mac knows, and a
+  /// "don't show me again" on the one warning §61.1 exists for would be the warning quietly
+  /// deleting itself.
+  let identityUnderstood = false;
+
   /// When the phone step first appeared, so "it has not joined" can be told from "it has not
   /// finished signing in". `null` whenever that screen is not up.
   let waitingForPhoneSince = null;
@@ -339,13 +398,18 @@
   /// Every external address these screens name, each one verified against Tailscale's own install
   /// documentation rather than recalled — see `docs/verification/tailscale-path-2026-09-18.md` §4a.
   ///
-  /// **They are written out rather than linked, and that is deliberate twice over.** The app has no
-  /// way to open a URL at all — there is no opener plugin and no command for it — so a clickable
-  /// control here would be a button that does nothing. And the printed form is Urban's own
-  /// requirement anyway: *"a control that opens somewhere the user cannot see first is a control
-  /// that asks for trust it has not earned."* On 2026-09-19 the CEO could not find the download
-  /// from `tailscale.com`'s home page nor from the admin console, so every one of these goes
-  /// straight to the thing to do rather than to a page he has to navigate.
+  /// **They are both written out AND opened by a control.** The printed form is Urban's own
+  /// requirement — *"a control that opens somewhere the user cannot see first is a control that
+  /// asks for trust it has not earned"* — and it is the fallback for a Mac where the opener does
+  /// not work. The control is there because on 2026-09-19 the CEO could not find the download
+  /// from `tailscale.com`'s home page nor from the admin console, and an address a person has to
+  /// retype into a browser is an address half of them will mistype.
+  ///
+  /// **`open_external` takes these strings as KEYS, not as URLs.** `src-tauri/src/opener.rs`
+  /// matches the whole string against a five-entry table and refuses everything else; a test over
+  /// there reads THIS object and proves every value in it is one the command will open, so a new
+  /// address added here without an allowlist entry fails the suite rather than producing a button
+  /// that quietly does nothing.
   ///
   /// **The two Apple IDs are different and must not be swapped**: `1470499037` is the iPhone and
   /// iPad app, `1475387142` is the Mac app. Sending him to the wrong one sends him to a listing his
@@ -361,6 +425,11 @@
   /// The Mac cannot advance the user and the user cannot advance the Mac, so there is no Next and
   /// no Back: detection moves the screen, and `Check again` is the button for the impatient and
   /// for the failure.
+  /// The app itself, not a page — `opener.rs`'s fifth allowlist entry. "Open Tailscale" has to
+  /// bring the app the user already installed to the front; sending somebody who has it to a
+  /// download page would be telling them to install it again.
+  const TAILSCALE_APP = "Tailscale.app";
+
   const WAITING = {
     absent: {
       heading: "Install Tailscale on this Mac",
@@ -368,6 +437,7 @@
         "Tailscale is somebody else's app, and it is free for one person. It gives this Mac a name your phone can reach from anywhere, and it is the whole reason this path has no certificate in it.",
       note2: "Download it, install it, then come back here. This screen moves on by itself when it sees it.",
       url: LINKS.mac,
+      action: { label: "Get Tailscale", target: LINKS.mac },
     },
     "needs-sign-in": {
       heading: "Sign in to Tailscale on this Mac",
@@ -381,6 +451,7 @@
       note2:
         "Whichever you pick, you will sign in to the SAME one on your phone — your Tailscale account is your private network, and devices signed in to it are what can reach each other. Nothing else connects them.",
       url: "",
+      action: { label: "Open Tailscale", target: TAILSCALE_APP },
     },
     "certificates-off": {
       heading: "Tailscale is signed in, but this Mac has no name yet",
@@ -388,8 +459,61 @@
         "Tailscale gives each machine a name on your network, and this Mac does not have one I can use. In Tailscale's own admin console, turn on MagicDNS and HTTPS certificates for your network, then come back.",
       note2: "",
       url: LINKS.console,
+      action: { label: "Open the Tailscale console", target: LINKS.console },
     },
   };
+
+  /// **Ask the Mac to open one of the five addresses these screens name.**
+  ///
+  /// The refusal is a sentence rather than a silence: a control that does nothing is the one
+  /// failure a user cannot tell from a slow one, and the address is printed right beside it.
+  async function openExternal(target) {
+    try {
+      await bridge.invoke("open_external", { target });
+    } catch (error) {
+      field("phone-message").textContent =
+        "I could not open that on this Mac. The address is written out above — type it into your browser.";
+    }
+  }
+
+  /// **Is the phone on this network, and can it answer?** Three states, three different things to
+  /// do, and telling them apart is the whole of §61.1's detection half.
+  ///
+  /// * **A live peer** — nothing to fix, and saying so is what stops a user who has done it right
+  ///   going round again.
+  /// * **A peer that is switched off** — MEASURED on this Mac on 2026-09-19: his Android was in
+  ///   the daemon's `Peer` map TWICE, one stale registration per reinstall, and both were
+  ///   `"Online": false` because Tailscale on the phone was off. The fix is one switch in the
+  ///   Tailscale app. Sending that user back to check their identity is the loop this screen
+  ///   exists to end.
+  /// * **No peer at all, after a wait** — a phone signed in to a DIFFERENT identity is in a
+  ///   different tailnet and shows up nowhere at all, so absence is the evidence. It is named
+  ///   only after the grace window, because before that "not here yet" and "still signing in"
+  ///   are the same thing and calling it a mistake would be the screen guessing.
+  function peerLine(line, tailnet) {
+    if (tailnet.phone && tailnet.phoneOnline) {
+      line.textContent = "Your phone (" + tailnet.phone + ") is on this network.";
+      return;
+    }
+    if (tailnet.phone) {
+      line.textContent =
+        "Your phone (" + tailnet.phone + ") is on this network but Tailscale is switched off on " +
+        "it. Turn it on in the Tailscale app.";
+      return;
+    }
+    const waited = waitingForPhoneSince === null ? 0 : Date.now() - waitingForPhoneSince;
+    if (waited < PHONE_JOIN_GRACE_MS) {
+      line.textContent = "Waiting for your phone to join…";
+      return;
+    }
+    line.textContent = tailnet.account
+      ? "Your phone is not on this network yet. On the phone, sign in with " + tailnet.account +
+        ", then come back here. Reinstalling the app will not help — the identity is the only " +
+        "thing that decides it."
+      : "Your phone is not on this network yet. On the phone, sign in with the same account this " +
+        "Mac uses, then come back here. Reinstalling the app will not help — the identity is the " +
+        "only thing that decides it.";
+  }
   // The states that are not a step of their own borrow the nearest screen that tells the truth.
   // Each of these is "Tailscale is on this Mac and is not usable yet", and the sign-in screen is
   // the one that says so without claiming to know more than detection does.
@@ -412,22 +536,42 @@
     // and strands the pairing window. Screen 1 is the entry point, not an interruption. Found by
     // `ui/tests/phone.js` check 8, which is exactly that case.
     const choosing = !status.paired && !pairing && !status.listening && route === null;
+    // SCREEN 0 — the identity trap (§61.1). Shown while this Mac has no Tailscale account yet,
+    // which is exactly the window in which the choice of identity can still be made freely. Once
+    // detection can name an account the screens say WHICH one instead, and this never returns.
+    const identity =
+      onTailscale && !status.paired && !pairing && !tailnet.account && !identityUnderstood;
     // Rows 2, 3 and 5: a route is chosen, nothing is serving yet, and the Mac is not ready.
-    const waiting = onTailscale && !status.paired && !pairing && tailnet.state !== "ready";
+    const waiting =
+      onTailscale && !status.paired && !pairing && !identity && tailnet.state !== "ready";
     // Row 4: ready, and the only thing left is the code.
-    const ready = onTailscale && !status.paired && !pairing && tailnet.state === "ready";
+    const ready =
+      onTailscale && !status.paired && !pairing && !identity && tailnet.state === "ready";
 
     field("phone-route").hidden = !choosing;
+    field("phone-identity").hidden = !identity;
     field("phone-ts-wait").hidden = !waiting;
     field("phone-ts-ready").hidden = !ready;
     field("phone-paired").hidden = !status.paired;
     field("phone-pairing").hidden = status.paired || !pairing;
-    field("phone-off").hidden = status.paired || pairing || choosing || waiting || ready;
+    field("phone-off").hidden =
+      status.paired || pairing || choosing || identity || waiting || ready;
 
-    // Rows 2, 3 and 5 poll — and so does the phone step, because a phone joining the tailnet is
-    // another thing that happens elsewhere and has to move the screen on its own. Nothing else
-    // polls. This is the whole reason there is no Next button anywhere in the flow.
-    setPolling(waiting || (onTailscale && pairing && !status.paired));
+    // Rows 2, 3 and 5 poll — and so do BOTH of the screens that are waiting for the phone, because
+    // a phone joining the tailnet is another thing that happens elsewhere and has to move the
+    // screen on its own. Screen 0 does not: nothing detection can find changes what it says.
+    // This is the whole reason there is no Next button anywhere in the flow.
+    setPolling(waiting || ready || (onTailscale && pairing && !status.paired));
+
+    // **THE WATCH STARTS WHEN THE USER IS FIRST TOLD TO GO TO THEIR PHONE**, which is Screen 4 as
+    // well as Screen 5 — see the note beside `#phone-ts-peer-ready` for the frame math that makes
+    // Screen 5 alone unreachable: window 60 s, grace 60 s, and the watch starting after the
+    // window opens leaves an empty interval.
+    if (onTailscale && (ready || (pairing && !status.paired))) {
+      if (waitingForPhoneSince === null) waitingForPhoneSince = Date.now();
+    } else {
+      waitingForPhoneSince = null;
+    }
 
     if (status.paired) {
       field("phone-device-name").textContent = status.deviceName || "Your phone";
@@ -451,16 +595,28 @@
       field("phone-ts-note2").hidden = !screen.note2;
       field("phone-ts-url").textContent = screen.url;
       field("phone-ts-url").hidden = !screen.url;
+      // THE CONTROL THAT OPENS THE THING THE SCREEN JUST NAMED. Its label is the state's, because
+      // "Get Tailscale", "Open Tailscale" and "Open the Tailscale console" are three different
+      // actions and one generic verb over them would be a button whose effect the user has to
+      // guess. The address stays printed above it either way.
+      const opener = field("phone-ts-open");
+      opener.textContent = screen.action ? screen.action.label : "";
+      opener.hidden = !screen.action;
+      opener.dataset.target = screen.action ? screen.action.target : "";
       return;
     }
 
     if (ready) {
       // THE SAME LINE THE PHONE SCREEN WILL REPEAT, on the Mac, after sign-in. The identity has to
       // be visible here or the user cannot know which one to reuse — that is the CEO's own
-      // experience, and it is why the account is shown rather than only the machine name.
-      field("phone-ts-name").textContent = tailnet.account
-        ? tailnet.name + "\n\nYou signed in with " + tailnet.account + ". Use exactly this on your phone."
-        : tailnet.name || "";
+      // experience, and it is why the account is shown rather than only the machine name. It is
+      // its own paragraph rather than two newlines inside the machine name, because the name is
+      // monospace and read character by character and a sentence is neither.
+      field("phone-ts-name").textContent = tailnet.name || "";
+      field("phone-ts-account").textContent = tailnet.account
+        ? "You signed in with " + tailnet.account + ". Use exactly this on your phone."
+        : "I cannot tell which identity this Mac is signed in to. Whichever it is, sign in with exactly the same one on your phone.";
+      peerLine(field("phone-ts-peer-ready"), tailnet);
       return;
     }
 
@@ -481,6 +637,20 @@
       : "";
 
     if (onTailscale) {
+      // THE WHY COMES BEFORE THE STEPS, AND IT NAMES THE ACCOUNT (§61.1 (c)). The reason is given
+      // before the instruction because it is asking the user to break a habit: *"I would normally
+      // absolutely NEVER use the same identity on the Mac and on the phone."* A person who
+      // follows a step that says "sign in" and uses the wrong one is being correct by their own
+      // lights, and the result is two networks that never meet with nothing saying why.
+      field("phone-ts-why").innerHTML = tailnet.account
+        ? "Your Tailscale account <strong>is</strong> your private network. Devices signed in to " +
+          "it can reach each other. So on your phone, sign in with <strong>" +
+          escapeText(tailnet.account) + "</strong> — exactly what this Mac used — even if you " +
+          "would normally keep your phone and your Mac apart. Nothing else connects them."
+        : "Your Tailscale account <strong>is</strong> your private network. Devices signed in to " +
+          "it can reach each other. So sign in on your phone with the same account you used on " +
+          "your Mac, even if you normally keep them separate. Nothing else connects them.";
+
       // STEP 2, FILLED IN. The CEO signed in with Apple on the Mac and Google on the Android and
       // "had no way to know they were different networks, or which to reuse". Naming the account
       // is the difference between an instruction he can follow and one he cannot.
@@ -491,26 +661,9 @@
         : "Sign in with the <strong>same</strong> identity you used on this Mac. A different " +
           "provider makes a different network, and then the two will never see each other.";
 
-      // WAITING, THEN SAYING SO. The watch starts when this screen first appears; before the
-      // window elapses "not here yet" is indistinguishable from "still signing in", and calling
-      // that a mistake would be the screen guessing.
-      if (waitingForPhoneSince === null) waitingForPhoneSince = Date.now();
-      const waited = Date.now() - waitingForPhoneSince;
-      const line = field("phone-ts-peer");
-      if (tailnet.phone) {
-        line.textContent =
-          "Your phone (" + tailnet.phone + ") is on this network. Scan the code below.";
-      } else if (waited >= PHONE_JOIN_GRACE_MS) {
-        line.textContent = tailnet.account
-          ? "Your phone is not on this network yet. On the phone, sign in with " +
-            tailnet.account + ", then come back here."
-          : "Your phone is not on this network yet. On the phone, sign in with the same account " +
-            "this Mac uses, then come back here.";
-      } else {
-        line.textContent = "Waiting for your phone to join…";
-      }
-    } else {
-      waitingForPhoneSince = null;
+      // WAITING, THEN SAYING SO — the same three sentences Screen 4 uses, from the same helper,
+      // so the two screens cannot word the same evidence differently.
+      peerLine(field("phone-ts-peer"), tailnet);
     }
     field("phone-code-title").textContent = onTailscale
       ? "Then point your phone's camera at this"
@@ -608,6 +761,7 @@
     // THE ROUTE IS FORGOTTEN ON EVERY OPEN. Urban's §1: a remembered choice with no visible way to
     // change it is a trap, and re-asking costs one screen that is already there.
     route = null;
+    identityUnderstood = false;
     sheet.hidden = false;
     await refresh();
     const first = sheet.querySelector("button:not([disabled])");
@@ -641,6 +795,7 @@
   // explanation of what is about to happen.
   field("phone-route-anywhere").addEventListener("click", async () => {
     route = "anywhere";
+    identityUnderstood = false;
     await refresh();
   });
   field("phone-route-home").addEventListener("click", async () => {
@@ -649,7 +804,19 @@
   });
   // "Pick a different way" — the only user-driven move backward, and it never tears down a live
   // pairing window, because it is not offered on the screen that has one.
-  for (const id of ["phone-ts-back", "phone-ts-ready-back"]) {
+  // SCREEN 0's two controls. "I understand" is not a preference and is not remembered: it lasts
+  // as long as this open, exactly like the route.
+  field("phone-identity-ok").addEventListener("click", async () => {
+    identityUnderstood = true;
+    await refresh();
+  });
+  // AND THE LINKS ARE LIVE. The target is read off the control the render put it on, so the only
+  // strings that can ever be asked for are the ones in `LINKS` — and `opener.rs` refuses anything
+  // that is not one of its five entries anyway.
+  field("phone-ts-open").addEventListener("click", () =>
+    openExternal(field("phone-ts-open").dataset.target || "")
+  );
+  for (const id of ["phone-ts-back", "phone-ts-ready-back", "phone-identity-back"]) {
     field(id).addEventListener("click", async () => {
       route = null;
       await refresh();

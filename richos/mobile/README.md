@@ -21,6 +21,14 @@ your phone with RichOS on your Mac.
   through it with simple how-to screens in the app. Full setup and troubleshooting, including the one
   thing that trips up almost everybody: [**Tailscale setup and
   troubleshooting**](./TAILSCALE-SETUP-AND-TROUBLESHOOTING.md).
+
+  **The one thing, said here too, because it decides everything after it:** Tailscale has no username
+  and password. You sign in with a Google, Apple, Microsoft or GitHub identity, and that identity **is**
+  your private network — so your Mac and your phone must sign in with the **same** one. Two different
+  identities make two separate networks that cannot see each other, and neither device says so. If you
+  would rather not use a personal identity on both devices, make one that is only for this — a new
+  Google account costs nothing — and use it on both. Decide before you sign in anywhere; the
+  [setup page](./TAILSCALE-SETUP-AND-TROUBLESHOOTING.md) has the rest.
 - **Everyone else:** a hosted relay, coming later.
 
 The web app ships inside RichOS on your Mac and talks only to it. There is no server of ours in
