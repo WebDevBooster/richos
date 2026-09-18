@@ -112,7 +112,7 @@ fn read_scope(path: &Path) -> Result<StatusToolScope, String> {
 pub fn tools() -> Value {
     json!({"tools":[
         {"name":LOOK_TOOL_NAME,
-         "description":"Look at the background work in THIS conversation: what is running, what is waiting for the CEO to decide, and what has finished. Read this before answering any question of his about how work is going — it is the shared record, it is current as of the moment you call it, and it is the only thing you may base such an answer on. It reads and changes nothing: it cannot start, stop, approve or retry anything. To START work, write it down with the assignment register; to stop or approve a step, tell him the control is on the assignment itself, or pass his instruction to the back end.",
+         "description":"Look at the background work in THIS conversation: what is starting, what is running, what is waiting for the CEO to decide, and what has finished. Read this before answering any question of his about how work is going — it is the shared record, it is current as of the moment you call it, and it is the only thing you may base such an answer on. `starting` and `running` are different answers and must not be merged: work under `starting` is written down and has not been confirmed to be underway, so say it is starting. It reads and changes nothing: it cannot start, stop, approve or retry anything. Do NOT call it before writing an assignment down — a new request is not a question about how work is going, and the CEO waits while you look. To START work, write it down with the assignment register first; to stop or approve a step, tell him the control is on the assignment itself, or pass his instruction to the back end.",
          "inputSchema":{"type":"object","properties":{},"additionalProperties":false},
          "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}}
     ]})
@@ -158,6 +158,7 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     let scope = read_scope(scope_path)?;
     let items = assignment::read_all(&scope.state_root, &scope.entity_id, &scope.thread_id)
         .map_err(|e| format!("The background work record could not be read ({e}). Do not guess what is running."))?;
+    let mut starting: Vec<&Assignment> = Vec::new();
     let mut running: Vec<&Assignment> = Vec::new();
     let mut waiting: Vec<&Assignment> = Vec::new();
     let mut finished: Vec<&Assignment> = Vec::new();
@@ -170,9 +171,19 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
             // `running` would tell the front desk something is making progress when
             // nothing is.
             AssignmentState::Blocked | AssignmentState::Unknown => waiting.push(item),
-            AssignmentState::Registered | AssignmentState::Preparing | AssignmentState::Running => {
-                running.push(item)
-            }
+            // **`starting` IS A SECTION OF ITS OWN, AND THAT IS RAY'S CANDIDATE-.7 ROW 2.**
+            // These three states used to share the `running` key, so a job that had been
+            // written down and not yet touched arrived at the front desk under the heading
+            // "running" — and the front desk said so. The row itself always carried the
+            // honest state word, but a bucket label outranks a field the model has to read
+            // twice, and on his walk the model read the label.
+            //
+            // The split is the smallest thing that removes the invitation: nothing is
+            // omitted, nothing is reordered, and the two sections together are still exactly
+            // `is_open`. What changed is that the word "running" now covers only the state
+            // `work_host.rs` writes when the back end's own stream proved it took the turn.
+            AssignmentState::Registered | AssignmentState::Preparing => starting.push(item),
+            AssignmentState::Running => running.push(item),
             AssignmentState::Settled | AssignmentState::Failed | AssignmentState::Interrupted => {
                 finished.push(item)
             }
@@ -180,21 +191,25 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
     }
     // Newest movement first in every section: the thing that just changed is the thing he
     // is most likely asking about.
-    for list in [&mut running, &mut waiting, &mut finished] {
+    for list in [&mut starting, &mut running, &mut waiting, &mut finished] {
         list.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
     }
+    let (starting_rows, starting_omitted) = section(&starting);
     let (running_rows, running_omitted) = section(&running);
     let (waiting_rows, waiting_omitted) = section(&waiting);
     let (finished_rows, finished_omitted) = section(&finished);
     Ok(json!({
         "as_of_ms": assignment::now_ms(),
+        "starting": starting_rows,
         "running": running_rows,
         "waiting_for_you": waiting_rows,
         "finished": finished_rows,
-        "omitted": running_omitted + waiting_omitted + finished_omitted,
+        "omitted": starting_omitted + running_omitted + waiting_omitted + finished_omitted,
         // The honest boundary of this answer, in the result itself rather than in a
-        // comment the model never sees.
-        "this_answer_covers": "Background work in this conversation only, as recorded on disk. It does not cover other conversations, and it is not a claim that a running assignment is making progress this second.",
+        // comment the model never sees — and the `starting`/`running` line is in it for the
+        // same reason: the distinction is only worth having if the thing reading it is told
+        // what it means.
+        "this_answer_covers": "Background work in this conversation only, as recorded on disk. It does not cover other conversations, and it is not a claim that a running assignment is making progress this second. Work under `starting` has been written down and the back end has not been confirmed to have taken it up yet: say it is starting, never that it is running.",
     }))
 }
 
@@ -370,6 +385,53 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// **Work that has been written down is not work that is running — Ray's candidate-.7
+    /// row 2, on the read rather than on the write.**
+    ///
+    /// All three of `registered`, `preparing` and `running` used to share the `running` key, so
+    /// a job the back end had not touched reached the front desk under the heading "running"
+    /// and the front desk said so. The row always carried the honest state word; a bucket label
+    /// outranks a field the model has to read twice.
+    ///
+    /// The positive control is in the same test deliberately: a job that really IS running is
+    /// asserted to be under `running`, so this cannot pass by a reader that has simply stopped
+    /// reporting anything as running.
+    #[test]
+    fn work_that_is_only_written_down_reads_as_starting_and_never_as_running() {
+        let (root, scope) = fixture();
+        let state = root.join("engine-state");
+        let written = register(&root, "thread-one", "landing the three branches");
+        let opening = register(&root, "thread-one", "the pricing review");
+        let truly = register(&root, "thread-one", "the nightly build");
+        // `registered` is left as `register` wrote it — untouched, which is the case that was
+        // wrong. The other two are advanced.
+        assignment::advance(&state, "depot", "thread-one", &opening, AssignmentState::Preparing, "Opening the work connection.").unwrap();
+        assignment::advance(&state, "depot", "thread-one", &truly, AssignmentState::Running, "The back end has started on it.").unwrap();
+
+        let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let starting: Vec<&str> =
+            answer["starting"].as_array().unwrap().iter().map(|r| r["what"].as_str().unwrap()).collect();
+        assert_eq!(starting.len(), 2, "{starting:?}");
+        assert!(starting.contains(&"landing the three branches"));
+        assert!(starting.contains(&"the pricing review"));
+        // Positive control: the one job the back end has actually taken up.
+        let running = answer["running"].as_array().unwrap();
+        assert_eq!(running.len(), 1, "{running:?}");
+        assert_eq!(running[0]["what"], "the nightly build");
+        assert_eq!(running[0]["state"], "running");
+        // Nothing was dropped on the way: the two sections together are still `is_open`.
+        assert_eq!(answer["omitted"], 0);
+        assert!(answer["waiting_for_you"].as_array().unwrap().is_empty());
+        assert!(answer["finished"].as_array().unwrap().is_empty());
+        // And the model is told what the distinction means where it will actually read it.
+        let covers = answer["this_answer_covers"].as_str().unwrap();
+        assert!(covers.contains("never that it is running"), "{covers}");
+        // The assignment written down but untouched is the one Ray's walk mislabeled.
+        let row = assignment::read(&state, "depot", "thread-one", &written).unwrap();
+        assert_eq!(row.state, AssignmentState::Registered);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// **It answers about this conversation and no other**, and the positive control is in
     /// the same test so a passing negative cannot be a reader that returns nothing at all.
     #[test]
@@ -377,7 +439,7 @@ mod tests {
         let (root, scope) = fixture();
         register(&root, "thread-two", "the other conversation's job");
         let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
-        for part in ["running", "waiting_for_you", "finished"] {
+        for part in ["starting", "running", "waiting_for_you", "finished"] {
             assert!(answer[part].as_array().unwrap().is_empty(), "thread-two leaked into {part}");
         }
         // Positive control: the same register, read under thread-two's own scope, has it.
@@ -393,7 +455,10 @@ mod tests {
         )
         .unwrap();
         let theirs = call(&other, LOOK_TOOL_NAME, json!({})).unwrap();
-        assert_eq!(theirs["running"].as_array().unwrap()[0]["what"], "the other conversation's job");
+        // `starting`, not `running`: it was registered and never advanced, and those are now
+        // two different answers — see the bucket comment in `call`.
+        assert_eq!(theirs["starting"].as_array().unwrap()[0]["what"], "the other conversation's job");
+        assert!(theirs["running"].as_array().unwrap().is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -441,14 +506,16 @@ mod tests {
         )
         .unwrap();
         let before = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
-        let notices = before["running"][0]["notices"].as_array().unwrap();
+        // The row is under `starting`: registered, never advanced. A notice is visible wherever
+        // its assignment sits, which is the half of finding 6 this test is about.
+        let notices = before["starting"][0]["notices"].as_array().unwrap();
         assert_eq!(notices.len(), 1);
         assert_eq!(notices[0]["already_told_him"], false);
         assert!(notices[0]["say"].as_str().unwrap().contains("the pricing review"));
         // Delivery marks it, and the same read then says so.
         assignment::take_pending_notices(&state, "depot", "thread-one").unwrap();
         let after = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
-        assert_eq!(after["running"][0]["notices"][0]["already_told_him"], true);
+        assert_eq!(after["starting"][0]["notices"][0]["already_told_him"], true);
         std::fs::remove_dir_all(root).unwrap();
     }
 
