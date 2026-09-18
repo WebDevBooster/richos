@@ -3375,7 +3375,7 @@ mod native_driver_tests {
     /// tell whoever is reading this why this test exists.
     #[test]
     fn a_work_leases_config_omits_the_continuity_server_and_keeps_the_work_server() {
-        let root = std::env::temp_dir().join(format!("mcp-config-{}", uuid::Uuid::new_v4()));
+        let root = fixture_root().join(format!("mcp-config-{}", uuid::Uuid::new_v4()));
         let bridge = fixture_bridge(&root);
         let profile = fixture_profile(&root);
         let scope = root.join("scope.json");
@@ -3459,7 +3459,7 @@ mod native_driver_tests {
     /// beside it, and "no orchestration tools" is a claim about everything on the lease.
     #[test]
     fn the_front_desk_holds_the_register_and_the_read_and_nothing_that_does_the_work() {
-        let root = std::env::temp_dir().join(format!("mcp-inventory-{}", uuid::Uuid::new_v4()));
+        let root = fixture_root().join(format!("mcp-inventory-{}", uuid::Uuid::new_v4()));
         let bridge = fixture_bridge(&root);
         let profile = fixture_profile(&root);
         let (scope, continuity, executable) =
@@ -3519,7 +3519,7 @@ mod native_driver_tests {
     /// leaves it in on every machine.
     fn lease_with_production_grants(tag: &str, role: LeaseRole, script_body: &str)
         -> (NativeCognition, std::path::PathBuf) {
-        let root = std::env::temp_dir().join(format!("richos-grant-{tag}-{}", uuid::Uuid::new_v4().simple()));
+        let root = fixture_root().join(format!("richos-grant-{tag}-{}", uuid::Uuid::new_v4().simple()));
         let scopes = root.join("scopes");
         std::fs::create_dir_all(&scopes).unwrap();
         let identity = uuid::Uuid::new_v4();
@@ -3663,7 +3663,7 @@ mod native_driver_tests {
         // ---- A. POSITIVE CONTROL: the sentence is still live, and still says this ----------
         // Unchanged, and it must stay unchanged: `read_scope` mapping a missing file to this
         // sentence is correct for the seat that asks the question.
-        let absent = std::env::temp_dir()
+        let absent = fixture_root()
             .join(format!("richos-no-scope-{}", uuid::Uuid::new_v4().simple()))
             .join("never-written.json");
         assert_eq!(
@@ -3800,7 +3800,7 @@ mod native_driver_tests {
     /// Everything the gate reads is here: the role, the continuity scope, the engine
     /// profile, and a client whose reader state is whatever its scripted child has said.
     fn hand_built_work_lease(tag: &str, script_body: &str) -> (NativeCognition, std::path::PathBuf) {
-        let root = std::env::temp_dir().join(format!("work-bind-{tag}-{}", uuid::Uuid::new_v4()));
+        let root = fixture_root().join(format!("work-bind-{tag}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let script = write_script(&format!("work-bind-{tag}"), script_body);
         let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
@@ -4027,7 +4027,7 @@ mod native_driver_tests {
     /// is the ambiguity case, and it resolves to refusing.
     #[test]
     fn a_work_seat_is_refused_rather_than_written_onto_the_ceos_row() {
-        let root = std::env::temp_dir().join(format!("seat-refusal-{}", uuid::Uuid::new_v4()));
+        let root = fixture_root().join(format!("seat-refusal-{}", uuid::Uuid::new_v4()));
         let bridge = fixture_bridge(&root);
         let ceo = bridge.bind_work_seat("depot", "thread", "session", "assign-7", crate::entity::PERSON_DEFAULT);
         assert!(ceo.is_err(), "a work seat was allowed to be the CEO's own");
@@ -4175,7 +4175,7 @@ mod native_driver_tests {
         // The binary below is PRESENT and executable and the working directory EXISTS, so the
         // only fault is the doctrine — which is what makes the variant meaningful.
         let script = write_script("doctrine-missing", "exit 0\n");
-        let absent = std::env::temp_dir().join(format!("richos-no-doctrine-{}.md", uuid::Uuid::new_v4().simple()));
+        let absent = fixture_root().join(format!("richos-no-doctrine-{}.md", uuid::Uuid::new_v4().simple()));
         assert!(!absent.exists());
 
         let err = NativeClient::spawn(&script, Path::new("/tmp"), &absent, &skills_fixture())
@@ -4252,7 +4252,7 @@ mod native_driver_tests {
     #[test]
     fn a_missing_skill_fails_loudly_and_names_the_file() {
         let script = write_script("skills-missing", "exit 0\n");
-        let absent = std::env::temp_dir().join(format!("richos-no-skills-{}", uuid::Uuid::new_v4().simple()));
+        let absent = fixture_root().join(format!("richos-no-skills-{}", uuid::Uuid::new_v4().simple()));
         assert!(!absent.exists());
 
         let err = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &absent)
@@ -4334,7 +4334,7 @@ mod native_driver_tests {
 
     #[test]
     fn search_claude_bin_finds_a_homebrew_style_install() {
-        let dir = std::env::temp_dir().join(format!("richos-claude-bin-brew-{}", uuid::Uuid::new_v4().simple()));
+        let dir = fixture_root().join(format!("richos-claude-bin-brew-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("bin")).unwrap();
         let bin = dir.join("bin/claude");
         std::fs::write(&bin, "#!/bin/sh\n").unwrap();
@@ -4345,7 +4345,7 @@ mod native_driver_tests {
 
     #[test]
     fn search_claude_bin_finds_an_npm_global_prefix_install() {
-        let dir = std::env::temp_dir().join(format!("richos-claude-bin-npm-{}", uuid::Uuid::new_v4().simple()));
+        let dir = fixture_root().join(format!("richos-claude-bin-npm-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(dir.join("bin")).unwrap();
         let bin = dir.join("bin/claude");
         std::fs::write(&bin, "#!/bin/sh\n").unwrap();
@@ -4358,7 +4358,7 @@ mod native_driver_tests {
     fn search_claude_bin_still_finds_the_installer_launcher_at_home_local_bin() {
         // POSITIVE CONTROL: the ordinary, already-working case, unchanged by everything else
         // added around it.
-        let home = std::env::temp_dir().join(format!("richos-claude-bin-home-{}", uuid::Uuid::new_v4().simple()));
+        let home = fixture_root().join(format!("richos-claude-bin-home-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
         let bin = home.join(".local/bin/claude");
         std::fs::write(&bin, "#!/bin/sh\n").unwrap();
@@ -4369,7 +4369,7 @@ mod native_driver_tests {
 
     #[test]
     fn search_claude_bin_lets_an_explicit_override_win_even_over_a_real_install() {
-        let dir = std::env::temp_dir().join(format!("richos-claude-bin-explicit-{}", uuid::Uuid::new_v4().simple()));
+        let dir = fixture_root().join(format!("richos-claude-bin-explicit-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let winner = dir.join("winner");
         std::fs::write(&winner, "#!/bin/sh\n").unwrap();
@@ -4434,7 +4434,7 @@ mod native_driver_tests {
         // the app announced a missing binary while that binary sat on disk.
         let script = write_script("cwd-missing", "exit 0\n");
         assert!(script.exists(), "the binary must be present for this test to mean anything");
-        let missing = std::env::temp_dir().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
+        let missing = fixture_root().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
         assert!(!missing.exists());
 
         let err = NativeClient::spawn(&script, &missing, &doctrine_fixture(), &skills_fixture())
@@ -4483,7 +4483,7 @@ mod native_driver_tests {
         // Multi-fault installs get the FIRST true sentence, not a false one: the 197 MB
         // install is upstream of the engine directory, so it is the one named. Pinned here so
         // the order is a decision on the record rather than an accident of code layout.
-        let missing_dir = std::env::temp_dir().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
+        let missing_dir = fixture_root().join(format!("richos-no-such-engine-{}", uuid::Uuid::new_v4().simple()));
         let err = NativeClient::spawn(Path::new("/nonexistent/definitely/not/claude"), &missing_dir, &doctrine_fixture(), &skills_fixture())
             .err()
             .expect("must fail");
@@ -4572,7 +4572,7 @@ while IFS= read -r line; do
 done
 "#);
         let mut client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
-        let root = std::env::temp_dir().join(format!("richos-handshake-stop-{}", uuid::Uuid::new_v4()));
+        let root = fixture_root().join(format!("richos-handshake-stop-{}", uuid::Uuid::new_v4()));
         let control = crate::steering::TurnControl::open(&root).unwrap();
         control.begin_turn(crate::steering::ActiveTurn {
             turn_id: "initial-request".into(), thread_id: "thread".into(),
@@ -4617,21 +4617,63 @@ done
     /// this feature can be checked against each other without a live binary.
     /// A rendered SKILL PLUGIN on disk, for the spawn tests. The real renderer again, so a
     /// `skills.rs` that stopped producing something `preflight` accepts breaks these too.
+    /// **ONE directory for every fixture this module renders, removed when the test process
+    /// exits** — the CEO's §54, measured rather than assumed.
+    ///
+    /// These three helpers each made a fresh sibling under the system temp directory and
+    /// nothing ever removed it. Counted on 2026-09-18: **858 `richos-skills-fixture-*` and 818
+    /// `richos-doctrine-fixture-*`** already standing in `$TMPDIR`, and six runs of
+    /// `cargo test -p richos-core` on that day added **172 more**. A directory per fixture per
+    /// run, kept forever, is exactly the class §54 is about: *"a ROCK-SOLID … mechanism that
+    /// always guarantees that garbage like this will be always cleaned up afterwards."*
+    ///
+    /// **Why `atexit` and not a `Drop` guard.** The helpers hand back a `PathBuf` that
+    /// forty-eight call sites pass by reference into a child process's arguments; a guard
+    /// returned by value would be dropped at the end of the statement that spawned the child
+    /// and delete the directory out from under it. `libc::atexit` needs no call-site change at
+    /// all, and it runs once for the whole test binary.
+    ///
+    /// **Its honest limit, stated rather than discovered:** `atexit` does not run if the test
+    /// process is killed or aborts. A killed run still leaves ONE directory instead of the
+    /// ~thirty this module used to leave, which is a pile somebody can remove rather than a
+    /// pile nobody can find.
+    fn fixture_root() -> &'static std::path::Path {
+        FIXTURE_ROOT.get_or_init(|| {
+            let root = std::env::temp_dir()
+                .join(format!("richos-core-test-fixtures-{}", std::process::id()));
+            std::fs::create_dir_all(&root).expect("the fixture root must exist");
+            #[cfg(unix)]
+            unsafe {
+                libc::atexit(remove_the_fixture_root);
+            }
+            root
+        })
+    }
+
+    static FIXTURE_ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+    /// Registered once by [`fixture_root`]. Best effort by construction — an `atexit` handler
+    /// cannot report, and a failure here must never be mistaken for a test failure.
+    #[cfg(unix)]
+    extern "C" fn remove_the_fixture_root() {
+        if let Some(root) = FIXTURE_ROOT.get() {
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
     fn skills_fixture() -> std::path::PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("richos-skills-fixture-{}", uuid::Uuid::new_v4().simple()));
+        let dir = fixture_root().join(format!("skills-{}", uuid::Uuid::new_v4().simple()));
         crate::skills::ensure_rendered(&dir).expect("the skills fixture must render")
     }
 
     fn doctrine_fixture() -> std::path::PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("richos-doctrine-fixture-{}", uuid::Uuid::new_v4().simple()));
+        let dir = fixture_root().join(format!("doctrine-{}", uuid::Uuid::new_v4().simple()));
         crate::doctrine::ensure_rendered(&dir, &crate::doctrine::DoctrineIdentity::default())
             .expect("the doctrine fixture must render")
     }
 
     fn write_script(name: &str, body: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("richos-native-{}-{}", name, uuid::Uuid::new_v4().simple()));
+        let dir = fixture_root().join(format!("script-{}-{}", name, uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("fake-claude");
         std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
@@ -4939,7 +4981,7 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
     /// the continuity server's own scope file, before and after the first word.
     #[test]
     fn the_continuity_grant_opens_at_his_first_words_and_never_on_a_priming_turn() {
-        let root = std::env::temp_dir().join(format!("richos-spoken-grant-{}", uuid::Uuid::new_v4().simple()));
+        let root = fixture_root().join(format!("richos-spoken-grant-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&root).unwrap();
         struct Scratch(std::path::PathBuf);
         impl Drop for Scratch {
