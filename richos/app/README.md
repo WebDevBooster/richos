@@ -817,8 +817,11 @@ machinery as its timeline at `ViewMode::Technical` — the same items, the same 
 same `(turn, slot, sequence)` order as the calm view, with the technical half of each row
 kept rather than removed. `richos/app/ui/` renders it inline, one line per tool call, with the
 status each actually returned; `get_machinery_raw` fetches §2.4's raw pane on expand. The
-toggle is `techy_mode` / `set_techy_mode` / `set_techy_default`: ⌘⇧T pins one conversation,
-one line in Settings switches all of them. **With it off, the conversation surface is
+toggle is `techy_mode` / `set_techy_scope` / `set_techy_default`: every entrance — ⌘⇧T, the
+rail's switch, the settings row, the chip — asks WHERE it applies in three choices (all
+companies / this company / this conversation), with the first preselected and Enter
+confirming, per the CEO's §7.1 answer of 2026-09-18. `set_techy_mode(enabled: null)` hands a
+pinned conversation back to the tier above it. **With it off, the conversation surface is
 byte-identical to what shipped** — no chip, no chevron, no hint — and `tests/techy.js`
 check 11 asserts that by comparing `#messages` innerHTML across a round trip.
 
@@ -991,7 +994,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1310 tests + 5 doc-tests (1306 direct, 4 ignored)
+cargo test -p richos-core                       # 1320 tests + 5 doc-tests (1316 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

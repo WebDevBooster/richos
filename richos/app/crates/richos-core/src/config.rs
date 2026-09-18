@@ -17,10 +17,11 @@
 //!   - `splash_enabled` — the opening screen's off switch. It lives HERE, beside the
 //!     assertiveness dial, because it is the same kind of thing: a durable CEO
 //!     preference about how the product behaves toward him, not view state.
-//!   - `techy_default` + `techy_threads` — the techy-mode toggle
-//!     (`richos-hq/docs/plans/richos-techy-mode-2026-08-26.md` §3.1). Rendering only:
-//!     routing and retention run ALWAYS (§3.2), which is the only reason "turn the
-//!     technical view on for a conversation I already had" is possible at all.
+//!   - `techy_default` + `techy_entities` + `techy_threads` — the techy-mode toggle
+//!     (`richos-hq/docs/plans/richos-techy-mode-2026-08-26.md` §3.1), THREE TIERS since
+//!     2026-09-18. Rendering only: routing and retention run ALWAYS (§3.2), which is the
+//!     only reason "turn the technical view on for a conversation I already had" is
+//!     possible at all.
 //!   - `raw_retention` — how long the stored output of that technical view survives
 //!     (§7.2). It is here for the same reason as everything above it: a mutable
 //!     point-in-time preference about how the product behaves toward him. It was two
@@ -42,14 +43,27 @@
 //! paragraph says the store exists for. A toggle flipped twenty times would otherwise
 //! write twenty immutable facts into a log whose job is conversational truth.
 //!
-//! ## §7.1 IS THE CEO'S QUESTION AND IS NOT ANSWERED HERE
-//! *"Global default, or per-thread only?"* is open (open-items 1.4). Both answers are
-//! reachable from this shape and neither is baked in: a thread carries `Some(bool)` when
-//! the CEO pinned it and `None` when it follows the global default, so "one switch for
-//! all of them" and "per-thread only" are the same store read two ways. The clearing
-//! setter ([`ConfigStore::clear_techy_thread`]) exists for that reason and for no other —
-//! without it a thread could never be handed BACK to the default once pinned, which
-//! would quietly settle §7.1 in favour of per-thread.
+//! ## §7.1 WAS THE CEO'S QUESTION AND HE ANSWERED IT ON 2026-09-18
+//! *"Global default, or per-thread only?"* was open (open-items 1.4) and the answer is
+//! BOTH, plus a tier neither option had. In his words:
+//!
+//! > "By default (on first app start) the techy mode is off. But when the user toggles
+//! > the techy mode on while being inside a conversation thread, then there should be
+//! > something like a radio button choice between 3 choices. And those choices could be
+//! > something like 1) "For all threads in all companies" 2) "For all threads in this
+//! > company" 3) "For this thread only". And the first choice should be preselected
+//! > after the user switches the techy mode on. That also means that later the user
+//! > should be able to switch off the techy mode for a given company or a given thread."
+//!
+//! So the store holds THREE tiers and [`ConfigStore::techy_mode`] resolves them in one
+//! order — thread pin, else company pin, else `techy_default` — while
+//! [`ConfigStore::apply_techy_scope`] is the single writer that takes one of his three
+//! radio buttons and leaves the store in a state that agrees with it. The shape did not
+//! have to change to carry his answer, which is what the old wording here was betting on:
+//! a tier is a map, `None` still means "follow the tier above me", and the clearing
+//! setters ([`ConfigStore::clear_techy_thread`], [`ConfigStore::clear_techy_entity`]) are
+//! what make his "switch it off for a given company or a given thread" reversible in both
+//! directions instead of one.
 //!
 //! ## §7.2 IS ALSO THE CEO'S QUESTION AND IS ALSO NOT ANSWERED HERE
 //! *"How long do raw payloads survive?"* is open (open-items 1.4), and this file does not
@@ -302,11 +316,22 @@ struct StoredConfig {
     /// the calm one and Urban's v1 direction needs no amendment (§3.3).
     #[serde(default)]
     techy_default: bool,
-    /// §3.1: per-thread overrides. A thread ABSENT from this map follows
-    /// `techy_default`; a thread present pins its own answer. `BTreeMap` so the file
-    /// serializes in a stable order and a diff of `config.json` is readable.
+    /// §3.1: per-thread overrides. A thread ABSENT from this map follows the tier above
+    /// it; a thread present pins its own answer. `BTreeMap` so the file serializes in a
+    /// stable order and a diff of `config.json` is readable.
     #[serde(default)]
     techy_threads: BTreeMap<String, bool>,
+    /// §7.1's MIDDLE TIER, added 2026-09-18 on the CEO's answer to it — *"1) For all
+    /// threads in all companies 2) For all threads in this company 3) For this thread
+    /// only"*. An entity ABSENT from this map follows `techy_default`; an entity present
+    /// pins every thread in it that has no pin of its own. Same `BTreeMap`, same reason.
+    ///
+    /// Keyed by [`crate::entity::EntityId`]'s string form, which is the same key
+    /// `techy_threads` uses for threads: a plain owned `String`, so a config file written
+    /// by a newer build that knows an entity this one does not is still readable, and the
+    /// unknown key is simply never consulted.
+    #[serde(default)]
+    techy_entities: BTreeMap<String, bool>,
     /// §15: which lighting the app opens in. An ABSENT key is an absent opinion, and the
     /// product's opinion is dark — `Theme::default()`, so every config file written before
     /// theming existed reads as dark, which is also what a fresh install gets.
@@ -393,6 +418,7 @@ impl Default for StoredConfig {
             splash_disabled_at: None,
             techy_default: false,
             techy_threads: BTreeMap::new(),
+            techy_entities: BTreeMap::new(),
             raw_retention: RawRetention::default(),
             theme: Theme::default(),
             font_scale: FONT_SCALE_DEFAULT,
@@ -415,7 +441,10 @@ impl Default for StoredConfig {
 pub enum TechySource {
     /// The CEO pinned this thread.
     Thread,
-    /// No override — the thread follows `techy_default`.
+    /// The CEO pinned the company this thread lives in, and this thread has no pin of
+    /// its own (§7.1's middle tier, 2026-09-18).
+    Entity,
+    /// No override at either tier — the thread follows `techy_default`.
     Default,
 }
 
@@ -423,7 +452,59 @@ impl TechySource {
     pub fn as_str(&self) -> &'static str {
         match self {
             TechySource::Thread => "thread",
+            TechySource::Entity => "entity",
             TechySource::Default => "default",
+        }
+    }
+}
+
+/// WHICH TIER A SWITCH-ON (OR SWITCH-OFF) APPLIES TO — the CEO's three radio buttons,
+/// as a type.
+///
+/// His answer to §7.1, 2026-09-18, verbatim: *"when the user toggles the techy mode on
+/// while being inside a conversation thread, then there should be something like a radio
+/// button choice between 3 choices. And those choices could be something like 1) "For all
+/// threads in all companies" 2) "For all threads in this company" 3) "For this thread
+/// only". And the first choice should be preselected."*
+///
+/// The variants are in HIS order, and [`TechyScope::PRESELECTED`] is the first of them,
+/// named once here so no surface has to re-decide it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TechyScope {
+    /// 1) For all threads in all companies.
+    AllCompanies,
+    /// 2) For all threads in this company.
+    Company,
+    /// 3) For this thread only.
+    Thread,
+}
+
+impl TechyScope {
+    /// The choice the sheet opens on, on switch-ON and switch-OFF alike. He specified it
+    /// for switch-on; nothing in the store argues for a different one on switch-off, and
+    /// one preselection that is the same in both directions is the only version of this
+    /// a person can learn once. The explicit confirm button, not the preselection, is
+    /// what stops an accidental app-wide flip.
+    pub const PRESELECTED: TechyScope = TechyScope::AllCompanies;
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TechyScope::AllCompanies => "all-companies",
+            TechyScope::Company => "company",
+            TechyScope::Thread => "thread",
+        }
+    }
+
+    /// Parse the wire form a surface sends back. `None` for anything else — a scope this
+    /// build does not know is refused rather than rounded to an adjacent tier, which
+    /// would apply the CEO's switch somewhere he did not point it.
+    pub fn parse(s: &str) -> Option<TechyScope> {
+        match s {
+            "all-companies" => Some(TechyScope::AllCompanies),
+            "company" => Some(TechyScope::Company),
+            "thread" => Some(TechyScope::Thread),
+            _ => None,
         }
     }
 }
@@ -844,22 +925,107 @@ impl ConfigStore {
         self.clear_techy_thread(thread_id)
     }
 
-    /// The resolved answer for one thread: the override if there is one, else the global
-    /// default — reported with its provenance so the surface never implies a choice the
-    /// CEO did not make.
-    pub fn techy_mode(&self, thread_id: &str) -> TechyMode {
-        match self.techy_thread(thread_id) {
-            Some(enabled) => TechyMode {
-                enabled,
-                source: TechySource::Thread,
-                default: self.config.techy_default,
-            },
-            None => TechyMode {
-                enabled: self.config.techy_default,
-                source: TechySource::Default,
-                default: self.config.techy_default,
-            },
+    /// This company's override, or `None` when every thread in it follows the default.
+    pub fn techy_entity(&self, entity_id: &str) -> Option<bool> {
+        self.config.techy_entities.get(entity_id).copied()
+    }
+
+    /// Pin one company's answer, overriding the default for every thread in it that has
+    /// no pin of its own.
+    pub fn set_techy_entity(&mut self, entity_id: &str, enabled: bool) -> io::Result<()> {
+        self.config.techy_entities.insert(entity_id.to_string(), enabled);
+        self.persist()
+    }
+
+    /// Hand this company back to the global default. The exact counterpart of
+    /// [`ConfigStore::clear_techy_thread`] and there for the same reason: without it the
+    /// company tier would be one-way and his *"for all threads in all companies"* switch
+    /// would stop reaching any company he had ever pinned.
+    pub fn clear_techy_entity(&mut self, entity_id: &str) -> io::Result<()> {
+        self.config.techy_entities.remove(entity_id);
+        self.persist()
+    }
+
+    /// Forget a company's preference when the company goes — the entity-tier counterpart
+    /// of [`ConfigStore::forget_techy_thread`], and, like it, NOT an answer to §7.4.
+    pub fn forget_techy_entity(&mut self, entity_id: &str) -> io::Result<()> {
+        self.clear_techy_entity(entity_id)
+    }
+
+    /// The resolved answer for one thread: **thread pin, else company pin, else the
+    /// global default** — reported with its provenance so the surface never implies a
+    /// choice the CEO did not make.
+    ///
+    /// `entity_id` is `None` only for a thread with no company binding — a thread written
+    /// before entity scoping existed (`thread::ThreadSummary::entity_id`). Such a thread
+    /// skips the middle tier rather than guessing a company for it.
+    pub fn techy_mode(&self, thread_id: &str, entity_id: Option<&str>) -> TechyMode {
+        let default = self.config.techy_default;
+        if let Some(enabled) = self.techy_thread(thread_id) {
+            return TechyMode { enabled, source: TechySource::Thread, default };
         }
+        if let Some(enabled) = entity_id.and_then(|id| self.techy_entity(id)) {
+            return TechyMode { enabled, source: TechySource::Entity, default };
+        }
+        TechyMode { enabled: default, source: TechySource::Default, default }
+    }
+
+    /// **APPLY THE CEO'S CHOICE AT THE TIER HE PICKED.** One call, one write, one
+    /// resolved answer back — so a surface can never leave two tiers half-applied.
+    ///
+    /// THE PART THAT IS A DECISION AND NOT A TRANSCRIPTION. Setting a tier is not enough
+    /// on its own: he makes this choice *while looking at one conversation*, and if that
+    /// conversation carries a pin at a lower tier, the switch he just flipped would
+    /// change nothing on the screen he flipped it on. So applying a scope also CLEARS the
+    /// pins below it **on the path to this thread, and only on that path**:
+    ///
+    ///   - [`TechyScope::AllCompanies`] — set the global default; clear this company's
+    ///     pin and this thread's pin.
+    ///   - [`TechyScope::Company`] — set this company's pin; clear this thread's pin.
+    ///     The global default is untouched.
+    ///   - [`TechyScope::Thread`] — set this thread's pin. Nothing else is touched.
+    ///
+    /// Every OTHER company's and OTHER thread's pin survives untouched, which is the
+    /// guarantee `set_techy_default`'s doc has made since §3.1 and the one that makes a
+    /// pin worth making. The two rules are not in tension: one is about the path he is
+    /// standing on, the other about the paths he is not.
+    ///
+    /// A [`TechyScope::Company`] with no `entity_id` is REFUSED rather than silently
+    /// promoted to the global tier — the surface must not offer a company scope for a
+    /// thread that is in no company, and if it ever does, this is where that bug stops.
+    pub fn apply_techy_scope(
+        &mut self,
+        scope: TechyScope,
+        thread_id: &str,
+        entity_id: Option<&str>,
+        enabled: bool,
+    ) -> io::Result<TechyMode> {
+        match scope {
+            TechyScope::AllCompanies => {
+                self.config.techy_default = enabled;
+                if let Some(id) = entity_id {
+                    self.config.techy_entities.remove(id);
+                }
+                self.config.techy_threads.remove(thread_id);
+            }
+            TechyScope::Company => {
+                let Some(id) = entity_id else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "this conversation is in no company, so there is no company to set",
+                    ));
+                };
+                self.config.techy_entities.insert(id.to_string(), enabled);
+                self.config.techy_threads.remove(thread_id);
+            }
+            TechyScope::Thread => {
+                self.config.techy_threads.insert(thread_id.to_string(), enabled);
+            }
+        }
+        // ONE persist for the whole application, not one per tier touched: a crash
+        // between two writes would otherwise leave a scope half-applied on disk.
+        self.persist()?;
+        Ok(self.techy_mode(thread_id, entity_id))
     }
 
     // ---- the raw-payload window (design §7.2) --------------------------------------
@@ -1183,6 +1349,12 @@ mod tests {
 
     // ---- techy mode (§3.1) --------------------------------------------------------
 
+    /// A company with NO pin of its own, which is what every test below that is not about
+    /// the middle tier passes: the tier has to be transparent when nothing is set in it,
+    /// or every one of §3.1's original guarantees would have changed meaning on the day it
+    /// was added.
+    const E: Option<&str> = Some("ent_acme");
+
     #[test]
     fn techy_mode_is_off_on_a_fresh_install_and_says_it_follows_the_default() {
         // §3.3: with techy mode off the conversation surface is byte-identical to today,
@@ -1192,7 +1364,7 @@ mod tests {
         let store = ConfigStore::open(&path).unwrap();
         assert!(!store.techy_default());
         assert_eq!(store.techy_thread("thr_1"), None);
-        let mode = store.techy_mode("thr_1");
+        let mode = store.techy_mode("thr_1", Some("ent_acme"));
         assert!(!mode.enabled);
         assert_eq!(mode.source, TechySource::Default);
         assert_eq!(mode.source.as_str(), "default");
@@ -1207,7 +1379,7 @@ mod tests {
         let mut store = ConfigStore::open(&path).unwrap();
         store.set_techy_default(true).unwrap();
         for thread in ["thr_a", "thr_b", "thr_never_seen_before"] {
-            let mode = store.techy_mode(thread);
+            let mode = store.techy_mode(thread, Some("ent_acme"));
             assert!(mode.enabled, "{thread} should follow the global default");
             assert_eq!(mode.source, TechySource::Default);
         }
@@ -1223,12 +1395,12 @@ mod tests {
         store.set_techy_thread("thr_pinned_off", false).unwrap();
         store.set_techy_thread("thr_pinned_on", true).unwrap();
         store.set_techy_default(true).unwrap();
-        assert!(!store.techy_mode("thr_pinned_off").enabled, "the pin survives the switch");
-        assert!(store.techy_mode("thr_pinned_on").enabled);
-        assert!(store.techy_mode("thr_unpinned").enabled, "and the unpinned one follows it");
+        assert!(!store.techy_mode("thr_pinned_off", E).enabled, "the pin survives the switch");
+        assert!(store.techy_mode("thr_pinned_on", E).enabled);
+        assert!(store.techy_mode("thr_unpinned", E).enabled, "and the unpinned one follows it");
         store.set_techy_default(false).unwrap();
-        assert!(store.techy_mode("thr_pinned_on").enabled, "in both directions");
-        assert!(!store.techy_mode("thr_unpinned").enabled);
+        assert!(store.techy_mode("thr_pinned_on", E).enabled, "in both directions");
+        assert!(!store.techy_mode("thr_unpinned", E).enabled);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1240,12 +1412,12 @@ mod tests {
         let mut store = ConfigStore::open(&path).unwrap();
         store.set_techy_default(true).unwrap();
         store.set_techy_thread("thr_1", false).unwrap();
-        assert_eq!(store.techy_mode("thr_1").source, TechySource::Thread);
-        assert!(!store.techy_mode("thr_1").enabled);
+        assert_eq!(store.techy_mode("thr_1", E).source, TechySource::Thread);
+        assert!(!store.techy_mode("thr_1", E).enabled);
 
         store.clear_techy_thread("thr_1").unwrap();
         assert_eq!(store.techy_thread("thr_1"), None);
-        let mode = store.techy_mode("thr_1");
+        let mode = store.techy_mode("thr_1", E);
         assert_eq!(mode.source, TechySource::Default);
         assert!(mode.enabled, "back under the global switch, not stuck at its old value");
         let _ = std::fs::remove_file(&path);
@@ -1259,9 +1431,9 @@ mod tests {
         let path = tmp_path("techy-samevalue");
         let mut store = ConfigStore::open(&path).unwrap();
         store.set_techy_thread("thr_1", false).unwrap();
-        assert_eq!(store.techy_mode("thr_1").source, TechySource::Thread);
+        assert_eq!(store.techy_mode("thr_1", E).source, TechySource::Thread);
         store.set_techy_default(true).unwrap();
-        assert!(!store.techy_mode("thr_1").enabled);
+        assert!(!store.techy_mode("thr_1", E).enabled);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1276,8 +1448,215 @@ mod tests {
         let reopened = ConfigStore::open(&path).unwrap();
         assert!(reopened.techy_default());
         assert_eq!(reopened.techy_thread("thr_off"), Some(false));
-        assert!(reopened.techy_mode("thr_other").enabled);
+        assert!(reopened.techy_mode("thr_other", E).enabled);
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ---- §7.1's THIRD TIER, on the CEO's answer of 2026-09-18 -------------------------
+
+    #[test]
+    fn the_three_tiers_resolve_in_one_order_thread_then_company_then_default() {
+        // His three radio buttons are three tiers, and a tier is only a tier if the one
+        // below it wins. All four combinations of (company pinned, thread pinned) are
+        // here, because the interesting one is the pair that DISAGREE.
+        let path = tmp_path("techy-order");
+        let mut store = ConfigStore::open(&path).unwrap();
+        store.set_techy_default(false).unwrap();
+        store.set_techy_entity("ent_acme", true).unwrap();
+
+        // company pinned on, no thread pin -> the company answers, and SAYS it did
+        let mode = store.techy_mode("thr_plain", Some("ent_acme"));
+        assert!(mode.enabled);
+        assert_eq!(mode.source, TechySource::Entity);
+        assert_eq!(mode.source.as_str(), "entity");
+        assert!(!mode.default, "and the global default is carried alongside, unchanged");
+
+        // company pinned on, thread pinned off -> the THREAD wins
+        store.set_techy_thread("thr_quiet", false).unwrap();
+        let mode = store.techy_mode("thr_quiet", Some("ent_acme"));
+        assert!(!mode.enabled);
+        assert_eq!(mode.source, TechySource::Thread);
+
+        // a DIFFERENT company, unpinned -> falls past the middle tier to the default
+        let mode = store.techy_mode("thr_plain", Some("ent_other"));
+        assert!(!mode.enabled);
+        assert_eq!(mode.source, TechySource::Default);
+
+        // no company at all (a thread written before entity scoping) -> same fall-through,
+        // never a guess at which company it might have meant
+        let mode = store.techy_mode("thr_plain", None);
+        assert!(!mode.enabled);
+        assert_eq!(mode.source, TechySource::Default);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_pinned_company_keeps_its_answer_when_the_global_default_moves_over_it() {
+        // The same guarantee `a_pinned_thread_keeps_its_answer_...` makes one tier down,
+        // and the brief asks for it by name: the company tier gets what the thread tier
+        // already had, in both directions.
+        let path = tmp_path("techy-company-pin");
+        let mut store = ConfigStore::open(&path).unwrap();
+        store.set_techy_entity("ent_off", false).unwrap();
+        store.set_techy_entity("ent_on", true).unwrap();
+        store.set_techy_default(true).unwrap();
+        assert!(!store.techy_mode("thr", Some("ent_off")).enabled, "the pin survives the switch");
+        assert!(store.techy_mode("thr", Some("ent_on")).enabled);
+        assert!(store.techy_mode("thr", Some("ent_unpinned")).enabled, "and an unpinned company follows it");
+        store.set_techy_default(false).unwrap();
+        assert!(store.techy_mode("thr", Some("ent_on")).enabled, "in both directions");
+        assert!(!store.techy_mode("thr", Some("ent_unpinned")).enabled);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn every_tier_reverses_and_clearing_a_company_hands_it_back_to_the_default() {
+        // *"That also means that later the user should be able to switch off the techy
+        // mode for a given company or a given thread."* — his sentence, as arithmetic.
+        let path = tmp_path("techy-company-reverse");
+        let mut store = ConfigStore::open(&path).unwrap();
+        store.set_techy_default(true).unwrap();
+
+        store.set_techy_entity("ent_acme", false).unwrap();
+        assert!(!store.techy_mode("thr", E).enabled, "off for a given company, under an on default");
+        store.set_techy_entity("ent_acme", true).unwrap();
+        assert!(store.techy_mode("thr", E).enabled, "and back on again");
+
+        store.clear_techy_entity("ent_acme").unwrap();
+        assert_eq!(store.techy_entity("ent_acme"), None);
+        let mode = store.techy_mode("thr", E);
+        assert_eq!(mode.source, TechySource::Default);
+        assert!(mode.enabled, "back under the global switch, not stuck at its old value");
+
+        // and `forget_` is the deletion-time alias, exactly as it is for a thread
+        store.set_techy_entity("ent_acme", false).unwrap();
+        store.forget_techy_entity("ent_acme").unwrap();
+        assert_eq!(store.techy_entity("ent_acme"), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn applying_a_scope_clears_the_tiers_below_it_on_this_thread_and_no_others() {
+        // THE DECISION IN `apply_techy_scope`, tested from both sides at once. He makes
+        // this choice while looking at ONE conversation, so the choice has to be true on
+        // that conversation — and every pin he made elsewhere has to survive it, which is
+        // the guarantee §3.1 has made since the first tier existed.
+        let path = tmp_path("techy-scope-apply");
+        let mut store = ConfigStore::open(&path).unwrap();
+
+        // The bystanders: another company, and another thread inside the one being changed.
+        store.set_techy_entity("ent_other", true).unwrap();
+        store.set_techy_thread("thr_elsewhere", true).unwrap();
+        // The path being changed, pinned OFF at both lower tiers so an "all companies"
+        // switch-on that did not clear them would be invisible on the very screen he used.
+        store.set_techy_entity("ent_acme", false).unwrap();
+        store.set_techy_thread("thr_here", false).unwrap();
+
+        let mode = store
+            .apply_techy_scope(TechyScope::AllCompanies, "thr_here", E, true)
+            .unwrap();
+        assert!(mode.enabled, "the conversation he flipped it on is ON");
+        assert_eq!(mode.source, TechySource::Default, "and it is the global switch holding it");
+        assert!(store.techy_default());
+        assert_eq!(store.techy_entity("ent_acme"), None, "this company's pin cleared");
+        assert_eq!(store.techy_thread("thr_here"), None, "this thread's pin cleared");
+        assert_eq!(store.techy_entity("ent_other"), Some(true), "another company's pin untouched");
+        assert_eq!(store.techy_thread("thr_elsewhere"), Some(true), "another thread's pin untouched");
+
+        // COMPANY scope: sets the middle tier, clears this thread, leaves the global alone.
+        store.set_techy_thread("thr_here", true).unwrap();
+        let mode = store
+            .apply_techy_scope(TechyScope::Company, "thr_here", E, false)
+            .unwrap();
+        assert!(!mode.enabled);
+        assert_eq!(mode.source, TechySource::Entity);
+        assert_eq!(store.techy_entity("ent_acme"), Some(false));
+        assert_eq!(store.techy_thread("thr_here"), None, "this thread's pin cleared");
+        assert!(store.techy_default(), "the global default is NOT touched by a company scope");
+        assert_eq!(store.techy_entity("ent_other"), Some(true));
+
+        // THREAD scope: touches exactly one key.
+        let mode = store
+            .apply_techy_scope(TechyScope::Thread, "thr_here", E, true)
+            .unwrap();
+        assert!(mode.enabled);
+        assert_eq!(mode.source, TechySource::Thread);
+        assert_eq!(store.techy_entity("ent_acme"), Some(false), "the company tier is NOT touched");
+        assert!(store.techy_default());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_company_scope_on_a_thread_with_no_company_is_refused_not_promoted() {
+        // The surface must never offer a company scope for a thread that is in no
+        // company. If it ever does, the write stops here rather than landing one tier up
+        // and changing every company he has.
+        let path = tmp_path("techy-scope-nocompany");
+        let mut store = ConfigStore::open(&path).unwrap();
+        let err = store
+            .apply_techy_scope(TechyScope::Company, "thr_unbound", None, true)
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(!store.techy_default(), "and nothing was written one tier up instead");
+        assert_eq!(store.techy_thread("thr_unbound"), None);
+
+        // The other two scopes DO work without a company — an unbound thread can still be
+        // pinned on its own, and can still follow the global switch.
+        store
+            .apply_techy_scope(TechyScope::AllCompanies, "thr_unbound", None, true)
+            .unwrap();
+        assert!(store.techy_default());
+        let mode = store
+            .apply_techy_scope(TechyScope::Thread, "thr_unbound", None, false)
+            .unwrap();
+        assert!(!mode.enabled);
+        assert_eq!(mode.source, TechySource::Thread);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_preselected_scope_is_his_first_choice() {
+        // *"And the first choice should be preselected after the user switches the techy
+        // mode on."* Named once, in the type, so a surface cannot drift from it quietly.
+        assert_eq!(TechyScope::PRESELECTED, TechyScope::AllCompanies);
+        assert_eq!(TechyScope::PRESELECTED.as_str(), "all-companies");
+        for scope in [TechyScope::AllCompanies, TechyScope::Company, TechyScope::Thread] {
+            assert_eq!(TechyScope::parse(scope.as_str()), Some(scope), "round-trips over the wire");
+        }
+        assert_eq!(TechyScope::parse("everything"), None, "and an unknown scope is refused");
+        assert_eq!(TechyScope::parse("Thread"), None);
+    }
+
+    #[test]
+    fn company_pins_survive_restart_and_a_file_with_no_company_tier_still_opens() {
+        let path = tmp_path("techy-company-restart");
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_techy_entity("ent_acme", true).unwrap();
+            store.set_techy_thread("thr_off", false).unwrap();
+        }
+        let reopened = ConfigStore::open(&path).unwrap();
+        assert_eq!(reopened.techy_entity("ent_acme"), Some(true));
+        assert!(reopened.techy_mode("thr_any", E).enabled);
+        assert!(!reopened.techy_mode("thr_off", E).enabled);
+
+        // The file on the CEO's disk TODAY has `techy_default` and `techy_threads` and no
+        // `techy_entities`. It has to keep opening, with every other preference intact —
+        // the same guarantee the pre-techy-mode file gets below.
+        let older = tmp_path("techy-company-legacy");
+        std::fs::write(
+            &older,
+            r#"{"company_name":"Acme","techy_default":true,"techy_threads":{"thr_off":false}}"#,
+        )
+        .unwrap();
+        let store = ConfigStore::open(&older).unwrap();
+        assert_eq!(store.company_name(), Some("Acme"));
+        assert!(store.techy_default());
+        assert_eq!(store.techy_thread("thr_off"), Some(false));
+        assert_eq!(store.techy_entity("anything"), None, "no company tier is an absent opinion");
+        assert!(store.techy_mode("thr_new", E).enabled);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&older);
     }
 
     #[test]

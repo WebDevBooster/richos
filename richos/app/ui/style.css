@@ -4389,6 +4389,114 @@ body.bp-narrow .tl-user-bubble {
   text-overflow: ellipsis;
 }
 
+/* THE THREE-WAY SCOPE SHEET (§7.1, the CEO's answer of 2026-09-18).
+
+   BUILT ALMOST ENTIRELY OUT OF TREATMENTS THIS APP HAS ALREADY PROVEN, on purpose: the
+   panel is `.overlay-panel--compact`, the two controls are `.desk-btn` and
+   `.desk-btn--confirm` (the correction desk's own pair), and the radios are the SAME
+   unstyled native inputs the retention choice in the rail's popover ships. Every one of
+   those is walked by `tests/contrast.js` on a surface that already exists, so the only new
+   arithmetic below is the option text and the title.
+
+   THE RATIOS, COMPUTED RATHER THAN EYEBALLED (WCAG AA, both themes, floor 4.5:1 — every
+   run of text here is normal weight and under 24px, so none of it claims the 3:1 large-text
+   allowance). MEASURED off the painted sheet in WebKit, both themes, every node:
+
+                                          dark        light
+     .techy-scope-title                   12.06:1     18.07:1
+     .techy-scope-option span  (x3)       12.06:1     18.07:1
+     #techy-scope-cancel   (.desk-btn)     5.78:1      6.38:1
+     #techy-scope-confirm  (--confirm)     7.68:1      4.72:1
+
+   Worst case 4.72:1, on the confirm button in light mode, against a floor of 4.5. Nothing
+   here is exempt — see the last paragraph.
+
+   PREDICTED BY HAND FIRST, FROM THE TOKENS IN THIS FILE, so a future restyle of `--ink`,
+   `--ink-soft` or `--card` has a number to be checked against rather than a memory of its
+   having been fine: `--ink` on `--card` works out at 12.08 / 18.07, and `--ink-soft` on
+   `--card` at 5.78 / 6.38. The measured column agrees on all four to the second decimal
+   except dark `--ink`, where the hand figure rounds 0.02 high.
+
+   TWO THINGS THAT WENT WRONG WHILE MEASURING, recorded because both produce a confident
+   wrong number rather than an error:
+
+     1. An ad-hoc script that seeded a made-up `localStorage` key printed the DARK palette
+        twice and called one of them light. `contrast.js`'s own comment (:1143-1165) warns
+        about exactly this; the theme has to be seeded into `richos-theme` AND the mock
+        store, because `syncAppearanceFromBackend` lets the backend win at init. The tell is
+        the body ground: dark is rgb(12,19,34) and light is rgb(234,230,221).
+     2. Reading the first three numbers out of a `color` and ignoring the fourth reported
+        Cancel at 12.06:1 when `--ink-soft` carries alpha 0.64; composited over `--card` it
+        is 5.78:1. A translucent foreground has to be composited before it is measured.
+
+   NOTHING HERE IS EXEMPT. Every string in this sheet is a choice the CEO is being asked to
+   make, which is the opposite of the narrow "not meant to be read closely" carve-out.
+
+   2026-09-18, LATER THE SAME DAY: ⌘⇧T NOW OPENS THIS SHEET TOO, and the only string that
+   changed is `#techy-hint`, which is not on it. NOT ONE COLOR, TYPE SIZE OR RULE IN THIS
+   BLOCK MOVED, so the table above stands as measured rather than being restated. What the
+   correction actually touched is the sentence under the rail's switch: it promised one
+   conversation ("⌘⇧T shows it for one conversation only"), that promise was the whole
+   argument for letting the shortcut skip the question, and it now promises the question
+   ("⌘⇧T asks where to show it").
+
+   THAT SENTENCE WAS RE-MEASURED RATHER THAN ASSUMED TO BE FINE, because a copy change moves
+   a box even when it moves no color. `.popover-hint` is 14px/400, so its floor is 4.5:1 and
+   it claims no large-text allowance; measured in WebKit with the suite's own math, both
+   themes, composited (`--ink-faint` carries alpha 0.62/0.63 and is fiction until it is
+   composited):
+
+                                            dark        light
+     #techy-hint  "⌘⇧T asks where to show it."  5.52:1      5.35:1
+       composited foreground                #939bac     #656971
+       over                                 #182440     #fdfcf8
+
+   The sentence it replaced measures the same 5.52 / 5.35 — same token, same panel — and
+   occupies the same single 20px line at the shipped rail width, so nothing below it in the
+   popover moves either. (`tests/shots-3-1/3-1-05` does change by 46,387 px, and almost all
+   of that is the label split of `8cb6eb96` that the committed image had never caught up
+   with: the old image still shows "Show the technical view" while `index.html` at that very
+   commit already renders "Technical view" / "Show it".)
+
+   AND THE WHOLE WALK WAS RE-RUN, not replayed: `contrast.js` reports per-surface node counts
+   IDENTICAL to the pre-change run on all 40 surfaces, 0 new and 0 worsened, `techy-scope`
+   again 18 of 572. Two surfaces did lose two measured nodes each in the first attempt at
+   this, and the cause was the TEST rather than the product — clicking the sheet moves the
+   pointer out of the rail and un-hovers a conversation row's ⋯. The drivers press arrow keys
+   and Enter instead, and say so where they do it. */
+.techy-scope-title {
+  margin: 0 0 12px;
+  font-size: 1.0625rem;
+  color: var(--ink);
+}
+
+.techy-scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The whole row is the hit target, not just the 13px dot — the same reason `.popover-option`
+   is a `<label>` with the input inside it. `align-items: center` rather than `baseline`
+   because an option that wraps to two lines on a narrow window should keep its dot beside
+   the first line, which is where the eye is. */
+.techy-scope-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.techy-scope-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* The Settings line (§3.3: "v1 access = a keyboard shortcut, plus one line in Settings").
    Whether a customer-facing affordance ever appears in the conversation is §7.3 — the
    CEO's, unanswered — and adding one later is a `hidden` attribute on #techy-chip's

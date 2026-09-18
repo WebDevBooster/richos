@@ -27,7 +27,7 @@ mod screen;
 
 use richos_core::native::{resolve_claude_bin, resolve_claude_bin_checked, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
-use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode};
+use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode, TechyScope};
 use richos_core::launch::{LaunchCounts, LaunchKind, LaunchStore, PriorRun};
 use richos_core::correction::{
     CliLoroWriter, CorrectionDesk, Proposal, ProposalObserver, ProposedWrite,
@@ -2719,6 +2719,9 @@ fn main() {
             techy_mode,
             set_techy_mode,
             set_techy_default,
+            // §7.1's three-way scope choice (CEO, 2026-09-18) — appended here for the
+            // same reason the three above it are: this list is append-only.
+            set_techy_scope,
             // --- the raw-retention window as a setting (2026-08-30) — appended, never reordered ---
             raw_retention,
             set_raw_retention,
@@ -6267,14 +6270,67 @@ fn not_retained() -> serde_json::Value {
     })
 }
 
-/// This thread's resolved techy-mode state, with its provenance (§3.1).
+/// WHICH COMPANY A THREAD LIVES IN, for the techy-mode resolver's middle tier — or `None`
+/// when it lives in none.
 ///
-/// `source` is `"thread"` when the CEO pinned this conversation and `"default"` when it
-/// follows the global switch — so the surface can say *"follows your default"* instead of
-/// implying a choice he did not make, and so clearing a pin is a visible, reversible act.
+/// **`None` HERE IS NOT AN ERROR AND MUST NOT BECOME ONE.** A thread written before entity
+/// scoping existed is unbound (`Ledger::thread_binding` -> `LedgerError::UnboundThread`),
+/// and so is a thread id that names nothing at all — which the renderer can legitimately
+/// ask about, because `refreshTechy` runs on every thread switch including the one that
+/// races a deletion. Techy mode is a RENDERING preference; refusing to answer "should this
+/// conversation show the technical view?" because its binding is unreadable would take the
+/// calm surface away on a failure that has nothing to do with the question. So an
+/// unresolvable company falls through to the global default, exactly as
+/// `ConfigStore::techy_mode` documents for `entity_id: None`.
+///
+/// This deliberately does NOT go through `assignment_scope`: that function is a SECURITY
+/// boundary for reading another company's work and fails closed by design. This one is a
+/// preference lookup and fails open to the calm answer. Same question, two different jobs,
+/// and collapsing them would drag one of the two to the wrong side.
+fn techy_company_of(state: &State<AppState>, thread_id: &str) -> Option<String> {
+    let spine = state.spine.try_lock().ok()?;
+    let binding = spine.ledger().thread_binding(thread_id).ok()?;
+    Some(binding.entity_id().as_str().to_string())
+}
+
+/// This thread's resolved techy-mode state, with its provenance (§3.1, and §7.1's three
+/// tiers since 2026-09-18).
+///
+/// `source` is `"thread"` when the CEO pinned this conversation, `"entity"` when he pinned
+/// the company it lives in, and `"default"` when it follows the global switch — so the
+/// surface can say *"follows your default"* instead of implying a choice he did not make,
+/// and so clearing a pin is a visible, reversible act.
 #[tauri::command(async)]
 fn techy_mode(state: State<AppState>, thread_id: String) -> TechyMode {
-    state.config.lock().unwrap().techy_mode(&thread_id)
+    let company = techy_company_of(&state, &thread_id);
+    state.config.lock().unwrap().techy_mode(&thread_id, company.as_deref())
+}
+
+/// **THE CEO'S THREE RADIO BUTTONS, AS ONE COMMAND** (§7.1, his answer of 2026-09-18).
+///
+/// `scope` is one of `all-companies` / `company` / `thread`, in his order. One call applies
+/// the whole choice — see `ConfigStore::apply_techy_scope` for why applying a tier also
+/// clears the tiers below it on the path to THIS thread and on no other path — and returns
+/// the resolved answer, so the surface renders what the store took rather than what it
+/// asked for.
+///
+/// An unknown scope is REFUSED rather than rounded to a tier, and a `company` scope on a
+/// thread with no company is refused by the store. Both refusals come back as a message
+/// and leave the store untouched.
+#[tauri::command(async)]
+fn set_techy_scope(
+    state: State<AppState>,
+    thread_id: String,
+    scope: String,
+    enabled: bool,
+) -> Result<TechyMode, String> {
+    let scope = TechyScope::parse(&scope)
+        .ok_or_else(|| format!("unknown techy scope: {scope}"))?;
+    let company = techy_company_of(&state, &thread_id);
+    let mut config = state.config.lock().unwrap();
+    config
+        .apply_techy_scope(scope, &thread_id, company.as_deref(), enabled)
+        .map_err(|e| e.to_string())
 }
 
 /// Pin or unpin ONE thread (§3.1). `enabled: null` clears the override and hands the
@@ -6289,12 +6345,15 @@ fn set_techy_mode(
     thread_id: String,
     enabled: Option<bool>,
 ) -> Result<TechyMode, String> {
+    let company = techy_company_of(&state, &thread_id);
     let mut config = state.config.lock().unwrap();
     match enabled {
         Some(on) => config.set_techy_thread(&thread_id, on).map_err(|e| e.to_string())?,
         None => config.clear_techy_thread(&thread_id).map_err(|e| e.to_string())?,
     }
-    Ok(config.techy_mode(&thread_id))
+    // Resolved through all three tiers on the way back: with the pin cleared, this thread
+    // now follows its COMPANY if that company is pinned, and only then the global default.
+    Ok(config.techy_mode(&thread_id, company.as_deref()))
 }
 
 /// The one switch for "all of their conversations" (§3.1, the CEO's own words).

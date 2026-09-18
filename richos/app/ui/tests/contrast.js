@@ -546,6 +546,11 @@ const SURFACES = [
       await p.click('.nav-thread[data-thread-id="hiring"]');
       await atHiringThread(p);
       await p.keyboard.press("Meta+Shift+T");
+      // ⌘⇧T ASKS WHERE IT APPLIES since 2026-09-18 (CEO §9.1: the choice has no exception
+      // in it, not even for a shortcut), so this is two acts, not one: press the key, then
+      // take "For this conversation only" — which leaves exactly the state this surface was
+      // walked in before the sheet existed.
+      await techyScopeThisConversation(p);
       // WHAT THE PRODUCT PUBLISHES WHEN THE MODE GOES ON, and it is deliberately not
       // `#techy-state`: `renderTechyState` only fills that element when the machinery read
       // carries a `sentence`, and on `hiring` it does not — measured 2026-09-06, the element
@@ -942,6 +947,49 @@ const SURFACES = [
     },
   },
   {
+    name: "techy-scope",
+    what: "§7.1's three-way scope choice — the three options the CEO picks between",
+    drive: async (p) => {
+      // EVERY STRING ON THIS SHEET IS A CHOICE HE IS BEING ASKED TO MAKE, which is the
+      // opposite of the narrow "not meant to be read closely" exemption — so all of it is
+      // measured and none of it is declared exempt.
+      //
+      // Opened through the rail's own switch, which is the CEO's path: `#techy-default`
+      // flips, `requestTechyToggle` sees a conversation open, and the sheet asks where.
+      // The popover behind it is left open deliberately — the sheet is an `.overlay`
+      // (z-index 60) over a `.popover` (20), so the sheet is what gets measured and the
+      // popover's own nodes are filed as obscured, exactly as check 11 requires.
+      //
+      // `hiring` AND NOT `acme`, and the reason is check 11 rather than taste. This is an
+      // `aria-modal` sheet, so everything behind it is filed `obscured` — and check 11
+      // refuses a node that is obscured on every surface reaching it and measured on none.
+      // The first draft opened `acme`, whose conversation NO other driver in this file
+      // opens (every conversation walk here uses `hiring`, `legacy` or `partner`), so seven
+      // of that thread's turn nodes became reachable-but-never-measured the moment this
+      // surface existed and 11 went red. `hiring` is the thread the `thread` surface walks
+      // in full, so everything this sheet covers is measured there, uncovered.
+      //
+      // It also has to be a thread WITH a company: "this company" only means something with
+      // one, the middle option is HIDDEN for a conversation with no binding, and a walk that
+      // opened the sheet on an unbound thread would measure two options while reporting
+      // three. `hiring` is in `northwind`, so all three are on screen.
+      await p.click('.nav-thread[data-thread-id="hiring"]');
+      await atHiringThread(p);
+      await p.click("#rail-settings");
+      await p.waitForSelector("#assertiveness-popover:not([hidden])");
+      await p.check("#techy-default");
+      await p.waitForSelector("#techy-scope:not([hidden])");
+      // All three options on screen, since the whole claim is that each of them is legible.
+      // A sheet that painted before `openTechyScope` un-hid the middle row would measure
+      // two and pass.
+      await p.waitForFunction(() => {
+        const rows = document.querySelectorAll("#techy-scope-options .techy-scope-option");
+        return rows.length === 3 && [...rows].every((r) => !r.hidden && r.getBoundingClientRect().height > 0);
+      });
+      await overlaySettled(p, "#techy-scope");
+    },
+  },
+  {
     name: "techy-nothing-recorded",
     what: "techy mode on a conversation with no machinery — the sentence that is not 'I can't read it'",
     drive: async (p) => {
@@ -955,6 +1003,11 @@ const SURFACES = [
       await p.click('.nav-thread[data-thread-id="partner"]');
       await settleOnThread(p, "partner");
       await p.keyboard.press("Meta+Shift+T");
+      // ⌘⇧T ASKS WHERE IT APPLIES since 2026-09-18 (CEO §9.1: the choice has no exception
+      // in it, not even for a shortcut), so this is two acts, not one: press the key, then
+      // take "For this conversation only" — which leaves exactly the state this surface was
+      // walked in before the sheet existed.
+      await techyScopeThisConversation(p);
       await p.waitForSelector('#techy-state[data-state="nothing_recorded"]');
       await pageSettled(p);
       await assertOnThread(p, "partner", "techy-nothing-recorded");
@@ -1074,6 +1127,43 @@ const SURFACES = [
 // ---------------------------------------------------------------------------------------
 // Driving
 // ---------------------------------------------------------------------------------------
+
+/// Answer the three-way scope sheet with his third option — the per-conversation tier — and
+/// wait for it to be gone. Called straight after `Meta+Shift+T`, which opens it (§7.1, the
+/// CEO's answer of 2026-09-18; before that date the keystroke applied this tier by itself).
+///
+/// KEYBOARD, NOT THE MOUSE, AND THE REASON WAS MEASURED RATHER THAN PREFERRED. The first
+/// version clicked the radio and the confirm button, which moves the pointer to the middle
+/// of the window — out of the rail, where `p.click('.nav-thread...')` had left it. That
+/// un-hovers the conversation row and takes its `.nav-thread-more` (the ⋯ overflow) off the
+/// screen: `technical-view` fell from 148 measured nodes to 146 and `techy-nothing-recorded`
+/// from 118 to 116, with a 14-pixel shot change at [269..279, 308..309] — exactly the glyph
+/// — for a reason with nothing to do with the surface under test. Arrow keys move the native
+/// radio group and Enter confirms, so the pointer never moves and the walk measures what it
+/// measured before the sheet existed.
+///
+/// The selection is ASSERTED before it is confirmed. A silent confirm of the wrong tier
+/// would turn the technical view on for every conversation in the fixture and fail nothing
+/// here, which is the kind of green that costs a day.
+async function techyScopeThisConversation(page) {
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  const checkedScope = () =>
+    page.evaluate(() => {
+      const on = document.querySelector('#techy-scope input[name="techy-scope"]:checked');
+      return on ? on.value : null;
+    });
+  // The number of presses is DERIVED, not typed: the middle option is absent for a
+  // conversation in no company, so "two downs" would be one too many there.
+  for (let i = 0; i < 3 && (await checkedScope()) !== "thread"; i++) {
+    await page.keyboard.press("ArrowDown");
+  }
+  const picked = await checkedScope();
+  if (picked !== "thread") {
+    throw new Error('scope sheet: expected "thread" to be selected, got ' + picked);
+  }
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
+}
 
 async function openApp(browser, theme, holdSplash, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: theme });

@@ -86,17 +86,30 @@ const BETWEEN_TURNS_QUIET = rustSentence(MACHINERY_RS, "not proof the");
 // Driving the REAL shell — nothing stubbed that mock.js does not already own
 // ---------------------------------------------------------------------------------------
 
-async function openApp(browser, viewport) {
+/// `preset` is the mock's own PRE-BOOT switch (`window.__RICHOS_MOCK_PRESET__`), applied
+/// with `addInitScript` because it decides state `main.js` has already branched on by the
+/// time a setter could run — see mock.js's note over it.
+///
+/// THE ONLY PRESET THIS SUITE USES IS `{ chosenEntity: null }`, and it is the only way to
+/// reach a booted app with NO conversation active: `activeThreadId` in `main.js` is set
+/// when a thread opens and is never set back to null, so once anything has been opened the
+/// session has a conversation for the rest of its life. A check that wanted "nothing open"
+/// and merely navigated away would be testing a state the product does not have.
+async function openApp(browser, viewport, preset) {
   const page = await browser.newPage({ viewport: viewport || { width: 1400, height: 950 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  if (preset) await page.addInitScript((v) => { window.__RICHOS_MOCK_PRESET__ = v; }, preset);
   await page.goto(APP);
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
-  await page.waitForSelector(".nav-thread", { state: "attached" });
+  // With no company chosen there is no thread list to wait for — that is the whole point of
+  // that preset — so the wait is on the shell instead.
+  if (preset && preset.chosenEntity === null) await page.waitForSelector("#set-btn");
+  else await page.waitForSelector(".nav-thread", { state: "attached" });
   page.__errors = errors;
   return page;
 }
@@ -111,10 +124,105 @@ async function openThread(page, threadId) {
   await page.waitForTimeout(250);
 }
 
-/// The CEO's own path: the keyboard shortcut, which pins THIS conversation (§3.3).
+/// The CEO's own path to a per-conversation flip: the keyboard shortcut, then his third
+/// option. TWO ACTS SINCE 2026-09-18, not one — ⌘⇧T asks WHERE it applies, like every
+/// other entrance, so a helper that only pressed the key would leave a modal open and every
+/// check below would then be measuring a sheet rather than a conversation.
+///
+/// It still stands for exactly what it stood for before: this conversation on (or off), the
+/// other conversations and the global default untouched. `apply_techy_scope`'s
+/// `TechyScope::Thread` arm is the same `techy_threads.insert(thread_id, enabled)` that the
+/// old `set_techy_mode` path performed, so the twenty checks that use this helper as a way
+/// to REACH the technical view are measuring the state they always were.
+///
+/// The raw keystroke is deliberately NOT wrapped here — checks 29 and 31 press it
+/// themselves, because what the key alone does is the thing they are about.
+///
+/// AND THE SHEET IS ANSWERED FROM THE KEYBOARD, WHICH IS MEASURED RATHER THAN PREFERRED.
+/// The first version clicked the radio and the confirm button; that moves the pointer to
+/// the middle of the window, out of the rail where `openThread`'s click left it, which
+/// un-hovers the conversation row and takes its `.nav-thread-more` (⋯) off the screen. Six
+/// of this suite's committed shots changed by 60-100 bytes each for that reason and no
+/// other, and the same move cost `contrast.js` two measured nodes on two surfaces. Arrow
+/// keys and Enter leave the pointer where the CEO's own hand left it.
 async function pressToggle(page) {
   await page.keyboard.press("Meta+Shift+T");
+  await page.waitForSelector("#techy-scope:not([hidden])");
+  // Derived, not typed: a conversation in no company is offered two options, not three.
+  for (let i = 0; i < 3 && (await scopeChecked(page)) !== "thread"; i++) {
+    await page.keyboard.press("ArrowDown");
+  }
+  assertEqual(await scopeChecked(page), "thread", "the per-conversation tier is the one being taken");
+  await page.keyboard.press("Enter");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
   await page.waitForTimeout(250);
+}
+
+/// Flip the rail's "Show the technical view" switch — a SCOPE-AMBIGUOUS control, so inside
+/// a conversation this is what opens the three-way choice.
+///
+/// IT LEAVES THE POPOVER OPEN, and that is not an oversight. The sheet is an `.overlay`
+/// (z-index 60) and the popover is `.popover` (20), so the sheet paints OVER the rail the
+/// moment the switch flips; a helper that tried to tidy the popover away first would be
+/// clicking the gear through a modal and hangs for the full 30s timeout. That is measured,
+/// not predicted — it is how the first draft of this helper failed. The popover is
+/// dismissed by `dismissPopover` once the sheet is resolved, which is also the order the
+/// CEO's own hand does it in.
+async function openTechySwitch(page, on) {
+  await page.click("#rail-settings");
+  await page.waitForSelector("#assertiveness-popover:not([hidden])");
+  if (on) await page.check("#techy-default");
+  else await page.uncheck("#techy-default");
+  await page.waitForSelector("#techy-scope:not([hidden])");
+}
+
+/// Put the rail's popover away, the way the CEO does (its own toggle), so the thread list
+/// underneath is clickable again. A no-op when it is not open — the chip path never opens
+/// it. NOT Escape: `main.js`'s Escape handler reaches the popover through `RichDismiss`,
+/// but going through the gear is the path a person takes and keeps this helper honest
+/// about what it is standing in for.
+async function dismissPopover(page) {
+  if (await page.locator("#assertiveness-popover").isHidden()) return;
+  await page.click("#rail-settings");
+  await page.waitForSelector("#assertiveness-popover", { state: "hidden" });
+  await page.waitForTimeout(120);
+}
+
+/// The sheet's option labels, in document order and only the ones on screen — a hidden
+/// option is not a choice he has.
+const scopeOptions = (page) =>
+  page.$$eval("#techy-scope-options .techy-scope-option", (rows) =>
+    rows.filter((r) => !r.hidden && r.getBoundingClientRect().height > 0)
+      .map((r) => r.textContent.trim())
+  );
+
+/// Which option is selected right now.
+const scopeChecked = (page) =>
+  page.evaluate(() => {
+    const on = document.querySelector('#techy-scope input[name="techy-scope"]:checked');
+    return on ? on.value : null;
+  });
+
+/// Pick a scope and confirm it — the whole act, as he performs it, ending with the rail
+/// back the way he found it.
+async function pickScope(page, value) {
+  await page.check('#techy-scope input[value="' + value + '"]');
+  await page.click("#techy-scope-confirm");
+  await page.waitForSelector("#techy-scope", { state: "hidden" });
+  await page.waitForTimeout(250);
+  await dismissPopover(page);
+}
+
+/// The rail's switch, and the settings menu's row: the two doors into one state.
+const railSwitch = (page) => page.isChecked("#techy-default");
+
+async function settingsSwitch(page) {
+  await page.click("#set-btn");
+  await page.waitForSelector("#set-techy");
+  const on = await page.isChecked("#set-techy");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(120);
+  return on;
 }
 
 /// The state line's SENTENCE, without the operator-facing reason appended after it.
@@ -308,25 +416,44 @@ async function main() {
     await openThread(page, "acme");
     assert(await page.locator("#techy-chip").isVisible(), "acme kept its pin across the switch away and back");
     const state = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
-    assertEqual(state, { default: false, threads: { acme: true } }, "one thread pinned, the global default untouched");
+    assertEqual(state, { default: false, companies: {}, threads: { acme: true } },
+      "one thread pinned, no company touched, the global default untouched");
     await page.close();
     return "per-thread override, and the global default never moved";
   });
 
   // ---- 9. the global switch (§3.1: "all" must be ONE switch) ----------------------------
-  await run.check("9. Settings switches every conversation, and pins survive it", async () => {
+  //
+  // CHANGED 2026-09-18 WITH THE CEO'S §7.1 ANSWER, and the change is worth stating because
+  // half of this check's old claim is now deliberately false. It used to flip the rail
+  // switch from inside `acme` — which `acme` had pinned OFF — and assert that acme's pin
+  // survived. That assertion described a switch that did nothing visible on the screen it
+  // was flipped on, and it survived review because nobody had asked what the CEO would see.
+  //
+  // He answered §7.1 by making the reach an explicit choice, so "one switch for all of
+  // them" is now his first option, and applying it CLEARS the pins below it on the path he
+  // is standing on (and on no other path — `hiring` below is the proof). The subject of
+  // this check is unchanged: the global tier reaches every conversation that is not pinned
+  // away from it. What changed is that the conversation he used to do it from is no longer
+  // the exception to his own instruction.
+  await run.check("9. Settings switches every conversation, and pins elsewhere survive it", async () => {
     const page = await openApp(browser);
-    await openThread(page, "acme");
-    await pressToggle(page); // pin acme ON
+    // A conversation pinned OFF in the same company, so the global switch has something to
+    // fail to reach — and it is NOT the one he does it from, because his own instruction is
+    // that the conversation he is looking at follows the choice he just made.
+    await openThread(page, "hiring");
+    await pressToggle(page); // pin hiring ON
     await pressToggle(page); // ...then pin it OFF, deliberately against the default below
-    await page.click("#rail-settings");
-    await page.waitForSelector("#assertiveness-popover:not([hidden])");
-    await page.check("#techy-default");
-    await page.waitForTimeout(250);
+    await openThread(page, "acme");
+    await openTechySwitch(page, true);
+    await pickScope(page, "all-companies");
     await shot(page, "../shots-3-1/3-1-03-one-switch-for-all-of-them");
     const state = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
-    assertEqual(state, { default: true, threads: { acme: false } }, "global on, acme's own answer kept");
-    assert(await page.locator("#techy-chip").isHidden(), "acme is pinned off and stays off");
+    assertEqual(state, { default: true, companies: {}, threads: { hiring: false } },
+      "global on; the pin he made on ANOTHER conversation keeps its own answer");
+    await openThread(page, "hiring");
+    assert(await page.locator("#techy-chip").isHidden(), "hiring is pinned off and stays off");
+    await openThread(page, "acme");
     // DISMISS THE POPOVER BEFORE REACHING PAST IT, which is what the CEO does and what this
     // check never had to say out loud until 2026-09-01. The rail row this next line clicks
     // sits BEHIND the open settings popover; it used to be a couple of rows clear of it and
@@ -353,14 +480,13 @@ async function main() {
     // `state: "hidden"` and not a `[hidden]` selector: waitForSelector's default is
     // "visible", so waiting for `#assertiveness-popover[hidden]` waits for an element to be
     // hidden AND visible at once and can only ever time out.
-    await page.click("#rail-settings");
-    await page.waitForSelector("#assertiveness-popover", { state: "hidden" });
-    await openThread(page, "hiring");
-    assert(await page.locator("#techy-chip").isVisible(), "an unpinned thread follows the global switch");
+    assert(await page.locator("#techy-chip").isVisible(), "the conversation he switched it on from is ON");
+    await openThread(page, "partner");
+    assert(await page.locator("#techy-chip").isVisible(), "and so is an unpinned thread in ANOTHER company");
     assertEqual(await page.textContent("#techy-chip-label"), "Technical view · everywhere",
-      "and says so, rather than implying he chose it here");
+      "and says so, rather than implying he chose it there");
     await page.close();
-    return "global default reaches the unpinned; the pin holds against it";
+    return "global default reaches the unpinned everywhere; a pin elsewhere holds against it";
   });
 
   // ---- 10. §7.1 stays reversible -------------------------------------------------------
@@ -697,6 +823,321 @@ async function main() {
     );
   });
 
+
+  // =======================================================================================
+  // §7.1'S THREE-WAY SCOPE CHOICE — the CEO's answer, 2026-09-18
+  //
+  // His sentence is the acceptance criterion:
+  //
+  //   "when the user toggles the techy mode on while being inside a conversation thread,
+  //    then there should be something like a radio button choice between 3 choices. And
+  //    those choices could be something like 1) 'For all threads in all companies' 2) 'For
+  //    all threads in this company' 3) 'For this thread only'. And the first choice should
+  //    be preselected after the user switches the techy mode on. That also means that later
+  //    the user should be able to switch off the techy mode for a given company or a given
+  //    thread."
+  //
+  // The fixture is what makes the middle tier provable: `acme` and `hiring` are both in
+  // `northwind`, `partner` is in `lumen`, and `legacy` is in no company at all. So "this
+  // company" has a sibling to reach and a bystander to leave alone, which is the only way
+  // a company tier differs observably from the two that already existed.
+  // =======================================================================================
+
+  await run.check("23. switching it on inside a conversation asks WHERE — his three choices, his order, first preselected", async () => {
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+    assert(await page.locator("#techy-scope").isHidden(), "nothing is asked before he touches a switch");
+    await openTechySwitch(page, true);
+    assert(await page.locator("#techy-scope").isVisible(), "the choice is on screen");
+    assertEqual(
+      await page.textContent("#techy-scope-title"),
+      "Turn on the technical view",
+      "and the title says which direction the confirm goes, so it is never inferred from which switch he touched"
+    );
+    assertEqual(await page.textContent("#techy-scope-confirm"), "Turn it on");
+    // HIS THREE, IN HIS ORDER. The one word changed is "threads" -> "conversations", which
+    // is the word every other surface in this product says to him.
+    assertEqual(await scopeOptions(page), [
+      "For all conversations in all companies",
+      "For all conversations in this company",
+      "For this conversation only",
+    ]);
+    assertEqual(await scopeChecked(page), "all-companies", "the FIRST choice is preselected");
+    // AND NOTHING HAS BEEN WRITTEN YET. The question is a question until he confirms it.
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: false, companies: {}, threads: {} },
+      "asking is not applying"
+    );
+    await shot(page, "../shots-3-1/3-1-05-where-should-this-apply");
+    await page.click("#techy-scope-cancel");
+    await page.waitForSelector("#techy-scope", { state: "hidden" });
+    await page.close();
+    return "three options, his order, first preselected, nothing written until he confirms";
+  });
+
+  await run.check("24. 'for all conversations in this company' reaches the sibling and leaves the other company alone", async () => {
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+    await openTechySwitch(page, true);
+    await pickScope(page, "company");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: false, companies: { northwind: true }, threads: {} },
+      "one company pinned, the global default untouched"
+    );
+    assert(await page.locator("#techy-chip").isVisible(), "the conversation he did it from is ON");
+    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · this company",
+      "and the chip names the TIER holding it, so turning it off is a predictable act");
+
+    await openThread(page, "hiring");
+    assert(await page.locator("#techy-chip").isVisible(), "the sibling conversation in the same company is on too");
+    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · this company");
+
+    await openThread(page, "partner");
+    assert(await page.locator("#techy-chip").isHidden(), "and a conversation in ANOTHER company is untouched");
+    assertEqual(await page.locator(".tl-tech").count(), 0, "it shows no technical row either");
+    await page.close();
+    return "northwind on, lumen untouched, the global default never moved";
+  });
+
+  await run.check("25. and later he can switch it off for a given company, or a given conversation", async () => {
+    // His last sentence, which is the half a switch-on-only build would lose.
+    const page = await openApp(browser);
+    await page.evaluate(() => window.RichBridge.invoke("set_techy_default", { enabled: true }));
+    await openThread(page, "acme");
+    assert(await page.locator("#techy-chip").isVisible(), "everything is on to start with");
+
+    // OFF for a given company, from the chip — the switch-off path inside a conversation.
+    await page.click("#techy-chip");
+    assert(await page.locator("#techy-scope").isVisible(), "the chip asks the same three");
+    assertEqual(await page.textContent("#techy-scope-title"), "Turn off the technical view");
+    assertEqual(await page.textContent("#techy-scope-confirm"), "Turn it off");
+    assertEqual(await scopeChecked(page), "all-companies", "the same first choice, in both directions");
+    await pickScope(page, "company");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: true, companies: { northwind: false }, threads: {} },
+      "this company is off UNDER an on global default"
+    );
+    assert(await page.locator("#techy-chip").isHidden(), "and the conversation he did it from went calm");
+    await openThread(page, "partner");
+    assert(await page.locator("#techy-chip").isVisible(), "the other company is still on");
+
+    // OFF for a given conversation, one tier down, inside the company that is still on.
+    await openTechySwitch(page, false);
+    await pickScope(page, "thread");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: true, companies: { northwind: false }, threads: { partner: false } },
+      "one conversation off, its company and the global default where they were"
+    );
+    assert(await page.locator("#techy-chip").isHidden());
+    await page.close();
+    return "off for a company under an on default, then off for one conversation under both";
+  });
+
+  await run.check("26. the tier he picks clears the pins BELOW it on this conversation, and on no other", async () => {
+    // THE DECISION IN `apply_techy_scope`, from the outside. He makes the choice while
+    // looking at one conversation, so the choice has to be true on THAT conversation — and
+    // every pin he made elsewhere has to survive it.
+    const page = await openApp(browser);
+    // A company pinned off last week, a conversation in it pinned off, and a bystander in
+    // another company pinned on.
+    await page.evaluate(() => {
+      window.__RICHOS_MOCK__.setTechyCompany("northwind", false);
+      return window.RichBridge.invoke("set_techy_mode", { threadId: "partner", enabled: true });
+    });
+    await openThread(page, "acme");
+    await page.evaluate(() => window.RichBridge.invoke("set_techy_mode", { threadId: "acme", enabled: false }));
+    await openThread(page, "acme");
+    assert(await page.locator("#techy-chip").isHidden(), "pinned off at both tiers below the global one");
+
+    await openTechySwitch(page, true);
+    await pickScope(page, "all-companies");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: true, companies: {}, threads: { partner: true } },
+      "this path's two pins are cleared; the bystander in another company is untouched"
+    );
+    // THE POINT OF CLEARING THEM, and the reason this is not merely tidiness: without it the
+    // switch he just moved would have changed nothing on the screen he moved it on.
+    assert(await page.locator("#techy-chip").isVisible(), "the conversation he switched it on from is ON");
+    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · everywhere");
+    await page.close();
+    return "the path he stood on is cleared to his choice; every other pin survives";
+  });
+
+  await run.check("27. Cancel and Escape apply nothing, and leave every switch showing what the store took", async () => {
+    // A checkbox flips ITSELF on the click that opens the sheet, so backing out has to
+    // repaint from the model or a switch is left claiming a state nothing accepted.
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
+
+    await openTechySwitch(page, true);
+    await page.click("#techy-scope-cancel");
+    await page.waitForSelector("#techy-scope", { state: "hidden" });
+    await dismissPopover(page);
+    assertEqual(await page.evaluate(() => window.__RICHOS_MOCK__.techyState()), before, "Cancel wrote nothing");
+    assertEqual(await railSwitch(page), false, "and the rail switch is back where the store is");
+    assert(await page.locator("#techy-chip").isHidden(), "and no chip appeared");
+
+    // Escape is the CEO's rule (2026-09-17) and it CANCELS — it is never a silent yes to
+    // the preselected option.
+    await openTechySwitch(page, true);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#techy-scope", { state: "hidden" });
+    await dismissPopover(page);
+    assertEqual(await page.evaluate(() => window.__RICHOS_MOCK__.techyState()), before, "Escape wrote nothing either");
+    assertEqual(await railSwitch(page), false);
+    await page.close();
+    return "two ways out, neither of them an answer";
+  });
+
+  await run.check("28. with no conversation open there is no choice to make, and with no company there are two", async () => {
+    // "Do not show a choice with one live option." On the opening screen "this company" and
+    // "this conversation" have no referent, so the switch writes the only tier that means
+    // anything. On a conversation with no company binding, two of the three are live and
+    // the middle one is not offered — `apply_techy_scope` would refuse it.
+    // `{ chosenEntity: null }` is the only boot with no conversation active — see `openApp`.
+    // The door used here is the universal settings menu, which is the one piece of chrome on
+    // EVERY screen and is exactly the entrance the CEO's "from Settings" names.
+    const page = await openApp(browser, undefined, { chosenEntity: null });
+    await page.click("#set-btn");
+    await page.waitForSelector("#set-techy");
+    await page.check("#set-techy");
+    await page.waitForTimeout(250);
+    assert(await page.locator("#techy-scope").isHidden(), "no sheet with nothing open");
+    assertEqual(
+      (await page.evaluate(() => window.__RICHOS_MOCK__.techyState())).default,
+      true,
+      "it went straight to the only tier that has a referent"
+    );
+    assertEqual(await page.isChecked("#set-techy"), true, "and the switch shows what was taken");
+    await page.close();
+
+    const page2 = await openApp(browser);
+    await openThread(page2, "legacy"); // entity_id: null — written before entity scoping
+    await openTechySwitch(page2, true);
+    assert(await page2.locator("#techy-scope").isVisible());
+    assertEqual(await scopeOptions(page2), [
+      "For all conversations in all companies",
+      "For this conversation only",
+    ], "the company option is not offered for a conversation that is in no company");
+    assertEqual(await scopeChecked(page2), "all-companies", "and his first choice is still the preselected one");
+    await page2.click("#techy-scope-cancel");
+    await page2.waitForSelector("#techy-scope", { state: "hidden" });
+    await page2.close();
+    return "opening screen: no sheet; a conversation with no company: two options, not a dead third";
+  });
+
+  await run.check("29. the keyboard shortcut ASKS WHERE, and Enter takes his first choice", async () => {
+    // CORRECTED 2026-09-18, AND THE CORRECTION IS THE POINT OF THIS CHECK. It used to assert
+    // the opposite — "the keyboard shortcut names its own scope, so it does not ask" — on
+    // the argument that `#techy-hint` calls ⌘⇧T the control that "shows it for one
+    // conversation only", so pressing it already chose option 3. That hint is a sentence
+    // `main.js` writes. The CEO's sentence is the acceptance criterion and it has no
+    // exception in it: "when the user toggles the techy mode on while being inside a
+    // conversation thread, then there should be something like a radio button choice between
+    // 3 choices ... And the first choice should be preselected". Pressing a shortcut is a
+    // way of toggling it on, so the shortcut asks.
+    //
+    // THE COST IS ONE KEYSTROKE, which is what keeps it a shortcut: ⌘⇧T, Enter.
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
+
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForSelector("#techy-scope:not([hidden])");
+    assertEqual(await scopeOptions(page), [
+      "For all conversations in all companies",
+      "For all conversations in this company",
+      "For this conversation only",
+    ], "his three choices, in his order — the same sheet every other entrance opens");
+    assertEqual(await scopeChecked(page), "all-companies", "with his first choice preselected");
+    assertEqual(await page.textContent("#techy-scope-title"), "Turn on the technical view");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      before,
+      "and NOTHING is written while the question is on screen — it asks instead of pinning"
+    );
+    assert(await page.locator("#techy-chip").isHidden(), "no chip yet either");
+
+    // Enter, with focus where the sheet put it: on the preselected option.
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("#techy-scope", { state: "hidden" });
+    await page.waitForTimeout(250);
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      { default: true, companies: {}, threads: {} },
+      "Enter took the preselected answer — his first choice, applied at the global tier"
+    );
+    assertEqual(await page.textContent("#techy-chip-label"), "Technical view · everywhere");
+
+    // AND THE HINT NO LONGER PROMISES ONE CONVERSATION, because that promise was the whole
+    // argument for the exception this check used to encode.
+    assertEqual(
+      await page.textContent("#techy-hint"),
+      "On for all conversations in all companies. ⌘⇧T asks where to change it.",
+      "the hint describes what the key actually does now"
+    );
+    await page.close();
+    return "⌘⇧T opens the sheet, writes nothing until Enter, then takes option 1";
+  });
+
+  await run.check("31. ⌘⇧T on the opening screen still does nothing at all", async () => {
+    // THE ONE THING THE CORRECTION HAD TO LEAVE ALONE. With no conversation open, two of the
+    // three options have no referent, so `requestTechyToggle` — the entrance the rail's
+    // switch and the settings row use — writes the GLOBAL DEFAULT directly. Wiring the
+    // shortcut to that entrance would have been the obvious one-line change, and it would
+    // have given ⌘⇧T a power it has never had: turning the technical view on for every
+    // conversation, from a screen with no conversation on it, with no sheet and no undo.
+    // This key has only ever meant something inside a conversation.
+    const page = await openApp(browser, undefined, { chosenEntity: null });
+    const before = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
+    await page.keyboard.press("Meta+Shift+T");
+    await page.waitForTimeout(250);
+    assert(await page.locator("#techy-scope").isHidden(), "no sheet, because there is no choice to make");
+    assertEqual(
+      await page.evaluate(() => window.__RICHOS_MOCK__.techyState()),
+      before,
+      "and nothing was written — in particular not the global default"
+    );
+    assertEqual(before.default, false, "(the boot state this is measured against)");
+    await page.close();
+    return "unchanged: the key is inert with no conversation open";
+  });
+
+  await run.check("30. the two doors into one state can never show different answers", async () => {
+    // §15's settings row and the rail's own switch. They now read the RESOLVED state rather
+    // than the global default, which is what makes them agree with the WINDOW as well as
+    // with each other: a switch showing "on" over a conversation pinned off is one control
+    // disagreeing with the screen it is drawn on.
+    const page = await openApp(browser);
+    await openThread(page, "acme");
+    await pressToggle(page); // pin acme ON, global default still off
+    assertEqual(await railSwitch(page), true, "the rail switch follows the conversation on screen");
+    assertEqual(await settingsSwitch(page), true, "and so does the settings menu's row");
+
+    await openThread(page, "hiring"); // unpinned, follows the off default
+    assertEqual(await railSwitch(page), false);
+    assertEqual(await settingsSwitch(page), false);
+
+    // A COMPANY pin, the tier neither door could see before today.
+    await openTechySwitch(page, true);
+    await pickScope(page, "company");
+    assertEqual(await railSwitch(page), true);
+    assertEqual(await settingsSwitch(page), true);
+    assertEqual(
+      await page.textContent("#techy-hint"),
+      "On for all conversations in this company. ⌘⇧T asks where to change it.",
+      "and the hint names which of the three tiers is holding it, since the label no longer can"
+    );
+    await page.close();
+    return "both doors, three tiers, one answer";
+  });
+
   await browser.close();
   const failed = run.report();
   process.exit(failed ? 1 : 0);
@@ -724,7 +1165,11 @@ main().catch((e) => {
 //     permission rows vanish; check 7 fails. (This was a REAL defect, found by running it.)
 //  8  main.js `toggleTechyThread`: pass `enabled: null` instead of `enabled: next` -> the
 //     shortcut clears an override instead of setting one, so nothing ever turns on;
-//     11 checks go red including 8.
+//     11 checks go red including 8. THAT FUNCTION NO LONGER EXISTS (2026-09-18: every
+//     entrance goes through the sheet), and the equivalent mutation on the path that
+//     replaced it is `confirmTechyScope`: send `scope` as `TECHY_SCOPE_PRESELECTED`
+//     regardless of what is checked -> `pressToggle` writes the global default instead of a
+//     pin and the same family of checks goes red, 8 first.
 //  9  mock.js `techyModeOf`: ignore `techyThreads` -> the pin does not survive the global
 //     switch; check 9 fails.
 // 10  mock.js `set_techy_mode`: `techyThreads.set(id, false)` on the null arm -> the clear
@@ -770,6 +1215,20 @@ main().catch((e) => {
 //     `padding-right: 20px` (the shipped defect, dev-walk audit N3) -> check 22 fails:
 //     "badge {...,\"right\":1004} intersects gear {\"left\":966,...}" at 1024x700, which is
 //     the exact overlap the audit's screenshot showed.
+//
+// 29  main.js, the ⌘⇧T handler: `if (activeThreadId) openTechyScope(!techyOn())` reverted
+//     to the 2026-09-18 morning behavior, `toggleTechyThread()` — which is literally the
+//     previous commit (`6e5eb6e0`), so this one was run red against the shipped tree rather
+//     than a hand edit. Check 29 fails at its first wait, "#techy-scope:not([hidden])"
+//     timing out at 30s, because the key pins the conversation instead of asking. Removing
+//     ONLY the keydown listener (Enter) leaves the same check red later instead, at the
+//     `state: "hidden"` wait — the sheet stays open because nothing answers Enter, which is
+//     the half of this check that no other check covers.
+// 31  main.js, the same handler: `openTechyScope` -> `requestTechyToggle`, the obvious
+//     one-line wiring -> on the opening screen the no-thread branch writes the global
+//     default, and check 31 fails on "nothing was written — in particular not the global
+//     default" with `default: true`. Checks 1-30 stay green under that mutation, which is
+//     why 31 exists.
 //
 // The whole sweep, with the run output and the two Rust-side mutations, is recorded at
 // `docs/verification/techy-mode-2026-08-30/mutation-runs.txt`.
