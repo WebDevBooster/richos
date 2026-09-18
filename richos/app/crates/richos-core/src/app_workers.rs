@@ -29,6 +29,32 @@ fn evidence_lock(folder: &Path) -> Option<std::fs::File> {
     #[cfg(not(unix))] { let _ = folder; None }
 }
 
+/// **`active` VS `liveness_unknown`, AND WHY THIS READER NOW TELLS THEM APART.**
+///
+/// Until 2026-09-18 every open run came back as `liveness_unknown` — an honest answer while
+/// the only two rows this file read were `SubagentStart` and `SubagentStop`, because neither
+/// says whether the run is going or gone. `native.rs`'s turn-end check then refused on any
+/// open run at all, killed the owning child, and told the CEO *"Worker settlement could not
+/// be verified at turn end."*
+///
+/// **There is a third row in the same journal that answers it, and it was being skipped.**
+/// `mega-lander/app.py`'s `prepare` hands the back end a payload stamped
+/// `run_in_background: true`, and the provider answers that `Agent` call immediately with
+/// `{"isAsync": true, "status": "async_launched", "agentId": "…"}`. That is the platform's
+/// own word, joined by `agent_id`, that this run was STARTED and is expected to outlive the
+/// call — the positive signal the settlement check was missing. Measured on candidate .10
+/// (work-lease session `0320b4d4…`, row 17) and on three `work_lease_roundtrip` runs.
+///
+/// So an open run whose id carries that word is `active` — running, by the provider's
+/// account — and an open run without one is still `liveness_unknown`, which is the honest
+/// answer for a run nobody witnessed starting in the background and nobody witnessed ending.
+/// The distinction is arithmetic over rows that are already in the file; nothing here probes
+/// a process, reads an mtime or infers anything from silence.
+///
+/// **What it does NOT claim.** `active` here means "the platform said it launched this and
+/// no end has been observed". It is not a liveness syscall — `worker_status.rs`'s `active`
+/// is, from a different source — and the caller that needs the hosting child to be alive
+/// establishes that itself (`native.rs` has just been handed the turn's result by it).
 pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
     fn unavailable(reason: Unattributed) -> WorkerStatusView { WorkerStatusView {unattributed:Some(reason),..Default::default()} }
     let Some(session) = session else { return unavailable(Unattributed::NoSession); };
@@ -40,6 +66,10 @@ pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
     let path = folder.join("callbacks.jsonl");
     let Ok(file) = std::fs::File::open(path) else { return unavailable(Unattributed::AppEvidenceUnavailable); };
     let mut open = BTreeMap::new();
+    // **THE PROVIDER'S OWN WORD THAT IT LAUNCHED A RUN IN THE BACKGROUND**, joined by
+    // `agent_id`. An open run with this beside it and an open run without it are different
+    // facts and this reader used to give them the same answer — see the note on [`status`].
+    let mut launched = std::collections::BTreeSet::new();
     for line in BufReader::new(file).lines() {
         let Ok(line) = line else {return unavailable(Unattributed::AppEvidenceUnavailable)};
         let Ok(row) = serde_json::from_str::<serde_json::Value>(&line) else {return unavailable(Unattributed::AppEvidenceUnavailable)};
@@ -55,13 +85,39 @@ pub fn status(state: &Path, session: Option<&str>) -> WorkerStatusView {
                 let Some(id) = callback["agent_id"].as_str().filter(|s|!s.is_empty()) else {return unavailable(Unattributed::AppEvidenceUnavailable)};
                 open.remove(id);
             }
+            Some("PostToolUse") if callback["tool_name"] == "Agent" => {
+                let response = &callback["tool_response"];
+                if response["status"] == "async_launched" {
+                    if let Some(id) = response["agentId"].as_str().filter(|s| !s.is_empty()) {
+                        launched.insert(id.to_string());
+                    }
+                }
+            }
             _ => {}
         }
     }
-    let items: Vec<_> = open.into_iter().map(|(id,label)| WorkerItem {
-        label:format!("{label}: started; awaiting an observed end"),state:"unknown".into(),agent_id:Some(id)
-    }).collect();
-    WorkerStatusView {liveness_unknown:items.len(),items,..Default::default()}
+    let (mut active, mut liveness_unknown) = (0usize, 0usize);
+    let items: Vec<_> = open
+        .into_iter()
+        .map(|(id, label)| {
+            if launched.contains(&id) {
+                active += 1;
+                WorkerItem {
+                    label: format!("{label}: running in the background"),
+                    state: "active".into(),
+                    agent_id: Some(id),
+                }
+            } else {
+                liveness_unknown += 1;
+                WorkerItem {
+                    label: format!("{label}: started; awaiting an observed end"),
+                    state: "unknown".into(),
+                    agent_id: Some(id),
+                }
+            }
+        })
+        .collect();
+    WorkerStatusView { active, liveness_unknown, items, ..Default::default() }
 }
 
 #[cfg(test)] mod tests {

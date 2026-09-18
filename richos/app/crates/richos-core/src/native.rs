@@ -3395,25 +3395,40 @@ impl Cognition for NativeCognition {
         // WORKER SETTLEMENT AT TURN END — and WHICH of its three readings fired
         // ===================================================================================
         //
-        // **The check itself is right, and it was right on candidate .10.** The question the
-        // brief for this change asked — whether a turn-end check can be correct at all when a
-        // background job outlives the turn — is answered no here, because this is not the
-        // front desk's turn: it is the BACK END's, and the back end's turn IS the job
-        // (`work_host.rs`'s `run_one`). Four separate pieces of that flow need the worker to
-        // end inside the turn (`mega-lander/app.py`'s `prepare`, where the measurement is
-        // written out), so a helper still open at this line means the back end walked away
-        // from it. Stopping owned execution is the honest response and it stays.
+        // **A RUN THE PLATFORM SAID IT LAUNCHED IN THE BACKGROUND IS NO LONGER KILLED HERE**,
+        // and that one word is the whole of candidate .10's failure card.
         //
-        // **What was missing is which of the three readings fired.** Ray's candidate-.10 walk
-        // produced this sentence twice and nothing recorded whether the evidence was
-        // unattributed, whether a run was counted active, or whether a run was open with its
-        // liveness unknown — the same gap `work_host::settlement` closed for itself on
-        // 2026-09-18 ("nothing wrote the reason down"). Diagnosing it took reading an
-        // 18-row callback journal out of a scratch HOME that could have been deleted at any
-        // moment. One `eprintln!` ends that for good; the sentence he reads is unchanged.
+        // The check was written on 2026-09-16 (`ef688b5d`), before the work lease existed, for
+        // a turn that ended with a worker it could not account for: kill the owned processes,
+        // keep their workspaces, say so. Against an ORPHAN that is still exactly right.
+        //
+        // What it could not tell apart is the ordinary shape of this product. The back end is
+        // handed a payload stamped `run_in_background: true` (`mega-lander/app.py`'s
+        // `prepare`, which has to: `guard-worktree-isolation.sh` clause 7b refuses a
+        // file-capable spawn with `run_in_background: false`, and the engine binds the
+        // worker's platform id to its app receipt at `PostToolUse[Agent]`, which a synchronous
+        // call does not deliver until the worker has already finished — measured, every one of
+        // its tool calls refused with *"worker identity has not joined its app receipt"*). The
+        // provider answers such a call `{"status": "async_launched"}` at once and the turn
+        // ends with the worker running, by design. Killing the child there kills the worker
+        // inside it, which is why `notes.txt` was still `hello`.
+        //
+        // So the refusal now reads the journal's third row as well
+        // (`app_workers::status`): an open run the platform said it LAUNCHED is `active` and
+        // passes; an open run with no such word is `liveness_unknown` and is still an orphan,
+        // still stopped, still reported. Unattributed evidence is unchanged — it was never the
+        // reading that fired. **This is not a weaker check, it is the same check given the
+        // fact it was missing**, and `work_host::settlement` still treats BOTH counts as
+        // "not settled", so nothing downstream starts calling a running job finished.
+        //
+        // **And it says which reading fired.** Ray's walk produced this sentence twice and
+        // nothing recorded which of the three conditions was true, so diagnosing it meant
+        // reading an 18-row callback journal out of a scratch HOME that could have been
+        // deleted at any moment — the same gap `work_host::settlement` closed for itself on
+        // 2026-09-18 ("nothing wrote the reason down").
         if let Some(profile) = &self.engine_profile {
             let workers = crate::app_workers::status(&profile.state, Some(&self.session_id));
-            if !workers.is_attributed() || workers.active > 0 || workers.liveness_unknown > 0 {
+            if !workers.is_attributed() || workers.liveness_unknown > 0 {
                 eprintln!(
                     "[richos] worker settlement refused this turn end on session {}: \
                      unattributed={:?} active={} liveness_unknown={} open={:?}",
@@ -5256,7 +5271,12 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
     fn worker_settlement_requires_readable_evidence_before_a_normal_turn_end() {
         use crate::cognition::Cognition;
         use std::collections::BTreeMap;
-        for scenario in ["open", "damaged", "missing", "unreadable", "empty", "settled"] {
+        // `background` is candidate .10's own shape and the one arm that changed on
+        // 2026-09-18: a run the platform answered `async_launched` for is running by the
+        // platform's own word, and the turn that started it is allowed to end. `open` is the
+        // same journal WITHOUT that row — an orphan — and is still stopped and still refused,
+        // which is what keeps this from being a weakened check.
+        for scenario in ["open", "background", "damaged", "missing", "unreadable", "empty", "settled"] {
             let script = write_script("audit-unsettled", r#"
 read -r init
 printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
@@ -5273,6 +5293,10 @@ read -r keep_alive
                 "damaged" => log.push_str("{\"schema\":"),
                 "empty" => log.clear(),
                 "settled" => log.push_str(&(serde_json::json!({"schema":1,"callback":{"session_id":cognition.session_id,"hook_event_name":"SubagentStop","agent_id":"still-running"}}).to_string()+"\n")),
+                "background" => log.push_str(&(serde_json::json!({"schema":1,"callback":{
+                    "session_id": cognition.session_id, "hook_event_name": "PostToolUse", "tool_name": "Agent",
+                    "tool_response": {"isAsync": true, "status": "async_launched", "agentId": "still-running"}}})
+                    .to_string() + "\n")),
                 _ => {},
             }
             std::fs::write(folder.join(".lock"), "").unwrap();
@@ -5289,8 +5313,12 @@ read -r keep_alive
             });
             let result = cognition.prompt("Synthetic audit turn", &mut |_| {});
             let provider_alive = cognition.client.child.try_wait().unwrap().is_none();
-            println!("SETTLEMENT scenario={scenario}, liveness_unknown={}, unattributed={:?}, result={result:?}, provider_alive={provider_alive}", state.liveness_unknown,state.unattributed);
-            if matches!(scenario, "empty" | "settled") { assert_eq!(result.unwrap(),"end_turn"); assert!(provider_alive); }
+            println!("SETTLEMENT scenario={scenario}, active={}, liveness_unknown={}, unattributed={:?}, result={result:?}, provider_alive={provider_alive}", state.active,state.liveness_unknown,state.unattributed);
+            if scenario == "background" {
+                // The counts, not just the outcome: the run is open AND accounted for.
+                assert_eq!((state.active, state.liveness_unknown), (1, 0));
+            }
+            if matches!(scenario, "empty" | "settled" | "background") { assert_eq!(result.unwrap(),"end_turn"); assert!(provider_alive); }
             else { assert!(result.is_err()); assert!(!provider_alive); }
         }
     }
