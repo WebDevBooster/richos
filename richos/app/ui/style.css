@@ -81,6 +81,10 @@
   --gold: #c2a35c;
   --gold-text: #c2a35c;
   --gold-soft: rgba(194, 163, 92, 0.13);
+  /* The CEO's own message while it is still optimistic — HALF `--gold-soft`, and a fill rather
+     than an opacity. The whole derivation, both themes, is beside
+     `.tl-user.is-pending .tl-user-bubble` (audit-7 row 11). */
+  --bg-user-pending: rgba(194, 163, 92, 0.065);
   /* THE ALIVENESS MARK — its own token because it is a NON-TEXT INDICATOR that must hold
      3:1 at every instant of every animation, and `--gold` does not survive being faded:
      the old `.tl-pulse` breathed `--gold` between 0.2 and 0.7 opacity and computed 1.40:1
@@ -235,6 +239,9 @@
   --gold: #9c7c34;
   --gold-text: #715715;
   --gold-soft: rgba(156, 124, 52, 0.12);
+  /* HALF `--gold-soft`, the light branch. See `.tl-user.is-pending .tl-user-bubble`: this is
+     the theme the CEO's desk is actually in, and the theme the 3.09:1 failure was measured in. */
+  --bg-user-pending: rgba(156, 124, 52, 0.06);
   /* And here the split earns itself a second time. Light `--gold` is 3.15:1 on the ground —
      a pass with nothing left over, and a FAIL the moment it is faded by a single percent,
      which is how the old pulse reached 2.14:1 at its brightest and 1.22:1 at its dimmest in
@@ -2824,10 +2831,51 @@ body.bp-narrow .tl-user-bubble {
   color: var(--ink-soft);
 }
 
-/* Optimistic, not yet acknowledged by the spine. One notch of transparency and nothing
-   else — no spinner, no "sending…" label that would be a claim about delivery. */
+/* Optimistic, not yet acknowledged by the spine. No spinner, no "sending…" label that would
+   be a claim about delivery — the bubble is a notch quieter and nothing else.
+
+   AUDIT-7 ROW 11: THE NOTCH USED TO BE `opacity: 0.72` ON THE WHOLE BUBBLE, AND THAT PUT HIS
+   OWN WORDS BELOW THE FLOOR. Opacity composites the text AND its background against the page
+   together, so it takes the ink down with the fill. Ray measured 3.09:1 on the rendered frame
+   against the 4.5:1 normal-text floor, with settled bubbles fine at 5.50:1.
+
+   COMPUTED FROM THE TOKENS, both themes, WCAG sRGB relative luminance with the alpha
+   compositing done explicitly. The derivation reproduces Ray's screen reading to 0.05, which
+   is what makes the rest of this table trustworthy:
+
+     light  --ink-soft rgba(12,19,34,.68) on --gold-soft rgba(156,124,52,.12) over #eae6dd
+     dark   --ink-soft rgba(223,228,238,.64) on --gold-soft rgba(194,163,92,.13) over #0c1322
+
+                        light          dark
+       opacity 0.72     3.09:1 FAIL    3.67:1 FAIL      <- what shipped (Ray read 3.09:1)
+       opacity 0.80     3.63:1 FAIL    4.21:1 FAIL
+       opacity 0.85     4.02:1 FAIL    4.58:1 pass
+       opacity 0.90     4.47:1 FAIL    4.96:1 pass
+       opacity 1.00     5.55:1 pass    5.77:1 pass      <- settled (Ray read 5.50:1)
+
+   SO THERE IS NO OPACITY THAT BOTH SOFTENS THE BUBBLE AND CLEARS THE FLOOR: even 0.90, which
+   is barely a notch at all, reads 4.47:1 in light mode. The quiet has to come from somewhere
+   that is not the ink.
+
+   IT COMES FROM THE FILL ALONE. `--bg-user-pending` is the same gold at HALF the alpha of
+   `--gold-soft`, so the bubble reads as not-yet-settled in exactly the way the transparency
+   did, and the ink keeps its own contrast against it — it goes UP, not down, because a
+   quieter fill is further from `--ink-soft` than the settled one:
+
+       dark   ink-soft on rgba(194,163,92,.065) over #0c1322  =  6.18:1   (floor 4.5)
+       light  ink-soft on rgba(156,124,52,.06)  over #eae6dd  =  5.71:1   (floor 4.5)
+
+   No layout change either, which `opacity` gave for free and a border would not.
+
+   DECLARED EXEMPTION, because it is a claim and it belongs where a reviewer sees it: the
+   bubble's FILL against the page is a decorative highlight, not a non-text indicator. It is
+   `--gold-soft`, whose interior this file already declares exempt on the same ground at the
+   progress track (1.22:1 dark / 1.13:1 light); the pending fill is 1.09:1 dark / 1.06:1
+   light. Pending-ness was conveyed by that fill in the old treatment too, so nothing that was
+   communicated has been taken away. What changes is that his own sentence is legible while it
+   waits — and it is his own sentence, so it was never a candidate for the exemption. */
 .tl-user.is-pending .tl-user-bubble {
-  opacity: 0.72;
+  background: var(--bg-user-pending);
 }
 
 /* ---- §5.2 / §5.4 Rich's prose -----------------------------------------------------------

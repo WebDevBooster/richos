@@ -57,6 +57,11 @@
       "checked": 104,
       "considered": 488
     },
+    "pending-user-bubble": {
+      "//": "Audit-7 row 11. The same thread as `thread`, held at the moment the CEO has pressed Return and the spine has not answered: 8 more nodes measured than the settled walk, which is his bubble, its text and the turn scaffolding around it. Both themes agree on 112/500. The failure this surface exists to catch was `opacity: 0.72` on the whole bubble, 3.09:1 light on his own words against a 4.5:1 floor.",
+      "checked": 112,
+      "considered": 500
+    },
     "corrections": {
       "checked": 46,
       "considered": 506

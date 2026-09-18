@@ -400,6 +400,38 @@ const SURFACES = [
     },
   },
   {
+    name: "pending-user-bubble",
+    what: "the CEO's own message while it waits — audit-7 row 11, measured at 3.09:1 on his screen",
+    drive: async (p) => {
+      // WHY THIS IS ITS OWN SURFACE. Every other walk measures a SETTLED thread, and the
+      // settled user bubble has always been fine (5.50:1 on Ray's frame, 5.55:1 computed).
+      // The failure lived in a state that exists for a second or two and that no driver had
+      // ever paused on: `.tl-user.is-pending`, which shipped `opacity: 0.72` over the whole
+      // bubble and took the ink down with the fill. Ray caught it because he was looking at
+      // the screen at the moment he pressed Return.
+      await p.click('.nav-thread[data-thread-id="hiring"]');
+      await atHiringThread(p);
+      await pageSettled(p);
+      // THE SEND IS STALLED, NOT FAKED. `send()` puts the optimistic bubble up synchronously
+      // (`main.js`'s `addPendingUserMessage`) and then awaits `send_message`; a promise that
+      // never settles holds the surface at exactly the moment being measured, through the
+      // shipping path, with the shipping markup and the shipping class.
+      await p.evaluate(() => {
+        const real = window.RichBridge.invoke.bind(window.RichBridge);
+        window.RichBridge.invoke = (name, args) =>
+          name === "send_message" ? new Promise(() => {}) : real(name, args);
+      });
+      await p.fill("#input", "Please add a line to notes.txt and land it.");
+      await p.press("#input", "Enter");
+      await p.waitForSelector(".tl-user.is-pending .tl-user-text", { state: "visible", timeout: 8000 });
+      await pageSettled(p);
+      // And it is still pending when the walk starts — a bubble that settled mid-drive would
+      // make this surface a second copy of `thread` and report a pass for the wrong state.
+      const pending = await p.$$eval(".tl-user.is-pending .tl-user-text", (n) => n.length);
+      if (pending < 1) throw new Error("the pending bubble settled before the walk — this surface measured nothing");
+    },
+  },
+  {
     name: "corrections",
     what: "the correction desk, both families, with two asks waiting",
     drive: async (p) => {
