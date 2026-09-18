@@ -1777,6 +1777,18 @@ is still the honest note. Five reproducible rigs carry the evidence: `aec_rig` (
 `aec_live`, `aec_probe`, `aec_transcribe`, `bargein_score` (offline, and the one that chose the
 rule).
 
+**The recording of the CEO's voice is not in this repository, and there is no copy of it here to
+find.** `richos` is public, so the microphone track named `ceo-rig-2026-09-18-nearend2-mic.wav` is
+committed only to the private `richos-hq` repository, under its `fixtures/echo-path/` directory; it
+is resolved at run time through `$RICHOS_PRIVATE_FIXTURES` or a side-by-side `richos-hq` checkout.
+The rest of that fixture family — the reference track and both sidecars — is in
+`crates/richos-voice/tests/fixtures/echo-path/`, and none of it carries his voice. Without the
+private track the one test that needs it reports `ignored` with a reason naming it — never `ok` —
+and the false-positive test above still runs everywhere, because its recordings contain no near-end
+voice. What moved, and the measurements that say the rest is safe to keep:
+`crates/richos-voice/TESTING.md` and
+`docs/verification/2026-09-18-the-ceos-voice-moves-to-the-private-repository.md`.
+
 **Foundation only / later legs:** the attention-seam TRIGGER (timers/log-watchers that decide
 WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment is not),
 a magnitude-domain echo DETECTOR for the barge-in decision path (the linear canceller has

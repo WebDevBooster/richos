@@ -144,6 +144,18 @@ set and is never used as one.** False positives are measured only on the two rec
 contain no near-end voice at all. Full derivation in the committed sidecar
 `ceo-rig-2026-09-18-nearend2-nearend.json`.
 
+**THE RECORDING ITSELF IS NOT IN THIS REPOSITORY.** `ceo-rig-2026-09-18-nearend2-mic.wav` is his
+voice, `richos` is public, so it is committed to the private `richos-hq` repository at
+`fixtures/echo-path/` (793,132 bytes,
+`sha256 786adf8073d0eee99b5a1d639abc5f459e2f6c1284188ab33d75ba8c1f93cfe3`). Every other file of the
+family stays here, including its `-reference.wav` and both sidecars, and that none of them carries
+his voice was measured rather than assumed. To reproduce anything in this document that uses his
+recording, point `RICHOS_PRIVATE_FIXTURES` at that directory; without it the test that needs it
+reports `ignored` with a reason naming the file and never `ok`. Why it moved and what was measured:
+`2026-09-18-the-ceos-voice-moves-to-the-private-repository.md`. Everything else in this document —
+every level, every interval, every score — is a number derived from the recording, and numbers are
+not his words.
+
 ---
 
 ## 4. Every candidate, scored
