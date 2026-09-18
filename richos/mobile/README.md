@@ -18,7 +18,9 @@ your phone with RichOS on your Mac.
 **Reaching your Mac from outside the office** takes one of two paths:
 
 - **Technical users:** your own Tailscale account on the Mac and on the phone. RichOS guides you
-  through it with simple how-to screens in the app.
+  through it with simple how-to screens in the app. Full setup and troubleshooting, including the one
+  thing that trips up almost everybody: [**Tailscale setup and
+  troubleshooting**](./TAILSCALE-SETUP-AND-TROUBLESHOOTING.md).
 - **Everyone else:** a hosted relay, coming later.
 
 The web app ships inside RichOS on your Mac and talks only to it. There is no server of ours in
