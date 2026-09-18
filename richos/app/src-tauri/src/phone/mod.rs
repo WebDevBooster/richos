@@ -41,6 +41,7 @@ pub mod ca;
 pub mod device;
 pub mod names;
 pub mod push;
+pub mod routes;
 pub mod secrets;
 pub mod stream;
 
