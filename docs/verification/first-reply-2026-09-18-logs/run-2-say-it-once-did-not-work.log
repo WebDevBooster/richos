@@ -1,0 +1,33 @@
+---
+he said    : Land the pricing branch and get the staging deploy done.
+Rich said  : "On it!On it!"
+send -> first words : 13.628 s
+send -> turn ended  : 30.865 s
+tool calls before he spoke : 3
+      9.437 s  mcp__richos_assignments__record
+      9.718 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+     11.851 s  tool_call
+runs of prose he can see : 2
+     13.628 s  "On it!"  (turn_330c2fb22f684e42841fcbbe91afda7a:text:0)
+     30.585 s  "On it!"  (turn_330c2fb22f684e42841fcbbe91afda7a:text:1)
+---
+he said    : Why has the nightly build been failing since Tuesday? I want to know what's actually causing it.
+Rich said  : "I'll investigate.I'll investigate."
+send -> first words : 8.920 s
+send -> turn ended  : 13.518 s
+tool calls before he spoke : 3
+      4.414 s  mcp__richos_assignments__record
+      5.159 s  {"assignment":"Why has the nightly build been failing since Tuesday, and what's actu…
+      7.171 s  tool_call
+runs of prose he can see : 2
+      8.920 s  "I'll investigate."  (turn_678f1f55f436491283c97ad9d7a981d4:text:0)
+     13.237 s  "I'll investigate."  (turn_678f1f55f436491283c97ad9d7a981d4:text:1)
+---
+assignments written: 2
+  kind=task state=registered title="Land the pricing branch and get the staging deploy done"
+  kind=investigate state=registered title="Why has the nightly build been failing since Tuesday, and what's actually causing it?"
+[task] reply was "On it!On it!"
+[question] reply was "I'll investigate.I'll investigate."
+FAIL: [task] he was told the same thing twice: ["On it!", "On it!"]
+FAIL: [question] he was told the same thing twice: ["I'll investigate.", "I'll investigate."]
+Error: "2 check(s) failed"

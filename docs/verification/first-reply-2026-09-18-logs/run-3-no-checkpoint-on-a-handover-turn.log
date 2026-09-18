@@ -1,0 +1,31 @@
+---
+he said    : Land the pricing branch and get the staging deploy done.
+Rich said  : "On it!"
+send -> first words : 15.513 s
+send -> turn ended  : 15.804 s
+tool calls before he spoke : 3
+     11.714 s  mcp__richos_assignments__record
+     11.984 s  {"assignment":"Land the pricing branch and get the staging deploy done.","kind":"tas…
+     14.086 s  tool_call
+runs of prose he can see : 1
+     15.513 s  "On it!"  (turn_d4be24b7591643e18d6e100417c4378d:text:0)
+---
+he said    : Why has the nightly build been failing since Tuesday? I want to know what's actually causing it.
+Rich said  : "I'll investigate."
+send -> first words : 7.128 s
+send -> turn ended  : 7.405 s
+tool calls before he spoke : 3
+      3.122 s  mcp__richos_assignments__record
+      4.040 s  {"assignment":"Why has the nightly build been failing since Tuesday, and what is act…
+      6.034 s  tool_call
+runs of prose he can see : 1
+      7.128 s  "I'll investigate."  (turn_c4c0f9846d6e4c8fa7af435347d12d29:text:0)
+---
+assignments written: 2
+  kind=task state=registered title="Land the pricing branch and get the staging deploy done"
+  kind=investigate state=registered title="Why has the nightly build been failing since Tuesday, and what is actually causing it?"
+[task] reply was "On it!"
+[question] reply was "I'll investigate."
+---
+PASS: the register was the first tool call on every turn that handed work over, and nothing was discovered or written down ahead of his first word.
+slowest send -> first words this run: 15.513 s (budget 35 s; §55: a few seconds, 35 s is a defect)
