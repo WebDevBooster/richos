@@ -155,10 +155,11 @@ states share almost no words. **No new color is introduced on this screen.**
 ```
 cargo test -p richos-core --offline               1306 passed, 0 failed, 4 ignored
 cargo test --offline --bin richos-tauri            256 passed, 0 failed
-node ui/tests/phone.js                              11 checks, all green
+node ui/tests/phone.js                             11 checks, all green
 node ui/tests/contrast.js                          exit 0 — 39 surfaces x 2 themes = 78 walks,
                                                    0 failures, 0 new debt, 0 exemptions
-node ui/tests/appearance.js                        green after the menu order was updated
+node ui/tests/{affordances,appearance,escape,       all exit 0
+  control-names,dialect,docs-claims,settings-fit}
 ```
 
 ---
@@ -199,6 +200,14 @@ node ui/tests/appearance.js                        green after the menu order wa
   <seconds>`; the ISO helper's 2100 case said `03-01` from memory and the tool said `02-28`.
 - **Prose flush against the panel edge** — found by LOOKING at the screenshot the suite takes, which
   no contrast check and no node count could see.
+- **Thirty internal error strings were being shown to him.** `phone_begin_pairing` handed
+  `PhoneError::to_string()` to the screen, so `add-generic-password for tls-leaf-key exited 51` was
+  product copy. Found by `affordances.js`, which derives every user-visible string and refuses an
+  unclassified one. The fix was not to classify them; it was to stop showing them —
+  `PhoneError::ceo_sentence` now gives him one sentence he can act on and the detail goes to the log.
+- **Two of the pairing screen's three states could not be dismissed from the keyboard.** Three Close
+  buttons, one per state block; `data-dismiss` names ONE control and a button hidden with its block
+  cannot be clicked. Found by `escape.js`. One always-visible Close now.
 
 ---
 
