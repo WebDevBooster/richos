@@ -43,7 +43,7 @@
 	const FAULT = 'fault';
 
 	class ApiError extends Error {
-		constructor(reason, message, status) {
+		constructor(reason, message, status, aboutThisMessage) {
 			super(message);
 			this.name = 'ApiError';
 			this.reason = reason;
@@ -52,12 +52,37 @@
 			// way that might not repeat. A revoked device and a flat refusal are answers, not
 			// accidents, and retrying them is how a phone hammers a Mac that has forgotten it.
 			this.retryable = reason === UNREACHABLE || reason === FAULT;
+			// AND THE SECOND QUESTION THE QUEUE HAS TO ASK: was this about the MESSAGE, or about the
+			// PHONE? A refusal the Mac marked final is about this one item — this build cannot take a
+			// voice note, and the text behind it is unaffected. A forgotten device or a flat 404 is
+			// about the phone, applies identically to everything still queued, and the flush stops.
+			// Only `queue.js` reads this, and only to decide whether to carry on down the queue.
+			this.aboutThisMessage = aboutThisMessage === true;
 		}
 	}
 
 	function joinBase(base, path) {
 		if (!base) throw new ApiError(FAULT, 'no address for your Mac is stored yet');
 		return base.replace(/\/+$/, '') + path;
+	}
+
+	/// Did the Mac mark this refusal FINAL? Returns the parsed body when it did, and `null` for
+	/// every other shape — no body, a body that is not JSON, `retry` absent, or `retry` present as
+	/// anything but the boolean `false`. Read off a CLONE so the caller's `text()` is untouched.
+	async function finalRefusal(response) {
+		let body = null;
+		try { body = await response.clone().json(); } catch { return null; }
+		if (!body || typeof body !== 'object') return null;
+		return body.retry === false ? body : null;
+	}
+
+	/// WHAT THIS MAC CAN ACTUALLY DO, and it is DEFAULT-DENY (plan §2 A). The phone shipped a
+	/// "Hold to record" button against a Mac that answers every voice note 503, so a control is now
+	/// rendered only where the Mac has named the capability behind it. A Mac that says nothing —
+	/// which is every build before this one, and not one of them could take a voice note — offers
+	/// nothing. Exported because it is the whole decision, and the screen is not where it is tested.
+	function offers(capabilities, name) {
+		return Array.isArray(capabilities) && capabilities.indexOf(name) !== -1;
 	}
 
 	// The string that gets signed. Written once, here, because the Mac has to build the identical
@@ -92,6 +117,16 @@
 				state.apiBase = next;
 				onState(state);
 			}
+		}
+
+		/// REPLACED on every `hello`, never merged. A capability that was true once is not evidence
+		/// about the Mac answering now — he could have downgraded, or this could be a different Mac
+		/// at the same address — so an absent list puts the phone back to offering nothing rather
+		/// than leaving a control on screen on the strength of a frame that is no longer current.
+		function setCapabilities(next, build) {
+			state.capabilities = Array.isArray(next) ? next.slice() : [];
+			state.build = typeof build === 'string' ? build : null;
+			onState(state);
 		}
 
 		async function authorization(method, pathWithQuery, bodyHashHex) {
@@ -135,7 +170,23 @@
 			// §2.5 item 4: an unauthorized caller learns nothing, not even that it guessed a real
 			// path. So a 404 here means "not for you", never "this route is missing".
 			if (response.status === 404) throw new ApiError(REFUSED, 'your Mac did not accept this phone', 404);
-			if (!response.ok) throw new ApiError(FAULT, `your Mac answered with ${response.status}`, response.status);
+			if (!response.ok) {
+				// A REFUSAL THE MAC MARKED FINAL. `503 {"accepted":false,"reason":"…"}` is two
+				// different events wearing one status (contract §9): the Mac could not write his
+				// words down, which MUST be retried, and the Mac will not take this kind of message
+				// in this build, which must never be. Nothing about the status or the body shape
+				// separates them, so the Mac says which it is and the phone reads it — never the
+				// other way round, because a phone that guesses either strands a message or hammers.
+				//
+				// STRICTLY `=== false`. A missing key, a body that is not JSON, the string "false"
+				// and the number 0 are all faults, which is the direction that costs one wasted
+				// request rather than a message he has to type again.
+				const final = await finalRefusal(response);
+				if (final) {
+					throw new ApiError(REFUSED, final.reason || 'your Mac will not take that', response.status, true);
+				}
+				throw new ApiError(FAULT, `your Mac answered with ${response.status}`, response.status);
+			}
 			return response;
 		}
 
@@ -163,7 +214,12 @@
 			state,
 			setApiBase,
 			setChallenge,
+			setCapabilities,
 			signingInput,
+
+			/// "Can this Mac be asked for this?" — the only question the screen asks about
+			/// capabilities, so it is the only thing exposed rather than the list itself.
+			offers(name) { return offers(state.capabilities, name); },
 
 			// ---- (a) post a message -------------------------------------------------------------
 			//
@@ -230,6 +286,10 @@
 						if (name === 'hello') {
 							setChallenge(data.challenge);
 							setApiBase(data.api_base);
+							// Contract §5.3. `capabilities` is what this Mac can be asked for and
+							// `build` is which RichOS is answering — both read here, at the one
+							// place that knows the wire, and handed to the screen as state.
+							setCapabilities(data.capabilities, data.build);
 						}
 						if (handlers[name]) handlers[name](data);
 					});
@@ -285,5 +345,5 @@
 		};
 	}
 
-	return { createApi, ApiError, signingInput, UNREACHABLE, REVOKED, REFUSED, FAULT };
+	return { createApi, ApiError, signingInput, offers, UNREACHABLE, REVOKED, REFUSED, FAULT };
 });
