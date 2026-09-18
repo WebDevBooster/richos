@@ -60,12 +60,18 @@
 # test proves that --apply decides nothing --dry-run did not show.
 #
 # EXIT CODES
-#   0  every candidate was decided
+#   0  every candidate was decided and nothing failed to delete
 #   2  a threshold is not declared, or the liveness primitive is missing
 #   3  something was UNDECIDABLE — a running process that no session file
 #      names, a wall that tripped. Undecidable is a failure, never a footnote
 #      beside a success-shaped count, which is the rule the worktree reaper
 #      learned the same way.
+#   4  A DELETION FAILED. Added 2026-09-18: it used to be `3 if undecidable
+#      else 0`, with the failure list never consulted, so a run in which every
+#      deletion failed printed `applied: deleted=0 freed=0 B` — the same shape
+#      as a run with nothing to do — and handed launchd a green exit. The word
+#      FAILED existed only inside a log file nobody reads. 4 outranks 3 because
+#      a failed deletion is the branch of §54 where Rich deletes it by hand.
 #
 # ===========================================================================
 # EVERY THRESHOLD IS DECLARED. NONE IS A DEFAULT.
@@ -121,13 +127,26 @@ if [ "${SCRATCH_REAPER_ENABLE:-1}" = "0" ]; then
     exit 0
 fi
 
-export SCRATCH_CLAUDE_ROOTS SCRATCH_TMP_PATTERNS SCRATCH_AGE_FLOOR_MINUTES
-export SCRATCH_NIGHTLY_DIR SCRATCH_NIGHTLY_KEEP SCRATCH_NOTICE_BYTES
-export SCRATCH_SESSION_PROCESS_NAMES
-export SCRATCH_ROOT_NAME SCRATCH_DEFAULT_TTL_MINUTES
-export SCRATCH_LEGACY_TMP_PATTERNS SCRATCH_LEGACY_AGE_HOURS
-export SCRATCH_LEGACY_GIT_IS_FIXTURE
-export SCRATCH_DOCKER_PRUNE SCRATCH_DOCKER_KEEP_STORAGE SCRATCH_DOCKER_UNTIL
+# EVERY SCRATCH_* AND APP_* KEY THE CONFIG DECLARES IS EXPORTED, BY PATTERN AND
+# NEVER BY NAME. This used to be seven `export` lines listing each key, and that
+# shape has now failed twice: once when SCRATCH_DOCKER_UNTIL was declared and not
+# exported (the symptom was a --status that could not see its own second volume),
+# and once here — the deny-by-default keys were declared in orchestration.config,
+# read by config_from_env, and arrived EMPTY, so the whole arm was silently off
+# and the pass finished in 1.3 s looking exactly like a clean machine.
+#
+# A DECLARED-AND-UNREACHABLE KEY IS THE WORST FAILURE THIS FILE HAS, because both
+# halves look right: the config says the coverage is on, the code says it reads
+# the key, and nothing anywhere says the two never met. The list of names was the
+# defect; deriving the list from the config is the fix. `compgen -v` is bash's own
+# enumeration of what sourcing actually set, so a key cannot be declared and
+# missed, and nothing has to be remembered by anybody.
+while read -r _k; do
+    case "$_k" in
+        SCRATCH_*|APP_TEST_INSTANCE_*|APP_INSTANCE_*) export "$_k" ;;
+    esac
+done < <(compgen -v)
+unset _k
 
 # ---------------------------------------------------------------------------
 # INSTALL / UNINSTALL — the schedule, generated, never hand-written

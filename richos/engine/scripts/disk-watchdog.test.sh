@@ -27,7 +27,7 @@
 #        a deliberately silly number for exactly that reason.
 #   W2   a healthy machine: no alert, exit 0.
 #   W3   below the floor: the alert fires and names the free space.
-#   W4   a DROP larger than the threshold alerts even when absolute space is
+#   W4   a fall FASTER THAN THE DECLARED RATE alerts even when absolute space is
 #        fine. This is the arm that would have caught 2026-09-17.
 #   W5   the FIRST reading is not a drop. No previous state must not read as a
 #        fall from zero, or every fresh machine alerts once for nothing.
@@ -51,6 +51,24 @@
 #        environment — and still takes a reading and writes its log line.
 #   W16  --install REFUSES from a worktree or a temp directory, because the
 #        plist would bake in a path that stops existing at land time.
+#   W4c-W4f  THE DIVISOR (Frank's D7). The drop used to be a subtraction against a
+#        baseline of any age, so a ten-hour-old reading printed "DROPPED 30.0 GB"
+#        and called a normal working day our defect. It is a RATE now, and across a
+#        gap longer than a declared number of intervals NO RATE IS COMPUTED at all —
+#        the gap is reported instead (W4c/W4e, control W4d). W4f is the hole the fix
+#        itself opened, found by this suite: a sub-second gap made a 100 GB fall
+#        read as 496,862 GB/hour, so there is a MINIMUM gap too.
+#   W17  ONE ENVIRONMENT VARIABLE MUST NOT SILENCE THE FAILURE ALERT. The
+#        sweeper's failure record honored CLAUDE_CONFIG_DIR and this program's
+#        reader did not, so an exported variable — and the engine's own suites
+#        export it — sent the two to different directories and turned the MASSIVE
+#        ALERT off with no sign that it was off (frank-opus-garbage1, D9).
+#   W18  THE GARBAGE ALARM. His verdict on everything above it: "its alarm is a
+#        disk-space alarm and a delete-failure alarm; it has no garbage alarm",
+#        so ~53 GiB produced neither a cleanup nor a word. Garbage the sweeper
+#        will never collect now reaches Rich, on its own declared threshold, with
+#        the silence control that matters more than the alarm (W18b) and a
+#        separate lower threshold for the undecidable pile (W18c, his D12).
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -108,6 +126,12 @@ DISK_PRIMARY_VOLUME="${W_PRIMARY:-/System/Volumes/Data}"
 DISK_EXTRA_VOLUMES="${5:-}"
 DISK_RICH_ALERT_GB="$1"
 DISK_DROP_ALERT_GB="$2"
+# THE DROP TEST BECAME A RATE ON 2026-09-18 (D7) AND THIS LINE KEEPS EVERY
+# EXISTING CALLER'S MEANING. Readings are 15 minutes apart, so N GB per reading
+# IS 4N GB/hour: every call site below still says what it always said, and the
+# cases that follow still measure the threshold rather than "it alerts".
+DISK_DROP_ALERT_GB_PER_HOUR="$(( $2 * 4 ))"
+DISK_DROP_MAX_GAP_INTERVALS="${7:-3}"
 DISK_CEO_NOTIFY_GB="$3"
 DISK_CEO_URGENT_GB="$4"
 DISK_CEO_REPEAT_HOURS="${6:-24}"
@@ -203,14 +227,23 @@ touch "$W_LA/com.richos.disk-watchdog.plist"
 # W5 FIRST, because it is about the absence of state: with no previous reading,
 # the fall from "nothing" must be zero and not the size of the disk.
 OUT="$(run_wd --alert)"; RC=$?
-if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'DROPPED'; then
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
     ok "W5  the FIRST reading is not a drop — no state is not a fall from zero"
 else
     bad "W5  a first reading alerted as a drop"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
 fi
 
-# Now plant a previous reading 100 GB higher than reality and re-read.
+# Now plant a previous reading 100 GB higher than reality, ONE DECLARED INTERVAL
+# OLD, and re-read.
+#
+# THE AGE OF THE BASELINE IS PART OF THE FIXTURE NOW, because the drop test is a
+# RATE. Back-to-back readings gave a gap under a second, and 100 GB across that is
+# 496,862 GB/hour — which exceeds every threshold and made W4b's control
+# meaningless. The suite found that, and the program grew a
+# DISK_DROP_MIN_GAP_SECONDS because of it: a denominator that is too small is
+# exactly as meaningless as one that is too large, and it errs toward a false
+# alarm rather than toward silence.
 run_wd --check >/dev/null 2>&1
 python3 - "$W_STATE" <<'PY'
 import json, sys
@@ -218,13 +251,20 @@ p = sys.argv[1]
 s = json.load(open(p))
 for v in s["volumes"]:
     v["free_bytes"] = v["free_bytes"] + 100 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 900
 json.dump(s, open(p, "w"), indent=1, sort_keys=True)
 PY
 OUT="$(run_wd --check)"; RC=$?
-if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'DROPPED'; then
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'FALLING at'; then
     ok "W4  a 100 GB fall between readings alerts with the absolute level fine"
 else
     bad "W4  the drop arm did not fire (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+if printf '%s' "$OUT" | grep -q 'GB/hour'; then
+    ok "W4a and it states a RATE, so the number can be argued with"
+else
+    bad "W4a the alert gives a fall with no elapsed time in it (D7)"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
 fi
 
@@ -237,14 +277,124 @@ p = sys.argv[1]
 s = json.load(open(p))
 for v in s["volumes"]:
     v["free_bytes"] = v["free_bytes"] + 100 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 900
 json.dump(s, open(p, "w"), indent=1, sort_keys=True)
 PY
 OUT="$(run_wd --check)"; RC=$?
-if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'DROPPED'; then
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
     ok "W4b CONTROL: the same 100 GB fall under a 500 GB threshold is silent"
 else
     bad "W4b CONTROL FAILED: it alerts regardless of the threshold"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+
+# ===========================================================================
+# W4c / W4d — A STALE BASELINE IS NOT A DROP (D7)
+# ===========================================================================
+# frank-opus-garbage1 aged the previous reading ten hours and the watchdog printed
+# "DROPPED 30.0 GB since the last reading ... CLASSIFICATION: RichOS garbage
+# (DEFECT)". The arithmetic had no elapsed-time term at all, so a closed laptop, a
+# wake from sleep, an upgrade window or a launchd job unloaded and reloaded
+# manufactured an alert out of a normal working day — 3 GB/hour on this machine.
+#
+# A fall averaged over ten hours says nothing about any hour inside it, so the
+# program now REFUSES TO COMPUTE A RATE across a gap that long and reports the gap.
+world dropstale
+write_cfg 1 20 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+# 30 GB higher than reality, and the reading is TEN HOURS old.
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 30 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 10 * 3600
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
+    ok "W4c a 30 GB fall across a TEN-HOUR gap raises no drop alert (D7)"
+else
+    bad "W4c a stale baseline still manufactures a drop alert (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+# THE CONTROL, and it is the one that stops W4c passing against an arm that has
+# simply been switched off: the SAME 30 GB fall inside one interval must alert.
+world dropfresh
+write_cfg 1 20 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 30 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 900
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'FALLING at'; then
+    ok "W4d CONTROL: the same 30 GB fall inside one interval DOES alert"
+else
+    bad "W4d CONTROL FAILED: the drop arm is off, so W4c proves nothing (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+# And the gap must be REPORTED rather than merely swallowed, inside a block that
+# is already being printed for another reason.
+world dropstalesay
+write_cfg 999999 20 1 1                 # the absolute floor fires, so a block prints
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 30 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 10 * 3600
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if printf '%s' "$OUT" | grep -q 'NO COMPARABLE PREVIOUS READING' \
+   && printf '%s' "$OUT" | grep -q '600 min'; then
+    ok "W4e the gap is REPORTED with its size, instead of divided by"
+else
+    bad "W4e the stale gap was swallowed silently (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -14
+fi
+
+# ===========================================================================
+# W4f — A GAP THAT IS TOO SHORT IS NOT A DROP EITHER
+# ===========================================================================
+# THE HOLE THE D7 FIX OPENED, and the suite is what found it. A rate has a
+# denominator, and a denominator is dangerous at BOTH ends: with back-to-back
+# readings the gap was under a second and a 100 GB fall read as
+# "FALLING at 496862.1 GB/hour" — above every conceivable threshold. In production
+# that is a launchd job firing twice in quick succession, or a person running
+# --check a moment after the timer did. It errs toward a FALSE ALARM, which is the
+# worse of the two directions, so it is refused like the stale case.
+world dropquick
+write_cfg 1 20 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+# A large fall, and the baseline is from THIS SECOND.
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 100 * 1024 ** 3
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
+    ok "W4f a 100 GB fall across a SUB-SECOND gap raises no rate alert"
+else
+    bad "W4f a double-fire manufactured a rate alert (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
 fi
 
 # ===========================================================================
@@ -532,6 +682,114 @@ if [ ! -f "$W_LA/com.richos.disk-watchdog.plist" ]; then
     ok "W16b ...and wrote no plist"
 else
     bad "W16b a plist was written despite the refusal"
+fi
+
+# ===========================================================================
+# W17 — ONE ENVIRONMENT VARIABLE MUST NOT SILENCE THE FAILURE ALERT (D9)
+# ===========================================================================
+# frank-opus-garbage1 turned the whole MASSIVE ALERT off with a single exported
+# variable and no sign that it was off. The sweeper's failures_path() honored
+# CLAUDE_CONFIG_DIR; this program's reader did not; and SCRATCH_FAILURES_STATE was
+# declared in no config file, so nothing reconciled them. The sweeper wrote its
+# failure under $CLAUDE_CONFIG_DIR/state/ and `--alert` read ~/.claude/state/ and
+# printed nothing, exit 0.
+#
+# The engine's own suites export CLAUDE_CONFIG_DIR (run-all-tests.test.sh:43), so
+# this was a live knob rather than a hypothetical one.
+world configdir
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+# The config here deliberately does NOT declare SCRATCH_FAILURES_STATE, which is
+# the state Frank found the shipped engine in: the DEFAULT has to honor
+# CLAUDE_CONFIG_DIR, or the declaration is the only thing standing between this
+# alert and silence.
+grep -v 'SCRATCH_FAILURES_STATE' "$W_CFG" >"$W_CFG.tmp" && mv "$W_CFG.tmp" "$W_CFG"
+mkdir -p "$W_DIR/cfg/state"
+python3 - "$W_DIR/cfg/state/scratch-failures.json" <<'PY'
+import json, sys
+json.dump({"/tmp/silenced-by-an-env-var": {
+    "first": "2026-09-18T09:04:35Z", "last": "2026-09-18T09:04:35Z",
+    "error": "[Errno 13] Permission denied", "attempts": 1}},
+    open(sys.argv[1], "w"), indent=1)
+PY
+OUT="$(CLAUDE_CONFIG_DIR="$W_DIR/cfg" run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'silenced-by-an-env-var'; then
+    ok "W17  CLAUDE_CONFIG_DIR is honored — the failure alert cannot be silenced"
+else
+    bad "W17  one exported variable still turns the MASSIVE ALERT off (D9, rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+# THE CONTROL. Without it this passes against a program that alerts on anything:
+# the same run with nothing in that directory must be silent.
+rm -f "$W_DIR/cfg/state/scratch-failures.json"
+OUT="$(CLAUDE_CONFIG_DIR="$W_DIR/cfg" run_wd --alert)"; RC=$?
+if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
+    ok "W17b CONTROL: with no failure in that directory it is silent"
+else
+    bad "W17b it alerted with nothing to alert about (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# ===========================================================================
+# W18 — THE GARBAGE ALARM (Frank's Fix 2)
+# ===========================================================================
+# His verdict on everything above this case: "Its alarm is a disk-space alarm and
+# a delete-failure alarm. IT HAS NO GARBAGE ALARM. So garbage that no arm looks at
+# produces neither a cleanup nor an alert" — while ~53 GiB sat on the disk and
+# every report read green. This is the missing channel: the sweeper publishes what
+# it will never collect, and this job says so without ever running the sweeper.
+world garbagealarm
+write_cfg 999999999 999999 1 1     # floors so low nothing else can alert
+sed -i.bak 's/^DISK_RICH_ALERT_GB=.*/DISK_RICH_ALERT_GB="1"/' "$W_CFG"
+touch "$W_LA/com.richos.disk-watchdog.plist"
+mkdir -p "$W_DIR/state"
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 3, "freed": 100,
+           "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 2934, "skipped_bytes": 1125454451,
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+{
+    echo "SCRATCH_REAPER_STATE=\"$W_DIR/state/scratch-reaper-state.json\""
+    echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"'
+    echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="67108864"'
+} >>"$W_CFG"
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] \
+   && printf '%s' "$OUT" | grep -q 'GARBAGE NOTHING WILL EVER COLLECT' \
+   && printf '%s' "$OUT" | grep -q '2934'; then
+    ok "W18  garbage nothing will ever collect reaches Rich's alert, with a count"
+else
+    bad "W18  the garbage alarm did not fire on 1.05 GB of skipped garbage (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -14
+fi
+# THE CONTROL, and it is the one that matters most for an alarm: below the
+# declared threshold it must be COMPLETELY silent. An alarm that always fires is
+# the failure this suite's own header ranks as worse than not firing at all.
+sed -i.bak 's/^SCRATCH_SKIPPED_NOTICE_BYTES=.*/SCRATCH_SKIPPED_NOTICE_BYTES="9999999999999"/' "$W_CFG"
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
+    ok "W18b CONTROL: below the declared threshold it is completely silent"
+else
+    bad "W18b the garbage alarm ignores its own threshold (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+# The UNDECIDABLE pile has its own, lower threshold — Frank's D12, where sharing
+# SCRATCH_NOTICE_BYTES hid up to a GiB of a pile no run will ever clear.
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
+           "undecidable": 23, "undecidable_bytes": 164580800,
+           "skipped": 0, "skipped_bytes": 0,
+           "failures": 0, "verdict": "undecided"}, open(sys.argv[1], "w"))
+PY
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'UNDECIDABLE'; then
+    ok "W18c an undecidable pile alerts on its OWN lower threshold, not the 1 GiB one"
+else
+    bad "W18c 157 MB of permanently undecidable garbage was silent (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
 fi
 
 echo ""

@@ -21,6 +21,13 @@
 #      scheduled job will never clear on its own — a tripped wall is
 #      permanent until a person looks at it — so if nobody is told it grows
 #      forever, which is the exact failure the mechanism was ordered to end.
+#   2b. MORE THAN ITS OWN THRESHOLD IS GARBAGE NOTHING WILL EVER COLLECT.
+#      Added 2026-09-18: another program's temp directory, another user's, a
+#      symlink, or entries a budgeted run did not reach. THIS IS THE GARBAGE
+#      ALARM, and its absence was the whole of frank-opus-garbage1's verdict —
+#      the mechanism had a disk-space alarm and a delete-failure alarm and
+#      nothing that could say "there is garbage here and nobody is coming for
+#      it". Its own threshold, because this pile never shrinks by itself.
 #   3. THE SCHEDULED JOB IS NOT INSTALLED, OR HAS NOT RUN. A deleter that
 #      quietly stopped looks exactly like a machine with no garbage on it.
 #      This is the who-watches-the-watchman leg and it is the one most likely
@@ -62,8 +69,33 @@ STATE="${SCRATCH_REAPER_STATE:-$STATE_BASE/scratch-reaper-state.json}"
 
 # BUDGET, declared here rather than in the config: it is a property of being a
 # SessionStart hook (how long a person will wait for a banner), not of this
-# machine's scratch. Six times the measured 1.3 s cost.
-DEADLINE=8
+# machine's scratch.
+#
+# IT WAS 8 — six times a measured 1.3 s — AND THE DENY-BY-DEFAULT ARM CHANGED
+# THE COST IT WAS SIX TIMES OF. Measured 2026-09-18 on this machine, warm:
+#
+#   full pass, every arm, no budget            11.6 s   (60,942 + 764 children)
+#   every arm EXCEPT the deny-by-default one     1.3 s
+#   --notice as it now runs                      1.5 s
+#
+# A BIGGER BUDGET WAS THE WRONG ANSWER AND SO WAS A SMALLER ONE. With a budget of
+# 5 s the arm got part of the way and the banner said "44,851 temp entries were
+# NOT MEASURED within the 5 s budget" — at every session start, forever, because
+# 60,942 temp entries is simply what this machine has. That line describes the
+# budget rather than the machine's health, and a line that is always true is
+# wallpaper. Wallpaper is how a real signal comes to be skipped.
+#
+# So --notice does not attempt the expensive arm at all: its garbage numbers come
+# from the LAST FULL PASS, which the scheduled job publishes to
+# scratch-reaper-state.json every six hours and which the banner quotes WITH ITS
+# DATE. A pile nothing will ever collect does not change in six hours — that is
+# what makes it that pile — and leg 3 below already shouts if no pass has
+# completed in fourteen.
+#
+# The budget therefore stays as a SAFETY rather than as a design: 5 is more than
+# three times the measured 1.5 s, and past it the banner says the size is unknown
+# instead of holding the session open.
+DEADLINE=5
 
 [ -x "$REAPER" ] || exit 0
 [ -f "$CONFIG" ] || exit 0

@@ -41,6 +41,25 @@ def expand(p):
     return os.path.expanduser(os.path.expandvars(p))
 
 
+def state_base():
+    """Where this machine's state files live, HONORING CLAUDE_CONFIG_DIR.
+
+    D9, AND IT IS THE CHEAPEST DEFEAT IN FRANK'S WHOLE REPORT. The sweeper's
+    failures_path() has always honored CLAUDE_CONFIG_DIR. This program's reader
+    did not, and SCRATCH_FAILURES_STATE was declared in no config file — so one
+    exported variable in a shell profile sent the sweeper's failure record to one
+    directory and this job's reader to another, and every MASSIVE ALERT about a
+    path that could not be deleted went nowhere with no sign that it was off.
+
+    Reconciled in both directions: this helper is the same resolution the sweeper
+    uses, and SCRATCH_FAILURES_STATE is now DECLARED in orchestration.config so
+    the two cannot drift by default either.
+    """
+    base = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() \
+        or os.path.join(os.path.expanduser("~"), ".claude")
+    return os.path.join(base, "state")
+
+
 # ---------------------------------------------------------------------------
 # reading a volume
 # ---------------------------------------------------------------------------
@@ -210,8 +229,9 @@ def log(path, line):
 
 def main():
     mode = env("MODE", "check")
-    state_path = expand(env("STATE", "~/.claude/state/disk-watchdog.json"))
-    log_path = expand(env("LOG", "~/.claude/state/disk-watchdog.log"))
+    sbase = state_base()
+    state_path = expand(env("STATE", os.path.join(sbase, "disk-watchdog.json")))
+    log_path = expand(env("LOG", os.path.join(sbase, "disk-watchdog.log")))
 
     primary = env("DISK_PRIMARY_VOLUME", "/System/Volumes/Data")
     extras = env("DISK_EXTRA_VOLUMES", "").split()
@@ -265,12 +285,49 @@ def main():
         })
 
     # --- the drop, per volume, against the previous reading -----------------
+    # A RATE, NOT A DIFFERENCE, AND THE DIVISOR IS D7.
+    #
+    # It was `old_free - free >= DISK_DROP_ALERT_GB`, against whatever the
+    # previous reading happened to be, with no elapsed-time term at all. Frank
+    # aged the baseline ten hours — a closed laptop, a wake from sleep, an upgrade
+    # window, a job unloaded and reloaded — and got:
+    #
+    #   MASSIVE ALERT — DISK SPACE
+    #   /System/Volumes/Data — 181.5 GB FREE ...: DROPPED 30.0 GB since the last
+    #   reading ... CLASSIFICATION: RichOS garbage (DEFECT)
+    #
+    # 3 GB/hour is a normal working day on this machine, and it produced a MASSIVE
+    # ALERT calling it our defect. That is the false-positive engine that ends with
+    # the alert being ignored.
+    #
+    # TWO CHANGES, AND THE SECOND MATTERS MORE THAN THE FIRST. The drop becomes a
+    # rate in GB/hour; and across a gap longer than a declared number of intervals
+    # THE RATE IS NOT COMPUTED AT ALL — the gap is reported instead. A rate
+    # averaged over ten hours says nothing about what happened in any of them, so
+    # the honest output is "there is no comparable previous reading", not a number.
+    # A MINIMUM GAP AS WELL AS A MAXIMUM, AND THE MINIMUM IS A HOLE THIS FIX
+    # OPENED RATHER THAN ONE IT INHERITED. Turning a difference into a rate makes
+    # the DENOMINATOR dangerous at both ends: the suite caught a sub-second gap
+    # turning an ordinary 100 GB fixture fall into "FALLING at 496862.1 GB/hour",
+    # which in production is a launchd job that fires twice in quick succession,
+    # or a person running --check a moment after the timer did. Too short to
+    # divide by is exactly as meaningless as too long, and it fails in the
+    # DANGEROUS direction (a false alarm) rather than the quiet one.
+    elapsed_floor = env_num("DISK_WATCHDOG_MINUTES", 15) * 60
+    max_gap = env_num("DISK_DROP_MAX_GAP_INTERVALS", 3) * elapsed_floor
+    min_gap = env_num("DISK_DROP_MIN_GAP_SECONDS", 60)
+    rate_gb_h = env_num("DISK_DROP_ALERT_GB_PER_HOUR", 80)
+    prev_epoch = prev.get("reading_epoch") or 0
+    gap = (now - prev_epoch) if prev_epoch else 0
     prev_vols = {v.get("mount"): v for v in (prev.get("volumes") or [])
                  if isinstance(v, dict)}
     for v in volumes:
         old = prev_vols.get(v["mount"]) or {}
         old_free = old.get("free_bytes")
         v["previous_free_bytes"] = old_free
+        v["reading_gap_seconds"] = int(gap)
+        v["drop_rate_gb_per_hour"] = 0.0
+        v["drop_rate_stale"] = False
         if isinstance(old_free, (int, float)) and old_free > 0:
             v["drop_bytes"] = int(old_free - v["free_bytes"])
         else:
@@ -278,16 +335,55 @@ def main():
             # first run of this job, and the first run after the state file is
             # removed, must not alert on an imaginary fall from zero.
             v["drop_bytes"] = 0
-        v["drop_alert"] = v["drop_bytes"] >= drop_gb * GB
+        if v["drop_bytes"] <= 0 or not prev_epoch or gap < min_gap:
+            v["drop_alert"] = False
+        elif gap > max_gap:
+            # TOO OLD TO DIVIDE BY. Reported, never alerted on: the gap itself is
+            # the fact, and manufacturing a rate from it is what produced the
+            # false alarm this arm exists to stop.
+            v["drop_rate_stale"] = True
+            v["drop_alert"] = False
+        else:
+            v["drop_rate_gb_per_hour"] = round(
+                (v["drop_bytes"] / float(GB)) / (gap / 3600.0), 1)
+            v["drop_alert"] = v["drop_rate_gb_per_hour"] >= rate_gb_h
 
     # --- the sweeper's standing failures, which are Rich's business too ------
     # Addendum 1: the alert covers "every sweep failure" as well as the space
     # thresholds. Read from the sweeper's own state file rather than by running
     # it: this job must never depend on the sweeper, only observe it.
     fails_path = expand(env("SCRATCH_FAILURES_STATE",
-                            "~/.claude/state/scratch-failures.json"))
+                            os.path.join(sbase, "scratch-failures.json")))
     sweep_failures = read_state(fails_path)
     n_fail = len(sweep_failures) if isinstance(sweep_failures, dict) else 0
+
+    # --- THE GARBAGE ALARM (Frank's Fix 2) ----------------------------------
+    # His verdict on the whole mechanism was that "its alarm is a disk-space
+    # alarm and a delete-failure alarm — IT HAS NO GARBAGE ALARM", so garbage no
+    # arm considers produces neither a cleanup nor a word to anybody, and the
+    # reports read green while tens of gigabytes sit there. Both halves of §54
+    # ("always cleaned up" OR "Rich gets a MASSIVE ALERT") were satisfied at once
+    # only for the paths already swept.
+    #
+    # This is the missing half, and it is cheap because the sweeper now computes
+    # it: SKIPPED is garbage that will never be collected by the scheduled job —
+    # another program's temp directory, another user's, a symlink, or entries a
+    # budgeted run could not reach. UNDECIDABLE is the pile a tripped wall leaves
+    # behind, which no run will ever clear on its own.
+    #
+    # READ, NEVER RUN. The sweeper publishes both numbers to its own state file
+    # at every --apply; this job looks at what was left behind, exactly as it does
+    # for the failures. It never invokes the sweeper and never writes its file.
+    reaper_state = read_state(expand(env(
+        "SCRATCH_REAPER_STATE",
+        os.path.join(sbase, "scratch-reaper-state.json"))))
+    skipped_n = int(reaper_state.get("skipped") or 0)
+    skipped_b = int(reaper_state.get("skipped_bytes") or 0)
+    undec_n = int(reaper_state.get("undecidable") or 0)
+    undec_b = int(reaper_state.get("undecidable_bytes") or 0)
+    skipped_floor = env_num("SCRATCH_SKIPPED_NOTICE_BYTES", 1024 ** 3)
+    undec_floor = env_num("SCRATCH_UNDECIDABLE_NOTICE_BYTES", 64 * 1024 ** 2)
+    garbage_alarm = (skipped_b >= skipped_floor) or (undec_b >= undec_floor)
 
     # --- test instances that would not close (§54 addendum 4) ---------------
     # CEO: "Test app windows must always close/quit when testing is finished.
@@ -306,7 +402,7 @@ def main():
     n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
 
     alerting = [v for v in volumes if v["below_rich"] or v["drop_alert"]]
-    condition = bool(alerting) or n_fail > 0 or n_inst > 0
+    condition = bool(alerting) or n_fail > 0 or n_inst > 0 or garbage_alarm
 
     # --- attribution and classification, ONLY when something is wrong -------
     consumers, classification, garbage = [], "", 0
@@ -375,12 +471,29 @@ def main():
             if v["below_rich"]:
                 why.append("below the declared %.0f GB floor" % v["rich_alert_gb"])
             if v["drop_alert"]:
-                why.append("DROPPED %s since the last reading"
-                           % human(v["drop_bytes"]))
+                why.append("FALLING at %.1f GB/hour (%s in the last %d min, "
+                           "against a declared %.0f GB/hour)"
+                           % (v["drop_rate_gb_per_hour"], human(v["drop_bytes"]),
+                              int(v["reading_gap_seconds"] / 60), rate_gb_h))
             lines.append("  %s — %s FREE of %s (%.1f%%): %s"
                          % (v["mount"], human(v["free_bytes"]),
                             human(v["capacity_bytes"]), v["percent_free"],
                             "; ".join(why)))
+        # THE GAP, REPORTED RATHER THAN DIVIDED BY. Only inside a block that is
+        # already being printed for another reason: a stale baseline is a fact
+        # worth knowing and never a reason to raise an alarm, which is the whole
+        # of D7.
+        stale_vols = [v for v in volumes if v.get("drop_rate_stale")]
+        if stale_vols:
+            lines.append("")
+            lines.append("  NO COMPARABLE PREVIOUS READING (so no rate was computed):")
+            for v in stale_vols:
+                lines.append("    %s — the last reading was %d min ago and the "
+                             "declared interval is %d min"
+                             % (v["mount"], int(v["reading_gap_seconds"] / 60),
+                                int(elapsed_floor / 60)))
+            lines.append("      A fall measured across a gap that long says nothing")
+            lines.append("      about any hour inside it. The laptop was probably asleep.")
         if n_fail > 0:
             lines.append("")
             lines.append("  %d GARBAGE PATH(S) COULD NOT BE DELETED. The CEO's rule:"
@@ -408,6 +521,19 @@ def main():
                 lines.append("      first seen %s, %s attempt(s), %s"
                              % (row.get("first", "?"), row.get("attempts", "?"),
                                 str(row.get("why", "?"))[:90]))
+        if garbage_alarm:
+            lines.append("")
+            lines.append("  GARBAGE NOTHING WILL EVER COLLECT ON ITS OWN:")
+            if skipped_b >= skipped_floor:
+                lines.append("    %s in %d place(s) SKIPPED — another program's temp"
+                             % (human(skipped_b), skipped_n))
+                lines.append("      directory, another user's, a symlink, or not reached")
+                lines.append("      within a budgeted run. The sweeper will never take it.")
+            if undec_b >= undec_floor:
+                lines.append("    %s in %d place(s) UNDECIDABLE — a wall tripped, and"
+                             % (human(undec_b), undec_n))
+                lines.append("      no scheduled run will ever clear that on its own.")
+            lines.append("      scripts/scratch-reaper.sh --verbose  says which, and why")
         if consumers:
             lines.append("")
             lines.append("  BIGGEST MEASURED CONSUMERS:")
@@ -485,13 +611,29 @@ def main():
         "top_consumers": consumers,
         "sweep_failures": n_fail,
         "test_instance_failures": n_inst,
+        "garbage_alarm": garbage_alarm,
+        "skipped": skipped_n,
+        "skipped_bytes": skipped_b,
+        "undecidable": undec_n,
+        "undecidable_bytes": undec_b,
         "notified": notified,
         "timer_installed": installed,
+        "reading_gap_seconds": int(gap),
         "thresholds": {
-            "rich_alert_gb": rich_gb, "drop_alert_gb": drop_gb,
+            "rich_alert_gb": rich_gb,
+            # RETAINED AND NO LONGER THE TEST. DISK_DROP_ALERT_GB was a fall
+            # between two readings of any age; the test is now a rate. It stays in
+            # this block because it is still declared and a reader comparing the
+            # two should see both.
+            "drop_alert_gb": drop_gb,
+            "drop_alert_gb_per_hour": rate_gb_h,
+            "drop_max_gap_intervals": env_num("DISK_DROP_MAX_GAP_INTERVALS", 3),
+            "drop_min_gap_seconds": min_gap,
             "ceo_notify_gb": ceo_gb, "ceo_urgent_gb": urgent_gb,
             "ceo_repeat_hours": repeat_h,
             "interval_minutes": env_num("DISK_WATCHDOG_MINUTES", 15),
+            "skipped_notice_bytes": skipped_floor,
+            "undecidable_notice_bytes": undec_floor,
         },
     }
 
@@ -523,6 +665,10 @@ def main():
         if n_fail:
             sys.stdout.write("ALERT  %d garbage path(s) could not be deleted\n"
                              % n_fail)
+        if garbage_alarm:
+            sys.stdout.write("ALERT  %s skipped + %s undecidable — garbage no "
+                             "scheduled run will take\n"
+                             % (human(skipped_b), human(undec_b)))
         if not installed:
             sys.stdout.write("ALERT  the launchd timer is NOT installed\n")
     elif mode == "check":

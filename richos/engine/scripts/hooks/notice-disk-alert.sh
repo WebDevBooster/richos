@@ -165,6 +165,7 @@ if [ "$EVENT" = "Stop" ]; then
 import re, sys
 text = sys.stdin.read()
 vols, stuck, klass, notinstalled, stopped = [], "", "", False, False
+garbage = []
 for line in text.splitlines():
     s = line.strip()
     if "NOT INSTALLED" in s:
@@ -178,6 +179,18 @@ for line in text.splitlines():
     m = re.match(r"^(\d+) GARBAGE PATH\(S\) COULD NOT BE DELETED", s)
     if m:
         stuck = "%s path(s) could not be deleted (delete BY HAND)" % m.group(1)
+    # THE GARBAGE ALARM, added 2026-09-18. Without these two the turn-end line
+    # would read "disk alert standing" while the block said 1.05 GB of garbage
+    # nothing is coming for — a summary that drops the only condition present is
+    # worse than no summary, because it teaches the eye that the line is empty.
+    m = re.match(r"^(\S+ \S+) in (\d+) place\(s\) SKIPPED", s)
+    if m:
+        garbage.append("%s in %s place(s) NOTHING WILL EVER COLLECT"
+                       % (m.group(1), m.group(2)))
+    m = re.match(r"^(\S+ \S+) in (\d+) place\(s\) UNDECIDABLE", s)
+    if m:
+        garbage.append("%s in %s place(s) UNDECIDABLE — no run will clear it"
+                       % (m.group(1), m.group(2)))
     if s.startswith("CLASSIFICATION:"):
         klass = s.split(":", 1)[1].strip()
 parts = []
@@ -188,6 +201,7 @@ if stopped:
 parts.extend(vols)
 if stuck:
     parts.append(stuck)
+parts.extend(garbage)
 if klass:
     parts.append("classification: " + klass)
 print(" | ".join(parts) if parts else "disk alert standing")

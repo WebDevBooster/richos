@@ -235,4 +235,257 @@ mutant M23.test-instance-holder-not-quit "S20 " "$LIB" \
      written. The mutant proves S20 is green because the override exists, not
      because the tree happened to be swept by some other arm."
 
+# ===========================================================================
+# THE DENY-BY-DEFAULT TEMP ARM (Frank's D1/D2) — every condition, one at a time
+# ===========================================================================
+# THIS ARM IS THE ONE MOST IN NEED OF THIS FILE. It is the arm that decides
+# whether to delete something NOBODY DECLARED, which means there is no name list
+# to read it back off and no test that fails "by accident" if it stops working.
+# Its whole coverage is invisible from the outside: an arm that silently reverts
+# to skipping is indistinguishable from a clean machine, which is precisely how
+# 56,770 entries came to be invisible in the first place.
+
+mutant M24.deny-by-default-off "S21 " "$LIB" \
+    "                if self.cfg[\"deny_by_default\"]:" \
+    "                if False:" \
+    "The \`continue\` is back: a \$TMPDIR name matching neither declared pattern
+     list is skipped rather than decided. This is D1 exactly as it shipped — not
+     kept, not deleted, never looked at — and the mutant proves S21 is green
+     because the arm runs and not because some other arm caught the fixture."
+
+# ASSERTED AGAINST S21h AND NOT S21g, and the harness is what found that out.
+# Aimed at S21g it reported "red, but not here": S21g only asks whether the fresh
+# tree survived, and with the proof removed THE AGE FLOOR CATCHES THE SAME TREE —
+# it is zero minutes old, the floor is an hour — so it survives for a different
+# reason and the case stays green. Only S21h, which reads WHICH REASON the KEEP
+# carried, can see the proof has gone. Same lesson as M22, and the same lesson as
+# the DST defect M30 pins: a case that checks only the outcome is blind to a
+# guarantee being replaced by a coincidence.
+mutant M25.session-proof-removed "S21h" "$LIB" \
+    "        if newest >= oldest:" \
+    "        if False:" \
+    "The one PROOF this arm has is gone: a tree written after the earliest
+     running session started is no longer that session's. Nothing is left but an
+     age, and an age is what the whole program refuses to delete on."
+
+mutant M26.foreign-keeplist-ignored "S21d" "$LIB" \
+    "if any(fnmatch.fnmatch(name, pat) for pat in self.cfg[\"foreign_patterns\"]):" \
+    "if False:" \
+    "The keep-list stops being consulted, so ANOTHER PROGRAM'S temp directory is
+     a candidate. Deny-by-default without the keep-list is not coverage, it is a
+     reaper that deletes Xcode's and VS Code's working files."
+
+mutant M27.unknown-open-handle-ignored "S21l" "$LIB" \
+    "        if name in held:" \
+    "        if False:" \
+    "The new arm stops consulting the open-file table — D5 one arm across. A tree
+     an undeclared harness is still reading is deleted from under it."
+
+mutant M28.shared-root-not-swept "S21i" "$LIB" \
+    "        for root in self.cfg[\"shared_tmp_roots\"]:" \
+    "        for root in []:" \
+    "The declared shared temp roots are never enumerated, so /private/tmp goes
+     back to being swept by nothing at all. That is D2, and it was 25.77 GiB."
+
+mutant M29.unknown-floor-ignored "S21n" "$LIB" \
+    "        if age < unknown_floor:" \
+    "        if False:" \
+    "The declared floor for an undeclared family is not applied, so the session
+     proof is left standing alone and a directory written five minutes before the
+     only running session started is deleted."
+
+# M30 IS A REGRESSION PIN ON A DEFECT FOUND BY THIS PASS, not on a wall.
+# lstart_epoch used mktime(...) - time.timezone, which is the zone's STANDARD
+# offset and does not move for daylight saving — so in DST it returned every
+# process start one hour EARLY. Measured on this machine: error -3600 s exactly.
+# It failed in the safe direction (things were kept that could have been swept),
+# which is why nothing noticed for as long as it existed.
+#
+# IT IS ASSERTED AGAINST S21o, AND THAT IS THE POINT OF THE CASE. S21n only
+# checks the tree is still there, and it stays green under this mutation — an
+# hour-early start time keeps the tree for the WRONG reason. Only a case that
+# reads WHICH REASON the KEEP carried can see the difference.
+mutant M30.lstart-dst-offset "S21o" "$LIB" \
+    "        return calendar.timegm(time.strptime(text, \"%a %b %d %H:%M:%S %Y\"))" \
+    "        return int(time.mktime(time.strptime(text, \"%a %b %d %H:%M:%S %Y\")) - time.timezone)" \
+    "Every session process is reported as having started an hour before it did,
+     so 'nothing running can own this' is answered against a clock that is wrong
+     for half the year."
+
+# ===========================================================================
+# THE GARBAGE ALARM (Frank's Fix 2) — the reporting is a safety, not a comfort
+# ===========================================================================
+# It is tempting to treat a report as untestable decoration. It is the opposite
+# here: the CEO's rule has two halves and this IS the second one. A mechanism that
+# cannot say "there is garbage here and nobody is coming for it" satisfies §54
+# only for the paths it already sweeps, which was the whole of Frank's verdict.
+
+# THE ANCHOR MOVED ONCE ALREADY AND THE HARNESS SAID SO RATHER THAN SCORING
+# GREEN — "MUTATION TARGET ABSENT — the source has drifted" — when skipped() was
+# rewritten to key on Entry.standing instead of matching a sentence in the report.
+# That assertion is the reason a stale mutant is a failure here and not a silent
+# pass against a line that no longer exists.
+mutant M31.skipped-not-counted "S22 " "$LIB" \
+    "        return len(rows), sum(e.size for e in rows)" \
+    "        return 0, 0" \
+    "The skipped count is always zero, so a pile of garbage nothing will ever
+     collect reports as an empty one. This is the shape the mechanism was in
+     before Fix 2: 1.13 GB on this machine, and every report green."
+
+mutant M32.failure-not-in-exit-code "S22c" "$LIB" \
+    "    if n_failures:{NL}        return 4" \
+    "    if False:{NL}        return 4" \
+    "A run in which every deletion failed hands launchd a green exit again — D10
+     exactly, where \`applied: deleted=0 freed=0 B\` and EXIT=0 were
+     indistinguishable from a run with nothing to do."
+
+mutant M33.notice-reruns-the-expensive-arm "S22i" "$LIB" \
+    "        reaper.skip_unknown_arm = bool(args.notice)" \
+    "        reaper.skip_unknown_arm = False" \
+    "The SessionStart banner attempts the deny-by-default arm again, so every
+     session start pays for it and prints \"44,851 entries were NOT MEASURED
+     within the budget\" for ever. A line that is always true is wallpaper, and
+     wallpaper is how the real signal comes to be skipped."
+
+mutant M34.garbage-alarm-ignores-threshold "S22j" "$LIB" \
+    "        if sb >= cfg[\"skipped_notice_bytes\"]:" \
+    "        if True:" \
+    "The garbage alarm fires whatever the declared threshold says, which is the
+     cries-wolf failure: an alarm that always speaks is one somebody switches
+     off, and then the mechanism is back to silence with extra steps."
+
+# ===========================================================================
+# D11 — a name-derived pid is attribution, not liveness
+# ===========================================================================
+
+mutant M35.name-pid-trusted-as-liveness "S23 " "$LIB" \
+    "        if from_ledger:{NL}            return True, \"\"" \
+    "        if True:{NL}            return True, \"\"" \
+    "A pid taken off a DIRECTORY NAME skips the two name-shape tests, so
+     \`1-frank-immortal-b\` is immortal again: pid 1 belongs to root and started
+     before every directory on the machine, and the KEEP is silent by
+     construction because a KEEP is the reaper working as designed."
+
+mutant M36.pid-reuse-not-detected "S23c" "$LIB" \
+    "        if born is not None and start is not None and start > born + 1:" \
+    "        if False:" \
+    "A process that started AFTER the directory was created is accepted as its
+     owner, which is precisely what pid reuse looks like. macOS recycles pids at
+     99998, so this is the ordinary way a week-old name comes to match a live
+     process."
+
+# M37 IS THE MUTANT THAT FOUND A DEFECT INSTEAD OF PROVING A PROPERTY, and the
+# note is worth more than the mutant. Written against the original shape — where
+# `if from_ledger:` returned pid_alive() and skipped EVERY test — it reported "the
+# suite still PASSED without this property", which sent me back to the code with a
+# better question than the one I had asked.
+#
+# What I found there was `scan_scratch_root`'s own comment claiming that TTL "lets
+# a row whose pid has been REUSED by an unrelated process still age out". It does
+# not: a live pid returns KEEP two lines before TTL is consulted, so a ledger row
+# from three days ago whose pid now belongs to an unrelated live process was
+# immortal in exactly the way `1-frank-immortal-b` was. THE COMMENT DESCRIBED A
+# SAFETY THE PROGRAM DID NOT HAVE.
+#
+# So the reuse test was moved ABOVE the ledger exemption — it is a fact about the
+# filesystem and the process table rather than a question of trust — and S23f is
+# the case for it. This mutant now proves what the exemption itself is worth.
+mutant M37.ledger-row-subjected-to-the-name-tests "S23e" "$LIB" \
+    "            alive, why_pid = self.owner_state(pid, bool(row), path)" \
+    "            alive, why_pid = self.owner_state(pid, False, path)" \
+    "A LEDGER ROW is put through the two NAME-SHAPE tests — the uid test and the
+     pid floor — which exist because digits in a directory name can be chosen by
+     anybody. The row was written by our own process at allocation time, so its
+     uid is implied; treating it as a guess means a legitimately recorded owner
+     can be dismissed and its live sandbox deleted."
+
+mutant M38.ledger-pid-reuse-not-detected "S23f" "$LIB" \
+    "        if born is not None and start is not None and start > born + 1:" \
+    "        if not from_ledger and born is not None and start is not None and start > born + 1:" \
+    "The reuse test is skipped FOR A LEDGER ROW ONLY, which is the state the
+     program was in when its own comment claimed TTL covered this. A three-day-old
+     row whose pid now belongs to an unrelated live process is immortal. S23c
+     stays green under this mutation, because a name-derived reuse is still caught
+     — which is what makes S23f the case that is actually about this line."
+
+# ===========================================================================
+# D3 — declared campaign roots under ~/ab
+# ===========================================================================
+
+mutant M39.campaign-root-deleted "S24 " "$LIB" \
+    "                self.add(path, \"campaign-root\", size, KEEP,{NL}                         \"A DECLARED CAMPAIGN ROOT PAST ITS RETENTION" \
+    "                self.add(path, \"campaign-root\", size, DELETE,{NL}                         \"A DECLARED CAMPAIGN ROOT PAST ITS RETENTION" \
+    "A campaign root is DELETED automatically. Every one of them holds a checkout,
+     which is wall 2 everywhere else in this program, and these are 13-19 GB of
+     somebody's campaign under ~/ab. §54's second branch exists for exactly this
+     case: report it and a person removes it."
+
+mutant M40.campaign-root-not-nominated "S24b" "$LIB" \
+    "        for name in names:{NL}            for path in sorted(glob.glob(os.path.join(parent, name))):" \
+    "        for name in []:{NL}            for path in sorted(glob.glob(os.path.join(parent, name))):" \
+    "The declared campaign roots are never enumerated, so the piles under ~/ab go
+     back to being seen by no arm of the mechanism at all. That is D3, and it was
+     18.90 GB plus 13.75 GB."
+
+mutant M41.standing-keep-hidden "S24b" "$LIB" \
+    "            if e.action == KEEP and not verbose and not e.standing:" \
+    "            if e.action == KEEP and not verbose:" \
+    "A STANDING keep — kept, and a person has to act on it — is hidden behind
+     --verbose again, so the only channel that reports it is one nobody runs. The
+     report says nothing and the pile stays; reporting that nobody reads is the
+     same as not reporting."
+
+# ===========================================================================
+# D14 — the volume stage, and the container nobody could ever collect
+# ===========================================================================
+
+mutant M42.volume-age-ignored "S25b" "$LIB" \
+    "            if when is None or when > cutoff:" \
+    "            if False:" \
+    "The volume stage stops applying an age, so a volume created ten minutes ago —
+     exactly the one somebody is about to reattach — is removed. THE AGE IS THE
+     ONLY THING MAKING THIS SAFE, and Docker has no until= filter for volumes to
+     do it for us, which is why this line exists at all."
+
+mutant M43.named-volume-pruned "S25c" "$LIB" \
+    "            if anon.strip() == \"<no value>\":" \
+    "            if False:" \
+    "A NAMED volume becomes a candidate. Docker itself requires -a before it will
+     touch one, because a name is somebody having meant it — this is somebody's
+     database, not scratch."
+
+mutant M44.throwaway-container-not-reported "S26 " "$LIB" \
+    "            if not any(fnmatch.fnmatch(image, p) for p in pats):{NL}                continue" \
+    "            if True:{NL}                continue" \
+    "A running container on a declared throwaway image is never reported, so
+     \`rl55\` and \`rlx\` go back to being immortal by design: \`container prune\`
+     considers stopped containers only, so they pin their images for ever and
+     nothing anywhere says so."
+
+mutant M45.running-container-stopped "S26d" "$LIB" \
+    "            if not any(fnmatch.fnmatch(image, p) for p in pats):" \
+    "            if False and not any(fnmatch.fnmatch(image, p) for p in pats):" \
+    "The declared image list stops being consulted, so EVERY running container is
+     nominated — including the four-container Buzz production stack on this
+     machine. Nomination here is only a report, and it would still be a report
+     telling a person to \`docker rm -f\` a live service."
+
+# ASSERTED AGAINST S27e AND NOT S27, and finding that out is what the harness is
+# for. Aimed at S27 it reported "the suite still PASSED": S27 counts one BANNER, and
+# under this mutation the banner is still printed once while six MORE per-entry
+# undecidable entries appear beside it. A case that counts the headline cannot see
+# the pile underneath it. S27e asserts the number in the verdict line, which is the
+# thing that cannot be fooled. Third time this lesson has been paid for in this
+# file (M22, M25, M33).
+mutant M46.blind-lsof-per-entry "S27e" "$LIB" \
+    "                if held.get(root) is None:{NL}                    done += 1{NL}                    continue        # already reported once, for this whole root" \
+    "                if False:{NL}                    done += 1{NL}                    continue        # already reported once, for this whole root" \
+    "An unreadable open-file table is reported once PER ENTRY again, so one lsof
+     timeout becomes tens of thousands of identical INDETERMINATE lines, an
+     enormous undecidable pile in the garbage alarm, and exit 3. The operator's own
+     launchd log shows that failure happening — one of its five scheduled verdicts,
+     which establishes that it happens and not how often. The safety is identical
+     either way; what is destroyed is the readability of the report, which is the
+     whole of the second half of §54."
+
 mutation_end

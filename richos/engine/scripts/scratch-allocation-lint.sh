@@ -74,9 +74,18 @@
 # WHAT MAKES THIS HONEST RATHER THAN A SUPPRESSION:
 #   * the baseline is ONE NUMBER, visible, with a date on it — not a list of
 #     paths nobody rereads;
-#   * every baselined site is ALREADY COVERED by the reaper's legacy family
-#     sweep (SCRATCH_LEGACY_TMP_PATTERNS), so they are swept today; what they
-#     lack is the deny-by-default protection that needs no name;
+#   * every baselined site IS COVERED — and the claim changed on 2026-09-18,
+#     because the one it replaces was contradicted by a measurement. It used to
+#     read "already covered by the reaper's legacy family sweep
+#     (SCRATCH_LEGACY_TMP_PATTERNS), so they are swept today", and
+#     frank-opus-garbage1 showed that was false for much of it: families like
+#     `richos-owned-wake-native-*` were on disk, nine days old, and matched by no
+#     declared pattern at all. The coverage is now structural rather than
+#     name-based — $TMPDIR and /private/tmp are swept DENY-BY-DEFAULT
+#     (SCRATCH_TMP_DENY_BY_DEFAULT), so an unallocated site is collected whatever
+#     it is called. What a baselined site still lacks is SPEED: the deny-by-default
+#     floor is days, the allocator root is minutes, and a declared legacy family
+#     is two hours;
 #   * the sites that could actually produce the 105 GB — the four harnesses that
 #     COPY A TREE per mutant — were migrated rather than baselined, and their
 #     mutation harnesses all still prove every property (12/12, 26/26, 26/26);
@@ -243,8 +252,10 @@ if [ "$FINDINGS" -gt 0 ]; then
         echo "  DOWN $((SCRATCH_LINT_BASELINE - FINDINGS)) from the baseline. Lower SCRATCH_LINT_BASELINE to $FINDINGS so the"
         echo "  ground that was gained cannot be given back."
     fi
-    echo "  Every one of these is swept today by the reaper's declared legacy families;"
-    echo "  what they lack is the deny-by-default protection that needs no name."
+    echo "  Every one of these IS collected — \$TMPDIR and the shared temp roots are"
+    echo "  swept deny-by-default, so a name nobody declared is still a candidate."
+    echo "  What they lack is SPEED: the deny-by-default floor is days, a declared"
+    echo "  legacy family is two hours, and the allocator root is minutes."
     exit 0
 fi
 

@@ -89,6 +89,7 @@ WHAT IT WILL NOT DELETE, MEASURED RATHER THAN PROMISED (2026-09-17)
 """
 
 import argparse
+import calendar
 import fnmatch
 import glob
 import importlib.util
@@ -225,10 +226,39 @@ def claude_processes():
 
 
 def lstart_epoch(text):
-    """`ps -o lstart=` under TZ=UTC0 -> epoch seconds, or None."""
+    """`ps -o lstart=` under TZ=UTC0 -> epoch seconds, or None.
+
+    calendar.timegm, NOT time.mktime MINUS AN OFFSET, AND THE DIFFERENCE IS AN
+    HOUR OF WRONG ANSWERS FOR HALF THE YEAR.
+
+    The old form was `mktime(strptime(text)) - time.timezone`. mktime interprets
+    the struct as LOCAL time, and `time.timezone` is the zone's STANDARD offset —
+    it does not move for daylight saving. So in any zone observing DST, in the
+    months it is observed, this returned a start time one hour EARLY. Measured on
+    this machine, 2026-09-18, on a process started at that instant:
+
+        timezone 0   altzone -3600   daylight 1   tm_isdst 1
+        ps lstart (TZ=UTC0): Fri Sep 18 10:13:15 2026
+        shipped lstart_epoch -> 1789722795
+        correct  (timegm)    -> 1789726395   (== time.time() to the second)
+        error                -> -3600
+
+    WHY IT SURVIVED: it fails in the SAFE direction. Every caller asks "is this
+    older than the earliest running session", and a start time an hour early
+    makes the answer no more often, so the reaper KEPT things it could have
+    deleted rather than deleting things it should have kept. An hour of lost
+    coverage every run, reported by nothing, in the one primitive the claude-
+    orphan rule and the deny-by-default temp arm both rest on.
+
+    It was found by a test that asserted WHICH REASON a KEEP carried, not merely
+    that the tree survived — S21o. A case that had only checked the directory was
+    still there would have passed against the wrong answer for ever.
+
+    `ps` is run under TZ=UTC0 by _ps_env(), so the string is UTC and timegm is
+    the only conversion that is right in every zone and every season.
+    """
     try:
-        return int(time.mktime(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
-                   - time.timezone)
+        return calendar.timegm(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
     except (ValueError, OverflowError):
         return None
 
@@ -502,6 +532,55 @@ def write_failures(path, rows):
                          % (path, exc))
 
 
+def process_table():
+    """{pid: (uid, start_epoch)} for EVERY process on the machine, or None.
+
+    ONE ps, read once. Separate from Liveness.claude_processes() because that one
+    filters to session process names by design and this one must see pid 1.
+    """
+    try:
+        r = subprocess.run(["ps", "-Ao", "pid=,uid=,lstart="],
+                           capture_output=True, text=True, timeout=20,
+                           env=_ps_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    out = {}
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        try:
+            pid, uid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        out[pid] = (uid, lstart_epoch(" ".join(parts[2:7])))
+    return out
+
+
+def birth_time(path):
+    """When the directory came into being, or None.
+
+    st_birthtime on macOS, which is where this runs. NOT st_mtime: a tree that is
+    still being written has a recent mtime and tells you nothing about when it was
+    created, and creation is the only time that can be compared against a
+    process's start.
+    """
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    bt = getattr(st, "st_birthtime", None)
+    if bt:
+        return bt
+    # Linux has no birth time through os.stat; ctime is the closest available and
+    # is an inode-change time, so it is only ever LATER than the true creation.
+    # That makes the comparison below more willing to call a pid unattributed,
+    # which is the direction that loses coverage rather than work.
+    return getattr(st, "st_ctime", None)
+
+
 def pid_from_name(name):
     """The owning pid out of a `<pid>-<label>-<random>` directory name.
 
@@ -635,9 +714,22 @@ def human(n):
 # ---------------------------------------------------------------------------
 
 class Entry(object):
-    def __init__(self, path, klass, size, action, why):
+    def __init__(self, path, klass, size, action, why, standing=False):
         self.path, self.klass, self.size = path, klass, size
         self.action, self.why = action, why
+        # A STANDING CONDITION: kept, and a PERSON has to do something about it.
+        #
+        # There are three kinds of KEEP and only two of them were distinguished.
+        # Most are "nothing to do" — alive, young, held open — and report() hides
+        # them unless asked. A campaign root past its declared retention is the
+        # third kind: the program will never take it and §54 says Rich removes it
+        # by hand. Hiding that behind --verbose is the same as not reporting it.
+        #
+        # A FLAG AND NOT A SUBSTRING MATCH. The first cut of this asked
+        # `"PAST ITS RETENTION" not in e.why` in two different places, which makes
+        # the report's prose load-bearing — reword the sentence and the accounting
+        # silently changes.
+        self.standing = standing
 
     def key(self):
         return (self.klass, self.path)
@@ -659,13 +751,26 @@ class Reaper(object):
         # The allocator-root reduction of the same snapshot. Three states like
         # its sibling: None = not read, _FAILED = read and untrustworthy.
         self._open_alloc = None
+        # {declared shared temp root: set of children something holds open}.
+        # Same three states again.
+        self._open_shared = None
         self.docker_actions = []
         # Paths scan_standing_failures has already decided. The other arms skip
         # these, so no path is ever counted twice in the verdict.
         self._standing = set()
+        # [(path, root)] the deny-by-default arm will decide LAST. Deferred so a
+        # --notice run that runs out of budget loses this arm's numbers and not
+        # the whole pass. See scan_deferred_unknown.
+        self._unknown = []
+        self.deferred_skipped = 0
+        # Set by --notice: the expensive arm is NOT ATTEMPTED, and the garbage
+        # numbers come from the last full pass's state file instead. See
+        # scan_deferred_unknown.
+        self.skip_unknown_arm = False
+        self.unknown_not_scanned = 0
 
-    def add(self, path, klass, size, action, why):
-        self.entries.append(Entry(path, klass, size, action, why))
+    def add(self, path, klass, size, action, why, standing=False):
+        self.entries.append(Entry(path, klass, size, action, why, standing))
 
     # --- classes ---------------------------------------------------------
 
@@ -850,9 +955,17 @@ class Reaper(object):
         A LIVE PID IS ALWAYS KEEP, AND TTL NEVER OVERRIDES IT. An expired TTL
         means the caller underestimated its own run, which is a bad estimate
         and not permission to delete a directory a running process is writing
-        into. TTL earns its place on the other side: it is what lets a row
-        whose pid has been REUSED by an unrelated process still age out,
-        because the age floor and the TTL both have to pass.
+        into.
+
+        THIS COMMENT USED TO CLAIM TTL COVERED PID REUSE AND IT DID NOT.
+        It read: "TTL earns its place on the other side: it is what lets a row
+        whose pid has been REUSED by an unrelated process still age out, because
+        the age floor and the TTL both have to pass." A live pid returned KEEP
+        two lines above TTL was ever consulted, so a reused pid was immortal and
+        the comment described a safety the program did not have. What actually
+        answers pid reuse is owner_state(): a process that started after the
+        directory was created cannot have created it. TTL is what it always
+        was — a declaration of intent, never an authority to delete.
         """
         tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
         root = os.path.join(tmp, self.cfg["scratch_root_name"])
@@ -890,7 +1003,7 @@ class Reaper(object):
                          "so its maker is done with it" % (pid, label))
                 continue
 
-            alive = pid_alive(pid)
+            alive, why_pid = self.owner_state(pid, bool(row), path)
             if alive is None:
                 self.add(path, "scratch-alloc", size, INDETERMINATE,
                          "cannot tell whether pid %d is alive, and a live "
@@ -956,7 +1069,11 @@ class Reaper(object):
                 self.add(path, "scratch-alloc", size, INDETERMINATE, refused)
                 continue
 
-            if pid:
+            if pid and why_pid:
+                why = ("pid %d is not this allocation's owner (%s) and nothing "
+                       "has touched this for %d min; its TTL was %d min"
+                       % (pid, why_pid, age // 60, ttl))
+            elif pid:
                 why = ("pid %d is ENDED (owner of '%s', from %s) and nothing "
                        "has touched this for %d min; its TTL was %d min"
                        % (pid, label, src, age // 60, ttl))
@@ -966,6 +1083,110 @@ class Reaper(object):
                        "allocator for one, so an unrecorded child is garbage "
                        "by construction")
             self.add(path, "scratch-alloc", size, DELETE, why)
+
+    def owner_state(self, pid, from_ledger, path):
+        """(True|False|None, '' or why-it-is-not-the-owner) for an allocation.
+
+        =================================================================
+        D11 — A NAME-DERIVED PID IS ATTRIBUTION, NOT LIVENESS
+        =================================================================
+        `pid_from_name()` takes the digits before the first `-`, and `pid_alive()`
+        returns True on PermissionError. Frank put a directory called
+        `1-frank-immortal-b` in the allocator root and the reaper said:
+
+            KEEP  2.0 MB  .../richos-scratch/1-frank-immortal-b
+                  why: pid 1 is ALIVE (owner of 'unrecorded', from the directory
+                       name) — a live owner is kept whatever its TTL says
+
+        Forever, at any size, with no alert and no TTL escape — and SILENTLY BY
+        CONSTRUCTION, because a KEEP is the reaper working as designed. macOS
+        recycles pids at 99998, so a week-old directory whose name begins with a
+        number that is now a live pid is not exotic.
+
+        THE LEDGER ROW IS A DIFFERENT KIND OF FACT AND IS STILL TRUSTED. It was
+        written BY the allocator AT allocation time; the digits in a name are a
+        second copy of it for the case where the ledger is lost, and a copy that
+        can be forged by naming a directory is evidence of attribution and not of
+        life. So a name-derived pid has to pass three tests that a ledger row does
+        not, and each of them can only ever take a KEEP away:
+
+          1. IT MUST BE OURS. A PermissionError means the process belongs to
+             another user, and the allocator runs as us — so it cannot be the
+             caller. This one test alone retires `1-frank-immortal-b`.
+          2. IT MUST BE ABOVE A DECLARED FLOOR. Measured on this machine: the
+             lowest pid owned by uid 501 is 160, while root's boot daemons hold
+             1, 88, 90, 92, 93. A single- or double-digit pid is not a harness.
+          3. IT MUST HAVE STARTED NO LATER THAN THE DIRECTORY WAS CREATED. A
+             process that began after the directory existed cannot have made it,
+             which is exactly what pid reuse looks like.
+
+        THE BRIEF ASKED FOR TEST 3 THE OTHER WAY ROUND — "a pid whose process
+        start time precedes the directory's creation is unattributed" — and that
+        is inverted. A creator necessarily exists BEFORE it creates: a session
+        process started this morning and allocating scratch this afternoon is the
+        normal case, and refusing it would make every long-running owner
+        unattributed. What proves reuse is starting AFTERWARDS.
+
+        An unattributed pid does NOT mean delete. It means the allocation has no
+        proven live owner, so the ordinary ladder applies underneath it — the age
+        floor, the open-file wall, and all four walls.
+
+        =================================================================
+        THE REUSE TEST APPLIES TO A LEDGER ROW TOO, AND THAT IS A SECOND
+        HOLE IN THE SAME FAMILY — FOUND BY THE MUTATION HARNESS
+        =================================================================
+        Mutant M37 was written to prove the ledger branch was load-bearing and it
+        came back "the suite still PASSED without this property", which sent me
+        back to the code with a better question. `scan_scratch_root`'s own comment
+        claimed: "TTL earns its place on the other side: it is what lets a row
+        whose pid has been REUSED by an unrelated process still age out, because
+        the age floor and the TTL both have to pass."
+        **THAT WAS NOT TRUE OF THE CODE.** A live pid returned KEEP before TTL was
+        ever consulted — "a live owner is kept whatever its TTL says" — so a ledger
+        row from three days ago whose pid now belongs to an unrelated live process
+        was immortal in exactly the way `1-frank-immortal-b` was. The comment
+        described a safety the program did not have.
+        So the reuse test is applied to BOTH sources: it is a fact about the
+        filesystem and the process table rather than a question of how much a
+        record is trusted. What the ledger row earns is exemption from the two
+        NAME-shape tests — the uid test and the pid floor — because it was written
+        by our own process at allocation time and its uid is therefore implied.
+        """
+        if not pid or pid <= 0:
+            return False, ""
+        table = self.proc_table()
+        if table is None:
+            # The process table could not be read. pid_alive alone is what is
+            # left, and it is the OLD behavior — which is a loss of this check
+            # rather than a loss of safety, so it is taken rather than refused.
+            return pid_alive(pid), ""
+        if pid not in table:
+            return False, ""
+        uid, start = table[pid]
+        born = birth_time(path)
+        if born is not None and start is not None and start > born + 1:
+            return False, ("it started %d s after this directory was created, so "
+                           "it cannot have created it — this is pid reuse"
+                           % int(start - born))
+        if from_ledger:
+            return True, ""
+        if pid < self.cfg["min_owner_pid"]:
+            return False, ("it is below the declared floor of %d, and the lowest "
+                           "pid this user owns on this machine is 160 — a pid "
+                           "that low is a boot daemon, not an allocator's caller"
+                           % self.cfg["min_owner_pid"])
+        if uid != os.getuid():
+            return False, ("it belongs to uid %d and the allocator runs as %d, "
+                           "so it cannot be the process that asked for this "
+                           "directory — the name's digits collided with a live "
+                           "pid" % (uid, os.getuid()))
+        return True, ""
+
+    def proc_table(self):
+        """The whole-machine {pid: (uid, start)} table, read once per run."""
+        if "_ptable" not in self.__dict__:
+            self.__dict__["_ptable"] = process_table()
+        return self.__dict__["_ptable"]
 
     def scan_tmp(self, walls):
         tmp = os.environ.get("TMPDIR") or "/tmp"
@@ -990,10 +1211,23 @@ class Reaper(object):
                 self.scan_legacy_tmp(os.path.join(tmp, name), walls,
                                      legacy_floor)
                 continue
+            path = os.path.join(tmp, name)
             if not any(fnmatch.fnmatch(name, pat)
                        for pat in self.cfg["tmp_patterns"]):
+                # THE LINE THAT WAS `continue`, AND THAT `continue` IS D1. Every
+                # name outside both declared lists was not kept and not deleted —
+                # it was never looked at, so no number in the verdict line could
+                # be used to notice it. 56,770 of 60,942 entries on this machine.
+                #
+                # DEFERRED RATHER THAN DECIDED HERE, and the deferral is the
+                # point: this arm is the expensive one (it walks every entry
+                # under the root rather than the few that match a glob), so it
+                # runs LAST, after every cheap arm has finished, and a --notice
+                # run that exhausts its budget loses only this arm's numbers
+                # instead of the whole pass. See scan().
+                if self.cfg["deny_by_default"]:
+                    self._unknown.append((path, tmp))
                 continue
-            path = os.path.join(tmp, name)
             if not os.path.isdir(path) or os.path.islink(path):
                 continue
             size, newest, has_git = measure(path)
@@ -1118,6 +1352,289 @@ class Reaper(object):
                  "touched it for %d h and no process holds it open, so the "
                  "run that made it is over%s" % (name, age // 3600, fixture))
 
+    # -----------------------------------------------------------------------
+    # THE DENY-BY-DEFAULT TEMP ARM — added 2026-09-18, and it is the answer to
+    # the shape of the defect rather than to its instances.
+    # -----------------------------------------------------------------------
+    # FRANK'S D1/D2, MEASURED ON THIS MACHINE AND RE-DERIVED HERE BEFORE THIS
+    # WAS WRITTEN: `scan_tmp` skipped past any $TMPDIR entry matching neither
+    # declared pattern list, and /private/tmp outside the two claude roots was
+    # read by no arm at all.
+    #
+    #   direct children of $TMPDIR                   60,942
+    #   covered by a declared pattern                 4,172   (0.08 GB)
+    #   INVISIBLE to every arm                       56,770   (1.95 GB)
+    #
+    # THE ARGUMENT IS THE ASYMMETRY, NOT THE BYTE COUNT. An allowlist of names
+    # can only ever contain names somebody read off a creator, and the biggest
+    # invisible family on this disk — `richos-owned-wake-native-*`, 42 entries,
+    # 198 MB, 9 days old — HAS NO CREATOR IN THE TREE ANY MORE:
+    #
+    #   $ grep -rln 'owned-wake-native' richos/     -> (no matches)
+    #
+    # A name nobody can read cannot be enumerated, so the enumeration cannot
+    # converge. A keep-list of FOREIGN owners runs the other way: it names other
+    # people's software, it is short, and it stops growing.
+    #
+    # ===================================================================
+    # WHAT MAKES THIS SAFE, AND IT IS NOT THE AGE
+    # ===================================================================
+    # The primary proof is the one scan_orphan already uses on loose files in a
+    # claude scratch root, and it is a proof rather than a guess: THE NEWEST
+    # MTIME IN THE TREE PREDATES THE START OF EVERY RUNNING SESSION PROCESS, so
+    # no running session can have written it and none can write it again. On this
+    # machine at the time of writing there is one running session, started
+    # "Wed Sep 16 23:31:27 2026" (TZ=UTC0) — so nothing touched in the last day
+    # and a half is a candidate, whatever it is called.
+    #
+    # Four more conditions sit on top, and every one of them can only make the
+    # arm refuse:
+    #
+    #   * OWNED BY THIS UID. /private/tmp is world-writable and shared: 97 of its
+    #     753 entries are root's. Another user's temp directory is never ours to
+    #     collect, and the check is one lstat.
+    #   * PAST A DECLARED AGE FLOOR of its own, far longer than the legacy arm's
+    #     two hours, because the legacy families are named-and-known and these
+    #     are not.
+    #   * NOTHING HOLDS A FILE OPEN INSIDE IT, from the same cached whole-machine
+    #     lsof both older arms use.
+    #   * ALL FOUR WALLS, with wall 2 (no .git) standing in full unless
+    #     SCRATCH_UNKNOWN_GIT_IS_FIXTURE says otherwise.
+    #
+    # THE LEGACY PATTERN LIST IS NOT MADE REDUNDANT BY THIS, and that is a
+    # finding against the brief that ordered the change. Frank's Fix 1 says the
+    # families "become redundant under deny-by-default and can be deleted from
+    # the config". They cannot: they are the FAST LANE. A legacy family is swept
+    # at two hours because the 105 GB directory reached that size inside one run,
+    # and this arm's floor is measured in days. Deleting the list would trade a
+    # two-hour reclaim for a three-day one on exactly the family that filled the
+    # disk. The list stays, and what changes is its JOB: it is no longer the
+    # coverage, it is a fast lane on top of the coverage.
+    def scan_unknown(self, path, walls, root, held):
+        """One child of a temp root that no other arm claims. Deny-by-default.
+
+        `held` is the cached open-file reduction for `root` — a set, or None
+        when the open-file table could not be read.
+        """
+        name = os.path.basename(path.rstrip("/"))
+        # NAMED APART FROM scan_legacy_tmp's `floor` ON PURPOSE. The mutation
+        # harness replaces source text literally, and two arms sharing the
+        # spelling `if age < floor:` would make a mutant aimed at one of them
+        # silently rewrite both.
+        unknown_floor = max(self.cfg["unknown_age_hours"] * 3600, self.floor)
+
+        if os.path.islink(path):
+            # The link, not its target. Wall 1 resolves realpath, which for a
+            # link is wherever it points — so a link is reported rather than
+            # reasoned about. There is one on this machine.
+            self.add(path, "tmp-foreign", 0, KEEP,
+                     "a symlink in a temp root: this arm unlinks nothing it "
+                     "cannot contain, and where a link points is not this "
+                     "program's to decide")
+            return
+
+        if any(fnmatch.fnmatch(name, pat) for pat in self.cfg["foreign_patterns"]):
+            size, _newest, _git = measure(path)
+            self.add(path, "tmp-foreign", size, KEEP,
+                     "matches a declared FOREIGN owner — another program's "
+                     "temp directory, counted so it is visible and never "
+                     "deleted by us")
+            return
+
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return          # it went away mid-scan; it was never going to be freed
+        if st.st_uid != os.getuid():
+            self.add(path, "tmp-foreign", 0, KEEP,
+                     "owned by uid %d, not this user — %s is shared and another "
+                     "user's temp directory is never ours to collect"
+                     % (st.st_uid, root))
+            return
+
+        size, newest, has_git = measure(path)
+
+        oldest = self.live.oldest_start()
+        if oldest is None:
+            self.add(path, "tmp-unknown", size, INDETERMINATE,
+                     "no session process start time could be read, so it "
+                     "cannot be shown that no running session wrote this")
+            return
+        if newest >= oldest:
+            self.add(path, "tmp-unknown", size, KEEP,
+                     "touched after the earliest running session process "
+                     "started, so a running session may own it")
+            return
+
+        age = self.now - newest
+        if age < unknown_floor:
+            self.add(path, "tmp-unknown", size, KEEP,
+                     "nothing running can own it, but it was touched %d h ago "
+                     "and the floor for an undeclared temp family is %d h"
+                     % (age // 3600, unknown_floor // 3600))
+            return
+
+        if held is None:
+            self.add(path, "tmp-unknown", size, INDETERMINATE,
+                     "the open-file table could not be read, and a tree "
+                     "something is reading must never be deleted from under it")
+            return
+        if name in held:
+            # §54 addendum 4, exactly as the legacy arm applies it: a holder that
+            # is POSITIVELY a collectable test instance is itself the garbage and
+            # pins the rest. Any other holder, or a mixed set, keeps the tree.
+            held_by, pids = self.test_instance_holders(path)
+            if held_by == "test-instances":
+                self.add(path, "tmp-unknown", size, DELETE,
+                         "held open only by test instance(s) of the app (pid "
+                         "%s), which are themselves garbage under §54 addendum "
+                         "4 and are quit before this is removed; nothing "
+                         "running can own it and nothing has touched it for %d h"
+                         % (", ".join(str(p) for p in pids), age // 3600))
+                return
+            self.add(path, "tmp-unknown", size, KEEP,
+                     "a live process holds a file open inside it"
+                     + ("" if held_by != "mixed" else
+                        " (one of them is a test instance of the app, but not "
+                        "all of them are, so nothing here is quit)"))
+            return
+
+        refused = walls.check(path, has_git,
+                              git_is_fixture=self.cfg["unknown_git_is_fixture"])
+        if refused:
+            self.add(path, "tmp-unknown", size, INDETERMINATE, refused)
+            return
+
+        self.add(path, "tmp-unknown", size, DELETE,
+                 "no arm declares this name, and nothing needs to: no running "
+                 "session process existed when it was last written, nothing "
+                 "has touched it for %d h, no process holds a file open inside "
+                 "it, and it is not a registered workspace" % (age // 3600))
+
+    def scan_shared_tmp(self, walls):
+        """The DECLARED SHARED TEMP ROOTS — /private/tmp on this machine.
+
+        A SEPARATE ROOT AND NOT A PATTERN, because it is not $TMPDIR and nothing
+        reaches it through $TMPDIR. Frank measured 25.77 GiB here that no arm of
+        the mechanism had an opinion about, including a single 19 GiB directory of
+        two-day-old evidence named `richos-*` on the volume the watchdog guards.
+
+        The two claude roots live inside it and are swept by their own arm, so
+        they are skipped by name here — never decided twice.
+        """
+        if not self.cfg["deny_by_default"]:
+            return
+        skip = set(os.path.realpath(r) for r in self.cfg["claude_roots"])
+        for root in self.cfg["shared_tmp_roots"]:
+            if not os.path.isdir(root):
+                continue
+            self.roots.append(root)
+            try:
+                names = sorted(os.listdir(root))
+            except OSError:
+                continue
+            for name in names:
+                path = os.path.join(root, name)
+                if os.path.realpath(path) in skip:
+                    continue            # scan_claude_roots owns this one
+                self._unknown.append((path, root))
+
+    def scan_deferred_unknown(self, walls):
+        """THE DEFERRED DENY-BY-DEFAULT PASS, and the ONE arm allowed to be cut
+        short without failing the run.
+
+        WHY IT IS SEPARATE. Every other arm walks a handful of paths a glob
+        picked out; this one walks every direct child of two whole temp roots —
+        measured at 9.0 s warm for $TMPDIR's 60,942 children on this machine,
+        against the 1.3 s the SessionStart notice was written around. A notice
+        that blew its budget would print "the size is UNKNOWN" at every session
+        start and be deleted within a week, and then nothing tells anybody
+        anything, which is the failure the whole mechanism exists to end.
+
+        So a Deadline here is NOT an error: what has been decided stays decided,
+        the rest is counted, and the count is reported. `scan_deferred_skipped`
+        is the number of entries this arm never reached, and Fix 2 puts it on the
+        verdict line beside the undecidable count — an honest "N entries were not
+        measured within the budget" is a usable sentence, and "UNKNOWN" is not.
+        """
+        # --notice DOES NOT ATTEMPT THIS ARM AT ALL, and that is a correction to
+        # the first version of this change rather than a shortcut.
+        #
+        # With a budget, the arm reached part of the way and the banner said
+        # "44,851 temp entries were NOT MEASURED within the 5 s budget" — AT
+        # EVERY SESSION START, FOREVER, because 60,942 temp entries is what this
+        # machine simply has. That line describes the budget, not the machine's
+        # health, and a line that is always true is wallpaper. Wallpaper is how a
+        # real signal comes to be skipped, which is the failure this whole
+        # mechanism exists to prevent.
+        #
+        # So the banner's garbage numbers come from the LAST FULL PASS, which the
+        # scheduled job publishes to scratch-reaper-state.json every six hours.
+        # A pile of garbage nobody is coming for does not change in six hours —
+        # that is what makes it that pile — and leg 3 of the notice already
+        # shouts if the scheduled job has not completed a pass in fourteen.
+        if self.skip_unknown_arm:
+            self.unknown_not_scanned = len(self._unknown)
+            return
+        # THE OPEN-FILE TABLE DOES FAIL UNDER LAUNCHD ON THIS MACHINE, AND THAT
+        # CHANGES WHAT AN UNREADABLE TABLE MAY COST.
+        #
+        # Read off the operator's own launchd log on 2026-09-18:
+        #   $ grep -c 'verdict: undecided' ~/.claude/state/scratch-reaper-launchd.log  -> 1
+        #   $ grep -c 'verdict: decided'   ~/.claude/state/scratch-reaper-launchd.log  -> 4
+        # and the undecided one's reason is exactly this: "the open-file table could
+        # not be read, and a temp workspace is only dead when its creator is".
+        #
+        # WHAT THAT ESTABLISHES IS THAT IT HAPPENS, NOT HOW OFTEN. Five verdicts is
+        # not a frequency and no rate is claimed from it. Happening at all is enough,
+        # because of what it would now cost: it cost ONE entry in that run, since the
+        # old $TMPDIR arm had almost no candidates.
+        #
+        # THIS ARM HAS TENS OF THOUSANDS. Deciding each one individually would turn
+        # a single lsof timeout into ~40,000 identical INDETERMINATE entries, an
+        # enormous undecidable pile in the garbage alarm, and exit 3 — on every run
+        # where it happens. Thousands of copies of one fact is the noise that makes a
+        # real signal get skipped, which is the failure this mechanism exists to
+        # prevent.
+        #
+        # So an unreadable table is reported ONCE PER ROOT, with the count. The
+        # safety is identical — nothing under that root is deleted — and the report
+        # is one line a person can read instead of a wall they will learn to page
+        # past.
+        held = {}
+        done = 0
+        blind = {}
+        for path, root in self._unknown:
+            if root not in held:
+                tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
+                held[root] = (self.open_under_tmp() if root == tmp
+                              else self.open_under_shared(root))
+            if held[root] is None:
+                blind[root] = blind.get(root, 0) + 1
+        for root, n in sorted(blind.items()):
+            self.add(root, "tmp-unknown", 0, INDETERMINATE,
+                     "THE OPEN-FILE TABLE COULD NOT BE READ, so the %d undeclared "
+                     "entr(ies) directly under this root were not decided. A tree "
+                     "something is reading must never be deleted from under it. "
+                     "Reported once rather than %d times: one fact repeated %d "
+                     "times is noise, and noise is what makes a real signal get "
+                     "skipped." % (n, n, n))
+        try:
+            for path, root in self._unknown:
+                check_deadline()
+                if held.get(root) is None:
+                    done += 1
+                    continue        # already reported once, for this whole root
+                if path in self._standing or \
+                        os.path.realpath(path) in self._standing:
+                    done += 1
+                    continue        # scan_standing_failures already decided it
+                self.scan_unknown(path, walls, root, held[root])
+                done += 1
+        except Deadline:
+            pass
+        self.deferred_skipped = len(self._unknown) - done
+
     def open_under_tmp(self):
         """One lsof for the WHOLE MACHINE, cached: the set of open paths under
         $TMPDIR. None if lsof could not be trusted to answer.
@@ -1151,6 +1668,7 @@ class Reaper(object):
         except (OSError, subprocess.TimeoutExpired):
             self._open_tmp = _FAILED
             self._open_alloc = _FAILED
+            self._open_shared = _FAILED
             return None
         # lsof exits 1 when some of what it was asked about could not be
         # listed, which on a whole-machine scan is normal (other users'
@@ -1160,6 +1678,7 @@ class Reaper(object):
         if r.returncode not in (0, 1):
             self._open_tmp = _FAILED
             self._open_alloc = _FAILED
+            self._open_shared = _FAILED
             return None
         # Reduced to the set of FIRST PATH COMPONENTS under $TMPDIR, because
         # every candidate this answers about is a direct child of $TMPDIR. That
@@ -1174,13 +1693,27 @@ class Reaper(object):
         # collapse to the same key. Deriving it here rather than in a second
         # lsof keeps the cost at ONE whole-machine read, which is the property
         # that made this method worth having.
+        # A THIRD FAMILY OF REDUCTIONS IS BUILT IN THE SAME PASS, one per
+        # DECLARED SHARED TEMP ROOT (/private/tmp). Same argument as the
+        # allocator reduction above: those candidates are children of a
+        # different directory, so they cannot share $TMPDIR's key, and deriving
+        # them here keeps the cost at ONE whole-machine read. On this machine
+        # /private/tmp holds 753 direct children, so a per-candidate `lsof +D`
+        # would be 753 tree walks against one read.
         pref = tmp + "/"
         alloc_pref = os.path.join(tmp, self.cfg["scratch_root_name"]) + "/"
+        shared = [(r, r.rstrip("/") + "/") for r in self.cfg["shared_tmp_roots"]]
         found, alloc = set(), set()
+        shared_sets = dict((r, set()) for r, _ in shared)
         for line in r.stdout.splitlines():
             if not line.startswith("n"):
                 continue
             p = line[1:]
+            for root, spref in shared:
+                if p.startswith(spref):
+                    rest = p[len(spref):]
+                    if rest:
+                        shared_sets[root].add(rest.split("/", 1)[0])
             if not p.startswith(pref):
                 continue
             if p.startswith(alloc_pref):
@@ -1193,7 +1726,21 @@ class Reaper(object):
             found.add(rest.split("/", 1)[0])
         self._open_tmp = found
         self._open_alloc = alloc
+        self._open_shared = shared_sets
         return found
+
+    def open_under_shared(self, root):
+        """The set of children of a declared SHARED temp root that something
+        holds open, or None if the open-file table could not be read.
+
+        Same three states as its two siblings, and for the same reason: None
+        keeps the tree, an empty set is permission to delete it.
+        """
+        if self._open_shared is None:
+            self.open_under_tmp()      # populates every reduction in one read
+        if self._open_shared is None or self._open_shared is _FAILED:
+            return None
+        return self._open_shared.get(os.path.realpath(root))
 
     def open_under_alloc(self):
         """The set of allocator-root children something holds open, or None.
@@ -1338,6 +1885,72 @@ class Reaper(object):
         mine = {str(os.getpid()), str(os.getppid())}
         return " ".join(p for p in pids if p not in mine)
 
+    def scan_campaign_roots(self, walls):
+        """DECLARED CAMPAIGN ROOTS — MEASURED AND REPORTED, NEVER DELETED.
+
+        =================================================================
+        FRANK'S D3, AND A MEASUREMENT THAT CHANGED WHAT THE FIX CAN BE
+        =================================================================
+        His finding: `richos-rechecks` (17.01 GiB) and
+        `richos-password-free-workspaces` (8.41 GiB) sit under ~/ab in NO ledger
+        row and under NO declared root, so the worktree reaper will never see them
+        and the scratch reaper will never see them. True, and re-measured here at
+        18.90 GB and 13.75 GB.
+
+        HIS PROPOSED SIGNAL DOES NOT SURVIVE THE CENSUS. "Not in the ledger" was
+        the natural rule, and running it over the whole of ~/ab on 2026-09-18 gives
+        24 of 29 directories unnamed — including `fitapp` (the legacy product),
+        `prospects` (the outreach data layer), `li-profile-da""ta-grabber` (the
+        capture extension), `deeply`, `saferecord`, `autocoder`, `wsp`, `ai-book`
+        and `press-and-publicity`. EVERY ONE OF THOSE IS THE OPERATOR'S OWN
+        PROJECT. Under ~/ab the default is "this is somebody's work", which is the
+        exact opposite of the default under $TMPDIR, so the deny-by-default shape
+        that is right there would be catastrophic here.
+
+        SO THE ASYMMETRY RUNS THE OTHER WAY AND THE SHAPE FOLLOWS IT. An
+        enumeration is normally the wrong answer — it is the D1 lesson — but the
+        failure modes are not comparable: a missed campaign root costs disk space
+        that the watchdog's ~/ab consumer line still reports, while a
+        deny-by-default miss costs the product tree. An enumeration that can only
+        FAIL TO NOMINATE is a safe enumeration.
+
+        AND NOTHING HERE IS EVER DELETED AUTOMATICALLY. Every one of these trees
+        contains a `.git`, which is wall 2 — "a scratch directory holding a
+        checkout is somebody's work" — and the reaper refuses those everywhere
+        else. §54 has a second branch for exactly this case: *"if the clean-up
+        fails or impossible for some reason, then Rich must get a MASSIVE ALERT
+        about it and get on with manually deleting the garbage"*. So a campaign
+        root past its declared retention is counted into `skipped`, which is what
+        the garbage alarm reads, and the reason carries the command.
+        """
+        parent = os.path.expanduser(self.cfg["campaign_parent"] or "")
+        names = self.cfg["campaign_roots"]
+        if not parent or not names or not os.path.isdir(parent):
+            return
+        retention = self.cfg["campaign_retention_days"] * 86400
+        for name in names:
+            for path in sorted(glob.glob(os.path.join(parent, name))):
+                check_deadline()
+                if not os.path.isdir(path) or os.path.islink(path):
+                    continue
+                size, newest, _has_git = measure(path)
+                age = self.now - newest
+                if age < retention:
+                    self.add(path, "campaign-root", size, KEEP,
+                             "a declared campaign root, touched %d d ago, and "
+                             "the declared retention is %d d"
+                             % (age // 86400, retention // 86400))
+                    continue
+                self.add(path, "campaign-root", size, KEEP,
+                         "A DECLARED CAMPAIGN ROOT PAST ITS RETENTION: nothing "
+                         "has touched it for %d d and the declared retention is "
+                         "%d d. IT IS NOT DELETED AUTOMATICALLY — it holds a "
+                         "checkout, which is wall 2 everywhere else in this "
+                         "program — so under §54 it is reported and a person "
+                         "removes it:  rm -rf %s"
+                         % (age // 86400, retention // 86400, path),
+                         standing=True)
+
     def scan_nightly(self, walls):
         base = self.cfg["nightly_dir"]
         keep = self.cfg["nightly_keep"]
@@ -1380,7 +1993,8 @@ class Reaper(object):
         tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
         nightly = [os.path.join(self.cfg["nightly_dir"], s)
                    for s in ("releases", "logs")]
-        walls = Walls(roots + [tmp] + nightly)
+        shared = [r for r in self.cfg["shared_tmp_roots"] if os.path.isdir(r)]
+        walls = Walls(roots + [tmp] + nightly + shared)
         # FIRST, so the other arms can skip what it has already claimed. A path
         # decided twice would be counted twice in the verdict, and a standing
         # failure is precisely a path another arm would otherwise report as KEEP.
@@ -1390,7 +2004,14 @@ class Reaper(object):
         # never decide the same path twice.
         self.scan_scratch_root(walls)
         self.scan_tmp(walls)
+        self.scan_shared_tmp(walls)
         self.scan_nightly(walls)
+        self.scan_campaign_roots(walls)
+        self.scan_docker_containers(walls)
+        # LAST, ALWAYS. It is the only expensive arm and the only one that may be
+        # cut short by a budget without failing the run; everything above has
+        # already been decided by the time it starts.
+        self.scan_deferred_unknown(walls)
         self.entries.sort(key=Entry.key)
         return self.entries
 
@@ -1405,7 +2026,10 @@ class Reaper(object):
                    % (", ".join("%s (pid %d)" % (s[:8], p)
                                 for s, (p, _) in live) or "none"))
         for e in self.entries:
-            if e.action == KEEP and not verbose:
+            # A STANDING KEEP IS ALWAYS PRINTED. Kept, and a person has to act on
+            # it — hiding that behind --verbose is the same as not reporting it,
+            # which is the half of §54 this whole pass exists to add.
+            if e.action == KEEP and not verbose and not e.standing:
                 continue
             out.append("%-13s %10s  %s" % (e.action, human(e.size), e.path))
             out.append("%13s %10s  why: %s" % ("", "", e.why))
@@ -1422,11 +2046,60 @@ class Reaper(object):
     def undecidable_bytes(self):
         return sum(e.size for e in self.entries if e.action == INDETERMINATE)
 
+    def skipped(self):
+        """(count, bytes) OF GARBAGE NO RUN OF THIS PROGRAM WILL EVER TAKE.
+
+        FRANK'S FIX 2, AND IT IS THE HALF OF THE CEO'S RULE THE MECHANISM DID NOT
+        IMPLEMENT. His verdict: "Its alarm is a disk-space alarm and a
+        delete-failure alarm. It has no garbage alarm." Garbage no arm considered
+        produced neither a cleanup nor a word, and `kept=1611` out of 53,593 meant
+        no number in the verdict line could be used to notice.
+
+        Under deny-by-default nothing under the temp roots is unconsidered any
+        more, so the honest number changed shape. What this counts is what the
+        program has LOOKED AT AND WILL NEVER COLLECT:
+
+          * another program's temp directory (the declared foreign keep-list)
+          * another user's (the uid wall)
+          * a symlink, whose target is not this program's to reason about
+          * entries a BUDGETED run did not reach — counted, never guessed at
+
+        It is deliberately NOT the same number as `kept`. A kept entry is usually
+        alive or young and will be collected in due course; a skipped one will sit
+        there for ever unless a person removes it. 1.13 GB of it on this machine
+        on 2026-09-18, of which 942 MB is one VS Code installer directory.
+
+        ENTRIES A BUDGET DID NOT REACH ARE **NOT** COUNTED HERE, and the first
+        version of this method counted them. It printed "1.0 GB in 47,681
+        place(s)" — a byte count from 2,830 measured entries wearing a place count
+        inflated by 44,851 unmeasured ones. Two different facts in one sentence
+        is a sentence nobody can act on. `not_measured` is its own field.
+        """
+        # TWO CLASSES, AND A CAMPAIGN ROOT BELONGS HERE FOR THE SAME REASON A
+        # FOREIGN DIRECTORY DOES: this program has looked at it and will never
+        # take it. A campaign root holds a checkout, which is wall 2 everywhere
+        # else, so §54's second branch applies — Rich is told and removes it.
+        # Only ones PAST their declared retention count; a young one is not
+        # garbage yet and would make this number permanent wallpaper.
+        rows = [e for e in self.entries
+                if e.klass == "tmp-foreign" or e.standing]
+        return len(rows), sum(e.size for e in rows)
+
     def verdict_line(self):
         d, i, k, b = self.counts()
-        return ("verdict: %s deletable=%d reclaimable=%s kept=%d "
-                "undecidable=%d" % ("undecided" if i else "decided",
-                                    d, human(b), k, i))
+        sn, sb = self.skipped()
+        line = ("verdict: %s deletable=%d reclaimable=%s kept=%d "
+                "undecidable=%d skipped=%d skipped_bytes=%s"
+                % ("undecided" if i else "decided", d, human(b), k, i,
+                   sn, human(sb)))
+        # ONLY WHEN IT IS TRUE, so the line a person is used to reading does not
+        # grow a field that is always zero. A budget that truncated the scan is
+        # an exceptional condition and reads as one.
+        if self.deferred_skipped:
+            line += " not_measured=%d" % self.deferred_skipped
+        if self.unknown_not_scanned:
+            line += " not_scanned=%d" % self.unknown_not_scanned
+        return line
 
     def prune_docker(self):
         """Docker's own caches, which no walk of the filesystem can reclaim.
@@ -1452,22 +2125,8 @@ class Reaper(object):
         out = []
         if not self.cfg["docker_prune"]:
             return out
-        docker = None
-        for cand in ("docker", "/usr/local/bin/docker", "/opt/homebrew/bin/docker"):
-            if os.path.isabs(cand):
-                if os.access(cand, os.X_OK):
-                    docker = cand
-                    break
-            else:
-                try:
-                    r = subprocess.run(["command", "-v", cand],
-                                       capture_output=True, text=True,
-                                       timeout=5, shell=False)
-                except (OSError, subprocess.TimeoutExpired):
-                    r = None
-                if r is not None and r.returncode == 0 and r.stdout.strip():
-                    docker = r.stdout.strip().splitlines()[0]
-                    break
+        # ONE RESOLVER, shared with scan_docker_containers. See _docker_path.
+        docker = self._docker_path()
         if docker is None:
             # Not installed. Not a failure, and not worth a line every run.
             return out
@@ -1544,7 +2203,211 @@ class Reaper(object):
                        % (stamp, freed, klass,
                           "the daemon reclaimed it (%s)" % " ".join(args)))
             self.docker_actions.append((klass, freed, ""))
+        out.extend(self.prune_docker_volumes(docker, stamp))
         return out
+
+    def prune_docker_volumes(self, docker, stamp):
+        """THE FOURTH STAGE — unused ANONYMOUS volumes past the declared age.
+
+        =================================================================
+        THE BRIEF PRESCRIBED `docker volume prune --filter until=...`
+        AND THAT FILTER DOES NOT EXIST
+        =================================================================
+        Checked before it was built, against this machine and against the vendor's
+        own reference:
+
+            $ docker volume prune --help
+              --filter filter   Provide filter values (e.g. "label=<label>")
+            $ docker version --format '{{.Server.Version}}'   ->  29.2.0
+
+        and docs.docker.com/reference/cli/docker/volume/prune: *"The currently
+        supported filters are: label"*. There is no `until` for volumes — unlike
+        container, image and builder prune, which all take one. So the prescription
+        could not have worked, and copying it would have shipped either a command
+        that errors on every run or, worse, one whose unknown filter is ignored and
+        which therefore prunes with NO AGE LIMIT AT ALL.
+
+        THE AGE IS NOT OPTIONAL HERE, which is why this is not simply
+        `docker volume prune -f`. Every other stage of this sweep is safe because
+        of its age filter: "an image pulled or built this month is never a
+        candidate, however unreferenced it is today". A volume detached from a
+        container ten minutes ago is exactly the thing somebody is about to
+        reattach. So the window is applied HERE, from
+        `docker volume inspect --format '{{.CreatedAt}}'`, which is documented and
+        which this machine answers with an RFC3339 timestamp.
+
+        ANONYMOUS VOLUMES ONLY, and that is Docker's own default rather than a
+        choice of mine: `docker volume prune` needs `-a` before it will touch a
+        NAMED volume, because a name is somebody having meant it. Measured here:
+        21 dangling volumes, 402.2 MB, every one carrying
+        `com.docker.volume.anonymous`.
+        """
+        out = []
+        hours = _hours_from_until(self.cfg["docker_until"])
+        if hours is None:
+            out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                       "why=unreadable-age error=%r is not a duration this "
+                       "understands (expected e.g. 720h)"
+                       % (stamp, self.cfg["docker_until"]))
+            return out
+        try:
+            r = subprocess.run([docker, "volume", "ls", "-q", "-f",
+                                "dangling=true"],
+                               capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                       "why=list error=%s" % (stamp, exc))
+            return out
+        if r.returncode != 0:
+            return out
+        cutoff = self.now - hours * 3600
+        removed = 0
+        for name in r.stdout.split():
+            try:
+                i = subprocess.run(
+                    [docker, "volume", "inspect", name, "--format",
+                     "{{.CreatedAt}}|{{index .Labels \"com.docker.volume.anonymous\"}}"],
+                    capture_output=True, text=True, timeout=60)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if i.returncode != 0:
+                continue
+            created, _, anon = (i.stdout or "").strip().partition("|")
+            # `index` on a missing key prints "<no value>"; an anonymous volume
+            # carries the label with an EMPTY value, which prints as "".
+            if anon.strip() == "<no value>":
+                continue            # a NAMED volume: somebody meant it
+            when = _rfc3339_epoch(created)
+            if when is None or when > cutoff:
+                continue
+            try:
+                d = subprocess.run([docker, "volume", "rm", name],
+                                   capture_output=True, text=True, timeout=120)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                           "why=%s error=%s" % (stamp, name, exc))
+                continue
+            if d.returncode != 0:
+                err = (d.stderr or "").strip().splitlines()
+                out.append("%s FAILED docker bytes=0 class=docker-volume-prune "
+                           "why=%s error=%s"
+                           % (stamp, name, err[-1] if err else
+                              "exit %d" % d.returncode))
+                continue
+            removed += 1
+            out.append("%s DELETED docker bytes=0 class=docker-volume-prune-item "
+                       "why=%s, anonymous and unused, created %s (older than the "
+                       "declared %s)" % (stamp, name, created,
+                                         self.cfg["docker_until"]))
+        if removed:
+            out.append("%s DELETED docker bytes=0 class=docker-volume-prune "
+                       "why=%d anonymous unused volume(s) older than %s"
+                       % (stamp, removed, self.cfg["docker_until"]))
+            self.docker_actions.append(("docker-volume-prune", 0, ""))
+        return out
+
+    def scan_docker_containers(self, walls):
+        """A RUNNING CONTAINER IS IMMORTAL BY DESIGN — so it gets reported.
+
+        Frank's D14. `container prune` only ever considers STOPPED containers, and
+        the shipped code says so as a virtue: "a running one is not a candidate at
+        any age". That is correct as a deletion rule and it leaves a hole:
+
+            $ docker ps --format '{{.Names}} | {{.Image}} | up {{.RunningFor}} | {{.Command}}'
+            rl55 | richos-linux:git-latest | up 8 days ago | "sleep infinity"
+            rlx  | richos-linux:24.04      | up 8 days ago | "sleep infinity"
+
+        Two `sleep infinity` dev shells, eight days old, pinning 514 MB and 349 MB
+        of image so `image prune -a` can never reclaim them. Nothing alerts, and
+        that is how dev containers are actually used, so it recurs.
+
+        NOTHING IS EVER STOPPED HERE. A running container may be a service — four
+        of the six on this machine are the Buzz production stack — and stopping one
+        automatically is a category of action this program does not take. It is
+        REPORTED, as a standing entry, so it reaches the garbage alarm and a person
+        decides. Same shape as a campaign root, for the same reason.
+
+        Narrow by construction: only images matching a DECLARED throwaway pattern,
+        and only past a declared age.
+        """
+        pats = self.cfg["docker_throwaway_images"]
+        if not self.cfg["docker_prune"] or not pats or self.skip_unknown_arm:
+            return
+        docker = self._docker_path()
+        if docker is None or not self._docker_alive(docker):
+            return
+        try:
+            r = subprocess.run(
+                [docker, "ps", "--format",
+                 "{{.Names}}\t{{.Image}}\t{{.CreatedAt}}\t{{.Command}}"],
+                capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        if r.returncode != 0:
+            return
+        max_age = self.cfg["docker_container_alert_days"] * 86400
+        for line in r.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            name, image, created = parts[0], parts[1], parts[2]
+            if not any(fnmatch.fnmatch(image, p) for p in pats):
+                continue
+            when = _docker_ps_epoch(created)
+            if when is None:
+                continue
+            age = self.now - when
+            if age < max_age:
+                continue
+            self.add("docker://container/" + name, "docker-container", 0, KEEP,
+                     "A RUNNING CONTAINER ON A DECLARED THROWAWAY IMAGE (%s) has "
+                     "been up %d d, and the declared limit is %d d. It is never "
+                     "stopped automatically — a running container may be a service "
+                     "— and `container prune` considers stopped ones only, so it "
+                     "pins its image for ever. Under §54 it is reported and a "
+                     "person ends it:  docker rm -f %s"
+                     % (image, age // 86400,
+                        self.cfg["docker_container_alert_days"], name),
+                     standing=True)
+
+    def _docker_path(self):
+        """Where docker is, resolved ONCE and the same way for every caller.
+
+        THIS WAS TWO RESOLVERS AND THEY DISAGREED, which the suite caught: the
+        prune arm resolved through PATH and this one only checked three absolute
+        locations, so a test's stubbed `docker` was honored by one arm and ignored
+        by the other. Two answers to "where is docker" is one more than there can
+        usefully be.
+
+        shutil.which, because it honors PATH and is the documented way. The prune
+        arm used to shell out to `command -v`, which works here only because macOS
+        ships /usr/bin/command as a real binary — checked, it does — and would fail
+        on a host that does not.
+        """
+        if "_dockerbin" in self.__dict__:
+            return self.__dict__["_dockerbin"]
+        import shutil
+        found = shutil.which("docker")
+        if not found:
+            for cand in ("/opt/homebrew/bin/docker", "/usr/local/bin/docker",
+                         "/usr/bin/docker"):
+                if os.access(cand, os.X_OK):
+                    found = cand
+                    break
+        self.__dict__["_dockerbin"] = found
+        return found
+
+    def _docker_alive(self, docker):
+        if "_dockerup" in self.__dict__:
+            return self.__dict__["_dockerup"]
+        try:
+            p = subprocess.run([docker, "info", "--format", "{{.ServerVersion}}"],
+                               capture_output=True, text=True, timeout=20)
+            up = p.returncode == 0 and bool(p.stdout.strip())
+        except (OSError, subprocess.TimeoutExpired):
+            up = False
+        self.__dict__["_dockerup"] = up
+        return up
 
     def apply(self, log_path):
         """Delete, one line per deletion, freed bytes counted from what the
@@ -1742,6 +2605,66 @@ class Reaper(object):
                 write_failures(state, {})
 
 
+def _hours_from_until(text):
+    """'720h' -> 720. None if it is not a form this understands.
+
+    Deliberately narrow: `until` accepts several spellings from Docker, and this
+    only has to read the one THIS config declares. A duration it cannot read is
+    reported as a failure rather than defaulted, because a default here would be
+    an age limit nobody chose on a command that deletes.
+    """
+    t = (text or "").strip().lower()
+    if t.endswith("h"):
+        t = t[:-1]
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def _rfc3339_epoch(text):
+    """'2026-09-10T11:25:40Z' -> epoch seconds, or None.
+
+    `docker volume inspect --format '{{.CreatedAt}}'` answers in this form on this
+    machine, measured. Parsed with calendar.timegm and never with mktime, for the
+    reason lstart_epoch carries at length: the string is UTC and mktime reads local.
+    """
+    t = (text or "").strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return calendar.timegm(time.strptime(t[:19], fmt))
+        except ValueError:
+            continue
+    return None
+
+
+def _docker_ps_epoch(text):
+    """`docker ps --format '{{.CreatedAt}}'` -> epoch seconds, or None.
+
+    Its shape is '2026-09-10 11:25:40 +0100 BST' — LOCAL time with an explicit
+    numeric offset, which is a different format from the volume inspect one above
+    and is why this is a second function rather than a second regex in the first.
+    The numeric offset is what makes it unambiguous; the trailing zone NAME is
+    ignored because names are not unique across the world.
+    """
+    parts = (text or "").strip().split()
+    if len(parts) < 3:
+        return None
+    try:
+        base = calendar.timegm(time.strptime(" ".join(parts[:2]),
+                                             "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        return None
+    off = parts[2]
+    if len(off) != 5 or off[0] not in "+-":
+        return None
+    try:
+        mins = int(off[1:3]) * 60 + int(off[3:5])
+    except ValueError:
+        return None
+    return base - mins * 60 if off[0] == "+" else base + mins * 60
+
+
 _RECLAIM_RE = re.compile(
     r"Total reclaimed space:\s*([0-9.]+)\s*([KMGT]?i?B)", re.IGNORECASE)
 
@@ -1805,7 +2728,14 @@ def _docker_removed_names(text):
 # gone — the allocator root, the declared harness families, and a path this
 # program already tried to delete once.
 _UNSTICKABLE_CLASSES = frozenset((
-    "scratch-alloc", "tmp-legacy", "tmp-workspace", "standing-failure"))
+    "scratch-alloc", "tmp-legacy", "tmp-workspace", "standing-failure",
+    # tmp-unknown joins them 2026-09-18: by the time an entry of that class is on
+    # the delete list, NO RUNNING SESSION PROCESS EXISTED WHEN IT WAS LAST
+    # WRITTEN, nothing holds it open, and it has sat untouched for days. A mode
+    # bit on a tree that old, in a temp root, is a harness's leftover and not a
+    # person's protection — and every failure here becomes a MASSIVE ALERT, so an
+    # avoidable one costs the credibility of the unavoidable ones.
+    "tmp-unknown"))
 
 UF_IMMUTABLE = 0x00000002       # uchg. stat.UF_IMMUTABLE, named here so the
                                 # constant is readable beside its use.
@@ -1960,6 +2890,41 @@ def config_from_env():
         "docker_prune": opt("SCRATCH_DOCKER_PRUNE", "0") == "1",
         "docker_keep_storage": opt("SCRATCH_DOCKER_KEEP_STORAGE", "20GB"),
         "docker_until": opt("SCRATCH_DOCKER_UNTIL", "720h"),
+        # --- the deny-by-default temp arm, added 2026-09-18 (Frank D1/D2) ----
+        # OFF is the conservative fallback, for the reason opt() exists at all:
+        # an engine whose config predates this key sweeps exactly what it swept
+        # yesterday rather than suddenly sweeping every name under $TMPDIR.
+        "deny_by_default": opt("SCRATCH_TMP_DENY_BY_DEFAULT", "0") == "1",
+        "shared_tmp_roots": [os.path.realpath(p) for p in
+                             opt("SCRATCH_SHARED_TMP_ROOTS", "").split()],
+        "foreign_patterns": opt("SCRATCH_FOREIGN_PATTERNS", "").split(),
+        "unknown_age_hours": opt_number("SCRATCH_UNKNOWN_AGE_HOURS", 72),
+        "unknown_git_is_fixture":
+            opt("SCRATCH_UNKNOWN_GIT_IS_FIXTURE", "0") == "1",
+        # The two notice thresholds the garbage alarm uses. Their fallbacks are
+        # the CONSERVATIVE direction for a notice, which is to say the LOUD one:
+        # a machine whose config predates these keys is told about garbage it
+        # cannot collect rather than kept quiet about it.
+        "skipped_notice_bytes":
+            opt_number("SCRATCH_SKIPPED_NOTICE_BYTES", 1024 ** 3),
+        "undecidable_notice_bytes":
+            opt_number("SCRATCH_UNDECIDABLE_NOTICE_BYTES", 64 * 1024 ** 2),
+        # D11. The fallback is 0, which DISABLES the floor test and leaves the
+        # other two — an engine whose config predates this key keeps exactly the
+        # behavior it had rather than acquiring a number nobody declared.
+        "min_owner_pid": opt_number("SCRATCH_MIN_OWNER_PID", 0),
+        # D3. Empty fallbacks: a campaign root is nominated BY DECLARATION and
+        # never by inference, so an engine whose config predates these keys
+        # nominates nothing.
+        "campaign_parent": opt("SCRATCH_CAMPAIGN_PARENT", ""),
+        "campaign_roots": opt("SCRATCH_CAMPAIGN_ROOTS", "").split(),
+        "campaign_retention_days":
+            opt_number("SCRATCH_CAMPAIGN_RETENTION_DAYS", 7),
+        # D14. Empty fallback: no image is a throwaway unless somebody says so.
+        "docker_throwaway_images":
+            opt("SCRATCH_DOCKER_THROWAWAY_IMAGES", "").split(),
+        "docker_container_alert_days":
+            opt_number("SCRATCH_DOCKER_CONTAINER_ALERT_DAYS", 7),
     }
 
 
@@ -2016,6 +2981,9 @@ def main(argv=None):
         cfg = config_from_env()
         ws = load_workspaces()
         reaper = Reaper(cfg, ws)
+        # The banner never pays for the expensive arm. Its garbage numbers come
+        # from the last full pass, which the scheduled job publishes.
+        reaper.skip_unknown_arm = bool(args.notice)
         reaper.scan()
     except Fatal as exc:
         sys.stderr.write("scratch-reaper: %s\n" % exc)
@@ -2044,22 +3012,60 @@ def main(argv=None):
             print("SCRATCH: %s of dead scratch in %d place(s) is reclaimable "
                   "now — nothing running owns any of it. Free it: %s --apply"
                   % (human(b), d, cmd))
-        # The undecidable pile gets its own line and its own threshold. It is
-        # the one thing the scheduled job will NEVER clear on its own, so if
-        # nobody is told, it grows forever — which is the exact failure the
-        # whole mechanism was ordered to end.
-        if reaper.undecidable_bytes() >= cfg["notice_bytes"]:
+        # The undecidable pile gets its own line and ITS OWN, LOWER THRESHOLD.
+        # It is the one thing the scheduled job will NEVER clear on its own, so
+        # if nobody is told, it grows forever — which is the exact failure the
+        # whole mechanism was ordered to end. Sharing SCRATCH_NOTICE_BYTES hid up
+        # to a GiB of it (Frank's D12); the two piles are different in kind and
+        # get different numbers.
+        if reaper.undecidable_bytes() >= cfg["undecidable_notice_bytes"]:
             print("SCRATCH: %s in %d place(s) could not be decided and will "
                   "never be reclaimed by the scheduled job. Read why: %s "
                   "--verbose" % (human(reaper.undecidable_bytes()), i, cmd))
+        # THE GARBAGE ALARM, AND IT IS READ FROM THE LAST FULL PASS.
+        #
+        # The banner does not run the expensive deny-by-default arm (see
+        # scan_deferred_unknown), so these two numbers come from the state file
+        # the scheduled --apply publishes. THE NUMBER IS DATED IN THE SENTENCE —
+        # a figure presented as live that is six hours old is the stale-artifact
+        # failure, and the honest form costs one clause.
+        st = read_failures(default_state())      # same tolerant JSON reader
+        sb = int(st.get("skipped_bytes") or 0)
+        sn = int(st.get("skipped") or 0)
+        ub = int(st.get("undecidable_bytes") or 0)
+        un = int(st.get("undecidable") or 0)
+        when = st.get("last_apply") or "?"
+        if sb >= cfg["skipped_notice_bytes"]:
+            print("SCRATCH: %s in %d place(s) is garbage NOTHING WILL EVER "
+                  "COLLECT — another program's temp directory, another user's, "
+                  "or a symlink. Nobody is coming for it; it goes when a person "
+                  "removes it. Measured by the scheduled pass at %s. See which: "
+                  "%s --verbose" % (human(sb), sn, when, cmd))
+        if ub >= cfg["undecidable_notice_bytes"] \
+                and reaper.undecidable_bytes() < cfg["undecidable_notice_bytes"]:
+            # Only when the LIVE scan above did not already say it: the live
+            # arms and the full pass see different piles, and saying it twice in
+            # two shapes is worse than saying it once.
+            print("SCRATCH: %s in %d place(s) could not be decided by the "
+                  "scheduled pass at %s and no scheduled run will ever clear "
+                  "it. Read why: %s --verbose" % (human(ub), un, when, cmd))
         return 3 if undecidable else 0
 
+    n_failures = 0
+    skipped_n, skipped_b = reaper.skipped()
     if args.apply:
         deleted, freed, failures = reaper.apply(args.log or default_log())
+        n_failures = len(failures)
         write_state(default_state(), {
             "last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "deleted": deleted, "freed": freed,
-            "undecidable": undecidable, "failures": len(failures),
+            "undecidable": undecidable,
+            "undecidable_bytes": reaper.undecidable_bytes(),
+            # PUBLISHED SO THE WATCHDOG CAN SEE IT WITHOUT RUNNING THIS PROGRAM.
+            # The garbage alarm lives in the turn-end and session-start notices,
+            # which read the watchdog, which reads this file. Frank's Fix 2.
+            "skipped": skipped_n, "skipped_bytes": skipped_b,
+            "failures": n_failures,
             "verdict": "undecided" if undecidable else "decided",
         })
     if args.json:
@@ -2068,6 +3074,9 @@ def main(argv=None):
             "applied": bool(args.apply),
             "deleted": deleted, "freed": freed,
             "undecidable": undecidable,
+            "undecidable_bytes": reaper.undecidable_bytes(),
+            "skipped": skipped_n, "skipped_bytes": skipped_b,
+            "failures": n_failures,
             "entries": [{"path": e.path, "class": e.klass, "bytes": e.size,
                          "action": e.action, "why": e.why}
                         for e in reaper.entries],
@@ -2075,8 +3084,21 @@ def main(argv=None):
     else:
         print(reaper.report(verbose=args.verbose))
         if args.apply:
-            print("applied: deleted=%d freed=%s log=%s"
-                  % (deleted, human(freed), args.log or default_log()))
+            # `failures=` IS ON THIS LINE AND NOT ONLY IN THE LOG. Frank's D10:
+            # a run in which every deletion failed printed
+            # `applied: deleted=0 freed=0 B` — byte-identical in shape to a run
+            # with nothing to do — and exited 0. The word FAILED existed only
+            # inside a log file nobody reads.
+            print("applied: deleted=%d freed=%s failures=%d log=%s"
+                  % (deleted, human(freed), n_failures,
+                     args.log or default_log()))
+    # EXIT CODES, AND A FAILED DELETION IS NOW IN ONE (D10). It used to be
+    # `3 if undecidable else 0`, with `failures` never consulted — so launchd saw
+    # green on a run that could not delete a thing. 4 outranks 3 because a
+    # deletion that FAILED is the branch of §54 that says Rich deletes it by
+    # hand, and an undecidable entry is the branch that says somebody reads it.
+    if n_failures:
+        return 4
     return 3 if undecidable else 0
 
 

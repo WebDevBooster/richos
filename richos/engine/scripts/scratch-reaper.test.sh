@@ -85,6 +85,56 @@
 #        (S20c). §54 addendum 4 — the instance IS the garbage, and it pins the
 #        rest. Any other holder, or a mixed set, still means KEEP (that is S19).
 #
+#   S21  DENY-BY-DEFAULT OVER $TMPDIR AND THE SHARED TEMP ROOTS. Frank's D1/D2,
+#        and they were the absence of a check rather than the defeat of one: a
+#        name matching neither declared pattern list was not kept and not
+#        deleted, it was never looked at — 56,770 of 60,942 entries. An
+#        undeclared name is now swept (S21/S21a) and the CONTROL that matters is
+#        S21b/S21c: with the switch declared off the same tree survives and is
+#        not even mentioned, which is the old behavior exactly. The keep-list of
+#        FOREIGN owners is kept and counted (S21d/S21f) against a non-foreign
+#        sibling deleted in the same run (S21e). The PROOF is the process table
+#        and not the age (S21g/S21h). A declared shared root is swept too
+#        (S21i, which is /private/tmp). Wall 3 stands over the new arm
+#        (S21j/S21k) and so does the open-file wall (S21l/S21m). The declared age
+#        floor is the SECOND condition and has its own case (S21n-S21p), which is
+#        also the case that found a one-hour DST error in lstart_epoch.
+#
+#   S22  THE GARBAGE ALARM, and a FAILED DELETION THAT REACHES THE EXIT CODE.
+#        Frank's verdict was that the mechanism had "a disk-space alarm and a
+#        delete-failure alarm" and "no garbage alarm", so garbage nothing would
+#        ever collect fell between the two halves of §54 in silence. The verdict
+#        line now carries skipped=/skipped_bytes= (S22, control S22b); a failed
+#        deletion exits 4 and says failures=N on stdout instead of only in a log
+#        (S22c/S22d, control S22e); --apply publishes the numbers the watchdog
+#        reads (S22f); and the banner raises the alarm FROM THE LAST FULL PASS,
+#        dated, without paying for the expensive arm (S22g-S22i2, control S22j).
+#
+#   S23  A NAME-DERIVED PID IS ATTRIBUTION, NOT LIVENESS (Frank's D11). He put
+#        `1-frank-immortal-b` in the allocator root and the reaper answered "pid 1
+#        is ALIVE ... a live owner is kept whatever its TTL says" — forever, at any
+#        size, with no alert, and silently by construction because a KEEP is the
+#        reaper working as designed. A name-derived pid must now be OURS, above a
+#        declared floor, and have started no later than the directory was created
+#        (S23/S23c/S23d), while a live pid of ours still keeps its sandbox
+#        (S23b, the control that matters) and a LEDGER row stays exempt from the
+#        two name-shape tests (S23e). S23f is the second hole in the same family,
+#        found by mutant M37: a REUSED LEDGER pid was immortal too, and the code's
+#        own comment claimed TTL covered it when TTL never runs after a live KEEP.
+#
+#   S24  DECLARED CAMPAIGN ROOTS UNDER ~/ab ARE REPORTED, NEVER DELETED (D3). An
+#        enumeration rather than a sweep, because the census says 24 of 29
+#        directories under ~/ab are in no ledger and most of them are the
+#        operator's projects — `fitapp`, `prospects`, `deeply`, `saferecord`. S24e
+#        is the case that matters: an UNDECLARED sibling is never nominated.
+#   S25  THE VOLUME STAGE (D14), with the age applied by us because
+#        `docker volume prune` has no `until` filter — checked against the vendor's
+#        reference before it was built. Anonymous only (S25c) and past the declared
+#        age only (S25b), which are the two things making it safe.
+#   S26  A RUNNING CONTAINER on a declared throwaway image is REPORTED and never
+#        stopped (D14). S26d is the control that protects the Buzz production
+#        stack: an undeclared image is never nominated, however old.
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -1146,6 +1196,837 @@ else
     ok "S20  SKIPPED — lsof or cc is not on this host"
     ok "S20b SKIPPED — lsof or cc is not on this host"
     ok "S20c SKIPPED — lsof or cc is not on this host"
+fi
+
+# ===========================================================================
+# S21 — DENY-BY-DEFAULT OVER $TMPDIR AND THE SHARED TEMP ROOTS
+# ===========================================================================
+# Frank's D1 and D2, and they were not defeats of a check — they were the
+# absence of one. `scan_tmp` skipped past any name matching neither declared
+# pattern list, so 56,770 of 60,942 entries under $TMPDIR (1.95 GB, measured on
+# this machine 2026-09-18) were not kept and not deleted: they were never looked
+# at, and no number in the verdict line could be used to notice them.
+# /private/tmp outside the two claude roots was read by no arm at all.
+#
+# EVERY CASE BELOW HAS ITS CONTROL, because every one of them also passes
+# against an arm that simply deletes nothing.
+deny_world() {              # <name> — a world with the deny-by-default arm ON
+    world "$1"
+    mkdir -p "$W_ROOT/shared"
+    {
+        echo 'SCRATCH_TMP_DENY_BY_DEFAULT="1"'
+        echo "SCRATCH_SHARED_TMP_ROOTS=\"$W_ROOT/shared\""
+        # A foreign family NOTHING ELSE IN THIS SUITE USES.
+        echo 'SCRATCH_FOREIGN_PATTERNS="zforeign.*"'
+        echo 'SCRATCH_UNKNOWN_AGE_HOURS="1"'
+        echo 'SCRATCH_UNKNOWN_GIT_IS_FIXTURE="0"'
+    } >>"$W_CFG"
+}
+
+# backdate <dir> — every mtime in the tree, THE DIRECTORY ITSELF INCLUDED, set
+# two days back.
+#
+# THE DIRECTORY ITSELF IS THE WHOLE POINT, and two cases in this block failed for
+# want of it before it was a function. Creating a file inside a directory updates
+# THAT DIRECTORY's mtime, so a fixture built as "backdate the tree, then add a
+# lock file" leaves the candidate itself stamped now — and the arm correctly
+# kept it, saying a running session might own it. The suite was wrong and the
+# reaper was right, which is the only way round that is any use.
+backdate() {
+    find "$1" -exec touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null \
+        || date -d '2 days ago' +%Y%m%d%H%M)" {} + 2>/dev/null || true
+}
+
+# stale <dir> — a two-day-old tree with a payload in it.
+stale() {
+    mkdir -p "$1"
+    printf 'payload\n' >"$1/payload.txt"
+    backdate "$1"
+}
+
+deny_world denyname
+start_claude; PID_D1="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D1" "$SID_LIVE"
+stale "$W_TMP/zzz-nobody-declares-this"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/zzz-nobody-declares-this" ]; then
+    ok "S21  a \$TMPDIR name NO declared pattern matches is swept (D1)"
+else
+    bad "S21  an undeclared name was skipped, exactly as it was before (D1)"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+case "$OUT" in
+    *"no arm declares this name"*)
+        ok "S21a the reason says it was decided, not merely matched" ;;
+    *) bad "S21a deleted, but not by the deny-by-default arm"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# THE CONTROL THAT MATTERS MOST: with the switch declared OFF, the identical
+# fixture is not deleted AND NOT EVEN MENTIONED. That is the old behavior, and it
+# is what proves S21 is the switch doing the work rather than some other arm.
+world denyoff
+start_claude; PID_D2="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D2" "$SID_LIVE"
+stale "$W_TMP/zzz-nobody-declares-this"
+run --apply >/dev/null 2>&1
+OUT="$(run --dry-run --verbose)"
+if [ -d "$W_TMP/zzz-nobody-declares-this" ]; then
+    ok "S21b CONTROL: with SCRATCH_TMP_DENY_BY_DEFAULT unset the same tree survives"
+else
+    bad "S21b the tree went with the switch off — S21 proves nothing about the switch"
+fi
+case "$OUT" in
+    *zzz-nobody-declares-this*)
+        bad "S21c with the switch off the entry was still considered" ;;
+    *)  ok "S21c and with the switch off it is not even MENTIONED — which is D1" ;;
+esac
+
+# --- the keep-list -----------------------------------------------------------
+deny_world denyforeign
+start_claude; PID_D3="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D3" "$SID_LIVE"
+stale "$W_TMP/zforeign.someone-elses-app"
+stale "$W_TMP/zzz-ours"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zforeign.someone-elses-app" ]; then
+    ok "S21d a declared FOREIGN owner is kept, never deleted by us"
+else
+    bad "S21d another program's temp directory was deleted"
+    printf '%s\n' "$OUT" | sed 's/^/        /' ;
+fi
+if [ ! -d "$W_TMP/zzz-ours" ]; then
+    ok "S21e CONTROL: the identical non-foreign sibling in the same run IS deleted"
+else
+    bad "S21e nothing was deleted in that run, so S21d proves nothing"
+fi
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"declared FOREIGN owner"*)
+        ok "S21f the foreign entry is COUNTED and named, not silently skipped" ;;
+    *) bad "S21f a foreign entry vanished from the report — that is D1 again"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- the proof is the session table, not the age -----------------------------
+deny_world denyfresh
+start_claude; PID_D4="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D4" "$SID_LIVE"
+mkdir -p "$W_TMP/zzz-written-just-now"
+echo payload >"$W_TMP/zzz-written-just-now/payload.txt"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zzz-written-just-now" ]; then
+    ok "S21g a tree touched AFTER a running session started is kept"
+else
+    bad "S21g a tree a running session may own was deleted"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"touched after the earliest running session process started"*)
+        ok "S21h the reason is the PROOF (the process table), not the mtime" ;;
+    *) bad "S21h kept, but not for the session-table reason"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- the shared root (D2) ----------------------------------------------------
+deny_world denyshared
+start_claude; PID_D5="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D5" "$SID_LIVE"
+stale "$W_ROOT/shared/zzz-in-the-shared-root"
+OUT="$(run --apply)"
+if [ ! -d "$W_ROOT/shared/zzz-in-the-shared-root" ]; then
+    ok "S21i a DECLARED SHARED temp root is swept too (D2 — /private/tmp)"
+else
+    bad "S21i the shared root was not swept; D2 is still open"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# --- the walls still stand over the new arm ----------------------------------
+deny_world denywall3
+start_claude; PID_D6="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D6" "$SID_LIVE"
+stale "$W_TMP/zzz-holds-a-workspace/workspace"
+mkdir -p "$W_HOME/state/workspaces/agents"
+python3 - "$W_HOME/state/workspaces/agents/d.json" \
+          "$W_TMP/zzz-holds-a-workspace/workspace" <<'PY'
+import json, sys
+path, wt = sys.argv[1:3]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"name": "someone", "worktree": wt, "workspaces": [wt]}, fh)
+PY
+# The CANDIDATE is the parent, and `mkdir -p .../workspace` stamped it now.
+backdate "$W_TMP/zzz-holds-a-workspace"
+OUT="$(run --apply)"; RC=$?
+if [ -d "$W_TMP/zzz-holds-a-workspace/workspace" ]; then
+    ok "S21j wall 3 stands over the new arm — a REGISTERED workspace survives"
+else
+    bad "S21j the new arm deleted a registered workspace"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+case "$OUT" in
+    *"REGISTERED workspace"*) ok "S21k and the refusal NAMES the registration" ;;
+    *) bad "S21k kept without saying why"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- the open-file wall, which is D5 one arm across --------------------------
+if command -v lsof >/dev/null 2>&1; then
+    deny_world denyheld
+    start_claude; PID_D7="$LAST_CLAUDE"
+    register "$W_SESSIONS" "$PID_D7" "$SID_LIVE"
+    stale "$W_TMP/zzz-somebody-is-reading"
+    : >"$W_TMP/zzz-somebody-is-reading/held.lock"
+    # AFTER the lock file exists, not before: creating it stamped the directory.
+    backdate "$W_TMP/zzz-somebody-is-reading"
+    tail -f "$W_TMP/zzz-somebody-is-reading/held.lock" >/dev/null 2>&1 &
+    UHELD_PID=$!
+    KILL_LIST="$KILL_LIST $UHELD_PID"
+    sleep 1
+    OUT="$(run --apply)"
+    if [ -d "$W_TMP/zzz-somebody-is-reading" ]; then
+        ok "S21l an undeclared tree a LIVE process is reading is kept"
+    else
+        bad "S21l the new arm deleted a tree from under a live process"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+    kill "$UHELD_PID" >/dev/null 2>&1 || true
+    wait "$UHELD_PID" 2>/dev/null || true
+    OUT="$(run --apply)"
+    if [ ! -d "$W_TMP/zzz-somebody-is-reading" ]; then
+        ok "S21m CONTROL: with the holder gone the same tree IS deleted"
+    else
+        bad "S21m CONTROL FAILED: kept whether held or not, so S21l proves nothing"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+else
+    ok "S21l SKIPPED — lsof is not on this host"
+    ok "S21m SKIPPED — lsof is not on this host"
+fi
+
+# --- the declared age floor, which is the SECOND condition -------------------
+# The session-table proof is the first one, and on its own it would delete a
+# directory written five minutes before the only running session started. The
+# declared floor is what stops that, and nothing else in this block exercises it:
+# every case above is either fresh (caught by the proof) or two days old (past
+# both). So this case has to make the process table say yes and the floor say no.
+#
+# EVERY SUITE PROCESS IS KILLED FIRST so the ONLY running session on the machine
+# is the one this case starts — otherwise "the earliest running session" is some
+# process an earlier case started minutes ago and the construction is a race
+# rather than a test. It runs last in this block for that reason.
+for p in $KILL_LIST; do
+    kill "$p" >/dev/null 2>&1 || true
+    wait "$p" >/dev/null 2>&1 || true
+done
+KILL_LIST=""
+deny_world denyfloor
+mkdir -p "$W_TMP/zzz-recent-but-orphaned"
+echo payload >"$W_TMP/zzz-recent-but-orphaned/payload.txt"
+find "$W_TMP/zzz-recent-but-orphaned" -exec touch -t \
+    "$(date -v-5M +%Y%m%d%H%M 2>/dev/null || date -d '5 minutes ago' +%Y%m%d%H%M)" \
+    {} + 2>/dev/null || true
+start_claude; PID_D8="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D8" "$SID_LIVE"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zzz-recent-but-orphaned" ]; then
+    ok "S21n nothing running can own it, but the declared floor still keeps it"
+else
+    bad "S21n the age floor was not applied — the proof alone deleted it"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"floor for an undeclared temp family"*)
+        ok "S21o and the reason is the floor, not the process table" ;;
+    *) bad "S21o kept, but not by the floor"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+backdate "$W_TMP/zzz-recent-but-orphaned"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/zzz-recent-but-orphaned" ]; then
+    ok "S21p CONTROL: the same tree past the floor IS deleted"
+else
+    bad "S21p CONTROL FAILED: kept at any age, so S21n proves nothing"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# ===========================================================================
+# S22 — THE GARBAGE ALARM, AND A FAILED DELETION THAT REACHES THE EXIT CODE
+# ===========================================================================
+# frank-opus-garbage1's verdict on the whole mechanism: "Its alarm is a
+# disk-space alarm and a delete-failure alarm. It has no garbage alarm." The
+# CEO's rule has two halves — always cleaned up, OR Rich gets a MASSIVE ALERT —
+# and garbage nothing would ever collect fell between them in silence.
+
+deny_world skipcount
+start_claude; PID_D9="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D9" "$SID_LIVE"
+stale "$W_TMP/zforeign.not-ours-at-all"
+OUT="$(run --dry-run)"
+case "$OUT" in
+    *"skipped=0 "*|*"skipped=0"*)
+        bad "S22  the verdict line says skipped=0 with a foreign pile standing" ;;
+    *skipped=*skipped_bytes=*)
+        ok "S22  the verdict line carries skipped= AND skipped_bytes=" ;;
+    *) bad "S22  the verdict line carries no skipped count at all"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# THE CONTROL. A world with nothing foreign in it must say skipped=0 — otherwise
+# S22 is measuring a constant rather than the pile.
+deny_world skipzero
+start_claude; PID_D10="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D10" "$SID_LIVE"
+stale "$W_TMP/zzz-ordinary"
+OUT="$(run --dry-run)"
+case "$OUT" in
+    *"skipped=0"*) ok "S22b CONTROL: with nothing foreign the same line says skipped=0" ;;
+    *) bad "S22b skipped= is not zero on a world with nothing to skip"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- a failed deletion reaches the exit code and stdout (D10) ----------------
+# It used to be `return 3 if undecidable else 0` with the failure list never
+# consulted, and stdout said `applied: deleted=0 freed=0 B` — byte-identical in
+# shape to a run with nothing to do. launchd saw green on a run that could not
+# delete a thing, and the word FAILED existed only inside the log.
+world failexit
+mkdir -p "$W_TMP/zlegacy-cannotgo/inner"
+echo payload >"$W_TMP/zlegacy-cannotgo/inner/payload.txt"
+# The PARENT's mode, not the tree's: _make_writable widens the tree it is handed
+# and never its parent, which is the hole Frank went through to force a failure.
+chmod 500 "$W_TMP" 2>/dev/null || true
+OUT="$(run --apply)"; RC=$?
+chmod 700 "$W_TMP" 2>/dev/null || true
+if [ "$RC" = "4" ]; then
+    ok "S22c a FAILED deletion exits 4 — launchd can no longer see green"
+else
+    bad "S22c a failed deletion exited $RC; a failure is not in the exit code (D10)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | tail -6
+fi
+case "$OUT" in
+    *"failures=1"*|*"failures=2"*|*"failures=3"*)
+        ok "S22d and stdout says failures=N, not only the log file" ;;
+    *) bad "S22d stdout gave no failure count — the run looks like a quiet one"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | tail -6 ;;
+esac
+
+# THE CONTROL: the same world with nothing unremovable exits 0 and says
+# failures=0. Without it, S22c passes against a program that always exits 4.
+world failexitok
+mkdir -p "$W_TMP/zlegacy-cango"
+echo payload >"$W_TMP/zlegacy-cango/payload.txt"
+OUT="$(run --apply)"; RC=$?
+if [ "$RC" = "0" ] && printf '%s' "$OUT" | grep -q 'failures=0'; then
+    ok "S22e CONTROL: a clean run still exits 0 and says failures=0"
+else
+    bad "S22e a clean run exited $RC — exit 4 is not conditional on a failure"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | tail -6
+fi
+
+# --- the state file is the interface the watchdog reads ----------------------
+deny_world skipstate
+start_claude; PID_D11="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D11" "$SID_LIVE"
+stale "$W_TMP/zforeign.published"
+run --apply >/dev/null 2>&1
+SFILE="$W_HOME/state/scratch-reaper-state.json"
+if python3 - "$SFILE" <<'PY'
+import json, sys
+try:
+    st = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if (st.get("skipped_bytes") or 0) > 0
+         and "skipped" in st and "undecidable_bytes" in st else 1)
+PY
+then
+    ok "S22f --apply PUBLISHES skipped/skipped_bytes/undecidable_bytes"
+else
+    bad "S22f the state file carries no garbage numbers, so the watchdog cannot"
+    bad "     see them and the garbage alarm has nothing to read"
+    cat "$SFILE" 2>/dev/null | sed 's/^/        /'
+fi
+
+# --- the banner quotes the last full pass, and does NOT re-derive it ---------
+# The first version of this ran the expensive arm under a budget and printed
+# "44,851 entries were NOT MEASURED" at every session start forever. A line that
+# is always true is wallpaper, and wallpaper is how a real signal gets skipped.
+deny_world noticegarbage
+start_claude; PID_D12="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D12" "$SID_LIVE"
+stale "$W_TMP/zzz-a-real-candidate"
+mkdir -p "$W_HOME/state"
+python3 - "$W_HOME/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
+           "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 7, "skipped_bytes": 5000000000,
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"' >>"$W_CFG"
+OUT="$(run --notice)"
+case "$OUT" in
+    *"NOTHING WILL EVER COLLECT"*)
+        ok "S22g the banner raises the GARBAGE ALARM from the last full pass" ;;
+    *) bad "S22g no garbage alarm with 5 GB of skipped garbage on the books"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+case "$OUT" in
+    *2026-09-18T04:40:00Z*)
+        ok "S22h and it DATES the number, because it is not a live reading" ;;
+    *) bad "S22h the banner presented a six-hour-old number as if it were live"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+# THE OBSERVABLE FOR "IT DOES NOT ATTEMPT THE EXPENSIVE ARM" is that the banner
+# cannot see what only that arm decides. This world holds one stale undeclared
+# candidate and SCRATCH_NOTICE_BYTES is 1, so a banner that ran the arm would
+# announce reclaimable dead scratch. A banner that skips it cannot.
+#
+# ASSERTING ON "NOT MEASURED" WAS NOT ENOUGH AND THE MUTATION HARNESS SAID SO:
+# M33 scored green against a banner that re-ran the arm, because a small test
+# world never exhausts a budget and so never prints that line at all. The
+# assertion has to be about the arm's RESULTS, not about its failure mode.
+case "$OUT" in
+    *"of dead scratch"*)
+        bad "S22i the banner is attempting the expensive arm again — it reported"
+        bad "     scratch only that arm can find" ;;
+    *)  ok "S22i and it does not attempt the expensive arm, so it stays cheap" ;;
+esac
+# THE CONTROL: the very same world, scanned fully, DOES find that candidate.
+# Without it S22i passes against a banner that reports nothing ever.
+OUT2="$(run --dry-run)"
+case "$OUT2" in
+    *zzz-a-real-candidate*)
+        ok "S22i2 CONTROL: a full scan of the same world DOES find it" ;;
+    *) bad "S22i2 the candidate is invisible to a full scan too, so S22i is vacuous"
+       printf '%s\n' "$OUT2" | sed 's/^/        /' ;;
+esac
+
+# THE CONTROL: below the declared threshold the same banner is silent. Without
+# it, S22g passes against a banner that shouts unconditionally.
+echo 'SCRATCH_SKIPPED_NOTICE_BYTES="9999999999999"' >>"$W_CFG"
+OUT="$(run --notice)"
+case "$OUT" in
+    *"NOTHING WILL EVER COLLECT"*)
+        bad "S22j the garbage alarm ignores its own declared threshold" ;;
+    *)  ok "S22j CONTROL: below the declared threshold the alarm is silent" ;;
+esac
+
+# ===========================================================================
+# S23 — A NAME-DERIVED PID IS ATTRIBUTION, NOT LIVENESS (D11)
+# ===========================================================================
+# frank-opus-garbage1 put a directory called `1-frank-immortal-b` in the allocator
+# root and the reaper answered:
+#
+#   KEEP  2.0 MB  .../richos-scratch/1-frank-immortal-b
+#         why: pid 1 is ALIVE (owner of 'unrecorded', from the directory name)
+#              — a live owner is kept whatever its TTL says
+#
+# Forever, at any size, with no alert and no TTL escape — AND SILENTLY BY
+# CONSTRUCTION, because a KEEP is the reaper working as designed. pid_alive()
+# returns True on PermissionError, which is what pid 1 gives, and macOS recycles
+# pids at 99998, so a week-old name whose leading digits match a live pid is not
+# exotic.
+world immortal
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+start_claude; PID_D13="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D13" "$SID_LIVE"
+mkdir -p "$W_TMP/richos-scratch/1-immortal"
+echo payload >"$W_TMP/richos-scratch/1-immortal/payload.txt"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/richos-scratch/1-immortal" ]; then
+    ok "S23  a directory named for pid 1 is no longer immortal (D11)"
+else
+    bad "S23  pid 1 still makes an allocation live forever"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# THE CONTROL THAT MATTERS: a directory named for a pid that IS a live process of
+# OURS, above the floor, started before the directory existed, is still KEPT.
+# Without it S23 passes against a reaper that has stopped believing any name.
+world liveowner
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+start_claude; PID_D14="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D14" "$SID_LIVE"
+mkdir -p "$W_TMP/richos-scratch/$PID_D14-mine"
+echo payload >"$W_TMP/richos-scratch/$PID_D14-mine/payload.txt"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/richos-scratch/$PID_D14-mine" ]; then
+    ok "S23b CONTROL: a live pid of OURS, above the floor, is still a live owner"
+else
+    bad "S23b a running owner's sandbox was deleted from under it — worse than D11"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# PID REUSE, CONSTRUCTED RATHER THAN ARGUED ABOUT. The directory is created FIRST,
+# then a process is started, then the directory is RENAMED to carry that process's
+# pid — and rename preserves st_birthtime because the inode does not change. So the
+# name says a live pid owns it and the filesystem says that process did not exist
+# when the directory was made.
+world pidreuse
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+mkdir -p "$W_TMP/richos-scratch/pending"
+echo payload >"$W_TMP/richos-scratch/pending/payload.txt"
+sleep 2
+start_claude; PID_D15="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D15" "$SID_LIVE"
+mv "$W_TMP/richos-scratch/pending" "$W_TMP/richos-scratch/$PID_D15-reused"
+OUT="$(run --dry-run --verbose)"
+if printf '%s' "$OUT" | grep -q 'this is pid reuse'; then
+    ok "S23c a live pid that started AFTER the directory is called pid reuse"
+else
+    bad "S23c pid reuse was read as a live owner, so the KEEP is immortal again"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/richos-scratch/$PID_D15-reused" ]; then
+    ok "S23d ...and it is collected rather than kept for ever"
+else
+    bad "S23d named as reuse and still kept"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# AND A LEDGER ROW IS EXEMPT FROM ALL THREE TESTS, because it was written by the
+# allocator AT allocation time rather than derived from a name anybody can choose.
+# This is the case that keeps the narrowing narrow.
+#
+# THE FIXTURE IS DELIBERATELY EXTREME — a ledger row whose pid is 1 — because that
+# is the only shape where the two branches disagree, and a case where they agree
+# proves nothing about which one ran. The allocator writes `$$` and could never
+# produce this row; the point is to show the ledger branch is the branch taken.
+world ledgerpid
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+start_claude; PID_D16="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D16" "$SID_LIVE"
+alloc "recorded-by-pid-one" 1 "a-real-allocation" >/dev/null
+OUT="$(run --apply)"
+if [ -d "$W_TMP/richos-scratch/recorded-by-pid-one" ]; then
+    ok "S23e a LEDGER row is exempt from the two NAME-shape tests"
+else
+    bad "S23e the name-shape tests reached a ledger row, which is a positive record"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# THE SECOND HOLE IN THE SAME FAMILY, AND THE MUTATION HARNESS IS WHY IT IS HERE.
+# M37 came back "the suite still PASSED without this property", which sent me back
+# to the code — where scan_scratch_root's own comment claimed TTL let a row "whose
+# pid has been REUSED by an unrelated process still age out". It did not: a live
+# pid returned KEEP two lines before TTL was ever consulted, so a ledger row from
+# three days ago whose pid now belongs to an unrelated live process was immortal in
+# exactly the way `1-frank-immortal-b` was. The comment described a safety the
+# program did not have.
+#
+# So the REUSE test applies to a ledger row too — it is a fact about the filesystem
+# and the process table, not a question of how much a record is trusted.
+world ledgerreuse
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+mkdir -p "$W_TMP/richos-scratch/pending2"
+echo payload >"$W_TMP/richos-scratch/pending2/payload.txt"
+sleep 2
+start_claude; PID_D17="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D17" "$SID_LIVE"
+mv "$W_TMP/richos-scratch/pending2" "$W_TMP/richos-scratch/ledger-reused"
+mkdir -p "$W_HOME/state"
+printf '{"path":"%s","label":"%s","pid":%d,"ppid":1,"session":"","created":"%s","ttl_minutes":360,"event":"new"}\n' \
+    "$W_TMP/richos-scratch/ledger-reused" "stale-row" "$PID_D17" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$W_HOME/state/scratch-ledger.jsonl"
+OUT="$(run --dry-run --verbose)"
+if printf '%s' "$OUT" | grep -q 'this is pid reuse'; then
+    ok "S23f a LEDGER row whose pid was REUSED is not a live owner either"
+else
+    bad "S23f a reused ledger pid is still immortal — the hole the old comment"
+    bad "     claimed TTL covered, and TTL never runs after a live KEEP"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+
+# ===========================================================================
+# S24 — DECLARED CAMPAIGN ROOTS ARE REPORTED, NEVER DELETED (D3)
+# ===========================================================================
+# Frank's D3: `richos-rechecks` (18.90 GB) and `richos-password-free-workspaces`
+# (13.75 GB) sit under ~/ab in no ledger row and under no declared root, so
+# neither reaper will ever see them.
+#
+# HIS PROPOSED SIGNAL — "not in the ledger" — DOES NOT SURVIVE THE CENSUS, and that
+# is why this arm is an enumeration rather than a sweep. Over the whole of ~/ab on
+# 2026-09-18, 24 of 29 directories are unnamed by any ledger, and they include
+# `fitapp`, `prospects`, `li-profile-da""ta-grabber`, `deeply`, `saferecord` and
+# `autocoder` — the operator's own projects. Under ~/ab the default is "this is
+# somebody's work", the exact opposite of the default under $TMPDIR.
+#
+# So: nominated by declaration only, and NEVER deleted. Every one of these trees
+# holds a checkout, which is wall 2 everywhere else in this program, so §54's second
+# branch applies — Rich is told and removes it by hand.
+world campaign
+mkdir -p "$W_ROOT/ab/zcampaign-old" "$W_ROOT/ab/zcampaign-fresh" \
+         "$W_ROOT/ab/zzz-a-real-project"
+echo evidence >"$W_ROOT/ab/zcampaign-old/notes.txt"
+echo evidence >"$W_ROOT/ab/zcampaign-fresh/notes.txt"
+echo work >"$W_ROOT/ab/zzz-a-real-project/source.txt"
+mkdir -p "$W_ROOT/ab/zcampaign-old/.git" "$W_ROOT/ab/zzz-a-real-project/.git"
+backdate "$W_ROOT/ab/zcampaign-old"
+backdate "$W_ROOT/ab/zzz-a-real-project"
+{
+    echo "SCRATCH_CAMPAIGN_PARENT=\"$W_ROOT/ab\""
+    echo 'SCRATCH_CAMPAIGN_ROOTS="zcampaign-*"'
+    echo 'SCRATCH_CAMPAIGN_RETENTION_DAYS="1"'
+} >>"$W_CFG"
+OUT="$(run --apply)"
+if [ -f "$W_ROOT/ab/zcampaign-old/notes.txt" ]; then
+    ok "S24  a campaign root past its retention is NOT deleted"
+else
+    bad "S24  a campaign root holding a checkout was DELETED"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+case "$OUT" in
+    *"PAST ITS RETENTION"*)
+        ok "S24b ...it is REPORTED, which is §54's other branch" ;;
+    *) bad "S24b the pile was neither deleted nor reported — the D3 state exactly"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -8 ;;
+esac
+case "$OUT" in
+    *"rm -rf $W_ROOT/ab/zcampaign-old"*)
+        ok "S24c and the reason carries the command a person runs" ;;
+    *) bad "S24c reported without saying what to do about it"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -8 ;;
+esac
+# THE TWO CONTROLS, and the second is the one that matters most: an UNDECLARED
+# directory beside it — the shape of `fitapp` and `prospects` — must not be
+# nominated at all, however old it is.
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *zcampaign-fresh*"inside"*|*"zcampaign-fresh"*"retention is"*)
+        ok "S24d CONTROL: one inside its retention is kept and says so" ;;
+    *) bad "S24d a young campaign root was not reported at all"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -10 ;;
+esac
+if printf '%s' "$OUT" | grep -q 'zzz-a-real-project'; then
+    bad "S24e AN UNDECLARED DIRECTORY UNDER THE PARENT WAS NOMINATED. That is the"
+    bad "     shape of fitapp and prospects, and this arm must never reach them."
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+else
+    ok "S24e CONTROL: an UNDECLARED sibling is not nominated, however old"
+fi
+# AND IT REACHES THE GARBAGE ALARM, because reporting that nobody reads is the
+# same as not reporting.
+if printf '%s' "$OUT" | grep -qE 'skipped=[1-9]'; then
+    ok "S24f a reported campaign root is counted into skipped, so the alarm sees it"
+else
+    bad "S24f it is reported in the plan and invisible to the alarm"
+    printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /'
+fi
+
+# ===========================================================================
+# S25 — THE VOLUME STAGE, AND THE AGE THIS PROGRAM HAS TO APPLY ITSELF
+# ===========================================================================
+# Frank's D14: 21 dangling volumes, 402.2 MB, and no arm of the sweep had an
+# opinion about any of them.
+#
+# THE BRIEF PRESCRIBED `docker volume prune --filter until=...` AND THAT FILTER
+# DOES NOT EXIST. Checked against this machine and the vendor's reference before
+# anything was built: volume prune takes `label` and nothing else, while container,
+# image and builder prune all take `until`. Copying the prescription would have
+# shipped a command that errors on every run — or, worse, one whose unknown filter
+# is ignored, which prunes with NO AGE LIMIT AT ALL. Every other stage of this
+# sweep is safe BECAUSE of its age filter, so the age is applied here instead, from
+# `docker volume inspect --format '{{.CreatedAt}}'`.
+#
+# The stub RECORDS ITS ARGUMENTS, for the reason S16c gives: a stub that only
+# echoed a total could not tell a correct implementation from one that deletes
+# every volume on the machine.
+world dockervol
+STUBV="$W_ROOT/stubbin"
+mkdir -p "$STUBV"
+OLD_TS="$(date -u -v-40d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '40 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+NEW_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat >"$STUBV/docker" <<STUB
+#!/bin/sh
+echo "\$@" >>"$W_ROOT/docker-calls.txt"
+case "\$1 \$2" in
+  "info --format")  echo "27.0.0"; exit 0 ;;
+  "volume ls")      echo vol-old-anon; echo vol-new-anon; echo vol-old-named; exit 0 ;;
+  "volume inspect")
+      case "\$3" in
+        vol-old-anon)  echo "$OLD_TS|"; exit 0 ;;
+        vol-new-anon)  echo "$NEW_TS|"; exit 0 ;;
+        vol-old-named) echo "$OLD_TS|<no value>"; exit 0 ;;
+      esac
+      exit 1 ;;
+  "volume rm")      exit 0 ;;
+esac
+case "\$1" in
+  info)      echo "27.0.0"; exit 0 ;;
+  container) echo "Total reclaimed space: 0B"; exit 0 ;;
+  image)     echo "Total reclaimed space: 0B"; exit 0 ;;
+  builder)   echo "Total reclaimed space: 0B"; exit 0 ;;
+  ps)        exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$STUBV/docker"
+sed -i.bak 's/^SCRATCH_DOCKER_PRUNE=.*/SCRATCH_DOCKER_PRUNE="1"/' "$W_CFG"
+echo 'SCRATCH_DOCKER_UNTIL="720h"' >>"$W_CFG"
+OUT="$(PATH="$STUBV:$PATH" run --apply)"
+VLOG="$W_HOME/state/scratch-reaper.log"
+VCALLS="$W_ROOT/docker-calls.txt"
+if grep -q 'volume rm vol-old-anon' "$VCALLS" 2>/dev/null; then
+    ok "S25  an ANONYMOUS volume past the declared age is removed"
+else
+    bad "S25  the volume stage did not run, so D14 is still open"
+    sed 's/^/        /' "$VCALLS" 2>/dev/null | head -10
+fi
+if grep -q 'volume rm vol-new-anon' "$VCALLS" 2>/dev/null; then
+    bad "S25b A VOLUME CREATED TODAY WAS REMOVED. The age is the only thing making"
+    bad "     this safe, and Docker has no until= filter for volumes to do it."
+    sed 's/^/        /' "$VCALLS" 2>/dev/null | head -10
+else
+    ok "S25b CONTROL: one created today is NOT removed — the age is applied"
+fi
+if grep -q 'volume rm vol-old-named' "$VCALLS" 2>/dev/null; then
+    bad "S25c A NAMED VOLUME WAS REMOVED. A name is somebody having meant it, and"
+    bad "     docker itself needs -a before it will touch one."
+else
+    ok "S25c CONTROL: a NAMED volume is left alone whatever its age"
+fi
+if grep -q 'class=docker-volume-prune-item' "$VLOG" 2>/dev/null; then
+    ok "S25d the removal is on the record with its name and its age"
+else
+    bad "S25d a volume was removed and nothing says which"
+    sed 's/^/        /' "$VLOG" 2>/dev/null | tail -6
+fi
+
+# ===========================================================================
+# S26 — A RUNNING CONTAINER ON A THROWAWAY IMAGE IS REPORTED, NEVER STOPPED
+# ===========================================================================
+# `container prune` only ever considers STOPPED containers — correct as a deletion
+# rule, and it leaves `rl55` and `rlx`, two `sleep infinity` dev shells eight days
+# old, pinning 514 MB and 349 MB of image for ever with nothing alerting.
+#
+# NOTHING IS EVER STOPPED. Four of the six containers on this machine are the Buzz
+# production stack. A match is REPORTED, and a person ends it.
+world dockerps
+STUBP="$W_ROOT/stubbin"
+mkdir -p "$STUBP"
+OLD_PS="$(date -v-9d '+%Y-%m-%d %H:%M:%S %z %Z' 2>/dev/null \
+    || date -d '9 days ago' '+%Y-%m-%d %H:%M:%S %z %Z')"
+NEW_PS="$(date '+%Y-%m-%d %H:%M:%S %z %Z')"
+cat >"$STUBP/docker" <<STUB
+#!/bin/sh
+case "\$1" in
+  info) echo "27.0.0"; exit 0 ;;
+  ps)   printf 'zthrow-old\tzimg-throwaway:latest\t$OLD_PS\tsleep infinity\n'
+        printf 'zthrow-new\tzimg-throwaway:latest\t$NEW_PS\tsleep infinity\n'
+        printf 'zservice\tpostgres:17-alpine\t$OLD_PS\tdocker-entrypoint\n'
+        exit 0 ;;
+  volume) exit 0 ;;
+  container|image|builder) echo "Total reclaimed space: 0B"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$STUBP/docker"
+sed -i.bak 's/^SCRATCH_DOCKER_PRUNE=.*/SCRATCH_DOCKER_PRUNE="1"/' "$W_CFG"
+{
+    echo 'SCRATCH_DOCKER_THROWAWAY_IMAGES="zimg-throwaway:*"'
+    echo 'SCRATCH_DOCKER_CONTAINER_ALERT_DAYS="7"'
+} >>"$W_CFG"
+OUT="$(PATH="$STUBP:$PATH" run --dry-run)"
+case "$OUT" in
+    *"docker://container/zthrow-old"*)
+        ok "S26  a running container on a declared throwaway image is REPORTED" ;;
+    *) bad "S26  an eight-day-old dev shell is still invisible (D14)"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | tail -8 ;;
+esac
+case "$OUT" in
+    *"docker rm -f zthrow-old"*)
+        ok "S26b and the reason carries the command, because nothing is stopped here" ;;
+    *) bad "S26b reported without saying what to do about it"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | tail -8 ;;
+esac
+case "$OUT" in
+    *zthrow-new*) bad "S26c a container started today was reported — the age is not applied" ;;
+    *)            ok "S26c CONTROL: one started today is not reported" ;;
+esac
+case "$OUT" in
+    *zservice*)
+        bad "S26d A SERVICE WAS NOMINATED. Only DECLARED throwaway images may be"
+        bad "     named here; the Buzz production stack is the shape this protects." ;;
+    *)  ok "S26d CONTROL: an UNDECLARED image is never nominated, however old" ;;
+esac
+
+# ===========================================================================
+# S27 — AN UNREADABLE OPEN-FILE TABLE IS ONE LINE, NOT FORTY THOUSAND
+# ===========================================================================
+# THE MEASUREMENT THAT FORCED THIS, read off the operator's own launchd log on
+# 2026-09-18 while this pass was being written:
+#
+#   $ grep -c 'verdict: undecided' ~/.claude/state/scratch-reaper-launchd.log  -> 1
+#   $ grep -c 'verdict: decided'   ~/.claude/state/scratch-reaper-launchd.log  -> 4
+#
+# and the undecided one's reason is exactly this — "the open-file table could not be
+# read". THAT ESTABLISHES THAT IT HAPPENS UNDER LAUNCHD, NOT HOW OFTEN: five verdicts
+# is not a frequency and no rate is claimed from it.
+#
+# Happening at all is enough, because of what it would now cost. It cost ONE entry in
+# that run, since the old $TMPDIR arm had almost no candidates; the deny-by-default
+# arm has tens of thousands, so the same lsof timeout would produce ~40,000 identical
+# INDETERMINATE entries, an enormous undecidable pile in the garbage alarm, and exit 3.
+#
+# The safety is unchanged either way — nothing under that root is deleted. What
+# changes is whether the report is readable, and thousands of copies of one fact is
+# the noise that makes a real signal get skipped.
+deny_world blindlsof
+start_claude; PID_D18="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D18" "$SID_LIVE"
+for i in 1 2 3 4 5 6; do
+    stale "$W_TMP/zzz-blind-$i"
+done
+# An `lsof` that cannot answer. A STUB rather than a real failure, because making
+# the real one time out would mean a two-minute case.
+BLINDDIR="$W_ROOT/blindbin"
+mkdir -p "$BLINDDIR"
+printf '#!/bin/sh\nexit 9\n' >"$BLINDDIR/lsof"
+chmod +x "$BLINDDIR/lsof"
+OUT="$(PATH="$BLINDDIR:$PATH" run --dry-run)"
+N_UNDEC="$(printf '%s\n' "$OUT" | grep -c 'OPEN-FILE TABLE COULD NOT BE READ' || true)"
+if [ "$N_UNDEC" = "1" ]; then
+    ok "S27  an unreadable open-file table is reported ONCE for the whole root"
+else
+    bad "S27  it was reported $N_UNDEC times — one fact per entry is the noise"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+if [ -d "$W_TMP/zzz-blind-1" ]; then
+    ok "S27b and NOTHING under that root was deleted — the safety is unchanged"
+else
+    bad "S27b a tree was deleted with no open-file answer at all"
+fi
+case "$OUT" in
+    *"6 undeclared entr"*)
+        ok "S27c and the one line carries the COUNT, so the scale is not lost" ;;
+    *) bad "S27c reported once, but without saying how many it covers"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | head -8 ;;
+esac
+# AND THE UNDECIDABLE COUNT ITSELF MUST BE 1, which is the assertion that actually
+# measures the aggregation. S27 above counts one BANNER, and mutant M46 showed that
+# is not enough: with the per-entry path restored the banner is still printed once
+# and six MORE undecidable entries appear beside it, so the case stayed green
+# against exactly the defect it was written for. The number in the verdict line is
+# the thing that cannot be fooled.
+if printf '%s' "$OUT" | grep -q 'undecidable=1 '; then
+    ok "S27e the verdict line says undecidable=1, not one per entry"
+else
+    bad "S27e the undecidable count is per-entry: $(printf '%s' "$OUT" | grep -o 'undecidable=[0-9]*' | head -1)"
+    printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /'
+fi
+# THE CONTROL: with lsof working again, the same six are decided individually and
+# deleted. Without it, S27 passes against an arm that has stopped working.
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/zzz-blind-1" ] && [ ! -d "$W_TMP/zzz-blind-6" ]; then
+    ok "S27d CONTROL: with lsof answering, the same six are decided and deleted"
+else
+    bad "S27d CONTROL FAILED: the arm decides nothing either way"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

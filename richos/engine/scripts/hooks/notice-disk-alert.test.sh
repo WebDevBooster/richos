@@ -260,6 +260,56 @@ else
     bad "D9  the hook exited non-zero (SessionStart=$RC Stop=$RC2)"
 fi
 
+# ---------------------------------------------------------------------------
+# D10 — THE GARBAGE ALARM SURVIVES THE ONE-LINE SUMMARY
+# ---------------------------------------------------------------------------
+# The Stop line is assembled by a parser, which means every new condition in the
+# block has to be taught to it or it vanishes at the turn end. Proven while this
+# was written: the first draft of that parser dropped the CLASSIFICATION line and
+# D4 caught it. A summary that omits the only condition present is worse than no
+# summary, because it teaches the eye that the line carries nothing.
+write_cfg 1                                   # no volume or failure condition
+rm -f "$FAILS"
+mkdir -p "$SANDBOX/rstate"
+python3 - "$SANDBOX/rstate/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
+           "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 2934, "skipped_bytes": 1125454451,
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+{
+    echo "SCRATCH_REAPER_STATE=\"$SANDBOX/rstate/scratch-reaper-state.json\""
+    echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"'
+    echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="67108864"'
+} >>"$CFG"
+sleep 1
+OUT="$(run_hook Stop)"; RC=$?
+MSG="$(printf '%s' "$OUT" | python3 -c '
+import json, sys
+try:
+    print((json.load(sys.stdin).get("systemMessage") or ""))
+except Exception:
+    print("")
+' 2>/dev/null)"
+if [ "$RC" = "0" ] && printf '%s' "$MSG" | grep -q 'NOTHING WILL EVER COLLECT' \
+   && printf '%s' "$MSG" | grep -q '2934'; then
+    ok "D10  the garbage alarm reaches the ONE-LINE turn-end summary, with its count"
+else
+    bad "D10  the garbage alarm was dropped by the summary parser (rc=$RC)"
+    printf '%s\n' "$MSG" | sed 's/^/        /' | head -4
+fi
+# THE CONTROL: with the pile below its threshold the turn end is silent again.
+sed -i.bak 's/^SCRATCH_SKIPPED_NOTICE_BYTES=.*/SCRATCH_SKIPPED_NOTICE_BYTES="9999999999999"/' "$CFG"
+sleep 1
+OUT="$(run_hook Stop)"; RC=$?
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'MASSIVE ALERT'; then
+    ok "D10b CONTROL: below the threshold the turn end raises nothing at all"
+else
+    bad "D10b the turn end alerted with nothing above its threshold (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -4
+fi
+
 echo ""
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

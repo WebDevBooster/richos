@@ -1,0 +1,1064 @@
+# The garbage mechanism, round 2 — deny-by-default, a garbage alarm, and a pid that is not a liveness test
+
+**Date:** 2026-09-18
+**Agent:** zach-opus-garbage2 (Infrastructure Engineer)
+**Branch:** `cc/zach-opus-garbage2`
+**Base:** richos main `47b79358`
+**Closes:** the defeats in `docs/verification/2026-09-18-garbage-mechanism-attacked.md`
+(frank-opus-garbage1), escalation `esc-20260918T091550Z-8d175065`
+**Ruling:** CEO §54 — *"ROCK-SOLID, UNBREAKABLE, UNDEFEATABLE mechanisms that always guarantees
+that garbage like this will be always cleaned up afterwards. Or if the clean-up fails or impossible
+for some reason, then Rich must get a MASSIVE ALERT about it and get on with manually deleting the
+garbage if it fails to be deleted automatically."*
+
+Every number below is a command's output taken on this machine. Where something could not be
+established it says so. Every fixture was built under this session's own scratchpad with a sandbox
+`TMPDIR`, a sandbox `CLAUDE_CONFIG_DIR` and a sandbox config file; the real `$TMPDIR`, the real
+ledger, the real state files and the two launchd jobs were never written. §10 shows the teardown.
+
+---
+
+## 1. Fix 3(a) — a VERIFICATION, not a change. D5 is already closed on main.
+
+Frank's D5 is the one defeat that runs the wrong way: the allocator arm deleting a tree a live
+process is reading. `zach-opus-testinst1` closed it at `00bb72c2` before this pass started, so the
+job here was to re-run the reproduction against main and only touch the wall if it failed.
+
+**It did not fail.** Frank's fixture, in shape byte for byte — a directory under the allocator root
+named for a dead owner pid (99999998), with a live `tail -f` holding a file open inside it:
+
+```
+=== D5 REPRODUCTION, re-run against main 47b79358 ===
+fixture:  .../tmp/richos-scratch/99999998-frank-openheld-a   (owner pid 99999998, dead)
+holder :  tail -f .../99999998-frank-openheld-a/held.lock  (pid 26689, alive)
+lsof sees it: 26689
+
+--- scratch-reaper.sh --dry-run --verbose ---
+KEEP              2.0 MB  .../richos-scratch/99999998-frank-openheld-a
+                          why: pid 99999998 is ended, but a LIVE process holds a file open
+                               inside this tree — the allocation being over does not make a
+                               tree something is reading garbage
+
+--- scratch-reaper.sh --apply ---
+verdict: decided deletable=0 reclaimable=0 B kept=1 undecidable=0
+applied: deleted=0 freed=0 B
+
+RESULT: KEPT — the tree a live process is reading survived --apply
+holder pid 26689 still running
+```
+
+**The positive control, in the same run** — because every assertion above also passes against an arm
+that has simply stopped deleting anything:
+
+```
+--- POSITIVE CONTROL: holder killed, same tree, --apply again ---
+  why: pid 99999998 is ENDED (owner of 'unrecorded', from the directory name) and nothing
+       has touched this for 0 min; its TTL was 360 min
+verdict: decided deletable=1 reclaimable=2.0 MB kept=0 undecidable=0
+applied: deleted=1 freed=2.0 MB
+CONTROL OK: with the holder gone the same allocation IS deleted
+```
+
+The wall lives at `scripts/lib/scratch-reaper.py:914-952` and its regression case is S19/S19b/S19c in
+`scripts/scratch-reaper.test.sh`. Nothing in this pass changes it. The reproduction script is not
+committed: it is thirty lines that build a fixture the suite already builds, and S19 is the durable
+form of it.
+
+**Also re-derived from `00bb72c2`, because the D5 fix rested on it:** `holder()` asks `lsof +D` for a
+directory rather than `lsof -t -- <path>`. The old form asked who had the directory NODE open and
+answered "nobody" about a tree a live process was writing into — the same defect one level down, in
+the arm that exists to protect a live agent workspace. Confirmed present at `scratch-reaper.py:1320-1324`.
+
+---
+
+## 2. Fix 1 — deny-by-default over `$TMPDIR` and `/private/tmp` (D1, D2)
+
+### 2.1 The census BEFORE, re-derived rather than quoted
+
+Frank's D1 was re-measured here before anything was built on it, with the config's own two
+pattern lists:
+
+```
+root: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T
+direct children: 60,942
+covered by a declared pattern :  4,172 entries, 0.08 GB
+INVISIBLE to every arm        : 56,770 entries, 1.95 GB
+
+root: /private/tmp
+direct children: 764   (of which 97 are root-owned)
+swept by any arm before today: 1  (claude-501, by its own arm)
+```
+
+Frank measured 52,409 / 1.90 GB the same morning; the machine has run for four more hours since.
+**The number that is not a byte count is the one that decides the design:**
+
+```
+$ grep -rln 'owned-wake-native' /Users/alex/ab/richos/richos    -> (no matches)
+```
+
+The largest invisible family — `richos-owned-wake-native-*`, 42 direct children, 198 MB, oldest
+9.1 days — **has no creator anywhere in the tree**. An allowlist can only contain names somebody
+read off a creator, so the enumeration cannot converge and every future family arrives invisible in
+exactly the same way. That is the whole argument for inverting it, and it is not about the 1.95 GB.
+
+Two other things the census established that the brief did not say:
+
+- **`work-host-*` (85 children) is the app's own, from `richos-core/src/work_host.rs`** — a live
+  instance of D4 (the app's 61 `temp_dir()` sites), and the only reason it is not garbage on this
+  disk today is that it is younger than the age floor.
+- **Almost everything invisible is OURS, not other people's.** The foreign share is 2,831 of 60,943
+  under `$TMPDIR` and 8 of 764 under `/private/tmp`. That asymmetry is what makes a keep-list short.
+
+### 2.2 What was built
+
+`scan_unknown` (`scripts/lib/scratch-reaper.py`) decides every direct child of `$TMPDIR` and of each
+`SCRATCH_SHARED_TMP_ROOTS` entry that no other arm claims. **The deletion proof is not the age.** It
+is the one `scan_orphan` already uses on loose files in a claude scratch root: the newest mtime in
+the tree predates the start of EVERY running session process, so no running session can have written
+it and none can write it again. Four conditions sit on top and each can only make the arm refuse:
+owned by this uid; past `SCRATCH_UNKNOWN_AGE_HOURS`; nothing holds a file open inside it; all four
+walls.
+
+**The arm runs LAST and is the only one allowed to be cut short.** It is the expensive one — it
+walks every child of two whole roots rather than the few a glob picks out — so a `--notice` run that
+exhausts its budget loses this arm's numbers instead of the whole pass, and says how many entries it
+did not reach.
+
+### 2.3 Two things the brief prescribed that the measurement changed
+
+**(a) The legacy pattern list is NOT redundant and has NOT been deleted.** Frank's Fix 1 says the
+families "become redundant under deny-by-default and can be deleted from the config". They do not:
+they are the FAST LANE. A legacy family is swept at two hours because the 105 GB directory reached
+that size inside one run; this arm's floor is measured in days. Removing the list would trade a
+two-hour reclaim for a three-day one on exactly the family that filled the disk. What changes is the
+list's JOB — it is no longer the coverage, it is a fast lane on top of coverage that no longer
+depends on it, so it can now shrink to nothing without losing anything.
+
+**(b) `SCRATCH_UNKNOWN_GIT_IS_FIXTURE` was written as 0 and the measurement changed it to 1.** With
+wall 2 standing in full the arm returned:
+
+```
+TOTAL INDETERMINATE   327 entries   288,360,636 bytes    — and ALL 327 are wall 2
+   other-<pid>-wt  93     richos-owned-wake-native  49    census-git/-gitnr  4
+   detect-nonnative-worktree 1   guard-sealed-test 1   engine-status 1   ... 177 families
+```
+
+Not one is a checkout; every one is a harness building a throwaway repository, and the largest
+family's creator no longer exists to be fixed. 327 permanently undecidable entries mean exit 3 for
+ever, which is the unclearable-noise failure that already settled the same question for the legacy
+families. Wall 3 is untouched and is what protects a real checkout — proven by S21j/S21k and by the
+plan itself (§2.4).
+
+### 2.4 The census AFTER — the shipped code, dry run, on the real disk
+
+```
+$ scripts/scratch-reaper.sh --json          (11.6 s, full pass, no budget)
+
+class                action            count          bytes
+claude-orphan        DELETE                1             64
+claude-orphan        INDETERMINATE         1           2176
+claude-orphan        KEEP                278      114006688
+claude-session       KEEP                  1              0
+nightly-log          KEEP                  3         577536
+nightly-release      KEEP                  3      306869056
+tmp-foreign          KEEP               2934     1125454451
+tmp-legacy           KEEP               3669       81404907
+tmp-unknown          DELETE            12945      325069357
+tmp-unknown          INDETERMINATE        23      164580800
+tmp-unknown          KEEP              41646      494449888
+
+TOTAL DELETE            12946      325069421  (0.33 GB)
+TOTAL INDETERMINATE        24      164582976  (0.16 GB)
+TOTAL KEEP              48534     2122762526  (2.12 GB)
+```
+
+**Before: 56,770 entries and 1.95 GB that no arm considered, reported as nothing at all. After:
+every one of them carries a verdict and a reason.**
+
+- **12,945 entries / 0.33 GB are collectable** where the count and the bytes were both zero.
+- **41,646 are KEPT and the reasons are the proofs**: 34,874 "touched after the earliest running
+  session process started" (one session has been up since Wed Sep 16 23:31:27 UTC, so nothing from
+  the last day and a half is a candidate), the rest inside the 72 h floor.
+- **2,934 / 1.13 GB are FOREIGN** — counted and named rather than skipped. The largest is
+  `com.microsoft.VSCode.ShipIt.V5TnjgtN` at 942 MB, which nothing on this machine will ever collect
+  and which is now at least *visible*. That is the number Fix 2 puts in front of Rich.
+- **The two structural walls fired on the real disk**, which is where the evidence for them lives
+  because the hermetic suite cannot create another user's file: `uid-kept entries: 94` (every
+  root-owned `tmp-mount-*` in `/private/tmp`) and `symlink-kept: 1` (`/private/tmp/sage-sb`).
+- **24 INDETERMINATE, and 23 of them are wall 3** — `richos-owned-wake-native-*/workspace` rows that
+  are still in the worktree ledger pointing at nine-day-old temp fixtures. **This is wall 3 working,
+  and it names a real second-order problem:** stale ledger rows make dead fixture garbage permanently
+  undecidable. Pruning them is the ledger's business, not the reaper's, and Fix 2 is what makes the
+  0.16 GB visible so somebody does it.
+
+### 2.5 A defect this pass found on the way, and it was in the primitive underneath
+
+`lstart_epoch` converted `ps -o lstart=` (taken under `TZ=UTC0`) with
+`mktime(strptime(text)) - time.timezone`. `time.timezone` is the zone's **standard** offset and does
+not move for daylight saving, so **in DST every process start was reported one hour early**:
+
+```
+timezone 0   altzone -3600   daylight 1   tm_isdst 1
+ps lstart (TZ=UTC0): Fri Sep 18 10:13:15 2026
+shipped lstart_epoch -> 1789722795
+correct  (timegm)    -> 1789726395    (== time.time() to the second)
+error                -> -3600
+```
+
+It failed in the safe direction — an hour-early start means "nothing running can own this" is
+answered *no* more often, so trees were KEPT that could have been swept — which is why it survived:
+an hour of lost coverage every run, in the one primitive the claude-orphan rule and the new arm both
+rest on, reported by nothing. Fixed to `calendar.timegm`, which is right in every zone and season
+because the string is already UTC.
+
+**It was found by a test that asserts WHICH REASON a KEEP carries, not that the tree survived.** With
+the wrong clock, S21n (the tree is still there) stayed green and S21o (kept *by the floor*) went red.
+The same distinction retargeted M25. The visible consequence in the plan above is the
+`claude-orphan DELETE 1` row — an hour of coverage that had been silently missing.
+
+### 2.6 Tests
+
+```
+$ scripts/scratch-reaper.test.sh          73 passed, 0 failed
+   S21  a $TMPDIR name NO declared pattern matches is swept (D1)
+   S21a the reason says it was decided, not merely matched
+   S21b CONTROL: with SCRATCH_TMP_DENY_BY_DEFAULT unset the same tree survives
+   S21c and with the switch off it is not even MENTIONED — which is D1
+   S21d a declared FOREIGN owner is kept, never deleted by us
+   S21e CONTROL: the identical non-foreign sibling in the same run IS deleted
+   S21f the foreign entry is COUNTED and named, not silently skipped
+   S21g a tree touched AFTER a running session started is kept
+   S21h the reason is the PROOF (the process table), not the mtime
+   S21i a DECLARED SHARED temp root is swept too (D2 — /private/tmp)
+   S21j wall 3 stands over the new arm — a REGISTERED workspace survives
+   S21k and the refusal NAMES the registration
+   S21l an undeclared tree a LIVE process is reading is kept
+   S21m CONTROL: with the holder gone the same tree IS deleted
+   S21n nothing running can own it, but the declared floor still keeps it
+   S21o and the reason is the floor, not the process table
+   S21p CONTROL: the same tree past the floor IS deleted
+
+$ scripts/scratch-reaper.mutation.sh      all 30 properties proven load-bearing
+   M24.deny-by-default-off         -> S21   red      M27.unknown-open-handle-ignored -> S21l red
+   M25.session-proof-removed       -> S21h  red      M28.shared-root-not-swept       -> S21i red
+   M26.foreign-keeplist-ignored    -> S21d  red      M29.unknown-floor-ignored       -> S21n red
+   M30.lstart-dst-offset           -> S21o  red
+
+$ scripts/hooks/session-start-scratch.test.sh   9 passed, 0 failed
+```
+
+Two of the S21 cases failed on first run and **the suite was wrong both times, not the reaper**:
+creating a file inside a directory updates that directory's mtime, so a fixture built as "backdate
+the tree, then add a lock file" leaves the candidate stamped *now* — and the arm correctly kept it,
+saying a running session might own it. That is the only way round worth having, and `backdate()`
+exists so the next fixture cannot make the same mistake.
+
+**Not covered by the hermetic suite, and said here rather than left implied:** the uid wall cannot be
+exercised without creating a file owned by another user. Its evidence is the real-disk dry run in
+§2.4 — 94 root-owned entries kept, each naming the uid — and inspection of the branch.
+
+### 2.7 One more defect, in the wiring rather than the logic
+
+`scratch-reaper.sh` exported its config keys by NAME, in seven `export` lines. The new keys were
+declared in `orchestration.config`, read by `config_from_env`, and **arrived empty** — so the whole
+arm was silently off and the first full-disk run finished in 1.3 s looking exactly like a clean
+machine. Both halves looked right and nothing anywhere said the two had never met; this is the same
+shape as the `SCRATCH_DOCKER_UNTIL` export Frank noted in passing.
+
+The list of names was the defect, so the list is gone: every `SCRATCH_*` / `APP_TEST_INSTANCE_*` /
+`APP_INSTANCE_*` variable that sourcing actually set is exported, enumerated with `compgen -v`. A key
+can no longer be declared and missed, and nobody has to remember anything.
+
+### 2.8 The cost, and what it did to the SessionStart budget
+
+```
+full pass, every arm, no budget            11.6 s   (60,942 + 764 children)
+every arm EXCEPT the deny-by-default one    1.3 s
+```
+
+The notice's budget was 8 s, chosen as six times the old 1.3 s. A twelve-second session start is a
+hook somebody deletes, so the budget is now **5 s** and the expensive arm absorbs the cut: it runs
+last, what it does not reach is counted, and Fix 2 says so out loud. The complete pass is the
+scheduled job's, four times a day, with no budget at all. Verified: `--notice --deadline 8` returned
+at 8.05 s having decided the cheap arms and printed no "UNKNOWN" banner.
+
+---
+
+## 3. Fix 2 — the garbage alarm, a failure in the exit code, and D9 closed
+
+Frank's verdict is the specification for this one:
+
+> The mechanism is not defeatable in the sense of being tricked — it is defeated by NOT BEING ASKED.
+> Its alarm is a disk-space alarm and a delete-failure alarm. **It has no garbage alarm.**
+
+The CEO's sentence has two halves — *always cleaned up* OR *Rich gets a MASSIVE ALERT* — and they
+were satisfied simultaneously only for the paths already swept. Everything else fell between them.
+
+### 3.1 `skipped` — and it is deliberately not `kept`
+
+The verdict line now carries `skipped=N skipped_bytes=B`, published to
+`scratch-reaper-state.json`, and it counts **what the program has LOOKED AT and will never take**:
+another program's temp directory, another user's, a symlink. A kept entry is alive or young and gets
+collected in due course; a skipped one sits there until a person removes it.
+
+```
+verdict: decided deletable=12946 reclaimable=310.0 MB kept=48534 undecidable=24
+         skipped=2934 skipped_bytes=1.0 GB
+```
+
+`not_measured=N` and `not_scanned=N` appear **only when they are true**, so the line a person is used
+to reading does not grow a field that is always zero.
+
+**A correction I made to my own first version, because it shipped two facts in one sentence.** The
+first cut folded budget-truncated entries into `skipped` and printed *"1.0 GB in 47,681 place(s)"* —
+a byte count from 2,830 measured entries wearing a place count inflated by 44,851 unmeasured ones.
+Two different facts in one sentence is a sentence nobody can act on.
+
+### 3.2 The banner quotes the last full pass, and says so
+
+**A bigger budget was the wrong answer and so was a smaller one.** With a 5 s budget the banner said
+*"44,851 temp entries were NOT MEASURED within the 5 s budget"* — at every session start, forever,
+because 60,942 temp entries is simply what this machine has. That line describes the budget, not the
+machine's health, and a line that is always true is wallpaper. Wallpaper is how a real signal comes
+to be skipped, which is the failure the whole mechanism exists to prevent.
+
+So `--notice` **does not attempt the expensive arm at all**. Its garbage numbers come from the state
+file the scheduled `--apply` publishes every six hours, and the banner **quotes the date**:
+
+```
+SCRATCH: 1.0 GB in 2934 place(s) is garbage NOTHING WILL EVER COLLECT — another
+program's temp directory, another user's, or a symlink. Nobody is coming for it;
+it goes when a person removes it. Measured by the scheduled pass at
+2026-09-18T04:40:00Z. See which: .../scratch-reaper.sh --verbose
+```
+
+A pile nothing will ever collect does not change in six hours — that is what makes it that pile —
+and leg 3 of the notice already shouts if no pass has completed in fourteen. Cost back to **1.5 s**
+from 11.6 s.
+
+### 3.3 The undecidable pile gets its own, lower threshold (D12)
+
+It shared `SCRATCH_NOTICE_BYTES` at 1 GiB, which was written for "an ordinary session's worth of dead
+scratch" and is far too high for a pile **no scheduled run will ever clear**. The two are different
+in kind: one shrinks by itself, the other never does. `SCRATCH_UNDECIDABLE_NOTICE_BYTES` is 64 MiB,
+measured against today's 164,580,800 B in 23 places — the stale-ledger-row problem §2.4 names, which
+is exactly what somebody should be told about.
+
+### 3.4 D9 — one environment variable turned the MASSIVE ALERT off
+
+The sweeper's `failures_path()` honored `CLAUDE_CONFIG_DIR`; the watchdog's reader did not; and
+`SCRATCH_FAILURES_STATE` was declared in no config file, so nothing reconciled them. Frank proved it:
+the reaper wrote the failure under `$CLAUDE_CONFIG_DIR/state/`, `disk-watchdog.sh --alert` exited 0
+and printed nothing. The engine's own suites export that variable, so it was a live knob.
+
+Closed in both directions, because either alone would leave the other half fragile:
+`disk-watchdog.sh` and `disk-watchdog.py` both resolve the base with the same
+`CLAUDE_CONFIG_DIR`-honoring rule the sweeper uses, **and** `SCRATCH_FAILURES_STATE`,
+`SCRATCH_REAPER_STATE` and `APP_INSTANCE_FAILURES_STATE` are now declared in `orchestration.config`.
+W17 asserts it against a config that deliberately does *not* declare the key, which is the state
+Frank found the engine in.
+
+### 3.5 D10 — a failed deletion is in the exit code and on stdout
+
+It was `return 3 if undecidable else 0`, with the failure list never consulted, and stdout said
+`applied: deleted=0 freed=0 B` — byte-identical in shape to a run with nothing to do. launchd saw
+green on a run that could not delete a thing, and the word FAILED existed only inside a log nobody
+reads. Now: **exit 4**, documented in the script header beside 0/2/3, and `failures=N` on the
+`applied:` line. 4 outranks 3 because a failed deletion is the branch of §54 where Rich deletes it by
+hand.
+
+### 3.6 D13, the part of it that is cheap and unambiguous
+
+`/private/tmp` was not in `DISK_CONSUMER_CANDIDATES`, so the 25.77 GiB pile there **could not appear
+in an alert at all** while the alert named `~/ab`, `/Volumes/E1TB/vm` and `~/.claude`. Added. **The
+other half of D13 is left open and named in §6** — `richos_garbage_bytes()` still counts only the
+allocator root and the claude roots, so the ours-or-not classification sees a fraction of our garbage.
+Fixing that properly means the sweeper publishing an "ours" figure, and half-fixing a classifier is
+worse than leaving it measured and recorded.
+
+### 3.7 Tests
+
+```
+$ scripts/scratch-reaper.test.sh                84 passed, 0 failed
+   S22   the verdict line carries skipped= AND skipped_bytes=
+   S22b  CONTROL: with nothing foreign the same line says skipped=0
+   S22c  a FAILED deletion exits 4 — launchd can no longer see green
+   S22d  and stdout says failures=N, not only the log file
+   S22e  CONTROL: a clean run still exits 0 and says failures=0
+   S22f  --apply PUBLISHES skipped/skipped_bytes/undecidable_bytes
+   S22g  the banner raises the GARBAGE ALARM from the last full pass
+   S22h  and it DATES the number, because it is not a live reading
+   S22i  and it does not attempt the expensive arm, so it stays cheap
+   S22i2 CONTROL: a full scan of the same world DOES find it
+   S22j  CONTROL: below the declared threshold the alarm is silent
+
+$ scripts/disk-watchdog.test.sh                 35 passed, 0 failed
+   W17  CLAUDE_CONFIG_DIR is honored — the failure alert cannot be silenced
+   W17b CONTROL: with no failure in that directory it is silent
+   W18  garbage nothing will ever collect reaches Rich's alert, with a count
+   W18b CONTROL: below the declared threshold it is completely silent
+   W18c an undecidable pile alerts on its OWN lower threshold, not the 1 GiB one
+
+$ scripts/hooks/notice-disk-alert.test.sh       14 passed, 0 failed
+   D10  the garbage alarm reaches the ONE-LINE turn-end summary, with its count
+   D10b CONTROL: below the threshold the turn end raises nothing at all
+
+$ scripts/hooks/session-start-scratch.test.sh    9 passed, 0 failed
+$ scripts/scratch-reaper.mutation.sh            all 34 properties proven load-bearing
+   M31.skipped-not-counted              -> S22  red
+   M32.failure-not-in-exit-code         -> S22c red
+   M33.notice-reruns-the-expensive-arm  -> S22i red
+   M34.garbage-alarm-ignores-threshold  -> S22j red
+```
+
+**Two things the harness and the suite caught in my own work, which is the reason they exist:**
+
+- **M33 first scored green against a banner that re-ran the expensive arm.** My assertion looked for
+  the string "NOT MEASURED", and a small test world never exhausts a budget, so that line never
+  appears and the mutation was invisible. The assertion has to be about the arm's RESULTS — the
+  banner cannot report a candidate only that arm can find — not about its failure mode. Same lesson
+  as M22 and M25.
+- **The turn-end summary parser silently dropped the `CLASSIFICATION:` line** when I added the
+  garbage lines to it, and case D4 failed immediately. Every new condition in the alert block has to
+  be taught to that parser or it vanishes at the turn end, so D10 now pins the garbage line there
+  too.
+
+---
+
+## 4. Fix 3(b) — a pid is attribution, not liveness (D11)
+
+Frank put a directory called `1-frank-immortal-b` in the allocator root:
+
+```
+KEEP  2.0 MB  .../richos-scratch/1-frank-immortal-b
+      why: pid 1 is ALIVE (owner of 'unrecorded', from the directory name)
+           — a live owner is kept whatever its TTL says
+```
+
+Forever, at any size, with no alert and no TTL escape — **and silently by construction, because a
+KEEP is the reaper working as designed.** `pid_alive()` returns True on `PermissionError`, which is
+what pid 1 gives, and macOS recycles pids at 99998, so a week-old name whose leading digits match a
+live pid is not exotic.
+
+### 4.1 Three tests, and the brief's third one was inverted
+
+A pid taken off a directory NAME is now believed as proof of life only if:
+
+1. **It is ours.** A `PermissionError` means another user's process, and the allocator runs as us, so
+   it cannot be the caller. **This test alone retires pid 1.**
+2. **It is above a declared floor.** Measured on this machine: the lowest pid owned by uid 501 is
+   **160**, while root's boot daemons hold **1, 88, 90, 92, 93**. `SCRATCH_MIN_OWNER_PID="100"`.
+3. **It started no later than the directory was created** (`st_birthtime`, which macOS has).
+
+**The brief asked for test 3 the other way round** — *"a pid whose process start time precedes the
+directory's creation is unattributed"* — and that is inverted. A creator necessarily exists BEFORE it
+creates: a session process started this morning and allocating scratch this afternoon is the normal
+case, and refusing it would make every long-running owner unattributed. What proves reuse is starting
+*afterwards*. I implemented the sound direction and am flagging the difference rather than quietly
+following the brief.
+
+An unattributed pid does **not** mean delete. It means there is no proven live owner, so the ordinary
+ladder applies underneath: the age floor, the open-file wall, and all four walls.
+
+### 4.2 A second hole in the same family, and the mutation harness found it
+
+M37 was written to prove the ledger exemption load-bearing and came back **"the suite still PASSED
+without this property"**, which sent me back to the code with a better question. `scan_scratch_root`'s
+own comment claimed:
+
+> TTL earns its place on the other side: it is what lets a row whose pid has been REUSED by an
+> unrelated process still age out, because the age floor and the TTL both have to pass.
+
+**That was not true of the code.** A live pid returned KEEP two lines before TTL was ever consulted —
+*"a live owner is kept whatever its TTL says"* — so **a ledger row from three days ago whose pid now
+belongs to an unrelated live process was immortal in exactly the way `1-frank-immortal-b` was.** The
+comment described a safety the program did not have.
+
+So the **reuse test applies to both sources**: it is a fact about the filesystem and the process
+table, not a question of how much a record is trusted. What a ledger row earns is exemption from the
+two NAME-shape tests (uid and floor), because it was written by our own process at allocation time.
+The comment is corrected to say what the code does.
+
+---
+
+## 5. Fix 3(c) — the drop alarm gets a divisor, and the rationale gets corrected (D7, D8)
+
+### 5.1 D7 — the rate
+
+`drop_bytes = old_free - free` against a baseline of any age, with no elapsed-time term. Frank aged
+the baseline ten hours — a closed laptop, a wake from sleep, an upgrade window, a launchd job
+unloaded and reloaded — and got a `MASSIVE ALERT ... DROPPED 30.0 GB ... CLASSIFICATION: RichOS
+garbage (DEFECT)`. **3 GB/hour is a normal working day on this machine**, reported as our defect.
+
+Now: a rate in GB/hour, and **across a gap longer than `DISK_DROP_MAX_GAP_INTERVALS` (3, i.e. 45
+minutes) no rate is computed at all** — the gap is reported instead, inside a block already printing
+for another reason so it can never itself raise an alarm. A fall averaged over ten hours is not a
+weaker measurement of the same thing; it is a different quantity wearing the same name.
+
+### 5.2 A hole the fix itself opened, and the suite found it
+
+Turning a difference into a rate makes the **denominator dangerous at both ends**. W4b failed
+immediately: with back-to-back readings the gap was under a second and a 100 GB fixture fall read as
+
+```
+FALLING at 496862.1 GB/hour (100.0 GB in the last 0 min, against a declared 2000 GB/hour)
+```
+
+In production that is a launchd job firing twice in quick succession, or a person running `--check` a
+moment after the timer did — and it errs toward a FALSE ALARM, the worse direction. So
+`DISK_DROP_MIN_GAP_SECONDS="60"` refuses a denominator that is too small for the same reason the
+maximum refuses one that is too large. W4f is the case.
+
+### 5.3 D8 — the rationale said something the record does not support
+
+`orchestration.config` said of `DISK_DROP_ALERT_GB="20"`: *"THIS IS THE THRESHOLD THAT WOULD HAVE
+CAUGHT 2026-09-17, and the absolute one would not have in time."* Frank checked it: the sandbox was
+created at 22:39 and the reaper's next run was 03:40, so 105 GB arrived across **at least five hours**
+— about **21 GB/hour**, or ~5 GB per 15-minute tick, **a quarter of the old threshold**. Neither that
+nor the back-to-back reading is measured anywhere, so the claim was unproven in both directions. What
+IS established is that **the absolute 60 GB floor would have fired**, because free space reached
+49 GB.
+
+The declaration now says that, and names the rate alarm's real job: *the faster incident nobody has
+measured yet.*
+
+**And the number is deliberately unchanged in effect.** `DISK_DROP_ALERT_GB_PER_HOUR="80"` IS 20 GB
+across a 15-minute interval, so nothing about a normal day changes and no new false positive is
+introduced. Lowering it to catch the measured 21 GB/hour lower bound would mean alerting at 5 GB per
+tick, which a cargo build, a Docker pull or an Xcode archive reaches legitimately — the cries-wolf
+failure that ends with the alarm switched off and the absolute floor doing the work alone anyway.
+
+`DISK_DROP_ALERT_GB` is retained, declared, and reported in the JSON beside the rate, so a reader
+comparing the old behavior with the new one can see both.
+
+### 5.4 The declarations are actually read — verified, not assumed
+
+```
+$ scripts/disk-watchdog.sh --json | .thresholds
+ drop_alert_gb: 20.0            drop_alert_gb_per_hour: 80.0
+ drop_max_gap_intervals: 3.0    drop_min_gap_seconds: 60.0
+ skipped_notice_bytes: 1073741824.0
+ undecidable_notice_bytes: 67108864.0
+ rich_alert_gb: 60.0  interval_minutes: 15.0
+ reading_gap_seconds: 74
+
+$ scripts/disk-watchdog.sh --status
+ok     /System/Volumes/Data        192.8 GB free of  460.4 GB ( 41.9%)  floor 60 GB
+ok     /Volumes/E1TB               863.5 GB free of  953.7 GB ( 90.5%)  floor 124 GB
+```
+
+That check is W1's whole reason for existing — the first version of this watchdog read *no*
+configuration at all and looked fine because a fallback matched the declaration.
+
+### 5.5 Tests
+
+```
+$ scripts/scratch-reaper.test.sh                90 passed, 0 failed
+   S23  a directory named for pid 1 is no longer immortal (D11)
+   S23b CONTROL: a live pid of OURS, above the floor, is still a live owner
+   S23c a live pid that started AFTER the directory is called pid reuse
+   S23d ...and it is collected rather than kept for ever
+   S23e a LEDGER row is exempt from the two NAME-shape tests
+   S23f a LEDGER row whose pid was REUSED is not a live owner either
+
+$ scripts/disk-watchdog.test.sh                 40 passed, 0 failed
+   W4a and it states a RATE, so the number can be argued with
+   W4c a 30 GB fall across a TEN-HOUR gap raises no drop alert (D7)
+   W4d CONTROL: the same 30 GB fall inside one interval DOES alert
+   W4e the gap is REPORTED with its size, instead of divided by
+   W4f a 100 GB fall across a SUB-SECOND gap raises no rate alert
+
+$ scripts/scratch-reaper.mutation.sh            all 38 properties proven load-bearing
+   M35.name-pid-trusted-as-liveness            -> S23  red
+   M36.pid-reuse-not-detected                  -> S23c red
+   M37.ledger-row-subjected-to-the-name-tests  -> S23e red
+   M38.ledger-pid-reuse-not-detected           -> S23f red
+```
+
+The pid-reuse fixture is **constructed rather than argued about**: the directory is created first,
+then a process is started, then the directory is RENAMED to carry that process's pid — rename
+preserves `st_birthtime` because the inode does not change. So the name says a live pid owns it and
+the filesystem says that process did not exist when the directory was made.
+
+---
+
+## 6. D16 — the ratchet now has a ratchet
+
+Frank's grep, re-run and confirmed: `scratch-allocation-lint.sh` appeared in nothing but a record.
+Not in `hooks/hooks.json`, not in `.claude/settings.local.json`, not in the contract-integrity probe,
+not in any test runner. **And every case in its own suite ran against a fixture tree** — the suite's
+header says so in as many words: *"the lint takes its root from `SCRATCH_LINT_ROOT`, so nothing here
+reads the real tree."* So the lint was proven correct and pointed at nothing, and its declared
+baseline of 45 could only be checked by somebody who remembered to.
+
+**L11 is the wiring.** `run-all-tests.sh` discovers every `*.test.sh` under the engine, so the lint
+now runs against the real engine in the ordinary pass. CI is paused by CEO ruling and is therefore
+not the answer; the test runner is. It asserts the **exit code and not a number** on purpose —
+pinning 45 in two places means the second one gets forgotten, so the baseline stays in the lint with
+its date and its reasoning and the case asks the lint whether it is satisfied. The count is printed
+either way, because a ratchet that only speaks when it breaks gives nobody the number to lower.
+
+**Proven by defeat, and the fixture was removed:**
+
+```
+# with a bare `mktemp -d` added in scripts/zzz-ratchet-proof.sh
+FAIL  L11 the real engine is OVER the declared scratch baseline
+      scratch-allocation-lint: 46 unallocated scratch directories across 199
+      script(s), and the declared baseline is 45.
+16 passed, 1 failed
+
+# fixture removed
+PASS  L11 the lint RUNS AGAINST THE REAL ENGINE and is satisfied (D16)
+      scratch-allocation-lint: 45 unallocated scratch directories across 198
+      script(s) — AT OR UNDER the declared baseline of 45, plus 0 exemption(s).
+17 passed, 0 failed
+```
+
+The first version of that case reported **"16 passed, 3 failed" for one defect**, because it called
+`bad` three times to print its guidance. Fixed while proving it: one `bad`, guidance on plain
+`printf`.
+
+### 6.1 And the lint's own justification was one of Frank's stale claims
+
+Its summary said *"Every one of these is swept today by the reaper's declared legacy families"*, and
+§7 of his report contradicted it directly: those families were on disk, nine to ten days old, and
+matched by nothing. **That claim is now true for a different reason and says so** — `$TMPDIR` and the
+shared temp roots are swept deny-by-default, so an unallocated site is collected whatever it is
+called. What a baselined site still lacks is **speed**: days under the deny-by-default floor, two
+hours under a declared legacy family, minutes under the allocator root. That is a real reason to keep
+migrating, and it is the honest one.
+
+---
+
+## 7. D3 — the `~/ab` campaign roots, and the census that changed the fix
+
+Frank's finding, re-measured: `richos-rechecks` **18.90 GB** and
+`richos-password-free-workspaces` **13.75 GB** sit under `~/ab` in no ledger row and under no
+declared root, so neither reaper will ever see them.
+
+**His proposed signal — "not in the ledger" — does not survive the census, and that is the finding
+that decided the shape.** Run over the whole of `~/ab` on 2026-09-18:
+
+```
+       bytes name                                       age_d  .git?  named?
+ 18897490871 richos-rechecks                              1.5    yes      NO
+ 18321407840 richos-wt                                    0.0    yes     yes
+ 13749244192 richos-password-free-workspaces              7.7    yes      NO
+  7548546256 richos-alex                                 14.2    yes      NO
+  1963954285 li-profile-data-grabber                     33.2    yes      NO   <- Norm's repo
+  1208193411 prospects                                   10.1    yes      NO   <- Mark's repo
+   967111456 press-and-publicity                          7.7    yes      NO
+   845633760 saferecord                                  57.1    yes      NO
+   488729376 richos-cleanup-source                        7.7    yes      NO
+   438986564 fitapp                                     176.0    yes      NO   <- the product
+   ... 24 of 29 directories are unnamed by any ledger
+```
+
+**Most of the unnamed directories are the CEO's own projects.** Under `~/ab` the default is *this is
+somebody's work*, which is the exact opposite of the default under `$TMPDIR` — so the
+deny-by-default shape that is right there would nominate `fitapp` and `prospects` here.
+
+### 7.1 The shape, and why an enumeration is right for once
+
+An enumeration is normally the wrong answer; it is the whole D1 lesson. But **the failure modes are
+not comparable**: a missed campaign root costs disk space that the watchdog's `~/ab` consumer line
+still reports, while a deny-by-default miss costs the product tree. **An enumeration that can only
+fail to NOMINATE is a safe enumeration.**
+
+`SCRATCH_CAMPAIGN_ROOTS` names them; `SCRATCH_CAMPAIGN_RETENTION_DAYS` (7) is how long after its last
+touch one is reported. **Nothing is ever deleted automatically.** Every one of these trees contains a
+`.git`, which is wall 2 — *"a scratch directory holding a checkout is somebody's work"* — and this
+program refuses those everywhere else. §54's second branch is exactly this case, so a root past
+retention is counted into `skipped` (which the garbage alarm reads) and its reason carries the
+command.
+
+**`richos-alex` (7.55 GB, 14.2 d) is deliberately NOT declared.** Its name suggests a personal
+checkout and nothing establishes that it is finished with. That is the CEO's word to give, not mine
+to assume, and it is in §9 as an open item rather than in the config as a guess.
+
+### 7.2 What it does on its first run — the answer the brief asked for
+
+```
+$ scripts/scratch-reaper.sh          (the plain plan, no --verbose)
+
+KEEP             12.8 GB  /Users/alex/ab/richos-password-free-workspaces
+   why: A DECLARED CAMPAIGN ROOT PAST ITS RETENTION: nothing has touched it for 7 d and the
+        declared retention is 7 d. IT IS NOT DELETED AUTOMATICALLY — it holds a checkout, which
+        is wall 2 everywhere else in this program — so under §54 it is reported and a person
+        removes it:  rm -rf /Users/alex/ab/richos-password-free-workspaces
+KEEP              1.2 MB  /Users/alex/ab/richos-recovery-codex
+   why: ... nothing has touched it for 12 d ...
+
+verdict: undecided deletable=13355 reclaimable=317.7 MB kept=57131 undecidable=24
+         skipped=2939 skipped_bytes=13.9 GB
+```
+
+| pile | size | untouched | first run |
+|---|---|---|---|
+| `richos-password-free-workspaces` | 13.75 GB | 7 d | **REPORTED** — past retention |
+| `richos-recovery-codex` | 1.2 MB | 12 d | **REPORTED** — past retention |
+| `richos-rechecks` | 18.90 GB | 1 d | **KEPT** — inside retention |
+| `richos-cleanup-source` | 0.49 GB | 1 d | **KEPT** — inside retention |
+
+**And the two "1 d" rows are a correction to my own first draft.** `stat` on those directories says
+7.7 and 1.5 days, and I wrote that into the declaration as a prediction. The reaper takes its age
+from **the newest mtime anywhere in the tree** — which is the right semantics, because "nothing has
+touched this" is a statement about abandonment rather than about a directory inode — and something
+inside `richos-cleanup-source` was written yesterday. The root's mtime and the tree's newest mtime
+are two different facts and the declaration now quotes the program rather than my prediction.
+
+**Nothing was deleted by this pass.** The arm cannot delete, and the two reported piles are Rich's to
+remove from the main checkout after the land, which is what the brief asked for.
+
+### 7.3 A third kind of KEEP, which the tests forced
+
+S24b and S24c failed on first run: the campaign row was a KEEP, and `report()` hides KEEP rows unless
+asked for `--verbose`. **A standing condition that only appears under `--verbose` is not reported**,
+which would have made this the same silence D3 describes, one layer up.
+
+So there are now three kinds of KEEP, not two: alive/young/held (nothing to do, hidden), and
+**STANDING** — kept, and a person has to act on it — which is always printed. It is a flag on the
+entry, not a substring match on the report's prose: my first cut asked `"PAST ITS RETENTION" not in
+e.why` in two different places, which makes a sentence load-bearing and means rewording it silently
+changes the accounting.
+
+### 7.4 What this does NOT cover, said plainly
+
+The two stale `codex-*` worktrees under `~/ab/richos-wt` (0.20 GB and 0.18 GB) are **registered git
+worktrees of `richos`**, and removing the directory without `git worktree remove` leaves a stale
+administrative entry behind. That is the worktree reaper's jurisdiction, not this program's — this
+engine already retired `com.richos.worktree-reconciler` over precisely that class of mistake — so
+they are named in §9 rather than swept here.
+
+### 7.5 Tests
+
+```
+$ scripts/scratch-reaper.test.sh          96 passed, 0 failed
+   S24  a campaign root past its retention is NOT deleted
+   S24b ...it is REPORTED, which is §54's other branch
+   S24c and the reason carries the command a person runs
+   S24d CONTROL: one inside its retention is kept and says so
+   S24e CONTROL: an UNDECLARED sibling is not nominated, however old
+   S24f a reported campaign root is counted into skipped, so the alarm sees it
+
+$ scripts/scratch-reaper.mutation.sh      all 41 properties proven load-bearing
+   M39.campaign-root-deleted        -> S24  red
+   M40.campaign-root-not-nominated  -> S24b red
+   M41.standing-keep-hidden         -> S24b red
+```
+
+**S24e is the case that matters most** — an undeclared directory beside a declared one, backdated
+past every floor, must not be nominated at all. That is the shape of `fitapp` and `prospects`.
+
+And M31's anchor drifted when `skipped()` was rewritten; **the harness reported "MUTATION TARGET
+ABSENT — the source has drifted" instead of scoring green against a line that no longer existed.**
+That assertion is why a stale mutant is a failure here rather than a silent pass.
+
+---
+
+## 8. Docker (D14) — a fourth stage, and a filter the brief prescribed that does not exist
+
+### 8.1 `docker volume prune --filter until=…` is not a thing
+
+The brief and Frank's note both prescribe it. **Checked before building it:**
+
+```
+$ docker volume prune --help
+  -a, --all             Remove all unused volumes, not just anonymous ones
+      --filter filter   Provide filter values (e.g. "label=<label>")
+  -f, --force           Do not prompt for confirmation
+
+$ docker version --format '{{.Server.APIVersion}} {{.Server.Version}}'
+1.53 29.2.0
+```
+
+and docs.docker.com/reference/cli/docker/volume/prune: *"The currently supported filters are:
+label"*. Container, image and builder prune all take `until`; **volume prune does not.**
+
+**Copying the prescription would have shipped one of two defects** — a command that errors on every
+run, or, worse, one whose unknown filter is silently ignored and which therefore **prunes with no age
+limit at all.** Every other stage of this sweep is safe *because* of its age filter: *"an image
+pulled or built this month is never a candidate, however unreferenced it is today."* A volume detached
+ten minutes ago is exactly the one somebody is about to reattach.
+
+So the age is applied by us, from `docker volume inspect --format '{{.CreatedAt}}'` (documented, and
+this machine answers `2026-09-10T11:25:40Z`), and **only to anonymous volumes** — which is Docker's
+own default rather than a choice of mine, since `volume prune` needs `-a` before it will touch a named
+one. Measured: 21 dangling volumes, 402.2 MB, every one carrying `com.docker.volume.anonymous`.
+
+### 8.2 The running container that is immortal by design
+
+```
+$ docker ps --format '{{.Names}} | {{.Image}} | up {{.RunningFor}} | {{.Command}}'
+rl55 | richos-linux:git-latest | up 8 days ago | "sleep infinity"
+rlx  | richos-linux:24.04      | up 8 days ago | "sleep infinity"
+buzz-prod-relay-1 / postgres-1 / redis-1 / minio-1   (8 weeks, real services)
+```
+
+`container prune` only ever considers STOPPED containers, and the code says so as a virtue. That is
+right as a **deletion** rule and it leaves the hole: two `sleep infinity` dev shells pinning 514 MB
+and 349 MB of image so `image prune -a` can never reclaim them, with nothing alerting.
+
+**Nothing is ever stopped automatically** — four of the six containers here are the Buzz production
+stack. A container on a **declared** throwaway image, past a declared age, is reported as a standing
+entry, which reaches the garbage alarm. Verified against the real daemon:
+
+```
+$ scripts/scratch-reaper.sh
+KEEP                 0 B  docker://container/rl55
+   why: A RUNNING CONTAINER ON A DECLARED THROWAWAY IMAGE (richos-linux:git-latest) has been
+        up 8 d, and the declared limit is 7 d. It is never stopped automatically — a running
+        container may be a service — and `container prune` considers stopped ones only, so it
+        pins its image for ever. Under §54 it is reported and a person ends it:
+        docker rm -f rl55
+KEEP                 0 B  docker://container/rlx
+```
+
+Only the two dev shells. The Buzz stack is not named, because `postgres:17-alpine` is not a declared
+throwaway.
+
+### 8.3 Two resolvers for "where is docker", and the suite caught it
+
+S26 failed on first run because my new container arm resolved docker by checking three absolute paths
+while the prune arm resolved it through `PATH` — so a stubbed `docker` was honored by one arm and
+ignored by the other. **Two answers to "where is docker" is one more than there can usefully be**,
+and they are now one function.
+
+While there: the prune arm's lookup shelled out to `command -v`, which I suspected was dead code.
+**It is not** — macOS ships `/usr/bin/command` as a real binary (`-rwxr-xr-x root wheel`, verified),
+so it worked here and would fail on a host that does not. It is now `shutil.which`, which is the
+documented way and needs no such accident.
+
+### 8.4 Tests
+
+```
+$ scripts/scratch-reaper.test.sh          104 passed, 0 failed
+   S25  an ANONYMOUS volume past the declared age is removed
+   S25b CONTROL: one created today is NOT removed — the age is applied
+   S25c CONTROL: a NAMED volume is left alone whatever its age
+   S25d the removal is on the record with its name and its age
+   S26  a running container on a declared throwaway image is REPORTED
+   S26b and the reason carries the command, because nothing is stopped here
+   S26c CONTROL: one started today is not reported
+   S26d CONTROL: an UNDECLARED image is never nominated, however old
+
+$ scripts/scratch-reaper.mutation.sh      all 45 properties proven load-bearing
+   M42.volume-age-ignored                 -> S25b red
+   M43.named-volume-pruned                -> S25c red
+   M44.throwaway-container-not-reported   -> S26  red
+   M45.running-container-stopped          -> S26d red
+```
+
+**Every Docker case runs against a stubbed daemon that records its arguments**, for the reason S16c
+gives: a stub that only echoed a total could not tell a correct implementation from one that deletes
+every volume on the machine. **No real volume was removed by this pass** — the volume stage only runs
+under `--apply`, and `--apply` was never run against the real daemon from this worktree.
+
+---
+
+## 9. One more defect, found in the operator's own launchd log
+
+While checking that this pass had written nothing to the real state files, the shipped job's log
+answered a question I had not asked:
+
+```
+$ grep -c 'verdict: undecided' ~/.claude/state/scratch-reaper-launchd.log   -> 1
+$ grep -c 'verdict: decided'   ~/.claude/state/scratch-reaper-launchd.log   -> 4
+
+# and the undecided one, with the line above it:
+why: the open-file table could not be read, and a temp workspace is only dead when its creator is
+verdict: undecided deletable=0 reclaimable=0 B kept=3946 undecidable=1
+```
+
+**What that establishes, exactly:** the log holds five scheduled verdicts, one of them is undecided,
+and that one's reason is the unreadable open-file table. **It does not establish a failure RATE** —
+five samples is not a frequency, and I am not claiming one. What matters here is that it happens **at
+all**, under launchd, on this machine, unprompted.
+
+That cost exactly one entry before,
+because the old `$TMPDIR` arm had almost no candidates. **The deny-by-default arm has tens of
+thousands.** The same timeout would have produced ~40,000 identical INDETERMINATE entries, a vast
+undecidable pile in the garbage alarm, and exit 3 — on every run where it happens. That is the
+unclearable-noise failure arriving through the door my own change opened.
+
+An unreadable table is now reported **once per root, with the count**. The safety is identical —
+nothing under that root is deleted either way — and what changes is whether a person can read the
+report. S27/S27b/S27c/S27e, control S27d.
+
+**And S27 was not enough, which M46 proved.** Aimed at S27, the mutant reported *"the suite still
+PASSED"*: S27 counts one BANNER, and with the per-entry path restored the banner is still printed once
+while six more undecidable entries appear beside it. **A case that counts the headline cannot see the
+pile underneath it.** S27e asserts `undecidable=1` in the verdict line, which cannot be fooled. That
+is the fourth time in this file the same lesson has been paid for (M22, M25, M33, M46), and it is
+always the same shape: *assert the number, not the sentence.*
+
+---
+
+## 10. The test-instance label at allocation — the design, and it is Rich's call site
+
+`zach-opus-testinst1` left one gap and named it precisely: **an app instance under the LIVE session's
+scratchpad, belonging to an agent that has LANDED, is collected by neither arm.** The sweep arm keeps
+a running session's scratchpad (correct — the session is running), and the land-time arm knows only
+the agent's workspace paths. The scratch ledger row is `path / label / pid / ppid / session / created /
+ttl_minutes / event` and **never an agent name**, so `workspaces.sh land <agent>` cannot ask "what did
+this agent allocate".
+
+**It cannot be closed by matching, and that is the whole point.** A fuzzy match of an agent name
+against a path is a guess, and the ledger exists so attribution is recorded rather than inferred. So
+the label goes in at ALLOCATION time:
+
+1. **One new environment variable, `RICHOS_SCRATCH_AGENT`**, carrying the agent's
+   `<role>-<model>-<identifier>`. The launcher exports it into the environment of everything it
+   starts — that is the one line Rich's launcher call adopts, and it is the only change outside the
+   engine's own files.
+2. **One new field in the ledger row**, written by `_scratch_record` in `scripts/lib/scratch.sh`:
+   `"agent":"<slug>"`. It sits beside `label`, is machine-generated from a declared variable, and
+   therefore needs exactly the escaping `label` already has — the row's hand-rolled `printf` gains one
+   `%s` and nothing else. An absent variable writes `""`, which is what every allocation outside a
+   walk already is.
+3. **`read_ledger` in `scratch-reaper.py` carries `agent` through** alongside `label`, one line.
+4. **`RootSet` gains an `agent=` selector** (`scripts/lib/appinstances.py`): the paths of every ledger
+   row whose `agent` matches. `workspaces.sh land <name>` passes it, so the land collects instances
+   rooted in anything that agent allocated, **wherever it allocated it** — including under a live
+   session's scratchpad, which is the gap.
+
+**Why the land and not the sweep.** §54 addendum 4's trigger is *the test is over*, and the land is
+the moment the engine knows that. The sweep must go on keeping a live session's scratchpad, because a
+session that is running may still own everything in it.
+
+**Nothing of this is implemented here.** Steps 2 and 4 are `scratch.sh`, `appinstances.py` and
+`workspaces.sh`, which are outside the footprint this brief drew, and step 1 is Rich's launcher. A
+half-built version — the reaper carrying a field nothing writes — would be dead code that reads like
+a finished feature, which is a worse outcome than a design somebody can pick up in one sitting.
+
+---
+
+## 11. The probe, and what `install.sh` must re-arm at the land
+
+```
+$ scripts/hooks/contract-integrity-probe.sh
+Integrity probe FAILED — 25 layer(s) broken.
+```
+
+**All 25 are the same known condition and none is mine:** `grep -c '✗'` is 25 and
+`grep -c 'manifest missing or unreadable\|unhashed'` is 25. The sidecars are gitignored by
+construction —
+
+```
+$ git check-ignore -v richos/engine/scripts/hooks/guard-dialect.sh.sha256
+richos/engine/.gitignore:13:scripts/hooks/*.sha256
+$ git ls-files richos/engine/scripts/hooks/ | grep -c sha256      -> 0
+$ ls /Users/alex/ab/richos/richos/engine/scripts/hooks/guard-dialect.sh.sha256   -> present
+```
+
+— so a worktree never has them and this probe **cannot** be green from one. Every layer that does not
+need a sidecar IS green: D (the write guard refuses a main-checkout write), E, F, G, H, I, J, L, M, N,
+Q6 (10/10 arms), Q7, EP.
+
+**What the re-run must re-arm, precisely — and it is less than it looks:**
+
+- **The `.sha256` sidecars** for the managed hook set. Required for the probe to be green; unrelated
+  to anything in this branch.
+- **Nothing for the new behavior.** Neither hook I changed (`session-start-scratch.sh`,
+  `notice-disk-alert.sh`) is in `install.sh`'s `HOOK_FILES` sidecar list, and both are already wired
+  in `hooks/hooks.json` (SessionStart ×2, Stop ×1) and in `.claude/settings.local.json`. No wiring
+  changes.
+- **The two launchd plists do NOT need re-installing for the new arms to take effect.** The plist
+  bakes in a PATH and the script's absolute path in the main checkout; the job `exec`s the script
+  fresh on every firing and the script sources `orchestration.config` at that moment. So the next
+  scheduled run after the merge picks up every new arm and every new declaration with no
+  `--install`. `install.sh` re-runs `--install` for both jobs anyway, which is harmless.
+- **`docker` is reachable from the plist's PATH** — checked: the plists declare
+  `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin` and `shutil.which('docker')` resolves
+  `/usr/local/bin/docker`. The container arm and the volume stage therefore work under launchd and not
+  only in a shell.
+
+---
+
+## 12. Open items — measured, not fixed, and each says why
+
+1. **`richos-alex`, 7.55 GB, 14 days untouched, in no ledger.** Bigger than Frank's second-largest
+   pile and NOT declared a campaign root, because its name suggests a personal checkout and nothing
+   establishes it is finished with. **One question for the CEO: is it?** Declaring it is a one-word
+   edit to `SCRATCH_CAMPAIGN_ROOTS`.
+2. **The two stale `codex-*` worktrees under `~/ab/richos-wt`** (0.20 GB, 0.18 GB) are REGISTERED git
+   worktrees; removing the directories without `git worktree remove` leaves stale administrative
+   entries. Worktree-reaper jurisdiction, and the class of mistake that retired
+   `com.richos.worktree-reconciler`.
+3. **D13's other half is still open.** `richos_garbage_bytes()` counts only the allocator root and the
+   claude roots, so the "RichOS garbage (DEFECT)" vs "other" classification still sees a fraction of
+   our own garbage — Frank measured 8.9 GB counted against ~27 GiB of RichOS-named garbage. Fixing it
+   properly means the sweeper publishing an "ours" figure the watchdog can read; half-fixing a
+   classifier is worse than leaving it measured. `/private/tmp` IS now in
+   `DISK_CONSUMER_CANDIDATES`, so the alert can at least name the pile.
+4. **D4, the app's 61 runtime `temp_dir()` sites, is untouched and is Echo's.** This pass did add a
+   measurement to it: `work-host-*` (85 direct children of `$TMPDIR`) comes from
+   `richos-core/src/work_host.rs`, and the only reason it is not garbage today is that it is younger
+   than the age floor. `TempDir` removes on `Drop` and `Drop` does not run on `SIGKILL`.
+5. **D15, `/Volumes/E1TB`,** is watched for free space (124 GB scaled floor) and swept by nothing,
+   including its own `tmp/`. Not in this brief; the floor means months of silence.
+6. **D17, the recursion guard's one copy path of seven,** is untouched — `ceo-todos.mutation.sh`
+   copies with its own `cp -R` outside `mutation_copy_engine`'s refusals. Frank ranks it low and it is
+   a mutation-harness concern rather than a garbage one.
+
+---
+
+## 13. The garbage I made, and it is gone
+
+Everything was built under this session's own scratchpad
+(`/private/tmp/claude-501/.../scratchpad/zach-g2`) with a sandbox `TMPDIR`, a sandbox
+`CLAUDE_CONFIG_DIR` and a sandbox config file. Verified after the final pass:
+
+```
+$ ls -1d $TMPDIR/scratch-reaper-test.*  $TMPDIR/disk-watchdog-test.* \
+         $TMPDIR/disk-alert-test.* $TMPDIR/zzz-* $TMPDIR/zforeign.*   -> 0 each
+$ ls -1 $TMPDIR/richos-scratch                                        -> 0
+$ ls -1d ~/ab/zcampaign-* ~/ab/zzz-a-real-project                     -> 0
+$ ls ~/.claude/state/scratch-failures.json                            -> No such file
+$ ls ~/.claude/state/app-instance-failures.json                       -> No such file
+$ git status --short                                                  -> clean
+```
+
+The ratchet-defeat fixture (`scripts/zzz-ratchet-proof.sh`) was removed and `git status` confirms it.
+The two `sleep infinity` containers, the 21 dangling volumes, the campaign roots under `~/ab` and the
+real `$TMPDIR` are all **exactly as they were** — `--apply` was never run against the real config from
+this worktree, and the real `scratch-reaper-state.json` still carries the pre-change schema written by
+the operator's own launchd job at `2026-09-18T11:32:00Z`, which is how I know.
+
+**Read-mostly discipline:** the real disk was read with `--json`, `--notice` and the plain plan, none
+of which deletes or writes state. Every `--apply` in this pass ran inside a sandbox with `TMPDIR`,
+`CLAUDE_CONFIG_DIR` and the config file redirected. No macOS notification was ever posted: the
+watchdog suite stubs `osascript` and records what it was asked to post.
+
+---
+
+## 14. Tests, in one place
+
+| suite | result |
+|---|---|
+| `scripts/scratch-reaper.test.sh` | **109 passed, 0 failed** |
+| `scripts/scratch-reaper.mutation.sh` | **all 46 properties proven load-bearing** |
+| `scripts/disk-watchdog.test.sh` | **40 passed, 0 failed** |
+| `scripts/scratch-allocation-lint.test.sh` | **17 passed, 0 failed** |
+| `scripts/lib/scratch.test.sh` | **14 passed, 0 failed** |
+| `scripts/lib/appinstances.test.sh` | **17 passed, 0 failed** |
+| `scripts/hooks/session-start-scratch.test.sh` | **9 passed, 0 failed** |
+| `scripts/hooks/notice-disk-alert.test.sh` | **14 passed, 0 failed** |
+
+220 cases and 46 mutants. **Every fix in this pass has a control**, because every one of them is a
+thing that must NOT happen, and every such case passes against a program that does nothing at all.
+
+### The five defects this pass found in its own work, and what caught each
+
+| defect | caught by |
+|---|---|
+| config keys declared and never exported — the whole arm silently off | a full-disk pass finishing in 1.3 s |
+| `lstart_epoch` one hour early in DST, in the primitive two arms rest on | S21o, a case asserting WHICH REASON a KEEP carried |
+| the banner re-deriving the expensive arm, printing a line that is always true | reading the banner's own output |
+| a sub-second gap making any fall read as 496,862 GB/hour | W4b's control failing |
+| two resolvers for "where is docker" disagreeing | S26 failing against a stub one arm ignored |
+| a reused LEDGER pid immortal, with a comment claiming TTL covered it | mutant M37 scoring green |
+| one lsof timeout becoming ~40,000 undecidable entries | the operator's own launchd log |
+
+**Not one of those was found by re-reading the code.** Six of the seven were found by a test or a
+mutant disagreeing with me, and the seventh by a log file answering a question I had not asked.
