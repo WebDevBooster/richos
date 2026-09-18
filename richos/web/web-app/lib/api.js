@@ -42,6 +42,19 @@
 	const REFUSED = 'refused';
 	const FAULT = 'fault';
 
+	/// WHERE THE PHONE KNOCKS TO GET A CHALLENGE IT CAN SIGN. Read `refreshChallenge` below for why
+	/// this exists at all; what matters about the PATH is three things:
+	///
+	///   1. It is under `/api/`, so `sw.js` refuses to touch it (`sw.js` line 83 returns without
+	///      responding for every `/api/` request). A probe the service worker could answer from its
+	///      shell cache would hand back a response with no challenge header and no Mac behind it.
+	///   2. Today's Mac has no such route, so it falls through to the static table, misses, and
+	///      answers 404 — WITH a fresh challenge, because every answer on that port carries one
+	///      (`app/src-tauri/src/phone/listen.rs:334-342`, and its test at `listen.rs:557` pins the
+	///      404 case by name). The status is deliberately not read here.
+	///   3. A later Mac can answer it 200 with an empty body and this file does not change.
+	const CHALLENGE_PROBE = '/api/challenge';
+
 	class ApiError extends Error {
 		constructor(reason, message, status, aboutThisMessage) {
 			super(message);
@@ -257,7 +270,51 @@
 				return json('POST', path, bytes, 'audio/wav');
 			},
 
-			// ---- (b) the stream, and the backfill behind infinite scroll ------------------------
+			// ---- (b) the stream, the way back to a signable challenge, and the backfill ---------
+
+			/// THE ONE WAY BACK FROM A CHALLENGE THAT AGED OUT, and without it a re-signed stream
+			/// URL is a signature over something the Mac has already forgotten.
+			///
+			/// The arithmetic, re-derived rather than quoted: a challenge is live for
+			/// `CHALLENGE_LIFETIME_MS` (`app/src-tauri/src/phone/device.rs:62`) = 600,000 ms =
+			/// 600 s = **10 minutes** from the moment the Mac issued it, and `device.rs:418-424`
+			/// refuses anything older. The phone is the side that goes away — asleep, on cellular,
+			/// out of range — so an outage longer than ten minutes is the ordinary case, not the
+			/// edge, and at the end of one the challenge this phone is holding is dead.
+			///
+			/// Every ordinary response would hand it a live one: `request` above reads
+			/// `X-RichOS-Challenge` off EVERY answer, including the refusals. **An `EventSource`
+			/// cannot read a response header.** So the one channel that the reconnect actually
+			/// depends on is the one channel that can never learn it has gone stale, and a phone
+			/// with nothing queued — nothing to POST, nothing to refresh it — never gets back in.
+			///
+			/// This is a plain `fetch`, whose headers this app CAN read, and it is deliberately
+			/// UNAUTHENTICATED. Signing it would mean signing the expired challenge to ask for a
+			/// live one, which is the circle this exists to break; and the challenge is public by
+			/// construction anyway — the Mac hands one to anything on the network that knocks
+			/// (`listen.rs:336`). **The status is never read.** A 404 that carries the header is
+			/// the documented contract, not a failure.
+			async refreshChallenge() {
+				if (!fetchImpl) throw new ApiError(FAULT, 'this browser has no fetch');
+				let response;
+				try {
+					response = await fetchImpl(joinBase(state.apiBase, CHALLENGE_PROBE), {
+						method: 'GET', mode: 'cors', cache: 'no-store'
+					});
+				} catch (err) {
+					// Same branch, same meaning as every other request: the Mac was not reached.
+					throw new ApiError(UNREACHABLE, String((err && err.message) || err));
+				}
+				const next = response.headers && response.headers.get
+					? response.headers.get('X-RichOS-Challenge')
+					: null;
+				// A Mac that answered without one is not a Mac this phone can sign for. Say so
+				// rather than carrying on with the dead challenge and blaming the signature.
+				if (!next) throw new ApiError(FAULT, 'your Mac answered without a challenge');
+				setChallenge(next);
+				return next;
+			},
+
 			async backfill(threadId, beforeCursor, limit) {
 				return json('GET', '/api/events' + query({
 					thread_id: threadId, before: beforeCursor, limit: limit || 40
@@ -296,8 +353,17 @@
 				};
 				['hello', 'message', 'delta', 'state', 'heartbeat'].forEach(wire);
 				source.onopen = () => { if (handlers.open) handlers.open(); };
-				// An `EventSource` reconnects by itself, so this is a report rather than a command to
-				// reconnect. Two reconnect loops fighting each other is a phone that hammers a Mac.
+				// STILL A REPORT AND NEVER A RECONNECT, and the reason has changed.
+				//
+				// It used to be "an `EventSource` reconnects by itself, so leave it to the browser".
+				// It does, and that is now the defect rather than the feature: the browser reopens
+				// the URL IT WAS GIVEN, and this URL carries a signature over a challenge that is
+				// dead ten minutes later. So the browser's loop reconnects forever to a Mac that
+				// refuses it, and never learns why, because an `EventSource` cannot read a header.
+				//
+				// The owner above this file (`lib/link.js`) answers this by CLOSING the source,
+				// which is what stops the browser's own retry, and opening a newly signed one under
+				// backoff. Exactly one loop, and it is not this one.
 				source.onerror = () => { if (handlers.error) handlers.error(); };
 				return source;
 			},

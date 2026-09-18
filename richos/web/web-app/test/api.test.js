@@ -384,3 +384,57 @@ test('the capabilities and the build from `hello` are held on the api state, whe
 	source.deliver('hello', { challenge: 'challenge-three' });
 	assert.strictEqual(api.offers('voice'), false);
 });
+
+// ---------------------------------------------------------------------------------------------
+// THE WAY BACK FROM A CHALLENGE THAT AGED OUT
+//
+// A challenge is live for ten minutes (`app/src-tauri/src/phone/device.rs:62` —
+// CHALLENGE_LIFETIME_MS = 600_000 ms = 600 s), the phone is the side that goes away, and an
+// `EventSource` cannot read the header that would have handed it a live one. So the stream is the
+// one channel that can never learn its own credential is dead. These four tests pin the plain
+// `fetch` that breaks that circle.
+// ---------------------------------------------------------------------------------------------
+
+test('refreshing the challenge reads the header off an ORDINARY response, which is the one thing a stream cannot do', async () => {
+	const { api, calls, state } = makeApi(() => response(404, 'Not Found', { 'X-RichOS-Challenge': 'challenge-live' }));
+	const next = await api.refreshChallenge();
+
+	assert.strictEqual(next, 'challenge-live');
+	assert.strictEqual(state.challenge, 'challenge-live', 'the fresh challenge was read but not kept');
+	// THE STATUS IS NEVER READ. Today's Mac has no such route and answers 404 with the header
+	// attached, which `listen.rs:334-342` documents as the contract rather than a failure.
+	assert.strictEqual(new URL(calls[0].url).pathname, '/api/challenge');
+	assert.strictEqual(calls[0].init.method, 'GET');
+});
+
+test('the probe is under /api/, because the service worker refuses to touch /api/ and would otherwise answer it from a cache with no Mac behind it', async () => {
+	const { api, calls } = makeApi(() => response(200, '', { 'X-RichOS-Challenge': 'challenge-live' }));
+	await api.refreshChallenge();
+	const url = new URL(calls[0].url);
+	assert.ok(url.pathname.startsWith('/api/'), `the probe would be cached by sw.js: ${url.pathname}`);
+	assert.strictEqual(calls[0].init.cache, 'no-store');
+});
+
+test('the probe is UNSIGNED — signing the expired challenge to ask for a live one is the circle this breaks', async () => {
+	const { api, calls, signer } = makeApi(() => response(404, '', { 'X-RichOS-Challenge': 'challenge-live' }));
+	await api.refreshChallenge();
+	assert.strictEqual(calls[0].init.headers, undefined, 'the probe carried a credential');
+	assert.deepStrictEqual(signer.signed, [], 'the probe asked the signer to sign the dead challenge');
+});
+
+test('a Mac that cannot be reached is UNREACHABLE, and one that answers without a challenge is a FAULT — never silently the old challenge again', async () => {
+	const away = makeApi(() => { throw new TypeError('Load failed'); });
+	await assert.rejects(() => away.api.refreshChallenge(), (err) => {
+		assert.strictEqual(err.reason, UNREACHABLE);
+		assert.strictEqual(err.retryable, true);
+		return true;
+	});
+	assert.strictEqual(away.state.challenge, 'challenge-one', 'an outage changed the stored challenge');
+
+	const mute = makeApi(() => response(200, ''));
+	await assert.rejects(() => mute.api.refreshChallenge(), (err) => {
+		assert.strictEqual(err.reason, FAULT);
+		return true;
+	});
+	assert.strictEqual(mute.state.challenge, 'challenge-one');
+});
