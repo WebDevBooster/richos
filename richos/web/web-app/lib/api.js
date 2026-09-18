@@ -55,6 +55,19 @@
 	///   3. A later Mac can answer it 200 with an empty body and this file does not change.
 	const CHALLENGE_PROBE = '/api/challenge';
 
+	/// The rules for the values that arrive from outside (`lib/inbound.js`). Resolved lazily so
+	/// script order cannot matter: the page has it as a global long before a `hello` arrives, the
+	/// service worker `importScripts`es it, and Node resolves it from disk on first use.
+	let INBOUND = null;
+	function inbound() {
+		if (INBOUND) return INBOUND;
+		const here = typeof globalThis !== 'undefined' ? globalThis : null;
+		if (here && here.RichOSInbound) INBOUND = here.RichOSInbound;
+		else if (typeof require === 'function') INBOUND = require('./inbound.js');
+		else throw new Error('lib/inbound.js is not loaded, so nothing can validate what the Mac sends');
+		return INBOUND;
+	}
+
 	class ApiError extends Error {
 		constructor(reason, message, status, aboutThisMessage) {
 			super(message);
@@ -115,6 +128,12 @@
 		const state = opts.state;              // { apiBase, challenge, deviceId }
 		const signer = opts.signer || null;
 		const onState = opts.onState || function () {};
+		// THE PAGE'S OWN ORIGIN — the app's identity, which never changes, as opposed to
+		// `state.apiBase`, which is data and does. It is what every advertised `api_base` is
+		// measured against until the Mac's listener speaks CORS (plan §2 C). The browser has it on
+		// `location`; a test has no page and passes one in. Unknown is a REFUSAL of every
+		// advertised base and never a pass — see `inbound.validateApiBase`.
+		const origin = typeof opts.origin === 'string' && opts.origin ? opts.origin : inbound().pageOrigin();
 
 		if (!state) throw new Error('createApi needs a state object');
 
@@ -125,11 +144,43 @@
 			}
 		}
 
+		/// THE ONE DOOR THE ADVERTISED ADDRESS COMES THROUGH, and it is now a checked one.
+		///
+		/// Two of the three places `api_base` is set are here — the stream's `hello` and the pair
+		/// response — and the third is the service worker's push handler, which calls the same
+		/// `inbound.validateApiBase`. It used to take any string at all and store it; every later
+		/// request is `base + path` (`joinBase`), so that was "point this phone's whole
+		/// conversation, its send queue and its signed credential wherever this frame says".
+		///
+		/// A frame that says nothing about the address is not a refusal — the stub Mac and every
+		/// build before the address desk existed send `api_base: null`, and silence means "carry
+		/// on with what you have". A frame that names an address this app cannot use IS a refusal,
+		/// and it leaves a reason on the state rather than a phone that quietly stopped moving.
 		function setApiBase(next) {
-			if (next && next !== state.apiBase) {
-				state.apiBase = next;
+			if (next === undefined || next === null || next === '') return;
+			const checked = inbound().validateApiBase(next, origin);
+			if (!checked.ok) {
+				state.apiBaseRefusal = {
+					value: String(next).slice(0, 200),
+					reason: checked.reason,
+					at: new Date().toISOString()
+				};
 				onState(state);
+				return;
 			}
+			// A refusal that has been superseded is a stale claim, so it does not outlive the
+			// address that replaced it — and clearing it is itself a change worth persisting,
+			// which is why `changed` exists rather than a second `onState` call.
+			let changed = false;
+			if (state.apiBaseRefusal) {
+				state.apiBaseRefusal = null;
+				changed = true;
+			}
+			if (checked.value !== state.apiBase) {
+				state.apiBase = checked.value;
+				changed = true;
+			}
+			if (changed) onState(state);
 		}
 
 		/// REPLACED on every `hello`, never merged. A capability that was true once is not evidence
@@ -148,9 +199,23 @@
 			return `RichOS-Device ${state.deviceId}.${state.challenge}.${signature}`;
 		}
 
-		async function request(method, pathWithQuery, body, contentType) {
+		/// `options.credential` says WHERE THIS ROUTE READS THE CREDENTIAL, and it is not a style
+		/// choice — it is a property of the route on the Mac.
+		///
+		///   `'header'` (the default) — `POST /api/messages` (`routes.rs:304`),
+		///     `GET /api/audio/…` (`:504`), `POST /api/pair` as the device record (`:210`). Each of
+		///     those reads `request.authorization` and nothing else.
+		///   `'query'` — `GET /api/events` (`:403-411`), which reads
+		///     `query_value(&request.query, "auth")` and nothing else. `grep -n
+		///     'request.authorization' routes.rs` returns `:210`, `:304`, `:504` and NOTHING inside
+		///     `events()`, so a header on that route is not a fallback, it is invisible.
+		///
+		/// Either way the signature covers the path WITHOUT the credential, because the Mac strips
+		/// `auth` before it verifies (`routes.rs:572-586` `signed_path`).
+		async function request(method, pathWithQuery, body, contentType, options) {
 			if (!fetchImpl) throw new ApiError(FAULT, 'this browser has no fetch');
-			const url = joinBase(state.apiBase, pathWithQuery);
+			const inQuery = !!(options && options.credential === 'query');
+			let url = joinBase(state.apiBase, pathWithQuery);
 			const headers = {};
 			let payload;
 			if (body !== undefined && body !== null) {
@@ -161,7 +226,15 @@
 			}
 			const bodyHash = payload === undefined ? '' : await signer.sha256Hex(payload);
 			const auth = await authorization(method, pathWithQuery, bodyHash);
-			if (auth) headers.Authorization = auth;
+			if (auth && inQuery) {
+				// The separator is derived rather than assumed, for the same reason `openEvents`
+				// derives it: a path that ever lost its query string would otherwise produce
+				// `…/api/events&auth=`, which the Mac refuses for a reason nobody would find
+				// quickly. Appended LAST, so `signed_path`'s filter leaves the rest in order.
+				url += `${url.includes('?') ? '&' : '?'}auth=${encodeURIComponent(auth)}`;
+			} else if (auth) {
+				headers.Authorization = auth;
+			}
 
 			let response;
 			try {
@@ -203,8 +276,8 @@
 			return response;
 		}
 
-		async function json(method, pathWithQuery, body, contentType) {
-			const response = await request(method, pathWithQuery, body, contentType);
+		async function json(method, pathWithQuery, body, contentType, options) {
+			const response = await request(method, pathWithQuery, body, contentType, options);
 			const text = await response.text();
 			if (!text) return {};
 			try {
@@ -315,10 +388,21 @@
 				return next;
 			},
 
+			/// "LOAD OLDER MESSAGES", AND ITS CREDENTIAL GOES IN THE QUERY.
+			///
+			/// This is the same route as the stream — `GET /api/events` — and `routes.rs`
+			/// `events()` reads the credential ONCE, at `:405`, BEFORE it looks at `before=` and
+			/// decides whether the answer is a stream or a page of JSON. One route, one contract.
+			///
+			/// It used to go through `request()` with the credential in the `Authorization`
+			/// header, which `events()` never reads, so every scroll into the past on a real Mac
+			/// was a flat 404. It was invisible because the harness Mac accepted either place; the
+			/// harness is now strict per route (`test/stub-mac.js` `authenticate`), which is what
+			/// stops this returning. The stream was always right, and this is the side that moved.
 			async backfill(threadId, beforeCursor, limit) {
 				return json('GET', '/api/events' + query({
 					thread_id: threadId, before: beforeCursor, limit: limit || 40
-				}));
+				}), undefined, undefined, { credential: 'query' });
 			},
 
 			/// The live stream. `EventSource` cannot carry a header, so the stream — and only the

@@ -56,13 +56,17 @@ function response(status, body, headers) {
 	return make();
 }
 
-function makeApi(handler, initial, eventSourceImpl) {
+function makeApi(handler, initial, eventSourceImpl, origin) {
 	const calls = [];
 	const signer = makeSigner('device-1');
 	const state = Object.assign({ apiBase: 'https://mm1.local:8443', challenge: 'challenge-one', deviceId: 'device-1' }, initial || {});
 	const api = createApi({
 		state,
 		signer,
+		// THE PAGE THIS PHONE WAS INSTALLED FROM. Node has no `location`, and an origin that
+		// cannot be determined refuses every advertised `api_base` (plan §2 C) — so a test that
+		// leaves it out is not testing the module the browser runs.
+		origin: origin || 'https://mm1.local:8443',
 		fetchImpl: async (url, init) => {
 			calls.push({ url, init });
 			return handler(url, init, calls.length);
@@ -135,14 +139,72 @@ test('a voice note goes as bytes, with the codec and the rate named in the query
 	assert.strictEqual(calls[0].init.body, bytes, 'the WAV was re-encoded instead of being sent as bytes');
 });
 
-test('the API base is DATA: changing it changes where the next request goes, and the origin is untouched', async () => {
-	const { api, calls } = makeApi(() => response(200, { message_id: 'm', cursor: 1 }));
+test('the API base is DATA: it is read at every request rather than baked in when the api was made', async () => {
+	// PLAN §10.7, UNCHANGED BY THE VALIDATION BELOW. The seam is that `joinBase` reads
+	// `state.apiBase` on the way into every single request — so the address this phone uses is a
+	// value that can move, and the origin the app was installed from never does. That is asserted
+	// here on the state itself, which is the seam; what may legally WRITE to that state is the
+	// separate question the next two tests answer.
+	const { api, calls, state } = makeApi(() => response(200, { message_id: 'm', cursor: 1 }));
 	await api.sendText({ clientId: 'c-3', threadId: 't-1', text: 'at home', sentAt: 'now' });
 	assert.ok(calls[0].url.startsWith('https://mm1.local:8443/'), calls[0].url);
 
-	api.setApiBase('https://198.51.100.7:8443');
+	state.apiBase = 'https://198.51.100.7:8443';
 	await api.sendText({ clientId: 'c-4', threadId: 't-1', text: 'from away', sentAt: 'now' });
 	assert.ok(calls[1].url.startsWith('https://198.51.100.7:8443/'), calls[1].url);
+});
+
+test('an advertised base on ANOTHER origin is refused, with a reason, and the phone keeps the one that works', async () => {
+	// Plan §2 C, and it is explicitly "until CORS exists": the Mac's listener sends no CORS
+	// headers today, so a base on another origin makes every later request a fetch the browser
+	// blocks — the phone would report "your Mac is not reachable" forever and no part of it would
+	// know why. Refusing it here, with the reason written down, is the same outcome said honestly.
+	const { api, state } = makeApi(() => response(200, {}));
+	api.setApiBase('https://198.51.100.7:8443');
+	assert.strictEqual(state.apiBase, 'https://mm1.local:8443', 'a cross-origin base was stored');
+	assert.strictEqual(state.apiBaseRefusal.reason, 'a different origin from the app');
+	assert.strictEqual(state.apiBaseRefusal.value, 'https://198.51.100.7:8443');
+	assert.ok(state.apiBaseRefusal.at, 'the refusal was recorded without a time');
+});
+
+// THE POSITIVE CONTROL for the test above: the door is checked, not welded shut.
+test('a same-origin base the Mac advertises IS stored, and it clears an earlier refusal', async () => {
+	const written = [];
+	const state = { apiBase: 'https://mm1.local:8443/', challenge: 'c', deviceId: 'd' };
+	const api = createApi({
+		state,
+		origin: 'https://mm1.local:8443',
+		signer: { deviceId: 'd', async sign() { return 's'; }, async sha256Hex() { return '0'.repeat(64); } },
+		onState: (s) => written.push({ base: s.apiBase, refusal: s.apiBaseRefusal })
+	});
+
+	api.setApiBase('https://elsewhere.example');
+	assert.strictEqual(state.apiBaseRefusal.reason, 'a different origin from the app');
+
+	api.setApiBase('https://mm1.local:8443/');
+	// Normalized to the bare origin, so one Mac has one spelling.
+	assert.strictEqual(state.apiBase, 'https://mm1.local:8443');
+	assert.strictEqual(state.apiBaseRefusal, null, 'a superseded refusal outlived the address that replaced it');
+	assert.strictEqual(written.length, 2, 'the screen was not told about one of the two changes');
+});
+
+test('the `hello` frame goes through the same door as everything else', async () => {
+	// The three places `api_base` is set are the stream's `hello`, the pair response and the
+	// service worker's push handler. Two of them are this module and both call `setApiBase`, so
+	// there is one rule rather than three — which is the whole reason the rule is its own module.
+	const Stub = makeEventSource();
+	const { api, state } = makeApi(() => response(200, {}), null, Stub);
+	await api.openEvents('t-1', 0, {});
+	Stub.made[0].deliver('hello', { challenge: 'from-hello', api_base: 'https://evil.example', capabilities: ['text'] });
+	assert.strictEqual(state.challenge, 'from-hello', 'the challenge did not come through');
+	assert.strictEqual(state.apiBase, 'https://mm1.local:8443', 'a `hello` moved this phone to another origin');
+	assert.strictEqual(state.apiBaseRefusal.reason, 'a different origin from the app');
+
+	// THE POSITIVE CONTROL, on the same channel: a `hello` naming the app's own origin is taken,
+	// and the refusal it replaces does not survive it.
+	Stub.made[0].deliver('hello', { challenge: 'from-hello-2', api_base: 'https://mm1.local:8443' });
+	assert.strictEqual(state.apiBase, 'https://mm1.local:8443');
+	assert.strictEqual(state.apiBaseRefusal, null);
 });
 
 test('a fresh challenge in a response header is picked up for the next request', async () => {
@@ -222,7 +284,7 @@ test('pairing stores the device and the first challenge, and needs no signature 
 });
 
 test('backfill asks for what is BEFORE a cursor — chunked loading behind a scroll, never a page number', async () => {
-	const { api, calls } = makeApi(() => response(200, { messages: [], more: false }));
+	const { api, calls, signer } = makeApi(() => response(200, { messages: [], more: false }));
 	await api.backfill('t-1', 42, 25);
 	const url = new URL(calls[0].url);
 	assert.strictEqual(url.pathname, '/api/events');
@@ -230,6 +292,15 @@ test('backfill asks for what is BEFORE a cursor — chunked loading behind a scr
 	assert.strictEqual(url.searchParams.get('limit'), '25');
 	assert.strictEqual(url.searchParams.get('page'), null, 'a page number reached the wire');
 	assert.strictEqual(url.searchParams.get('offset'), null, 'an offset reached the wire');
+
+	// AND THE CREDENTIAL IS IN THE QUERY, because `routes.rs` `events()` reads it there and
+	// nowhere else (`:405`), for the backfill exactly as for the stream. A header here is a flat
+	// 404 on his Mac and was invisible for as long as the harness accepted either place.
+	assert.ok(url.searchParams.get('auth').startsWith('RichOS-Device device-1.'), calls[0].url);
+	assert.strictEqual(calls[0].init.headers.Authorization, undefined, 'the credential also went in a header the Mac never reads');
+	// Signed over the path WITHOUT the credential, which is what `signed_path` verifies against.
+	const signed = signer.signed[signer.signed.length - 1].split('\n')[2];
+	assert.strictEqual(signed, '/api/events?thread_id=t-1&before=42&limit=25', signed);
 });
 
 test('audio is fetched with the credential, by an id the Mac minted', async () => {
