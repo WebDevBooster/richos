@@ -85,6 +85,19 @@
 #        (S20c). §54 addendum 4 — the instance IS the garbage, and it pins the
 #        rest. Any other holder, or a mixed set, still means KEEP (that is S19).
 #
+#   S21  DENY-BY-DEFAULT OVER $TMPDIR AND THE SHARED TEMP ROOTS. Frank's D1/D2,
+#        and they were the absence of a check rather than the defeat of one: a
+#        name matching neither declared pattern list was not kept and not
+#        deleted, it was never looked at — 56,770 of 60,942 entries. An
+#        undeclared name is now swept (S21/S21a) and the CONTROL that matters is
+#        S21b/S21c: with the switch declared off the same tree survives and is
+#        not even mentioned, which is the old behavior exactly. The keep-list of
+#        FOREIGN owners is kept and counted (S21d/S21f) against a non-foreign
+#        sibling deleted in the same run (S21e). The PROOF is the process table
+#        and not the age (S21g/S21h). A declared shared root is swept too
+#        (S21i, which is /private/tmp). Wall 3 stands over the new arm
+#        (S21j/S21k) and so does the open-file wall (S21l/S21m).
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -1146,6 +1159,259 @@ else
     ok "S20  SKIPPED — lsof or cc is not on this host"
     ok "S20b SKIPPED — lsof or cc is not on this host"
     ok "S20c SKIPPED — lsof or cc is not on this host"
+fi
+
+# ===========================================================================
+# S21 — DENY-BY-DEFAULT OVER $TMPDIR AND THE SHARED TEMP ROOTS
+# ===========================================================================
+# Frank's D1 and D2, and they were not defeats of a check — they were the
+# absence of one. `scan_tmp` skipped past any name matching neither declared
+# pattern list, so 56,770 of 60,942 entries under $TMPDIR (1.95 GB, measured on
+# this machine 2026-09-18) were not kept and not deleted: they were never looked
+# at, and no number in the verdict line could be used to notice them.
+# /private/tmp outside the two claude roots was read by no arm at all.
+#
+# EVERY CASE BELOW HAS ITS CONTROL, because every one of them also passes
+# against an arm that simply deletes nothing.
+deny_world() {              # <name> — a world with the deny-by-default arm ON
+    world "$1"
+    mkdir -p "$W_ROOT/shared"
+    {
+        echo 'SCRATCH_TMP_DENY_BY_DEFAULT="1"'
+        echo "SCRATCH_SHARED_TMP_ROOTS=\"$W_ROOT/shared\""
+        # A foreign family NOTHING ELSE IN THIS SUITE USES.
+        echo 'SCRATCH_FOREIGN_PATTERNS="zforeign.*"'
+        echo 'SCRATCH_UNKNOWN_AGE_HOURS="1"'
+        echo 'SCRATCH_UNKNOWN_GIT_IS_FIXTURE="0"'
+    } >>"$W_CFG"
+}
+
+# backdate <dir> — every mtime in the tree, THE DIRECTORY ITSELF INCLUDED, set
+# two days back.
+#
+# THE DIRECTORY ITSELF IS THE WHOLE POINT, and two cases in this block failed for
+# want of it before it was a function. Creating a file inside a directory updates
+# THAT DIRECTORY's mtime, so a fixture built as "backdate the tree, then add a
+# lock file" leaves the candidate itself stamped now — and the arm correctly
+# kept it, saying a running session might own it. The suite was wrong and the
+# reaper was right, which is the only way round that is any use.
+backdate() {
+    find "$1" -exec touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null \
+        || date -d '2 days ago' +%Y%m%d%H%M)" {} + 2>/dev/null || true
+}
+
+# stale <dir> — a two-day-old tree with a payload in it.
+stale() {
+    mkdir -p "$1"
+    printf 'payload\n' >"$1/payload.txt"
+    backdate "$1"
+}
+
+deny_world denyname
+start_claude; PID_D1="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D1" "$SID_LIVE"
+stale "$W_TMP/zzz-nobody-declares-this"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/zzz-nobody-declares-this" ]; then
+    ok "S21  a \$TMPDIR name NO declared pattern matches is swept (D1)"
+else
+    bad "S21  an undeclared name was skipped, exactly as it was before (D1)"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+case "$OUT" in
+    *"no arm declares this name"*)
+        ok "S21a the reason says it was decided, not merely matched" ;;
+    *) bad "S21a deleted, but not by the deny-by-default arm"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# THE CONTROL THAT MATTERS MOST: with the switch declared OFF, the identical
+# fixture is not deleted AND NOT EVEN MENTIONED. That is the old behavior, and it
+# is what proves S21 is the switch doing the work rather than some other arm.
+world denyoff
+start_claude; PID_D2="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D2" "$SID_LIVE"
+stale "$W_TMP/zzz-nobody-declares-this"
+run --apply >/dev/null 2>&1
+OUT="$(run --dry-run --verbose)"
+if [ -d "$W_TMP/zzz-nobody-declares-this" ]; then
+    ok "S21b CONTROL: with SCRATCH_TMP_DENY_BY_DEFAULT unset the same tree survives"
+else
+    bad "S21b the tree went with the switch off — S21 proves nothing about the switch"
+fi
+case "$OUT" in
+    *zzz-nobody-declares-this*)
+        bad "S21c with the switch off the entry was still considered" ;;
+    *)  ok "S21c and with the switch off it is not even MENTIONED — which is D1" ;;
+esac
+
+# --- the keep-list -----------------------------------------------------------
+deny_world denyforeign
+start_claude; PID_D3="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D3" "$SID_LIVE"
+stale "$W_TMP/zforeign.someone-elses-app"
+stale "$W_TMP/zzz-ours"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zforeign.someone-elses-app" ]; then
+    ok "S21d a declared FOREIGN owner is kept, never deleted by us"
+else
+    bad "S21d another program's temp directory was deleted"
+    printf '%s\n' "$OUT" | sed 's/^/        /' ;
+fi
+if [ ! -d "$W_TMP/zzz-ours" ]; then
+    ok "S21e CONTROL: the identical non-foreign sibling in the same run IS deleted"
+else
+    bad "S21e nothing was deleted in that run, so S21d proves nothing"
+fi
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"declared FOREIGN owner"*)
+        ok "S21f the foreign entry is COUNTED and named, not silently skipped" ;;
+    *) bad "S21f a foreign entry vanished from the report — that is D1 again"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- the proof is the session table, not the age -----------------------------
+deny_world denyfresh
+start_claude; PID_D4="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D4" "$SID_LIVE"
+mkdir -p "$W_TMP/zzz-written-just-now"
+echo payload >"$W_TMP/zzz-written-just-now/payload.txt"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zzz-written-just-now" ]; then
+    ok "S21g a tree touched AFTER a running session started is kept"
+else
+    bad "S21g a tree a running session may own was deleted"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"touched after the earliest running session process started"*)
+        ok "S21h the reason is the PROOF (the process table), not the mtime" ;;
+    *) bad "S21h kept, but not for the session-table reason"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- the shared root (D2) ----------------------------------------------------
+deny_world denyshared
+start_claude; PID_D5="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D5" "$SID_LIVE"
+stale "$W_ROOT/shared/zzz-in-the-shared-root"
+OUT="$(run --apply)"
+if [ ! -d "$W_ROOT/shared/zzz-in-the-shared-root" ]; then
+    ok "S21i a DECLARED SHARED temp root is swept too (D2 — /private/tmp)"
+else
+    bad "S21i the shared root was not swept; D2 is still open"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+
+# --- the walls still stand over the new arm ----------------------------------
+deny_world denywall3
+start_claude; PID_D6="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D6" "$SID_LIVE"
+stale "$W_TMP/zzz-holds-a-workspace/workspace"
+mkdir -p "$W_HOME/state/workspaces/agents"
+python3 - "$W_HOME/state/workspaces/agents/d.json" \
+          "$W_TMP/zzz-holds-a-workspace/workspace" <<'PY'
+import json, sys
+path, wt = sys.argv[1:3]
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump({"name": "someone", "worktree": wt, "workspaces": [wt]}, fh)
+PY
+# The CANDIDATE is the parent, and `mkdir -p .../workspace` stamped it now.
+backdate "$W_TMP/zzz-holds-a-workspace"
+OUT="$(run --apply)"; RC=$?
+if [ -d "$W_TMP/zzz-holds-a-workspace/workspace" ]; then
+    ok "S21j wall 3 stands over the new arm — a REGISTERED workspace survives"
+else
+    bad "S21j the new arm deleted a registered workspace"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+case "$OUT" in
+    *"REGISTERED workspace"*) ok "S21k and the refusal NAMES the registration" ;;
+    *) bad "S21k kept without saying why"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- the open-file wall, which is D5 one arm across --------------------------
+if command -v lsof >/dev/null 2>&1; then
+    deny_world denyheld
+    start_claude; PID_D7="$LAST_CLAUDE"
+    register "$W_SESSIONS" "$PID_D7" "$SID_LIVE"
+    stale "$W_TMP/zzz-somebody-is-reading"
+    : >"$W_TMP/zzz-somebody-is-reading/held.lock"
+    # AFTER the lock file exists, not before: creating it stamped the directory.
+    backdate "$W_TMP/zzz-somebody-is-reading"
+    tail -f "$W_TMP/zzz-somebody-is-reading/held.lock" >/dev/null 2>&1 &
+    UHELD_PID=$!
+    KILL_LIST="$KILL_LIST $UHELD_PID"
+    sleep 1
+    OUT="$(run --apply)"
+    if [ -d "$W_TMP/zzz-somebody-is-reading" ]; then
+        ok "S21l an undeclared tree a LIVE process is reading is kept"
+    else
+        bad "S21l the new arm deleted a tree from under a live process"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+    kill "$UHELD_PID" >/dev/null 2>&1 || true
+    wait "$UHELD_PID" 2>/dev/null || true
+    OUT="$(run --apply)"
+    if [ ! -d "$W_TMP/zzz-somebody-is-reading" ]; then
+        ok "S21m CONTROL: with the holder gone the same tree IS deleted"
+    else
+        bad "S21m CONTROL FAILED: kept whether held or not, so S21l proves nothing"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+else
+    ok "S21l SKIPPED — lsof is not on this host"
+    ok "S21m SKIPPED — lsof is not on this host"
+fi
+
+# --- the declared age floor, which is the SECOND condition -------------------
+# The session-table proof is the first one, and on its own it would delete a
+# directory written five minutes before the only running session started. The
+# declared floor is what stops that, and nothing else in this block exercises it:
+# every case above is either fresh (caught by the proof) or two days old (past
+# both). So this case has to make the process table say yes and the floor say no.
+#
+# EVERY SUITE PROCESS IS KILLED FIRST so the ONLY running session on the machine
+# is the one this case starts — otherwise "the earliest running session" is some
+# process an earlier case started minutes ago and the construction is a race
+# rather than a test. It runs last in this block for that reason.
+for p in $KILL_LIST; do
+    kill "$p" >/dev/null 2>&1 || true
+    wait "$p" >/dev/null 2>&1 || true
+done
+KILL_LIST=""
+deny_world denyfloor
+mkdir -p "$W_TMP/zzz-recent-but-orphaned"
+echo payload >"$W_TMP/zzz-recent-but-orphaned/payload.txt"
+find "$W_TMP/zzz-recent-but-orphaned" -exec touch -t \
+    "$(date -v-5M +%Y%m%d%H%M 2>/dev/null || date -d '5 minutes ago' +%Y%m%d%H%M)" \
+    {} + 2>/dev/null || true
+start_claude; PID_D8="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D8" "$SID_LIVE"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zzz-recent-but-orphaned" ]; then
+    ok "S21n nothing running can own it, but the declared floor still keeps it"
+else
+    bad "S21n the age floor was not applied — the proof alone deleted it"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
+fi
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"floor for an undeclared temp family"*)
+        ok "S21o and the reason is the floor, not the process table" ;;
+    *) bad "S21o kept, but not by the floor"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+backdate "$W_TMP/zzz-recent-but-orphaned"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/zzz-recent-but-orphaned" ]; then
+    ok "S21p CONTROL: the same tree past the floor IS deleted"
+else
+    bad "S21p CONTROL FAILED: kept at any age, so S21n proves nothing"
+    printf '%s\n' "$OUT" | sed 's/^/        /'
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

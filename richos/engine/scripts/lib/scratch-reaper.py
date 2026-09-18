@@ -89,6 +89,7 @@ WHAT IT WILL NOT DELETE, MEASURED RATHER THAN PROMISED (2026-09-17)
 """
 
 import argparse
+import calendar
 import fnmatch
 import glob
 import importlib.util
@@ -225,10 +226,39 @@ def claude_processes():
 
 
 def lstart_epoch(text):
-    """`ps -o lstart=` under TZ=UTC0 -> epoch seconds, or None."""
+    """`ps -o lstart=` under TZ=UTC0 -> epoch seconds, or None.
+
+    calendar.timegm, NOT time.mktime MINUS AN OFFSET, AND THE DIFFERENCE IS AN
+    HOUR OF WRONG ANSWERS FOR HALF THE YEAR.
+
+    The old form was `mktime(strptime(text)) - time.timezone`. mktime interprets
+    the struct as LOCAL time, and `time.timezone` is the zone's STANDARD offset —
+    it does not move for daylight saving. So in any zone observing DST, in the
+    months it is observed, this returned a start time one hour EARLY. Measured on
+    this machine, 2026-09-18, on a process started at that instant:
+
+        timezone 0   altzone -3600   daylight 1   tm_isdst 1
+        ps lstart (TZ=UTC0): Fri Sep 18 10:13:15 2026
+        shipped lstart_epoch -> 1789722795
+        correct  (timegm)    -> 1789726395   (== time.time() to the second)
+        error                -> -3600
+
+    WHY IT SURVIVED: it fails in the SAFE direction. Every caller asks "is this
+    older than the earliest running session", and a start time an hour early
+    makes the answer no more often, so the reaper KEPT things it could have
+    deleted rather than deleting things it should have kept. An hour of lost
+    coverage every run, reported by nothing, in the one primitive the claude-
+    orphan rule and the deny-by-default temp arm both rest on.
+
+    It was found by a test that asserted WHICH REASON a KEEP carried, not merely
+    that the tree survived — S21o. A case that had only checked the directory was
+    still there would have passed against the wrong answer for ever.
+
+    `ps` is run under TZ=UTC0 by _ps_env(), so the string is UTC and timegm is
+    the only conversion that is right in every zone and every season.
+    """
     try:
-        return int(time.mktime(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
-                   - time.timezone)
+        return calendar.timegm(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
     except (ValueError, OverflowError):
         return None
 
@@ -659,10 +689,18 @@ class Reaper(object):
         # The allocator-root reduction of the same snapshot. Three states like
         # its sibling: None = not read, _FAILED = read and untrustworthy.
         self._open_alloc = None
+        # {declared shared temp root: set of children something holds open}.
+        # Same three states again.
+        self._open_shared = None
         self.docker_actions = []
         # Paths scan_standing_failures has already decided. The other arms skip
         # these, so no path is ever counted twice in the verdict.
         self._standing = set()
+        # [(path, root)] the deny-by-default arm will decide LAST. Deferred so a
+        # --notice run that runs out of budget loses this arm's numbers and not
+        # the whole pass. See scan_deferred_unknown.
+        self._unknown = []
+        self.deferred_skipped = 0
 
     def add(self, path, klass, size, action, why):
         self.entries.append(Entry(path, klass, size, action, why))
@@ -990,10 +1028,23 @@ class Reaper(object):
                 self.scan_legacy_tmp(os.path.join(tmp, name), walls,
                                      legacy_floor)
                 continue
+            path = os.path.join(tmp, name)
             if not any(fnmatch.fnmatch(name, pat)
                        for pat in self.cfg["tmp_patterns"]):
+                # THE LINE THAT WAS `continue`, AND THAT `continue` IS D1. Every
+                # name outside both declared lists was not kept and not deleted —
+                # it was never looked at, so no number in the verdict line could
+                # be used to notice it. 56,770 of 60,942 entries on this machine.
+                #
+                # DEFERRED RATHER THAN DECIDED HERE, and the deferral is the
+                # point: this arm is the expensive one (it walks every entry
+                # under the root rather than the few that match a glob), so it
+                # runs LAST, after every cheap arm has finished, and a --notice
+                # run that exhausts its budget loses only this arm's numbers
+                # instead of the whole pass. See scan().
+                if self.cfg["deny_by_default"]:
+                    self._unknown.append((path, tmp))
                 continue
-            path = os.path.join(tmp, name)
             if not os.path.isdir(path) or os.path.islink(path):
                 continue
             size, newest, has_git = measure(path)
@@ -1118,6 +1169,230 @@ class Reaper(object):
                  "touched it for %d h and no process holds it open, so the "
                  "run that made it is over%s" % (name, age // 3600, fixture))
 
+    # -----------------------------------------------------------------------
+    # THE DENY-BY-DEFAULT TEMP ARM — added 2026-09-18, and it is the answer to
+    # the shape of the defect rather than to its instances.
+    # -----------------------------------------------------------------------
+    # FRANK'S D1/D2, MEASURED ON THIS MACHINE AND RE-DERIVED HERE BEFORE THIS
+    # WAS WRITTEN: `scan_tmp` skipped past any $TMPDIR entry matching neither
+    # declared pattern list, and /private/tmp outside the two claude roots was
+    # read by no arm at all.
+    #
+    #   direct children of $TMPDIR                   60,942
+    #   covered by a declared pattern                 4,172   (0.08 GB)
+    #   INVISIBLE to every arm                       56,770   (1.95 GB)
+    #
+    # THE ARGUMENT IS THE ASYMMETRY, NOT THE BYTE COUNT. An allowlist of names
+    # can only ever contain names somebody read off a creator, and the biggest
+    # invisible family on this disk — `richos-owned-wake-native-*`, 42 entries,
+    # 198 MB, 9 days old — HAS NO CREATOR IN THE TREE ANY MORE:
+    #
+    #   $ grep -rln 'owned-wake-native' richos/     -> (no matches)
+    #
+    # A name nobody can read cannot be enumerated, so the enumeration cannot
+    # converge. A keep-list of FOREIGN owners runs the other way: it names other
+    # people's software, it is short, and it stops growing.
+    #
+    # ===================================================================
+    # WHAT MAKES THIS SAFE, AND IT IS NOT THE AGE
+    # ===================================================================
+    # The primary proof is the one scan_orphan already uses on loose files in a
+    # claude scratch root, and it is a proof rather than a guess: THE NEWEST
+    # MTIME IN THE TREE PREDATES THE START OF EVERY RUNNING SESSION PROCESS, so
+    # no running session can have written it and none can write it again. On this
+    # machine at the time of writing there is one running session, started
+    # "Wed Sep 16 23:31:27 2026" (TZ=UTC0) — so nothing touched in the last day
+    # and a half is a candidate, whatever it is called.
+    #
+    # Four more conditions sit on top, and every one of them can only make the
+    # arm refuse:
+    #
+    #   * OWNED BY THIS UID. /private/tmp is world-writable and shared: 97 of its
+    #     753 entries are root's. Another user's temp directory is never ours to
+    #     collect, and the check is one lstat.
+    #   * PAST A DECLARED AGE FLOOR of its own, far longer than the legacy arm's
+    #     two hours, because the legacy families are named-and-known and these
+    #     are not.
+    #   * NOTHING HOLDS A FILE OPEN INSIDE IT, from the same cached whole-machine
+    #     lsof both older arms use.
+    #   * ALL FOUR WALLS, with wall 2 (no .git) standing in full unless
+    #     SCRATCH_UNKNOWN_GIT_IS_FIXTURE says otherwise.
+    #
+    # THE LEGACY PATTERN LIST IS NOT MADE REDUNDANT BY THIS, and that is a
+    # finding against the brief that ordered the change. Frank's Fix 1 says the
+    # families "become redundant under deny-by-default and can be deleted from
+    # the config". They cannot: they are the FAST LANE. A legacy family is swept
+    # at two hours because the 105 GB directory reached that size inside one run,
+    # and this arm's floor is measured in days. Deleting the list would trade a
+    # two-hour reclaim for a three-day one on exactly the family that filled the
+    # disk. The list stays, and what changes is its JOB: it is no longer the
+    # coverage, it is a fast lane on top of the coverage.
+    def scan_unknown(self, path, walls, root, held):
+        """One child of a temp root that no other arm claims. Deny-by-default.
+
+        `held` is the cached open-file reduction for `root` — a set, or None
+        when the open-file table could not be read.
+        """
+        name = os.path.basename(path.rstrip("/"))
+        # NAMED APART FROM scan_legacy_tmp's `floor` ON PURPOSE. The mutation
+        # harness replaces source text literally, and two arms sharing the
+        # spelling `if age < floor:` would make a mutant aimed at one of them
+        # silently rewrite both.
+        unknown_floor = max(self.cfg["unknown_age_hours"] * 3600, self.floor)
+
+        if os.path.islink(path):
+            # The link, not its target. Wall 1 resolves realpath, which for a
+            # link is wherever it points — so a link is reported rather than
+            # reasoned about. There is one on this machine.
+            self.add(path, "tmp-foreign", 0, KEEP,
+                     "a symlink in a temp root: this arm unlinks nothing it "
+                     "cannot contain, and where a link points is not this "
+                     "program's to decide")
+            return
+
+        if any(fnmatch.fnmatch(name, pat) for pat in self.cfg["foreign_patterns"]):
+            size, _newest, _git = measure(path)
+            self.add(path, "tmp-foreign", size, KEEP,
+                     "matches a declared FOREIGN owner — another program's "
+                     "temp directory, counted so it is visible and never "
+                     "deleted by us")
+            return
+
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return          # it went away mid-scan; it was never going to be freed
+        if st.st_uid != os.getuid():
+            self.add(path, "tmp-foreign", 0, KEEP,
+                     "owned by uid %d, not this user — %s is shared and another "
+                     "user's temp directory is never ours to collect"
+                     % (st.st_uid, root))
+            return
+
+        size, newest, has_git = measure(path)
+
+        oldest = self.live.oldest_start()
+        if oldest is None:
+            self.add(path, "tmp-unknown", size, INDETERMINATE,
+                     "no session process start time could be read, so it "
+                     "cannot be shown that no running session wrote this")
+            return
+        if newest >= oldest:
+            self.add(path, "tmp-unknown", size, KEEP,
+                     "touched after the earliest running session process "
+                     "started, so a running session may own it")
+            return
+
+        age = self.now - newest
+        if age < unknown_floor:
+            self.add(path, "tmp-unknown", size, KEEP,
+                     "nothing running can own it, but it was touched %d h ago "
+                     "and the floor for an undeclared temp family is %d h"
+                     % (age // 3600, unknown_floor // 3600))
+            return
+
+        if held is None:
+            self.add(path, "tmp-unknown", size, INDETERMINATE,
+                     "the open-file table could not be read, and a tree "
+                     "something is reading must never be deleted from under it")
+            return
+        if name in held:
+            # §54 addendum 4, exactly as the legacy arm applies it: a holder that
+            # is POSITIVELY a collectable test instance is itself the garbage and
+            # pins the rest. Any other holder, or a mixed set, keeps the tree.
+            held_by, pids = self.test_instance_holders(path)
+            if held_by == "test-instances":
+                self.add(path, "tmp-unknown", size, DELETE,
+                         "held open only by test instance(s) of the app (pid "
+                         "%s), which are themselves garbage under §54 addendum "
+                         "4 and are quit before this is removed; nothing "
+                         "running can own it and nothing has touched it for %d h"
+                         % (", ".join(str(p) for p in pids), age // 3600))
+                return
+            self.add(path, "tmp-unknown", size, KEEP,
+                     "a live process holds a file open inside it"
+                     + ("" if held_by != "mixed" else
+                        " (one of them is a test instance of the app, but not "
+                        "all of them are, so nothing here is quit)"))
+            return
+
+        refused = walls.check(path, has_git,
+                              git_is_fixture=self.cfg["unknown_git_is_fixture"])
+        if refused:
+            self.add(path, "tmp-unknown", size, INDETERMINATE, refused)
+            return
+
+        self.add(path, "tmp-unknown", size, DELETE,
+                 "no arm declares this name, and nothing needs to: no running "
+                 "session process existed when it was last written, nothing "
+                 "has touched it for %d h, no process holds a file open inside "
+                 "it, and it is not a registered workspace" % (age // 3600))
+
+    def scan_shared_tmp(self, walls):
+        """The DECLARED SHARED TEMP ROOTS — /private/tmp on this machine.
+
+        A SEPARATE ROOT AND NOT A PATTERN, because it is not $TMPDIR and nothing
+        reaches it through $TMPDIR. Frank measured 25.77 GiB here that no arm of
+        the mechanism had an opinion about, including a single 19 GiB directory of
+        two-day-old evidence named `richos-*` on the volume the watchdog guards.
+
+        The two claude roots live inside it and are swept by their own arm, so
+        they are skipped by name here — never decided twice.
+        """
+        if not self.cfg["deny_by_default"]:
+            return
+        skip = set(os.path.realpath(r) for r in self.cfg["claude_roots"])
+        for root in self.cfg["shared_tmp_roots"]:
+            if not os.path.isdir(root):
+                continue
+            self.roots.append(root)
+            try:
+                names = sorted(os.listdir(root))
+            except OSError:
+                continue
+            for name in names:
+                path = os.path.join(root, name)
+                if os.path.realpath(path) in skip:
+                    continue            # scan_claude_roots owns this one
+                self._unknown.append((path, root))
+
+    def scan_deferred_unknown(self, walls):
+        """THE DEFERRED DENY-BY-DEFAULT PASS, and the ONE arm allowed to be cut
+        short without failing the run.
+
+        WHY IT IS SEPARATE. Every other arm walks a handful of paths a glob
+        picked out; this one walks every direct child of two whole temp roots —
+        measured at 9.0 s warm for $TMPDIR's 60,942 children on this machine,
+        against the 1.3 s the SessionStart notice was written around. A notice
+        that blew its budget would print "the size is UNKNOWN" at every session
+        start and be deleted within a week, and then nothing tells anybody
+        anything, which is the failure the whole mechanism exists to end.
+
+        So a Deadline here is NOT an error: what has been decided stays decided,
+        the rest is counted, and the count is reported. `scan_deferred_skipped`
+        is the number of entries this arm never reached, and Fix 2 puts it on the
+        verdict line beside the undecidable count — an honest "N entries were not
+        measured within the budget" is a usable sentence, and "UNKNOWN" is not.
+        """
+        held = {}
+        done = 0
+        try:
+            for path, root in self._unknown:
+                check_deadline()
+                if path in self._standing or \
+                        os.path.realpath(path) in self._standing:
+                    done += 1
+                    continue        # scan_standing_failures already decided it
+                if root not in held:
+                    tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
+                    held[root] = (self.open_under_tmp() if root == tmp
+                                  else self.open_under_shared(root))
+                self.scan_unknown(path, walls, root, held[root])
+                done += 1
+        except Deadline:
+            pass
+        self.deferred_skipped = len(self._unknown) - done
+
     def open_under_tmp(self):
         """One lsof for the WHOLE MACHINE, cached: the set of open paths under
         $TMPDIR. None if lsof could not be trusted to answer.
@@ -1151,6 +1426,7 @@ class Reaper(object):
         except (OSError, subprocess.TimeoutExpired):
             self._open_tmp = _FAILED
             self._open_alloc = _FAILED
+            self._open_shared = _FAILED
             return None
         # lsof exits 1 when some of what it was asked about could not be
         # listed, which on a whole-machine scan is normal (other users'
@@ -1160,6 +1436,7 @@ class Reaper(object):
         if r.returncode not in (0, 1):
             self._open_tmp = _FAILED
             self._open_alloc = _FAILED
+            self._open_shared = _FAILED
             return None
         # Reduced to the set of FIRST PATH COMPONENTS under $TMPDIR, because
         # every candidate this answers about is a direct child of $TMPDIR. That
@@ -1174,13 +1451,27 @@ class Reaper(object):
         # collapse to the same key. Deriving it here rather than in a second
         # lsof keeps the cost at ONE whole-machine read, which is the property
         # that made this method worth having.
+        # A THIRD FAMILY OF REDUCTIONS IS BUILT IN THE SAME PASS, one per
+        # DECLARED SHARED TEMP ROOT (/private/tmp). Same argument as the
+        # allocator reduction above: those candidates are children of a
+        # different directory, so they cannot share $TMPDIR's key, and deriving
+        # them here keeps the cost at ONE whole-machine read. On this machine
+        # /private/tmp holds 753 direct children, so a per-candidate `lsof +D`
+        # would be 753 tree walks against one read.
         pref = tmp + "/"
         alloc_pref = os.path.join(tmp, self.cfg["scratch_root_name"]) + "/"
+        shared = [(r, r.rstrip("/") + "/") for r in self.cfg["shared_tmp_roots"]]
         found, alloc = set(), set()
+        shared_sets = dict((r, set()) for r, _ in shared)
         for line in r.stdout.splitlines():
             if not line.startswith("n"):
                 continue
             p = line[1:]
+            for root, spref in shared:
+                if p.startswith(spref):
+                    rest = p[len(spref):]
+                    if rest:
+                        shared_sets[root].add(rest.split("/", 1)[0])
             if not p.startswith(pref):
                 continue
             if p.startswith(alloc_pref):
@@ -1193,7 +1484,21 @@ class Reaper(object):
             found.add(rest.split("/", 1)[0])
         self._open_tmp = found
         self._open_alloc = alloc
+        self._open_shared = shared_sets
         return found
+
+    def open_under_shared(self, root):
+        """The set of children of a declared SHARED temp root that something
+        holds open, or None if the open-file table could not be read.
+
+        Same three states as its two siblings, and for the same reason: None
+        keeps the tree, an empty set is permission to delete it.
+        """
+        if self._open_shared is None:
+            self.open_under_tmp()      # populates every reduction in one read
+        if self._open_shared is None or self._open_shared is _FAILED:
+            return None
+        return self._open_shared.get(os.path.realpath(root))
 
     def open_under_alloc(self):
         """The set of allocator-root children something holds open, or None.
@@ -1380,7 +1685,8 @@ class Reaper(object):
         tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
         nightly = [os.path.join(self.cfg["nightly_dir"], s)
                    for s in ("releases", "logs")]
-        walls = Walls(roots + [tmp] + nightly)
+        shared = [r for r in self.cfg["shared_tmp_roots"] if os.path.isdir(r)]
+        walls = Walls(roots + [tmp] + nightly + shared)
         # FIRST, so the other arms can skip what it has already claimed. A path
         # decided twice would be counted twice in the verdict, and a standing
         # failure is precisely a path another arm would otherwise report as KEEP.
@@ -1390,7 +1696,12 @@ class Reaper(object):
         # never decide the same path twice.
         self.scan_scratch_root(walls)
         self.scan_tmp(walls)
+        self.scan_shared_tmp(walls)
         self.scan_nightly(walls)
+        # LAST, ALWAYS. It is the only expensive arm and the only one that may be
+        # cut short by a budget without failing the run; everything above has
+        # already been decided by the time it starts.
+        self.scan_deferred_unknown(walls)
         self.entries.sort(key=Entry.key)
         return self.entries
 
@@ -1805,7 +2116,14 @@ def _docker_removed_names(text):
 # gone — the allocator root, the declared harness families, and a path this
 # program already tried to delete once.
 _UNSTICKABLE_CLASSES = frozenset((
-    "scratch-alloc", "tmp-legacy", "tmp-workspace", "standing-failure"))
+    "scratch-alloc", "tmp-legacy", "tmp-workspace", "standing-failure",
+    # tmp-unknown joins them 2026-09-18: by the time an entry of that class is on
+    # the delete list, NO RUNNING SESSION PROCESS EXISTED WHEN IT WAS LAST
+    # WRITTEN, nothing holds it open, and it has sat untouched for days. A mode
+    # bit on a tree that old, in a temp root, is a harness's leftover and not a
+    # person's protection — and every failure here becomes a MASSIVE ALERT, so an
+    # avoidable one costs the credibility of the unavoidable ones.
+    "tmp-unknown"))
 
 UF_IMMUTABLE = 0x00000002       # uchg. stat.UF_IMMUTABLE, named here so the
                                 # constant is readable beside its use.
@@ -1960,6 +2278,17 @@ def config_from_env():
         "docker_prune": opt("SCRATCH_DOCKER_PRUNE", "0") == "1",
         "docker_keep_storage": opt("SCRATCH_DOCKER_KEEP_STORAGE", "20GB"),
         "docker_until": opt("SCRATCH_DOCKER_UNTIL", "720h"),
+        # --- the deny-by-default temp arm, added 2026-09-18 (Frank D1/D2) ----
+        # OFF is the conservative fallback, for the reason opt() exists at all:
+        # an engine whose config predates this key sweeps exactly what it swept
+        # yesterday rather than suddenly sweeping every name under $TMPDIR.
+        "deny_by_default": opt("SCRATCH_TMP_DENY_BY_DEFAULT", "0") == "1",
+        "shared_tmp_roots": [os.path.realpath(p) for p in
+                             opt("SCRATCH_SHARED_TMP_ROOTS", "").split()],
+        "foreign_patterns": opt("SCRATCH_FOREIGN_PATTERNS", "").split(),
+        "unknown_age_hours": opt_number("SCRATCH_UNKNOWN_AGE_HOURS", 72),
+        "unknown_git_is_fixture":
+            opt("SCRATCH_UNKNOWN_GIT_IS_FIXTURE", "0") == "1",
     }
 
 

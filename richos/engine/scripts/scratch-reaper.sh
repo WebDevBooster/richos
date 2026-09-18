@@ -121,13 +121,26 @@ if [ "${SCRATCH_REAPER_ENABLE:-1}" = "0" ]; then
     exit 0
 fi
 
-export SCRATCH_CLAUDE_ROOTS SCRATCH_TMP_PATTERNS SCRATCH_AGE_FLOOR_MINUTES
-export SCRATCH_NIGHTLY_DIR SCRATCH_NIGHTLY_KEEP SCRATCH_NOTICE_BYTES
-export SCRATCH_SESSION_PROCESS_NAMES
-export SCRATCH_ROOT_NAME SCRATCH_DEFAULT_TTL_MINUTES
-export SCRATCH_LEGACY_TMP_PATTERNS SCRATCH_LEGACY_AGE_HOURS
-export SCRATCH_LEGACY_GIT_IS_FIXTURE
-export SCRATCH_DOCKER_PRUNE SCRATCH_DOCKER_KEEP_STORAGE SCRATCH_DOCKER_UNTIL
+# EVERY SCRATCH_* AND APP_* KEY THE CONFIG DECLARES IS EXPORTED, BY PATTERN AND
+# NEVER BY NAME. This used to be seven `export` lines listing each key, and that
+# shape has now failed twice: once when SCRATCH_DOCKER_UNTIL was declared and not
+# exported (the symptom was a --status that could not see its own second volume),
+# and once here — the deny-by-default keys were declared in orchestration.config,
+# read by config_from_env, and arrived EMPTY, so the whole arm was silently off
+# and the pass finished in 1.3 s looking exactly like a clean machine.
+#
+# A DECLARED-AND-UNREACHABLE KEY IS THE WORST FAILURE THIS FILE HAS, because both
+# halves look right: the config says the coverage is on, the code says it reads
+# the key, and nothing anywhere says the two never met. The list of names was the
+# defect; deriving the list from the config is the fix. `compgen -v` is bash's own
+# enumeration of what sourcing actually set, so a key cannot be declared and
+# missed, and nothing has to be remembered by anybody.
+while read -r _k; do
+    case "$_k" in
+        SCRATCH_*|APP_TEST_INSTANCE_*|APP_INSTANCE_*) export "$_k" ;;
+    esac
+done < <(compgen -v)
+unset _k
 
 # ---------------------------------------------------------------------------
 # INSTALL / UNINSTALL — the schedule, generated, never hand-written

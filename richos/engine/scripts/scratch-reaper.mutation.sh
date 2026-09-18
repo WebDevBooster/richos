@@ -235,4 +235,81 @@ mutant M23.test-instance-holder-not-quit "S20 " "$LIB" \
      written. The mutant proves S20 is green because the override exists, not
      because the tree happened to be swept by some other arm."
 
+# ===========================================================================
+# THE DENY-BY-DEFAULT TEMP ARM (Frank's D1/D2) — every condition, one at a time
+# ===========================================================================
+# THIS ARM IS THE ONE MOST IN NEED OF THIS FILE. It is the arm that decides
+# whether to delete something NOBODY DECLARED, which means there is no name list
+# to read it back off and no test that fails "by accident" if it stops working.
+# Its whole coverage is invisible from the outside: an arm that silently reverts
+# to skipping is indistinguishable from a clean machine, which is precisely how
+# 56,770 entries came to be invisible in the first place.
+
+mutant M24.deny-by-default-off "S21 " "$LIB" \
+    "                if self.cfg[\"deny_by_default\"]:" \
+    "                if False:" \
+    "The \`continue\` is back: a \$TMPDIR name matching neither declared pattern
+     list is skipped rather than decided. This is D1 exactly as it shipped — not
+     kept, not deleted, never looked at — and the mutant proves S21 is green
+     because the arm runs and not because some other arm caught the fixture."
+
+# ASSERTED AGAINST S21h AND NOT S21g, and the harness is what found that out.
+# Aimed at S21g it reported "red, but not here": S21g only asks whether the fresh
+# tree survived, and with the proof removed THE AGE FLOOR CATCHES THE SAME TREE —
+# it is zero minutes old, the floor is an hour — so it survives for a different
+# reason and the case stays green. Only S21h, which reads WHICH REASON the KEEP
+# carried, can see the proof has gone. Same lesson as M22, and the same lesson as
+# the DST defect M30 pins: a case that checks only the outcome is blind to a
+# guarantee being replaced by a coincidence.
+mutant M25.session-proof-removed "S21h" "$LIB" \
+    "        if newest >= oldest:" \
+    "        if False:" \
+    "The one PROOF this arm has is gone: a tree written after the earliest
+     running session started is no longer that session's. Nothing is left but an
+     age, and an age is what the whole program refuses to delete on."
+
+mutant M26.foreign-keeplist-ignored "S21d" "$LIB" \
+    "if any(fnmatch.fnmatch(name, pat) for pat in self.cfg[\"foreign_patterns\"]):" \
+    "if False:" \
+    "The keep-list stops being consulted, so ANOTHER PROGRAM'S temp directory is
+     a candidate. Deny-by-default without the keep-list is not coverage, it is a
+     reaper that deletes Xcode's and VS Code's working files."
+
+mutant M27.unknown-open-handle-ignored "S21l" "$LIB" \
+    "        if name in held:" \
+    "        if False:" \
+    "The new arm stops consulting the open-file table — D5 one arm across. A tree
+     an undeclared harness is still reading is deleted from under it."
+
+mutant M28.shared-root-not-swept "S21i" "$LIB" \
+    "        for root in self.cfg[\"shared_tmp_roots\"]:" \
+    "        for root in []:" \
+    "The declared shared temp roots are never enumerated, so /private/tmp goes
+     back to being swept by nothing at all. That is D2, and it was 25.77 GiB."
+
+mutant M29.unknown-floor-ignored "S21n" "$LIB" \
+    "        if age < unknown_floor:" \
+    "        if False:" \
+    "The declared floor for an undeclared family is not applied, so the session
+     proof is left standing alone and a directory written five minutes before the
+     only running session started is deleted."
+
+# M30 IS A REGRESSION PIN ON A DEFECT FOUND BY THIS PASS, not on a wall.
+# lstart_epoch used mktime(...) - time.timezone, which is the zone's STANDARD
+# offset and does not move for daylight saving — so in DST it returned every
+# process start one hour EARLY. Measured on this machine: error -3600 s exactly.
+# It failed in the safe direction (things were kept that could have been swept),
+# which is why nothing noticed for as long as it existed.
+#
+# IT IS ASSERTED AGAINST S21o, AND THAT IS THE POINT OF THE CASE. S21n only
+# checks the tree is still there, and it stays green under this mutation — an
+# hour-early start time keeps the tree for the WRONG reason. Only a case that
+# reads WHICH REASON the KEEP carried can see the difference.
+mutant M30.lstart-dst-offset "S21o" "$LIB" \
+    "        return calendar.timegm(time.strptime(text, \"%a %b %d %H:%M:%S %Y\"))" \
+    "        return int(time.mktime(time.strptime(text, \"%a %b %d %H:%M:%S %Y\")) - time.timezone)" \
+    "Every session process is reported as having started an hour before it did,
+     so 'nothing running can own this' is answered against a clock that is wrong
+     for half the year."
+
 mutation_end

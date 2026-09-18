@@ -62,8 +62,25 @@ STATE="${SCRATCH_REAPER_STATE:-$STATE_BASE/scratch-reaper-state.json}"
 
 # BUDGET, declared here rather than in the config: it is a property of being a
 # SessionStart hook (how long a person will wait for a banner), not of this
-# machine's scratch. Six times the measured 1.3 s cost.
-DEADLINE=8
+# machine's scratch.
+#
+# IT WAS 8 — six times a measured 1.3 s — AND THE DENY-BY-DEFAULT ARM CHANGED
+# THE COST IT WAS SIX TIMES OF. Measured 2026-09-18 on this machine, warm:
+#
+#   full pass, every arm, no budget            11.6 s   (60,942 + 764 children)
+#   every arm EXCEPT the deny-by-default one    1.3 s
+#
+# So the honest choice is not a bigger budget. A session start that costs twelve
+# seconds is a hook somebody deletes, and then nothing tells anybody anything —
+# which is the failure the whole mechanism exists to end.
+#
+# WHAT MAKES 5 SAFE RATHER THAN A TRUNCATION. The expensive arm runs LAST and is
+# the only one allowed to be cut short: everything above it has finished being
+# decided by the time it starts, and what it does not reach is COUNTED and said
+# out loud ("N entries were not measured within the budget"). The complete pass
+# is the scheduled job's, four times a day, with no budget at all. This banner's
+# job is to tell a person there is something to look at, not to be the audit.
+DEADLINE=5
 
 [ -x "$REAPER" ] || exit 0
 [ -f "$CONFIG" ] || exit 0
