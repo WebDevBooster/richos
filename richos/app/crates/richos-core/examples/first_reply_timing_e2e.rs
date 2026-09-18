@@ -699,6 +699,189 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // ================================================================================
+    // `RICHOS_PROBE_CONTENDED=1` — HE TYPES WHILE THE DESK IS STILL BEING PRIMED
+    // ================================================================================
+    //
+    // Ray's measurement 1 on candidate .10, exactly: a brand-new thread opened and typed into
+    // straight away. It is a MODE and an early return rather than an extra row, because a run
+    // of this probe costs the CEO's subscription real model turns and this shape costs TWO —
+    // the priming turn and one task turn. `docs/verification/first-words-2026-09-18-*.md` is
+    // where the runs are recorded.
+    //
+    // **WHAT IT PROVES, and what it deliberately refuses to claim.** It proves the Send is
+    // ACCEPTED while the spine is shut, that his sentence is durable at that instant, that it
+    // reaches the lease exactly once after the prime with NO second priming turn, and that the
+    // intake is drained by the prime on its way out. It does NOT claim his first words arrive
+    // sooner, and the arithmetic it prints is the reason: the priming is a model turn and the
+    // lease is serial (continuity §3.1), so `send -> first words` is
+    // `prime_remainder + turn` under this shape and under the blocking one alike. The turn-only
+    // figure is what is comparable with an uncontended run, and it is the figure scored.
+    if std::env::var_os("RICHOS_PROBE_CONTENDED").is_some() {
+        use richos_core::steering::TurnControl;
+        // The durable intake the shipping app has. Without it `defer_send` refuses rather than
+        // accepting a message it cannot write down, and the probe would measure the fallback.
+        let control = TurnControl::open(data.join("intake.jsonl"))?;
+        spine.set_turn_control(control.clone());
+        let entity = EntityId::parse("depot")?;
+        let text = "Land the pricing branch and get the staging deploy done.";
+
+        let spine = Arc::new(std::sync::Mutex::new(spine));
+        let prime_started = Instant::now();
+        let priming = {
+            let spine = spine.clone();
+            let thread = thread.clone();
+            std::thread::spawn(move || spine.lock().unwrap().prime_front_desk(&thread))
+        };
+        // **He types 500 ms in** — the brief's own condition, and well inside a prime that
+        // measured 2.927 s in run E and 4412 ms in candidate .10's `app.log`.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let sent = Instant::now();
+        *first_words.at.lock().unwrap() = None;
+        first_words.runs.lock().unwrap().clear();
+        *first_words.start.lock().unwrap() = Some(sent);
+        *before.start.lock().unwrap() = Some(sent);
+        before.trace.lock().unwrap().clear();
+
+        // The spine is shut right now, and this is the assertion that says so rather than
+        // assuming it — without it the rest of this block could pass on an idle spine.
+        let shut_at_send = spine.try_lock().is_err();
+        let asked_at = Instant::now();
+        let accepted = control.defer_send(&thread, Some(entity.clone()), text)?;
+        let accepted_in = asked_at.elapsed();
+
+        let verdict = priming.join().unwrap();
+        // **THE PRIME'S OWN CLOCK, FROM THE VERDICT — never `prime_started.elapsed()`.** The
+        // priming thread does not return until it has also DRAINED his message, which runs his
+        // whole turn, so the wall clock across the join is `prime + turn` and subtracting it
+        // from anything gives nonsense. Run F's first attempt did exactly that and printed a
+        // turn of -1.431 s; `FrontDeskReady::Ready.millis` is now stamped before the drain for
+        // the same reason.
+        let prime_took = match verdict {
+            richos_core::spine::FrontDeskReady::Ready { millis, .. } => millis as f64 / 1000.0,
+            ref other => return Err(format!(
+                "the desk was not made ready, so nothing below is measuring what it says: {other:?}"
+            ).into()),
+        };
+        let joined_after = prime_started.elapsed().as_secs_f64();
+        let to_first_words = first_words.at.lock().unwrap().map(|at| at.duration_since(sent).as_secs_f64());
+        let runs = first_words.runs.lock().unwrap().clone();
+
+        let spine = spine.lock().unwrap();
+        let binding = spine.ledger().thread_binding(&thread)?;
+        let turns = spine.ledger().thread_turns_scoped(&binding)?;
+        let primings = turns.iter().filter(|t| t.source == Source::Internal && t.user_text == "[re-prime]").count();
+        let visible: Vec<&richos_core::ledger::Turn> =
+            turns.iter().copied().filter(|t| t.source == Source::Text).collect();
+
+        // The remainder he was actually queued behind — the seconds Ray's frames showed as
+        // "Sending your message / Waiting for Rich to accept it".
+        let remainder = prime_took - 0.500;
+        eprintln!("---");
+        eprintln!("CONTENDED: he opened a brand-new thread and typed 500 ms into its pre-prime.");
+        eprintln!("the pre-prime, its own turn only     : {prime_took:.3} s  ({verdict:?})");
+        eprintln!("the priming thread returned after     : {joined_after:.3} s  (prime + the turn it drained)");
+        eprintln!("the spine was shut when he pressed Send : {shut_at_send}");
+        eprintln!(
+            "his Send was ACCEPTED in               : {} ms  ({})",
+            accepted_in.as_millis(),
+            match &accepted {
+                Some(r) => format!("durable, intake {}", r.id()),
+                None => "NOT DEFERRED — it went to the blocking path".to_string(),
+            }
+        );
+        eprintln!("the remainder of the prime he queued behind : {remainder:.3} s");
+        match to_first_words {
+            Some(d) => {
+                eprintln!("send -> first words                  : {d:.3} s");
+                eprintln!("    of which the prime's remainder   : {remainder:.3} s");
+                eprintln!("    of which the turn itself         : {:.3} s", d - remainder);
+            }
+            None => eprintln!("send -> first words                  : NOT OBSERVED"),
+        }
+        eprintln!("priming turns in the ledger          : {primings} (one, or a desk was primed twice)");
+        eprintln!("visible turns in the ledger          : {}", visible.len());
+        for t in &visible {
+            eprintln!("    {:?} -> {:?}", t.user_text, t.assistant_text.trim());
+        }
+        eprintln!("intake still pending after the prime : {}", control.pending_intake().len());
+        eprintln!("runs of prose he can see             : {}", runs.len());
+        eprintln!("the turn, in arrival order:");
+        for (label, at) in before.trace.lock().unwrap().iter() {
+            eprintln!("    {at:>7.3} s  {label}");
+        }
+
+        let mut failures: Vec<String> = Vec::new();
+        if !shut_at_send {
+            failures.push("the spine was NOT held when he pressed Send — there was no contention to measure".into());
+        }
+        if accepted.is_none() {
+            failures.push("his Send was not taken off the lock: `defer_send` declined while a prime was running".into());
+        }
+        // A SMOKE ALARM, NOT A BUDGET. What is being told apart is "one local `fsync`" from
+        // "the remainder of a model turn", and those differ by an order of magnitude. The
+        // shell's own `send_wait_notice` cannot fire on this path at all — it sits after
+        // `state.spine.lock()`, which the deferred branch returns before reaching
+        // (`src-tauri/src/main.rs`, pinned by
+        // `the_send_asks_for_the_deferred_road_before_it_takes_the_spine`).
+        if accepted_in.as_millis() > 250 {
+            failures.push(format!(
+                "his Send took {} ms to be accepted, against a prime remainder of {remainder:.3} s — \
+                 that is the shape of a block, not of an fsync",
+                accepted_in.as_millis()
+            ));
+        }
+        if primings != 1 {
+            failures.push(format!("{primings} priming turns — a deferred send must not prime a desk that is ready"));
+        }
+        if visible.len() != 1 || visible.first().map(|t| t.user_text.as_str()) != Some(text) {
+            failures.push(format!("his one sentence became {} visible turn(s): {visible:?}", visible.len()));
+        }
+        if !control.pending_intake().is_empty() {
+            failures.push("the prime left his message in the intake log for some later boundary to find".into());
+        }
+        // **THE TURN ITSELF is the figure that is comparable with an uncontended run**, and it
+        // is scored against the lease's-first-visible-turn budget, which is what this is. The
+        // send-to-first-words total is NOT scored, because it necessarily carries the prime's
+        // remainder and scoring it would be scoring the CEO's typing speed.
+        match to_first_words {
+            Some(d) => {
+                let turn_only = d - remainder;
+                if turn_only > richos_core::first_reply::FIRST_TURN_BUDGET.as_secs_f64() {
+                    failures.push(format!(
+                        "the turn itself took {turn_only:.3} s, over the {:.0} s budget for a lease's \
+                         first visible turn",
+                        richos_core::first_reply::FIRST_TURN_BUDGET.as_secs_f64()
+                    ));
+                }
+            }
+            None => failures.push("no live text event ever arrived, so nothing above is a measurement".into()),
+        }
+
+        if !failures.is_empty() {
+            for why in &failures {
+                eprintln!("FAIL: {why}");
+            }
+            return Err(format!("{} check(s) failed", failures.len()).into());
+        }
+        eprintln!("---");
+        eprintln!(
+            "PASS: his Send was taken in {} ms while the spine was shut, made durable there, and \
+             handed over exactly once after the prime — one priming turn, one visible turn, \
+             nothing left in the intake.",
+            accepted_in.as_millis()
+        );
+        eprintln!(
+            "AND THE HONEST HALF: send -> first words was {} — {remainder:.3} s of it is the \
+             prime's own remainder, which his message queues behind whether it waits on the mutex \
+             or on the intake log. The lease is serial (continuity §3.1) and an already-primed \
+             thread never primes twice, so this slice does not move that number and does not \
+             claim to. Two model turns were spent by this run.",
+            to_first_words.map(|d| format!("{d:.3} s")).unwrap_or_else(|| "not observed".into())
+        );
+        return Ok(());
+    }
+
+    // ================================================================================
     // THE PRIMING TURN, BEFORE HE TYPES (CEO §55)
     // ================================================================================
     //
