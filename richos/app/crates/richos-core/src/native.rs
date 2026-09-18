@@ -229,6 +229,35 @@ pub fn tool_residency_env(role: LeaseRole) -> Option<(&'static str, &'static str
     }
 }
 
+/// The continuity checkpoint tool — the front desk's own bookkeeping.
+pub const CONTINUITY_CHECKPOINT_TOOL: &str = "mcp__richos_continuity__checkpoint";
+
+/// What the child is told when it tries to write the checkpoint before it has said anything.
+///
+/// **A refusal the CEO never sees, and the only sentence in this file whose whole job is to
+/// change what the model does NEXT.** It names the order rather than the rule, because a model
+/// that is told "not now" and not "do this instead" pays another round trip working it out.
+pub const CHECKPOINT_BEFORE_REPLY: &str =
+    "Not yet — he has not heard anything from you on this turn. Answer him first, in as few      words as the situation takes, and write the checkpoint after you have spoken. It is      bookkeeping: it is never worth a second of his waiting.";
+
+/// Is this the front desk trying to do its bookkeeping before it has said a word?
+///
+/// **The ordering the doctrine states and could not enforce.** `front-desk.md` has asked for
+/// the reply first since the front desk existed; run 2 of
+/// `docs/verification/question-receipt-2026-09-18.md` measured a `checkpoint` round trip
+/// occupying 12.980 s to 17.023 s of a 22.956 s wait, ahead of both the register and his first
+/// word. A sentence that is not obeyed is not a fix, so the order is a condition of the tool
+/// being usable rather than a request.
+///
+/// **Scoped to the checkpoint, and `inspect` is deliberately NOT here.** A write is bookkeeping
+/// and has nowhere to be before the reply; a read may BE the answer he is waiting for (the
+/// doctrine's case 1, "you know the answer"), and refusing it would make a fast answer
+/// impossible in the name of making a reply fast. The work lease is not reached by this at all
+/// — it is never given the continuity server (§5.8a-ii seam 1).
+fn bookkeeping_before_the_reply(request: &Value, spoken: bool) -> bool {
+    !spoken && request.get("tool_name").and_then(|v| v.as_str()) == Some(CONTINUITY_CHECKPOINT_TOOL)
+}
+
 /// Is the child deferring its tools, according to the child?
 ///
 /// The one reading that can catch [`TOOL_SEARCH_ENV`] silently stopping work. Its own tool is
@@ -1619,7 +1648,11 @@ impl NativeClient {
         if ty == "control_request" {
             let context_only = state.lock().unwrap().context_only;
             let permissions = state.lock().unwrap().permissions.clone();
-            Self::handle_agent_request(&msg, stdin, current, between, context_only, permissions.as_ref());
+            // **Read on the reader thread, which is also the thread the text deltas arrive
+            // on** — so "has he heard anything yet" is answered in the order the wire put the
+            // two events in, with no race to lose.
+            let spoken = state.lock().unwrap().spoken_this_turn;
+            Self::handle_agent_request(&msg, stdin, current, between, context_only, spoken, permissions.as_ref());
             return;
         }
 
@@ -1728,6 +1761,10 @@ impl NativeClient {
             {
                 if let Some(t) = ev.get("delta").and_then(|d| d.get("text")).and_then(|v| v.as_str()) {
                     text_deltas.fetch_add(1, Ordering::SeqCst);
+                    // **He has now heard something.** Set at the FIRST delta, not at the end
+                    // of the message: the measure §55 is written against is his first word,
+                    // and everything the gate above protects is protected from that instant.
+                    state.lock().unwrap().spoken_this_turn = true;
                     Self::route(ChunkMsg::Text(t.to_string()), current, between, &msg);
                     return;
                 }
@@ -1771,6 +1808,10 @@ impl NativeClient {
                 })
                 .unwrap_or_default();
             if !whole.is_empty() {
+                // The same fact, on the path that exists for `--include-partial-messages`
+                // having stopped working. A degraded stream must not also silently re-open
+                // the pre-reply checkpoint.
+                state.lock().unwrap().spoken_this_turn = true;
                 Self::route(ChunkMsg::Text(whole), current, between, &msg);
             }
         }
@@ -1809,6 +1850,7 @@ impl NativeClient {
         current: &Arc<Mutex<Option<Sender<ChunkMsg>>>>,
         between: &Arc<Mutex<BetweenTurn>>,
         context_only: bool,
+        spoken: bool,
         permissions: Option<&crate::permissions::ScopedPermissions>,
     ) {
         let request_id = msg.get("request_id").cloned().unwrap_or(Value::Null);
@@ -1818,6 +1860,14 @@ impl NativeClient {
         let (response, machinery) = if subtype == "can_use_tool" {
             let decision = if context_only {
                 PermissionDecision::Deny { message: "Internal context preparation is tool-free. Do not act on historical requests. Wait for the next visible conversation turn.".into() }
+            } else if bookkeeping_before_the_reply(&request, spoken) {
+                // **ORDER, NOT POLICY.** It is refused BEFORE the desk sees it, because the
+                // desk's answer would be `allow` and correctly so: the tool is granted, it is
+                // simply granted for after he has been answered. It costs the model one round
+                // trip when it fires, against the four-to-six-second ECS round trip it
+                // replaces — so a turn that trips this gate is never slower than the turn
+                // that did not have it, and a turn that obeys the doctrine never reaches it.
+                PermissionDecision::Deny { message: CHECKPOINT_BEFORE_REPLY.into() }
             } else if let Some(policy) = permissions { policy.decide(&request) }
               else { decide_permission(&request) };
             let body = match &decision {
@@ -1979,6 +2029,11 @@ impl NativeClient {
                 let mut current = self.current_prompt.lock().unwrap();
                 if self.reader_closed.load(Ordering::SeqCst) { return Err(NativeError::Closed); }
                 *current = Some(tx);
+                // **Every turn starts with him having heard nothing**, and the reset belongs
+                // here — with the send, under the same lock that decides a turn is in flight —
+                // rather than at the previous turn's end, where a lease that never ran a
+                // second turn would leave a stale `true` behind.
+                self.reader_state.lock().unwrap().spoken_this_turn = false;
             }
             if let Err(error) = Self::write_line(&self.stdin, &msg) {
                 *self.current_prompt.lock().unwrap() = None;
@@ -4187,6 +4242,108 @@ done
         assert_eq!(client.prompt_context_only("Only context", &mut |_| {}).unwrap(), "end_turn");
         assert!(!client.reader_state.lock().unwrap().context_only);
         assert_eq!(client.prompt("Actual visible request", &mut |_| {}).unwrap(), "end_turn");
+    }
+
+    #[test]
+    fn the_checkpoint_is_refused_until_he_has_heard_something_and_refused_again_next_turn() {
+        // **THE ENFORCEMENT THE DOCTRINE SENTENCE COULD NOT BE.** Run 2 of
+        // `docs/verification/question-receipt-2026-09-18.md` spent 12.980 s -> 17.023 s of a
+        // 22.956 s wait on a `checkpoint` written before his first word, with the doctrine
+        // already asking for the reply first. So the order is a condition of the tool working.
+        //
+        // The fixture child asserts the behavior it receives and exits 9 if it is wrong, so a
+        // gate that silently stopped working fails this test rather than passing it quietly.
+        //
+        // **Four facts, and the fourth is the one an obvious implementation gets wrong:**
+        // deny before a word; allow after a word; `inspect` is never gated; and the NEXT turn
+        // starts refused again, because `spoken_this_turn` is reset with the send.
+        let script = write_script("checkpoint-after-the-reply", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__checkpoint","input":{}}}'
+read -r answer
+case "$answer" in *\"behavior\":\"deny\"*) ;; *) exit 9 ;; esac
+printf '%s\n' '{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__inspect","input":{}}}'
+read -r answer
+case "$answer" in *\"behavior\":\"allow\"*) ;; *) exit 8 ;; esac
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"On it!"}}}'
+printf '%s\n' '{"type":"control_request","request_id":"p3","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__checkpoint","input":{}}}'
+read -r answer
+case "$answer" in *\"behavior\":\"allow\"*) ;; *) exit 7 ;; esac
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+read -r prompt
+printf '%s\n' '{"type":"control_request","request_id":"p4","request":{"subtype":"can_use_tool","tool_name":"mcp__richos_continuity__checkpoint","input":{}}}'
+read -r answer
+case "$answer" in *\"behavior\":\"deny\"*) ;; *) exit 6 ;; esac
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut said = String::new();
+        let mut permissions = Vec::new();
+        {
+            let mut collect = |item: TurnItem| match item {
+                TurnItem::Text { text, .. } => said.push_str(text),
+                TurnItem::Machinery(record) => {
+                    if record.kind == crate::machinery::MachineryKind::PermissionRequested {
+                        permissions.push(record.title.clone());
+                    }
+                }
+            };
+            assert_eq!(client.prompt("Land the pricing branch", &mut collect).unwrap(), "end_turn");
+        }
+        assert_eq!(said, "On it!");
+        // The refusal is MACHINERY and never his words — it is on the technical view's lane,
+        // beside the two that were allowed, and nothing about it reaches the conversation.
+        assert_eq!(permissions.len(), 3, "{permissions:?}");
+        assert!(!said.contains("Not yet"), "a refusal aimed at the model must never be shown to him");
+
+        // And the second turn, whose only job is to prove the per-turn reset exists: the
+        // child exits 6 if the checkpoint it tries before speaking is allowed on the strength
+        // of the PREVIOUS turn's reply.
+        assert_eq!(client.prompt("And the second thing", &mut |_| {}).unwrap(), "end_turn");
+    }
+
+    #[test]
+    fn the_pre_reply_gate_is_about_the_checkpoint_alone() {
+        // The pure predicate, spelled out, because the scope is the whole decision: a WRITE
+        // has nowhere to be before the reply, a READ may be the answer he is waiting for, and
+        // the register is the one tool that is SUPPOSED to be called before he hears anything.
+        let checkpoint = json!({"subtype":"can_use_tool","tool_name":CONTINUITY_CHECKPOINT_TOOL,"input":{}});
+        assert!(bookkeeping_before_the_reply(&checkpoint, false));
+        assert!(!bookkeeping_before_the_reply(&checkpoint, true));
+        for tool in ["mcp__richos_continuity__inspect", crate::assignment_tools::QUALIFIED_RECORD_TOOL,
+                     "mcp__richos_status__background_work", "Bash", ""] {
+            let request = json!({"subtype":"can_use_tool","tool_name":tool,"input":{}});
+            assert!(!bookkeeping_before_the_reply(&request, false), "{tool} must not be gated on the reply");
+        }
+        // A request with no tool name at all is not this gate's business — the desk below
+        // already refuses it by name ("could not be safely displayed").
+        assert!(!bookkeeping_before_the_reply(&json!({"subtype":"can_use_tool"}), false));
+    }
+
+    #[test]
+    fn the_doctrine_and_the_gate_ask_for_the_same_order() {
+        // **THE PAIR, TESTED AS A PAIR.** The gate above is the enforcement and this is the
+        // instruction; a gate whose doctrine still said "as you go" would refuse the model for
+        // doing what it was told, which is worse than either half alone. The doctrine is what
+        // the conversation lease is actually given (`engine_profile.rs:158`).
+        let doctrine = crate::doctrine::FRONT_DESK_DOCTRINE;
+        // Wrap-safe: the doctrine is hard-wrapped prose, so every assertion stays inside one
+        // line of it.
+        assert!(doctrine.contains("**Write it after you have answered him, never before.**"),
+            "the checkpoint's place in the turn is not stated");
+        assert!(doctrine.contains("It is bookkeeping."), "the reason is not given, so the rule is arbitrary");
+        // The refusal is announced, so a model that meets it knows it is the order and not a
+        // permission it lacks.
+        assert!(doctrine.contains("refused if you try it before you have spoken"),
+            "the doctrine does not say the gate exists");
+        // Negative: the clause that produced the measured defect is gone. "written as you go"
+        // is what a model obeys by checkpointing first.
+        assert!(!doctrine.contains("as you go with the continuity tools"), "the superseded clause survives");
+        // And §55's own rule is untouched by this change.
+        assert!(doctrine.contains("FIRST tool call"), "the register's ordering rule was lost");
+        assert!(doctrine.len() > 500, "the doctrine did not load: {} bytes", doctrine.len());
     }
 
     #[test]
