@@ -899,7 +899,10 @@ function landSpark(sp, now) {
   // when a number it writes actually changes width.
   ticker.classList.add('on'); readTickerZone();
   clearTimeout(tickerTimer); tickerTimer = setTimeout(() => ticker.classList.remove('on'), 2600);
-  landed.sources += 1; landed.memories += sp.src.derivedCount;
+  // ...AND ONLY WHERE THE NUMBER IS ILLUSTRATIVE. Over his own corpus the counters are his
+  // record's and the animation adds nothing to them (see `landed`'s note) — the line still
+  // lands, still flashes its own source in the ticker, and does not move his totals.
+  if (SYNTHETIC_FIELD) { landed.sources += 1; landed.memories += sp.src.derivedCount; rememberLanded(); }
   setSignals(signalsNow(), true);
 }
 
@@ -908,7 +911,56 @@ const B = loro.bragSignals;
 const fmt = (n) => n.toLocaleString('en-US');
 const USER = window.RICHOS_USER || { name: 'you' };
 const activeSpecialists = loro.specialists.filter(sp => sp.active);
-const landed = { sources: 0, memories: 0 };
+// WHAT THE PICTURE HAS WATCHED ITSELF LEARN, and it used to go BACKWARDS every launch —
+// audit-7 row 12, carried from audit-6 #5. Ray read 7,673 memories and 4,853 sources before a
+// relaunch and 7,520 / 4,804 after it, because these two counters climb as the field lands its
+// learning lines and then started again from zero on the next boot. A number that only ever
+// grows while he watches and drops the moment he reopens the app reads as memory being LOST.
+//
+// TWO DIFFERENT DATASETS AND TWO DIFFERENT ANSWERS, which is the whole of the fix:
+//
+//   * THE DEMONSTRATION. The counters are the round's own and the card on screen declares them
+//     illustrative. The ticking up is the approved treatment and is kept; what is added is that
+//     it is remembered, so the number he sees is never lower than the number he last saw. The
+//     delta persists under a key that names the dataset, so a different corpus never inherits
+//     it, and it is exactly the sum of the lines he watched land — nothing is invented and no
+//     growth curve is guessed at.
+//
+//   * HIS OWN LORO. `home_field.rs` compiles his real corpus and `meta.synthetic === false`
+//     says so. There the animation must ADD NOTHING AT ALL: `memories` is a count of his own
+//     records, and an ornament incrementing it would put a number on his home screen that
+//     nothing on his disk supports. That is a worse defect than the one being fixed and it was
+//     shipping too — the same engine draws both datasets, and `landed` was added to the total
+//     either way.
+//
+// `localStorage` is the store, as it is for every other per-window preference here, and the
+// same caveat applies: it survives a relaunch, which is the defect, and is lost if the webview's
+// storage is cleared, which costs one launch of accumulated illustration.
+const SYNTHETIC_FIELD = !(loro && loro.meta && loro.meta.synthetic === false);
+const LANDED_KEY = 'richos.homeField.landed.' + ((loro && loro.meta && loro.meta.name) || 'unknown');
+const landed = (() => {
+  const zero = { sources: 0, memories: 0 };
+  if (!SYNTHETIC_FIELD) return zero;
+  try {
+    const raw = window.localStorage.getItem(LANDED_KEY);
+    if (!raw) return zero;
+    const v = JSON.parse(raw);
+    // Non-negative finite integers or nothing: a value some other version wrote must not be
+    // able to make the HUD count down, which is the defect this exists to close.
+    const take = (n) => (typeof n === 'number' && isFinite(n) && n >= 0 ? Math.floor(n) : 0);
+    return { sources: take(v && v.sources), memories: take(v && v.memories) };
+  } catch (e) {
+    return zero; // storage denied, or something unreadable. The picture starts from the corpus.
+  }
+})();
+function rememberLanded() {
+  if (!SYNTHETIC_FIELD) return;
+  try {
+    window.localStorage.setItem(LANDED_KEY, JSON.stringify(landed));
+  } catch (e) {
+    /* Then the counters restart next launch, which is the old behavior rather than a new fault. */
+  }
+}
 // APP: 0/0 IS `NaN`, AND `fmt(NaN)` PUTS THE WORD "NaN" IN THE HUD.
 //
 // The round's dataset states `ceoMinutesSaved` and `tasksHandledWithoutCeo`, so this was always

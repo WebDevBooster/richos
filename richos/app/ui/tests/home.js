@@ -2885,6 +2885,137 @@ async function main() {
     return `${page.__errors.length} uncaught errors, ${page.__errors.length} console errors, over the whole run`;
   });
 
+  await run.check("the illustrative counters never go BACKWARDS across a relaunch", async () => {
+    // **AUDIT-7 ROW 12, carried from audit-6 #5.** Ray read 7,673 memories and 4,853 sources
+    // before the relaunch and 7,520 / 4,804 after it. The counters climb as the field lands its
+    // learning lines and started again from zero on the next boot, so a number that only ever
+    // grew while he watched dropped the moment he reopened the app — which reads as memory
+    // being lost, whatever the card beside it says about being illustrative.
+    const p = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const errs = [];
+    p.on("pageerror", (e) => errs.push(String(e)));
+    await p.goto(APP);
+    await p.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await p.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await p.evaluate(() => window.RichHome.startField && window.RichHome.startField());
+    await p.waitForFunction("window.__loro && !window.__loro.blooming", { timeout: 90000 });
+
+    // The numbers as the CEO reads them, off the rendered line rather than out of the model.
+    const onScreen = () =>
+      p.evaluate(() => {
+        const num = (k) => {
+          const el = document.querySelector(`.v[data-k="${k}"]`);
+          return el ? Number((el.textContent || "").replace(/[^\d]/g, "")) : null;
+        };
+        return { memories: num("memories"), sources: num("sources"), landed: { ...window.__loro.landed } };
+      });
+
+    const first = await onScreen();
+    assert(first.memories > 0 && first.sources > 0, "the HUD carries no counters, so this check reads nothing");
+
+    // Land some learning, the way the picture does on its own. The spark takes ~1,250ms to
+    // reach its node before the counters move (`field-engine.js`'s ingest cadence), so this
+    // waits for the FACT — `landed` actually changing — rather than for a guessed interval.
+    for (let i = 0; i < 3; i++) {
+      const was = await p.evaluate(() => window.__loro.landed.sources);
+      await p.evaluate(() => window.__loro.ingest());
+      await p.waitForFunction((n) => window.__loro.landed.sources > n, was, { timeout: 20000 });
+    }
+    const grown = await onScreen();
+    assert(
+      grown.memories >= first.memories && grown.sources >= first.sources,
+      `the counters went down while he watched: ${JSON.stringify(first)} -> ${JSON.stringify(grown)}`
+    );
+    assert(
+      grown.landed.memories > 0,
+      "nothing landed, so the relaunch below would be comparing two identical numbers and proving nothing"
+    );
+
+    // THE RELAUNCH IS A RELOAD, for the reason `memory.js` gives: what is under test is whether
+    // a fresh boot reads what the last one wrote, and a reload re-runs the whole field against
+    // the same storage. Two pages would share no storage at all.
+    await p.reload();
+    await p.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await p.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await p.evaluate(() => window.RichHome.startField && window.RichHome.startField());
+    await p.waitForFunction("window.__loro && !window.__loro.blooming", { timeout: 90000 });
+    const after = await onScreen();
+    assert(
+      after.memories >= grown.memories,
+      `memories went DOWN across the relaunch: ${grown.memories} -> ${after.memories} — this is audit-7 row 12`
+    );
+    assert(
+      after.sources >= grown.sources,
+      `sources went DOWN across the relaunch: ${grown.sources} -> ${after.sources}`
+    );
+    assertEqual(errs, [], "the picture logged errors");
+    await p.close();
+
+    // AND OVER HIS OWN CORPUS THE ANIMATION ADDS NOTHING AT ALL. `memories` is a count of his
+    // own records there; an ornament incrementing it would put a number on his home screen that
+    // nothing on his disk supports, which is a worse defect than the one above and was shipping
+    // too — the same engine draws both datasets. The dataset is marked before the engine is
+    // built, at the assignment `field-data.js` makes, because the engine reads `meta.synthetic`
+    // once when it is constructed.
+    const real = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const realErrs = [];
+    real.on("pageerror", (e) => realErrs.push(String(e)));
+    await real.addInitScript(() => {
+      let held = null;
+      Object.defineProperty(window, "MATURE_LORO", {
+        configurable: true,
+        get: () => held,
+        set: (v) => {
+          held = v;
+          if (held && held.meta) held.meta.synthetic = false;
+        },
+      });
+    });
+    await real.goto(APP);
+    await real.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await real.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await real.evaluate(() => window.RichHome.startField && window.RichHome.startField());
+    await real.waitForFunction("window.__loro && !window.__loro.blooming", { timeout: 90000 });
+    const said = await real.evaluate(() => window.MATURE_LORO.meta.synthetic);
+    assertEqual(said, false, "the dataset under this half is still the demonstration, so it proves nothing");
+    const before = await real.evaluate(() => ({
+      memories: Number((document.querySelector('.v[data-k="memories"]').textContent || "").replace(/[^\d]/g, "")),
+      sources: Number((document.querySelector('.v[data-k="sources"]').textContent || "").replace(/[^\d]/g, "")),
+    }));
+    // A NEGATIVE NEEDS SOMETHING TO WAIT FOR, and `landed` is deliberately frozen here, so it
+    // cannot be the signal. `ticker.on` is: a line that has reached its node is a line that
+    // WOULD have incremented the counters on the demonstration, so waiting for it is waiting
+    // for the exact moment the defect would have shown.
+    for (let i = 0; i < 3; i++) {
+      await real.evaluate(() => window.__loro.ingest());
+      await real.waitForFunction(
+        () => document.getElementById("home-ticker").classList.contains("on"),
+        { timeout: 20000 }
+      );
+      await real.waitForTimeout(300);
+    }
+    const stayed = await real.evaluate(() => ({
+      memories: Number((document.querySelector('.v[data-k="memories"]').textContent || "").replace(/[^\d]/g, "")),
+      sources: Number((document.querySelector('.v[data-k="sources"]').textContent || "").replace(/[^\d]/g, "")),
+      landed: { ...window.__loro.landed },
+    }));
+    assertEqual(
+      stayed.memories,
+      before.memories,
+      "the animation added to the count of HIS OWN memories — a number nothing on his disk supports"
+    );
+    assertEqual(stayed.sources, before.sources, "the animation added to the count of his own sources");
+    assertEqual(stayed.landed, { sources: 0, memories: 0 }, "the engine accumulated over a real corpus");
+    assertEqual(realErrs, [], "the picture logged errors over the customer dataset");
+    await real.close();
+
+    return (
+      `demonstration: ${first.memories} -> ${grown.memories} memories while watching, ${after.memories} after the ` +
+      `relaunch (never lower); his own corpus: ${before.memories} memories before three landings and ` +
+      `${stayed.memories} after, with landed ${JSON.stringify(stayed.landed)}`
+    );
+  });
+
   await run.check("a sheet that lives on the desk takes the CEO to the desk, not behind the picture", async () => {
     // AUDIT-7 ROW 5. `Connected repositories` reached from the opening screen "closes the
     // settings panel and shows no sheet"; Ray clicked it twice and called it dead. It had
