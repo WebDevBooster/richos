@@ -188,8 +188,20 @@ function probeBody(options) {
     // UNMEASURED BY ANYTHING. Collapsing the two into one number would either turn this gate
     // red forever over a surface that is covered, or — much worse — make somebody raise the
     // threshold and lose the signal for the next canvas nobody measures.
-    canvasCount: document.querySelectorAll("canvas:not(#home canvas)").length,
+    // A THIRD BUCKET SINCE THE PAIRING SCREEN, on exactly the same footing as the second and
+    // for exactly the same reason: those two canvases ARE measured from the pixels, just not
+    // here. `tests/phone.js` reads them back with `getImageData` in this same WebKit and
+    // asserts the only two colors present are the `#000000` modules and the `#ffffff` quiet
+    // zone this shell paints — 21:1 — and that the quiet zone really is white on all four
+    // edges, which is the property that makes a code scan on a dark page at all.
+    //
+    // They are counted separately rather than folded into `canvasCount` for the reason the
+    // note above gives about `#home`: one number would either sit red forever over something
+    // that is covered, or get its threshold raised, and the next canvas nobody measures would
+    // go with it.
+    canvasCount: document.querySelectorAll("canvas:not(#home canvas):not(#phone-sheet canvas)").length,
     canvasInHome: document.querySelectorAll("#home canvas").length,
+    canvasInPhone: document.querySelectorAll("#phone-sheet canvas").length,
     svgTextCount: document.querySelectorAll("svg text, svg tspan").length,
     failures: {},
     unresolvable: {},

@@ -23,6 +23,39 @@
   // (`get_appearance` -> `RichTheme.sync`, backend wins) untestable in a browser, since the
   // backend would answer with the shipped default every single time. One key, its own
   // namespace, and never the mirror's keys: this is the STORE, not the cache of it.
+  // THE PHONE CHANNEL'S HARNESS STATE. Six words from the same list the Mac and the phone both
+  // use, so a browser walk shows what he would actually read rather than lorem.
+  const mockPhone = {
+    paired: window.__RICHOS_MOCK_PRESET__?.phonePaired === true,
+    pairing:
+      window.__RICHOS_MOCK_PRESET__?.phonePairing === true ||
+      window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true,
+    // A FOURTH STATE, and it is the one a real person meets most often: he opened the screen,
+    // went to find his phone, and came back after the sixty seconds were up. Reaching it by
+    // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
+    openedAt: window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true ? now() - 61000 : now(),
+  };
+  function phoneStatusOf() {
+    const elapsed = now() - mockPhone.openedAt;
+    const secondsLeft = Math.max(0, Math.ceil((60000 - elapsed) / 1000));
+    const open = mockPhone.pairing && !mockPhone.paired && secondsLeft > 0;
+    return {
+      listening: mockPhone.paired || mockPhone.pairing,
+      paired: mockPhone.paired,
+      deviceName: mockPhone.paired ? "iPhone" : null,
+      pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
+      trustUrl: mockPhone.paired || mockPhone.pairing ? "http://mm1.local:8444/ca" : null,
+      pairUrl: open ? "https://mm1.local:8443/#pair=K7QF2M9X" : null,
+      fingerprintWords: ["harbor", "candle", "meadow", "lantern", "fossil", "juniper"],
+      fingerprintHex: mockPhone.paired || mockPhone.pairing ? "3D:9C:2A:5E:7B:11" : null,
+      bound:
+        mockPhone.paired || mockPhone.pairing
+          ? ["127.0.0.1:8443", "192.168.1.249:8443"]
+          : [],
+      pairingSecondsLeft: open ? secondsLeft : null,
+    };
+  }
+
   const MOCK_CONFIG_KEY = "richos-mock-config";
   const mockConfig = (function () {
     const fresh = { theme: "dark", font_scale: 100, user_name: null };
@@ -1909,6 +1942,22 @@
           }
           return Promise.reject("That action is no longer waiting for permission.");
         }
+        // --- THE PHONE CHANNEL (`phone.js`, plan §4.1) ---
+        //
+        // Three states, because the sheet has three and each one has to be reachable in a browser
+        // with no Tauri behind it: off, a pairing window open, and a phone paired. The preset
+        // switch is what lets the contrast walk and the acceptance tests each open the one they
+        // need. The default is OFF, because that is the state a fresh install actually ships in.
+        case "phone_status":
+          return phoneStatusOf();
+        case "phone_begin_pairing":
+          mockPhone.pairing = true;
+          mockPhone.openedAt = now();
+          return phoneStatusOf();
+        case "phone_forget":
+          mockPhone.paired = false;
+          mockPhone.pairing = false;
+          return null;
         case "repository_connections":
           return {companies: entities.map(e => ({id:e.id, name:e.display_name, repositories:e.connected_repositories || []}))};
         case "connect_repository": {

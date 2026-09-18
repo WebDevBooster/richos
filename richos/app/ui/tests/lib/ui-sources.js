@@ -90,6 +90,22 @@ const ROLES = {
   "home/field-engine.js": { role: "ui", why: "the home screen's WebGL field — it authors the hover card and the loro line" },
   "home/field-prep.js": { role: "ui", why: "the field's geometry preparation" },
   "home/field-ref.js": { role: "ui", why: "the field's reference tables" },
+  "phone.js": {
+    role: "ui",
+    why:
+      "the pairing screen — plan §4.1. Nearly every string on it is a state he reads and acts " +
+      "on, including the two warnings he must meet BEFORE he starts and the sixteen taps, so " +
+      "every state-facing gate has to read it.",
+  },
+  "qr.js": {
+    role: "ui",
+    why:
+      "the QR encoder the pairing screen draws with. It has NO user-visible strings at all — " +
+      "its one throw names a byte length — and it is classified `ui` rather than " +
+      "`preview-data` because it ships, it runs in the shell, and `preview-data` is a claim " +
+      "that something is sample content. A file with no strings is not a reason to call it " +
+      "something it is not.",
+  },
 
   "mock.js": {
     role: "preview-data",
