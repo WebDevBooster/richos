@@ -656,6 +656,9 @@ class Reaper(object):
         # _FAILED = read and could not be trusted. Three states, not two, for
         # the same reason the liveness verdict has three.
         self._open_tmp = None
+        # The allocator-root reduction of the same snapshot. Three states like
+        # its sibling: None = not read, _FAILED = read and untrustworthy.
+        self._open_alloc = None
         self.docker_actions = []
         # Paths scan_standing_failures has already decided. The other arms skip
         # these, so no path is ever counted twice in the verdict.
@@ -908,6 +911,46 @@ class Reaper(object):
                          % self.cfg["age_floor_minutes"])
                 continue
 
+            # THE OPEN-FILE WALL (D5). After the age floor and before the
+            # decision: the owning pid being dead means the ALLOCATION is over,
+            # never that nothing is reading the tree. A live holder here is the
+            # difference between collecting garbage and destroying work, and
+            # this arm is the one the app's own test instances live under.
+            #
+            # Placed after the age floor deliberately, so the common case — a
+            # young directory — never pays for a whole-machine lsof.
+            snapshot = self.open_under_alloc()
+            if snapshot is None:
+                self.add(path, "scratch-alloc", size, INDETERMINATE,
+                         "pid %d is ended, but the open-file table could not "
+                         "be read, and a tree something is reading must never "
+                         "be deleted from under it" % (pid or 0))
+                continue
+            if name in snapshot:
+                # §54 addendum 4: a holder that is POSITIVELY a collectable test
+                # instance is itself garbage and is quit at apply() time. Any
+                # other holder, or a mixed set, keeps the tree.
+                held_by, pids = self.test_instance_holders(path)
+                if held_by == "test-instances":
+                    self.add(path, "scratch-alloc", size, DELETE,
+                             "pid %d is ENDED (owner of '%s', from %s) and the "
+                             "only thing holding this open is test instance(s) "
+                             "of the app (pid %s), which are themselves garbage "
+                             "under §54 addendum 4 and are quit before this is "
+                             "removed"
+                             % (pid or 0, label, src,
+                                ", ".join(str(p) for p in pids)))
+                    continue
+                self.add(path, "scratch-alloc", size, KEEP,
+                         "pid %d is ended, but a LIVE process holds a file open "
+                         "inside this tree%s — the allocation being over does "
+                         "not make a tree something is reading garbage"
+                         % (pid or 0,
+                            "" if held_by != "mixed" else
+                            " (one holder is a test instance of the app, but "
+                            "not all of them are, so nothing here is quit)"))
+                continue
+
             refused = walls.check(path, has_git)
             if refused:
                 self.add(path, "scratch-alloc", size, INDETERMINATE, refused)
@@ -1107,6 +1150,7 @@ class Reaper(object):
                                env=_ps_env())
         except (OSError, subprocess.TimeoutExpired):
             self._open_tmp = _FAILED
+            self._open_alloc = _FAILED
             return None
         # lsof exits 1 when some of what it was asked about could not be
         # listed, which on a whole-machine scan is normal (other users'
@@ -1115,26 +1159,67 @@ class Reaper(object):
         # legacy candidate permanently INDETERMINATE.
         if r.returncode not in (0, 1):
             self._open_tmp = _FAILED
+            self._open_alloc = _FAILED
             return None
         # Reduced to the set of FIRST PATH COMPONENTS under $TMPDIR, because
         # every candidate this answers about is a direct child of $TMPDIR. That
         # turns "is anything open inside this directory" from a scan of the
         # whole snapshot per candidate — thousands times thousands — into one
         # set lookup.
+        #
+        # A SECOND REDUCTION IS BUILT IN THE SAME PASS, keyed to children of the
+        # ALLOCATOR ROOT. It cannot share the first one: the allocator's
+        # candidates are children of $TMPDIR/<root>, so their first component
+        # under $TMPDIR is the root's own name and every one of them would
+        # collapse to the same key. Deriving it here rather than in a second
+        # lsof keeps the cost at ONE whole-machine read, which is the property
+        # that made this method worth having.
         pref = tmp + "/"
-        found = set()
+        alloc_pref = os.path.join(tmp, self.cfg["scratch_root_name"]) + "/"
+        found, alloc = set(), set()
         for line in r.stdout.splitlines():
             if not line.startswith("n"):
                 continue
             p = line[1:]
             if not p.startswith(pref):
                 continue
+            if p.startswith(alloc_pref):
+                rest = p[len(alloc_pref):]
+                if rest:
+                    alloc.add(rest.split("/", 1)[0])
             rest = p[len(pref):]
             if not rest:
                 continue
             found.add(rest.split("/", 1)[0])
         self._open_tmp = found
+        self._open_alloc = alloc
         return found
+
+    def open_under_alloc(self):
+        """The set of allocator-root children something holds open, or None.
+
+        THE ALLOCATOR ARM WAS THE ONLY ONE THAT TRUSTED A PID ALONE, and that
+        made it the one arm that could destroy live work rather than garbage.
+        Both $TMPDIR arms already consulted the open-file table; this one went
+        straight from "the owning pid is dead" to DELETE.
+
+        REPRODUCED BEFORE FIXING, on this machine: a directory under the
+        allocator root named for a dead pid (99999997), with a live `tail -f`
+        holding a file open inside it, was planned for deletion —
+
+          DELETE  2.0 MB  .../richos-scratch/99999997-zach-d5-repro
+            why: pid 99999997 is ENDED (owner of 'unrecorded', from the
+                 directory name) and nothing has touched this for 374961 min
+
+        — and the reason given never mentions the holder, because nothing had
+        looked. The owning pid being dead says the ALLOCATION is over; it says
+        nothing about whether another process is reading the tree right now.
+        """
+        if self._open_alloc is None:
+            self.open_under_tmp()      # populates both reductions in one read
+        if self._open_alloc is None or self._open_alloc is _FAILED:
+            return None
+        return self._open_alloc
 
     def held_in_snapshot(self, path, snapshot):
         """True if any open file sits at or inside `path`.
@@ -1203,15 +1288,55 @@ class Reaper(object):
         return "mixed", pids
 
     def holder(self, path):
-        """'' nobody, '<pids>' somebody, None cannot tell."""
+        """'' nobody, '<pids>' somebody, None cannot tell.
+
+        `+D` FOR A DIRECTORY, AND THAT IS A BUG FIX, NOT A REFINEMENT. This used
+        `lsof -t -- <path>` for everything, which asks "who has THIS NODE open".
+        For a directory that is almost never the question: a process writing
+        into a scratch tree holds a FILE INSIDE it, not the directory itself.
+        Measured on this machine:
+
+            $ lsof -t -- .../holdertest              -> (nothing)
+            $ lsof +D .../holdertest -t               -> 94085
+            $ lsof -t -- .../holdertest/f.lock        -> 94085
+
+        So the old form answered "nobody holds it" about a directory a live
+        `tail -f` was reading, and BOTH callers believed it. That is the same
+        defect as D5 one level down, and it was in the arm that exists to
+        protect a live agent workspace: a `richos-*-workspace` with a process
+        writing inside it read as unheld.
+
+        THE COST, and why it is acceptable here: `+D` walks the tree, which is
+        why the $TMPDIR legacy arm uses the cached whole-machine snapshot
+        instead. This function is only ever reached for ONE candidate that has
+        already passed the age floor, so the walk is of a single stale scratch
+        directory rather than of $TMPDIR's 87,000 entries.
+
+        A TIMEOUT RETURNS None, NEVER ''. The three states are load-bearing:
+        None becomes INDETERMINATE and keeps the tree, whereas '' would mean
+        "proven unheld" and permission to delete. A slow answer must never be
+        allowed to read as an absence of holders.
+        """
         try:
-            r = subprocess.run(["lsof", "-t", "--", path], capture_output=True,
-                               text=True, timeout=20, env=_ps_env())
+            if os.path.isdir(path) and not os.path.islink(path):
+                args = ["lsof", "+D", path, "-t", "-n", "-P", "-w"]
+            else:
+                args = ["lsof", "-t", "-n", "-P", "-w", "--", path]
+            r = subprocess.run(args, capture_output=True,
+                               text=True, timeout=60, env=_ps_env())
         except (OSError, subprocess.TimeoutExpired):
             return None
+        # lsof exits 1 when it has nothing to report AND when some of what it
+        # was asked about could not be listed; both are normal here and its
+        # stdout is the answer either way.
         if r.returncode not in (0, 1):
             return None
-        return " ".join(r.stdout.split())
+        pids = [t for t in r.stdout.split() if t.isdigit()]
+        # This process and its parent walk the tree to measure it, so they can
+        # appear as holders of their own candidate. A reaper that reported itself
+        # as the reason not to delete would keep everything for ever.
+        mine = {str(os.getpid()), str(os.getppid())}
+        return " ".join(p for p in pids if p not in mine)
 
     def scan_nightly(self, walls):
         base = self.cfg["nightly_dir"]

@@ -76,6 +76,14 @@
 #   S18  an obstacle to removal is CLEARED in machine-made harness scratch
 #        (S18/S18b, logged because it is a power) and REPORTED rather than
 #        overridden in a session's scratchpad (S18c, the bound).
+#   S19  THE ALLOCATOR ARM CONSULTS THE OPEN-FILE TABLE. A dead owner pid with a
+#        live holder inside is KEPT (S19) and the reason names the holder
+#        (S19b); with the holder gone the same tree is deleted (S19c, the
+#        control). Reproduced as a real deletion before it was fixed.
+#   S20  a tree held ONLY by a test instance of the app is collected rather than
+#        kept for ever: the instance is quit (S20b) and the act is logged
+#        (S20c). §54 addendum 4 — the instance IS the garbage, and it pins the
+#        rest. Any other holder, or a mixed set, still means KEEP (that is S19).
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -990,6 +998,154 @@ else
     ok "S18  SKIPPED — chflags is not available on this host"
     ok "S18b SKIPPED — chflags is not available on this host"
     ok "S18c SKIPPED — chflags is not available on this host"
+fi
+
+# ===========================================================================
+# S19 — THE ALLOCATOR ARM DOES NOT DELETE A TREE A LIVE PROCESS IS READING
+# ===========================================================================
+# This was a real defect, found by Frank's attack pass and reproduced here on
+# the operator's own machine before it was fixed: the allocator arm was the
+# ONLY arm that went from "the owning pid is dead" straight to DELETE without
+# consulting the open-file table. Both $TMPDIR arms already checked. Measured
+# on the real allocator root, with a dead owner pid in the directory name and a
+# live `tail -f` inside:
+#
+#   DELETE  2.0 MB  .../richos-scratch/99999997-zach-d5-repro
+#     why: pid 99999997 is ENDED (owner of 'unrecorded', from the directory
+#          name) and nothing has touched this for 374961 min
+#
+# That is data loss, not garbage collection. The owning pid being dead says the
+# ALLOCATION is over; it says nothing about who is reading the tree now.
+world allocheld
+mkdir -p "$W_TMP/richos-scratch/99999997-held"
+echo payload >"$W_TMP/richos-scratch/99999997-held/payload.txt"
+if command -v lsof >/dev/null 2>&1; then
+    # `tail -f` for the reason S15's comment gives: a single process that holds
+    # the descriptor itself, so killing it actually releases it.
+    : >"$W_TMP/richos-scratch/99999997-held/held.lock"
+    tail -f "$W_TMP/richos-scratch/99999997-held/held.lock" >/dev/null 2>&1 &
+    AHELD_PID=$!
+    KILL_LIST="$KILL_LIST $AHELD_PID"
+    sleep 1
+    OUT="$(run --apply)"
+    if [ -f "$W_TMP/richos-scratch/99999997-held/payload.txt" ]; then
+        ok "S19  an allocation with a dead owner but a LIVE holder is kept"
+    else
+        bad "S19  a tree was deleted from under a live process (D5)"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+    # The reason must NAME the holder. A right verdict for an unstated reason is
+    # a verdict nobody can check, and this arm's old reason said only that the
+    # owner was dead.
+    #
+    # --verbose, because report() prints KEEP lines only under it; the first
+    # version of this assertion read --apply's output, where the kept entry does
+    # not appear at all, and failed for that reason rather than for the reaper's.
+    OUT="$(run --dry-run --verbose)"
+    if printf '%s\n' "$OUT" | grep -q "holds a file open inside this tree"; then
+        ok "S19b the reason says a live process holds it, not just that the owner died"
+    else
+        bad "S19b kept, but the reason does not name the holder"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+    kill "$AHELD_PID" >/dev/null 2>&1 || true
+    wait "$AHELD_PID" 2>/dev/null || true
+
+    # THE POSITIVE CONTROL. Without it every assertion above passes against an
+    # arm that has simply stopped deleting anything at all — which is exactly
+    # what a too-eager wall would look like.
+    OUT="$(run --apply)"
+    if [ ! -d "$W_TMP/richos-scratch/99999997-held" ]; then
+        ok "S19c CONTROL: with the holder gone the same allocation is deleted"
+    else
+        bad "S19c CONTROL FAILED: the allocator arm keeps it whether held or not,"
+        bad "     so S19 proves nothing"
+        printf '%s\n' "$OUT" | sed 's/^/        /'
+    fi
+else
+    ok "S19  SKIPPED — lsof is not on this host"
+    ok "S19b SKIPPED — lsof is not on this host"
+    ok "S19c SKIPPED — lsof is not on this host"
+fi
+
+# ===========================================================================
+# S20 — A TEST INSTANCE OF THE APP DOES NOT MAKE ITS OWN GARBAGE IMMORTAL
+# ===========================================================================
+# §54 addendum 4. The wall S19 adds is correct and it introduces a new way to
+# lose: a stray app instance holds its own scratch open, so the tree is KEPT,
+# on every run, for ever. That was observed for real while this was being
+# written — a fixture app left behind by a killed harness kept its sandbox
+# alive, and the sweeper's verdict was KEEP, "a process holds a file open
+# inside it", which was correct by the rule and guaranteed the garbage stayed.
+#
+# So a holder that is POSITIVELY a collectable test instance is quit first and
+# the tree removed; ANY other holder still means KEEP (S19 is that case).
+world allocapp
+mkdir -p "$W_TMP/richos-scratch/99999996-appheld"
+echo payload >"$W_TMP/richos-scratch/99999996-appheld/payload.txt"
+if command -v lsof >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then
+    # A REAL binary really named richos-tauri, holding a file inside the tree.
+    # Compiled, not a shell script: bash keeps its script open on a numeric
+    # descriptor, which would put the fixture's own path into the evidence and
+    # test the fixture instead of the reaper.
+    cat > "$W_ROOT/fake.c" <<'CSRC'
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+int main(void) {
+    const char *s = getenv("APP_STATE");
+    if (s) { FILE *f = fopen(s, "a+"); if (!f) return 2; fprintf(f, "x\n"); fflush(f); }
+    for (long i = 0; i < 600; i++) { usleep(200000); }
+    return 0;
+}
+CSRC
+    mkdir -p "$W_ROOT/appbin"
+    if cc -o "$W_ROOT/appbin/richos-tauri" "$W_ROOT/fake.c" 2>/dev/null; then
+        APP_STATE="$W_TMP/richos-scratch/99999996-appheld/app.state" \
+            "$W_ROOT/appbin/richos-tauri" >/dev/null 2>&1 &
+        APP_PID=$!
+        KILL_LIST="$KILL_LIST $APP_PID"
+        # Wait for the descriptor, so the case cannot race the fixture's start.
+        i=0
+        while [ $i -lt 100 ]; do
+            if lsof -p "$APP_PID" 2>/dev/null | grep -q "app.state"; then break; fi
+            sleep 0.05; i=$((i + 1))
+        done
+        OUT="$(run --apply)"
+        if [ ! -d "$W_TMP/richos-scratch/99999996-appheld" ]; then
+            ok "S20  a tree held ONLY by a test instance is collected, not kept for ever"
+        else
+            bad "S20  a test instance made its own scratch immortal"
+            printf '%s\n' "$OUT" | sed 's/^/        /'
+        fi
+        if ! kill -0 "$APP_PID" 2>/dev/null; then
+            ok "S20b the instance itself was quit, and the pid is verified gone"
+        else
+            bad "S20b the tree went but the app instance is STILL RUNNING — the"
+            bad "     window would still be on his screen (§54 addendum 4)"
+            kill -9 "$APP_PID" 2>/dev/null || true
+        fi
+        # THE LOG FILE, not stdout. The first version of this assertion grepped
+        # --apply's stdout and failed while S20/S20b passed: the quit lines go
+        # where every other deletion line goes, which is the log. A case that
+        # reads the wrong channel reports a defect that is not there — the same
+        # mistake M16 caught in S16 when this suite was first written.
+        if grep -q "QUIT test-instance" "$W_HOME/state/scratch-reaper.log" 2>/dev/null; then
+            ok "S20c the log says which instance it quit, so the act is auditable"
+        else
+            bad "S20c nothing in the log names the instance that was quit"
+            sed -n '1,20p' "$W_HOME/state/scratch-reaper.log" 2>/dev/null \
+                | sed 's/^/        /'
+        fi
+    else
+        ok "S20  SKIPPED — the fixture would not compile on this host"
+        ok "S20b SKIPPED — the fixture would not compile on this host"
+        ok "S20c SKIPPED — the fixture would not compile on this host"
+    fi
+else
+    ok "S20  SKIPPED — lsof or cc is not on this host"
+    ok "S20b SKIPPED — lsof or cc is not on this host"
+    ok "S20c SKIPPED — lsof or cc is not on this host"
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

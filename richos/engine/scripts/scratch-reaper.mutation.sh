@@ -199,4 +199,40 @@ mutant M20.unstick-unbounded "S18c" "$LIB" \
      reaches a SESSION's scratchpad, overriding a file a person pinned on
      purpose instead of reporting it."
 
+mutant M21.alloc-open-handle-ignored "S19 " "$LIB" \
+    "if name in snapshot:" \
+    "if False:" \
+    "The ALLOCATOR arm stops consulting the open-file table, so a tree whose
+     owning pid is dead is deleted while a live process is reading it. This is
+     the defect as it actually shipped — reproduced on the real allocator root
+     before the fix, deleting 2.0 MB under a live tail -f — and the mutant
+     proves the wall that replaced it is what keeps S19 green rather than some
+     other accident of ordering."
+
+mutant M22.holder-blind-to-contents "S20 " "$LIB" \
+    "args = [\"lsof\", \"+D\", path, \"-t\", \"-n\", \"-P\", \"-w\"]" \
+    "args = [\"lsof\", \"-t\", \"-n\", \"-P\", \"-w\", \"--\", path]" \
+    "holder() goes back to asking who has the DIRECTORY NODE open instead of who
+     has a file open inside it — which on this OS answers 'nobody' about a tree a
+     live process is writing into. The wall is present, consulted, and given a
+     false answer, which is the subtler half of the same defect.
+
+     IT IS ASSERTED AGAINST S20 AND NOT S19, and finding that out was worth the
+     mutant on its own. Targeted at S19 it FAILED as 'red, but not here' — S19
+     stays GREEN under this mutation, because its KEEP comes from the cached
+     whole-machine snapshot (name in snapshot), which never calls holder() at
+     all. What actually depends on holder() telling the truth is the
+     TEST-INSTANCE override: with the node form it cannot see which process
+     holds the tree, so the holder set reads 'unknown', the override declines,
+     and the stray app keeps its scratch alive for ever. So the two walls are
+     independent, and only S20 is evidence about this line."
+
+mutant M23.test-instance-holder-not-quit "S20 " "$LIB" \
+    "if held_by == \"test-instances\":" \
+    "if False:" \
+    "A stray test instance of the app once again makes its own scratch immortal:
+     held -> KEEP, on every run, for ever. Observed for real while this was
+     written. The mutant proves S20 is green because the override exists, not
+     because the tree happened to be swept by some other arm."
+
 mutation_end

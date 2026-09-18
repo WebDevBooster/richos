@@ -60,13 +60,21 @@ command -v lsof >/dev/null 2>&1 || {
 SANDBOX="$(scratch_new appinstances-test --ttl 60)"
 
 PIDS=""
+OUTSIDE=""     # anything this suite creates outside $SANDBOX, so the trap can
+               # remove it even when a case fails half way through
 cleanup() {
     # Belt and braces, and deliberately NOT the mechanism under test: every
     # case verifies its own process is gone. This is here so a case that fails
     # half way cannot leave one of these fake apps running — which would be
     # this suite committing the exact fault it tests for.
+    #
+    # SIGKILL, NOT SIGTERM: one variant here traps TERM on purpose, so a polite
+    # teardown would leave exactly the deaf process it was built to model.
     for p in $PIDS; do
         kill -9 "$p" 2>/dev/null || true
+    done
+    for d in $OUTSIDE; do
+        rm -rf "$d" 2>/dev/null || true
     done
     scratch_release "$SANDBOX" 2>/dev/null || true
 }
@@ -372,7 +380,20 @@ fi
 # The realistic case this protects: ~/Applications/RichOS.app launched for a
 # test against a scratch HOME must still be collectable, or every QA run that
 # uses the installed bundle leaves garbage behind for ever.
+# REGISTERED WITH THE TRAP BEFORE IT IS CREATED, and the reason is a real
+# incident rather than tidiness. This path is under $HOME/.cache, which is
+# OUTSIDE every root the reaper sweeps and outside the collector's root set too,
+# so nothing on this machine would ever clean it up. The first run of this suite
+# was killed by a harness timeout with the old removal sitting on the success
+# path only; the fixture survived under ~/.cache for two hours and made
+# `pgrep -fl richos-tauri` answer yes for every other agent's "is the app
+# running?" check, costing a teammate a minute proving the process was not his.
+#
+# The case still needs a binary under $HOME — that is the whole property it
+# tests — so the fix is a teardown that runs on EVERY exit, plus the fixture's
+# own deadline, not a different location.
 EXE_HOME="$HOME/.cache/appinstances-test-$$"
+OUTSIDE="$OUTSIDE $EXE_HOME"
 make_app "$EXE_HOME"
 P7="$(launch "$EXE_HOME" "$SCRATCH_HOME/fromhome/state.db")"
 V7="$(classify_pid "$P7" | verdict_of)"
