@@ -412,6 +412,112 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
     Ok(TailnetState::Ready { name, addresses })
 }
 
+// -------------------------------------------------------------------------------------
+// the certificate
+// -------------------------------------------------------------------------------------
+
+/// A private key as the PEM label said it was.
+///
+/// **Two variants, because I do not know which one `tailscale cert` emits and will not guess.**
+/// An ECDSA key travels either as PKCS#8 (PEM label `PRIVATE KEY`) or as SEC1 (PEM label
+/// `EC PRIVATE KEY`); rustls wants to be told which, and feeding it the wrong one fails at the
+/// handshake rather than at the parse. `listen.rs`'s own TLS test exists because *"a
+/// SEC1-versus-PKCS#8 mismatch … is the one thing about this handshake that is easy to get wrong
+/// and impossible to see."* Reading the label is free and settles it on the machine rather than
+/// in a recollection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyDer {
+    Pkcs8(Vec<u8>),
+    Sec1(Vec<u8>),
+}
+
+/// What the listener needs in order to present this Mac's tailnet name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TailnetCert {
+    /// Leaf first, then every intermediate the command handed over.
+    pub chain_der: Vec<Vec<u8>>,
+    pub key: KeyDer,
+}
+
+/// Every PEM block in a bundle, as `(label, DER)`.
+fn pem_blocks(text: &str) -> Vec<(String, Vec<u8>)> {
+    const OPEN: &str = "-----BEGIN ";
+    const DASHES: &str = "-----";
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        let after = &rest[start + OPEN.len()..];
+        let Some(label_end) = after.find(DASHES) else { break };
+        let label = after[..label_end].trim().to_string();
+        let body_start = label_end + DASHES.len();
+        let end_marker = format!("-----END {label}{DASHES}");
+        let Some(body_end) = after[body_start..].find(&end_marker) else { break };
+        let body: String = after[body_start..body_start + body_end]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        if let Ok(der) = super::unb64std(&body) {
+            out.push((label, der));
+        }
+        rest = &after[body_start + body_end + end_marker.len()..];
+    }
+    out
+}
+
+/// **Ask Tailscale for the publicly trusted certificate for this Mac's tailnet name.**
+///
+/// `tailscale cert --cert-file - --key-file - <name>` — **both to stdout, and that is the whole
+/// trick.** `cmd/tailscale/cli/cert.go` documents each flag as *"output cert file or `-` for
+/// stdout"*, and asking for stdout rather than a path does two things a path cannot:
+///
+/// * it crosses the **Mac App Store sandbox**, where the client is a sandboxed network extension
+///   and writing to a directory of our choosing is not a given, through a pipe we already own; and
+/// * **the private key never touches the disk.** It goes from the pipe into memory and from there
+///   into the Keychain, which is how `ca.rs` already handles every other key in this module.
+///
+/// Both streams arriving on one file descriptor means the two are concatenated, so the blocks are
+/// sorted **by their PEM label rather than by their order** — which also makes this immune to
+/// upstream ever writing the key first.
+///
+/// `unverified:` that this command succeeds on any variant, because there is no Tailscale on this
+/// Mac. What IS verified is the parse, against a bundle built from real DER — see
+/// `a_bundle_from_stdout_round_trips_to_the_bytes_it_was_built_from`.
+pub fn fetch_cert(cli: &Path, name: &str, min_validity: &str) -> Result<TailnetCert, Diagnostic> {
+    let name = normalize_name(name);
+    let output = Command::new(cli)
+        .arg("cert")
+        .arg("--cert-file")
+        .arg("-")
+        .arg("--key-file")
+        .arg("-")
+        .arg("--min-validity")
+        .arg(min_validity)
+        .arg(&name)
+        .output()
+        .map_err(|_| Diagnostic::Unreadable)?;
+    if !output.status.success() {
+        // The two sentences this command prints — "HTTPS cert support is not enabled/configured
+        // for your tailnet." and "Tailscale is not running." — are exactly what `classify` reads,
+        // and the raw text goes no further than this line.
+        return Err(Diagnostic::classify(&String::from_utf8_lossy(&output.stderr)));
+    }
+    let mut chain_der = Vec::new();
+    let mut key = None;
+    for (label, der) in pem_blocks(&String::from_utf8_lossy(&output.stdout)) {
+        match label.as_str() {
+            "CERTIFICATE" => chain_der.push(der),
+            "PRIVATE KEY" => key = Some(KeyDer::Pkcs8(der)),
+            "EC PRIVATE KEY" => key = Some(KeyDer::Sec1(der)),
+            _ => {}
+        }
+    }
+    match (chain_der.is_empty(), key) {
+        (false, Some(key)) => Ok(TailnetCert { chain_der, key }),
+        // A success exit with nothing usable in it is not something to paper over with a retry.
+        _ => Err(Diagnostic::Unreadable),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -676,6 +782,162 @@ mod tests {
         assert!(TailnetState::Ready { name: "mm1.example.ts.net".into(), addresses: vec![] }
             .origin()
             .is_some());
+    }
+
+    /// Write an executable script that prints `stdout_text`, exits `code`, and optionally prints
+    /// `stderr_text`. The ONLY way any of the command-running code in this module is exercised on
+    /// a Mac with no Tailscale on it.
+    fn fake_cli(tag: &str, stdout_text: &str, stderr_text: &str, code: i32) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "richos-tailnet-{tag}-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("tailscale");
+        // Single-quoted heredocs, so nothing in the payload is expanded by the shell.
+        let body = format!(
+            "#!/bin/sh\ncat <<'RICHOS_OUT'\n{stdout_text}\nRICHOS_OUT\ncat >&2 <<'RICHOS_ERR'\n{stderr_text}\nRICHOS_ERR\nexit {code}\n"
+        );
+        std::fs::write(&script, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        script
+    }
+
+    fn pem(label: &str, der: &[u8]) -> String {
+        format!("-----BEGIN {label}-----\n{}\n-----END {label}-----", super::super::b64std(der))
+    }
+
+    #[test]
+    fn a_bundle_from_stdout_round_trips_to_the_bytes_it_was_built_from() {
+        // REAL DER, from this repository's own certificate authority, so the round trip is over
+        // certificate bytes rather than over a string somebody typed. Both streams land on one
+        // file descriptor, so the bundle is a leaf, an intermediate and a key, concatenated.
+        use crate::phone::ca::PhoneCa;
+        use crate::phone::names::LocalNames;
+        use crate::phone::secrets::MemorySecrets;
+
+        let dir = std::env::temp_dir()
+            .join(format!("richos-tailnet-ca-{}-{}", std::process::id(), super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ca = PhoneCa::open(
+            &dir,
+            &MemorySecrets::default(),
+            LocalNames {
+                host: "MM1".into(),
+                bonjour: "mm1.tail1a2b3c.ts.net".into(),
+                addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            },
+        )
+        .unwrap();
+
+        let bundle = format!(
+            "{}\n{}\n{}",
+            pem("CERTIFICATE", &ca.leaf_der),
+            pem("CERTIFICATE", &ca.ca_der),
+            pem("PRIVATE KEY", &ca.leaf_key_pkcs8)
+        );
+        let cli = fake_cli("cert", &bundle, "", 0);
+        let got = fetch_cert(&cli, "MM1.Tail1A2B3C.ts.net.", "720h").expect("the bundle was refused");
+
+        // LEAF FIRST, INTERMEDIATE AFTER, byte for byte.
+        assert_eq!(got.chain_der, vec![ca.leaf_der.clone(), ca.ca_der.clone()]);
+        assert_eq!(got.key, KeyDer::Pkcs8(ca.leaf_key_pkcs8.clone()));
+        // THE CHAIN IS WHY THIS IS A Vec. `tailscale cert` hands over the leaf AND its issuing
+        // intermediate, and a public chain missing the intermediate is the classic "works in
+        // curl, fails on a phone" certificate.
+        assert_eq!(got.chain_der.len(), 2);
+
+        let _ = std::fs::remove_dir_all(cli.parent().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_key_variant_follows_the_label_rather_than_an_assumption_about_tailscale() {
+        // The whole reason `KeyDer` has two variants. Same bytes, two labels, two answers — and
+        // rustls fails at the HANDSHAKE rather than at the parse when this is wrong, which is why
+        // it is read rather than assumed.
+        let der = vec![9u8; 40];
+        let sec1 = fake_cli("sec1", &format!("{}\n{}", pem("CERTIFICATE", &[1, 2, 3]), pem("EC PRIVATE KEY", &der)), "", 0);
+        assert_eq!(fetch_cert(&sec1, "x.ts.net", "720h").unwrap().key, KeyDer::Sec1(der.clone()));
+
+        let pkcs8 = fake_cli("pkcs8", &format!("{}\n{}", pem("CERTIFICATE", &[1, 2, 3]), pem("PRIVATE KEY", &der)), "", 0);
+        assert_eq!(fetch_cert(&pkcs8, "x.ts.net", "720h").unwrap().key, KeyDer::Pkcs8(der));
+
+        for path in [&sec1, &pkcs8] {
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn the_order_the_two_streams_arrive_in_does_not_matter() {
+        // Both flags say `-`, so the two land on one file descriptor and their order is upstream's
+        // to change. Sorting by label rather than by position is what makes that a non-event.
+        let der = vec![7u8; 32];
+        let cli = fake_cli(
+            "reversed",
+            &format!("{}\n{}", pem("PRIVATE KEY", &der), pem("CERTIFICATE", &[4, 5, 6])),
+            "",
+            0,
+        );
+        let got = fetch_cert(&cli, "x.ts.net", "720h").unwrap();
+        assert_eq!(got.chain_der, vec![vec![4, 5, 6]]);
+        assert_eq!(got.key, KeyDer::Pkcs8(der));
+        let _ = std::fs::remove_dir_all(cli.parent().unwrap());
+    }
+
+    #[test]
+    fn the_two_refusals_this_command_actually_prints_become_their_own_labels() {
+        // From `cmd/tailscale/cli/cert.go`, the two sentences quoted in the module header.
+        let off = fake_cli(
+            "off",
+            "",
+            "HTTPS cert support is not enabled/configured for your tailnet.",
+            1,
+        );
+        assert_eq!(fetch_cert(&off, "x.ts.net", "720h"), Err(Diagnostic::HttpsNotEnabled));
+
+        let down = fake_cli("down", "", "Tailscale is not running.", 1);
+        assert_eq!(fetch_cert(&down, "x.ts.net", "720h"), Err(Diagnostic::DaemonUnreachable));
+
+        // A ZERO EXIT WITH NOTHING USABLE IN IT IS STILL A REFUSAL. Succeeding and returning a
+        // certificate are two different things, and treating the first as the second is how an
+        // empty chain reaches rustls.
+        let empty = fake_cli("empty", "nothing resembling a certificate", "", 0);
+        assert_eq!(fetch_cert(&empty, "x.ts.net", "720h"), Err(Diagnostic::Unreadable));
+
+        // A CERTIFICATE WITH NO KEY IS ALSO A REFUSAL, not half an answer.
+        let keyless = fake_cli("keyless", &pem("CERTIFICATE", &[1, 2, 3]), "", 0);
+        assert_eq!(fetch_cert(&keyless, "x.ts.net", "720h"), Err(Diagnostic::Unreadable));
+
+        for path in [&off, &down, &empty, &keyless] {
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn detection_reads_a_recorded_document_through_a_real_subprocess() {
+        // `parse_status` is tested directly everywhere else; this is the one test that proves the
+        // COMMAND path — argv, stdout capture, exit code — rather than the parser.
+        let cli = fake_cli("status", &ready_document(), "", 0);
+        let (state, diagnostic) = detect_with(&cli);
+        assert_eq!(state.token(), "ready");
+        assert_eq!(diagnostic, None);
+        assert_eq!(state.origin(), Some("https://mm1.tail1a2b3c.ts.net:8443".to_string()));
+
+        // And a daemon that is down is the label, with the raw text dropped.
+        let down = fake_cli("statusdown", "", "Tailscale is not running.", 1);
+        let (state, diagnostic) = detect_with(&down);
+        assert_eq!(state.token(), "not-running");
+        assert_eq!(diagnostic, Some(Diagnostic::DaemonUnreachable));
+
+        for path in [&cli, &down] {
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
     }
 
     #[test]
