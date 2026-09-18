@@ -634,6 +634,28 @@ impl WorkHost {
             }
         }
 
+        // **3a. THE READINESS FACTS, READ WHERE THEY EXIST.**
+        //
+        // The engine plugin, the work tools and automatic permission checks are read off the
+        // child's `system/init` frame, and that frame arrives with the FIRST TURN
+        // (`native.rs`'s `child_args` doc). `bind_work_assignment` therefore cannot ask — and
+        // until 2026-09-18 it asked anyway, read "nobody has told us" as "we were told no",
+        // and failed every background job this product was ever given before its lease ran a
+        // single turn.
+        //
+        // The bind now refuses only a REPORTED absence, so this is the other half: the same
+        // three facts, the same three sentences, asked on the same lease one turn later. It is
+        // read here, before the settle reading below, because a run that had no engine plugin
+        // must be reported as THAT and not as the vague "stopped before it finished" an open
+        // obligation would otherwise produce.
+        let readiness = backend
+            .lease
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|lease| lease.work_readiness_after_turn().err())
+            .map(|why| honest(&why.to_string()));
+
         // 4. The grant goes away with the assignment, whatever happened (spec §5.4).
         if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
             let _ = lease.revoke_work_assignment();
@@ -661,6 +683,17 @@ impl WorkHost {
                 advance(AssignmentState::Interrupted, "Stopped. The workspace and the receipts are kept.");
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
+            }
+            // **A LEASE THAT TOLD US, ONE TURN LATE, THAT IT WAS NEVER EQUIPPED.** Step 3a's
+            // reading, and it sits AFTER the stop arm on purpose: a stop is his own action and
+            // nothing outranks it. Ahead of the settle reading, because that reading would
+            // describe this as an obligation that failed to close and say so vaguely, when
+            // what is actually known is precisely which piece was missing.
+            Ok(_) if readiness.is_some() => {
+                let sentence = readiness.expect("checked by the guard");
+                advance(AssignmentState::Failed, &sentence);
+                self.forget_at_the_desk(record);
+                self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &sentence));
             }
             // ===========================================================================
             // WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, 2026-09-18
@@ -1594,6 +1627,11 @@ mod tests {
         /// Every handoff ask the OUTGOING lease was given, and what it answered.
         handoffs: Arc<Mutex<Vec<String>>>,
         handoff_reply: String,
+        /// What this lease's own init frame turned out to say about the three facts a
+        /// background assignment needs (`native.rs`'s `work_readiness_after_turn`).
+        /// `Some(sentence)` is a lease that came up without one of them and could only say so
+        /// once its first turn had brought the frame that reports them.
+        readiness: Arc<Mutex<Option<String>>>,
     }
 
     impl Cognition for WorkLease {
@@ -1637,8 +1675,18 @@ mod tests {
             Some(self.cancel.clone())
         }
         fn bind_work_assignment(&mut self, assignment: &WorkAssignment) -> Result<(), CognitionError> {
+            // **It accepts the binding even when `readiness` says the lease is not equipped**,
+            // and that is the fix under test rather than a lax fake: at the binding the child
+            // has not sent its init frame yet, so nothing is known to refuse on. The real
+            // lease behaves identically (`native.rs`'s `bind_work_assignment`).
             self.bound.lock().unwrap().push(assignment.clone());
             Ok(())
+        }
+        fn work_readiness_after_turn(&self) -> Result<(), CognitionError> {
+            match self.readiness.lock().unwrap().clone() {
+                Some(sentence) => Err(CognitionError::Protocol(sentence)),
+                None => Ok(()),
+            }
         }
         fn revoke_work_assignment(&mut self) -> Result<(), CognitionError> {
             self.revoked.fetch_add(1, Ordering::SeqCst);
@@ -1662,6 +1710,7 @@ mod tests {
         reprimes: Arc<Mutex<Vec<String>>>,
         handoffs: Arc<Mutex<Vec<String>>>,
         handoff_reply: Arc<Mutex<String>>,
+        readiness: Arc<Mutex<Option<String>>>,
         /// The next `spawn_work` fails once, so the "a successor that cannot be opened
         /// leaves the incumbent working" branch has a way to happen.
         refuse_next: Arc<AtomicBool>,
@@ -1694,6 +1743,7 @@ mod tests {
                 reprimes: self.reprimes.clone(),
                 handoffs: self.handoffs.clone(),
                 handoff_reply: self.handoff_reply.lock().unwrap().clone(),
+                readiness: self.readiness.clone(),
             }))
         }
     }
@@ -1722,6 +1772,7 @@ mod tests {
         handoffs: Arc<Mutex<Vec<String>>>,
         handoff_reply: Arc<Mutex<String>>,
         refuse_next: Arc<AtomicBool>,
+        readiness: Arc<Mutex<Option<String>>>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -1741,6 +1792,7 @@ mod tests {
         let handoffs = Arc::new(Mutex::new(Vec::new()));
         let handoff_reply = Arc::new(Mutex::new(String::new()));
         let refuse_next = Arc::new(AtomicBool::new(false));
+        let readiness = Arc::new(Mutex::new(None));
         let factory = WorkFactory {
             bound: bound.clone(),
             revoked: revoked.clone(),
@@ -1753,11 +1805,12 @@ mod tests {
             handoffs: handoffs.clone(),
             handoff_reply: handoff_reply.clone(),
             refuse_next: refuse_next.clone(),
+            readiness: readiness.clone(),
         };
         let desk = Arc::new(crate::permissions::PermissionDesk::default());
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
-            usage, reprimes, handoffs, handoff_reply, refuse_next }
+            usage, reprimes, handoffs, handoff_reply, refuse_next, readiness }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -2219,6 +2272,68 @@ mod tests {
     /// the identical assignment with an identical closed obligation and NO land on its
     /// receipts says nothing was landed. Without it, a sentence that always claimed a land
     /// would pass.
+    /// **THE MOVED HALF OF THE READINESS GATE, AT THE LEVEL HE ACTUALLY SEES (step 3a).**
+    ///
+    /// Until 2026-09-18 `bind_work_assignment` asserted the engine plugin, the work tools and
+    /// automatic permission checks from the child's `system/init` frame — which arrives with
+    /// the first TURN — on a lease that had not taken one. Every background job therefore
+    /// failed at the bind, before running: candidate .7 failed two, 6.545 s and 7.486 s after
+    /// registration, `work_session: null` on both. The bind now refuses only a REPORTED
+    /// absence, so the assignment reaches its turn; this is where a lease that turns out not
+    /// to have been equipped is failed instead, by name.
+    ///
+    /// **The obligation is deliberately `Settled` here**, which is the most favorable reading
+    /// the settle check can return. A build that consulted readiness after the settle reading,
+    /// or not at all, would tell him this job finished. The sentence has to win over that, or
+    /// the loudness cell K4 exists to preserve has not actually moved anywhere.
+    #[test]
+    fn a_lease_that_reports_one_turn_late_that_it_had_no_engine_plugin_fails_the_job_by_name() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
+        *h.readiness.lock().unwrap() = Some("The desktop engine plugin did not load".to_string());
+        let _runner = h.host.start();
+
+        let job = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+
+        // It REACHED its back end — the whole point of the fix. A bind that refused would
+        // never have bound anything.
+        assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment never reached its lease");
+
+        let row = assignment::read(&h.state, "depot", "thread-one", &job.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "a lease with no engine plugin must not settle");
+        assert!(
+            row.detail.contains("The desktop engine plugin did not load"),
+            "the row does not name what was missing: {}",
+            row.detail
+        );
+        assert!(!row.detail.contains("It landed"), "a land was claimed: {}", row.detail);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Failed);
+        assert!(
+            notice.text.contains("The desktop engine plugin did not load"),
+            "he was not told which piece was missing: {}",
+            notice.text
+        );
+
+        // **THE CONTROL, on the same harness and the same settled obligation**: an equipped
+        // lease still settles. Without this the assertion above would pass for a build that
+        // failed every job, which is the defect wearing the fix's clothes.
+        *h.readiness.lock().unwrap() = None;
+        let fine = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &fine.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled, "an equipped lease must still be able to finish");
+
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
     #[test]
     fn a_finished_job_says_what_it_landed_and_never_claims_a_land_it_has_no_record_of() {
         use crate::cognition::ObligationState;
@@ -2923,6 +3038,7 @@ mod tests {
                 handoffs: h.handoffs.clone(),
                 handoff_reply: h.handoff_reply.clone(),
                 refuse_next: h.refuse_next.clone(),
+                readiness: h.readiness.clone(),
             }),
             counter.clone(),
             Arc::clone(&h.desk),

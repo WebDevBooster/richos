@@ -236,6 +236,86 @@ fn requires_status_tool(role: LeaseRole) -> bool {
 }
 
 
+/// What the child's own `system/init` frame said about ONE readiness fact.
+///
+/// **Three states, because the init frame arrives with the first TURN and not with the
+/// handshake** ([`child_args`]'s doc says so, and the `initialize` control handshake reads a
+/// `subtype` and keeps nothing else). So for the whole of a lease that has never been used,
+/// the truthful answer to "did the engine plugin load" is *nobody has told us* — which is
+/// not the same statement as *we were told no*, and calls for the opposite response.
+///
+/// Deliberately the same shape, and the same argument, as [`crate::skills::SkillsVerdict`]:
+/// *"'we have not been told yet' and 'we were told it is not there' call for opposite
+/// responses, and collapsing them is how an absence gets reported as a fact."*
+///
+/// **These three facts were plain `bool`s until 2026-09-18, and the collapse cost the
+/// product every background job it had.** `bind_work_assignment` runs before the work
+/// lease's first turn, so it read `false`, called it a refusal, and failed the assignment
+/// with *"The desktop engine plugin did not load"* — on a lease whose plugin had in fact
+/// loaded and whose `SessionStart` hook had already written evidence proving it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitFact {
+    /// No `system/init` frame has arrived on this lease yet. Never a refusal on a path that
+    /// runs before the first turn; always one on a path that runs after it.
+    NotYetReported,
+    /// The frame arrived and the fact holds.
+    Yes,
+    /// The frame arrived and the fact does not hold. **This is the loud case**, and it is
+    /// the one every sentence in this file was written for: `--plugin-dir` accepts a path it
+    /// cannot use and reports success (measured, `inner-doctrine-skills-2026-09-06/` cell
+    /// K4), so a reported absence is the only thing that catches it.
+    No,
+}
+
+impl InitFact {
+    /// Read a fact off a frame that HAS arrived. There is no constructor for
+    /// [`Self::NotYetReported`] on purpose: it is a default, never a reading.
+    fn reported(holds: bool) -> Self {
+        if holds { Self::Yes } else { Self::No }
+    }
+}
+
+/// The three init-reported facts a background assignment depends on, each paired with the
+/// sentence its absence is reported by — named ONCE so the two places that ask about them
+/// cannot drift into disagreeing about which fact carries which sentence.
+fn work_readiness_facts(state: &ReaderState) -> [(InitFact, &'static str); 3] {
+    [
+        (state.engine_plugin_loaded, ENGINE_PLUGIN_ABSENT),
+        (state.work_tools_loaded, WORK_TOOLS_ABSENT),
+        (state.automatic_permissions, AUTOMATIC_PERMISSIONS_ABSENT),
+    ]
+}
+
+pub(crate) const ENGINE_PLUGIN_ABSENT: &str = "The desktop engine plugin did not load";
+pub(crate) const WORK_TOOLS_ABSENT: &str = "The desktop work tools did not load";
+pub(crate) const AUTOMATIC_PERMISSIONS_ABSENT: &str = "The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.";
+
+/// The gate at the BINDING, which runs before the work lease's first turn.
+///
+/// **Only a REPORTED absence refuses.** An unreported fact is not evidence of anything, and
+/// treating it as a refusal here is the whole of the 2026-09-18 defect: every background job
+/// this build was ever given failed at this gate, 6.545 s and 7.486 s after registration,
+/// before its lease had run a single turn.
+///
+/// The loudness is not softened, it is MOVED to where the fact exists —
+/// [`work_turn_readiness_refusal`], asked on the same lease against the same three facts
+/// with the same three sentences, once its first turn has brought the frame that answers
+/// them. A plugin that really did not load still fails the job and still says so.
+fn work_binding_readiness_refusal(facts: [(InitFact, &'static str); 3]) -> Option<&'static str> {
+    facts.into_iter().find(|(fact, _)| *fact == InitFact::No).map(|(_, sentence)| sentence)
+}
+
+/// The same three facts, asked AFTER the work lease's turn — where anything short of a
+/// reported `Yes` is a refusal.
+///
+/// [`InitFact::NotYetReported`] is a refusal on this path and not on the other one, and the
+/// asymmetry is the single fact this whole module records: the frame that answers these
+/// questions arrives with the first turn. Before that turn, silence is expected; after it,
+/// silence means the frame never came, which is its own fault and not a reason to proceed.
+fn work_turn_readiness_refusal(facts: [(InitFact, &'static str); 3]) -> Option<&'static str> {
+    facts.into_iter().find(|(fact, _)| *fact != InitFact::Yes).map(|(_, sentence)| sentence)
+}
+
 /// The stop reason `prompt` returns when the agent did NOT answer the stopped turn within
 /// [`CANCEL_GRACE_MS`] of being told to.
 ///
@@ -746,7 +826,9 @@ pub struct NativeClient {
 /// to be declared first.
 struct ReaderState {
     permissions: Option<crate::permissions::ScopedPermissions>,
-    work_tools_loaded: bool,
+    /// Did the child list all five `richos_work` tools? [`InitFact`], not `bool` — see its
+    /// doc for what the collapse cost.
+    work_tools_loaded: InitFact,
     /// Did the child list `mcp__richos_assignments__record`? A fact from its own init
     /// inventory, never from the config having been accepted (`assignment_tools.rs`).
     assignment_tool_loaded: bool,
@@ -754,7 +836,8 @@ struct ReaderState {
     /// ASSERTED rather than merely recorded (`requires_status_tool`): it is the front desk's
     /// only read once the work tools are refused.
     status_tool_loaded: bool,
-    automatic_permissions: bool,
+    /// Did the child come up in `permissionMode: auto`? [`InitFact`], for the same reason.
+    automatic_permissions: InitFact,
     /// Host-owned phase, never set by a model frame.
     context_only: bool,
     /// The model this session is running, from `system/init.model`.
@@ -799,24 +882,29 @@ struct ReaderState {
     /// Both exact app-owned onboarding tools, as reported by the child on its first turn.
     onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict,
     continuity_tools_loaded: bool,
-    engine_plugin_loaded: bool,
+    /// Did the child list [`crate::engine_profile::PLUGIN_NAME`] in `system/init.plugins`?
+    ///
+    /// **[`InitFact`] and not `bool`, and this is the field that proved why.** It starts
+    /// [`InitFact::NotYetReported`] and stays there for a lease that has never run a turn —
+    /// a third state, not a pessimistic default, exactly as `skills_verdict` above it.
+    engine_plugin_loaded: InitFact,
 }
 
 impl Default for ReaderState {
     fn default() -> Self {
         ReaderState {
             permissions: None,
-            work_tools_loaded: false,
+            work_tools_loaded: InitFact::NotYetReported,
             assignment_tool_loaded: false,
             status_tool_loaded: false,
-            automatic_permissions: false,
+            automatic_permissions: InitFact::NotYetReported,
             context_only: false,
             session_model: None,
             context_window: None,
             skills_verdict: crate::skills::SkillsVerdict::NotYetReported,
             onboarding_tools_verdict: crate::onboarding_tools::OnboardingToolsVerdict::NotYetReported,
             continuity_tools_loaded: false,
-            engine_plugin_loaded: false,
+            engine_plugin_loaded: InitFact::NotYetReported,
         }
     }
 }
@@ -1408,13 +1496,19 @@ impl NativeClient {
             }
             st.continuity_tools_loaded = ["mcp__richos_continuity__checkpoint", "mcp__richos_continuity__inspect"].iter()
                 .all(|name| msg["tools"].as_array().map(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))).unwrap_or(false));
-            st.work_tools_loaded = ["mcp__richos_work__repositories", "mcp__richos_work__prepare", "mcp__richos_work__inspect", "mcp__richos_work__integrate", "mcp__richos_work__complete"].iter()
-                .all(|name| msg["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool.as_str() == Some(name))));
+            // **The three tri-state facts are READINGS, and a reading only happens here.**
+            // `InitFact::reported` has no way to produce `NotYetReported`, so the three
+            // fields can only leave that state inside this handler — which is what makes
+            // "nobody has told us" a statement about the wire rather than about the order
+            // the app happened to call things in.
+            st.work_tools_loaded = InitFact::reported(
+                ["mcp__richos_work__repositories", "mcp__richos_work__prepare", "mcp__richos_work__inspect", "mcp__richos_work__integrate", "mcp__richos_work__complete"].iter()
+                    .all(|name| msg["tools"].as_array().is_some_and(|tools| tools.iter().any(|tool| tool.as_str() == Some(name)))));
             st.assignment_tool_loaded = crate::assignment_tools::loaded_from_init(&msg);
             st.status_tool_loaded = crate::status_tools::loaded_from_init(&msg);
-            st.automatic_permissions = msg["permissionMode"] == "auto";
-            st.engine_plugin_loaded = msg["plugins"].as_array().is_some_and(|plugins|
-                plugins.iter().any(|plugin| plugin["name"] == "richos-app-engine"));
+            st.automatic_permissions = InitFact::reported(msg["permissionMode"] == "auto");
+            st.engine_plugin_loaded = InitFact::reported(msg["plugins"].as_array().is_some_and(|plugins|
+                plugins.iter().any(|plugin| plugin["name"] == crate::engine_profile::PLUGIN_NAME)));
             let before = st.skills_verdict;
             st.skills_verdict = crate::skills::verdict_from_init(&msg);
             if st.skills_verdict == crate::skills::SkillsVerdict::Rejected
@@ -2224,8 +2318,16 @@ impl Cognition for NativeCognition {
         // bind below states what it is and why it is asked rather than assumed.
         let seat = self.ceo_thread_seat(binding.thread_id());
         let Some((bridge, path)) = &self.continuity else { return Ok(()); };
-        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
-            return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
+        // **UNCHANGED BEHAVIOR, ON PURPOSE.** `!= Yes` is exactly what `!engine_plugin_loaded`
+        // meant while the field was a `bool`: this path runs on the CONVERSATION lease and
+        // only after `prepare_request` → `prime_lease_if_needed` has taken a priming turn
+        // (`spine.rs:3231`, called at `spine.rs:1963` before the `prepare_work_turn` at
+        // `:1974`), so the init frame has landed and `NotYetReported` here would mean the
+        // frame never came — which is a fault, not a reason to proceed. The tri-state changes
+        // `bind_work_assignment`, which runs BEFORE its lease's first turn; it deliberately
+        // changes nothing here.
+        if self.engine_profile.is_some() && self.client.reader_state.lock().unwrap().engine_plugin_loaded != InitFact::Yes {
+            return Err(CognitionError::Protocol(ENGINE_PLUGIN_ABSENT.into()));
         }
         // **THE READINESS CHECK IS ABOUT WHAT THIS LEASE WAS CONFIGURED WITH, NOT ABOUT A
         // GLOBAL EXPECTATION** — the background-work spec §5.8a-ii's stated consequence of
@@ -2247,8 +2349,8 @@ impl Cognition for NativeCognition {
         // about, arrived at from the other side.
         if requires_work_tools(self.role)
             && self.engine_profile.is_some()
-            && !self.client.reader_state.lock().unwrap().work_tools_loaded {
-            return Err(CognitionError::Protocol("The desktop work tools did not load".into()));
+            && self.client.reader_state.lock().unwrap().work_tools_loaded != InitFact::Yes {
+            return Err(CognitionError::Protocol(WORK_TOOLS_ABSENT.into()));
         }
         // And the front desk's read. Same loudness as the work tools, for the reason
         // `requires_status_tool` states: this is what it answers "what is running" with.
@@ -2257,8 +2359,8 @@ impl Cognition for NativeCognition {
             && !self.client.reader_state.lock().unwrap().status_tool_loaded {
             return Err(CognitionError::Protocol("The desktop status tool did not load".into()));
         }
-        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().automatic_permissions {
-            return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
+        if self.engine_profile.is_some() && self.client.reader_state.lock().unwrap().automatic_permissions != InitFact::Yes {
+            return Err(CognitionError::Protocol(AUTOMATIC_PERMISSIONS_ABSENT.into()));
         }
         // ===================================================================================
         // HIS OWN CURSOR, ONE PER CONVERSATION THREAD
@@ -2378,14 +2480,54 @@ impl Cognition for NativeCognition {
         let Some((bridge, path)) = &self.continuity else {
             return Err(CognitionError::Protocol("This work connection has no continuity scope.".into()));
         };
-        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().engine_plugin_loaded {
-            return Err(CognitionError::Protocol("The desktop engine plugin did not load".into()));
-        }
-        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().work_tools_loaded {
-            return Err(CognitionError::Protocol("The desktop work tools did not load".into()));
-        }
-        if self.engine_profile.is_some() && !self.client.reader_state.lock().unwrap().automatic_permissions {
-            return Err(CognitionError::Protocol("The provider did not enable automatic permission checks. Update or reconnect a supported provider account before starting app work; no bypass mode was enabled.".into()));
+        // =================================================================================
+        // THE READINESS GATE ASKS ABOUT A REPORTED FACT, NEVER AN UNREPORTED ONE
+        // =================================================================================
+        //
+        // **This gate refused every background job the product ever had, and it did so on
+        // leases whose plugin had loaded.** Measured on candidate .7
+        // (`v1.2.0-nightly.20260918.1`, source `9da3c7d5`) on 2026-09-18: two assignments,
+        // `581ed860` and `1eb68094`, both `"state":"failed"` with
+        // `"detail":"cognition protocol: The desktop engine plugin did not load"`, both
+        // `"work_session":null`, at 1789719190997−1789719184452 = **6545 ms** and
+        // 1789719375941−1789719368455 = **7486 ms** after registration — the time it takes
+        // to spawn `claude` and answer the handshake, and nothing like the time it takes to
+        // run a turn.
+        //
+        // The cause is an ordering fact, not a configuration one. `work_host.rs`'s `run_one`
+        // calls `ensure_lease` (`start_work_lease` → `spawn_with_tools`, handshake only) and
+        // then this function, BEFORE the assignment's turn. The facts below are read from
+        // `system/init`, and `child_args`'s own doc says that frame *"arrives with the first
+        // TURN"* — the `initialize` control handshake reads a `subtype` and keeps nothing
+        // else. So at this line the child has reported nothing, and the `bool` these three
+        // facts used to be said `false`, and `false` was read as "we were told no".
+        //
+        // **The plugin had in fact loaded.** The same run left
+        // `engine-state/evidence/060e1ec9…/callbacks.jsonl` holding a `SessionStart` callback
+        // with `"source":"startup"` — a hook registered ONLY by this plugin
+        // (`engine_profile.rs`'s `hooks/hooks.json`). The app refused the job for the absence
+        // of a plugin while holding, on its own disk, the plugin's own evidence that it was
+        // there.
+        //
+        // **So only a REPORTED absence refuses here, and the loudness moves rather than
+        // softens.** `--plugin-dir` accepts an unusable path and reports success (cell K4),
+        // and this check is still the only thing that catches that — it is now asked at
+        // `Cognition::work_readiness_after_turn`, on this same lease, against these same
+        // three facts, with these same three sentences, once its first turn has brought the
+        // frame that can answer them. A plugin that really did not load still fails the job
+        // and still says exactly this.
+        //
+        // **Why not read the `SessionStart` evidence here instead**, given it exists and
+        // proves the positive? Measured and rejected: that directory's birth time was
+        // 1789719190 and the refusal was raised at 1789719190997 — the hook's evidence and
+        // the refusal landed in the same second. Gating on it would mean waiting on an
+        // asynchronous Python hook with a deadline, which is a timing guess dressed as a
+        // check, and a slow hook would resurrect this exact false refusal.
+        if self.engine_profile.is_some() {
+            let facts = work_readiness_facts(&self.client.reader_state.lock().unwrap());
+            if let Some(sentence) = work_binding_readiness_refusal(facts) {
+                return Err(CognitionError::Protocol(sentence.into()));
+            }
         }
         let binding = bridge
             .bind_work_seat(&work.entity_id, &work.thread_id, &self.session_id, &work.obligation_id, &work.seat)
@@ -2411,6 +2553,23 @@ impl Cognition for NativeCognition {
         .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.work_binding = Some((binding_for_reads, work.seat.clone()));
         Ok(())
+    }
+
+    /// The moved half of the binding gate — see [`work_turn_readiness_refusal`] and
+    /// [`Cognition::work_readiness_after_turn`].
+    ///
+    /// A lease with no engine profile was never subject to these three assertions in the
+    /// first place (every one of them is guarded by `engine_profile.is_some()`), so it
+    /// answers `Ok(())` rather than inventing a requirement it was never given.
+    fn work_readiness_after_turn(&self) -> Result<(), CognitionError> {
+        if self.engine_profile.is_none() {
+            return Ok(());
+        }
+        let facts = work_readiness_facts(&self.client.reader_state.lock().unwrap());
+        match work_turn_readiness_refusal(facts) {
+            Some(sentence) => Err(CognitionError::Protocol(sentence.into())),
+            None => Ok(()),
+        }
     }
 
     /// The obligation behind the assignment this lease is carrying — read on ITS seat.
@@ -2733,6 +2892,231 @@ mod native_driver_tests {
     fn the_continuity_tools_readiness_check_is_about_what_this_lease_was_given() {
         assert!(requires_continuity_tools(LeaseRole::Conversation));
         assert!(!requires_continuity_tools(LeaseRole::Work));
+    }
+
+    /// A work lease assembled by hand, so the binding gate can be driven without the real
+    /// engine delivery `start_work_lease` needs (a Python supervisor, a rendered profile).
+    /// Everything the gate reads is here: the role, the continuity scope, the engine
+    /// profile, and a client whose reader state is whatever its scripted child has said.
+    fn hand_built_work_lease(tag: &str, script_body: &str) -> (NativeCognition, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("work-bind-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = write_script(&format!("work-bind-{tag}"), script_body);
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture())
+            .expect("the handshake should succeed");
+        let session_id = client.session_id().to_string();
+        let lease = NativeCognition {
+            client,
+            session_id,
+            onboarding_scope: None,
+            assignments_scope: None,
+            status_scope: None,
+            continuity: Some((fixture_bridge(&root), root.join("work-scope.json"))),
+            work_binding: None,
+            engine_profile: Some(fixture_profile(&root)),
+            role: LeaseRole::Work,
+            ceo_thread_seats: None,
+        };
+        (lease, root)
+    }
+
+    fn fixture_assignment() -> crate::cognition::WorkAssignment {
+        crate::cognition::WorkAssignment {
+            entity_id: "qa-co".into(),
+            thread_id: "thr_one".into(),
+            assignment_id: "assign-1".into(),
+            obligation_id: "ob-1".into(),
+            seat: "work-seat:ob-1".into(),
+            instruction_ledger_ref: "ledger:thr_one:turn_one".into(),
+            instruction_sha256: "0".repeat(64),
+        }
+    }
+
+    /// A child that answers the handshake and then says nothing. A lease that has run no
+    /// turn, which is every work lease at the moment its assignment is bound.
+    const SILENT_AFTER_HANDSHAKE: &str = "read -r line\n\
+         printf '%s\\n' '{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{}}}'\n\
+         sleep 5\n";
+
+    /// **THE DEFECT CANDIDATE .7 FOUND, AS A TEST — and it is a false NEGATIVE, not a
+    /// conservative reading.**
+    ///
+    /// `bind_work_assignment` runs before the work lease's first turn (`work_host.rs`'s
+    /// `run_one`: `ensure_lease`, then bind, then the turn), and `child_args`'s own doc says
+    /// the init frame *"arrives with the first TURN"*. So at the bind the child has reported
+    /// nothing, and a gate that read `false` for "nobody has told us" refused **every**
+    /// background job on every machine: two assignments failed this way on 2026-09-18 at
+    /// 6.545 s and 7.486 s after registration, `work_session: null` on both.
+    ///
+    /// The lease is refused here for the reason it SHOULD be — the fixture bridge cannot
+    /// hold a work seat — and that positive assertion is what makes the three negatives
+    /// evidence rather than a gate that moved somewhere else.
+    #[test]
+    fn a_fresh_work_lease_is_never_refused_over_a_fact_its_child_has_not_reported_yet() {
+        let (mut lease, root) = hand_built_work_lease("fresh", SILENT_AFTER_HANDSHAKE);
+        let refusal = lease
+            .bind_work_assignment(&fixture_assignment())
+            .expect_err("the fixture bridge cannot hold a seat, so this must still refuse")
+            .to_string();
+        for unreported in [
+            "The desktop engine plugin did not load",
+            "The desktop work tools did not load",
+            "did not enable automatic permission checks",
+        ] {
+            assert!(
+                !refusal.contains(unreported),
+                "a lease that has run no turn was refused over a fact nobody has reported: {refusal}"
+            );
+        }
+        assert!(
+            refusal.contains("overwrite the CEO's own"),
+            "the binding must reach the seat bind, or the negatives above prove nothing: {refusal}"
+        );
+        // And the unreported facts are still unreported — the gate passed because it asked
+        // about a reported absence, not because the fields were quietly made optimistic.
+        let state = lease.client.reader_state.lock().unwrap();
+        for fact in [state.engine_plugin_loaded, state.work_tools_loaded, state.automatic_permissions] {
+            assert_eq!(fact, InitFact::NotYetReported);
+        }
+        drop(state);
+        drop(lease);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A child that answers the handshake, then answers ONE turn with `init` and a result.
+    fn one_turn_reporting(init: &serde_json::Value) -> String {
+        format!(
+            "read -r line\n\
+             printf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"subtype\":\"success\",\"request_id\":\"req_init\",\"response\":{{}}}}}}'\n\
+             read -r line\n\
+             printf '%s\\n' '{init}'\n\
+             printf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"stop_reason\":\"end_turn\"}}'\n\
+             while read -r line; do :; done\n"
+        )
+    }
+
+    fn work_init_frame(plugin: bool, work_tools: bool, auto: bool) -> serde_json::Value {
+        let mut plugins = vec![json!({"name":"rich-skills","version":"1.0.0"})];
+        if plugin {
+            plugins.push(json!({"name": crate::engine_profile::PLUGIN_NAME, "version":"1.2.0"}));
+        }
+        let tools: Vec<&str> = if work_tools {
+            vec!["mcp__richos_work__repositories", "mcp__richos_work__prepare",
+                 "mcp__richos_work__inspect", "mcp__richos_work__integrate", "mcp__richos_work__complete"]
+        } else {
+            // Four of the five. A partial inventory must read as absent, not as present.
+            vec!["mcp__richos_work__repositories", "mcp__richos_work__prepare",
+                 "mcp__richos_work__inspect", "mcp__richos_work__integrate"]
+        };
+        json!({"type":"system","subtype":"init","plugins":plugins,"tools":tools,
+               "permissionMode": if auto { "auto" } else { "default" }})
+    }
+
+    /// **THE POSITIVE CONTROL, AND IT IS THE HALF THAT MAKES THE FIX A MOVE RATHER THAN A
+    /// RELAXATION.** A lease whose own init frame does not list the engine plugin still fails
+    /// its assignment, with the identical sentence, in both of the places that can now say so:
+    /// after its first turn (`work_readiness_after_turn`, which `work_host.rs`'s `run_one`
+    /// reads at step 3a) and at the NEXT binding on the same lease, where the absence is by
+    /// then a reported fact.
+    ///
+    /// Cell K4 is why this cannot be allowed to go quiet: `--plugin-dir` naming a path it
+    /// cannot use exits 0 with a clean handshake and `plugins: []`, so this assertion is the
+    /// only thing between that and a background job that silently runs unguarded.
+    #[test]
+    fn a_work_lease_whose_init_frame_omits_the_engine_plugin_still_fails_the_assignment_by_name() {
+        for (plugin, work_tools, auto, expected) in [
+            (false, true, true, Some(ENGINE_PLUGIN_ABSENT)),
+            (true, false, true, Some(WORK_TOOLS_ABSENT)),
+            (true, true, false, Some(AUTOMATIC_PERMISSIONS_ABSENT)),
+            (true, true, true, None),
+        ] {
+            let frame = work_init_frame(plugin, work_tools, auto);
+            let (mut lease, root) = hand_built_work_lease(
+                &format!("reported-{plugin}-{work_tools}-{auto}"),
+                &one_turn_reporting(&frame),
+            );
+            // Before the turn there is nothing to report, so the binding gate is silent —
+            // this is the same lease exercising both halves of the asymmetry in one test.
+            assert!(
+                lease.work_readiness_after_turn().is_err(),
+                "an unreported fact is a refusal on the post-turn path"
+            );
+            lease.client.prompt("ready", &mut |_| {}).expect("the scripted turn should end");
+
+            match expected {
+                Some(sentence) => {
+                    let after = lease.work_readiness_after_turn().expect_err("a reported absence must refuse");
+                    assert!(after.to_string().contains(sentence), "{after}");
+                    // The SAME sentence at the next binding, now that the fact is reported.
+                    let refusal = lease.bind_work_assignment(&fixture_assignment()).unwrap_err().to_string();
+                    assert!(
+                        refusal.contains(sentence),
+                        "a reported absence must refuse the binding too: {refusal}"
+                    );
+                }
+                None => {
+                    lease.work_readiness_after_turn().expect("a fully equipped lease must pass");
+                    // And it still gets no further than the seat bind the fixture cannot do,
+                    // which is what proves the readiness gate was the only thing in the way.
+                    let refusal = lease.bind_work_assignment(&fixture_assignment()).unwrap_err().to_string();
+                    assert!(refusal.contains("overwrite the CEO's own"), "{refusal}");
+                }
+            }
+            drop(lease);
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    /// The asymmetry, as the two pure functions rather than through a child process: the
+    /// binding gate refuses a reported absence and nothing else; the post-turn gate refuses
+    /// anything that is not a reported `Yes`. One fact decides both — the init frame arrives
+    /// with the first turn — and the sentences are shared so they cannot drift apart.
+    #[test]
+    fn only_a_reported_absence_refuses_a_binding_and_silence_refuses_only_after_a_turn() {
+        use InitFact::{No, NotYetReported, Yes};
+        let facts = |plugin, tools, auto| {
+            [(plugin, ENGINE_PLUGIN_ABSENT), (tools, WORK_TOOLS_ABSENT), (auto, AUTOMATIC_PERMISSIONS_ABSENT)]
+        };
+
+        // A fresh lease: nothing reported. The binding proceeds; the post-turn gate does not.
+        let fresh = facts(NotYetReported, NotYetReported, NotYetReported);
+        assert_eq!(work_binding_readiness_refusal(fresh), None);
+        assert_eq!(work_turn_readiness_refusal(fresh), Some(ENGINE_PLUGIN_ABSENT));
+
+        // A fully equipped lease: both gates silent.
+        let ready = facts(Yes, Yes, Yes);
+        assert_eq!(work_binding_readiness_refusal(ready), None);
+        assert_eq!(work_turn_readiness_refusal(ready), None);
+
+        // Each reported absence refuses BOTH gates, and with its own sentence — a shared
+        // sentence table is worth nothing if a fact can pick up its neighbor's words.
+        for (facts, expected) in [
+            (facts(No, Yes, Yes), ENGINE_PLUGIN_ABSENT),
+            (facts(Yes, No, Yes), WORK_TOOLS_ABSENT),
+            (facts(Yes, Yes, No), AUTOMATIC_PERMISSIONS_ABSENT),
+        ] {
+            assert_eq!(work_binding_readiness_refusal(facts), Some(expected));
+            assert_eq!(work_turn_readiness_refusal(facts), Some(expected));
+        }
+
+        // A reported absence outranks an unreported fact at the binding: the gate must not
+        // fall silent just because something earlier in the list has said nothing.
+        assert_eq!(work_binding_readiness_refusal(facts(NotYetReported, No, NotYetReported)), Some(WORK_TOOLS_ABSENT));
+    }
+
+    /// The plugin's name is written by `engine_profile.rs` into the manifest and asserted by
+    /// this file against the wire. Two literals would be a schedule for them to disagree, and
+    /// the disagreement is silent in the direction that matters: the check could only ever
+    /// answer "absent", about a plugin sitting right there. That is not hypothetical — a
+    /// readiness check answering a false absence is what refused every background job on
+    /// 2026-09-18.
+    #[test]
+    fn the_engine_plugin_is_named_once_and_the_manifest_and_the_wire_check_share_it() {
+        assert_eq!(crate::engine_profile::PLUGIN_NAME, "richos-app-engine");
+        let listed = work_init_frame(true, true, true);
+        let names: Vec<&str> = listed["plugins"].as_array().unwrap().iter()
+            .filter_map(|p| p["name"].as_str()).collect();
+        assert!(names.contains(&crate::engine_profile::PLUGIN_NAME), "{names:?}");
     }
 
     /// A work seat is never the CEO's, and is never bound against an engine that would

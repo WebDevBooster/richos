@@ -242,6 +242,30 @@ pub trait Cognition: Send {
         ))
     }
 
+    /// What this lease's own `system/init` frame said about the three facts a background
+    /// assignment depends on — the engine plugin, the work tools, and automatic permission
+    /// checks. **Asked after its first turn, because that is when the frame arrives.**
+    ///
+    /// [`Cognition::bind_work_assignment`] cannot ask: it runs before the lease has ever
+    /// taken a turn (`work_host.rs`'s `run_one` — `ensure_lease`, bind, then the turn), so
+    /// the child has reported nothing at that point. A bind that treated an unreported fact
+    /// as a refusal refused **every** background job this product was given, on every
+    /// machine, for the whole life of the feature: candidate .7, 2026-09-18, two assignments
+    /// failed 6.545 s and 7.486 s after registration with `work_session: null`.
+    ///
+    /// So the bind refuses only a reported absence and this is where the rest is settled. It
+    /// is a MOVE and not a relaxation: the check exists because `--plugin-dir` accepts a path
+    /// it cannot use and still reports success (`native.rs`'s module doc, measured cell K4),
+    /// so a genuinely absent plugin must still fail the job and still say so in the same
+    /// words. Anything short of a reported `Yes` is a refusal on this path.
+    ///
+    /// **The default is `Ok(())`**, and that is not a soft default: a cognition with no init
+    /// frame of its own has nothing to report, and manufacturing a refusal from an absence of
+    /// machinery is the same mistake one level up.
+    fn work_readiness_after_turn(&self) -> Result<(), CognitionError> {
+        Ok(())
+    }
+
     /// Revoke the standing action grant this lease is holding (spec §5.4: a grant and its
     /// seat are created together and revoked together, per assignment). Idempotent, and
     /// safe to call on a lease that never held one.
