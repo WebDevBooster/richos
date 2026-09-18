@@ -416,7 +416,36 @@ Two independent handlers close it (`settings-button.js`'s own Escape, and `main.
 structurally-a-popup element that carries no dismissal declaration. Nothing to fix in source
 from this evidence.
 
-### .8 row 5 — turning the opening screen off is ignored. DIAGNOSED; THE FIX IS NOT IN `ui/`.
+### .8 row 5 — turning the opening screen off is ignored. FIXED, after the escalation was answered.
+
+**This section is left as it was written, because the answer changed the diagnosis and the
+change is the useful part.** It closed on "a missing cache is the only remaining mechanism",
+raised the question, and the answer came back: **the store persists, and it is keyed by BUNDLE
+ID rather than by `$HOME`.** Verified independently here —
+`~/Library/WebKit/com.richos.app/WebsiteData/…/LocalStorage/localstorage.sqlite3`, written at
+11:39–11:45 today, during both walks; and `~/Library/WebKit/` still holds
+`com.richos.app.RAY-101-RUN-A`, `-B` and `-C` from earlier walks that isolated deliberately.
+
+So the cache was never missing. **It is SHARED between installs that disagree.** A candidate
+walked under a QA scratch `HOME` reads a different `config.json` from the CEO's installed app and
+writes into the same `localStorage`, and `syncSplashFromBackend` writes each instance's own
+durable answer into that one mirror at the end of every boot. Last writer wins, and the loser
+draws a curtain its owner switched off. That is a better mechanism than the one below and it
+fits the evidence exactly — including why it came back **twice**.
+
+The fix is the one the section below names: the durable answer travels in the Tauri
+initialization script that already carries the launch kind, and `splash.js` prefers it. The
+mirror stays for the settings row and for a page with no Tauri behind it. Checked four ways with
+the mirror and the durable answer deliberately disagreeing, and proven able to fail.
+
+**What the record should carry beyond this row:** the splash mirror — and every other
+`localStorage` value this app keeps — is shared across every instance with the same bundle id,
+whatever `HOME` it was launched under. That is a property of the platform, not of this app, and
+it makes a scratch-`HOME` walk a walk that can move the CEO's own settings.
+
+The original diagnosis follows, unedited.
+
+### .8 row 5 — the trace that led there
 
 Traced end to end, and every step but the last one is sound:
 
@@ -437,15 +466,14 @@ for it coming back on the next two launches.
 The honest fix is for the durable answer to be in the document before any script runs — a
 `src-tauri` initialization script — because the alternatives inside `ui/` are a delayed first
 paint (§5.5 forbids it) or drawing the curtain and yanking it away (worse than the defect).
-**That is outside this brief's footprint, so it is escalated rather than faked:**
-`esc-20260918T111438Z-8f6a1a75`.
+**That was outside this brief's original footprint, so it was escalated rather than faked:**
+`esc-20260918T111438Z-8f6a1a75`. The lead answered it and directed the hunk; it is landed.
 
-### AND IT PUTS A QUESTION UNDER TWO OF MY OWN FIXES, raised rather than allowed to land quietly
+### AND IT PUT A QUESTION UNDER TWO OF MY OWN FIXES — asked, and answered: they are fine
 
-Rows 12 and 13a both persist in `localStorage`, and both pass every test. **If the installed
-webview's storage does not survive a relaunch — the only remaining explanation for .8 row 5 —
-then both are inert on the installed app while being green here.** The decisive experiment is
-one minute on the installed app and it is in the same escalation, because one answer settles all
-three rows: flip `Opening screen` off, quit, relaunch, read `richos.splash.enabled`. If it is
-absent, `memory_setup_declined` and the illustrative-counter delta both belong in `config.rs`
-too, and it is said in the code at both sites.
+Rows 12 and 13a both persist in `localStorage`, and both pass every test. If the installed
+webview's storage did not survive a relaunch, both would have been inert on the installed app
+while green here — so it was raised before it could land quietly rather than after somebody
+found it. **The answer is that the store does persist**, so both fixes hold on the installed
+app. The same answer carried the sharper fact above, which is why asking was worth more than
+assuming either way.
