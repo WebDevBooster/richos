@@ -389,6 +389,26 @@ name changing underneath is a normal redraw rather than a stale screen.
 Urban's own check that the tailnet pairing URL (44 bytes) fits `ui/qr.js`'s 106-byte version-6
 capacity is arithmetic I did not need to repeat and did not.
 
+## 5a. A cleanup finding that is not mine, and is reported rather than quietly swept
+
+**The shipped phone suite leaks a temporary file on every run.** Running it repeatedly during this
+slice left **295 files, 1180 KB**, in `$TMPDIR`:
+
+```
+richos-phone-intake-bad-thread-intake-<pid>-<millis>.jsonl
+```
+
+They are written by the intake tests in `routes.rs`, which predate this branch. I removed all 295.
+CEO §54 asks for a mechanism rather than per-task judgment — *"if the clean-up fails or impossible
+for some reason, then Rich must get a MASSIVE ALERT about it"* — so this is named here rather than
+silently tidied, because tidying it once does not stop the next run doing it again.
+
+**The fix is four lines and it is already in this branch to copy**: the `Scratch(PathBuf)` newtype
+in `listen.rs` (commit `d8a4d2c7`), whose `Drop` removes the directory during unwinding, where a
+trailing `remove_dir_all` is skipped by exactly the failure that makes somebody run the test. I
+found that shape by defeating my own test and watching it leak two directories; the same defeat
+would leak one of these per run.
+
 ## 6. Housekeeping
 
 No app instance was started, so there is none to quit (§54 addendum 4). No audio was played and no
