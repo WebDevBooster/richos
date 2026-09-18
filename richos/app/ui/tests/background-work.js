@@ -6,13 +6,17 @@
 // TWO THINGS THIS SUITE EXISTS TO PIN, and the first one is a sentence rather than a
 // mechanism:
 //
-//   1. **"Ready for you to approve", never "done".** §7.8 says it outright — *"the wording
-//      is the test, not a detail of it. 'Ready for you to approve' and 'done' are the two
-//      sentences this whole step exists to keep apart, and a walk that observes a stopped
-//      assignment but not the words it was described with has not walked 7.8."* So this
-//      reads the words off the rendered DOM, and the negative scan carries a POSITIVE
-//      CONTROL — the same scan run against the `settled` row, which DOES speak of finishing
-//      — because a forbidden-word scan that can never fire passes for its own reasons.
+//   1. **An unfinished job is never described as finished.** §7.8's rule — *"the wording is
+//      the test, not a detail of it"* — survives the CEO's ruling §52 (2026-09-18); its
+//      example does not. §7.8's two sentences were "Ready for you to approve" and "done",
+//      because the one thing that could stop a job was its land. *"There's nothing that ever
+//      not lands on its own here in the terminal … So, yes, always land on its own"*, so the
+//      sentence a stopped job actually carries is now "Waiting for your decision before it
+//      can go on" — a decision of his on some step, with no claim about his repository,
+//      which a job that lands on its own cannot make. This reads the words off the rendered
+//      DOM, and the negative scan carries a POSITIVE CONTROL — the same scan run against the
+//      `settled` row, which DOES speak of finishing — because a forbidden-word scan that can
+//      never fire passes for its own reasons.
 //
 //   2. **A result waits for the boundary and is never dropped** (§3.5, §0 row 6). The hold
 //      is in `main.js`, so that half is read from the source rather than driven: the whole
@@ -119,7 +123,7 @@ async function main() {
   const run = createRun("background work: the assignment surface and its wording");
   const browser = await loadPlaywright().webkit.launch();
 
-  await run.check("a blocked assignment reads ready for you to approve and never done", async () => {
+  await run.check("a blocked assignment says it is waiting on his decision and never done", async () => {
     const page = await openPage(browser, "dark");
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
@@ -134,10 +138,15 @@ async function main() {
     const rows = await page.locator("#slideover-body section").all();
     assertEqual(rows.length, 2, "both assignments rendered");
     const blocked = (await rows[0].innerText()).toLowerCase();
-    assert(blocked.includes("ready for you to approve"), "the blocked row does not offer approval: " + blocked);
+    assert(blocked.includes("waiting for your decision"), "the blocked row does not say the decision is his: " + blocked);
     for (const word of FORBIDDEN) {
       assert(!blocked.includes(word), `the blocked row said "${word}": ${blocked}`);
     }
+    // **AND IT MAKES NO CLAIM ABOUT HIS REPOSITORY** (CEO ruling §52). The row used to
+    // promise "Nothing in your repository has been changed yet", which a job that lands on
+    // its own cannot promise: it may reach a step like this AFTER landing something, and the
+    // promise would be false while his branch had already moved.
+    assert(!blocked.includes("repository"), "the blocked row still claims his repository is untouched: " + blocked);
     // POSITIVE CONTROL: the same scan against the settled row DOES fire, so the clean
     // result above is a fact about the blocked row and not about a scan that never matches.
     const settled = (await rows[1].innerText()).toLowerCase();
@@ -147,7 +156,7 @@ async function main() {
     );
     assertEqual(errors.length, 0, "renderer errors");
     await page.close();
-    return "blocked says approval and not completion; the scan is proven able to fail";
+    return "blocked says the decision is his, claims nothing about his repository, and never speaks of finishing; the scan is proven able to fail";
   });
 
   await run.check("the stop control is per assignment, names it, and only where it can act", async () => {
@@ -189,10 +198,10 @@ async function main() {
       await page.evaluate(() =>
         window.__renderAssignments({ rows: [
           { id: "a1", title: "landing the three branches", state: "blocked",
-            detail: "The work has run and stopped at a step that is yours to approve: putting the finished work into your repository.",
+            detail: "The work has run and stopped at a step that is yours to decide: running a command on your Mac.",
             repositories: [], registeredAtMs: 1, canStop: true, onTheConnection: false,
-            awaitingYou: { requestId: "req-1", asked: "putting the finished work into your repository",
-              tool: "mcp__richos_work__integrate", description: "", raisedAtMs: 2 } },
+            awaitingYou: { requestId: "req-1", asked: "running a command on your Mac",
+              tool: "Bash", description: "", raisedAtMs: 2 } },
         ] })
       );
       const measured = [];
@@ -229,8 +238,8 @@ async function main() {
       window.__renderAssignments({ rows: [
         { id: "a1", title: "landing the three branches", state: "blocked", detail: "", repositories: [],
           registeredAtMs: 1, canStop: true, onTheConnection: false,
-          awaitingYou: { requestId: "req-1", asked: "putting the finished work into your repository",
-            tool: "mcp__richos_work__integrate", description: "", raisedAtMs: 2 } },
+          awaitingYou: { requestId: "req-1", asked: "running a command on your Mac",
+            tool: "Bash", description: "", raisedAtMs: 2 } },
         // POSITIVE CONTROL, in the same render: the SAME state with no question on the desk
         // — an assignment that stopped at his decision before a relaunch — has no decision
         // controls and says so, which is what makes the row above a fact about `awaitingYou`
@@ -241,9 +250,9 @@ async function main() {
     );
     const rows = await page.locator("#slideover-body section").all();
     const waiting = await rows[0].innerText();
-    assert(waiting.toLowerCase().includes("ready for you to approve"), waiting);
+    assert(waiting.toLowerCase().includes("waiting for your decision"), waiting);
     assert(
-      waiting.includes("Waiting on you: putting the finished work into your repository."),
+      waiting.includes("Waiting on you: running a command on your Mac."),
       "the row does not say what it is waiting on: " + waiting
     );
     assert(!waiting.includes("mcp__"), "the row shows a wire tool name: " + waiting);
@@ -257,6 +266,7 @@ async function main() {
     );
     const without = await rows[1].innerText();
     assert(without.includes("Ask Rich to continue it when you are ready."), without);
+    assert(!without.includes("Waiting on you:"), "a row with no request named a step: " + without);
     assertEqual(await rows[1].locator("button.assignment-approve").count(), 0, "a control appeared with no request behind it");
     assertEqual(errors.length, 0, "renderer errors");
     await page.close();
@@ -271,8 +281,8 @@ async function main() {
       window.__renderAssignments({ rows: [
         { id: "a1", title: "landing the three branches", state: "blocked", detail: "", repositories: [],
           registeredAtMs: 1, canStop: true, onTheConnection: false,
-          awaitingYou: { requestId: "req-one", asked: "putting the finished work into your repository",
-            tool: "mcp__richos_work__integrate", description: "", raisedAtMs: 2 } },
+          awaitingYou: { requestId: "req-one", asked: "writing a file outside its workspace",
+            tool: "Write", description: "", raisedAtMs: 2 } },
         { id: "a2", title: "the nightly build", state: "blocked", detail: "", repositories: [],
           registeredAtMs: 2, canStop: true, onTheConnection: false,
           awaitingYou: { requestId: "req-two", asked: "running a command on your Mac",

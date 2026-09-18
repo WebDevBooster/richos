@@ -518,6 +518,14 @@ const FIXTURES = {
   /// other part of that chip is fed by `get_worker_status`, which is empty whenever no turn
   /// is open — the entire window background work lives in — so without the assignment counts
   /// there is no chip, no pane, and no way to reach the approve control at all.
+  ///
+  /// **THE STEP IT IS WAITING ON CHANGED, and the old one was a state the product can no
+  /// longer be in.** This fixture used to wait on `mcp__richos_work__integrate`. The CEO's
+  /// ruling §52 (2026-09-18) grants a land to a background lease outright, so a land never
+  /// reaches the permission desk and can never produce this row — a fixture depicting it
+  /// would have been an affordance gate held over an impossible screen. It waits on `Bash`
+  /// instead: a command on his Mac, which no standing grant covers and which is exactly what
+  /// the queue exists for now.
   async "assignment-waiting"(browser) {
     const page = await openApp(browser, undefined, {
       assignments: {
@@ -526,15 +534,15 @@ const FIXTURES = {
             id: "assignment-one",
             title: "landing the three branches",
             state: "blocked",
-            detail: "The work has run and stopped at a step that is yours to approve: putting the finished work into your repository.",
+            detail: "The work has run and stopped at a step that is yours to decide: running a command on your Mac.",
             repositories: [],
             registeredAtMs: 1,
             canStop: true,
             onTheConnection: false,
             awaitingYou: {
               requestId: "affordance-work-request",
-              asked: "putting the finished work into your repository",
-              tool: "mcp__richos_work__integrate",
+              asked: "running a command on your Mac",
+              tool: "Bash",
               description: "",
               raisedAtMs: 2,
             },

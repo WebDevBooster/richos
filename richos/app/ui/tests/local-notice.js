@@ -157,7 +157,11 @@ async function main() {
         window.__render(snapshot, {});
         window.RichTimeline.addLocalNotice(window.__model, text, 1787948600000);
       },
-      [first, "Landing the three branches is ready for you to approve."]
+      // The sentence the backend actually produces for a finished job since the CEO's ruling
+      // §52 (`assignment::says::settled`): he hears the OUTCOME. A fixture quoting the old
+      // "is ready for you to approve" would have been a notice this product can no longer
+      // raise, which is a worse thing for a survival test to be carrying than a short one.
+      [first, "Landing the three branches is finished. It landed on cc/echo-1 in project."]
     );
     await page.evaluate(() => window.__renderOnly());
     assertEqual(await page.locator(".tl-notice").count(), 1, "the result did not render at all");
@@ -196,7 +200,7 @@ async function main() {
       "his next sentence destroyed a background result he had already been handed"
     );
     assert(
-      (await page.locator(".tl-notice").innerText()).includes("ready for you to approve"),
+      (await page.locator(".tl-notice").innerText()).includes("It landed on cc/echo-1 in project"),
       "the result survived as something else"
     );
 
