@@ -1,0 +1,239 @@
+
+=== chromium ===
+
+=== chromium: the origin itself ===
+PASS  the pinned certificate makes this a SECURE CONTEXT — what service workers and the microphone are gated on
+        {"secure":true,"protocol":"https:","host":"localhost:53723","serviceWorker":true,"indexedDB":true,"subtle":true}
+PASS  it is the origin the phone will use, port included
+        localhost:53723
+
+=== chromium: pairing — six words, and not one identifier ===
+PASS  the phone shows the six words derived from the certificate the Mac is actually serving
+        shown "pasta hunter engine jacket cowboy napkin", derived "pasta hunter engine jacket cowboy napkin"
+PASS  six words, not five and not a hash
+        pasta hunter engine jacket cowboy napkin
+PASS  no raw hash or identifier is anywhere on the pairing screen
+PASS  no horizontal scroll — chromium: pairing
+        document 375px against a viewport of 375px; widest element SECTION.takeover ends at 375px
+        shot: ../../../docs/verification/phone-app-2026-09-18/chromium-pairing.png
+PASS  pairing offers both answers, because "they do not match" is a real outcome
+PASS  pairing hands over to the conversation
+PASS  the pairing code is spent and gone from the address, so a relaunch does not re-pair
+
+=== chromium: the conversation ===
+PASS  the stream connected and the phone says so in a sentence
+        Connected to your Mac.
+PASS  newest at the bottom, in the Mac's order
+        11 messages, last: "The file is at https://example.invalid/a-very-long-unbroken-"
+PASS  the send control is off while there is nothing to send
+PASS  and on the moment there is
+PASS  his message appears the instant he sends it, before the Mac has answered
+PASS  and turns to delivered when the Mac has it
+PASS  his message is on screen exactly once — the optimistic bubble is replaced, not added to
+        1 copies
+PASS  his reply STREAMS in rather than arriving whole
+        6 characters, then 92
+
+=== chromium: away from his Mac — the queue, and whether it survives a relaunch ===
+PASS  the waiting state says the true thing, in his words
+        Waiting to send — your Mac isn’t reachable from here.
+PASS  the banner is up, with the control that acts on it beside it
+PASS  no horizontal scroll — chromium: with a message waiting
+        document 375px against a viewport of 375px; widest element HEADER.topbar ends at 375px
+        shot: ../../../docs/verification/phone-app-2026-09-18/chromium-waiting.png
+PASS  the message he wrote on the train is still there after the app was closed and reopened
+PASS  it goes the moment his Mac can hear him again
+        drained by the stream reconnecting on its own
+PASS  and it reached the Mac exactly once, across a reload and a retry
+        1 copies at the Mac
+
+=== chromium: older messages, behind a scroll ===
+PASS  scrolling to the top loads earlier messages
+        15 then 55
+PASS  NO PAGINATION — no page number, no pagination control, anywhere
+
+=== chromium: the microphone, and the bytes the Mac receives ===
+PASS  a voice note reached the Mac
+        1 received
+PASS  it was sent as bytes with the codec named — never base64, never a container negotiation
+        {"bytes":42284,"codec":"wav16k","seconds":1.32}
+PASS  the duration matches the hold, and the size is the plan's ~32 KB per second
+        1.32 s, 42284 bytes
+PASS  the WAV header the Mac received declares 16 kHz mono 16-bit PCM
+        {"riff":"RIFF","wave":"WAVE","fmt":"fmt ","format":1,"channels":1,"rate":16000,"byteRate":32000,"bits":16,"dataBytes":42240,"totalBytes":42284}
+PASS  "hear it" fetches the audio on demand and turns into the control that stops it
+        the control reads "Hear it" (muted browser, no sound was played in the room)
+
+=== chromium: a state he can change is rendered with the control that changes it ===
+PASS  the notification offer carries its own control, or says where the control is
+        Notifications are switched off for this app in your phone’s settings, so Rich cannot reach you when it is closed.
+PASS  the composer carries its own control, or says where the control is
+        Write to Rich
+Send
+Hold to record
+
+Hold the button, speak, and let go to send.
+
+=== chromium: contrast, every text node, both themes ===
+        dark: 151 text nodes measured, 1 indicators, 136 resolved by ancestor
+PASS  dark: every measured text node and indicator clears WCAG AA
+PASS  dark: nothing on this screen has a color that cannot be proved
+PASS  dark: no exemption is claimed — every string here is meant to be read
+PASS  dark: the walk actually looked at something
+        151 nodes
+        shot: ../../../docs/verification/phone-app-2026-09-18/chromium-thread-dark.png
+        light: 151 text nodes measured, 1 indicators, 136 resolved by ancestor
+PASS  light: every measured text node and indicator clears WCAG AA
+PASS  light: nothing on this screen has a color that cannot be proved
+PASS  light: no exemption is claimed — every string here is meant to be read
+PASS  light: the walk actually looked at something
+        151 nodes
+        shot: ../../../docs/verification/phone-app-2026-09-18/chromium-thread-light.png
+
+=== chromium: no horizontal scroll, at four phone widths, in both themes ===
+PASS  no horizontal scroll — chromium: 320px, dark
+        document 320px against a viewport of 320px; widest element HEADER.topbar ends at 320px
+PASS  no horizontal scroll — chromium: 375px, dark
+        document 375px against a viewport of 375px; widest element HEADER.topbar ends at 375px
+PASS  no horizontal scroll — chromium: 390px, dark
+        document 390px against a viewport of 390px; widest element HEADER.topbar ends at 390px
+PASS  no horizontal scroll — chromium: 430px, dark
+        document 430px against a viewport of 430px; widest element HEADER.topbar ends at 430px
+PASS  no horizontal scroll — chromium: 320px, light
+        document 320px against a viewport of 320px; widest element HEADER.topbar ends at 320px
+PASS  no horizontal scroll — chromium: 375px, light
+        document 375px against a viewport of 375px; widest element HEADER.topbar ends at 375px
+PASS  no horizontal scroll — chromium: 390px, light
+        document 390px against a viewport of 390px; widest element HEADER.topbar ends at 390px
+PASS  no horizontal scroll — chromium: 430px, light
+        document 430px against a viewport of 430px; widest element HEADER.topbar ends at 430px
+
+=== chromium: his Mac forgets this phone ===
+PASS  the app says so and stops, rather than retrying a Mac that has forgotten it
+        This phone was removed from your Mac Rich is no longer reachable from here, and nothing you write will be sent. To use this phone again, ope
+PASS  and the conversation is not left behind it
+        shot: ../../../docs/verification/phone-app-2026-09-18/chromium-removed.png
+PASS  no JavaScript error in the whole run
+        4 failed request(s), all of them the outage this run caused deliberately:
+        Failed to load resource: net::ERR_EMPTY_RESPONSE
+        Failed to load resource: net::ERR_EMPTY_RESPONSE
+        Failed to load resource: net::ERR_EMPTY_RESPONSE
+        Failed to load resource: the server responded with a status of 403 (Forbidden)
+PASS  the outage was a REAL network failure, not something the page pretended
+        if this is zero, the unreachable and revoked passes above proved nothing
+
+=== webkit ===
+
+=== webkit: the origin itself ===
+        WebKit reports isSecureContext=true (no public-key pin exists for this engine)
+PASS  WebKit has WebCrypto, IndexedDB and a service worker container on this origin
+        {"secure":true,"protocol":"https:","host":"localhost:53742","serviceWorker":true,"indexedDB":true,"subtle":true}
+PASS  it is the origin the phone will use, port included
+        localhost:53742
+
+=== webkit: pairing — six words, and not one identifier ===
+PASS  the phone shows the six words derived from the certificate the Mac is actually serving
+        shown "jelly margin leopard buffalo nutmeg circus", derived "jelly margin leopard buffalo nutmeg circus"
+PASS  six words, not five and not a hash
+        jelly margin leopard buffalo nutmeg circus
+PASS  no raw hash or identifier is anywhere on the pairing screen
+PASS  no horizontal scroll — webkit: pairing
+        document 375px against a viewport of 375px; widest element SECTION.takeover ends at 375px
+        shot: ../../../docs/verification/phone-app-2026-09-18/webkit-pairing.png
+PASS  pairing offers both answers, because "they do not match" is a real outcome
+PASS  pairing hands over to the conversation
+PASS  the pairing code is spent and gone from the address, so a relaunch does not re-pair
+
+=== webkit: the conversation ===
+PASS  the stream connected and the phone says so in a sentence
+        Connected to your Mac.
+PASS  newest at the bottom, in the Mac's order
+        11 messages, last: "The file is at https://example.invalid/a-very-long-unbroken-"
+PASS  the send control is off while there is nothing to send
+PASS  and on the moment there is
+PASS  his message appears the instant he sends it, before the Mac has answered
+PASS  and turns to delivered when the Mac has it
+PASS  his message is on screen exactly once — the optimistic bubble is replaced, not added to
+        1 copies
+PASS  his reply STREAMS in rather than arriving whole
+        6 characters, then 92
+
+=== webkit: away from his Mac — the queue, and whether it survives a relaunch ===
+PASS  the waiting state says the true thing, in his words
+        Waiting to send — your Mac isn’t reachable from here.
+PASS  the banner is up, with the control that acts on it beside it
+PASS  no horizontal scroll — webkit: with a message waiting
+        document 375px against a viewport of 375px; widest element HEADER.topbar ends at 375px
+        shot: ../../../docs/verification/phone-app-2026-09-18/webkit-waiting.png
+PASS  the message he wrote on the train is still there after the app was closed and reopened
+PASS  it goes the moment his Mac can hear him again
+        drained by the stream reconnecting on its own
+PASS  and it reached the Mac exactly once, across a reload and a retry
+        1 copies at the Mac
+
+=== webkit: older messages, behind a scroll ===
+PASS  scrolling to the top loads earlier messages
+        15 then 55
+PASS  NO PAGINATION — no page number, no pagination control, anywhere
+
+=== webkit: the microphone, and the bytes the Mac receives ===
+SKIP  hold-to-record end to end
+        WebKit cannot be given a fake microphone, so this engine cannot answer it. Chromium does, above, and his own phone answered it on 2026-09-18.
+
+=== webkit: a state he can change is rendered with the control that changes it ===
+PASS  the composer carries its own control, or says where the control is
+        Write to Rich
+Send
+Hold to record
+
+Hold the button, speak, and let go to send.
+
+=== webkit: contrast, every text node, both themes ===
+        dark: 144 text nodes measured, 1 indicators, 128 resolved by ancestor
+PASS  dark: every measured text node and indicator clears WCAG AA
+PASS  dark: nothing on this screen has a color that cannot be proved
+PASS  dark: no exemption is claimed — every string here is meant to be read
+PASS  dark: the walk actually looked at something
+        144 nodes
+        shot: ../../../docs/verification/phone-app-2026-09-18/webkit-thread-dark.png
+        light: 144 text nodes measured, 1 indicators, 128 resolved by ancestor
+PASS  light: every measured text node and indicator clears WCAG AA
+PASS  light: nothing on this screen has a color that cannot be proved
+PASS  light: no exemption is claimed — every string here is meant to be read
+PASS  light: the walk actually looked at something
+        144 nodes
+        shot: ../../../docs/verification/phone-app-2026-09-18/webkit-thread-light.png
+
+=== webkit: no horizontal scroll, at four phone widths, in both themes ===
+PASS  no horizontal scroll — webkit: 320px, dark
+        document 320px against a viewport of 320px; widest element HEADER.topbar ends at 320px
+PASS  no horizontal scroll — webkit: 375px, dark
+        document 375px against a viewport of 375px; widest element HEADER.topbar ends at 375px
+PASS  no horizontal scroll — webkit: 390px, dark
+        document 390px against a viewport of 390px; widest element HEADER.topbar ends at 390px
+PASS  no horizontal scroll — webkit: 430px, dark
+        document 430px against a viewport of 430px; widest element HEADER.topbar ends at 430px
+PASS  no horizontal scroll — webkit: 320px, light
+        document 320px against a viewport of 320px; widest element HEADER.topbar ends at 320px
+PASS  no horizontal scroll — webkit: 375px, light
+        document 375px against a viewport of 375px; widest element HEADER.topbar ends at 375px
+PASS  no horizontal scroll — webkit: 390px, light
+        document 390px against a viewport of 390px; widest element HEADER.topbar ends at 390px
+PASS  no horizontal scroll — webkit: 430px, light
+        document 430px against a viewport of 430px; widest element HEADER.topbar ends at 430px
+
+=== webkit: his Mac forgets this phone ===
+PASS  the app says so and stops, rather than retrying a Mac that has forgotten it
+        This phone was removed from your Mac Rich is no longer reachable from here, and nothing you write will be sent. To use this phone again, ope
+PASS  and the conversation is not left behind it
+        shot: ../../../docs/verification/phone-app-2026-09-18/webkit-removed.png
+PASS  no JavaScript error in the whole run
+        4 failed request(s), all of them the outage this run caused deliberately:
+        Failed to load resource: The network connection was lost.
+        Failed to load resource: The network connection was lost.
+        Failed to load resource: The network connection was lost.
+        Failed to load resource: the server responded with a status of 403 (Forbidden)
+PASS  the outage was a REAL network failure, not something the page pretended
+        if this is zero, the unreachable and revoked passes above proved nothing
+
+=== ALL CHECKS PASSED, 1 skipped ===
