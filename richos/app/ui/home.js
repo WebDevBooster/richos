@@ -782,6 +782,61 @@ window.RichHome = (function () {
     hide("enter-key");
   }
 
+  // -----------------------------------------------------------------------------------------
+  // A DESK SHEET OPENED FROM THIS SCREEN BRINGS THE DESK WITH IT — audit-7 row 5.
+  //
+  // Ray reached `Connected repositories` from the settings menu while the opening screen was
+  // up, "clicked it twice, saw nothing both times, and concluded it was dead". It was not
+  // dead. It had opened on the desk, BEHIND this composition, and was still sitting there
+  // when `Talk to Rich` finally let him through. Measured under WebKit, before this change:
+  //
+  //     #home                  computed z-index 150, position fixed
+  //     #repositories-sheet    computed z-index  60, position fixed
+  //     elementFromPoint at the middle of the sheet's own panel  ->  home-overlay
+  //
+  // AND IT WAS WORSE THAN INVISIBLE: `repositories.js`'s `open()` focuses the company select,
+  // and `onFocusIn` above pulled focus straight back to the door (measured: sheet open,
+  // `activeElement` = `home-enter`). So even painted in front it could not have been typed
+  // into. That is the same defect `#home-prefs` was given an exception for, in the note above
+  // — a second surface with the same shape and no exception.
+  //
+  // WHY THE SCREEN GIVES WAY RATHER THAN THE SHEET BEING RAISED. The owner's 2026-09-02 ruling
+  // is that nothing covers the spectacle of this composition, and every door that did was
+  // rejected on that ground alone; raising `.overlay` above `#home` would put an arbitrary
+  // modal over it. These sheets LIVE on the desk — the settings menu that opens them floats
+  // above every screen by §15, the sheets do not — so a row that opens one is a way through,
+  // exactly like the door. Giving way also settles the focus half in the same move, with no
+  // second exception list to keep.
+  //
+  // DERIVED, NOT ENUMERATED. The trigger is "a `.overlay` that is a direct child of `<body>`
+  // stopped being hidden", which is what a DESK SHEET structurally is — the same argument
+  // `main.js`'s `POPUP_SELECTOR` makes for Escape. `#repositories-sheet`, `#permission-sheet`
+  // and `#quit-question` are the three today; one added next month is covered with nothing to
+  // remember here. `#home-prefs` is body-level too and is deliberately NOT an `.overlay`: it is
+  // this screen's own panel and floats above it.
+  function giveWayToOpenDeskSheet() {
+    if (!state.open) return false;
+    var sheets = document.querySelectorAll("body > .overlay");
+    for (var i = 0; i < sheets.length; i++) {
+      if (!sheets[i].hidden) {
+        hide("desk-sheet");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function watchForDeskSheets() {
+    if (typeof MutationObserver !== "function") return; // then the screen behaves as it did
+    new MutationObserver(giveWayToOpenDeskSheet).observe(document.body, {
+      attributes: true,
+      attributeFilter: ["hidden"],
+      childList: true,
+      subtree: true,
+    });
+    giveWayToOpenDeskSheet();
+  }
+
   /// Is the universal settings menu actually ON SCREEN? Asked of the DOM rather than of
   /// `settings-button.js`, which exposes no "is it open" reader and is loaded after this file.
   /// A missing menu answers false, which is the safe direction: with no menu there is nothing
@@ -1128,6 +1183,12 @@ window.RichHome = (function () {
     });
 
     focusHome();
+
+    // ...unless a desk sheet is already open behind it, which `show()` would otherwise bury —
+    // the CEO pressing the logo with `Connected repositories` still up. No mutation fires for a
+    // sheet that has not changed, so coming back reads the state once. See
+    // `giveWayToOpenDeskSheet`.
+    giveWayToOpenDeskSheet();
   }
 
   function toggle() {
@@ -1491,6 +1552,9 @@ window.RichHome = (function () {
         document.fonts.ready.then(measureChips).catch(function () {});
       }
       focusHome();
+      // A sheet that lives on the desk takes the CEO to the desk (audit-7 row 5). Installed
+      // here rather than in the module body because `document.body` is what it observes.
+      watchForDeskSheets();
 
       // The settings menu gets ONE row — "Home screen", with a button that opens the panel
       // above. §15 puts that menu on every screen, so this reaches him from the home screen

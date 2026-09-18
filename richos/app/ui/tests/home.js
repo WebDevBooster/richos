@@ -2885,6 +2885,103 @@ async function main() {
     return `${page.__errors.length} uncaught errors, ${page.__errors.length} console errors, over the whole run`;
   });
 
+  await run.check("a sheet that lives on the desk takes the CEO to the desk, not behind the picture", async () => {
+    // AUDIT-7 ROW 5. `Connected repositories` reached from the opening screen "closes the
+    // settings panel and shows no sheet"; Ray clicked it twice and called it dead. It had
+    // opened on the desk, behind this composition. Measured before the fix, under WebKit:
+    // `#home` computes z-index 150, `#repositories-sheet` computes 60, and
+    // `elementFromPoint` at the middle of the sheet's own panel returned `home-overlay`.
+    // Worse, `repositories.js` focuses its company select and `onFocusIn` pulled focus back
+    // to the door, so the sheet could not have been typed into even painted in front.
+    const p = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    const errs = [];
+    p.on("pageerror", (e) => errs.push(String(e)));
+    await p.goto(APP);
+    await p.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await p.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await p.waitForFunction(() => !document.getElementById("home").hidden);
+    await p.waitForSelector("#repositories-sheet", { state: "attached" });
+
+    // The layers are STATED, so a future change that merely reshuffles z-index is visible here
+    // rather than silently making this check true for a different reason.
+    const layers = await p.evaluate(() => ({
+      home: getComputedStyle(document.getElementById("home")).zIndex,
+      sheet: getComputedStyle(document.getElementById("repositories-sheet")).zIndex,
+    }));
+
+    // Through the app's own control, the way the CEO reaches it.
+    await p.click("#set-btn");
+    await p.waitForFunction(() => !document.getElementById("set-menu").hidden);
+    await p.click("#set-repositories-open");
+    await p.waitForFunction(() => !document.getElementById("repositories-sheet").hidden, { timeout: 5000 });
+    await p.waitForFunction(() => document.getElementById("home").hidden, { timeout: 5000 });
+
+    const seen = await p.evaluate(() => {
+      const panel = document.querySelector("#repositories-sheet .overlay-panel");
+      const r = panel.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return {
+        why: window.RichHome.state.lastLeaveReason,
+        homeHidden: document.getElementById("home").hidden,
+        paintedOnTop: top ? top.id || top.className || top.tagName : null,
+        insideSheet: !!(top && top.closest && top.closest("#repositories-sheet")),
+        focusInSheet: !!(document.activeElement && document.activeElement.closest("#repositories-sheet")),
+        focusId: (document.activeElement && document.activeElement.id) || null,
+      };
+    });
+    assertEqual(seen.why, "desk-sheet", "the opening screen left for some other reason than the sheet");
+    assert(seen.homeHidden, "the opening screen is still up over a sheet that lives on the desk");
+    assert(
+      seen.insideSheet,
+      `something other than the sheet is painted at the middle of its own panel: ${seen.paintedOnTop}`
+    );
+    assert(
+      seen.focusInSheet,
+      `the sheet is on screen but focus is on ${JSON.stringify(seen.focusId)} — it cannot be typed into`
+    );
+
+    // AND COMING BACK DOES NOT BURY IT AGAIN. `show()` fires no mutation for a sheet that has
+    // not changed, so returning to the screen reads the state once instead.
+    await p.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await p.waitForFunction(() => document.getElementById("home").hidden, { timeout: 5000 });
+    const again = await p.evaluate(() => ({
+      why: window.RichHome.state.lastLeaveReason,
+      sheetOpen: !document.getElementById("repositories-sheet").hidden,
+    }));
+    assert(again.sheetOpen, "the sheet closed itself, so this half is testing nothing");
+    assertEqual(again.why, "desk-sheet", "the screen came back and sat on top of the open sheet");
+
+    // NEGATIVE CONTROL: the home screen's OWN panel is not a desk sheet and must not move it.
+    await p.evaluate(() => {
+      document.getElementById("repository-close").click();
+    });
+    await p.waitForFunction(() => document.getElementById("repositories-sheet").hidden);
+    await p.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await p.waitForFunction(() => !document.getElementById("home").hidden);
+    await p.evaluate(() => window.RichHome.openSettings());
+    await p.waitForFunction(() => document.querySelectorAll(".home-prefs-row").length > 0);
+    const withPrefs = await p.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      prefsBodyLevel: document.getElementById("home-prefs").parentElement === document.body,
+      prefsIsOverlay: document.getElementById("home-prefs").classList.contains("overlay"),
+    }));
+    await p.evaluate(() => window.RichHome.closeSettings());
+    assert(
+      withPrefs.open,
+      "the company-buttons panel sent the CEO to the desk — it is this screen's own panel and floats above it"
+    );
+    assert(withPrefs.prefsBodyLevel, "#home-prefs is no longer body-level, so the negative control proves nothing");
+    assert(!withPrefs.prefsIsOverlay, "#home-prefs became an .overlay, which is what the desk-sheet rule keys on");
+
+    assertEqual(errs, [], "the screen threw while a desk sheet was opened over it");
+    await p.close();
+    return (
+      `#home z-index ${layers.home}, #repositories-sheet z-index ${layers.sheet}; opening the sheet leaves ` +
+      `("desk-sheet"), the sheet is painted on top and holds focus (${seen.focusId}); coming back leaves again; ` +
+      `the company-buttons panel (body-level, not .overlay) does not move the screen`
+    );
+  });
+
   await run.check("the suites' own way past this surface still works", async () => {
     const p3 = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await p3.goto(APP);
