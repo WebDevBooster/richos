@@ -173,23 +173,51 @@ pub const PLUGIN_DIR: &str = "--plugin-dir";
 /// *"a few seconds"*; seven of those twenty-three seconds were discovery.
 ///
 /// **Why an environment variable and not a flag: there is no flag.** Re-derived from the
-/// shipped binary rather than from documentation — `claude` 2.1.275, the module that decides
-/// it (`chunk-gxmxm8v7`/`chunk-fp50hwzg` region at byte offset 173_562_000):
+/// shipped binary rather than from documentation — first on `claude` 2.1.275, and RE-DERIVED
+/// ON **2.1.277** on 2026-09-18 for the reason below. The module that decides it lives at byte
+/// offset 175_107_000 in 2.1.277 (173_562_000 in 2.1.275); the minifier renamed every symbol
+/// and changed nothing else:
 ///
 /// ```text
-/// function EYe(){ if(f_t())return"standard"; if(u())return"tst";
-///   let e=process.env.ENABLE_TOOL_SEARCH, r=e?UQn(e):null;
+/// // 2.1.277.  2.1.275's names in brackets.
+/// function b7e(){ if(Ebt())return"standard"; if(u())return"tst";      // [EYe], [f_t]
+///   let e=process.env.ENABLE_TOOL_SEARCH, r=e?drr(e):null;            // [UQn]
 ///   if(r===0)return"tst"; if(r===100)return"standard";
-///   if(m(e))return"tst-auto"; if(Oe(e))return"tst"; if(To(e))return"standard";
+///   if(m(e))return"tst-auto"; if(Oe(e))return"tst"; if(Eo(e))return"standard";   // [To]
 ///   return"tst" }                                   // <- UNSET MEANS DEFERRAL IS ON
-/// function To(e){ … return["0","false","no","off"].includes(String(e).toLowerCase().trim()) }
-/// function Mg(){ let e=EYe(); if(e==="standard"){ …; return!1 } … }
+/// function Eo(e){ … return["0","false","no","off"].includes(String(e).toLowerCase().trim()) }
+/// function Kg(){ let e=b7e(); if(e==="standard"){ …; return!1 } … }   // [Mg]
 /// ```
 ///
-/// So `"false"` is one of five spellings `To` accepts, `EYe()` returns `"standard"`, and
-/// `Mg()` — the session's one "is tool search on" decision — returns false. The DEFAULT is
+/// So `"false"` is one of five spellings `Eo` accepts, `b7e()` returns `"standard"`, and
+/// `Kg()` — the session's one "is tool search on" decision — returns false. The DEFAULT is
 /// deferral, which is exactly the third-party default this project refuses to inherit
 /// unexamined.
+///
+/// **THE KNOB WAS ACCUSED OF FAILING ON 2.1.277, AND IT HAD NOT.** Ray's candidate-.10 walk
+/// read the alarm below out of `app.log` and its audit named it the cause of "On it!" landing
+/// at 8–12 s; this comment is what the re-derivation and the probe found instead, and it is
+/// recorded here because the accusation will otherwise be made again.
+///
+/// - The decision module is UNCHANGED between the two releases. `Oe` and `Eo` are byte-
+///   identical to 2.1.275's `Oe`/`To`, and `b7e`/`Kg` differ from `EYe`/`Mg` only in symbol
+///   names. Nothing in it reads a different input.
+/// - And it is not a source reading: `/Users/alex/.local/bin/claude` **2.1.277** — the same
+///   binary that run, `app.log` line 23 — was driven directly with the arg vector
+///   [`child_args`] builds, and its `system/init.tools` answered:
+///
+/// ```text
+/// ENABLE_TOOL_SEARCH unset : 28 tools, ToolSearch PRESENT   <- deferral, and MCP tools absent
+/// ENABLE_TOOL_SEARCH=false : 35 tools, ToolSearch ABSENT
+/// ENABLE_TOOL_SEARCH=0     : 35 tools, ToolSearch ABSENT
+/// …=false + --permission-mode auto           : 35 tools, ToolSearch ABSENT
+/// …=false + the inline --settings `configure` sends : 35 tools, ToolSearch ABSENT
+/// …=false + --strict-mcp-config --mcp-config : 27 tools, ToolSearch ABSENT
+/// ```
+///
+/// The knob holds on 2.1.277 in every shape the app spawns. What had actually happened is in
+/// [`ReaderState::tool_residency`]: the alarm carried no lease role, and the WORK lease — which
+/// `tool_residency_env` deliberately gives no variable at all — was setting it off.
 ///
 /// **Three defenses, the same three the flags above it get:**
 ///
@@ -199,7 +227,9 @@ pub const PLUGIN_DIR: &str = "--plugin-dir";
 ///   the reader reads `ToolSearch` out of the child's own init inventory into
 ///   `ReaderState::tool_search_offered` and says so on stderr. A knob that is renamed, or a
 ///   binary that starts deferring for a different reason, shows up as the tool being offered
-///   again;
+///   again. **It says it about the lease it is actually on** — see
+///   [`ReaderState::tool_residency`], the field that was missing when the alarm above was
+///   raised against a binary that had done nothing wrong;
 /// - and the number itself is re-measured end to end by
 ///   `examples/first_reply_timing_e2e.rs`, which refuses a turn whose first tool call is not
 ///   the register.
