@@ -305,7 +305,7 @@ fn main() {
     // The one that decides it: feed the REAL monitor and see whether Rich would have cut
     // himself off. This is the CEO's stated regression, measured in his own room.
     let mut mon = BargeInMonitor::default();
-    mon.set_aec_confident(true);
+    mon.set_near_end_gated(true);
     mon.arm();
     let mut self_interrupts = 0;
     for r in window {
@@ -331,7 +331,7 @@ fn main() {
         println!("  blocks with the talker present : {}", inj.len());
         println!("  blocks called near-end speech  : {det} ({}%)", det * 100 / inj.len().max(1));
         let mut mon2 = BargeInMonitor::default();
-        mon2.set_aec_confident(true);
+        mon2.set_near_end_gated(true);
         mon2.arm();
         let fired = inj.iter().position(|r| mon2.push(r.near_end));
         match fired {

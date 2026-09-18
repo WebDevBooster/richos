@@ -301,7 +301,7 @@ fn main() {
         let fired_consec = w.iter().any(|v| consec.push(*v));
 
         let mut windowed = BargeInMonitor::default();
-        windowed.set_aec_confident(true);
+        windowed.set_near_end_gated(true);
         windowed.arm();
         let fired_window = w.iter().any(|v| windowed.push(*v));
 

@@ -1141,7 +1141,29 @@ fn a_near_end_voice_over_richs_answer_starts_a_tainted_utterance_and_is_never_su
     );
     assert_eq!(harness.admitted, 0, "{harness:?}");
 
-    // (3) A near-end voice. It MUST be heard, it MUST be tainted, and it MUST NOT be submitted.
+    // (3) A near-end voice. It MUST be heard, it MUST be born tainted, and it MUST now BARGE IN
+    //     and be submitted — which is the opposite of what this step asserted until 2026-09-18.
+    //
+    // **THE ASSERTIONS HERE USED TO READ `admitted == 0` AND `barge_ins == 0`, AND THEY WERE A
+    // FAITHFUL DESCRIPTION OF THE DEFECT.** They said: a person at a near-field level talking
+    // over Rich for 2.841 s is heard, tainted, discarded, and does not interrupt him — because
+    // the unconfident-canceller rule wanted 5.008 s of UNBROKEN speech. The CEO met exactly that
+    // behavior on 2026-09-18 and said *"no matter what I said, he couldn't hear me"*. He was
+    // heard, five times, at -18.1 dBFS against a -46.7 dBFS echo on the same microphone, and
+    // thrown away every time; his longest unbroken run was 66 frames = 1.056 s against 313.
+    //
+    // Barge-in is now gated on the canceller's per-frame NEAR-END VERDICT rather than on
+    // `confident()` (`bargein::BargeInMonitor::set_near_end_gated`), so 2.841 s of near-field
+    // speech reaches the 15-of-25 window and fires. A barge-in is a positive signal that the CEO
+    // is the one talking, so `CaptureBrain` clears the taint and the words become his next turn —
+    // that clause is not new, it has simply never been reachable on this path before.
+    //
+    // **THE INVARIANT THIS FILE EXISTS FOR IS UNTOUCHED, AND IT IS STEPS (1) AND (2) THAT HOLD
+    // IT, NOT THIS ONE.** Rich's own answer alone admits nothing, and audio at the ECHO's own
+    // level (-44.7 dBFS, the level Ray's `say`-through-the-speakers talk-over actually reached)
+    // admits nothing and starts nothing. Both still pass, unchanged, and the false-positive side
+    // is measured on real recordings in `barge_in_on_the_ceos_rig`: zero fires over fourteen
+    // echo-only conditions spanning two recordings and six volumes.
     let (s, at) = scene_with(near_field_dbfs);
     let (near, run) =
         replay_tracing_onset(&s, &s.audible_speaking(), at..at + frames_for(talker_secs));
@@ -1157,19 +1179,21 @@ fn a_near_end_voice_over_richs_answer_starts_a_tainted_utterance_and_is_never_su
         "the utterance was not born tainted, so Rich's own voice could be submitted: {near:?}"
     );
     assert_eq!(
-        near.admitted, 0,
-        "an utterance recorded while Rich was audible was submitted ({near:?}) — the invariant \
-         the whole-answer window exists for"
+        near.barge_ins, 1,
+        "a person talking over Rich for {talker_secs:.3} s at {near_field_dbfs:.1} dBFS did NOT \
+         interrupt him — this is the CEO's 2026-09-18 report, reproduced: {near:?}"
     );
     assert_eq!(
-        near.tainted_discards,
-        bare.tainted_discards + 1,
-        "the utterance did not reach a tainted discard, so the notice layer is not entered: {near:?}"
+        near.admitted,
+        bare.admitted + 1,
+        "he interrupted Rich and his words were still thrown away, so the interruption cost him \
+         a turn instead of winning one: {near:?}"
     );
-    // And it did NOT barge in: 2.841 s of talking is under the 5.008 s the unconfident-canceller
-    // rule requires (313 x 256 / 16000 = 5.008 s, re-derived), so Rich is not cut off. That is
-    // the barge-in rule working, and it is a different gate from the one this test is about.
-    assert_eq!(near.barge_ins, 0, "{near:?}");
+    assert_eq!(
+        near.tainted_discards, 0,
+        "the barge-in did not clear the taint, so the words that stopped Rich were discarded \
+         anyway: {near:?}"
+    );
     assert!(
         run >= SPEECH_ONSET_FRAMES - 1,
         "the onset run only reached {run} of the {SPEECH_ONSET_FRAMES} frames it needs"

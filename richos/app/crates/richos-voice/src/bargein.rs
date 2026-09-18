@@ -27,6 +27,39 @@
 //! stop" control in the UI, which calls [`BargeInMonitor::force`] — the manual half of the
 //! interim, exactly as the pilot's mute button was.
 //!
+//! ## AND IT IS NO LONGER THE RULE THE CEO MEETS — 2026-09-18
+//!
+//! He tested it on his own rig and said *"no matter what I said, he couldn't hear me"*. He WAS
+//! heard. The recording made that afternoon on his desk has his voice at **-18.1 dBFS** at the
+//! microphone against Rich's echo at **-46.7 dBFS** on the same microphone — **28.6 dB** of
+//! separation, five separate times, 4.880 s of speech in total. Every one of those was thrown
+//! away, because 5.008 s of UNBROKEN speech is not a thing a person produces: his longest
+//! unbroken run was **66 frames = 1.056 s**, and 66 < 313.
+//!
+//! The debounce was never the discrimination — it is a continuity race that echo happens to
+//! lose, and the CEO loses it too. The discrimination that works is the canceller's per-frame
+//! **near-end verdict**, ANDed with the VAD, and it does not need a converged filter:
+//!
+//! ```text
+//!   worst case over 14 echo-only conditions, two recordings of the CEO's own rig,
+//!   each swept across six settings of the volume knob (his 60 up to 4 dB over Ray's 85):
+//!
+//!     VAD speech alone                 longest run 23 frames · 23 of any 25-frame window
+//!     VAD speech AND near-end          longest run  6 frames ·  6 of any 25-frame window
+//!
+//!   the CEO's own voice, same rig, same day:
+//!     VAD speech AND near-end          longest run 66 frames · 25 of 25 — saturated
+//! ```
+//!
+//! So `AEC_BARGE_IN_REQUIRED_FRAMES` of 15 in 25 clears the worst echo ever measured here by
+//! 15/6 = 2.50x on the conjunction, while the same window on a bare VAD verdict would fire on
+//! Rich at 23 of 25. **The rule did not change. The signal did, and the confidence
+//! precondition on it came off.** [`BargeInMonitor::set_near_end_gated`] carries the numbers;
+//! `examples/bargein_score.rs` reproduces them with no device and no sound.
+//!
+//! [`BargeInMode::Consecutive`] is still the rule when there is **no canceller at all**, and
+//! that is now the only case it covers.
+//!
 //! ## The AEC seam ([`EchoGate`])
 //!
 //! Real echo cancellation is the still-open gap inherited from the pilot and is explicitly
@@ -47,10 +80,15 @@ pub fn barge_in_debounce_secs() -> f32 {
     frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES)
 }
 
-/// **The converged debounce window.** Once the echo canceller is confident
-/// ([`crate::aec::EchoCanceller::confident`]) the interruption test changes shape entirely:
-/// instead of racing echo for 5.008 s of unbroken speech, it asks whether the CEO has been
-/// talking for most of the last 0.400 s.
+/// **The near-end-gated debounce window.** Whenever a canceller is present, the interruption
+/// test changes shape entirely: instead of racing echo for 5.008 s of unbroken speech, it asks
+/// whether the CEO has been talking for most of the last 0.400 s.
+///
+/// **The name still says AEC and that is correct — what changed on 2026-09-18 is WHICH property
+/// of the canceller it rests on.** It used to require [`crate::aec::EchoCanceller::confident`],
+/// which on the CEO's hardware is unreachable by measurement. It now requires only the
+/// canceller's per-frame near-end verdict, which needs no converged filter. See
+/// [`BargeInMonitor::set_near_end_gated`] for the decibels.
 ///
 /// ```text
 ///   AEC_BARGE_IN_WINDOW_FRAMES   = 25
@@ -84,15 +122,20 @@ pub fn aec_barge_in_window_secs() -> f32 {
     frames_to_secs(AEC_BARGE_IN_WINDOW_FRAMES)
 }
 
-/// How the monitor is currently deciding. Not a preference — a consequence of whether the
-/// canceller has measured itself into a position to be believed.
+/// How the monitor is currently deciding. Not a preference — a consequence of WHICH SIGNAL it
+/// is being fed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BargeInMode {
     /// **The fallback, and the default.** 313 consecutive speech frames = 5.008 s. In force
-    /// whenever the echo canceller is not confident: at start-up, after a device change, after
-    /// a reference-ring overrun, or when there is no canceller at all.
+    /// when the monitor is fed a bare VAD verdict — which now means only one thing: there is
+    /// **no echo canceller at all** ([`NoEchoCancellation`], or a platform where the real one
+    /// cannot run). A bare VAD verdict cannot tell the CEO from Rich, so the only protection
+    /// left is the continuity race, and it stays exactly as it was.
     Consecutive,
-    /// **The converged rule.** 15 near-end frames within a sliding 25-frame (0.400 s) window.
+    /// **The near-end-gated rule.** 15 frames within a sliding 25-frame (0.400 s) window, where
+    /// a frame counts only if the VAD says speech AND the canceller says near-end. In force
+    /// whenever a canceller is present — see [`BargeInMonitor::set_near_end_gated`] for the
+    /// measurement that removed the confidence precondition on 2026-09-18.
     Windowed,
 }
 
@@ -144,14 +187,64 @@ impl BargeInMonitor {
         self.mode
     }
 
-    /// **Switch rules.** Driven by [`crate::aec::EchoCanceller::confident`] and by nothing
-    /// else — never by a setting, never by a guess about headphones.
+    /// **Switch rules. Driven by WHICH SIGNAL the caller is feeding, and by nothing else** —
+    /// never by a setting, never by a guess about headphones, and since 2026-09-18 no longer by
+    /// [`crate::aec::EchoCanceller::confident`].
+    ///
+    /// `true` means: every `push` from here on carries the CONJUNCTION — the VAD said speech AND
+    /// the canceller said near-end, both on the same frame.
+    ///
+    /// ## Why the confidence precondition is gone, in decibels
+    ///
+    /// It used to be `set_near_end_gated`, and on the CEO's own hardware `confident()` is false
+    /// and always will be: the measured magnitude-squared coherence caps ANY linear canceller
+    /// there at 4.3-5.5 dB, so the residual can never sit 6 dB under the VAD's speech floor
+    /// (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`). The consequence was the
+    /// defect the CEO reported on 2026-09-18: *"no matter what I said, he couldn't hear me"*.
+    /// He was heard — five separate times — and every utterance was discarded, because the
+    /// fallback wanted 5.008 s of UNBROKEN speech and nobody speaks for 5 s without a gap.
+    ///
+    /// **The mistake was gating the RULE on confidence when only the SIGNAL needed gating.**
+    /// `confident()` answers *"is leftover echo too quiet to reach the VAD's threshold?"* — the
+    /// right question for feeding the window a bare VAD verdict, and unanswerable-in-the-
+    /// affirmative on this rig. The conjunction asks a different and much easier question:
+    /// *"does this frame carry more energy than the canceller predicts for the reference level
+    /// it can see?"* That does not need a converged filter. `leak_gain` is a minimum statistic,
+    /// so `predicted_echo` is deliberately a LOW estimate, and before the filter has learned
+    /// anything `leak_gain` sits at its pessimistic initial 1.0 — which is exactly why the
+    /// playback-onset transient measured below is rejected rather than mistaken for a person.
+    ///
+    /// ## The measurement, on two independent recordings of the CEO's own rig
+    ///
+    /// `examples/bargein_score.rs`, replaying the committed fixtures with no device and no
+    /// sound. **S** = VAD speech on the residual. **B** = VAD speech AND the near-end verdict.
+    /// Fourteen echo-only conditions: two recordings, each as-recorded plus six settings of the
+    /// volume knob spanning the CEO's own volume 60 up to 4 dB above Ray's volume 85.
+    ///
+    /// ```text
+    ///   ECHO ONLY, nobody in the room          worst longest run   worst 25-frame density
+    ///     ceo-rig-2026-09-17, all volumes         S  5    B  0        S  5    B  0
+    ///     ceo-rig-2026-09-18-nearend, all         S 23    B  6        S 23    B  6
+    ///     ------------------------------------------------------------------------
+    ///     WORST CASE ANYWHERE                     S 23    B  6        S 23    B  6
+    ///
+    ///   THE CEO'S OWN VOICE, ceo-rig-2026-09-18-nearend2, 4.880 s over five intervals
+    ///     his level -18.1 dBFS vs echo -46.7 dBFS at the same microphone: 28.6 dB above it
+    ///                                             S 66    B 66        S 25    B 25
+    /// ```
+    ///
+    /// So on signal **B** the threshold of 15 in 25 clears the worst echo ever measured on this
+    /// rig by **15 / 6 = 2.50x** and the CEO saturates it at 25 of 25. On signal **S** echo
+    /// reaches **23** of 25 — one frame short of saturation — so the same window on a bare VAD
+    /// verdict would cut Rich off mid-sentence, which is exactly what
+    /// `the_windowed_rule_would_fire_on_raw_echo_which_is_why_it_needs_a_canceller` asserts and
+    /// why [`BargeInMode::Consecutive`] remains the rule with no canceller present.
     ///
     /// Changing mode clears the accumulated evidence in both directions. Carrying a 200-frame
     /// consecutive run into the windowed rule (or vice versa) would let a debounce fire on
     /// evidence gathered under a rule that no longer applies.
-    pub fn set_aec_confident(&mut self, confident: bool) {
-        let want = if confident { BargeInMode::Windowed } else { BargeInMode::Consecutive };
+    pub fn set_near_end_gated(&mut self, gated: bool) {
+        let want = if gated { BargeInMode::Windowed } else { BargeInMode::Consecutive };
         if want != self.mode {
             self.mode = want;
             self.run = 0;
@@ -492,13 +585,13 @@ mod tests {
         assert!((m.effective_debounce_secs() - 5.008).abs() < 1e-6);
 
         let mut m = BargeInMonitor::default();
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         assert_eq!(m.mode(), BargeInMode::Windowed);
         assert_eq!(m.effective_required_frames(), AEC_BARGE_IN_REQUIRED_FRAMES);
         assert!((m.effective_debounce_secs() - 0.400).abs() < 1e-6);
 
         // And it goes straight back the moment confidence is withdrawn.
-        m.set_aec_confident(false);
+        m.set_near_end_gated(false);
         assert_eq!(m.mode(), BargeInMode::Consecutive);
         assert!((m.effective_debounce_secs() - 5.008).abs() < 1e-6);
     }
@@ -508,7 +601,7 @@ mod tests {
     #[test]
     fn the_windowed_rule_fires_on_the_fifteenth_frame_not_the_fourteenth() {
         let mut m = BargeInMonitor::default();
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         m.arm();
         for i in 1..AEC_BARGE_IN_REQUIRED_FRAMES {
             assert!(!m.push(true), "fired early at frame {i}");
@@ -540,7 +633,7 @@ mod tests {
         assert_eq!(longest, 4, "premise: the longest unbroken run is only 4 frames = 64 ms");
 
         let mut windowed = BargeInMonitor::default();
-        windowed.set_aec_confident(true);
+        windowed.set_near_end_gated(true);
         windowed.arm();
         assert!(
             pattern.iter().any(|v| windowed.push(*v)),
@@ -559,13 +652,13 @@ mod tests {
     ///
     /// Fed RAW verdicts — no echo cancellation — the windowed rule fires on Rich's own voice
     /// in under half a second. That is not a defect in the window; it is the entire reason
-    /// `set_aec_confident` exists and the entire reason the 5.008 s rule stays as the
+    /// `set_near_end_gated` exists and the entire reason the 5.008 s rule stays as the
     /// fallback. Compare with `bursty_echo_never_barges_in_because_gaps_reset_the_run`, which
     /// asserts the consecutive rule survives exactly this input.
     #[test]
     fn the_windowed_rule_would_fire_on_raw_echo_which_is_why_it_needs_a_canceller() {
         let mut m = BargeInMonitor::default();
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         m.arm();
         // The same bursty echo the consecutive rule shrugs off: 20 on, 5 off.
         let mut fired_at = None;
@@ -595,7 +688,7 @@ mod tests {
     #[test]
     fn evidence_older_than_the_window_stops_counting() {
         let mut m = BargeInMonitor::default();
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         m.arm();
         for _ in 0..14 {
             assert!(!m.push(true));
@@ -620,7 +713,7 @@ mod tests {
             assert!(!m.push(true));
         }
         assert_eq!(m.run_frames(), BARGE_IN_DEBOUNCE_FRAMES - 1);
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         assert_eq!(m.window_hits(), 0, "312 frames of consecutive evidence leaked into the window");
         for i in 1..AEC_BARGE_IN_REQUIRED_FRAMES {
             assert!(!m.push(true), "fired at {i} on stale evidence");
@@ -633,7 +726,7 @@ mod tests {
     #[test]
     fn arming_clears_the_window_as_well_as_the_run() {
         let mut m = BargeInMonitor::default();
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         m.arm();
         for _ in 0..14 {
             m.push(true);
@@ -651,7 +744,7 @@ mod tests {
     #[test]
     fn the_windowed_rule_fires_once_and_tap_to_stop_still_overrides_it() {
         let mut m = BargeInMonitor::default();
-        m.set_aec_confident(true);
+        m.set_near_end_gated(true);
         m.arm();
         let mut fires = 0;
         for _ in 0..100 {
@@ -662,7 +755,7 @@ mod tests {
         assert_eq!(fires, 1);
 
         let mut m2 = BargeInMonitor::default();
-        m2.set_aec_confident(true);
+        m2.set_near_end_gated(true);
         m2.arm();
         assert!(m2.force(), "tap to stop must remain instant under either rule");
     }

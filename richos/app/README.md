@@ -544,8 +544,9 @@ richos/app/
                               (docs/verification/loro-write-path-2026-09-01/)
   crates/richos-voice/       VOICE MODE — mic -> whisper -> the spine -> TTS -> speakers
     src/vad.rs               RMS VAD + THE FRAME MATH (16000 Hz, 256-sample frames = 16.000 ms)
-    src/bargein.rs           313-frame (5.008 s) fallback debounce; 15-of-25 (0.400 s) window
-                              once the canceller has EARNED it; the EchoGate seam
+    src/bargein.rs           15-of-25 (0.400 s) window on VAD-speech-AND-near-end whenever a
+                              canceller exists; 313-frame (5.008 s) consecutive debounce only
+                              when there is none; the EchoGate seam
     src/aec.rs               ACOUSTIC ECHO CANCELLATION — 2048-tap PBFDAF (128.0 ms tail),
                               lock-free reference ring, envelope delay estimator.
                               28.0 dB ERLE on a linear path; ~5.5 dB is all ANY linear
@@ -1735,22 +1736,46 @@ to name in the open-source license audit). It is bit-transparent while Rich is s
 zero reference the estimate is exactly zero, so dictation and call transcription are provably
 untouched — and it costs 0.355 % of one core.
 
-Barge-in now has two rules. The 5.008 s consecutive debounce is the DEFAULT and the fallback.
-The short rule — 15 near-end frames within a sliding 0.400 s window — is reachable only when
-the canceller has MEASURED its own residual echo 6 dB below the VAD's speech threshold and held
-it there for 2.000 s. On a linear path that gives 28.0 dB ERLE, a **400 ms** shortest
-interruption (down from 5008 ms) and zero self-interruptions.
+Barge-in has two rules, and **which one is in force depends on whether a canceller exists at
+all — not on whether it is confident.** With a canceller present: 15 frames within a sliding
+25-frame (0.400 s) window, where a frame counts only if the VAD says speech AND the canceller
+says near-end. With no canceller: the 5.008 s consecutive debounce, unchanged.
 
-**On this host's own hardware it does not reach that bar, and says so.** Measured by
-`examples/aec_probe.rs` on the built-in speakers into the Elgato: the echo is real and dominant
-(24.9 dB over the room noise) and its timing is known to the sample, but its ENVELOPE
-correlates at 0.973 while its WAVEFORM correlates at only 0.174 — so magnitude-squared
-coherence caps ANY linear canceller at **5.5 dB** here, WebRTC AEC3 and Apple's
-VoiceProcessingIO included. Clock drift, loudspeaker overdrive and reverb longer than the
-filter were each tested and eliminated. So `confident()` stays false, the 5.008 s rule and the
-half-duplex taint rule stay in force on this desk, and "headphones recommended" is still the
-honest note. Four reproducible rigs carry the evidence: `aec_rig` (offline), `aec_live`,
-`aec_probe`, `aec_transcribe`.
+**That gating changed on 2026-09-18, and it changed because the CEO tested it.** He said one
+ordinary sentence over Rich on his own rig and Rich did not stop — *"no matter what I said, he
+couldn't hear me."* The short rule used to require `confident()`, which on this hardware is
+unreachable: measured by `examples/aec_probe.rs` on the built-in speakers into the Elgato, the
+echo is real and dominant (24.9 dB over the room noise) and its timing is known to the sample,
+but its ENVELOPE correlates at 0.973 while its WAVEFORM correlates at only 0.174 — so
+magnitude-squared coherence caps ANY linear canceller at **5.5 dB** here, WebRTC AEC3 and
+Apple's VoiceProcessingIO included. Clock drift, loudspeaker overdrive and reverb longer than
+the filter were each tested and eliminated. So his rig fell to the 5.008 s continuity race, and
+nobody speaks for five seconds without a gap: his longest unbroken run was 66 frames = 1.056 s.
+
+**The rule did not need changing. The signal did.** `confident()` asks *is leftover echo too
+quiet to reach the VAD's threshold* — the right question before believing a bare VAD verdict.
+The conjunction asks *is there more here than the canceller predicts for the reference level it
+can see*, which needs no converged filter, because `leak_gain` is a minimum statistic and
+`predicted_echo` is therefore deliberately a low estimate. Measured over fourteen echo-only
+conditions — two recordings of the CEO's own rig, each across six settings of the volume knob
+spanning his volume 60 to 4 dB above Ray's 85:
+
+```text
+                                  worst longest run   worst 25-frame density
+  VAD speech alone                    23 frames            23 of 25
+  VAD speech AND near-end              6 frames             6 of 25
+  the CEO's own voice, same rig        66 frames            25 of 25  (saturated)
+```
+
+15 of 25 on the conjunction clears the worst echo ever measured here by 2.50x; the same window
+on a bare VAD verdict would fire on Rich at 23 of 25. Pinned both ways in
+`tests/barge_in_on_the_ceos_rig.rs` — zero barge-ins and zero admitted utterances across all
+fourteen echo-only conditions with a positive control that does fire, and a barge-in 0.176 s
+into the first thing the CEO actually said, with his words kept. The half-duplex taint rule
+still rests on `confident()` and so still stays in force on this desk; "headphones recommended"
+is still the honest note. Five reproducible rigs carry the evidence: `aec_rig` (offline),
+`aec_live`, `aec_probe`, `aec_transcribe`, `bargein_score` (offline, and the one that chose the
+rule).
 
 **Foundation only / later legs:** the attention-seam TRIGGER (timers/log-watchers that decide
 WHEN to raise a proactive message — `Spine::raise_proactive` is the seam, judgment is not),

@@ -260,14 +260,28 @@ pub struct Diagnostics {
     pub tts_voice: String,
     pub echo_gate: String,
     pub echo_cancellation: bool,
+    /// The CONSECUTIVE fallback: 313 frames = 5.008 s. In force only when there is no canceller
+    /// at all, which since 2026-09-18 is the only case [`crate::bargein::BargeInMode::Consecutive`]
+    /// covers.
     pub barge_in_frames: u32,
     pub barge_in_secs: f32,
-    /// The debounce that comes into force once [`crate::aec::EchoCanceller::confident`] is
-    /// true. Reported BESIDE the fallback rather than instead of it, because at the moment
-    /// this line is printed neither number is a prediction: the fallback is what is running,
-    /// and this is what the canceller can earn.
-    pub barge_in_earned_frames: u32,
-    pub barge_in_earned_secs: f32,
+    /// The near-end-gated window, which is in force **from the first frame** whenever a canceller
+    /// is present: [`crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES`] of
+    /// [`crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES`].
+    ///
+    /// **It used to be reported as what the canceller could EARN, and that was true and is now
+    /// wrong.** Earning it meant [`crate::aec::EchoCanceller::confident`], which on the CEO's
+    /// hardware is unreachable by measurement — so the line promised something his rig could
+    /// never reach and then printed the 5.008 s fallback as though it were temporary. It is no
+    /// longer conditional on confidence, so it is no longer reported as a prospect.
+    pub barge_in_window_frames: u32,
+    pub barge_in_required_frames: u32,
+    pub barge_in_required_secs: f32,
+    pub barge_in_window_secs: f32,
+    /// Is the monitor being fed the conjunction (VAD speech AND the canceller's near-end
+    /// verdict)? `true` whenever a canceller is present. This is the one bit that decides which
+    /// of the two rules above is running, so the line states it rather than implying it.
+    pub barge_in_near_end_gated: bool,
 }
 
 impl Diagnostics {
@@ -285,9 +299,33 @@ impl Diagnostics {
     /// developer line that has to be read alongside a source comment to mean what it says is
     /// a line that will be misread again, so it now carries both numbers and which one is
     /// running.
+    ///
+    /// **AMENDED 2026-09-18, and the amendment is the whole point of the paragraph above.** The
+    /// line used to read `barge-in=313 frames (5.008 s) until the canceller proves itself, then
+    /// 25 frames (0.400 s)`. That named the fallback honestly and still misled, because on the
+    /// CEO's hardware the canceller can NEVER prove itself — `confident()` requires the residual
+    /// 6 dB under the VAD's speech floor and the coherence of that echo path caps any linear
+    /// canceller at 4.3-5.5 dB. So *"until"* described a wait that does not end, and the 5.008 s
+    /// figure was not a start-up condition, it was the permanent behavior. Barge-in no longer
+    /// depends on confidence, so the line now states the rule that IS running and the one
+    /// condition under which the other applies.
     pub fn summary(&self) -> String {
+        let barge_in = if self.barge_in_near_end_gated {
+            format!(
+                "barge-in={} of {} frames ({:.3} s of near-end speech inside {:.3} s), gated on the canceller's per-frame near-end verdict from the first frame",
+                self.barge_in_required_frames,
+                self.barge_in_window_frames,
+                self.barge_in_required_secs,
+                self.barge_in_window_secs,
+            )
+        } else {
+            format!(
+                "barge-in={} consecutive frames ({:.3} s) — NO canceller, so a bare VAD verdict is all there is",
+                self.barge_in_frames, self.barge_in_secs,
+            )
+        };
         format!(
-            "in={} {} Hz/{} ch · out={} {} Hz/{} ch · stt={} · tts={} · aec={} · barge-in={} frames ({:.3} s) until the canceller proves itself, then {} frames ({:.3} s)",
+            "in={} {} Hz/{} ch · out={} {} Hz/{} ch · stt={} · tts={} · aec={} · {barge_in}",
             self.input_source,
             self.input_rate,
             self.input_channels,
@@ -297,10 +335,6 @@ impl Diagnostics {
             self.stt_model,
             self.tts_voice,
             self.echo_gate,
-            self.barge_in_frames,
-            self.barge_in_secs,
-            self.barge_in_earned_frames,
-            self.barge_in_earned_secs,
         )
     }
 }
@@ -612,18 +646,43 @@ impl CaptureBrain {
             self.monitor.disarm();
         }
 
-        // WHICH RULE IS IN FORCE. Driven by the canceller's own measurement of its residual
-        // echo and by nothing else — never a setting, never a guess about headphones.
-        self.monitor.set_aec_confident(confident);
-
-        // WHAT COUNTS AS AN INTERRUPTION. With a confident canceller, require BOTH: the VAD
-        // (which knows the room's adaptive noise floor) and the canceller's near-end verdict
-        // (which knows how much residual echo to expect at this reference level). Requiring
-        // both is what lets the debounce drop from 5.008 s to 0.400 s without Rich cutting
-        // himself off. Without a confident canceller this is exactly the old behavior.
+        // WHICH RULE IS IN FORCE. Driven by WHICH SIGNAL is about to be pushed, and by nothing
+        // else — never a setting, never a guess about headphones, and since 2026-09-18 no longer
+        // by `EchoCanceller::confident()`.
+        //
+        // **WHAT COUNTS AS AN INTERRUPTION, and why this line changed.** With a canceller
+        // present, require BOTH: the VAD (which knows the room's adaptive noise floor) and the
+        // canceller's near-end verdict (which knows how much residual echo to expect at this
+        // reference level). Requiring both is what lets the debounce be 0.400 s instead of
+        // 5.008 s without Rich cutting himself off.
+        //
+        // This used to read `Some(n) if confident`, and on the CEO's own hardware `confident()`
+        // is false by measurement and always will be — the coherence of that echo path caps any
+        // linear canceller at 4.3-5.5 dB, so the residual cannot get 6 dB under the VAD's speech
+        // floor (`docs/verification/2026-09-17-aec-erle-on-the-ceo-rig.md`). The `if confident`
+        // therefore routed his rig to `is_speech` and the 5.008 s continuity race, and on
+        // 2026-09-18 he said *"no matter what I said, he couldn't hear me"*. He was heard, at
+        // -18.1 dBFS against a -46.7 dBFS echo on the same microphone, five times; his longest
+        // UNBROKEN run was 66 frames = 1.056 s, and the race wanted 313.
+        //
+        // The two questions are not the same question. `confident()` asks *"is leftover echo too
+        // quiet to reach the VAD's threshold?"* — which is what you must know before believing a
+        // BARE VAD verdict. The conjunction asks *"is there more here than the canceller predicts
+        // for the reference level it can see?"*, which needs no converged filter at all: because
+        // `leak_gain` is a minimum statistic, `predicted_echo` is deliberately a LOW estimate,
+        // and it starts at its pessimistic 1.0. Measured over 14 echo-only conditions across two
+        // recordings of his rig and six volumes, the conjunction's worst 25-frame density is
+        // 6 of 25 against the required 15, while his own voice saturates it at 25 of 25. A bare
+        // VAD verdict reaches 23 of 25 on echo alone, which is why `None` keeps the old rule.
+        self.monitor.set_near_end_gated(near_end.is_some());
         let interrupting = match near_end {
-            Some(n) if confident => is_speech && n,
-            _ => is_speech,
+            // A canceller is present: the conjunction is available on every frame, and it is
+            // the only signal that separates the CEO from Rich on this hardware.
+            Some(n) => is_speech && n,
+            // NO canceller at all (`NoEchoCancellation`, or a platform where the real one cannot
+            // run). Nothing can tell the two voices apart, so the continuity race is all there
+            // is and it stays exactly as it was: 313 consecutive frames = 5.008 s.
+            None => is_speech,
         };
 
         if forced || self.monitor.push(interrupting) {
@@ -1557,14 +1616,17 @@ impl VoiceController {
                 1000.0 * crate::aec::filter_tail_secs()
             ),
             echo_cancellation: true,
-            // The debounce reported here is the one in force AT START — the fallback. It
-            // shortens to 0.400 s only once the canceller earns it, which cannot have happened
-            // yet: `confident()` needs 2.000 s of Rich actually speaking plus a 2.000 s hold.
+            // The consecutive fallback, reported because it is what applies with no canceller.
             barge_in_frames: BARGE_IN_DEBOUNCE_FRAMES,
             barge_in_secs: frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES),
-            // What the canceller can EARN, from the one frame-math helper. Never typed.
-            barge_in_earned_frames: crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES,
-            barge_in_earned_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES),
+            // The rule ACTUALLY IN FORCE here, from the one frame-math helper. Never typed.
+            barge_in_window_frames: crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES,
+            barge_in_required_frames: crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES,
+            barge_in_window_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES),
+            barge_in_required_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES),
+            // This constructor builds the session that HAS a canceller (`echo_cancellation: true`
+            // three lines up), so the conjunction is available on every frame from the first one.
+            barge_in_near_end_gated: true,
         };
         // **STAMPED.** Defect 4 of the candidate-.6 walk: this line, the only thing printed
         // when voice starts, carried no time at all, so it could not be lined up against the
@@ -2232,14 +2294,29 @@ fn supervise(
                         // shows up: these discards now happen in synthesis gaps and past the end
                         // of playout, where the far end is inactive and the accumulators say
                         // nothing at all.
+                        //
+                        // **AND THE BARGE-IN CLAUSE CHANGED AGAIN ON 2026-09-18, because it was
+                        // still quoting 5.008 s after that stopped being the rule.** The line
+                        // told the CEO he needed 5.008 s of talking over Rich; he tried, five
+                        // separate times at -18.1 dBFS against a -46.7 dBFS echo, and was
+                        // discarded every time, because nobody produces 5 s of UNBROKEN speech
+                        // (his longest run was 66 frames = 1.056 s). Barge-in now needs 15 of any
+                        // 25 frames of NEAR-END speech — 0.240 s of evidence inside 0.400 s — and
+                        // that is what the line says. The confidence figures before the semicolon
+                        // stay, because the TAINT rule still rests on `confident()`: this notice
+                        // is printed on a discard, and a discard is the taint rule's decision.
+                        // What changed is only what would have rescued it.
                         let erle = measured_or_not(shared_aec.erle_db(), "dB");
                         let leak = measured_or_not(shared_aec.leak_dbfs(), "dBFS");
                         eprintln!(
-                            "[richos-voice] discarded audio captured while Rich was speaking — the echo canceller cannot vouch for this audio (erle={erle}, residual {leak} vs the {:.1} dBFS it must hold for {:.3} s after {:.3} s of Rich speaking); barge-in needs {:.3} s of talking over him while that is so",
+                            "[richos-voice] discarded audio captured while Rich was speaking — the echo canceller cannot vouch for this audio (erle={erle}, residual {leak} vs the {:.1} dBFS it must hold for {:.3} s after {:.3} s of Rich speaking); barge-in needs {} of {} frames ({:.3} s of near-end speech inside {:.3} s) to rescue it, and on this frame it did not have them",
                             dbfs(crate::aec::CONFIDENT_LEAK_RMS),
                             crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_HOLD_BLOCKS),
                             crate::aec::blocks_to_secs(crate::aec::CONFIDENCE_WARMUP_BLOCKS),
-                            crate::vad::frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES),
+                            crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES,
+                            crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES,
+                            crate::vad::frames_to_secs(crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES),
+                            crate::vad::frames_to_secs(crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES),
                         );
                         // AND HE IS TOLD, once per voice session — see `RefusalNotices`.
                         // What he is told asserts nothing about whether he spoke, because on
@@ -3588,20 +3665,50 @@ mod tests {
             echo_cancellation: true,
             barge_in_frames: BARGE_IN_DEBOUNCE_FRAMES,
             barge_in_secs: frames_to_secs(BARGE_IN_DEBOUNCE_FRAMES),
-            barge_in_earned_frames: crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES,
-            barge_in_earned_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES),
+            barge_in_window_frames: crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES,
+            barge_in_required_frames: crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES,
+            barge_in_window_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_WINDOW_FRAMES),
+            barge_in_required_secs: frames_to_secs(crate::bargein::AEC_BARGE_IN_REQUIRED_FRAMES),
+            barge_in_near_end_gated: true,
         };
         let s = d.summary();
         // Printed so `--nocapture` shows the line a reviewer would read at boot, rather than
         // leaving them to reassemble it from the assertions below.
         println!("{s}");
-        assert!(s.contains("313 frames"), "{s}");
-        assert!(s.contains("5.008 s"), "{s}");
-        // THE LINE MUST NOT STOP THERE. Two bare figures read as a settled capability, and
-        // audit-3 §4 #1 read them exactly that way off the running app.
-        assert!(s.contains("until the canceller proves itself"), "{s}");
-        assert!(s.contains("25 frames"), "{s}");
+
+        // **WITH A CANCELLER PRESENT the line reports the rule that IS RUNNING, and that is the
+        // near-end-gated window from the first frame.** These assertions used to require
+        // `313 frames`, `5.008 s` and the words *"until the canceller proves itself"*, and they
+        // were right about the code as it then stood and wrong about the CEO's rig: `confident()`
+        // is unreachable there by measurement, so *"until"* named a wait that never ends and the
+        // 5.008 s figure was the permanent behavior dressed as a start-up condition. Barge-in no
+        // longer depends on confidence (`BargeInMonitor::set_near_end_gated`), so the line no
+        // longer says it does.
+        assert!(s.contains("15 of 25 frames"), "{s}");
+        assert!(s.contains("0.240 s"), "{s}");
         assert!(s.contains("0.400 s"), "{s}");
+        assert!(s.contains("near-end"), "{s}");
+        assert!(
+            !s.contains("until the canceller proves itself"),
+            "the line still promises a convergence the CEO's hardware cannot reach: {s}"
+        );
+        assert!(
+            !s.contains("5.008"),
+            "the consecutive fallback is NOT what runs with a canceller present, so quoting it \
+             here is the exact misreading audit-3 §4 #1 made: {s}"
+        );
+
+        // **AND WITH NO CANCELLER the 5.008 s rule is still the truth, so the line still says
+        // it.** One flag, two lines, and this is the positive control that proves the flag is
+        // actually consulted rather than the wording being hard-coded.
+        let none = Diagnostics { barge_in_near_end_gated: false, echo_cancellation: false, ..d.clone() };
+        let sn = none.summary();
+        println!("{sn}");
+        assert!(sn.contains("313 consecutive frames"), "{sn}");
+        assert!(sn.contains("5.008 s"), "{sn}");
+        assert!(sn.contains("NO canceller"), "{sn}");
+        assert!(!sn.contains("15 of 25"), "{sn}");
+
         assert!(
             d.echo_cancellation,
             "echo cancellation SHIPS — this assertion used to read the other way and had \
