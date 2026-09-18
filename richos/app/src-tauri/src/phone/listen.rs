@@ -1031,4 +1031,217 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
+    // -----------------------------------------------------------------------------------
+    // THE SAME THING AGAIN, WITH AN OUTSIDE CLIENT
+    // -----------------------------------------------------------------------------------
+    //
+    // The test above uses `rustls` as the client, which is the same TLS implementation the server
+    // uses. That is a strong test of the routes and a WEAK test of the certificate: an
+    // implementation agreeing with itself is the one class of certificate defect a self-test
+    // cannot find.
+    //
+    // So this does it again with **`/usr/bin/curl`** — a different TLS stack (SecureTransport /
+    // LibreSSL on this Mac), a different X.509 parser, and a different name-verification
+    // implementation, validating our leaf against our root **by name** with `--resolve`. If our
+    // certificate were acceptable only to rustls, this is where that shows up.
+    //
+    // `curl` is on every Mac, so this is not a fragile dependency and the test is not skipped.
+    // `--resolve` points the real name at loopback, so nothing touches the LAN and nothing fights
+    // the shipped app for port 8443.
+
+    #[test]
+    fn curl_a_different_tls_stack_entirely_accepts_our_certificate_and_our_routes() {
+        let dir = std::env::temp_dir().join(format!(
+            "richos-phone-curl-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secrets = MemorySecrets::default();
+        let names = LocalNames {
+            host: "MM1".into(),
+            bonjour: "mm1.local".into(),
+            addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        };
+        let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
+        let ca_path = dir.join("phone/ca.crt");
+        let profile = Arc::new(ca.mobileconfig());
+
+        let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
+        spine.set_entity_registry(
+            EntityRegistry::new(vec![
+                Entity::new("femcboost", "FemcBoost", &["/fixture/femcboost"]).unwrap()
+            ])
+            .unwrap(),
+        );
+        let entity = EntityId::parse("femcboost").unwrap();
+        let thread = spine.create_thread("the proposal", &entity).unwrap();
+        spine.switch_thread(&thread).unwrap();
+        spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["Legal has it. Two days."])));
+        let control = TurnControl::open(dir.join("intake.jsonl")).unwrap();
+        spine.set_turn_control(control.clone());
+        let hub = PhoneHub::new();
+        spine.set_live_observer(Box::new(crate::phone::stream::PhoneLiveEmitter::new(Arc::clone(&hub))));
+        let spine = Arc::new(StdMutex::new(spine));
+
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let vapid = crate::phone::push::VapidKey::generate().unwrap();
+        let channel = Arc::new(Channel {
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(ApiBaseDesk::home_only(names.origin())),
+            hub: Arc::clone(&hub),
+            bridge: Arc::new(SpineBridge {
+                spine: Arc::clone(&spine),
+                control,
+                thread: thread.clone(),
+                entity,
+            }) as Arc<dyn Bridge>,
+            assets: None,
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: ca.fingerprint_hex(),
+        });
+        devices.open_pairing().unwrap();
+        let code = devices.pairing_window().unwrap().code;
+        let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
+        let (https_port, trust_port) = free_port_pair();
+        let mut listener = Listener::start(
+            Arc::clone(&channel),
+            tls,
+            Arc::clone(&profile),
+            &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            https_port,
+            trust_port,
+        )
+        .unwrap();
+
+        let base = format!("https://mm1.local:{https_port}");
+        let resolve = format!("mm1.local:{https_port}:127.0.0.1");
+        let curl = |args: &[&str]| -> (String, String) {
+            let out = std::process::Command::new("/usr/bin/curl")
+                .args(["--silent", "--show-error", "--cacert", ca_path.to_str().unwrap()])
+                .args(args)
+                .output()
+                .expect("curl did not run");
+            (
+                String::from_utf8_lossy(&out.stdout).to_string(),
+                String::from_utf8_lossy(&out.stderr).to_string(),
+            )
+        };
+
+        // 1. PAIR. No `--insecure` anywhere in this test: curl is validating our leaf against our
+        //    root, for the name `mm1.local`, with its own X.509 code.
+        let phone = crate::phone::device::tests::Phone::new();
+        let pair_body = serde_json::json!({
+            "code": code,
+            "public_key_jwk": phone.jwk(),
+            "device_name": "curl",
+        })
+        .to_string();
+        let (stdout, stderr) = curl(&[
+            "--resolve",
+            &resolve,
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            &pair_body,
+            &format!("{base}/api/pair"),
+        ]);
+        assert!(stderr.is_empty(), "curl refused our certificate or our server: {stderr}");
+        let paired: Value = serde_json::from_str(&stdout)
+            .unwrap_or_else(|e| panic!("pairing answered {stdout:?}: {e}"));
+        let device_id = paired["device_id"].as_str().unwrap().to_string();
+        let challenge = paired["challenge"].as_str().unwrap().to_string();
+
+        // 2. POST HIS WORDS, signed.
+        let words = "curl asking after the proposal";
+        let body = serde_json::json!({
+            "client_id": "01JCURL",
+            "thread_id": thread,
+            "kind": "text",
+            "text": words,
+            "sent_at": "2026-09-18T13:00:00.000Z",
+        })
+        .to_string();
+        let signature = super::super::b64url(&phone.sign(&signing_string(
+            &challenge,
+            "POST",
+            "/api/messages",
+            body.as_bytes(),
+        )));
+        let authorization = format!("RichOS-Device {device_id}.{challenge}.{signature}");
+        let (stdout, stderr) = curl(&[
+            "--resolve",
+            &resolve,
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            &format!("Authorization: {authorization}"),
+            "--data-binary",
+            &body,
+            &format!("{base}/api/messages"),
+        ]);
+        assert!(stderr.is_empty(), "{stderr}");
+        let accepted: Value =
+            serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("posting answered {stdout:?}: {e}"));
+        assert_eq!(accepted["duplicate"], false, "{stdout}");
+
+        // 3. HIS WORDS REACH THE LEDGER.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut landed = false;
+        while std::time::Instant::now() < deadline && !landed {
+            {
+                let guard = spine.lock().unwrap();
+                let binding = guard.ledger().thread_binding(&thread).unwrap();
+                landed = guard
+                    .ledger()
+                    .thread_turns_scoped(&binding)
+                    .unwrap()
+                    .iter()
+                    .any(|t| t.user_text == words);
+            }
+            if !landed {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+        assert!(landed, "his words did not reach the ledger");
+
+        // 4. AN UNSIGNED CALLER GETS 404 WITH NOTHING IN IT, as seen by an outside client.
+        let (stdout, stderr) = curl(&[
+            "--resolve",
+            &resolve,
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code} %{size_download}",
+            "-X",
+            "POST",
+            "--data-binary",
+            "{}",
+            &format!("{base}/api/messages"),
+        ]);
+        assert!(stderr.is_empty(), "{stderr}");
+        assert_eq!(stdout.trim(), "404 0", "an unsigned POST was answered: {stdout}");
+
+        // 5. THE PROFILE, off the plain-HTTP neighbor, with Apple's own content type.
+        let (stdout, stderr) = curl(&[
+            "--resolve",
+            &format!("mm1.local:{trust_port}:127.0.0.1"),
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code} %{content_type}",
+            &format!("http://mm1.local:{trust_port}/ca"),
+        ]);
+        assert!(stderr.is_empty(), "{stderr}");
+        assert_eq!(stdout.trim(), "200 application/x-apple-aspen-config", "{stdout}");
+
+        listener.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }
