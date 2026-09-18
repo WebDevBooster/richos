@@ -3220,6 +3220,9 @@ mod tests {
             instruction_sha256: "abc".into(),
             title: "why the nightly has been red since Tuesday".into(),
             kind: assignment::AssignmentKind::Check,
+            // §56's field, false here: answering a question does not need the Mac's screen,
+            // and this test is about what the brief says rather than about the screen.
+            needs_screen: false,
             repositories: vec!["/fictional/project".into()],
             state: AssignmentState::Registered,
             detail: String::new(),
