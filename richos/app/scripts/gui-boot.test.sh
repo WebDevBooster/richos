@@ -407,6 +407,12 @@ declare_rules() {
     'how many companies are on disk and where; the trusting of the file is the proof above'
   routine '^\[richos\] boot complete' \
     'the terminator, printed by setup as its last act'
+  # `engine::source_commit_note` (54e79b7f): the artifact under test is built inside this checkout
+  # with RICHOS_SOURCE_SHA set, so the healthy line names a commit. The other shape — "built
+  # outside a checkout, so it cannot name its source commit" — stays UNACCOUNTED on purpose: a
+  # bundle that cannot identify itself is audit-8 row 2, never routine.
+  routine '^\[richos\] this app: built from [0-9a-f]{7,40}$' \
+    'which commit this artifact was built from; the cannot-name-it form stays unaccounted'
 
   # THE BOOT SWEEP (annex §6.1-6.3, landed 7c37fea6 on 2026-09-17): one line per boot from
   # `recovery.rs:187` `log_message`. ONLY the all-zero form is routine — it says the sweep ran
@@ -1141,7 +1147,9 @@ if [ ! -f "$GUI_ENGINE_DIR/runtime/delivery.json" ] && [ -z "${RICHOS_RUNTIME_DI
 fi
 
 echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
-if ! ( cd "$APP_DIR/src-tauri" && cargo build --quiet --bin richos-tauri ); then
+# The artifact is built INSIDE this checkout, so it names its commit the way a packaged bundle
+# does (package-app.sh stamps RICHOS_SOURCE_SHA; engine::source_commit reads it at compile time).
+if ! ( cd "$APP_DIR/src-tauri" && RICHOS_SOURCE_SHA="$(git -C "$APP_DIR" rev-parse HEAD)" cargo build --quiet --bin richos-tauri ); then
   # EXIT 1, NOT 2, AND THE DIFFERENCE IS THE WHOLE POINT OF THE TWO CODES. Exit 2 from this
   # suite means "this host cannot answer" and `run-tests.sh` will tolerate it when a caller
   # has declared the gap. A binary that does not compile is not a fact about the host; it is
