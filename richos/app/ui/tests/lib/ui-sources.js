@@ -646,6 +646,95 @@ function cssDeclarations(prop) {
   return out;
 }
 
+/// THE SAME DECLARATIONS, WITH THE RULE EACH ONE SITS IN.
+///
+/// `cssDeclarations` above answers "what values does this property take", which is enough to
+/// ask whether a size is in `px` and not enough to ask ANYTHING ELSE about it. Two questions
+/// that arrived together on 2026-09-18 both need the rule rather than the value:
+///
+///   §15's FLOOR ACROSS EVERY UNIT. `0.6875rem` is 11px and a regex over values cannot say
+///   so, because the multiplier means nothing without the root size — which is itself a
+///   declaration in this same tree (`html { font-size: calc(16px * var(--app-font-scale)) }`).
+///   Resolving one needs the other, so the walk has to know which rule it is standing in.
+///
+///   AND AN EXEMPTION HAS TO BE CHECKABLE. "That 11px label is an all-caps micro-label" is a
+///   claim about the RULE — it either declares `text-transform: uppercase` beside its
+///   `font-size` or it does not. With the value alone the claim can only be believed.
+///
+/// Returns `{ site, file, line, selector, context, value, rule }` per match, where `selector`
+/// is the innermost prelude, `context` is the whole stack (so an `@media` wrapper is visible
+/// rather than silently dropped) and `rule` is every declaration in that block, keyed by
+/// property — which is what makes the exemption above a derivation instead of a promise.
+///
+/// A HAND-ROLLED WALK RATHER THAN A REGEX, deliberately: braces nest (`@media`, `@supports`)
+/// and a regex cannot count. Quoted strings are skipped so a `content: "a{b}"` cannot shift
+/// the brace depth for everything after it.
+function cssRules(prop) {
+  const out = [];
+  for (const f of sourcesOfRole("style")) {
+    const code = f.code;
+    const stack = [];
+    let decls = [];
+    let buf = "";
+    let line = 1;
+    const flush = (endLine) => {
+      const m = /^([-a-z]+)\s*:\s*([\s\S]+)$/i.exec(buf.trim());
+      buf = "";
+      if (!m) return;
+      const property = m[1].toLowerCase();
+      const value = m[2].trim();
+      decls.push({ property, value, line: endLine });
+    };
+    for (let i = 0; i < code.length; i++) {
+      const c = code[i];
+      if (c === "\n") line++;
+      if (c === '"' || c === "'") {
+        const quote = c;
+        buf += c;
+        for (i++; i < code.length; i++) {
+          if (code[i] === "\n") line++;
+          buf += code[i];
+          if (code[i] === "\\") { i++; if (code[i] !== undefined) { buf += code[i]; if (code[i] === "\n") line++; } continue; }
+          if (code[i] === quote) break;
+        }
+        continue;
+      }
+      if (c === "{") {
+        stack.push({ prelude: buf.trim().replace(/\s+/g, " "), decls });
+        decls = [];
+        buf = "";
+      } else if (c === "}") {
+        // The block is finished: everything it declared is now known, so the matching
+        // declarations inside it can be emitted WITH their siblings.
+        const closing = decls;
+        const frame = stack.pop();
+        buf = "";
+        if (!frame) continue;
+        const rule = {};
+        for (const d of closing) rule[d.property] = d.value;
+        for (const d of closing) {
+          if (d.property !== prop) continue;
+          out.push({
+            site: f.name + ":" + d.line,
+            file: f.name,
+            line: d.line,
+            selector: frame.prelude,
+            context: stack.map((s) => s.prelude).concat(frame.prelude).join(" » "),
+            value: d.value,
+            rule,
+          });
+        }
+        decls = frame.decls;
+      } else if (c === ";") {
+        flush(line);
+      } else {
+        buf += c;
+      }
+    }
+  }
+  return out;
+}
+
 /// EVERY STRING THE STYLESHEETS THEMSELVES PUT ON SCREEN.
 ///
 /// `content:` on a `::before`/`::after` renders text that is in NO string inventory in this
@@ -689,6 +778,7 @@ module.exports = {
   sourcesOfRole,
   uiMatches,
   cssDeclarations,
+  cssRules,
   cssContentStrings,
 };
 
