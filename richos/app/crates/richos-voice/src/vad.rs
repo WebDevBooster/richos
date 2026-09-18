@@ -117,6 +117,17 @@ impl Vad {
         self.noise_floor
     }
 
+    /// The RMS a frame must EXCEED right now to be called speech — the adaptive floor times
+    /// [`VadConfig::speech_ratio`], never below [`VadConfig::absolute_floor`].
+    ///
+    /// Exists because "which gate ate the onset" was unanswerable from the outside: the
+    /// threshold is the one number that decides it and it was computed inline in
+    /// [`Vad::push_frame`] and thrown away. Derived from the same expression that decides the
+    /// verdict, so the two cannot drift — see `the_threshold_accessor_is_the_expression_that_decides`.
+    pub fn speech_threshold(&self) -> f32 {
+        (self.noise_floor * self.cfg.speech_ratio).max(self.cfg.absolute_floor)
+    }
+
     /// RMS of the most recently pushed frame — the UI's live input-level meter reads this.
     pub fn last_rms(&self) -> f32 {
         self.last_rms
@@ -136,8 +147,7 @@ impl Vad {
     pub fn push_frame(&mut self, frame: &[f32]) -> bool {
         let r = rms(frame);
         self.last_rms = r;
-        let threshold = (self.noise_floor * self.cfg.speech_ratio).max(self.cfg.absolute_floor);
-        let is_speech = r > threshold;
+        let is_speech = r > self.speech_threshold();
         if is_speech {
             self.speech_run += 1;
         } else {
@@ -280,6 +290,26 @@ mod tests {
         }
         // A real voice still cuts through the learned floor.
         assert!(vad.push_frame(&tone(0.3)));
+    }
+
+    /// INVARIANT: [`Vad::speech_threshold`] is the SAME expression `push_frame` decides with —
+    /// a diagnostic that can disagree with the decision is worse than no diagnostic, because
+    /// it is what the next engineer will reason from. Checked across an adapting floor, not at
+    /// one settled value.
+    #[test]
+    fn the_threshold_accessor_is_the_expression_that_decides() {
+        let mut vad = Vad::default();
+        let mut checked = 0;
+        for i in 0..600 {
+            // A level that crosses the moving threshold in both directions as the floor learns.
+            let amp = if i % 7 == 0 { 0.02 } else { 0.004 + (i % 13) as f32 * 0.001 };
+            let f = tone(amp);
+            let t = vad.speech_threshold();
+            let expected = rms(&f) > t;
+            assert_eq!(vad.push_frame(&f), expected, "frame {i}: rms {} vs threshold {t}", rms(&f));
+            checked += 1;
+        }
+        assert_eq!(checked, 600);
     }
 
     /// INVARIANT: the UI meter is monotonic in loudness and bounded to 0..1.

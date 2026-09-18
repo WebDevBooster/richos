@@ -488,6 +488,40 @@ impl CaptureBrain {
         self.vad.level()
     }
 
+    /// RMS of the frame just pushed — POST-cancellation, i.e. the audio the endpointer and
+    /// whisper actually see. The "why was nothing heard" diagnostic reads this against
+    /// [`CaptureBrain::speech_threshold`]; the two together answer the question that took a
+    /// whole on-screen walk to ask.
+    pub fn last_rms(&self) -> f32 {
+        self.vad.last_rms()
+    }
+
+    /// The RMS the next frame must exceed to be called speech at all — the VAD's adaptive
+    /// floor times its ratio, never under its absolute floor. Exposed for the same reason
+    /// [`CaptureBrain::barge_run_frames`] is: a threshold nobody can read is a threshold
+    /// everybody guesses at.
+    pub fn speech_threshold(&self) -> f32 {
+        self.vad.speech_threshold()
+    }
+
+    /// The VAD's learned room level right now.
+    pub fn noise_floor(&self) -> f32 {
+        self.vad.noise_floor()
+    }
+
+    /// Consecutive speech frames the ENDPOINTER has counted toward the 7-frame (0.112 s)
+    /// onset. Distinct from [`CaptureBrain::barge_run_frames`], which counts toward the
+    /// 5.008 s interruption debounce — conflating the two is exactly the mistake the
+    /// endpointer's module table exists to prevent.
+    pub fn onset_run_frames(&self) -> u32 {
+        // Zero once an utterance is open: the run is the thing still trying to START one.
+        if self.recorder.is_recording() {
+            0
+        } else {
+            self.recorder.endpointer().speech_run_frames()
+        }
+    }
+
     /// Consecutive speech frames counted toward an interruption — the diagnostic that makes
     /// "why didn't it barge in" answerable.
     pub fn barge_run_frames(&self) -> u32 {
