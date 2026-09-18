@@ -154,3 +154,48 @@ fn priming_is_never_run_underneath_a_turn() {
     spine.debug_set_turn_in_progress(false);
     let _ = std::fs::remove_file(&path);
 }
+
+/// **`Ready.spawned` NAMES A CHILD THAT WAS STARTED, NEVER A CHAIR THAT WAS EMPTY.**
+///
+/// The shell prints this flag straight into `app.log` — *"the front desk is ready before he
+/// types: {millis} ms, including the lease's own start"* — so it is a number a record is written
+/// from two days later, which is exactly what §3 of `first-words-2026-09-18-sendlock.md` is about
+/// happening to `Ready.millis`.
+///
+/// It was `self.lease.is_none()` taken before `prepare_request`, and that answered "was the chair
+/// empty". The two agreed only while an empty chair could be filled in one way. A spare front
+/// desk fills one WITHOUT starting anything (`Spine::create_thread` files it as a resident), and
+/// the old reading called that a spawn. Both halves are pinned here: a genuine spawn says `true`,
+/// an adoption says `false`, and the same code path produces both — restore `self.lease.is_none()`
+/// and the second half fails alone.
+#[test]
+fn the_ready_verdict_says_spawned_only_when_a_child_was_actually_started() {
+    use richos_core::cognition::MockLeaseFactory;
+
+    // (a) A genuinely empty chair with no desk anywhere: a child IS started.
+    let (path, ledger) = tmp_ledger("spawned-true");
+    let mut spine = support::spine(ledger);
+    spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["On it!"])));
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    match spine.prime_front_desk(&thread) {
+        FrontDeskReady::Ready { spawned, .. } => assert!(spawned, "a child was started and it said so"),
+        other => panic!("{other:?}"),
+    }
+    let _ = std::fs::remove_file(path);
+
+    // (b) An empty chair and a primed spare standing beside it: NOTHING is started. The chair
+    // was just as empty as in (a) — which is the whole reason emptiness cannot be the witness.
+    let (path, ledger) = tmp_ledger("spawned-false");
+    let mut spine = support::spine(ledger);
+    spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec!["On it!"])));
+    spine.ready_a_spare_front_desk(&femcboost());
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    assert!(!spine.has_lease(), "the chair is empty here too");
+    match spine.prime_front_desk(&thread) {
+        FrontDeskReady::Ready { spawned, .. } =>
+            assert!(!spawned, "the desk was adopted, not started — saying otherwise is a wrong \
+                               number in app.log and then in a record"),
+        other => panic!("{other:?}"),
+    }
+    let _ = std::fs::remove_file(path);
+}

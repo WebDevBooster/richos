@@ -398,6 +398,25 @@ pub struct MockLeaseFactory {
     pub spawned: Arc<Mutex<Vec<Arc<Mutex<Vec<String>>>>>>, // per-spawn reprimes log
     pub spawned_prompts: Arc<Mutex<Vec<Arc<Mutex<Vec<String>>>>>>, // per-spawn prompts log
     pub fail_next: Arc<Mutex<bool>>,
+    /// **`(entity_id, thread_id)` of every SCOPED spawn, in spawn order.**
+    ///
+    /// It exists because the thing a spare front desk must get right cannot be seen any other
+    /// way: `EngineProfile::scope_to` pins those two values into the child's environment and
+    /// workspace partition BEFORE it is spawned, so "the spare was spawned under the id the
+    /// thread ends up with" is a statement about the ARGUMENT to this call and about nothing
+    /// observable afterwards. A mock that discarded the binding could not tell a correctly
+    /// scoped spare from one adopted across threads.
+    pub scoped_to: Arc<Mutex<Vec<(String, String)>>>,
+    /// **A frame every spawned lease has already parked on its between-turn lane**, as a real
+    /// child does: `NativeClient` re-announces its commands at session start, with no turn in
+    /// flight to own them.
+    ///
+    /// It exists so that "the spare's session-start chatter never reaches a turn he is watching"
+    /// is a test with something to lose rather than a negative that passes because the double
+    /// emits nothing. `MockCognition::emit_between_turn` cannot be used for it: the spare's lease
+    /// is built inside the factory and primed before any test can reach it, which is exactly when
+    /// a real child's announcement arrives.
+    pub emits_at_spawn: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 impl MockLeaseFactory {
@@ -408,6 +427,8 @@ impl MockLeaseFactory {
             spawned: Arc::new(Mutex::new(Vec::new())),
             spawned_prompts: Arc::new(Mutex::new(Vec::new())),
             fail_next: Arc::new(Mutex::new(false)),
+            scoped_to: Arc::new(Mutex::new(Vec::new())),
+            emits_at_spawn: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -420,9 +441,25 @@ impl MockLeaseFactory {
     pub fn spawn_count(&self) -> usize {
         self.spawned.lock().unwrap().len()
     }
+
+    /// Every lease this factory spawns from now on comes up with `frame` already parked on its
+    /// between-turn lane. See [`MockLeaseFactory::emits_at_spawn`].
+    pub fn every_child_announces_itself(&self, frame: serde_json::Value) {
+        *self.emits_at_spawn.lock().unwrap() = Some(frame);
+    }
 }
 
 impl LeaseFactory for MockLeaseFactory {
+    /// Records the binding and then spawns exactly as the un-scoped path does — the real
+    /// factory's own shape (`EngineLeaseFactory::spawn_scoped` is `spawn_chat` with the
+    /// binding), so nothing about the lease differs and only the observation is added.
+    fn spawn_scoped(&self, binding: &crate::entity::ThreadBinding, control: &crate::steering::TurnControl)
+        -> Result<Box<dyn Cognition>, CognitionError> {
+        self.scoped_to.lock().unwrap()
+            .push((binding.entity_id().to_string(), binding.thread_id().to_string()));
+        self.spawn_cancellable(control)
+    }
+
     fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
         if std::mem::take(&mut *self.fail_next.lock().unwrap()) {
             return Err(CognitionError::Io("mock factory: forced spawn failure".into()));
@@ -435,6 +472,9 @@ impl LeaseFactory for MockLeaseFactory {
         // SHARE the reply queue (not drain-and-copy) — every successor pulls from the
         // SAME script, one continuous conversation across rotations.
         let mock = MockCognition::new_with_shared_replies(&session_id, self.replies.clone());
+        if let Some(frame) = self.emits_at_spawn.lock().unwrap().clone() {
+            mock.emit_between_turn(frame);
+        }
         self.spawned.lock().unwrap().push(mock.reprimes.clone());
         self.spawned_prompts.lock().unwrap().push(mock.prompts.clone());
         Ok(Box::new(mock))
