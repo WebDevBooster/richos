@@ -1650,13 +1650,112 @@ fn and_list(items: &[String]) -> String {
 fn honest(why: &str) -> String {
     let flattened: String = why.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
     let trimmed = flattened.split_whitespace().collect::<Vec<_>>().join(" ");
-    let bounded: String = trimmed.chars().take(200).collect();
+    let named = strip_engineer_prefix(&trimmed);
+    // **The detail is not discarded, it is MOVED.** Row 8 asks for the seam label off his
+    // timeline, not for it to stop existing: a plugin that did not load is diagnosed from the
+    // label. Logged only when there was one to strip, so the log gains a line exactly when the
+    // card loses one.
+    if !std::ptr::eq(named, trimmed.as_str()) {
+        eprintln!("[richos] work: reported to him as \"{named}\"; the connection said: {trimmed}");
+    }
+    let bounded: String = named.chars().take(200).collect();
     if bounded.is_empty() {
-        "No reason was recorded.".into()
-    } else if bounded.ends_with('.') {
-        bounded
+        return "No reason was recorded.".into();
+    }
+    // **A card is a sentence, so it starts like one.** This became load-bearing the moment the
+    // seam label came off: the label used to supply the opening word, and behind it sit reasons
+    // that are lowercase by construction — `CognitionError::Io(e.to_string())` wraps whatever
+    // the operating system said. The curated sentences are already capitalized and are
+    // untouched by this. Only a leading lowercase ASCII letter is raised, so a reason that opens
+    // on a quote, a number or a path is left exactly as it is.
+    let mut sentence = bounded;
+    if sentence.starts_with(|c: char| c.is_ascii_lowercase()) {
+        let rest = sentence.split_off(1);
+        sentence = sentence.to_ascii_uppercase() + &rest;
+    }
+    if sentence.ends_with('.') {
+        sentence
     } else {
-        format!("{bounded}.")
+        format!("{sentence}.")
+    }
+}
+
+/// **Take the engineer's label off a sentence that is about to appear on his timeline.**
+///
+/// Ray's candidate-.7 audit, row 8: his failure card read *"cognition protocol: The desktop
+/// engine plugin did not load"*. The sentence after the colon is a good sentence — it names
+/// what did not happen, in his terms, and it was written for him. The prefix is `thiserror`'s
+/// `Display` on [`CognitionError`] (`cognition.rs:19-24`), which exists so the wire, the
+/// stderr log and a panic message all say which seam an error came from.
+///
+/// **So the prefix is not wrong, it is just not his.** It is stripped here and nowhere else:
+/// `honest` is the one funnel between a `CognitionError` and a sentence he reads, so
+/// [`CognitionError`]'s own `Display` keeps the label for every log, every `eprintln!` and
+/// every test that asserts on a seam. The protocol detail goes to the log, the card names what
+/// did not happen.
+///
+/// Matching is by exact prefix on the two variants that carry a seam label, never by searching
+/// for a colon: a reason of his own can legitimately contain one ("the land lock timed out
+/// after 300 s: nothing was merged"), and cutting at the first colon would eat it.
+fn strip_engineer_prefix(sentence: &str) -> &str {
+    // `cognition.rs:19-24`. `PrimingStopped` is deliberately absent — "Preparation stopped
+    // with …" is already a sentence about the job rather than about a seam.
+    const LABELS: [&str; 2] = ["cognition protocol: ", "cognition io: "];
+    for label in LABELS {
+        if let Some(rest) = sentence.strip_prefix(label) {
+            return rest.trim_start();
+        }
+    }
+    sentence
+}
+
+#[cfg(test)]
+mod honest_sentence_tests {
+    use super::*;
+
+    /// **Ray's candidate-.7 row 8: the failure card said "cognition protocol:".**
+    ///
+    /// The exact string off his walk is the first case. The sentence after the label was always
+    /// the right sentence — it names what did not happen, in his terms — and the label is
+    /// `thiserror`'s `Display` on `CognitionError` (`cognition.rs:19-24`), written for logs.
+    #[test]
+    fn a_failure_card_names_what_did_not_happen_and_never_the_seam_it_came_from() {
+        let card = honest(&CognitionError::Protocol(crate::native::ENGINE_PLUGIN_ABSENT.into()).to_string());
+        assert_eq!(card, "The desktop engine plugin did not load.");
+        assert!(!card.contains("cognition"), "{card}");
+        assert!(!card.contains("protocol:"), "{card}");
+        // The other variant that carries a seam label, same treatment.
+        assert_eq!(
+            honest(&CognitionError::Io("the work connection could not be opened".into()).to_string()),
+            "The work connection could not be opened."
+        );
+
+        // **Positive control on the log half: the label still EXISTS.** Row 8 asks for it off
+        // his timeline, not out of the system — a plugin that did not load is diagnosed from
+        // it. `honest` is the only funnel to a sentence he reads, so `Display` is untouched.
+        let raw = CognitionError::Protocol(crate::native::ENGINE_PLUGIN_ABSENT.into()).to_string();
+        assert!(raw.starts_with("cognition protocol: "), "{raw}");
+
+        // **A colon of his own is never eaten.** Matching is by exact label prefix, not by
+        // cutting at the first colon, which a real reason can legitimately contain.
+        let his = "the land lock timed out after 300 s: nothing was merged";
+        assert_eq!(honest(his), "The land lock timed out after 300 s: nothing was merged.");
+
+        // **The card starts like a sentence, which the stripped label used to do for it.** The
+        // reasons behind `Io` are lowercase by construction — it wraps what the OS said.
+        assert_eq!(honest("no such file or directory"), "No such file or directory.");
+        // A reason that opens on something other than a lowercase letter is left alone.
+        assert_eq!(honest("\"claude\" is not on the path"), "\"claude\" is not on the path.");
+        assert_eq!(honest("300 s elapsed"), "300 s elapsed.");
+
+        // `PrimingStopped` deliberately carries no seam label: it is already about the job.
+        let priming = honest(&CognitionError::PrimingStopped("a stop you pressed".into()).to_string());
+        assert_eq!(priming, "Preparation stopped with a stop you pressed.");
+
+        // Unchanged behavior: bounded, flattened, and an empty reason still says so.
+        assert_eq!(honest("  \n\t "), "No reason was recorded.");
+        assert_eq!(honest("line one\nline two"), "Line one line two.");
+        assert!(honest(&"x".repeat(500)).chars().count() <= 201);
     }
 }
 
@@ -2192,7 +2291,10 @@ mod tests {
         // failures were every one of them this shape and every one reported the other way.
         assert!(notice.text.contains("did not start"), "{}", notice.text);
         assert!(!notice.text.contains("stopped before it finished"), "{}", notice.text);
-        assert!(notice.text.contains("the engine release gate refused this lease"), "{}", notice.text);
+        // Capitalized, because `honest` now opens the card like the sentence it is — the seam
+        // label it replaced used to be the first thing on the line.
+        assert!(notice.text.contains("The engine release gate refused this lease"), "{}", notice.text);
+        assert!(!notice.text.contains("cognition"), "a seam label reached his card: {}", notice.text);
         drop(notices);
         host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
@@ -3157,9 +3259,11 @@ mod tests {
 
     #[test]
     fn a_failure_sentence_carries_no_stack_trace_and_is_never_empty() {
-        assert_eq!(honest("  a\nb  "), "a b.");
+        // Flattened, bounded, never empty — and opened like a sentence, which it did not used to
+        // be: the seam label `honest` now strips (row 8) was supplying the first word.
+        assert_eq!(honest("  a\nb  "), "A b.");
         assert_eq!(honest("   "), "No reason was recorded.");
-        assert_eq!(honest("ended."), "ended.");
+        assert_eq!(honest("ended."), "Ended.");
         assert!(honest(&"x".repeat(500)).chars().count() <= 201);
     }
 }
