@@ -40,6 +40,7 @@ const blankState = () => ({
 	launches: 0,
 	firstLaunchAt: null,
 	checks: {
+		trust: null,
 		install: null,
 		microphone: null,
 		persistence: null,
@@ -102,6 +103,7 @@ function record(check, status, line, detail) {
 // ---------------------------------------------------------------------------
 
 const CHECK_ORDER = [
+	['trust', '0. Trust'],
 	['install', '1. Install'],
 	['microphone', '2. Microphone'],
 	['persistence', '3. Permission persistence'],
@@ -121,6 +123,60 @@ function renderResults() {
 	lines.push(`Build: ${buildLine}`);
 	$('results-text').value = lines.join('\n');
 }
+
+// ---------------------------------------------------------------------------
+// Check 0 — the hosting step: did his phone reach his Mac over HTTPS, cleanly?
+// ---------------------------------------------------------------------------
+//
+// This check has a machine half and a human half, and the machine half CANNOT answer it alone.
+//
+// What the page can see for itself: whether the origin is HTTPS and whether the browser treats it as
+// a secure context. What it cannot see: whether Safari showed him a "this connection is not private"
+// interstitial that he tapped through. After tapping through, the origin is still HTTPS and
+// `isSecureContext` is still true — so a page that inferred "trusted" from those two would report a
+// pass for the one arrangement the whole step exists to test.
+//
+// So the verdict is HIS observation, like check 3 and check 4, and the machine facts are printed
+// beside it so his answer can be read against something rather than taken alone.
+
+const secureOrigin = location.protocol === 'https:';
+
+function trustFacts(config) {
+	const parts = [`Reached ${location.host} over ${location.protocol.replace(':', '')}`];
+	if (window.isSecureContext !== undefined) parts.push(`secure context: ${window.isSecureContext ? 'yes' : 'no'}`);
+	if (config && config.tls) {
+		parts.push(`the certificate covers ${config.tls.names}`);
+		parts.push(`root SHA-256 ${config.tls.caFingerprintSha256}`);
+	}
+	return parts.join('. ') + '.';
+}
+
+if (!secureOrigin) {
+	// Reaching the probe over plain HTTP is not a failure of his phone — it means he opened the wrong
+	// one of the two URLs, and saying so is more useful than a red verdict.
+	setVerdict(0, 'ask', 'This is the plain page, not the secure one.',
+		'Checks 2 and 4 cannot work here: an iPhone gives a non-secure page no microphone and no notifications. Go back to the trust step and open the https link.');
+	record('trust', 'ask', 'NOT ON HTTPS — opened the plain URL rather than the secure one');
+} else {
+	setVerdict(0, 'ask', 'You are here over HTTPS. Did Safari warn you on the way in?',
+		'Tap whichever happened. If it warned you, the certificate is installed but not switched on — Settings, General, About, Certificate Trust Settings.');
+	$('trust-row').hidden = false;
+}
+
+$('trust-clean').addEventListener('click', () => {
+	setVerdict(0, 'pass', 'Your Mac served this to your phone, and your phone accepted it.', $('trust-facts').textContent);
+	record('trust', 'pass', 'PASS — the Mac-hosted HTTPS origin opened with no warning', `${location.host}; the trust step held`);
+	$('trust-row').hidden = true;
+});
+
+$('trust-warned').addEventListener('click', () => {
+	// A warning he tapped through is a REAL failure of check 0 even though the page loaded, because
+	// the product cannot ask a person to tap through a security warning every time.
+	setVerdict(0, 'fail', 'It warned you, so the trust step did not hold.',
+		'The certificate is probably installed but not switched on. Settings, General, About, Certificate Trust Settings — turn on the RichOS switch, then reload this page.');
+	record('trust', 'fail', 'FAIL — Safari warned about the connection; the root is not fully trusted', $('trust-facts').textContent);
+	$('trust-row').hidden = true;
+});
 
 // ---------------------------------------------------------------------------
 // Check 1 — install
@@ -619,9 +675,21 @@ $('reset').addEventListener('click', async () => {
 		vapidPublicKey = config.vapidPublicKey;
 		buildLine = `${config.buildSha}${config.vapidEphemeral ? ' (temporary push keys)' : ''}`;
 		$('build').textContent = `Launch ${state.launches} · build ${buildLine}`;
+		// Check 0's machine half, from the server rather than guessed at in the page. `tls.secure` is
+		// read off the socket at the server, which is the only thing that cannot be faked by a header.
+		$('trust-facts').textContent = trustFacts(config);
+		if (config.tls && !config.tls.secure && secureOrigin) {
+			// Cannot happen over a direct connection, and would mean something is terminating TLS in
+			// between. Worth saying out loud rather than passing quietly.
+			setVerdict(0, 'fail', 'This page arrived over HTTPS but the server saw a plain connection.',
+				'Something between the phone and the Mac is terminating the connection. That is a finding — tell Rich.');
+			record('trust', 'fail', 'FAIL — the browser saw HTTPS and the server saw plain HTTP', 'something is terminating TLS in between');
+			$('trust-row').hidden = true;
+		}
 	} catch (err) {
 		buildLine = 'server unreachable';
 		$('build').textContent = `Launch ${state.launches} · the server did not answer`;
+		$('trust-facts').textContent = trustFacts(null);
 		$('notif-on').disabled = true;
 		setVerdict(4, 'fail', 'The server did not answer, so notifications cannot be tested.', String(err.message || err));
 	}

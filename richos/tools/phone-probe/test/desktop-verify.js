@@ -1,11 +1,26 @@
 #!/usr/bin/env node
 'use strict';
 
-// Desktop verification: drive the real page, in a real browser, against the real server.
+// Desktop verification: drive the real page, in a real browser, against the real server, OVER THE
+// REAL ORIGIN.
 //
 // The unit tests prove the arithmetic. This proves the WIRING — that getUserMedia, AudioWorklet,
 // the service worker, the manifest and the push sender actually connect to each other in a browser,
 // which is the class of defect that unit tests cannot see and that would waste his twenty minutes.
+//
+// CHANGED 2026-09-18: this used to drive `http://127.0.0.1`. It now drives
+// `https://<hostname>.local:<port>` — the same origin the phone uses, over the certificate this Mac
+// mints. That is not tidiness. An origin is scheme + host + port, and each of those three is part of
+// a service worker's registration and a push subscription's identity, so a harness on a different
+// origin is a harness testing something the phone never touches.
+//
+// HOW THE BROWSER IS MADE TO TRUST IT, and what is deliberately NOT done: Chromium is given
+// `--ignore-certificate-errors-spki-list=<pin>`, where the pin is the base64 SHA-256 of THIS
+// certificate's public key. That accepts exactly one certificate — ours — and continues to reject
+// every other bad certificate in the world, which `--ignore-certificate-errors` and Playwright's
+// `ignoreHTTPSErrors` do not. It also means the origin counts as a SECURE CONTEXT, which is asserted
+// below and is the thing service workers and getUserMedia actually require. NOTHING is added to any
+// keychain: the login keychain is never touched, here or anywhere in this tool.
 //
 // NOT part of `npm test`, and Playwright is NOT a dependency of this probe. It is resolved from
 // wherever it already exists on the machine (`PROBE_PLAYWRIGHT` overrides), and if it is not there
@@ -16,9 +31,13 @@
 // page's optional "play it back" control is never clicked.
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const https = require('node:https');
 const http = require('node:http');
 const { generateVapidKeys } = require('../lib/webpush.js');
+const localnames = require('../lib/localnames.js');
 
 const PLAYWRIGHT_CANDIDATES = [
 	process.env.PROBE_PLAYWRIGHT,
@@ -33,8 +52,10 @@ function loadPlaywright() {
 	return null;
 }
 
-const PORT = 8799;
-const ORIGIN = `http://127.0.0.1:${PORT}`;
+const HTTPS_PORT = 8799;
+const TRUST_PORT = 8798;
+const HOST = localnames.primaryName();
+const ORIGIN = `https://${HOST}:${HTTPS_PORT}`;
 const CODE = 'probe-desktop-verify';
 
 let failures = 0;
@@ -43,9 +64,25 @@ function check(label, ok, detail) {
 	if (!ok) failures++;
 }
 
+// The server writes its certificate into a temp state directory, which is removed however this
+// process ends. It must NOT reuse the real one: a harness that regenerates the CEO's root would cost
+// him the trust step on his phone (ceo-decisions.md §54 for the cleanup, and plain sense for the rest).
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'richos-desktop-verify-'));
+let caPem = null;
+
 function get(url) {
+	const target = new URL(url);
+	const lib = target.protocol === 'https:' ? https : http;
 	return new Promise((resolve, reject) => {
-		http.get(url, (res) => {
+		lib.get({
+			host: target.hostname,
+			port: target.port,
+			path: target.pathname + target.search,
+			// The certificate is validated properly, with our own root as the anchor. Setting
+			// rejectUnauthorized false here would make every HTTPS assertion below meaningless.
+			ca: caPem ? [caPem] : undefined,
+			servername: target.hostname
+		}, (res) => {
 			const chunks = [];
 			res.on('data', (c) => chunks.push(c));
 			res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8'), headers: res.headers }));
@@ -56,7 +93,9 @@ function get(url) {
 async function waitForServer(tries = 60) {
 	for (let i = 0; i < tries; i++) {
 		try {
-			const r = await get(`${ORIGIN}/healthz`);
+			// The trust listener answers over plain HTTP, so it can be polled before the certificate
+			// has been read off disk.
+			const r = await get(`http://${HOST}:${TRUST_PORT}/healthz`);
 			if (r.status === 200) return;
 		} catch { /* not up yet */ }
 		await new Promise((r) => setTimeout(r, 250));
@@ -69,12 +108,14 @@ async function waitForServer(tries = 60) {
 
 	const server = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
 		env: Object.assign({}, process.env, {
-			PORT: String(PORT),
+			PROBE_STATE_DIR: scratch,
+			PROBE_HTTPS_PORT: String(HTTPS_PORT),
+			PROBE_TRUST_PORT: String(TRUST_PORT),
+			PROBE_PRINT_QR: '0',
 			PROBE_ACCESS_CODE: CODE,
 			PROBE_BUILD_SHA: 'desktop-verify',
 			VAPID_PUBLIC_KEY: keys.publicKey,
-			VAPID_PRIVATE_KEY: keys.privateKey,
-			VAPID_SUBJECT: 'mailto:probe@richos.invalid'
+			VAPID_PRIVATE_KEY: keys.privateKey
 		}),
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
@@ -91,12 +132,36 @@ async function waitForServer(tries = 60) {
 		cleanedUp = true;
 		try { server.kill('SIGTERM'); } catch { /* already gone */ }
 		setTimeout(() => { try { server.kill('SIGKILL'); } catch { /* already gone */ } }, 2000).unref();
+		try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* nothing else to do */ }
 	};
 	process.on('exit', cleanup);
 	for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanup(); process.exit(1); });
 
 	try {
 		await waitForServer();
+		caPem = fs.readFileSync(path.join(scratch, 'tls', 'richos-local-ca.crt'), 'utf8');
+		const meta = JSON.parse(fs.readFileSync(path.join(scratch, 'tls', 'meta.json'), 'utf8'));
+
+		process.stdout.write(`\n=== the origin itself: ${ORIGIN} ===\n`);
+
+		// This is the origin the phone uses, name and port and scheme. Everything below runs against it.
+		const health = await get(`${ORIGIN}/healthz`);
+		check('the probe answers over HTTPS at the Mac\'s own Bonjour name, with our root as the anchor',
+			health.status === 200 && JSON.parse(health.body).tls === true, `HTTP ${health.status}`);
+		check('the certificate covers the name that was actually dialed',
+			meta.leafSubjectAltName.includes(HOST), meta.leafSubjectAltName);
+
+		// NEGATIVE CONTROL: the same request with no anchor must fail, or "it validated" above means
+		// only that a socket opened.
+		let rejected = 'it was accepted';
+		try {
+			await new Promise((resolve, reject) => {
+				https.get({ host: HOST, port: HTTPS_PORT, path: '/healthz', servername: HOST }, resolve).on('error', reject);
+			});
+		} catch (err) { rejected = err.message; }
+		check('NEGATIVE CONTROL: without our root, the same HTTPS request is refused',
+			rejected !== 'it was accepted', rejected);
+
 		process.stdout.write(`\n=== the server, without a browser ===\n`);
 
 		// --- the access code behaves as the plan's doctrine says ---
@@ -140,15 +205,22 @@ async function waitForServer(tries = 60) {
 			process.exit(failures ? 1 : 0);
 		}
 
-		process.stdout.write(`\n=== in a real browser (Chromium, headless, fake microphone) ===\n`);
+		process.stdout.write(`\n=== in a real browser (Chromium, headless, fake microphone, over HTTPS) ===\n`);
 		const browser = await playwright.chromium.launch({
 			args: [
 				// Grants the microphone without a dialog and feeds a synthesized tone as INPUT.
 				// Nothing is played out of this Mac's speakers.
 				'--use-fake-ui-for-media-stream',
-				'--use-fake-device-for-media-stream'
+				'--use-fake-device-for-media-stream',
+				// EXACTLY ONE certificate is accepted: this one, pinned by the SHA-256 of its public
+				// key. Not `--ignore-certificate-errors`, which would accept any certificate and turn
+				// every HTTPS assertion below into decoration, and not Playwright's ignoreHTTPSErrors,
+				// which leaves the page marked insecure and can stop a service worker registering —
+				// the very thing check 4 depends on.
+				`--ignore-certificate-errors-spki-list=${meta.leafSpkiPinSha256}`
 			]
 		});
+		process.stdout.write(`        pinned public key: ${meta.leafSpkiPinSha256}\n`);
 		try {
 			const context = await browser.newContext({ permissions: ['microphone'] });
 			const page = await context.newPage();
@@ -163,6 +235,29 @@ async function waitForServer(tries = 60) {
 			check('it reports the build it was served by',
 				(await page.textContent('#build')).includes('desktop-verify'),
 				await page.textContent('#build'));
+
+			// --- check 0: the hosting step ---
+			// `isSecureContext` is the assertion that matters. It is the browser's own verdict on the
+			// origin, and it is what service workers, push and getUserMedia are gated on. A page that
+			// loaded over HTTPS with a certificate the browser refused would be false here.
+			const context0 = await page.evaluate(() => ({
+				secure: window.isSecureContext,
+				protocol: location.protocol,
+				host: location.host
+			}));
+			check('the browser treats the Mac-hosted origin as a SECURE CONTEXT',
+				context0.secure === true && context0.protocol === 'https:', JSON.stringify(context0));
+			check('and it is the origin the phone will use, port included',
+				context0.host === `${HOST}:${HTTPS_PORT}`, context0.host);
+
+			const facts = await page.textContent('#trust-facts');
+			check('check 0 shows the evidence rather than asserting trust',
+				facts.includes(HOST) && /root SHA-256/.test(facts), facts);
+			check('check 0 asks him which of the two things happened, because the page cannot tell',
+				await page.isVisible('#trust-row'));
+			await page.click('#trust-clean');
+			const v0 = (await page.textContent('#v0')).trim();
+			check('answering "no warning" records check 0 as a pass', /accepted it/i.test(v0), v0);
 
 			// Check 1 in a tab must say "browser tab", because that is the honest answer here.
 			const v1 = (await page.textContent('#v1')).trim();
@@ -274,13 +369,17 @@ async function waitForServer(tries = 60) {
 					return { registered: false, error: String(e) };
 				}
 			});
-			check('the service worker registers at the root scope',
+			// The scope is the ORIGIN, and it is checked against the https origin on purpose: a service
+			// worker registered on a different scheme, host or port is a different service worker, and
+			// this is the assertion that proves the browser accepted the Mac's certificate as fully as
+			// a real one. A page with a refused certificate cannot get this far at all.
+			check('the service worker registers at the root of the HTTPS origin',
 				push.registered && push.scope === `${ORIGIN}/` && push.hasPushManager, JSON.stringify(push));
 
 			// --- the results panel is copyable text with all five lines ---
 			const results = await page.inputValue('#results-text');
 			process.stdout.write(`        results panel:\n${results.split('\n').map((l) => '          ' + l).join('\n')}\n`);
-			for (const n of ['1. Install', '2. Microphone', '3. Permission persistence', '4. Push', '5. Tap to open']) {
+			for (const n of ['0. Trust', '1. Install', '2. Microphone', '3. Permission persistence', '4. Push', '5. Tap to open']) {
 				check(`the results panel carries "${n}"`, results.includes(n));
 			}
 

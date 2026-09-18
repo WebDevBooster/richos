@@ -88,7 +88,12 @@ const DARK = {
 	attention: '#e09a55',
 	danger: '#e8837c',
 	success: '#7fb894',
-	'trim-text': '#7e92b8'
+	'trim-text': '#7e92b8',
+	// The QR code's own paper and ink, used by the trust step. Identical in both themes on purpose: a
+	// QR code is dark modules on a light quiet zone by specification, and one inverted to match a dark
+	// page is one a scanner may refuse.
+	'qr-paper': '#ffffff',
+	'qr-ink': '#000000'
 };
 
 const LIGHT = {
@@ -107,7 +112,12 @@ const LIGHT = {
 	attention: '#8c4a1b',
 	danger: '#8a2f28',
 	success: '#3a5c46',
-	'trim-text': '#44567a'
+	'trim-text': '#44567a',
+	// The QR code's own paper and ink, used by the trust step. Identical in both themes on purpose: a
+	// QR code is dark modules on a light quiet zone by specification, and one inverted to match a dark
+	// page is one a scanner may refuse.
+	'qr-paper': '#ffffff',
+	'qr-ink': '#000000'
 };
 
 // ---------------------------------------------------------------------------
@@ -155,7 +165,15 @@ const TEXT_PAIRS = [
 	{ fg: 'trim-text', bg: 'surface-sunk', floor: 4.5, where: 'button:disabled, 18px 600' },
 	{ fg: 'ink', bg: 'surface-sunk', floor: 4.5, where: '#results-text, 15px mono' },
 	{ fg: 'ink', bg: 'card', floor: 4.5, where: '.meter-read, 16px mono (card is its parent)' },
-	{ fg: 'ink', bg: 'card', floor: 4.5, where: '.results h2, 20px' }
+	{ fg: 'ink', bg: 'card', floor: 4.5, where: '.results h2, 20px' },
+
+	// --- the trust step (check 0), which shares this stylesheet ---
+	{ fg: 'on-gold', bg: 'gold', floor: 4.5, where: '.button-link, 18px 600 — the download control; same tokens as button.primary' },
+	{ fg: 'gold-text', bg: 'card', floor: 4.5, where: '.plain-link inside .detail on a step card, 15px — underlined, so it is not color alone' },
+	{ fg: 'ink', bg: 'card', floor: 4.5, where: '.steps li, 16px — the numbered taps' },
+	// The QR code itself. Its modules are a non-text indicator in the strictest sense — everything
+	// depends on a camera telling one from the other — so it is held to 3:1 and clears 21:1.
+	{ fg: 'qr-ink', bg: 'qr-paper', floor: 3.0, where: '/qr.png modules on their quiet zone, inside .qr' }
 ];
 
 // Non-text indicators owe 3:1 against what they sit on. A control's border is an indicator: it is
@@ -179,7 +197,12 @@ const INDICATOR_PAIRS = [
 	{ fg: 'attention', bg: 'card', floor: 3.0, where: '.verdict.ask left border (card side)' },
 	{ fg: 'trim-text', bg: 'card', floor: 3.0, where: '.verdict.waiting left border (card side)' },
 	{ fg: 'trim-text', bg: 'surface-raised', floor: 3.0, where: '.verdict.waiting left border (fill side)' },
-	{ fg: 'line-control', bg: 'ground', floor: 3.0, where: '.meter border where a step is not the parent' }
+	{ fg: 'line-control', bg: 'ground', floor: 3.0, where: '.meter border where a step is not the parent' },
+	// The QR paper's own edge. In the light theme white paper on the ivory ground is 1.2:1 and would
+	// have no visible edge at all; the border is the only thing saying where the code ends, and a
+	// scanner needs the quiet zone to be seen as part of the code.
+	{ fg: 'line-control', bg: 'qr-paper', floor: 3.0, where: '.qr border against the QR paper it encloses' },
+	{ fg: 'line-control', bg: 'card', floor: 3.0, where: '.qr border against the step card behind it' }
 ];
 
 function check(themeName, theme, pairs, kind) {

@@ -1,8 +1,8 @@
 {
   "name": "richos-phone-probe",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "The half-day device probe from docs/plans/richos-phone-client-2026-09-18.md §3.2 — five checks on the CEO's iPhone, one page, no product code.",
+  "description": "The half-day device probe from docs/plans/richos-phone-client-2026-09-18.md §3.2 — six checks on the CEO's iPhone, one page, served by his own Mac over a certificate his own Mac minted.",
   "license": "SEE LICENSE IN ../../../LICENSE",
   "engines": {
     "node": ">=20"
@@ -11,9 +11,13 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test \"test/*.test.js\"",
+    "ca": "node bin/make-local-ca.js",
     "keys": "node bin/generate-vapid-keys.js",
-    "push": "node bin/send-test-push.js"
+    "push": "node bin/send-test-push.js",
+    "verify:tls": "node test/tls-verify.js",
+    "verify:qr": "node test/qr-verify.js",
+    "verify:desktop": "node test/desktop-verify.js"
   },
   "dependencies": {},
-  "comment:dependencies": "EMPTY ON PURPOSE. Node's own crypto covers ECDH P-256, HKDF-SHA256, AES-128-GCM and raw-format ECDSA signing, so RFC 8291 + RFC 8292 need no package; node:http and node:fs serve the page. The reasoning, including why the web-push package was not used, is at the top of lib/webpush.js."
+  "comment:dependencies": "EMPTY ON PURPOSE, and four separate packages' worth of it. Node's own crypto covers ECDH P-256, HKDF-SHA256, AES-128-GCM and both signature forms, so web push (RFC 8291 + RFC 8292, lib/webpush.js) and X.509 issuance (lib/der.js + lib/x509.js) need no package; zlib covers PNG (lib/png.js); and the QR encoder (lib/qr.js) is arithmetic. Each is checked against a published value rather than against itself — RFC 8291's own test vector, Apple's trust evaluator, ISO/IEC 18004 Annex I and Apple's Vision decoder. The reasoning is at the top of each file."
 }
