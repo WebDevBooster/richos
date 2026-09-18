@@ -405,7 +405,7 @@ richos/app/
                               learning where the central folder is re-primes a lease that was
                               already running. The two negative controls come first because
                               they are what make the positives mean anything
-    tests/resident_front_desk_tests.rs 7 tests for the CEO's "any number of conversation
+    tests/resident_front_desk_tests.rs 8 tests for the CEO's "any number of conversation
                               threads, each holding one front desk": a thread's lease is
                               PARKED alive rather than killed when another thread speaks, so
                               coming back is the same provider session with no re-prime; a
@@ -467,6 +467,18 @@ richos/app/
                               that matters most asserts the reader and the writer resolve
                               the SAME corpus — a build where they disagreed would show him
                               a proposal about one record and write to another
+    tests/deferred_send_tests.rs
+                             10 tests for THE SEND THAT DOES NOT WAIT FOR THE PRIME (CEO §55,
+                              2026-09-18): a Send issued while the front desk is being primed is
+                              accepted at once, his words are durable before the call returns,
+                              and the message reaches the lease exactly once, in order, after
+                              the prime — never a second prime, never a lost message.
+    tests/spare_front_desk_tests.rs
+                             14 tests for THE SPARE FRONT DESK (CEO §55, 2026-09-18): a desk is
+                              primed before the thread it will serve exists; his first brand-new
+                              thread adopts it, so the prime he waits for is zero; a spare is
+                              never adopted across an entity boundary, and the company material
+                              travels with the desk.
     tests/front_desk_priming_tests.rs
                              5 tests for PRIMING THE FRONT DESK before he types (`Spine::prime_front_desk`,
                               CEO §55): the priming turn is spent when a thread opens, once per lease,
@@ -1015,7 +1027,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1320 tests + 5 doc-tests (1316 direct, 4 ignored)
+cargo test -p richos-core                       # 1357 tests + 5 doc-tests (1353 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
