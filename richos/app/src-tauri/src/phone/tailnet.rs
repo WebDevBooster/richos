@@ -181,9 +181,39 @@ pub enum TailnetState {
     /// Another user account on this Mac is using Tailscale. `ipn.State`'s `InUseOtherUser`.
     InUseByAnotherUser,
     /// Signed in and up, but the tailnet will not be issued certificates.
-    CertificatesOff { name: String, account: Option<Account>, phone: Option<String> },
+    CertificatesOff { name: String, account: Option<Account>, phone: Option<PhonePeer> },
     /// Everything this path needs: a name, and a control plane that will certify it.
-    Ready { name: String, addresses: Vec<IpAddr>, account: Option<Account>, phone: Option<String> },
+    Ready {
+        name: String,
+        addresses: Vec<IpAddr>,
+        account: Option<Account>,
+        phone: Option<PhonePeer>,
+    },
+}
+
+/// **A phone on this tailnet, and whether Tailscale is actually switched on on it.**
+///
+/// Read off this Mac's own daemon on 2026-09-19, after the CEO signed in again: his Android
+/// appears in `Peer` **twice** — one stale registration per reinstall — and **both entries are
+/// `"Online": false`, because Tailscale is installed on the phone and switched off.** Three facts
+/// follow, and each one is a sentence the screen would otherwise get wrong:
+///
+/// 1. **Presence is not reachability.** A peer with `Online: false` is a node the control plane
+///    cannot see; the phone will not answer at this Mac's name. Telling that user "your phone is
+///    on this network" and leaving them to work out why nothing happens is the same dead end this
+///    whole screen exists to close.
+/// 2. **Duplicates are one device.** Reinstalling leaves the old node behind, and the CEO
+///    reinstalled three times. Counting registrations would report three phones where there is one.
+/// 3. **Off is a different instruction from wrong-identity.** The fix for an offline phone is one
+///    switch in the Tailscale app; the fix for a mismatched identity is a sign-out and a sign-in.
+///    One sentence for both would send half the users to the wrong one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhonePeer {
+    /// What the daemon calls it — `HostName`, which is what the user's phone calls itself.
+    pub name: String,
+    /// `Online`, documented upstream as *"whether node is connected to the control plane"*.
+    /// A device that has ever signed in is in `Peer` forever; this is what says it is there NOW.
+    pub online: bool,
 }
 
 /// **WHICH account this Mac is signed in to, in the words the user will see on their phone.**
@@ -268,10 +298,10 @@ impl TailnetState {
     /// the daemon's own `Peer` map with an `OS` of `iOS` or `android`. Its presence is the one
     /// piece of evidence that the two devices really are on one network — which is exactly the
     /// thing no amount of screen copy can assert on its own.
-    pub fn phone(&self) -> Option<&str> {
+    pub fn phone(&self) -> Option<&PhonePeer> {
         match self {
             TailnetState::CertificatesOff { phone, .. } | TailnetState::Ready { phone, .. } => {
-                phone.as_deref()
+                phone.as_ref()
             }
             _ => None,
         }
@@ -564,17 +594,36 @@ pub fn parse_status(json: &str) -> Result<TailnetState, PhoneError> {
     // appears here; one signed in to a different provider's account appears in a different tailnet
     // and therefore nowhere. Deterministic order, because a HashMap's is not, and a name that
     // changes between two identical polls is a screen that flickers.
-    let mut phones: Vec<String> = document
-        .peers
-        .unwrap_or_default()
-        .into_values()
-        .filter(|peer| peer.os.as_deref().map(is_phone).unwrap_or(false))
-        .filter_map(|peer| peer.host_name)
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .collect();
-    phones.sort();
-    let phone = phones.into_iter().next();
+    //
+    // DE-DUPLICATED BY NAME, AND ONLINE WINS — measured on this Mac on 2026-09-19 rather than
+    // reasoned about. The CEO's own document carries his Android TWICE, once per reinstall, and
+    // both entries say `"Online": false` because the app on the phone is switched off. Counting
+    // registrations would have reported two phones; ignoring `Online` would have reported a phone
+    // that cannot answer. So identical names collapse to one device, and that device is online if
+    // ANY of its registrations is.
+    let mut phones: Vec<(String, bool)> = Vec::new();
+    for peer in document.peers.unwrap_or_default().into_values() {
+        if !peer.os.as_deref().map(is_phone).unwrap_or(false) {
+            continue;
+        }
+        let Some(name) = peer.host_name else { continue };
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        match phones.iter_mut().find(|(seen, _)| seen.eq_ignore_ascii_case(&name)) {
+            Some(existing) => existing.1 |= peer.online,
+            None => phones.push((name, peer.online)),
+        }
+    }
+    phones.sort_by(|a, b| a.0.cmp(&b.0));
+    // A phone that is ON is the one to name: with a live phone and a stale registration beside it,
+    // reporting the stale one would tell a user who has done everything right that they have not.
+    let phone = phones
+        .iter()
+        .find(|(_, online)| *online)
+        .or_else(|| phones.first())
+        .map(|(name, online)| PhonePeer { name: name.clone(), online: *online });
 
     let certified = document
         .cert_domains
@@ -858,6 +907,39 @@ mod tests {
         )
     }
 
+    /// **THE DOCUMENT THIS MAC ACTUALLY PRINTED ON 2026-09-19**, after the CEO signed in again —
+    /// and the reason the two rules below exist at all.
+    ///
+    /// Scrubbed the same way as `REAL_SIGNED_IN_NO_CERTS`: the login name, the MagicDNS suffix and
+    /// the device name are replaced. **The SHAPE is verbatim and it is the finding** — his Android
+    /// appears TWICE, one stale registration per reinstall (he reinstalled three times looking for
+    /// a "connect to Mac" step that does not exist), and **both entries are `"Online": false`,**
+    /// because Tailscale is installed on the phone and switched off.
+    ///
+    /// Read the old way, this document said "you have two phones and they are both here". Neither
+    /// half of that was true.
+    const REAL_PHONE_REGISTERED_TWICE_AND_OFFLINE: &str = r#"{
+  "Version": "1.102.4-t3caf7d9e7-g084ee3b64",
+  "BackendState": "Running",
+  "TailscaleIPs": ["100.75.153.24"],
+  "Self": {
+    "HostName": "MM1",
+    "DNSName": "mm1.tail1a2b3c.ts.net.",
+    "OS": "macOS",
+    "UserID": 1,
+    "TailscaleIPs": ["100.75.153.24"],
+    "Online": true
+  },
+  "MagicDNSSuffix": "tail1a2b3c.ts.net",
+  "CertDomains": null,
+  "Peer": {
+    "nodekey:bbb": {"HostName": "his-android", "OS": "android", "Online": false},
+    "nodekey:ccc": {"HostName": "his-android", "OS": "android", "Online": false}
+  },
+  "User": {"1": {"ID": 1, "LoginName": "someone@gmail.com", "DisplayName": "scrubbed"}},
+  "ClientVersion": null
+}"#;
+
     #[test]
     fn a_phone_on_the_same_tailnet_is_detected_and_one_on_a_different_account_is_not() {
         // THE FAILURE THE CEO PUTS AT 9 IN 10 USERS, detected rather than described. A phone signed
@@ -865,11 +947,9 @@ mod tests {
         // different tailnet and so appears NOWHERE. That asymmetry is the whole mechanism.
         for os in ["iOS", "android", "ipados", "ANDROID"] {
             let state = parse_status(&with_phone(os)).expect("the document was refused");
-            assert_eq!(
-                state.phone(),
-                Some("alexs-phone"),
-                "a peer running {os} was not recognized as a phone"
-            );
+            let phone = state.phone().expect("a mobile peer was not recognized as a phone");
+            assert_eq!(phone.name, "alexs-phone", "wrong phone for an {os} peer");
+            assert!(phone.online, "an `Online: true` {os} peer was not reported as online");
         }
 
         // THE CONTROL, and the reason the above means anything: the SAME document with NO phone
@@ -886,6 +966,55 @@ mod tests {
             r#""Peer": {"nodekey:aaa": {"HostName": "alexs-macbook", "OS": "macOS", "Online": true}}"#,
         );
         assert_eq!(parse_status(&desktops).unwrap().phone(), None);
+    }
+
+    #[test]
+    fn the_ceos_own_document_reads_as_one_phone_that_is_switched_off() {
+        // MEASURED, NOT REASONED ABOUT. Two registrations of one device, both offline, is what his
+        // Mac printed — and it is the shape every user who reinstalls the app will have.
+        let state = parse_status(REAL_PHONE_REGISTERED_TWICE_AND_OFFLINE).expect("refused");
+        let phone = state.phone().expect("his phone was not found at all");
+        // ONE device, not two: the duplicate registrations collapse by name.
+        assert_eq!(phone.name, "his-android");
+        // AND IT CANNOT ANSWER. This is the assertion that stops the screen saying "your phone is
+        // on this network" over a phone with Tailscale switched off — a sentence that would send
+        // him back to check an identity that was already right.
+        assert!(!phone.online, "two offline registrations were read as a reachable phone");
+
+        // AND THE IDENTITY IS THE GOOGLE ONE, end to end through the parser rather than through
+        // the provider table alone. Apple is covered by the test above; this is the pair the CEO
+        // actually hit — Apple on the Mac, Google on the phone.
+        let account = state.account().cloned().expect("no account read");
+        assert_eq!(account.login_name, "someone@gmail.com");
+        assert_eq!(account.provider, Some("Google"));
+        assert_eq!(account.described(), "Google as someone@gmail.com");
+    }
+
+    #[test]
+    fn one_live_registration_beside_a_stale_one_reports_the_phone_as_online() {
+        // THE OTHER HALF, and the one that decides which way the de-duplication leans. He turns
+        // Tailscale ON on the phone: the live node appears beside the stale registrations that
+        // never went away. Reporting the stale one would tell a user who has just done everything
+        // right that they have not — the exact loop this screen exists to end.
+        let document = with(
+            REAL_PHONE_REGISTERED_TWICE_AND_OFFLINE,
+            r#""nodekey:ccc": {"HostName": "his-android", "OS": "android", "Online": false}"#,
+            r#""nodekey:ccc": {"HostName": "his-android", "OS": "android", "Online": true}"#,
+        );
+        let phone = parse_status(&document).unwrap().phone().cloned().expect("no phone");
+        assert_eq!(phone.name, "his-android");
+        assert!(phone.online, "a live registration was masked by a stale duplicate");
+
+        // And a second, genuinely different phone that is online is the one named, whatever the
+        // alphabet says — `a-phone` sorts first here and is the live one.
+        let two = with(
+            REAL_PHONE_REGISTERED_TWICE_AND_OFFLINE,
+            r#""nodekey:ccc": {"HostName": "his-android", "OS": "android", "Online": false}"#,
+            r#""nodekey:ccc": {"HostName": "a-phone", "OS": "iOS", "Online": true}"#,
+        );
+        let phone = parse_status(&two).unwrap().phone().cloned().expect("no phone");
+        assert_eq!(phone.name, "a-phone");
+        assert!(phone.online);
     }
 
     #[test]

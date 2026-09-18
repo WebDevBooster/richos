@@ -365,6 +365,12 @@ pub struct TailnetView {
     /// DETECTS it rather than only warning about it. `None` while the user is on the phone step
     /// means the phone has not joined — which, after a reasonable wait, means a different account.
     pub phone: Option<String>,
+    /// **And whether Tailscale is switched ON on that phone.** `false` with a `phone` present is
+    /// its own screen sentence, because it is its own fix: a switch in the Tailscale app, not a
+    /// sign-in. Measured on this Mac 2026-09-19 — the CEO's Android is registered twice and both
+    /// registrations are offline, which is exactly the state that would otherwise render as
+    /// "your phone is on this network" over a phone that cannot answer.
+    pub phone_online: bool,
 }
 
 impl From<&tailnet::TailnetState> for TailnetView {
@@ -375,7 +381,8 @@ impl From<&tailnet::TailnetState> for TailnetView {
             origin: state.origin(),
             sentence: state.sentence(),
             account: state.account().map(|a| a.described()),
-            phone: state.phone().map(|p| p.to_string()),
+            phone: state.phone().map(|p| p.name.clone()),
+            phone_online: state.phone().map(|p| p.online).unwrap_or(false),
         }
     }
 }
@@ -762,11 +769,11 @@ fn phone_assets() -> assets::PhoneApp {
 mod tests {
     use super::*;
 
-    /// **The six key names `ui/phone.js` reads.** A rename on this side is a screen that draws
+    /// **The seven key names `ui/phone.js` reads.** A rename on this side is a screen that draws
     /// nothing, silently, and serde's `rename_all` makes that a one-character mistake — so the
     /// wire shape is asserted rather than left to the attribute.
     #[test]
-    fn the_view_the_screens_read_is_six_camel_case_fields() {
+    fn the_view_the_screens_read_is_seven_camel_case_fields() {
         let view = TailnetView::from(&tailnet::TailnetState::Ready {
             name: "mm1.tail1a2b3c.ts.net".into(),
             addresses: vec![],
@@ -774,7 +781,7 @@ mod tests {
                 login_name: "someone@icloud.com".into(),
                 provider: Some("Apple"),
             }),
-            phone: Some("alexs-iphone".into()),
+            phone: Some(tailnet::PhonePeer { name: "alexs-iphone".into(), online: true }),
         });
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["state"], "ready");
@@ -785,7 +792,28 @@ mod tests {
         // and the phone's screen cannot word it differently.
         assert_eq!(json["account"], "Apple as someone@icloud.com");
         assert_eq!(json["phone"], "alexs-iphone");
-        assert_eq!(json.as_object().unwrap().len(), 6, "the view grew a field the screens do not read");
+        assert_eq!(json["phoneOnline"], true);
+        assert_eq!(json.as_object().unwrap().len(), 7, "the view grew a field the screens do not read");
+    }
+
+    /// **A phone that is registered and switched off is not a phone that can answer**, and the
+    /// wire says so in its own field rather than by leaving `phone` out.
+    ///
+    /// This is the CEO's own Mac on 2026-09-19: his Android is in `Peer`, and Tailscale on it is
+    /// off. `phone` present with `phoneOnline` false is what lets the screen say "turn it on in
+    /// the Tailscale app" instead of sending him back to a sign-in he already did.
+    #[test]
+    fn a_registered_but_switched_off_phone_arrives_as_present_and_not_online() {
+        let json = serde_json::to_value(TailnetView::from(
+            &tailnet::TailnetState::CertificatesOff {
+                name: "mm1.tail1a2b3c.ts.net".into(),
+                account: None,
+                phone: Some(tailnet::PhonePeer { name: "his-android".into(), online: false }),
+            },
+        ))
+        .unwrap();
+        assert_eq!(json["phone"], "his-android");
+        assert_eq!(json["phoneOnline"], false);
     }
 
     #[test]
