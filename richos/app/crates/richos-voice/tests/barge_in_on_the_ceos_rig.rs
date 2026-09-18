@@ -157,6 +157,10 @@ fn say_offline(voice: &str, text: &str) -> Vec<f32> {
     let pcm = wav::read_pcm16(&bytes).unwrap();
     assert_eq!(pcm.sample_rate, SAMPLE_RATE);
     let _ = std::fs::remove_file(&path);
+    // And the DIRECTORY, not just the file — it left an empty one per test process behind in
+    // $TMPDIR, forever. `remove_dir` only succeeds when the directory is empty, so it can never
+    // take anything else with it, and `create_dir_all` above re-creates it for the next call.
+    let _ = std::fs::remove_dir(&dir);
     wav::to_mono(&pcm.samples, pcm.channels)
 }
 

@@ -174,6 +174,11 @@ fn say_offline(voice: &str, text: &str) -> Vec<f32> {
     let pcm = wav::read_pcm16(&bytes).unwrap();
     assert_eq!(pcm.sample_rate, SAMPLE_RATE, "say did not honor --data-format");
     let _ = std::fs::remove_file(&path);
+    // And the DIRECTORY, not just the file. It removed the wav and left the empty directory behind,
+    // one per process, forever — 11 of them had accumulated in $TMPDIR by the time this was
+    // noticed. `remove_dir` only succeeds when empty, so it can never take anything else with it,
+    // and the next call re-creates it.
+    let _ = std::fs::remove_dir(&dir);
     wav::to_mono(&pcm.samples, pcm.channels)
 }
 
