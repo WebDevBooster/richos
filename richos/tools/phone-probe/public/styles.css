@@ -1,0 +1,357 @@
+/* RichOS phone probe.
+ *
+ * The palette is not invented here. Every value is lifted from `richos/app/ui/style.css`, the
+ * shipped app's token file, so the probe reads as part of RichOS rather than as a stranger — and
+ * so the contrast reasoning already done there is inherited instead of redone by eye.
+ *
+ * CONTRAST. Every pair actually used below is COMPUTED, not eyeballed, by
+ * `test/contrast.test.js`, which fails on anything under WCAG AA in either theme: 4.5:1 for
+ * normal text, 3:1 for large text (>=24px, or >=18.66px bold) and for non-text indicators. That
+ * test is the floor; this comment is only a pointer to it. Two notes on the specific traps the app
+ * already hit, avoided here by construction:
+ *   - `--gold` PAINTS and `--gold-text` READS. They are the same value in dark and deliberately
+ *     different in light, where the painting value computes 3.29:1 on the ivory ground and would
+ *     fail as body text.
+ *   - `--on-gold` is the DARK ink in BOTH themes. White on gold is the failure the app already
+ *     made once.
+ *
+ * NO EXEMPTIONS ARE CLAIMED IN THIS FILE. Every string on this page is meant to be read,
+ * including the privacy note at the bottom — he is being asked to believe that note, so it clears
+ * the same 4.5:1 floor as everything else.
+ */
+
+:root {
+	color-scheme: light dark;
+
+	/* ---- DARK — the default, matching the app ---- */
+	--ground: #0c1322;
+	--surface-sunk: #0a1120;
+	--surface-raised: #141e34;
+	--card: #182440;
+
+	--ink: #dfe4ee;
+	--ink-soft: #b9c1d2;
+	--line: rgba(76, 96, 135, 0.42);
+	--line-control: #6b7ea8;
+
+	--gold: #c2a35c;      /* paints */
+	--gold-text: #c2a35c; /* reads */
+	--on-gold: #0c1322;
+	/* The ink that sits ON --danger when danger is a FILL rather than text. It flips with the
+	 * theme where --on-gold does not, because --danger flips lightness and --gold does not: dark
+	 * --danger is a light red, light --danger is a deep red. Dark ink on the light-theme red
+	 * computes 2.22:1, which is how the record button would have shipped unreadable while
+	 * recording — the exact failure the contrast test exists to catch. */
+	--on-danger: #0c1322;
+
+	--attention: #e09a55;
+	--danger: #e8837c;
+	--success: #7fb894;
+	--trim-text: #7e92b8;
+
+	--font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+	--mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+	--radius: 10px;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		/* ---- LIGHT — the app's ivory ground ---- */
+		--ground: #eae6dd;
+		--surface-sunk: #efebe0;
+		--surface-raised: #f7f5ef;
+		--card: #fdfcf8;
+
+		--ink: #0c1322;
+		--ink-soft: #4a5265;
+		--line: rgba(60, 70, 95, 0.38);
+		--line-control: #767c8d;
+
+		--gold: #9c7c34;
+		--gold-text: #715715;
+		--on-gold: #0c1322;
+		--on-danger: #fdfcf8;
+
+		--attention: #8c4a1b;
+		--danger: #8a2f28;
+		--success: #3a5c46;
+		--trim-text: #44567a;
+	}
+}
+
+* { box-sizing: border-box; }
+
+html {
+	background: var(--ground);
+	/* The installed window runs under the status bar and over the home indicator. */
+	padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+body {
+	margin: 0 auto;
+	padding: 20px 16px 48px;
+	max-width: 620px;
+	font-family: var(--font);
+	/* 17px: above the 16px floor for text meant to be easily read, and the size iOS itself uses
+	 * for body copy. Nothing on this page is below 15px. */
+	font-size: 17px;
+	line-height: 1.5;
+	color: var(--ink);
+	background: var(--ground);
+	-webkit-text-size-adjust: 100%;
+}
+
+h1 {
+	margin: 0 0 6px;
+	font-size: 26px;
+	line-height: 1.2;
+	letter-spacing: -0.01em;
+}
+
+.lede {
+	margin: 0 0 4px;
+	color: var(--ink-soft);
+	font-size: 16px;
+}
+
+.build {
+	margin: 0 0 20px;
+	font-family: var(--mono);
+	font-size: 15px;
+	color: var(--trim-text);
+}
+
+/* ---- The banner that says a browser tab cannot answer the real question ---- */
+
+.banner {
+	margin: 0 0 20px;
+	padding: 14px 16px;
+	border: 1px solid var(--attention);
+	border-left-width: 5px;
+	border-radius: var(--radius);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font-size: 16px;
+}
+
+.banner strong { color: var(--attention); }
+.banner[hidden] { display: none; }
+
+/* ---- Steps ---- */
+
+.step {
+	margin: 0 0 16px;
+	padding: 16px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.step-head {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+
+.step-n {
+	flex: 0 0 auto;
+	min-width: 30px;
+	height: 30px;
+	padding: 0 7px;
+	border-radius: 15px;
+	background: var(--gold);
+	color: var(--on-gold);
+	font-size: 17px;
+	font-weight: 700;
+	line-height: 30px;
+	text-align: center;
+}
+
+.step h2 {
+	margin: 0;
+	font-size: 20px;
+	line-height: 1.25;
+	font-weight: 650;
+}
+
+.gate {
+	margin-left: 6px;
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--gold-text);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.step p {
+	margin: 0 0 12px;
+	color: var(--ink-soft);
+	font-size: 16px;
+}
+
+.step p.plain { color: var(--ink); }
+
+/* ---- Controls: big, because this happens on a phone ---- */
+
+button {
+	font-family: inherit;
+	font-size: 18px;
+	font-weight: 600;
+	min-height: 52px;
+	padding: 13px 20px;
+	border-radius: var(--radius);
+	border: 1px solid var(--line-control);
+	background: var(--surface-raised);
+	color: var(--ink);
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible {
+	outline: 3px solid var(--gold);
+	outline-offset: 2px;
+}
+
+button.primary {
+	background: var(--gold);
+	border-color: var(--gold);
+	color: var(--on-gold);
+}
+
+button:disabled {
+	/* Opacity would silently break the computed ratio, so a disabled control is re-painted with
+	 * tokens that clear the floor on their own rather than faded. */
+	opacity: 1;
+	background: var(--surface-sunk);
+	color: var(--trim-text);
+	border-color: var(--line);
+	cursor: default;
+}
+
+.row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-bottom: 12px;
+}
+
+.row > button { flex: 1 1 auto; }
+.row-spaced { margin-top: 12px; }
+
+/* The record control. Full width and tall: it is the one thing the whole probe turns on. */
+
+#record {
+	width: 100%;
+	min-height: 96px;
+	font-size: 21px;
+	/* Without these three, a long press on iOS selects text or raises the callout menu instead
+	 * of recording — which reads as a broken microphone. */
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+	-webkit-touch-callout: none;
+}
+
+#record.recording {
+	background: var(--danger);
+	border-color: var(--danger);
+	color: var(--on-danger);
+}
+
+/* ---- Level meter. A non-text indicator, so it owes 3:1 against its own track. ---- */
+
+.meter {
+	height: 22px;
+	margin-bottom: 8px;
+	border: 1px solid var(--line-control);
+	border-radius: 11px;
+	background: var(--surface-sunk);
+	overflow: hidden;
+}
+
+.meter-fill {
+	height: 100%;
+	/* Driven from JS via a custom property rather than an inline width, so the presentation rule
+	 * stays here in the stylesheet and JS only supplies the number. */
+	width: var(--level, 0%);
+	background: var(--success);
+	transition: width 60ms linear;
+}
+
+.meter-read {
+	margin: 0 0 12px;
+	font-family: var(--mono);
+	font-size: 16px;
+	color: var(--ink);
+}
+
+/* ---- Verdicts ---- */
+
+.verdict {
+	margin: 12px 0 0;
+	padding: 11px 13px;
+	border-radius: 8px;
+	border-left: 5px solid var(--line-control);
+	background: var(--surface-raised);
+	font-size: 16px;
+	color: var(--ink);
+}
+
+.verdict .label { font-weight: 700; }
+.verdict.pass { border-left-color: var(--success); }
+.verdict.pass .label { color: var(--success); }
+.verdict.fail { border-left-color: var(--danger); }
+.verdict.fail .label { color: var(--danger); }
+.verdict.ask { border-left-color: var(--attention); }
+.verdict.ask .label { color: var(--attention); }
+.verdict.waiting { border-left-color: var(--trim-text); }
+.verdict.waiting .label { color: var(--trim-text); }
+
+.detail {
+	margin: 6px 0 0;
+	font-family: var(--mono);
+	font-size: 15px;
+	color: var(--ink-soft);
+	word-break: break-word;
+}
+
+/* ---- Results ---- */
+
+.results {
+	margin-top: 28px;
+	padding: 16px;
+	border: 1px solid var(--gold);
+	border-radius: var(--radius);
+	background: var(--card);
+}
+
+.results h2 { margin: 0 0 12px; font-size: 20px; }
+
+#results-text {
+	width: 100%;
+	min-height: 160px;
+	padding: 12px;
+	border: 1px solid var(--line-control);
+	border-radius: 8px;
+	background: var(--surface-sunk);
+	color: var(--ink);
+	font-family: var(--mono);
+	font-size: 15px;
+	line-height: 1.5;
+	resize: vertical;
+}
+
+.note {
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: 1px solid var(--line);
+	font-size: 16px;
+	color: var(--ink-soft);
+}
+
+.note strong { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+	* { transition: none !important; animation: none !important; }
+}
