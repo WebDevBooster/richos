@@ -60,7 +60,12 @@ const paths = () => ({
 	caProfile: path.join(tlsDir(), 'richos-local-ca.mobileconfig'),
 	leafCert: path.join(tlsDir(), 'server.crt'),
 	leafKey: path.join(tlsDir(), 'server.key'),
-	meta: path.join(tlsDir(), 'meta.json')
+	meta: path.join(tlsDir(), 'meta.json'),
+	// The VAPID pair. It lives here for the same reason the certificate does: on a Mac-hosted probe
+	// there IS a durable place to put it, and a pair that dies with the process takes every push
+	// subscription with it — which would fail check 4 for a reason that has nothing to do with the
+	// phone. This was unavoidable when the probe was a stateless hosted service; it is not now.
+	vapid: path.join(stateDir(), 'vapid.json')
 });
 
 module.exports = { stateDir, tlsDir, ensureDir, writePrivate, writePublic, paths };

@@ -177,6 +177,13 @@ Unchanged, and it needs no inbound anything: the sender opens an **outbound HTTP
 Apple's or Google's push service, exactly as it did from a hosted server. The subscription is held in
 memory on this Mac.
 
+**One thing the move to the Mac improved.** A push subscription is taken against ONE public key, so if
+that key changes every subscription made against the old one is dead — and check 4 then fails for a
+reason that has nothing to do with the phone. The hosted version had nowhere to keep a pair and
+generated one per process, warning loudly. There is a state directory now, so the pair is generated
+once and kept beside the certificate at `vapid.json`, mode `0600`. Restarting the server, or the Mac,
+no longer costs him the subscription.
+
 **`VAPID_SUBJECT` is the public project page**, `https://github.com/WebDevBooster/richos`. RFC 8292
 §2.1 allows a `mailto:` or an `https:` URL and Apple accepts either, and **a personal address is never
 baked into a build, a config default or a record** — a default is the one place a value ends up in all
@@ -226,7 +233,7 @@ node test/qr-verify.js        every QR this tool renders, decoded by Apple's Vis
 | `PROBE_TRUST_PORT` | `8442` | The trust step. |
 | `PROBE_BIND` | `0.0.0.0` | The phone is not on this machine. |
 | `PROBE_STATE_DIR` | `~/Library/Application Support/RichOS/phone-probe` | Where the certificate lives. The test harnesses point this at a temp directory so they can never touch the real root. |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated per process | `npm run keys` prints a pair. Without them every subscription dies on restart, and the server says so loudly at boot. |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated once, kept in the state directory | Rarely needed. The pair is created on first run and reused, so a subscription taken today still works tomorrow. |
 | `VAPID_SUBJECT` | the project URL above | Override only with another URL you control. |
 | `PROBE_ACCESS_CODE` | unset (open) | An unguessable code. Unset means both origins are open to anything on the Wi-Fi — fine behind a home router with no port forwarding. |
 | `PROBE_BUILD_SHA` | `unset` | Printed on the page, so a stale process cannot masquerade as a fresh one. |

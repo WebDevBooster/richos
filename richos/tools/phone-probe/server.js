@@ -46,6 +46,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { generateVapidKeys, sendNotification } = require('./lib/webpush.js');
 const { ensureCertificates } = require('./lib/tls-setup.js');
+const state = require('./lib/state.js');
 const localnames = require('./lib/localnames.js');
 const qr = require('./lib/qr.js');
 
@@ -92,18 +93,35 @@ const TRUST_ORIGIN = `http://${HOST_NAME}${TRUST_PORT === 80 ? '' : `:${TRUST_PO
 // VAPID keys
 // ---------------------------------------------------------------------------
 
+// A push subscription is taken against ONE public key. If the key changes, every subscription made
+// against the old one is dead, and check 4 fails for a reason that has nothing to do with the phone.
+//
+// When this probe was a hosted service there was nowhere to keep a pair, so it generated one per
+// process and warned loudly. Hosting it on the Mac removes that whole failure mode: there is a state
+// directory now, so the pair is generated once and kept beside the certificate, mode 0600. Restarting
+// the server — or the Mac — no longer costs him the subscription.
 let vapid = {
 	publicKey: process.env.VAPID_PUBLIC_KEY || '',
 	privateKey: process.env.VAPID_PRIVATE_KEY || ''
 };
-let vapidEphemeral = false;
+let vapidSource = 'the environment';
 if (!vapid.publicKey || !vapid.privateKey) {
-	// Generating a pair at boot keeps `npm start` working with no setup, but the pair dies with
-	// the process, which invalidates every subscription taken against it. That is tolerable for a
-	// local test and wrong for his phone, so it is said loudly rather than logged quietly.
-	vapid = generateVapidKeys();
-	vapidEphemeral = true;
+	const file = state.paths().vapid;
+	let stored = null;
+	try { stored = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first run, or unreadable */ }
+	if (stored && stored.publicKey && stored.privateKey) {
+		vapid = { publicKey: stored.publicKey, privateKey: stored.privateKey };
+		vapidSource = file;
+	} else {
+		vapid = generateVapidKeys();
+		state.writePrivate(file, `${JSON.stringify({ ...vapid, createdAt: new Date().toISOString() }, null, 2)}\n`);
+		vapidSource = `${file} (created now)`;
+	}
 }
+// Kept for the page's own reporting: there is no longer any path that produces a pair which dies with
+// the process, so this is now always false. The field stays because `/api/config` publishes it and the
+// page prints it — removing it would silently change what the results panel says.
+const vapidEphemeral = false;
 
 // ---------------------------------------------------------------------------
 // State — one Map, no disk
@@ -547,15 +565,7 @@ const announce = () => {
 		process.stdout.write(`\n${qr.toAnsi(trustUrl).text}\n\n`);
 	}
 	log(`VAPID public key: ${vapid.publicKey}`);
-	if (vapidEphemeral) {
-		log('');
-		log('  WARNING: no VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in the environment, so a pair was');
-		log('  generated for this process only. Every subscription taken against it dies when this');
-		log('  process restarts, and check 4 would then fail for a reason that has nothing to do');
-		log('  with the phone. Fine for a local test; wrong for his phone.');
-		log('  Run: npm run keys');
-		log('');
-	}
+	log(`  from ${vapidSource} — it survives a restart, so a subscription taken today still works tomorrow.`);
 	log(`VAPID subject:    ${VAPID_SUBJECT}`);
 	if (!process.env.VAPID_SUBJECT) {
 		log('  VAPID_SUBJECT is not set, so the public project page is being used —');
