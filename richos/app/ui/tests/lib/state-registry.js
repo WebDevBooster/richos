@@ -3548,19 +3548,25 @@ module.exports = [
   },
   // -------------------------------------------------------------------------------------
   // BACKGROUND WORK — the assignment surface (the background-work spec, revision 5, in the
-  // private richos-hq record; §1, §4.2 and §0 row 7).
+  // private richos-hq record; §1, §4.2 and §0 row 7), as the CEO's ruling §52 leaves it.
   //
-  // THE GAP THIS BLOCK USED TO CARRY IS CLOSED, and it closed the way it said it would:
-  // "when the queue lands, the sentence and this row change together." The desk now holds
-  // his decision while he is away (§5.2/§5.5/§5.7), so "Ready for you to approve" names an
-  // approve control that is on the same surface — driven against the real DOM by the
-  // `assignment-waiting` fixture below rather than asserted here.
+  // WHAT §52 CHANGED HERE (2026-09-18): *"There's nothing that ever not lands on its own
+  // here in the terminal … So, yes, always land on its own."* Both rows below used to open
+  // with "Ready for you to approve", because the one thing that could stop a background job
+  // was the step that would change his repository. A job lands on its own now, so `blocked`
+  // means a decision of his is outstanding on SOME step — and the row no longer claims his
+  // repository is untouched, because a job may reach such a step after landing something.
+  //
+  // THE GAP THIS BLOCK ONCE CARRIED IS STILL CLOSED, and by the same mechanism: the desk
+  // holds his decision while he is away (§5.2/§5.5/§5.7), so the sentence names Approve and
+  // Decline controls that are on the same surface — driven against the real DOM by the
+  // `assignment-waiting` fixture rather than asserted here.
   //
   // THE SECOND SENTENCE IS NOT A DUPLICATE AND IT IS NOT A HEDGE. The queue lives in the
   // running process: an assignment that stopped at his decision before a relaunch is still
   // `blocked` and has nothing left to press, because §6's recovery is the next slice. That
-  // state keeps the old sentence and the composer, which is a real path, rather than naming
-  // a control that is not there.
+  // state keeps the composer, which is a real path, rather than naming a control that is not
+  // there.
   // -------------------------------------------------------------------------------------
   {
     "s": "What you have asked for",
@@ -3582,18 +3588,21 @@ module.exports = [
     "why": "The preparing state: the work lease is inside the spawn preparer. Nothing is asked of him.",
   },
   {
-    "s": "Ready for you to approve. Nothing in your repository has been changed yet.",
+    "s": "Waiting for your decision before it can go on.",
     "c": "ACTIONABLE",
     "why":
-      "The work ran to the step that would change his repository and stopped there, because " +
-      "local integration is not on the permission desk's allow-list. The last step is his, " +
-      "and the request is held at the desk until he answers it (§5.2/§5.7), so the row " +
-      "carries Approve and Decline beside this sentence.",
+      "The job ran and stopped at a step the permission desk would have asked him about in a " +
+      "visible turn and could not, because there is no turn — a command, a write outside its " +
+      "workspace. The request is held at the desk until he answers it (§5.2/§5.7), so the row " +
+      "carries Approve and Decline beside this sentence, and the 'Waiting on you:' line names " +
+      "the step in the backend's own words. It says nothing about his repository: since the " +
+      "CEO's ruling §52 a job lands on its own, so it may reach a step like this AFTER landing " +
+      "something, and the old promise that nothing had changed there would be false.",
     "control": ".assignment-approve",
     "fixture": "assignment-waiting",
   },
   {
-    "s": "Ready for you to approve. Ask Rich to continue it when you are ready.",
+    "s": "Waiting for your decision. Ask Rich to continue it when you are ready.",
     "c": "ACTIONABLE",
     "why":
       "The same stop, with no question left on the desk — the queue lives in the running " +
@@ -3633,7 +3642,10 @@ module.exports = [
     "s": "Stopped before it finished. Ask Rich what it needs.",
     "c": "ACTIONABLE",
     "why":
-      "A failed assignment. Its own recorded reason is appended beside this sentence, and " +
+      "A job that did not finish. Its own recorded reason is appended beside this sentence — " +
+      "and since the CEO's ruling §52 that includes a FAILED LAND: the reviewer asked for " +
+      "changes, the land did not go through, or the work landed and the assignment was never " +
+      "closed. The reason is read off the land record the engine wrote, never softened, and " +
       "continuing or abandoning it is a decision he makes through the composer.",
     "control": "#input",
   },

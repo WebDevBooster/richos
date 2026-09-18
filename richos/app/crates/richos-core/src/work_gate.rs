@@ -257,8 +257,17 @@ pub fn workers(view: &WorkerStatusView) -> (Liveness, Option<String>) {
 pub struct BackgroundWork {
     /// Open assignments that are not waiting on a decision of his.
     pub running: usize,
-    /// Assignments stopped at a step only he can approve (spec §7.8). Still open, not
-    /// running, and the thing he can act on.
+    /// Assignments stopped at a step only he can approve. Still open, not running, and the
+    /// thing he can act on.
+    ///
+    /// **What lands here narrowed on 2026-09-18 and the gate did not have to change, which
+    /// is the point of counting it this way.** This number is `open_assignments()` filtered
+    /// by whether a request of that assignment's is on the permission desk
+    /// (`work_host.rs`'s `background_work`), never by a state word. Spec §7.8's case — a job
+    /// held at its land — can no longer occur, because the CEO's ruling §52 grants the land
+    /// outright; what reaches this count now is a request the desk would have put in front of
+    /// him in a visible turn. A job that ran and did NOT land is neither running nor waiting
+    /// on him: it is `failed`, it is not open, and it correctly stops blocking an update.
     pub awaiting_you: usize,
     /// Whether the assignment register could be read at all. `false` is never a zero.
     pub readable: bool,

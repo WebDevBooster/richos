@@ -34,35 +34,67 @@
   // chip is fed by `get_worker_status`, which returns an empty view whenever no turn is open
   // on the thread — and that window is where background work lives.
   //
-  // WORDING IS THE FEATURE, not a detail of it. `blocked` reads "Ready for you to approve",
-  // never "done": the work ran to the step that would change his repository and stopped
-  // there, because that step is not on the list of things a worker may do without asking
-  // (spec §0 row 7, §5.4, §7.8).
+  // WORDING IS THE FEATURE, not a detail of it — and what the words are FOR changed on
+  // 2026-09-18 (CEO ruling §52): *"There's nothing that ever not lands on its own here in the
+  // terminal. Anything including things like design mockups always land before they are
+  // presented to me for review. So, yes, always land on its own."*
   //
-  // CONTRAST, computed rather than eyeballed, both themes:
+  // `blocked` used to read "Ready for you to approve", because the one thing that could stop
+  // a background job was the step that would change his repository — it was not on the
+  // permission desk's list and the job waited there (spec §0 row 7, §5.4, §7.8). A job lands
+  // on its own now, so:
+  //
+  //   * `blocked` means ONE thing: a decision of his is outstanding on some step — a command,
+  //     a write outside the workspace — and Approve and Decline are beside it. It no longer
+  //     claims his repository is untouched, because a job may reach such a step AFTER landing
+  //     something, and that claim would have been false while his branch had already moved.
+  //   * `settled` and `failed` carry the OUTCOME in the sentence the backend appends after
+  //     them (`work_host.rs`'s `what_happened`, read off the land record the engine wrote):
+  //     what landed, on which branch, in which repository, and the reviewer's verdict — or,
+  //     for a job that did not land, why not.
+  //
+  // The §7.8 rule itself is untouched and still the floor: nothing that has not been witnessed
+  // finishing is ever described as finished.
+  //
+  // CONTRAST, computed rather than eyeballed, both themes. Every figure below is WebKit's
+  // own resolved color through `getComputedStyle`, taken by `ui/tests/background-work.js`
+  // on 2026-09-18 — not a stylesheet value and not a recollection:
+  //   heading    `--ink` on `--card`        12.06:1 dark   18.07:1 light   (needs 4.5:1)
   //   title      `--ink` on `--card`        12.06:1 dark   18.07:1 light   (needs 4.5:1)
-  //   detail     `--ink-soft` on `--card`    5.78:1 dark    6.36:1 light   (needs 4.5:1)
-  //   stop control, 16px, same `--ink-soft`  5.78:1 dark    6.36:1 light   (needs 4.5:1)
-  //   approve and decline, 16px, the same    5.78:1 dark    6.36:1 light   (needs 4.5:1)
+  //   detail     `--ink-soft` on `--card`    5.78:1 dark    6.38:1 light   (needs 4.5:1)
+  //   the question, 16px, same `--ink-soft`  5.78:1 dark    6.38:1 light   (needs 4.5:1)
+  //   stop control, 16px, same `--ink-soft`  5.78:1 dark    6.38:1 light   (needs 4.5:1)
+  //   approve and decline, 16px, the same    5.78:1 dark    6.38:1 light   (needs 4.5:1)
+  // All seven at 16px, the floor for text meant to be easily read (`ceo-decisions.md` §15).
   // `--ink-soft` is `rgba(223,228,238,0.64)` over `#182440` and `rgba(12,19,34,0.68)` over
   // `#fdfcf8`; both were composited before the ratio was taken. Nothing here is exempt —
-  // every ratio above is re-measured under WebKit by `ui/tests/background-work.js` in both
-  // themes rather than trusted from this comment.
+  // every ratio above is re-measured under WebKit by that suite in both themes rather than
+  // trusted from this comment. (The light-mode soft figure reads 6.38:1 on this run where an
+  // earlier comment recorded 6.36:1. Nothing in this file's palette, classes or opacity
+  // changed; the measurement is the authority and the comment now carries what it measured.)
   const STATES = {
     registered: "Written down. Nothing has been prepared yet.",
     preparing: "Getting a workspace ready.",
     running: "Running.",
-    // §0 row 7's mandated phrase, with the control behind it at last: the desk holds his
-    // decision while he is away (§5.2/§5.7), so the row carries Approve and Decline and
-    // the sentence stops pointing him at the composer.
-    blocked: "Ready for you to approve. Nothing in your repository has been changed yet.",
+    // A decision of his is outstanding, and the controls that make it are on the same row:
+    // the desk holds his decision while he is away (§5.2/§5.7). The sentence names no
+    // particular step — the "Waiting on you:" line below does that, in the backend's own
+    // words for it — and it claims nothing about his repository (see the block above).
+    blocked: "Waiting for your decision before it can go on.",
     // THE SAME STATE WITH NO QUESTION ON THE DESK, and it is a real case rather than a
     // defensive branch: the queue lives in the running process, so an assignment that
     // stopped at his decision before a relaunch is `blocked` with nothing left to press.
     // Naming a control that is not there would be the failure slice 1's affordance gate
     // caught; the composer is a real path and this sentence names it.
-    blockedNoRequest: "Ready for you to approve. Ask Rich to continue it when you are ready.",
+    blockedNoRequest: "Waiting for your decision. Ask Rich to continue it when you are ready.",
+    // **The bare word, with the OUTCOME appended after it by the backend** (§52). The row
+    // reads "Finished. It landed on cc/echo-1 in project. An independent review passed it
+    // first." — and it still reads honestly on its own when an assignment closed with
+    // nothing to land, which is why the outcome is not welded into this string.
     settled: "Finished.",
+    // **A job that did not land lands HERE, and that is §52's third ending**, not only a
+    // failed registration. The recorded reason follows it: the reviewer asked for changes,
+    // the land did not go through, or nothing ran at all.
     failed: "Stopped before it finished. Ask Rich what it needs.",
     interrupted: "Stopped.",
   };
