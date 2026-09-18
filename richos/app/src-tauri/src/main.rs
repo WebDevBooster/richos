@@ -812,6 +812,23 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
     });
 }
 
+/// **The line [`send_message`] writes when his Send had to wait for the desk** — `None` when
+/// it did not, which is every ordinary send.
+///
+/// A pure function of the measured wait so the rule is a unit test rather than something only
+/// a contended mutex on a real machine can show, exactly as `native::tool_residency_env` and
+/// `native::child_args` are. The caller measures; this decides what, if anything, is true
+/// enough to say.
+fn send_wait_notice(waited: std::time::Duration) -> Option<String> {
+    let millis = waited.as_millis();
+    (millis > 0).then(|| format!(
+        "[richos] his Send waited {millis} ms for the front desk before the turn could start — \
+         that is time on screen as \"Sending your message / Waiting for Rich to accept it\", and \
+         it is his (CEO §55). A brand-new thread's pre-prime holds the same lock, so this is \
+         what is left of it when he types faster than it finishes."
+    ))
+}
+
 /// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
 /// turn runs, the spine streams live events to the webview — `rich://turn-started`, a
 /// sequence of `rich://chunk` deltas, then `rich://turn-completed` (or `rich://turn-error`)
@@ -827,7 +844,33 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
 /// matter how the rest of the plumbing is written.
 #[tauri::command(async)]
 fn send_message(state: State<AppState>, text: String, thread_id: String) -> Result<Vec<Message>, String> {
+    // ===================================================================================
+    // HOW LONG HE WAITED BEFORE HIS TURN EVEN STARTED — and why this line exists
+    // ===================================================================================
+    //
+    // `ready_the_front_desk` holds THIS mutex for the whole of `prime_front_desk`. So a Send
+    // issued while the pre-prime is still running blocks here for the remainder of it, and
+    // the UI honestly shows "Sending your message / Waiting for Rich to accept it"
+    // (`ui/main.js`) the entire time. That wait is his, it is charged against §55's clock,
+    // and until this line NOTHING wrote it down: `app.log` carried the prime's own duration
+    // and never the part of it he paid for.
+    //
+    // **What that cost.** On candidate .10, Ray's first measurement bracketed "On it!" at
+    // 11-12 s on the window while the same turn measured ~6 s in process
+    // (`docs/verification/first-words-2026-09-18-toolsearch.md`, run E). The turn's own
+    // counter read `Working for 7s` at the frame where the words appeared, so about five of
+    // those seconds were spent before the turn started at all — on a brand-new thread, whose
+    // prime had been logged at 4412 ms. With no timestamp at this boundary that had to be
+    // inferred from screenshots, and a different line in the same log was blamed instead.
+    //
+    // **No threshold and no tuning.** An uncontended `Mutex::lock` returns in well under a
+    // millisecond and rounds to 0, so the ordinary send stays silent by arithmetic rather
+    // than by a number somebody picked.
+    let asked_at = std::time::Instant::now();
     let mut spine = state.spine.lock().unwrap();
+    if let Some(line) = send_wait_notice(asked_at.elapsed()) {
+        eprintln!("{line}");
+    }
     // A configured factory connects inside the tracked turn. This covers first launch,
     // a later sign-in and replacement of a session retired by Stop.
     if !spine.has_lease() && !spine.has_lease_factory() {
@@ -4832,6 +4875,39 @@ fn set_thread_archived(state: State<AppState>, thread_id: String, archived: bool
 #[tauri::command(async)]
 fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Result<(), String> {
     state.nav.lock().unwrap().rename_thread(&thread_id, &title).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod send_wait_tests {
+    //! **The boundary that nothing wrote down, and what it cost.** See
+    //! [`super::send_wait_notice`] and the block at the top of [`super::send_message`].
+    //!
+    //! NOT IN A CI GATE, for the reason `lease_gate_tests` below gives: the Tauri shell is a
+    //! deliberately detached workspace. Run it with
+    //! `cargo test --manifest-path app/src-tauri/Cargo.toml`.
+
+    use std::time::Duration;
+
+    #[test]
+    fn an_ordinary_send_says_nothing_and_a_send_that_waited_says_how_long() {
+        // The silent case, and it is silent by ARITHMETIC rather than by a chosen threshold:
+        // an uncontended `Mutex::lock` is sub-microsecond and rounds to 0 ms.
+        assert_eq!(super::send_wait_notice(Duration::ZERO), None);
+        assert_eq!(super::send_wait_notice(Duration::from_micros(999)), None);
+
+        // The case this exists for. 4412 ms is candidate .10's own measured pre-prime, so
+        // the number in the test is the number off the machine and not an invented one.
+        let line = super::send_wait_notice(Duration::from_millis(4412))
+            .expect("a four-second wait is his, and it has to be written down");
+        assert!(line.contains("4412 ms"), "{line}");
+        assert!(line.contains("§55"), "the ruling it is measured against: {line}");
+        // The exact sentence the UI shows him while this is happening, so whoever reads the
+        // log can join it to the screen without guessing (`ui/main.js`).
+        assert!(line.contains("Waiting for Rich to accept it"), "{line}");
+
+        // The smallest wait that is still a wait — the boundary itself, stated.
+        assert!(super::send_wait_notice(Duration::from_millis(1)).is_some());
+    }
 }
 
 #[cfg(test)]
