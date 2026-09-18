@@ -87,6 +87,24 @@
     // Naming a control that is not there would be the failure slice 1's affordance gate
     // caught; the composer is a real path and this sentence names it.
     blockedNoRequest: "Waiting for your decision. Ask Rich to continue it when you are ready.",
+    // **WAITING FOR THE SCREEN — the CEO's ruling §56 (2026-09-18), in his own words.**
+    //
+    // Without this row the state word `waiting-for-screen` falls through to "Its state could
+    // not be read." below, which is why it is here rather than in a follow-up: a new backend
+    // state and this map are one change, and the fallback is what the CEO would have seen.
+    //
+    // **It names no control, and that is the point.** Every other waiting sentence in this map
+    // either points at a control on the same row (`blocked`) or tells him what to ask for
+    // (`blockedNoRequest`). This one asks nothing of him at all: it is waiting on the Mac, it
+    // resolves itself, and the app must never tell him to go and unlock something. So it is
+    // INFORMATIONAL for the affordance gate rather than actionable — there is no control that
+    // could exist for it.
+    //
+    // CONTRAST: it renders in the same `detail` element as every other sentence in this map
+    // (`.overlay-note`, `--ink-soft` on `--card`, 16px) — measured at the top of this file as
+    // 5.78:1 dark and 6.38:1 light against a 4.5:1 floor. No new element, no new color, so the
+    // floor is already cleared by those measurements rather than by a fresh claim.
+    "waiting-for-screen": "Waiting for the screen to unlock — I'll carry on the moment it's back.",
     // **The bare word, with the OUTCOME appended after it by the backend** (§52). The row
     // reads "Finished. It landed on cc/echo-1 in project. An independent review passed it
     // first." — and it still reads honestly on its own when an assignment closed with
@@ -130,7 +148,15 @@
       const waiting = row.awaitingYou || null;
       const key = row.state === "blocked" && !waiting ? "blockedNoRequest" : row.state;
       detail.textContent = STATES[key] || "Its state could not be read.";
-      if (row.detail) detail.textContent += " " + row.detail;
+      // The recorded detail follows the state's sentence, because for every other state it
+      // ADDS something — the outcome that landed, the reason it stopped, the step it is on.
+      //
+      // **`waiting-for-screen` is the one state where it would not.** The record's own detail
+      // ("The screen is locked, so this is waiting for it to unlock. It will carry on by
+      // itself.") is the same fact as the sentence above it in other words, and a surface that
+      // shows only the detail — the status read — needs it to be a whole sentence. So the
+      // record keeps it and this row drops it, rather than telling him the same thing twice.
+      if (row.detail && row.state !== "waiting-for-screen") detail.textContent += " " + row.detail;
       item.append(title, detail);
       if (waiting) {
         // WHAT HE IS BEING ASKED, in the backend's own words for it — one phrase, written

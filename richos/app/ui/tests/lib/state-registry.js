@@ -3612,6 +3612,20 @@ module.exports = [
     "control": "#input",
   },
   {
+    "s": "Waiting for the screen to unlock — I'll carry on the moment it's back.",
+    "c": "INFORMATIONAL",
+    "why":
+      "The CEO's ruling §56 (2026-09-18): a background job that needs the Mac's screen, found " +
+      "on a locked screen, waits for the unlock and carries on by itself. It is the one " +
+      "waiting sentence in the assignment rows that is NOT waiting on him — it is waiting on " +
+      "the Mac — so it correctly names no control and there is no control that could exist " +
+      "for it. Classifying it ACTIONABLE would be a claim that something on his screen " +
+      "resolves it; pointing him at his own lock screen would be the nag §56 was given to " +
+      "avoid. He unlocks his Mac when he unlocks his Mac, and the app says nothing about it " +
+      "and asks nothing of him. The state resolves itself with no press anywhere, which is " +
+      "exactly what INFORMATIONAL is for.",
+  },
+  {
     "s": "a step it cannot take without you",
     "c": "FRAGMENT",
     "why":
