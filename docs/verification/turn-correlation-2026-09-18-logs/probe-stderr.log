@@ -1,0 +1,20 @@
+FIXTURE BEFORE  head=896df5f9588d58b0eeee71eb673e829f7d7ae621
+896df5f the fixture's starting state
+2832ffa Initialize repository
+notes.txt = "hello\n"
+CEO binding: {"entity_id":"qa-test-co","thread_id":"thr_847610a3df80443a837dffcc6b3cc770","session_id":"probe-a02ef154-d5e3-4bac-9b3c-1044eb1f0d99","turn_id":"turn-one","audience":"ceo","revision":1}
+Obligation opened: {"accepted":true,"applied":1,"details_available":true,"duplicate":false,"no_changes":false,"outcomes":[{"detail":"","index":1,"record_id":"qa-notes-line","status":"applied","verb":"commitment"}],"reason":"","rejected":0,"rejections":[],"request_id":"probe-a02ef154-d5e3-4bac-9b3c-1044eb1f0d99:turn-one:open","request_sha256":"5e5cead05e69524b9411df1654df16d3a0f2f742640685d4660f0edeec6eee0a","statements":1,"turn_id":"turn-one"}
+REGISTERED 16109ebe-a4c8-4270-bdf4-1bc0ee4ef13a at t+0
+t+   0.015s  Registered :: Written down. Preparation has not started.
+t+   0.218s  Preparing :: Opening the work connection.
+t+   2.052s  Running :: The back end has started on it.
+[richos] this lease defers its tools, and it was spawned that way on purpose: `native::tool_residency_env` gives it no tool-residency variable at all, so `ToolSearch` in its init inventory is expected and costs nobody a first word. This is NOT the front desk's lease and says nothing about the front desk's.
+t+  49.749s  Running :: A helper is doing the work.
+NOTICE [Settled] Add a line to the notes file and land it is finished. It landed on main in qa-fixture. An independent review passed it first. Everything it produced is with your saved work.
+t+ 192.148s  Settled :: It landed on main in qa-fixture. An independent review passed it first.
+FIXTURE AFTER   head=200376ac07c064877dcb746d9e48122a038091a5
+200376a Append a note line to notes.txt
+896df5f the fixture's starting state
+2832ffa Initialize repository
+notes.txt = "hello\nAdded a line as requested.\n"
+Retained fixture: /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-work-lease-45c5a0bf-78f8-4d4c-bd43-9dc9e00dc981
