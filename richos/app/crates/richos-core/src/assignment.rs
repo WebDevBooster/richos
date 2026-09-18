@@ -617,6 +617,25 @@ pub fn read(state: &Path, entity: &str, thread: &str, id: &str) -> Result<Assign
 
 /// Read, change, write — the one mutation path, so every state change goes through the
 /// schema and scope checks on the way in.
+///
+/// **IT DOES NOT TOUCH `updated_at_ms`, AND THAT IS RAY'S CANDIDATE-.8 ROW 9.** It used to
+/// stamp `now_ms()` on every call, which meant any write bumped it — including
+/// [`take_pending_notices`], whose whole job is to mark a notice delivered and which changes
+/// nothing about the assignment itself. Measured on his walk
+/// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 9): job 1
+/// failed at `10:35:49.190Z`, **6.280 s** after its `10:35:42.910Z` registration; after the
+/// relaunch delivered its notice the record read `10:39:47.649Z`, **244.739 s**. Both figures
+/// re-derived from his timestamps here. He only had the true one because he read the file live.
+///
+/// **The field is consumed as "when did this last MOVE".** `status_tools.rs:138` publishes it
+/// to the front desk's model under the name `last_moved_at_ms`, and `:195` SORTS the list by
+/// it — so a delivery did not merely record a wrong elapsed time, it reordered "what moved most
+/// recently" by the order notices happened to be handed over.
+///
+/// So the stamp moves to [`advance`], which is the only function in this module that writes
+/// `record.state` — verified: `record.state =` appears at exactly one line in this file.
+/// Delivery is already recorded separately and durably, per notice, on
+/// `Notice::delivered_at_ms`; nothing needed adding for it.
 fn update(
     state: &Path,
     entity: &str,
@@ -626,7 +645,6 @@ fn update(
 ) -> Result<Assignment, AssignmentError> {
     let mut record = read(state, entity, thread, id)?;
     change(&mut record);
-    record.updated_at_ms = now_ms();
     write(&folder(state, entity, thread)?.join(format!("{id}.json")), &record)?;
     Ok(record)
 }
@@ -651,6 +669,17 @@ pub fn advance(
     update(state, entity, thread, id, |record| {
         record.state = to;
         record.detail = detail;
+        // **THE ONLY PLACE `updated_at_ms` IS STAMPED** — see [`update`] for Ray's row 9 and
+        // the two numbers. This is the only function in the module that writes `record.state`,
+        // so a time stamped here is a time the assignment actually moved, which is what
+        // `status_tools.rs` publishes it as (`last_moved_at_ms`) and sorts the list by.
+        //
+        // **Stamped on a detail-only `advance` too, deliberately.** A detail is the sentence
+        // the front desk would read him about this job; a job that is still `Running` but is
+        // now waiting on something else HAS moved as far as he is concerned. What must never
+        // touch it is a write that changes nothing he could be told — which is delivery, and
+        // delivery does not come through here.
+        record.updated_at_ms = now_ms();
     })
 }
 
@@ -1043,6 +1072,106 @@ mod tests {
         let path = std::env::temp_dir().join(format!("assignment-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    /// **RAY'S CANDIDATE-.8 ROW 9: the record overwrote when a job failed.**
+    ///
+    /// Measured on his walk
+    /// (`docs/verification/2026-09-18-nightly-1.2.0-20260918.2-onscreen-audit.md` §1 row 9) and
+    /// re-derived from his own timestamps rather than quoted: job 1 registered `10:35:42.910Z`
+    /// and failed `10:35:49.190Z`, which is **6.280 s**. After the relaunch delivered its notice
+    /// the same record read `10:39:47.649Z` — **244.739 s**. Both of his figures reproduce. He
+    /// only had the true one because he read the file while it was live; anyone reading it
+    /// afterwards got the wrong elapsed time.
+    ///
+    /// **And it was worse than a wrong number on a card.** `status_tools.rs:138` publishes this
+    /// field to the front desk's model as `last_moved_at_ms` and `:195` sorts the list by it, so
+    /// delivery order was silently reordering "what moved most recently".
+    ///
+    /// **The positive controls are the two halves that must NOT change.** `advance` must still
+    /// move the time — otherwise this is a field that stopped working rather than a defect that
+    /// went away — and `take_pending_notices` must still actually mark the notice delivered,
+    /// otherwise its write never happened and the negative below is vacuous.
+    #[test]
+    fn delivering_a_notice_never_rewrites_when_the_assignment_last_moved() {
+        let state = root();
+        let receipt = register(&state, &registration()).unwrap();
+        let registered = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(registered.updated_at_ms, registered.registered_at_ms);
+
+        // ---- POSITIVE CONTROL 1: a real move still moves the time ------------------------
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let failed = advance(
+            &state,
+            "depot",
+            "thread-one",
+            &receipt.id,
+            AssignmentState::Failed,
+            "The work connection could not be opened.",
+        )
+        .unwrap();
+        assert!(
+            failed.updated_at_ms > registered.updated_at_ms,
+            "advance stopped recording when the assignment moved"
+        );
+        let moved_at = failed.updated_at_ms;
+
+        // Raising the notice is not a move either — it is the same event being written down.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        raise_notice(
+            &state,
+            "depot",
+            "thread-one",
+            &receipt.id,
+            NoticeKind::Failed,
+            "It stopped before it finished.",
+        )
+        .unwrap();
+        assert_eq!(
+            read(&state, "depot", "thread-one", &receipt.id).unwrap().updated_at_ms,
+            moved_at,
+            "raising a notice rewrote when the assignment moved"
+        );
+
+        // Nor is writing down which back end took it.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        note_start(&state, "depot", "thread-one", &receipt.id, "sess_one", Vec::new()).unwrap();
+        assert_eq!(
+            read(&state, "depot", "thread-one", &receipt.id).unwrap().updated_at_ms,
+            moved_at,
+            "noting the work session rewrote when the assignment moved"
+        );
+
+        // ---- THE DEFECT: delivery, which is what his relaunch did ------------------------
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let delivered = take_pending_notices(&state, "depot", "thread-one").unwrap();
+        assert_eq!(delivered.len(), 1, "nothing was delivered, so the negative below proves nothing");
+        let after = read(&state, "depot", "thread-one", &receipt.id).unwrap();
+
+        // ---- POSITIVE CONTROL 2: the delivery write really happened ----------------------
+        assert!(
+            after.notices[0].delivered_at_ms.is_some(),
+            "delivery was not recorded, so no write went past `update` and the test is vacuous"
+        );
+        assert!(
+            after.notices[0].delivered_at_ms.unwrap() > moved_at,
+            "the delivery time is not even later than the move, so nothing was timed"
+        );
+        // Delivery is recorded, separately and durably, on the notice. It is not recorded on
+        // the assignment, because the assignment did not move.
+        assert_eq!(
+            after.updated_at_ms, moved_at,
+            "delivering a notice rewrote when the assignment moved — Ray's row 9"
+        );
+        assert_eq!(after.state, AssignmentState::Failed);
+
+        // A second delivery has nothing to deliver and still must not touch it.
+        assert!(take_pending_notices(&state, "depot", "thread-one").unwrap().is_empty());
+        assert_eq!(
+            read(&state, "depot", "thread-one", &receipt.id).unwrap().updated_at_ms,
+            moved_at
+        );
+        std::fs::remove_dir_all(state).unwrap();
     }
 
     /// The host's digest of the CEO's exact ledger text, as `prepare_work_turn` computes it.
