@@ -3872,4 +3872,355 @@ module.exports = [
       "attribute or a label, and the prose filter caught it because a two-word string with a " +
       "period in it is the one shape it cannot tell from a fragment of copy.",
   },
+
+  // -------------------------------------------------------------------------------------
+  // THE PHONE CHANNEL (2026-09-18) — `ui/phone.js`, `ui/qr.js` and `src-tauri/src/phone/`.
+  //
+  // THIRTY OF THESE ROWS EXIST BECAUSE THIS GATE CHANGED THE PRODUCT. The pairing command
+  // handed `PhoneError::to_string()` straight to the screen, so thirty internal sentences —
+  // `add-generic-password for tls-leaf-key exited 51` — arrived here as user-visible states.
+  // The honest answer was not to classify them as product copy. It was to stop showing them:
+  // `PhoneError::ceo_sentence` now gives him one sentence he can read, the detail goes to the
+  // log, and the rows below say NOT-RENDERED and mean it.
+  // -------------------------------------------------------------------------------------
+  {
+    "s": "Tap Allow when your phone asks about a configuration profile.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Open Settings on your phone.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Tap VPN & Device Management.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Tap the RichOS profile.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Tap Install, top right.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Enter your passcode.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Tap Install again — this is the screen with the red Unverified on it.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Tap Install in the sheet that slides up.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Go back to Settings.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Tap Certificate Trust Settings — this is the switch some iOS 18.0 and 18.1 phones are missing.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "Turn on the switch beside RichOS, and tap Continue.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "One of the sixteen taps on HIS PHONE (plan §2.1 counted them, because \"'a one-time setup step' is how a plan hides a bad afternoon\"). It is an instruction and therefore not INFORMATIONAL — but the thing he acts on is his phone, not this window, so the control named is the one control in the same view that the whole block is about: the button that issues a fresh code and starts the flow again. `ui/tests/phone.js` check 6 asserts the count is sixteen and that steps 9 and 15 carry the two warnings where they fall."
+  },
+  {
+    "s": "I will make a certificate for your phone, then show you two codes to scan. It takes a few minutes, once, ever.",
+    "c": "ACTIONABLE",
+    "control": "#phone-start",
+    "why": "The off state of the pairing screen — what setting a phone up will involve, before he starts. The button that starts it is directly under the sentence."
+  },
+  {
+    "s": "Nearly there. Ask for a code and point your phone's camera at it.",
+    "c": "ACTIONABLE",
+    "control": "#phone-start",
+    "why": "The channel is up and no code is live — the state he lands in after a code expired. `ui/tests/phone.js` check 8 drives it by starting the window sixty-one seconds in the past."
+  },
+  {
+    "s": "Making a certificate for your phone…",
+    "c": "INFORMATIONAL",
+    "why": "What the Mac is doing while he waits for the first pairing. Nothing to do; both buttons are disabled for the moment it takes."
+  },
+  {
+    "s": "That code has expired. Ask for another one.",
+    "c": "ACTIONABLE",
+    "control": "#phone-refresh",
+    "why": "The countdown reaching zero. The button that issues another is in the same view."
+  },
+  {
+    "s": "This code lasts",
+    "c": "FRAGMENT",
+    "why": "The first half of the countdown sentence — the seconds and the full stop are appended at run time. It never renders on its own."
+  },
+  {
+    "s": "This Mac is answering on",
+    "c": "FRAGMENT",
+    "why": "The first half of the line that names the addresses actually bound; the addresses are appended at run time. It never renders on its own."
+  },
+  {
+    "s": "It can reach you with a notification when Rich has something for you.",
+    "c": "INFORMATIONAL",
+    "why": "The paired phone can be pushed to. Nothing to do — this is the state he wanted, said out loud so its absence is legible."
+  },
+  {
+    "s": "It cannot send you notifications yet. Add Rich to your phone's Home Screen and allow notifications when it asks.",
+    "c": "ACTIONABLE",
+    "control": "#phone-forget",
+    "why": "The one state on this screen he fixes ON THE PHONE rather than here: add Rich to the Home Screen and allow notifications. The sentence says both. The only control this view has for it is the way back out — forgetting the phone and starting again — and naming that rather than a button that does not exist is the honest version."
+  },
+  {
+    "s": "A code for your phone's camera. The address is written out beside it.",
+    "c": "INFORMATIONAL",
+    "why": "The accessible name of a QR canvas, for a reader who cannot see it. It says the address is written out beside the code, which it is."
+  },
+  {
+    "s": "Use Rich from your phone",
+    "c": "CONTROL",
+    "why": "#set-phone-open — the settings-menu row that opens the pairing screen."
+  },
+  {
+    "s": "<div class=\"overlay-panel\"> <h2 id=\"phone-title\" class=\"overlay-title\">Use Rich from your phone</h2> <p class=\"overlay-note\">Your phone talks to this Mac directly, over your own home network. Nothing of what you say goes anywhere else, and there is no account to make.</p> <div id=\"phone-paired\" hidden> <p class=\"overlay-note\"><strong id=\"phone-device-name\"></strong> is paired. Open Rich on it and keep talking.</p> <p class=\"overlay-note\" id=\"phone-push-state\"></p> <p class=\"overlay-note\">Forgetting it here stops this Mac answering it, and deletes the keys. It does <strong>not</strong> remove the certificate from your phone. To remove that too, on your phone open Settings, then General, then VPN and Device Management, then the RichOS profile, then Remove Profile.</p> <div class=\"desk-card-actions\"> <button id=\"phone-forget\" class=\"desk-btn\" type=\"button\">Forget this phone</button> </div> </div> <div id=\"phone-pairing\" hidden> <p class=\"overlay-note phone-warn\"><strong>Two things before you start.</strong></p> <p class=\"overlay-note\">Your phone will call this certificate <strong>Unverified</strong>, in red. That is not a fault and it is not something I can fix. It means nobody vouched for the file except your own Mac — which is the entire point. Making that warning go away would need a certificate from a company Apple already trusts, and Rich is free and open, so there is no such company involved.</p> <p class=\"overlay-note\">Some iPhones running iOS 18.0 and 18.1 never show the switch you need at step 15. That is Apple's own fault rather than mine, and it is fixed in later versions. If you get there and the switch is simply not on the screen, stop and tell me — your phone cannot use this until it is.</p> <h3 class=\"phone-step-title\">1. Point your camera at this, to install the certificate</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-trust\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <p class=\"overlay-note phone-url\" id=\"phone-trust-url\"></p> </div> <ol id=\"phone-steps\" class=\"phone-steps\"></ol> <h3 class=\"phone-step-title\">2. Then point it at this, to open Rich</h3> <div class=\"phone-qr-row\"> <canvas id=\"phone-qr-pair\" class=\"phone-qr\" width=\"1\" height=\"1\" role=\"img\"></canvas> <div> <p class=\"overlay-note phone-url\" id=\"phone-pair-url\"></p> <p class=\"overlay-note\" id=\"phone-countdown\" role=\"status\"></p> </div> </div> <h3 class=\"phone-step-title\">3. Check the six words match</h3> <p class=\"overlay-note\">Your phone will show six words. They have to be these six, in this order. If they are not, something other than this Mac answered — tap Cancel and tell me.</p> <p class=\"phone-words\" id=\"phone-words\"></p> <p class=\"overlay-note\" id=\"phone-bound\"></p> <p class=\"overlay-note\" id=\"phone-message\" role=\"status\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-refresh\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Show me another code</button> </div> </div> <div id=\"phone-off\"> <p class=\"overlay-note\" id=\"phone-off-message\"></p> <div class=\"desk-card-actions\"> <button id=\"phone-start\" class=\"desk-btn desk-btn--confirm\" type=\"button\">Set my phone up</button> </div> </div> <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE. The first version of this sheet had three, one inside each state block, and ui/tests/escape.js refused it on the spot: data-dismiss names ONE control, the document-level Escape handler clicks it, and a button hidden with its block does nothing at all. Two of the three states could not be dismissed from the keyboard. One button that is always on screen is both the simpler markup and the only shape that can satisfy the contract. --> <div class=\"desk-card-actions\"> <button id=\"phone-close\" class=\"desk-btn\" type=\"button\">Close</button> </div> </div>",
+    "c": "FRAGMENT",
+    "why": "Composite HTML for the pairing screen. Its wording and its controls are exercised by `ui/tests/phone.js` — eleven checks including both warnings, their order against the codes, the sixteen steps and the six words — and by two `contrast.js` surfaces. This literal is parsed as markup rather than rendered as one sentence."
+  },
+  {
+    "s": "qr: bytes does not fit in a version 1-6 level-M symbol (106 bytes is the ceiling). Shorten the URL or extend the version table — do not silently truncate.",
+    "c": "NOT-RENDERED",
+    "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
+  },
+  {
+    "s": "qr: interleaved codewords, the symbol holds",
+    "c": "NOT-RENDERED",
+    "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
+  },
+  {
+    "s": "qr: internal error — the payload overran the version chosen for it",
+    "c": "NOT-RENDERED",
+    "why": "A `throw` inside the QR encoder. Two of the three are internal invariants that can only fire on a table typo; the length ceiling is caught by `paint()` and replaced with the message it carries, which is for whoever is reading the log rather than for him — a URL too long to encode is a bug in the Mac's own address, not something he can act on."
+  },
+  {
+    "s": ": re-snapshot {missed}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/listen.rs:429)"
+  },
+  {
+    "s": "AES-128-GCM rejected the content key",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:264)"
+  },
+  {
+    "s": "AES-128-GCM sealing failed",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:271)"
+  },
+  {
+    "s": "HKDF expand refused the requested length",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:213)"
+  },
+  {
+    "s": "HKDF fill failed",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:215)"
+  },
+  {
+    "s": "Rich is working. Your conversation will appear when he finishes.",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/bridge.rs:161)"
+  },
+  {
+    "s": "VAPID signing failed",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:173)"
+  },
+  {
+    "s": "a P-256 JWK's x and y are 32 bytes each, got {} and {}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:595)"
+  },
+  {
+    "s": "a device key must be a 65-byte uncompressed P-256 point or its 91-byte SPKI wrapper, got {} bytes",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:615)"
+  },
+  {
+    "s": "a device key must be an EC P-256 JWK, got kty={kty:?} crv={crv:?}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:578)"
+  },
+  {
+    "s": "a malformed endpoint",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:331)"
+  },
+  {
+    "s": "a path is not valid UTF-8",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:273)"
+  },
+  {
+    "s": "a phone is already paired — forget it first, which also closes the listener",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:301)"
+  },
+  {
+    "s": "a push endpoint has no host",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:190)"
+  },
+  {
+    "s": "a push endpoint must be https",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:187)"
+  },
+  {
+    "s": "a subscription auth secret must be 16 bytes, got {}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:238)"
+  },
+  {
+    "s": "a subscription p256dh must be a 65-byte uncompressed point, got {} bytes",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:232)"
+  },
+  {
+    "s": "add-generic-password for {account} exited {}: {}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/secrets.rs:153)"
+  },
+  {
+    "s": "could not derive the ephemeral public key",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:295)"
+  },
+  {
+    "s": "could not generate a VAPID key",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:118)"
+  },
+  {
+    "s": "could not generate an ephemeral key",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:292)"
+  },
+  {
+    "s": "delete-generic-password for {account} exited {}: {}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/secrets.rs:173)"
+  },
+  {
+    "s": "find-generic-password for {account} exited {code}: {}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/secrets.rs:116)"
+  },
+  {
+    "s": "no {label} block",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:454)"
+  },
+  {
+    "s": "the JWK has no x",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:585)"
+  },
+  {
+    "s": "the JWK has no y",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/device.rs:591)"
+  },
+  {
+    "s": "the content-encoding salt must be 16 bytes",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:243)"
+  },
+  {
+    "s": "the derived nonce was not 12 bytes",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:269)"
+  },
+  {
+    "s": "the stored authority key is not text",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:104)"
+  },
+  {
+    "s": "the stored leaf key is not text",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:127)"
+  },
+  {
+    "s": "the subscription's public key is not a valid P-256 point",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:301)"
+  },
+  {
+    "s": "the system random source refused",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/mod.rs:249)"
+  },
+  {
+    "s": "this Mac has no address the phone could reach, so there is nothing to listen on",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/listen.rs:149)"
+  },
+  {
+    "s": "this Mac has no conversation to add to yet",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/bridge.rs:96)"
+  },
+  {
+    "s": "this Mac has no conversation yet",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/bridge.rs:146)"
+  },
+  {
+    "s": "this Mac publishes no local host name, so there is no address the phone could use",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/names.rs:109)"
+  },
+  {
+    "s": "this feature dials {PUSH_HOST_SUFFIX} and nothing else; refused: {}",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:330)"
+  },
+  {
+    "s": "unterminated {label} block",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/ca.rs:457)"
+  },
+  {
+    "s": "{address} is every interface at once, which this channel never binds — give it the addresses this Mac actually answers on",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/listen.rs:155)"
+  },
+  {
+    "s": "{address} is not an address a server binds",
+    "c": "NOT-RENDERED",
+    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/listen.rs:160)"
+  },
 ];

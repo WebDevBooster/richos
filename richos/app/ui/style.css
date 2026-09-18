@@ -5516,3 +5516,66 @@ body.bp-narrow .tl-user-bubble {
     animation: none;
   }
 }
+
+/* USE RICH FROM YOUR PHONE (`phone.js`, plan §4.1) — LAYOUT ONLY, NO COLORS.
+   Every run of text on that sheet uses `.overlay-title` and `.overlay-note`, which the shipped
+   shell already paints and `tests/contrast.js` already walks. A new color here would be a new
+   thing to prove, and there is nothing on this screen that needs one.
+   The one exception is the QR canvas, and it is not an exception to the floor: it paints its own
+   `#ffffff` quiet zone and `#000000` modules, which is 21:1 — and the white is PAINTED rather
+   than inherited because the quiet zone is part of the symbol. A code drawn flush to a dark page
+   background does not scan, which is a defect that only ever shows up on his phone. */
+/* `.overlay-panel` has no padding of its own — `--compact` is the variant that adds it, and it
+   also narrows the panel to 420px, which is too narrow for sixteen steps and two codes. So the
+   padding is added here instead, and the panel keeps its 620px. Found by LOOKING at the rendered
+   screenshot the suite takes: every line of prose was flush against the panel's left edge, which
+   no contrast check can see and no node count can count. */
+#phone-sheet .overlay-panel {
+  padding: 20px 22px 18px;
+}
+
+.phone-step-title {
+  margin: 20px 0 8px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.phone-warn {
+  margin-top: 16px;
+}
+.phone-qr-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.phone-qr {
+  flex: 0 0 auto;
+  border-radius: 6px;
+  /* The canvas paints white to its own edges, so the rounded corner needs the clip rather than a
+     background of ours behind it. */
+  overflow: hidden;
+}
+.phone-url {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+  margin: 0 0 6px;
+}
+/* The six words are the thing he COMPARES, so they are set larger than the prose around them and
+   spaced so two of them cannot be read as one. `--ink` rather than `--ink-soft`: this is the most
+   closely read text on the screen. */
+.phone-words {
+  margin: 8px 0 16px;
+  font-size: 1.25rem;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.phone-steps {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+.phone-steps li {
+  margin: 0 0 4px;
+}

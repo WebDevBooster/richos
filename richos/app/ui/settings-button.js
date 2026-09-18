@@ -38,6 +38,7 @@ window.RichSettings = (function () {
   var repositories = null; // { open() }
   var account = null; // { open() }
   var memory = null; // { open() } — where his memory is kept (audit-7 row 13)
+  var phonePairing = null; // { open() } — "Use Rich from your phone" (plan §4.1)
   var home = null; // { open() } — the home screen's company buttons: their labels and which show
 
   var wrap = null;
@@ -401,6 +402,15 @@ window.RichSettings = (function () {
       memoryButton.addEventListener("click", function () { close(); memory.open(); });
       menu.appendChild(memoryButton);
     }
+    if (phonePairing) {
+      // BELOW the memory row and ABOVE the version row, which is where a thing he does ONCE
+      // belongs: it is not a preference and it is not chrome, so it sits with the other
+      // one-off arrangements rather than among the switches.
+      var phoneButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-phone-open"});
+      phoneButton.textContent = "Use Rich from your phone";
+      phoneButton.addEventListener("click", function () { close(); phonePairing.open(); });
+      menu.appendChild(phoneButton);
+    }
     if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
     return menu;
@@ -749,6 +759,11 @@ window.RichSettings = (function () {
      *  to be reachable without being asked again. Registering is what makes the row exist, so a
      *  page with no shell behind it carries no door to a sheet that is not there. */
     registerMemory: function (host) { memory = host || null; rebuild(); },
+
+    /** The door to the pairing screen. Registered by `phone.js`, so a page with no shell behind
+     *  it carries no row to a sheet that is not there — the same contract every other capability
+     *  in this file has. */
+    registerPhone: function (host) { phonePairing = host || null; rebuild(); },
 
     registerHome: function (host) {
       home = host || null;

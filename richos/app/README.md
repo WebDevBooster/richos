@@ -600,6 +600,12 @@ richos/app/
     examples/noaudio_live.rs live mute/unmute check on the real device (PASS 2026-08-24)
     tests/watermark_cadence_tests.rs 8 tests that recompute the rotation cadence from the
                               RAW 2026-08-28 capture on every run, both directions
+    tests/phone_intake_tests.rs 10 tests of THE PHONE'S ROAD IN — the `IntakeRecord::Channel`
+                              record and `Spine::poll_intake`, the idle drain the phone-client
+                              plan calls "not a half-day nicety any more; it is the feature".
+                              Every negative test carries its positive control in the SAME
+                              test: the one that matters runs the same fixture with and
+                              without `poll_intake` one call apart
     tests/work_gate_cost.rs   what it costs to ask "is RichOS doing anything" — timed over
                               3,000 worker rows with 1,500 liveness syscalls, because the
                               ruling the gate serves is about not getting in the way
@@ -985,7 +991,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1295 tests + 5 doc-tests (1291 direct, 4 ignored)
+cargo test -p richos-core                       # 1305 tests + 5 doc-tests (1301 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

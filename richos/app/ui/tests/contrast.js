@@ -321,6 +321,40 @@ const SURFACES = [
     },
   },
   {
+    // TWO SURFACES FOR ONE PANEL, because the panel has two states and they share almost no
+    // words. The pairing state carries the sixteen steps, the two warnings and the six words he
+    // COMPARES; the paired state carries the sentence about removing the profile from his phone.
+    // Walking one of them and printing "phone: covered" would leave the other unmeasured.
+    name: "phone-pairing",
+    what: "the pairing screen: the two warnings, the sixteen steps, the countdown and the six words",
+    preset: {phonePairing: true},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-phone-open");
+      // The six words are the last thing the sheet paints, so their presence is the signal that
+      // the whole pairing state is up rather than a guess at a delay.
+      await p.waitForFunction(() => {
+        const words = document.getElementById("phone-words");
+        return words && words.textContent.trim().split(/\s+/).length === 6;
+      });
+      await overlaySettled(p, "#phone-sheet");
+    },
+  },
+  {
+    name: "phone-paired",
+    what: "the same screen once a phone is paired: what it can do, and how to remove the profile",
+    preset: {phonePaired: true},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-phone-open");
+      await p.waitForFunction(() => {
+        const name = document.getElementById("phone-device-name");
+        return name && name.textContent.trim().length > 0;
+      });
+      await overlaySettled(p, "#phone-sheet");
+    },
+  },
+  {
     name: "permission",
     what: "a native action request with its description, input and scoped decision controls",
     preset: {pendingPermission: {id: "contrast-permission", binding: {entity_id: "depot"}, tool: "Write", input: {file_path: "/fictional/example.txt"}, description: "Write the requested example file"}},
@@ -1292,6 +1326,7 @@ async function main() {
     exemptions: [],
     canvas: 0,
     canvasInHome: 0,
+    canvasInPhone: 0,
     svgText: 0,
     /// Which of the shell's DECLARED panels any walk actually put on screen — see check 10c.
     panelsReached: new Map(),
@@ -1625,6 +1660,7 @@ async function main() {
         considered += out.nodesConsidered;
         seen.canvas += out.canvasCount;
         seen.canvasInHome += out.canvasInHome || 0;
+        seen.canvasInPhone += out.canvasInPhone || 0;
         seen.svgText += out.svgTextCount;
         seen.totals.considered += out.nodesConsidered;
         seen.totals.checked += out.nodesChecked;
@@ -2240,6 +2276,11 @@ async function main() {
       "0 unmeasured <canvas> elements across " + Object.keys(perSurface).length + " surface/theme walks. " +
       "The DOM check therefore covers the whole of every surface it reaches — every failure it reports " +
       "is a node with a computed style, and every node with a computed style was reported.\n          " +
+      seen.canvasInPhone + " <canvas> element(s) inside #phone-sheet were EXCLUDED and ARE covered, " +
+      "elsewhere: they are the two pairing QR codes, and `tests/phone.js` measures them FROM THE " +
+      "PIXELS in this same WebKit — only the #000000 modules and the #ffffff quiet zone this shell " +
+      "paints are present, which is 21:1, and the quiet zone is white on all four edges, which is " +
+      "what makes a code scan on a dark page.\n          " +
       seen.canvasInHome + " <canvas> element(s) inside #home were EXCLUDED and are not covered here: the " +
       "home screen is round-11.1/v1 \"Constellation\", a canvas composition the CEO chose, and it is " +
       "measured from the pixels by tests/home.js instead — 16 elements, worst 4.23:1, on the rendered " +
@@ -2300,7 +2341,8 @@ async function main() {
   );
   console.log("  declared exempt          " + seen.exemptions.length);
   console.log("  <canvas> unmeasured      " + seen.canvas + "   in #home (measured by tests/home.js)  " +
-    seen.canvasInHome + "   svg <text> seen  " + seen.svgText);
+    seen.canvasInHome + "   in #phone-sheet (measured by tests/phone.js)  " + seen.canvasInPhone +
+    "   svg <text> seen  " + seen.svgText);
 
   console.log("\n== every distinct failing colour pairing on the shipping shell today ==");
   const all = {};

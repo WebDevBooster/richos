@@ -1,0 +1,284 @@
+//! **THE PHONE'S ROAD IN** — the intake record a channel writes, and the idle drain that
+//! is the whole difference between a message landing and a message appearing to vanish.
+//!
+//! Phone-client plan (`richos-hq/docs/plans/richos-phone-client-2026-09-18.md`) §4.2,
+//! findings (i), (ii) and (vii):
+//!
+//! > `drain_intake()` is called from exactly two places: `after_turn_boundary()` and
+//! > `reconcile_intake()` at boot. **Nothing drains the intake log while the app sits
+//! > idle.** … He is standing in the kitchen watching his phone. **`poll_intake()` is not a
+//! > half-day nicety any more; it is the feature.**
+//!
+//! # Every test here has a positive control
+//!
+//! A negative test that passes for the wrong reason is worse than no test. So each "it does
+//! not happen" below is paired with the same setup in which it DOES happen, and the pair is
+//! asserted in one test rather than in two that can drift apart. The one that matters most
+//! is [`the_idle_drain_is_the_only_thing_that_makes_an_idle_message_land`]: without
+//! `poll_intake` the record sits in the log and the ledger is empty, and with it the turn
+//! runs — same fixture, same record, one call apart.
+//!
+//! Headless throughout: no live Claude, no network, no Tauri, no socket.
+
+use richos_core::cognition::MockLeaseFactory;
+use richos_core::entity::EntityId;
+use richos_core::ledger::{Ledger, Source};
+use richos_core::spine::Spine;
+use richos_core::steering::{IntakeLog, IntakeRecord, SteeringError, TurnControl};
+
+mod support;
+
+fn femcboost() -> EntityId {
+    EntityId::parse("femcboost").unwrap()
+}
+
+fn tmp_path(tag: &str) -> std::path::PathBuf {
+    let p = std::env::temp_dir().join(format!(
+        "richos-phone-intake-{tag}-{}-{}.jsonl",
+        std::process::id(),
+        richos_core::util::now_millis()
+    ));
+    let _ = std::fs::remove_file(&p);
+    p
+}
+
+/// A spine with a durable intake log and a lease factory, on one thread, ready to be
+/// spoken to from somewhere that is not the desktop window.
+fn phone_ready(tag: &str, replies: Vec<&'static str>) -> (Spine, TurnControl, String, std::path::PathBuf) {
+    let ledger_path = tmp_path(&format!("{tag}-ledger"));
+    let intake_path = tmp_path(&format!("{tag}-intake"));
+    let mut spine = support::spine(Ledger::open(&ledger_path).unwrap());
+    let thread = spine.create_thread("the proposal", &femcboost()).unwrap();
+    spine.switch_thread(&thread).unwrap();
+    spine.set_lease_factory(Box::new(MockLeaseFactory::new(replies)));
+    let control = TurnControl::open(&intake_path).unwrap();
+    spine.set_turn_control(control.clone());
+    (spine, control, thread, ledger_path)
+}
+
+/// The turns the CEO can actually see — the internal priming turn has no render path
+/// anywhere, so a test about the conversation filters it out the same way the UI does.
+fn ceo_texts(spine: &Spine, thread: &str) -> Vec<String> {
+    let binding = spine.ledger().thread_binding(thread).unwrap();
+    spine
+        .ledger()
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.source == Source::Text)
+        .map(|t| t.user_text.clone())
+        .collect()
+}
+
+// -------------------------------------------------------------------------------------
+// THE RECORD
+// -------------------------------------------------------------------------------------
+
+#[test]
+fn a_channel_message_is_durable_before_the_caller_is_answered() {
+    // §4.2 (i): "It is on disk and `fsync`ed before anything acts on it." The observable
+    // form of that claim is that the bytes are readable by a SECOND reader opened after
+    // the write returned — not that a flag was set.
+    let path = tmp_path("durable");
+    let control = TurnControl::open(&path).unwrap();
+    let record = control.submit_from_channel("thr_1", Some(femcboost()), "where are we?", "phone").unwrap();
+    let id = record.id();
+
+    let reopened = IntakeLog::open(&path).unwrap();
+    assert!(reopened.health().is_clean(), "{:?}", reopened.skipped_records());
+    let pending = reopened.pending();
+    assert_eq!(pending.len(), 1, "the record was not on disk when the write returned");
+    match &pending[0] {
+        IntakeRecord::Channel { id: got, thread_id, text, channel, .. } => {
+            assert_eq!(*got, id);
+            assert_eq!(thread_id, "thr_1");
+            assert_eq!(text, "where are we?");
+            assert_eq!(channel, "phone");
+        }
+        other => panic!("wrong record type: {other:?}"),
+    }
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_channel_message_does_not_need_a_running_turn_and_steering_still_does() {
+    // THE PAIR. `steer` refuses when nothing is running, and that refusal is correct —
+    // "add this to what Rich is doing" is meaningless when Rich is doing nothing. The
+    // phone has no such fork, which is why it is a second entry point rather than a
+    // relaxed flag on the first.
+    let path = tmp_path("no-turn");
+    let control = TurnControl::open(&path).unwrap();
+
+    assert!(
+        matches!(control.steer("added while working"), Err(SteeringError::NoActiveTurn)),
+        "steering with nothing running must still refuse"
+    );
+    assert!(
+        control.submit_from_channel("thr_1", None, "sent from the couch", "phone").is_ok(),
+        "a phone message with nothing running must be accepted"
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_channel_record_carries_no_steering_turn_id_because_there_is_no_turn_to_attribute_it_to() {
+    // The reason this is a separate variant rather than a `Steer` with a made-up field.
+    // §6.1's "You stopped after {duration}" is an ATTRIBUTION and this file's whole
+    // posture is that an attribution needs evidence; a fabricated turn id is evidence of
+    // nothing. The serialized form is asserted because it is what an older build reads.
+    let record = IntakeRecord::Channel {
+        id: 7,
+        thread_id: "thr_1".into(),
+        entity_id: None,
+        text: "hello".into(),
+        at: 1,
+        channel: "phone".into(),
+    };
+    let json = serde_json::to_value(&record).unwrap();
+    assert_eq!(json.get("record").unwrap().as_str().unwrap(), "channel");
+    assert!(json.get("steering_turn_id").is_none(), "a channel record must not carry a turn id");
+    assert_eq!(json.get("channel").unwrap().as_str().unwrap(), "phone");
+}
+
+#[test]
+fn an_older_build_counts_a_channel_record_rather_than_dropping_it() {
+    // The cost of a new tag, paid where it can be seen. A build that predates `channel`
+    // cannot fold the record — but `IntakeLog::open` classifies it, COUNTS it, salvages
+    // its id so the counter cannot hand the same id out twice, and reports it. The
+    // simulation is a record with a tag no build knows, which is exactly what `channel`
+    // looks like to a build that does not have it.
+    let path = tmp_path("from-future");
+    std::fs::write(
+        &path,
+        "{\"record\":\"channel\",\"id\":1,\"thread_id\":\"t\",\"text\":\"x\",\"at\":1,\"channel\":\"phone\"}\n\
+         {\"record\":\"a_tag_no_build_has\",\"id\":2,\"text\":\"his words\"}\n",
+    )
+    .unwrap();
+    let log = IntakeLog::open(&path).unwrap();
+    let health = log.health();
+    assert_eq!(health.records_read, 2);
+    // THIS build reads the channel record; the unknown one is counted, not dropped.
+    assert_eq!(health.records_applied, 1);
+    assert_eq!(health.skipped, 1, "the unreadable record was not counted");
+    assert!(!health.is_clean());
+    // The id counter cleared the salvaged id, so the next write cannot collide with it.
+    let mut log = log;
+    let next = log.channel_message("t", None, "the next one", "phone").unwrap();
+    assert!(next.id() > 2, "the id counter collided with a record it could not read: {}", next.id());
+    let _ = std::fs::remove_file(path);
+}
+
+// -------------------------------------------------------------------------------------
+// THE IDLE DRAIN
+// -------------------------------------------------------------------------------------
+
+#[test]
+fn the_idle_drain_is_the_only_thing_that_makes_an_idle_message_land() {
+    // §4.2 (ii) and (vii), with its own positive control in the same test. FIRST HALF: the
+    // record is written to an idle app and nothing else is called. It stays in the log and
+    // the ledger stays empty — this is the gap the plan measured, reproduced.
+    let (mut spine, control, thread, ledger_path) = phone_ready("idle", vec!["On it! Here is where we are."]);
+    control.submit_from_channel(&thread, Some(femcboost()), "where are we on the proposal?", "phone").unwrap();
+
+    assert!(!spine.is_turn_in_progress(), "nothing should be running");
+    assert_eq!(ceo_texts(&spine, &thread).len(), 0, "a message reached the ledger with no drain");
+    assert_eq!(control.pending_intake().len(), 1, "the record left the log with no drain");
+
+    // SECOND HALF: the one new entry point, and the same message lands.
+    spine.poll_intake().unwrap();
+
+    assert_eq!(
+        ceo_texts(&spine, &thread),
+        vec!["where are we on the proposal?".to_string()],
+        "poll_intake did not turn the record into a turn"
+    );
+    assert!(control.pending_intake().is_empty(), "the record was not marked drained");
+    assert!(!spine.is_turn_in_progress(), "the turn should have completed inside the call");
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+#[test]
+fn the_idle_drain_is_idempotent_so_a_retried_post_cannot_ask_twice() {
+    // The de-duplication key is the intake id and the proof is `turn_for_intake`. Calling
+    // the drain again must not file the CEO's one message as a second turn — the record's
+    // own doc calls that "the CEO's one message, asked twice".
+    let (mut spine, control, thread, ledger_path) = phone_ready("twice", vec!["first", "second"]);
+    control.submit_from_channel(&thread, Some(femcboost()), "one message", "phone").unwrap();
+    spine.poll_intake().unwrap();
+    spine.poll_intake().unwrap();
+    spine.poll_intake().unwrap();
+    assert_eq!(ceo_texts(&spine, &thread), vec!["one message".to_string()]);
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+#[test]
+fn the_idle_drain_on_an_empty_log_does_nothing_at_all() {
+    // Called after every write, so it is called often and must be free when there is
+    // nothing to do. No turn, no ledger entry, no error.
+    let (mut spine, _control, thread, ledger_path) = phone_ready("empty", vec!["unused"]);
+    spine.poll_intake().unwrap();
+    assert_eq!(ceo_texts(&spine, &thread).len(), 0);
+    assert!(!spine.is_turn_in_progress());
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+#[test]
+fn the_idle_drain_refuses_to_deliver_while_a_turn_is_running() {
+    // Continuity §3.1 is queue-not-interrupt BY CONSTRUCTION, and this is the second lock
+    // on that door. In the shipping app a caller cannot even reach the spine mid-turn —
+    // `submit_prompt` holds the one mutex for the whole turn — so this drives the flag
+    // directly, which is the only way to reach the branch at all.
+    let (mut spine, control, thread, ledger_path) = phone_ready("mid-turn", vec!["not yet"]);
+    control.submit_from_channel(&thread, Some(femcboost()), "sent mid-turn", "phone").unwrap();
+
+    spine.debug_set_turn_in_progress(true);
+    spine.poll_intake().unwrap();
+    assert_eq!(ceo_texts(&spine, &thread).len(), 0, "poll_intake delivered into a running turn");
+    assert_eq!(control.pending_intake().len(), 1, "the record was consumed mid-turn");
+
+    // POSITIVE CONTROL: the identical call, at the boundary, lands it.
+    spine.debug_set_turn_in_progress(false);
+    spine.poll_intake().unwrap();
+    assert_eq!(ceo_texts(&spine, &thread), vec!["sent mid-turn".to_string()]);
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+#[test]
+fn a_phone_message_and_a_desktop_message_are_the_same_kind_of_turn() {
+    // §4.2 (iv): "The back end never learns which mouth the CEO used." So the two turns
+    // must be indistinguishable in the ledger except for their text — same `Source`, same
+    // thread, same shape. A difference here would be a channel leaking into the record.
+    let (mut spine, control, thread, ledger_path) = phone_ready("same", vec!["a", "b"]);
+    spine.submit_prompt("typed at the desk", Source::Text).unwrap();
+    control.submit_from_channel(&thread, Some(femcboost()), "sent from the phone", "phone").unwrap();
+    spine.poll_intake().unwrap();
+
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let turns: Vec<_> = spine
+        .ledger()
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .filter(|t| t.source == Source::Text)
+        .collect();
+    assert_eq!(turns.len(), 2);
+    assert_eq!(turns[0].source, turns[1].source, "the channel changed the turn's source");
+    assert_eq!(turns[0].thread_id, turns[1].thread_id);
+    // Only the phone turn carries an intake id, because only it came through the log.
+    assert_eq!(turns[0].intake_id, None);
+    assert!(turns[1].intake_id.is_some());
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+#[test]
+fn a_message_for_a_thread_that_does_not_exist_stops_the_drain_rather_than_vanishing() {
+    // `drain_intake`'s deliberate trade, inherited rather than re-decided: a record that
+    // cannot become a turn is NOT marked drained and NOT discarded. It blocks everything
+    // behind it and comes back at the next call. For the phone that means an unknown
+    // thread id is an error the CEO's words survive, not a message that disappears.
+    let (mut spine, control, _thread, ledger_path) = phone_ready("bad-thread", vec!["unused"]);
+    control.submit_from_channel("thr_does_not_exist", Some(femcboost()), "his words", "phone").unwrap();
+    assert!(spine.poll_intake().is_err(), "an unknown thread must be an error, not a silent drop");
+    assert_eq!(control.pending_intake().len(), 1, "his words were discarded");
+    let _ = std::fs::remove_file(ledger_path);
+}

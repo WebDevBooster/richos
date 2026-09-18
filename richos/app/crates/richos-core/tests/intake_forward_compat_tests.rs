@@ -109,6 +109,7 @@ fn replaying_a_log_leaves_the_file_exactly_as_it_was() {
 fn tag_of(r: &IntakeRecord) -> &'static str {
     match r {
         IntakeRecord::Steer { .. } => "steer",
+        IntakeRecord::Channel { .. } => "channel",
         IntakeRecord::Stop { .. } => "stop",
         IntakeRecord::Drained { .. } => "drained",
     }
@@ -125,7 +126,15 @@ fn the_known_tag_table_matches_the_record_type_exactly() {
             text: "x".into(),
             at: 1,
         },
-        IntakeRecord::Stop { id: 2, turn_id: "turn".into(), at: 1 },
+        IntakeRecord::Channel {
+            id: 2,
+            thread_id: "t".into(),
+            entity_id: None,
+            text: "x".into(),
+            at: 1,
+            channel: "phone".into(),
+        },
+        IntakeRecord::Stop { id: 3, turn_id: "turn".into(), at: 1 },
         IntakeRecord::Drained { through: 1 },
     ];
     let mut seen: Vec<String> = Vec::new();

@@ -101,6 +101,17 @@ mod setup_view;
 /// pure enough to be tested without a network and is.
 mod voice_provision;
 
+/// **THE PHONE CHANNEL — this app's first inbound network listener** (CEO decision §57; plan
+/// `richos-hq/docs/plans/richos-phone-client-2026-09-18.md`; wire contract
+/// `docs/architecture/phone-channel.md`).
+///
+/// A module rather than more of `main.rs`, and a deliberately wide one: a certificate
+/// authority, a TLS listener, four routes and a push sender is an organ, not a feature flag.
+/// Everything it is allowed to reach is handed to it — it holds no path to the ledger, the raw
+/// event stream or a `Timeline`, which is what makes plan §4.2 (iii) structural rather than a
+/// rule somebody has to remember.
+mod phone;
+
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
 /// the spine (assistant text only), so this layer just relays name + payload verbatim.
@@ -641,6 +652,54 @@ struct AppState {
     /// reimplement. A developer running from the checkout is therefore never asked to install
     /// an engine that is three directories away.
     boot_engine: Option<PathBuf>,
+}
+
+// ================================================================
+// THE PHONE CHANNEL'S THREE COMMANDS (see `src/phone/`)
+// ================================================================
+//
+// Three, and only three, because the channel is a thing he switches ON and OFF rather than a thing
+// he configures: what state is it in, open a pairing window, forget the phone. Everything else the
+// screen needs is in [`phone::PhoneStatus`].
+//
+// **None of them takes the spine lock**, which is the same reason `stop_turn` and `steer_message`
+// do not: `send_message` holds that lock for the whole of a turn, and a settings screen that froze
+// until Rich finished would be a settings screen nobody opens.
+
+/// What the "Use Rich from your phone" screen draws itself from.
+#[tauri::command(async)]
+fn phone_status(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::PhoneStatus {
+    runtime.status()
+}
+
+/// Open a sixty-second pairing window, starting the channel if this is the first time.
+///
+/// On a first call this mints the certificate authority, issues the leaf, mints the VAPID key and
+/// binds the socket — which is why it can fail in ways he needs to read, and why the error is a
+/// sentence rather than a code.
+#[tauri::command(async)]
+fn phone_begin_pairing(
+    app: AppHandle,
+    runtime: State<std::sync::Arc<phone::PhoneRuntime>>,
+) -> Result<phone::PhoneStatus, String> {
+    runtime.begin_pairing(app).map_err(|e| {
+        // THE DETAIL GOES TO THE LOG AND THE SENTENCE GOES TO HIM. `Display` says what failed
+        // and is the right thing for whoever can act on it; `ceo_sentence` is what he reads.
+        eprintln!("[richos] the phone channel could not start: {e}");
+        e.ceo_sentence()
+    })
+}
+
+/// "Forget this phone": the socket, the device record and the Keychain keys, all of it.
+///
+/// The one thing it cannot do is remove the configuration profile from his phone, so the screen
+/// says where that is. A cleanup the user has to know to do is a cleanup that does not happen.
+#[tauri::command(async)]
+fn phone_forget(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<(), String> {
+    runtime.forget().map_err(|e| {
+        eprintln!("[richos] forgetting the phone did not complete: {e}");
+        e.ceo_sentence()
+    })
 }
 
 #[tauri::command(async)]
@@ -1933,7 +1992,25 @@ fn main() {
             // beside the two above, so the four events the shipping UI listens to are
             // untouched; `crates/richos-core/tests/live_event_tests.rs` asserts their
             // payloads are byte-identical with and without this line.
-            spine.set_live_observer(Box::new(events::TauriLiveEmitter { app: app.handle().clone() }));
+            //
+            // TWO SINKS ON ONE STREAM SINCE THE PHONE CHANNEL (`src/phone/`). `set_live_observer`
+            // takes exactly one observer, so the two are fanned out rather than the spine being
+            // reshaped — and the fan-out hands both the SAME `&LiveEvent`, after the SAME gate, so
+            // the phone can never see anything the calm view cannot. The phone's half is INERT
+            // until he pairs a phone: it drops everything it is given while no listener runs,
+            // which is why it can be installed here, once, rather than reaching into the spine
+            // later (plan §2.5 item 1).
+            let (phone_runtime, phone_emitter) = phone::PhoneRuntime::install(data_dir.clone());
+            spine.set_live_observer(Box::new(phone::stream::FanOutLiveEmitter::new(vec![
+                Box::new(events::TauriLiveEmitter { app: app.handle().clone() }),
+                phone_emitter,
+            ])));
+            // A PHONE THAT IS ALREADY PAIRED GETS ITS CHANNEL BACK WITHOUT HIM ASKING. Without
+            // this line a relaunch would take his phone offline until he next opened Settings,
+            // and the only symptom would be a phone saying "waiting to send" while the Mac sat
+            // two rooms away doing nothing. It opens no pairing window.
+            phone_runtime.resume_if_paired(app.handle().clone());
+            app.manage(phone_runtime);
 
             // THE WORKER-LIFECYCLE STREAM (UX §7), 2026-08-29.
             //
@@ -2546,6 +2623,9 @@ fn main() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            phone_status,
+            phone_begin_pairing,
+            phone_forget,
             list_threads,
             active_thread,
             create_thread,

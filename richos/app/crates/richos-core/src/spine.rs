@@ -2587,6 +2587,26 @@ impl Spine {
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                 }
+                IntakeRecord::Channel { id, thread_id, text, .. } => {
+                    // IDENTICAL TO THE `Steer` ARM ABOVE, AND THAT IS THE POINT. From here
+                    // on the spine does not know or care which mouth the CEO used
+                    // (phone-client plan §4.2 iv) — the same de-duplication check, the same
+                    // fresh binding, the same `record_prompt_received_from_intake`, the
+                    // same `Source::Text`. What arrives on the phone is the CEO's own words
+                    // on a thread he already has, so anything else here would be a
+                    // distinction the back end has no business making.
+                    if self.ledger.turn_for_intake(id).is_some() {
+                        self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                        continue;
+                    }
+                    let binding = self.ledger.thread_binding(&thread_id)?;
+                    let turn_id =
+                        self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
+                    self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
+                    self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
+                    self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
+                    self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
+                }
                 IntakeRecord::Stop { id, turn_id, at } => {
                     // Reached only when a stop outlived the process (see
                     // `reconcile_intake`) or named a turn that had already ended. A turn
@@ -2611,6 +2631,51 @@ impl Spine {
             }
         }
         Ok(())
+    }
+
+    /// **THE IDLE DRAIN — the entry point the phone is unusable without** (phone-client
+    /// plan §4.2 ii and vii).
+    ///
+    /// # The gap this closes, measured rather than recalled
+    ///
+    /// Before this function, `drain_intake` was called from exactly two places:
+    /// `after_turn_boundary` and `reconcile_intake` at boot. Both are true today — `:2658`
+    /// and `:2614` in the version this was written against, and the plan cites the same two
+    /// lines. **Neither of them happens while the app sits idle.** So a message written to
+    /// the intake log by a channel that is not the desktop window would sit there until the
+    /// CEO's next desktop turn or the next launch. On the desktop that was invisible,
+    /// because the only writer was the steering composer, which by construction only writes
+    /// while a turn is running and therefore always has a boundary coming. A phone does not:
+    /// *"He is standing in the kitchen watching his phone"*, and silence there looks exactly
+    /// like a broken bridge.
+    ///
+    /// # What it does, and what it deliberately does not
+    ///
+    /// Take the lock, drain, and start the turn if none is running — the plan's own three
+    /// clauses, in that order. It is `reconcile_intake` minus the crash-replay half, which
+    /// is why it is three lines rather than thirty: **no new machinery, one new caller for
+    /// machinery that already exists.**
+    ///
+    /// **It never runs mid-turn**, and that is structural twice over. A caller cannot even
+    /// reach it while a turn is running, because the shell holds the one `Spine` behind a
+    /// mutex that `submit_prompt` keeps for the whole turn. The `turn_in_progress` check
+    /// below is the second lock on the same door: if a future caller ever does hold the
+    /// spine mid-turn, this returns without touching the queue rather than delivering a
+    /// prompt into a running turn. Continuity §3.1 is queue-not-interrupt by construction
+    /// and this does not become the exception.
+    ///
+    /// **It is called after a write, never on a timer.** Plan §6 forbids *"a polling loop
+    /// that wakes the Mac"*, and a drain that runs on a schedule is exactly that. The
+    /// bridge writes the record, `fsync`s it, answers the phone, and then calls this.
+    ///
+    /// Returns what `drain_queue` returns: the turn runs to completion inside this call,
+    /// exactly as it does for a desktop prompt.
+    pub fn poll_intake(&mut self) -> Result<(), SpineError> {
+        if self.turn_in_progress {
+            return Ok(());
+        }
+        self.drain_intake()?;
+        self.drain_queue()
     }
 
     /// Startup reconciliation: apply stop requests that outlived the process.
