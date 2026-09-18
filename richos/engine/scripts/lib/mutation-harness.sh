@@ -108,6 +108,38 @@
 # unbounded fan-out of 37 mutants turns a ten-core laptop into a swap storm.
 # RICHOS_MUTANT_JOBS overrides the derived degree.
 
+# ===========================================================================
+# THE TWO REFUSALS ADDED 2026-09-18, AND THE 105 GB THAT BOUGHT THEM
+# ===========================================================================
+# On 2026-09-17 at 22:39 root-contract.mutation.sh — which kept its own copy of
+# this loop and copied the WHOLE engine root with `cp -R "$SRC_ENGINE" "$M"` —
+# was killed at exit 144. By the next morning its sandbox held 105.3 GB:
+#
+#     mutant-1  13.0 GB
+#     mutant-2  26.2 GB
+#     mutant-3  52.8 GB
+#     mutant-4  13.2 GB
+#
+# 13.0 -> 26.2 -> 52.8 IS THE ARITHMETIC SIGNATURE OF A SELF-COPY. Each mutant
+# came out twice the size of the one before, which is what happens when the
+# copy SOURCE contains the sandbox: mutant-2 copies the engine plus mutant-1,
+# mutant-3 copies the engine plus both, and four mutants of a tree that should
+# be tens of megabytes become a tenth of a terabyte.
+#
+# THE EXACT PATH ARITHMETIC THAT PUT THE SANDBOX INSIDE THE SOURCE WAS NOT
+# REPRODUCED, and that is stated rather than papered over. The deletion log
+# showed a $TMPDIR-shaped path nested inside mutant-3, so something built a
+# destination out of an absolute $TMPDIR — but nothing in the tree does that
+# today and the incident is not reproducible from the current source.
+#
+# SO THE REFUSALS BELOW DO NOT DEPEND ON KNOWING WHICH CONCATENATION IT WAS.
+# They close the whole class from the destination's side, where the invariant is
+# checkable without a theory: a copy whose source contains its destination, or
+# whose source is itself scratch, is refused; and a scratch root that has
+# already grown past a declared ceiling stops the next mutant from starting.
+# A guard that needed the post-mortem to be complete would be a guard that
+# could not be written.
+
 MUT_PASS=0
 MUT_FAIL=0
 MUT_SANDBOX=""
@@ -124,10 +156,183 @@ _mut_engine_root() {
     cd "$here/../.." && pwd
 }
 
+# mut_refuse_recursive_copy <dest> <src> — non-zero, loudly, if this copy is the
+# 105 GB shape. Called before every engine copy in this file and in every
+# harness that keeps its own loop.
+#
+# THREE REFUSALS, and each one is a separate way for the same disaster to arrive:
+#
+#   1. THE DESTINATION IS INSIDE THE SOURCE. This is the exponential case
+#      directly: every subsequent mutant copies its predecessors. It is checked
+#      on RESOLVED paths, because $TMPDIR on macOS is /var/folders/... reached
+#      through a symlink from /private/var/folders/..., and a containment test
+#      on unresolved paths is a test two spellings walk straight through.
+#   2. THE SOURCE IS ITSELF UNDER $TMPDIR. A mutation harness mutates the
+#      SHIPPED engine. A source that is already scratch means something is
+#      mutating a mutant — the nested-harness case — and nesting is what turns
+#      a bounded cost into an unbounded one.
+#   3. THE SOURCE IS THE SCRATCH ROOT, or inside it. Same as 2 but true even
+#      when $TMPDIR has been reassigned, which several suites in this engine do.
+mut_refuse_recursive_copy() { # <dest> <src>
+    local dest="$1" src="$2"
+    local rsrc rdest tmp root
+    # THE DESTINATION USUALLY DOES NOT EXIST YET, so the DEEPEST EXISTING
+    # ANCESTOR is resolved and the remaining components appended.
+    #
+    # The first version resolved only the immediate parent, and its own test
+    # caught the hole: given a destination two levels down (`$SRC/inner/dest`
+    # where `inner` does not exist either), `cd "$(dirname ...)"` failed, the
+    # function took the unresolvable-path branch, and the copy was refused FOR
+    # THE WRONG REASON. It looked like a pass — the call was refused, which is
+    # what the case asserted — while the containment check had never run at all.
+    # A guard that refuses by accident is a guard that stops refusing the day the
+    # accident goes away.
+    rsrc="$( cd "$src" 2>/dev/null && pwd -P )" || rsrc=""
+    if [ -z "$rsrc" ]; then
+        echo "mutation-harness: REFUSING A COPY whose SOURCE cannot be resolved" >&2
+        echo "  (src='$src'). An unresolvable path defeats every containment" >&2
+        echo "  check below, so it is refused rather than guessed at." >&2
+        return 1
+    fi
+    rdest="$(_mut_resolve_future "$dest")"
+    if [ -z "$rdest" ]; then
+        echo "mutation-harness: REFUSING A COPY whose DESTINATION cannot be" >&2
+        echo "  resolved (dest='$dest') — no existing ancestor to resolve from." >&2
+        return 1
+    fi
+
+    case "$rdest" in
+        "$rsrc"/*)
+            {
+                echo "mutation-harness: REFUSING A RECURSIVE COPY."
+                echo "  source:      $rsrc"
+                echo "  destination: $rdest"
+                echo "  The destination is INSIDE the source, so this copy would"
+                echo "  include the sandbox it is building. That is the shape that"
+                echo "  produced 13.0 -> 26.2 -> 52.8 GB across three mutants on"
+                echo "  2026-09-17 and left 105.3 GB behind."
+            } >&2
+            return 1 ;;
+    esac
+
+    tmp="$( cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P )" || tmp=""
+    if [ -n "$tmp" ]; then
+        case "$rsrc" in
+            "$tmp"|"$tmp"/*)
+                {
+                    echo "mutation-harness: REFUSING TO COPY A SOURCE THAT IS SCRATCH."
+                    echo "  source: $rsrc"
+                    echo "  It is under \$TMPDIR ($tmp). A mutation harness mutates"
+                    echo "  the SHIPPED engine; a source that is already a sandbox"
+                    echo "  means a mutant is running mutants, and nesting is what"
+                    echo "  turns a bounded cost into an unbounded one."
+                } >&2
+                return 1 ;;
+        esac
+    fi
+
+    root="$(_mut_scratch_root)"
+    if [ -n "$root" ]; then
+        case "$rsrc" in
+            "$root"|"$root"/*)
+                echo "mutation-harness: REFUSING to copy a source inside the" >&2
+                echo "  scratch root ($root): $rsrc" >&2
+                return 1 ;;
+        esac
+    fi
+    return 0
+}
+
+# _mut_resolve_future <path> — the absolute, symlink-resolved form of a path that
+# does not exist yet.
+#
+# Walks up to the deepest ancestor that DOES exist, resolves that with
+# `cd`+`pwd -P`, and re-appends the components that were trimmed. Symlinks are
+# therefore resolved for the real part of the path and taken literally for the
+# part that is not there — which is the only answer available, and the right one
+# for a containment test: a component that does not exist cannot be a symlink to
+# somewhere else.
+_mut_resolve_future() { # <path>
+    local p="${1:-}" tail="" base real
+    [ -n "$p" ] || return 0
+    case "$p" in
+        /*) : ;;
+        *)  p="$PWD/$p" ;;
+    esac
+    while [ "$p" != "/" ] && [ -n "$p" ] && [ ! -d "$p" ]; do
+        base="$(basename "$p")"
+        tail="${tail:+$base/$tail}"
+        tail="${tail:-$base}"
+        p="$(dirname "$p")"
+    done
+    real="$( cd "$p" 2>/dev/null && pwd -P )" || return 0
+    [ -n "$real" ] || return 0
+    if [ -n "$tail" ]; then
+        printf '%s/%s\n' "${real%/}" "$tail"
+    else
+        printf '%s\n' "$real"
+    fi
+}
+
+_mut_scratch_root() {
+    local base="${TMPDIR:-/tmp}"
+    base="$( cd "$base" 2>/dev/null && pwd -P )" || return 0
+    printf '%s/richos-scratch\n' "$base"
+}
+
+# mut_refuse_oversize_root — non-zero if the scratch root ALREADY holds more
+# than the declared ceiling.
+#
+# THE CEILING IS ON THE ROOT AND NOT ON THE MUTANT, which is the opposite of the
+# obvious design and is the only version that would have helped. A per-mutant
+# check asks "is this copy too big" and the answer on 2026-09-17 was no, four
+# times: 13 GB, then 26, then 52, each one a plausible copy of whatever it was
+# handed. The thing that was insane was the TOTAL. So the question asked here is
+# "has this machine already accumulated more scratch than any legitimate run
+# needs", and a harness refuses to ADD to a root that is already past it.
+#
+# `du -sk` with a one-level depth is cheap here because the root only ever holds
+# allocator directories; it is not the 87,330-entry $TMPDIR itself.
+mut_refuse_oversize_root() {
+    local root ceiling_gb used_kb used_gb
+    root="$(_mut_scratch_root)"
+    [ -n "$root" ] && [ -d "$root" ] || return 0
+    ceiling_gb="${RICHOS_SCRATCH_ROOT_CEILING_GB:-10}"
+    used_kb="$(du -sk "$root" 2>/dev/null | awk 'NR==1{print $1}')"
+    [ -n "$used_kb" ] || return 0
+    used_gb=$(( used_kb / 1048576 ))
+    if [ "$used_gb" -ge "$ceiling_gb" ]; then
+        {
+            echo "mutation-harness: REFUSING TO START A MUTANT."
+            echo "  scratch root: $root"
+            echo "  it already holds ${used_gb} GB, and the declared ceiling is ${ceiling_gb} GB."
+            echo ""
+            echo "  This is a CEILING ON THE ROOT, not on one copy, and that is"
+            echo "  deliberate: on 2026-09-17 no single mutant was implausible"
+            echo "  (13 GB, 26 GB, 52 GB) and the TOTAL was 105.3 GB. Asking"
+            echo "  'is this copy too big' answered no, four times."
+            echo ""
+            echo "  Reclaim it and run again:"
+            echo "      scripts/scratch-sweep.sh --apply"
+            echo "  Nothing a live process owns is deleted by that."
+        } >&2
+        return 1
+    fi
+    return 0
+}
+
 mutation_begin() { # <title> <suite-rel-path>
     MUT_ENGINE_ROOT="$(_mut_engine_root)"
     MUT_SUITE="$2"
-    MUT_SANDBOX="$(cd "$(mktemp -d -t mutation.XXXXXX)" && pwd -P)"
+    # ALLOCATED, NOT NAMED. `mktemp -d -t mutation.XXXXXX` put this sandbox
+    # somewhere only a declared glob could ever find, and on 2026-09-17 the
+    # glob list did not have `root-mutation.*` in it. scratch.sh puts it under
+    # one root with the owning pid in a ledger, so the sweeper finds it whatever
+    # it is called and whether or not this process lives to clean up.
+    # shellcheck source=scratch.sh
+    . "$MUT_ENGINE_ROOT/scripts/lib/scratch.sh"
+    MUT_SANDBOX="$(scratch_new mutation)" || {
+        echo "FATAL: could not allocate a mutation sandbox" >&2; exit 2; }
     command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
     # shellcheck source=stopwatch.sh
     . "$MUT_ENGINE_ROOT/scripts/lib/stopwatch.sh"
@@ -172,6 +377,8 @@ PYEOF
 mutation_copy_engine() { # <dest> <src-engine-root>
     local dir="$1" src="$2"
     [ -d "$src/scripts/hooks" ] && [ -f "$src/orchestration.config" ] || return 1
+    mut_refuse_recursive_copy "$dir" "$src" || return 1
+    mut_refuse_oversize_root || return 1
     mkdir -p "$dir/.claude"
     cp -R "$src/scripts" "$dir/scripts" || return 1
     cp -R "$src/mega-lander" "$dir/mega-lander" || return 1
@@ -207,7 +414,9 @@ _mut_copy_engine() { # <dir>
 # not there.
 mutation_sandbox_engine() { # <src-engine-root>
     local src="$1"
-    MUT_SANDBOX_DIR="$(cd "$(mktemp -d -t mutation-sandbox.XXXXXX)" && pwd -P)" || {
+    # shellcheck source=scratch.sh
+    . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scratch.sh"
+    MUT_SANDBOX_DIR="$(scratch_new mutation-sandbox)" || {
         echo "FATAL: mutation_sandbox_engine: could not create a sandbox directory" >&2; exit 2; }
     MUT_SANDBOX_ENGINE="$MUT_SANDBOX_DIR/engine"
     mkdir -p "$MUT_SANDBOX_ENGINE"

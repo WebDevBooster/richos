@@ -35,7 +35,12 @@ ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PASS=0
 FAIL=0
-SANDBOX="$(cd "$(mktemp -d -t ceo-todos-mutation.XXXXXX)" && pwd -P)"
+# ALLOCATED, NOT NAMED — see scripts/lib/scratch.sh. This harness copies a tree
+# per mutant, which is the class of thing that left 105.3 GB under a name the
+# reaper had never been told about on 2026-09-17.
+# shellcheck source=../lib/scratch.sh
+. "$ENGINE_ROOT/scripts/lib/scratch.sh"
+SANDBOX="$(scratch_new ceo-todos-mutation)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }

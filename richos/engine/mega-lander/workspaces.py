@@ -4591,6 +4591,60 @@ def _print_status(me, entity):
     return 0
 
 
+def sweep_scratch_after_land():
+    """Reclaim the landed agent's scratch, right here, while somebody is looking.
+
+    A LAND IS THE MOMENT THE GARBAGE BECOMES GARBAGE. The agent has finished, its
+    workspace is gone, and every temporary directory its harnesses made is now
+    owned by nothing. Waiting up to six hours for the scheduled sweep means the
+    next agent starts on a disk carrying the last one's leavings — and on
+    2026-09-17 one agent's leavings were 105.3 GB.
+
+    NEVER FATAL, AND NEVER NOISY ON SUCCESS. The land has already happened and
+    printed its result by the time this runs; a sweeper that raised here would
+    turn a completed land into a traceback and leave the operator unsure whether
+    the land took. So every failure is one line on stderr and nothing else, and a
+    sweep that reclaims nothing says nothing at all.
+
+    It calls scripts/scratch-sweep.sh — the app-facing entry point, whose whole
+    contract is "safe to call constantly, safe to call concurrently, one line of
+    JSON" — rather than the reaper directly. That gets the flock for free, so a
+    land that overlaps the launchd job or an app-triggered sweep collapses into
+    one instead of two runs measuring a tree the other is deleting.
+    """
+    sweep = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "scripts", "scratch-sweep.sh")
+    if not os.access(sweep, os.X_OK):
+        return
+    try:
+        r = subprocess.run(["bash", sweep], capture_output=True, text=True,
+                           timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print("scratch sweep after land could not run: %s" % exc, file=sys.stderr)
+        return
+    line = (r.stdout or "").strip().splitlines()
+    if not line:
+        return
+    try:
+        rep = json.loads(line[-1])
+    except ValueError:
+        return
+    # SPEAK ONLY WHEN THERE IS SOMETHING TO SAY. A land already prints a lot, and
+    # a line about zero bytes on every land is the kind of noise that gets the
+    # informative lines skipped too.
+    if rep.get("failures"):
+        print("SCRATCH SWEEP: %d deletion(s) FAILED after this land — %s"
+              % (rep["failures"], rep.get("reason") or ""), file=sys.stderr)
+        print("  The CEO's rule (ceo-decisions §54): if the clean-up fails, it is"
+              " deleted BY HAND. scripts/disk-watchdog.sh --status names the paths.",
+              file=sys.stderr)
+    elif rep.get("freed_bytes"):
+        print("scratch swept: %s reclaimed (%s entr%s)"
+              % (rep.get("freed_human") or rep["freed_bytes"],
+                 rep.get("swept") or 0,
+                 "y" if rep.get("swept") == 1 else "ies"))
+
+
 def main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="workspaces.sh", description="the CEO's workspace spec (%s)" % SPEC)
@@ -4735,6 +4789,7 @@ def main(argv):
         if a.cmd == "land":
             land(a.agent, me, ignored_ok=a.ignored_not_needed)
             print("landed: %s — every workspace and branch deleted (or retrying)" % a.agent)
+            sweep_scratch_after_land()
         elif a.cmd == "discard":
             r = discard(a.agent, a.reason, a.ceo_word, a.not_ceo_ordered, me)
             print("discarded: %s — tips recorded: %s" % (a.agent, json.dumps(r["tips"])))

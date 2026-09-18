@@ -69,6 +69,11 @@
           },
           {
             "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-disk-alert.sh --event SessionStart",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start-scratch.sh",
             "timeout": 15
           },
@@ -384,6 +389,11 @@
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-hook-staleness.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/notice-disk-alert.sh --event Stop",
+            "timeout": 20
           },
           {
             "type": "command",
