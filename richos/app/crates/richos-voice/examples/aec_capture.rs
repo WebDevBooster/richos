@@ -7,6 +7,26 @@
 //!       -- --replay tests/fixtures/echo-path/ceo-rig        # NO AUDIO. Runs anywhere.
 //! ```
 //!
+//! ## Recording a DOUBLE-TALK pair — a human at the desk, never `say` standing in for one
+//!
+//! `--text-file` and `--output-volume` exist for exactly one job: capturing the CEO's own voice
+//! over Rich on the CEO's own rig, once, so the barge-in rule can be chosen from data
+//! (`examples/bargein_score.rs`). The Mac's speakers cannot stand in for the person — anything
+//! played through them takes the same acoustic path as Rich's own echo and is indistinguishable
+//! from it (CEO ruling, 2026-09-18; `TESTING.md`). So the near-end voice in such a pair is a
+//! human speaking into the microphone while this runs, and nothing else.
+//!
+//! ```text
+//!   RICHOS_VOICE_LIVE_AUDIO=1 cargo run -p richos-voice --release --example aec_capture -- \
+//!       --save tests/fixtures/echo-path/ceo-rig-2026-09-18-nearend \
+//!       --text-file /path/to/passage.txt --output-volume 60
+//! ```
+//!
+//! **Synthesis happens BEFORE the microphone opens**, so `PLAYBACK START` is a deterministic
+//! `--lead` milliseconds after `RECORDING START` rather than however long `say` took. That is
+//! what makes "tell him now" a cue that lines up with the recording: both instants are printed
+//! in UTC and both go in the `-session.json` sidecar beside the WAVs.
+//!
 //! ## Why this exists, and it is not a convenience
 //!
 //! `aec_live` is the right instrument for "how does the canceller behave in this room", and it
@@ -40,6 +60,7 @@
 
 use richos_voice::aec::{EchoCanceller, ReferenceRing, AEC_BLOCK, CONFIDENT_LEAK_RMS, FAR_END_ACTIVE_RMS};
 use richos_voice::capture::{self, AudioSource};
+use richos_voice::controller::wall_clock_utc;
 use richos_voice::playout::Playout;
 use richos_voice::tts::{MacSay, SpeechSynth};
 use richos_voice::vad::SAMPLE_RATE;
@@ -77,6 +98,9 @@ fn main() {
     }
     let Some(prefix) = arg("--save") else {
         eprintln!("usage: aec_capture --save <prefix>   (records; needs RICHOS_VOICE_LIVE_AUDIO=1)");
+        eprintln!("          [--text-file <path>]     speak this instead of the built-in phrase");
+        eprintln!("          [--lead <ms>]            silence recorded before playback (default 700)");
+        eprintln!("          [--output-volume <0-100>] recorded in the sidecar, not set by this tool");
         eprintln!("       aec_capture --replay <prefix> (no audio, runs anywhere)");
         std::process::exit(2);
     };
@@ -97,7 +121,17 @@ fn paths(prefix: &Path) -> (PathBuf, PathBuf) {
 }
 
 fn record(prefix: &Path) {
-    println!("=== richos-voice echo-path capture (ONE spoken sentence, then silence) ===");
+    println!("=== richos-voice echo-path capture (ONE spoken passage, then silence) ===");
+    // The text to speak, and the lead-in, resolved BEFORE any device is opened.
+    let text = match arg("--text-file") {
+        Some(p) => std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| panic!("--text-file {p}: {e}"))
+            .trim()
+            .to_string(),
+        None => PHRASE.to_string(),
+    };
+    let lead_ms: u64 = arg("--lead").map(|s| s.parse().expect("--lead wants milliseconds")).unwrap_or(700);
+    let output_volume = arg("--output-volume");
     let ring = Arc::new(ReferenceRing::new(1 << 20));
     let playout = match Playout::start(Some(ring.clone())) {
         Ok(p) => p,
@@ -138,29 +172,47 @@ fn record(prefix: &Path) {
         }
     };
     println!("input  : {} · {} Hz · {} ch", capture.source_label, capture.input_rate, capture.input_channels);
+    // Copied out now because both handles are dropped before the sidecar is written.
+    let (playout_label, playout_rate, playout_channels) =
+        (playout.device_label.clone(), playout.device_rate, playout.channels);
+    let (capture_label, capture_rate, capture_channels) =
+        (capture.source_label.clone(), capture.input_rate, capture.input_channels);
 
-    // A little room tone first, so the replay has a noise floor to report, then the phrase.
-    std::thread::sleep(Duration::from_millis(300));
-    recording.store(true, Ordering::Relaxed);
-    std::thread::sleep(Duration::from_millis(700));
-
+    // **SYNTHESIS FIRST, BEFORE THE RECORDING STARTS.** `say` takes a variable and
+    // non-trivial amount of wall clock for a 25 s passage, so synthesizing after the mic is
+    // recording makes `PLAYBACK START` an unpredictable distance from `RECORDING START` — and
+    // a cue relayed to a human at the desk needs a predictable one.
     let synth = MacSay::new();
     let scratch = std::env::temp_dir().join("richos-aec-capture");
     std::fs::create_dir_all(&scratch).ok();
     println!("voice  : {}", synth.voice_label());
-    match synth.synthesize(PHRASE, playout.device_rate, &scratch) {
+    let speech = match synth.synthesize(&text, playout.device_rate, &scratch) {
         Ok(sp) => {
-            println!("phrase : {:.2} s", sp.duration_secs());
-            playout.queue(&sp.samples);
+            println!("passage: {:.2} s, {} words", sp.duration_secs(), text.split_whitespace().count());
+            sp
         }
         Err(e) => {
             eprintln!("tts failed: {e}");
             std::process::exit(1);
         }
-    }
+    };
+
+    // A little room tone first, so the replay has a noise floor to report, then the passage.
+    std::thread::sleep(Duration::from_millis(300));
+    recording.store(true, Ordering::Relaxed);
+    let rec_start_utc = wall_clock_utc();
+    println!("RECORDING START {rec_start_utc}  (playback in {lead_ms} ms)");
+    std::thread::sleep(Duration::from_millis(lead_ms));
+
+    playout.queue(&speech.samples);
+    let play_start_utc = wall_clock_utc();
+    let play_start_offset_secs = lead_ms as f32 / 1000.0;
+    println!("PLAYBACK START  {play_start_utc}  ({play_start_offset_secs:.3} s into the recording)");
     while playout.is_playing() {
         std::thread::sleep(Duration::from_millis(20));
     }
+    let play_end_utc = wall_clock_utc();
+    println!("PLAYBACK END    {play_end_utc}");
     // Let the room's tail and the reference's zero-fill land in the recording too.
     std::thread::sleep(Duration::from_millis(600));
     recording.store(false, Ordering::Relaxed);
@@ -182,6 +234,58 @@ fn record(prefix: &Path) {
     }
     wav::write_pcm16_mono(&mic_path, mic, SAMPLE_RATE).expect("write mic wav");
     wav::write_pcm16_mono(&ref_path, &reference, SAMPLE_RATE).expect("write reference wav");
+
+    // **THE SIDECAR.** A fixture whose recording conditions are not beside it is a fixture
+    // whose numbers cannot be re-derived. Every field here is read off this run, not typed;
+    // `output_volume` is the one exception and it says so, because this tool deliberately does
+    // not change the machine's volume.
+    let mut side = prefix.as_os_str().to_owned();
+    side.push("-session.json");
+    let side = PathBuf::from(side);
+    let json = format!(
+        concat!(
+            "{{\n",
+            "  \"recorded_utc\": \"{rec}\",\n",
+            "  \"playback_start_utc\": \"{ps}\",\n",
+            "  \"playback_end_utc\": \"{pe}\",\n",
+            "  \"playback_start_offset_secs\": {pso:.3},\n",
+            "  \"playback_duration_secs\": {pd:.3},\n",
+            "  \"recording_duration_secs\": {rd:.3},\n",
+            "  \"lead_ms\": {lead},\n",
+            "  \"output_device\": \"{od}\",\n",
+            "  \"output_rate_hz\": {orate},\n",
+            "  \"output_channels\": {och},\n",
+            "  \"input_device\": \"{id}\",\n",
+            "  \"input_rate_hz\": {irate},\n",
+            "  \"input_channels\": {ich},\n",
+            "  \"tts_voice\": \"{voice}\",\n",
+            "  \"passage_words\": {words},\n",
+            "  \"output_volume_reported_by_operator\": {vol},\n",
+            "  \"sample_rate_hz\": {sr},\n",
+            "  \"note\": \"mic and reference share one index: reference[i] is what went to the speakers for mic[i].\"\n",
+            "}}\n"
+        ),
+        rec = rec_start_utc,
+        ps = play_start_utc,
+        pe = play_end_utc,
+        pso = play_start_offset_secs,
+        pd = speech.duration_secs(),
+        rd = n as f32 / SAMPLE_RATE as f32,
+        lead = lead_ms,
+        od = playout_label,
+        orate = playout_rate,
+        och = playout_channels,
+        id = capture_label,
+        irate = capture_rate,
+        ich = capture_channels,
+        voice = synth.voice_label(),
+        words = text.split_whitespace().count(),
+        vol = output_volume.as_deref().unwrap_or("null"),
+        sr = SAMPLE_RATE,
+    );
+    std::fs::write(&side, json).expect("write session sidecar");
+    println!("sidecar: {}", side.display());
+
     println!(
         "\nwrote {:.2} s to {} and {}",
         n as f32 / SAMPLE_RATE as f32,
