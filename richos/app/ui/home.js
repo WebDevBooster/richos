@@ -716,8 +716,28 @@ window.RichHome = (function () {
     });
     box.appendChild(b);
 
+    // THE WORD IS PART OF THE DOOR, AND UNTIL 2026-09-18 IT WAS A TRAP (audit-7 row 3).
+    //
+    // Ray walked candidate .7 and could not get in: he clicked the word `Enter` four times
+    // across two launches and the screen did not move. It was not a broken handler — there
+    // was no handler. This was a bare `<p>` with `cursor: auto`, under a button, in the one
+    // place on the screen a person looks for a way in. `elementFromPoint` at the middle of
+    // it returns `home-door-cap`, so every one of those four clicks landed exactly where he
+    // aimed and nothing was listening. Reproduced under WebKit before this change: click the
+    // caption -> `RichHome.isOpen()` still true, focus dropped to `<body>`.
+    //
+    // It stays a `<p>` and its typography is untouched, so the owner's ruling (his own words
+    // are in the private record) is exactly as it was: the label, and the word `Enter` under
+    // it in V1's type. What changes is that the word now does what a person reading it
+    // expects. NO SECOND ACCESSIBLE CONTROL: the button above already carries
+    // `aria-keyshortcuts="Enter"`, and announcing a second button for the same door would
+    // describe the screen worse than it describes it now, so this gets no role and no
+    // tab stop — the key already works from anywhere, which is the whole point of the word.
     var cap = elem("p", null, { id: "home-door-cap" });
     cap.textContent = DOOR_CAPTION;
+    cap.addEventListener("click", function () {
+      hide("caption");
+    });
     box.appendChild(cap);
 
     return box;
@@ -731,16 +751,48 @@ window.RichHome = (function () {
   /// keystroke is on a control inside the home screen that already answers it, which is the
   /// case every time the CEO arrives, because `focusHome()` puts focus on the door; or
   /// something else has already handled it.
+  ///
+  /// THE SETTINGS REFUSAL IS SCOPED TO AN OPEN MENU NOW, AND THAT IS AUDIT-7 ROW 3's SECOND
+  /// HALF. `t.closest(".settings")` was reading the wrong fact. The settings CONTROL lives in
+  /// `.settings` and `settings-button.js` deliberately gives focus back to it when the menu
+  /// closes (`close(true)` on Escape), so from the first moment the CEO touches that control —
+  /// which is the only other control on this screen, and therefore the first thing anyone
+  /// touches — the button kept focus and this function refused every Return for the rest of the
+  /// screen's life. Measured under WebKit, before this change:
+  ///
+  ///   click the settings control   -> menu open,  activeElement BODY
+  ///   Escape                       -> menu closed, activeElement set-btn
+  ///   Return                       -> home still up; the settings menu toggled back OPEN
+  ///   Return                       -> home still up; the menu toggled closed
+  ///
+  /// So `Enter` under the door was a promise the screen stopped keeping, silently, after one
+  /// click somewhere else. The menu's own Enter is still its own: while `#set-menu` is on
+  /// screen the keystroke belongs to whatever row has focus. What is gone is the refusal that
+  /// outlived the menu.
   function onHomeKey(e) {
     if (!state.open || !e || e.key !== "Enter") return;
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     var t = e.target;
     if (t && t.closest) {
-      if (t.closest(".settings") || t.closest(".home-prefs")) return;
+      if (t.closest(".home-prefs")) return;
+      if (t.closest(".settings") && settingsMenuUp()) return;
       if (t.closest("#home button, #home a[href], #home input, #home textarea, #home select, #home [tabindex]")) return;
     }
     e.preventDefault();
     hide("enter-key");
+  }
+
+  /// Is the universal settings menu actually ON SCREEN? Asked of the DOM rather than of
+  /// `settings-button.js`, which exposes no "is it open" reader and is loaded after this file.
+  /// A missing menu answers false, which is the safe direction: with no menu there is nothing
+  /// that owns Enter, so the door does.
+  function settingsMenuUp() {
+    try {
+      var m = document.getElementById("set-menu");
+      return !!m && !m.hidden;
+    } catch (e) {
+      return false;
+    }
   }
 
   /// Put the door where the left column ends.

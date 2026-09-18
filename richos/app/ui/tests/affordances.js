@@ -2154,6 +2154,252 @@ async function main() {
     return out.join("; ");
   });
 
+  // -------------------------------------------------------------------------------------
+  // PART 6 — THE OPENING SCREEN HAS NO DEAD CONTROL.  BLOCKING, real DOM, real clicks.
+  //
+  // WHAT IT IS FOR, AND WHY PARTS 1-3 COULD NOT SEE IT. Parts 1-3 ask "does this classified
+  // STATE have a control?". Audit-7 row 3 was the mirror image: a control with no state
+  // behind it. The word `Enter` sat under `Talk to Rich` as a bare `<p>` with no handler, so
+  // Ray clicked it four times across two launches and the front door did not open — eleven
+  // minutes to get into the app, with the only working way in being the button that also
+  // turns the microphone on. Every check in this file was green over it, and so was
+  // `home.js`'s own `Enter`-is-a-promise check, because BOTH drive the screen through
+  // `RichHome.hide()` / `page.keyboard` and neither had ever clicked that word.
+  //
+  // THE RULE, and it is derived from the DOM rather than from a list: on the opening screen,
+  // anything that PRESENTS as a control must ACT as one. Presenting as a control is
+  // `<button>`, `<a href>`, `[role=button]`, or `cursor: pointer` — the four things a person
+  // reads as "this is for pressing", asked of the computed style so a new control is covered
+  // the day it is written with nothing to remember here. Acting as one is: a real
+  // `page.mouse.click` at its middle changes something observable — the screen leaves, or a
+  // panel opens, or the menu opens.
+  //
+  // A control that must NOT answer a press declares itself with `data-inert-control` and a
+  // reason, the same discipline `data-dismiss` uses. There are none today.
+  //
+  // IT ASKS "IS IT WIRED?", NOT "DID THE SCREEN MOVE?", AND THE FIRST DRAFT ASKED THE WRONG
+  // ONE. Clicking three observables (screen left / panel open / menu open) called all seven
+  // company chips dead: a chip changes `aria-pressed` and re-filters the picture, and the one
+  // that is ALREADY selected legitimately changes nothing at all. An observable set is a list,
+  // and this file's own thesis is that a list drifts. So `addEventListener` is wrapped before
+  // the page's scripts run and every element that takes a press handler is recorded — the
+  // question the defect actually poses, asked of the DOM, with no observable to enumerate and
+  // no no-op to misread. Delegation counts: a handler on an ancestor wires its children.
+  // -------------------------------------------------------------------------------------
+  /// THE LOADING LAYER COVERS THE WHOLE COMPOSITION UNTIL THE PICTURE IS UP, and it is
+  /// `z-index: 10` with pointer events until it gets `.gone`. A click aimed at the door in the
+  /// first second lands on `#home-loading` instead, which is a real thing a person can hit and
+  /// is NOT what these checks are about — so they wait for the screen to settle, and say so if
+  /// it never does rather than clicking into a curtain and reporting the result.
+  ///
+  /// `startField()` is driven directly because the picture is normally started from
+  /// `requestIdleCallback`, which a headless run may never deliver; `home.js` exports it for
+  /// exactly this. A machine with no WebGL takes `degrade()` instead, which also stops that
+  /// layer taking the pointer and leaves the way through — both endings settle.
+  async function settleOpeningScreen(page) {
+    await page.evaluate(() => window.RichHome.startField && window.RichHome.startField());
+    await page.waitForFunction(
+      () => {
+        const l = document.querySelector("#home-loading");
+        return !l || l.classList.contains("gone") || getComputedStyle(l).pointerEvents === "none";
+      },
+      { timeout: 20000 }
+    );
+    // The 0.8s opacity transition still has to run out before `elementFromPoint` agrees.
+    await page.waitForTimeout(250);
+  }
+
+  const HANDLER_SPY = () => {
+    const PRESS = ["click", "pointerdown", "mousedown", "pointerup", "mouseup"];
+    const orig = EventTarget.prototype.addEventListener;
+    const wired = new WeakSet();
+    // Delegation counts: a press handler on an ancestor wires everything under it. A
+    // document- or window-level handler does NOT count — `settings-button.js` has one for
+    // "click outside closes the menu", and letting that vouch for every element on the page
+    // would make this check pass over anything.
+    window.__wiredForPress = (node) => {
+      for (let n = node; n; n = n.parentElement) if (wired.has(n)) return true;
+      return false;
+    };
+    EventTarget.prototype.addEventListener = function (type, fn, opts) {
+      if (PRESS.indexOf(type) >= 0 && this instanceof Element) wired.add(this);
+      return orig.call(this, type, fn, opts);
+    };
+  };
+
+  await run.check("PART 6: nothing on the opening screen presents as a control and does nothing", async () => {
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    const pageErrors = [];
+    page.on("pageerror", (e) => pageErrors.push(String(e)));
+    await page.addInitScript(HANDLER_SPY);
+    await page.goto(APP);
+    await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    // The curtain, out of the way — it sits ABOVE this screen and would eat the first click.
+    await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.waitForSelector("#home-switch #home-enter", { state: "visible" });
+    await settleOpeningScreen(page);
+
+    const seen = await page.evaluate(() => {
+      const root = document.getElementById("home");
+      const out = [];
+      for (const n of root.querySelectorAll("*")) {
+        const r = n.getBoundingClientRect();
+        const s = getComputedStyle(n);
+        if (r.width < 1 || r.height < 1) continue;
+        if (s.visibility === "hidden" || s.display === "none" || s.pointerEvents === "none") continue;
+        const native =
+          n.tagName === "BUTTON" ||
+          (n.tagName === "A" && n.hasAttribute("href")) ||
+          n.getAttribute("role") === "button";
+        if (!native && s.cursor !== "pointer") continue;
+        // A part INSIDE a control is the outer one's business (`#home-enter > .dot`).
+        if (n.parentElement && n.parentElement.closest("button, a[href], [role=button]")) continue;
+        out.push({
+          sel: n.id ? "#" + n.id : n.tagName + "." + String(n.className || "").trim().split(/\s+/).join("."),
+          tag: n.tagName,
+          text: (n.textContent || "").trim().slice(0, 34),
+          why: native ? "natively interactive" : "cursor: pointer",
+          inert: n.getAttribute("data-inert-control"),
+          wired: window.__wiredForPress(n),
+        });
+      }
+      return out;
+    });
+    assertEqual(pageErrors, [], "the opening screen threw while it was being read");
+    assert(
+      seen.length >= 3,
+      `the opening screen offered ${seen.length} controls to test — it has at least the door, its caption and the settings rows`
+    );
+    const dead = seen
+      .filter((c) => !c.wired && !c.inert)
+      .map((c) => `${c.sel} (${c.tag}, ${c.why}) ${JSON.stringify(c.text)}`);
+    assertEqual(
+      dead,
+      [],
+      "something on the opening screen presents as a control and has no press handler — this is " +
+        "audit-7 row 3, and it cost the CEO eleven minutes at his own front door:\n            " +
+        dead.join("\n            ")
+    );
+    await page.close();
+    return `${seen.length} presenting-as-a-control element(s) on the opening screen, every one wired: ` +
+      seen.map((c) => c.sel).join(", ");
+  });
+
+  await run.check("PART 6 POSITIVE CONTROL: a dead control IS caught", async () => {
+    // Plant exactly audit-7 row 3 — a word that looks like a control and has no handler —
+    // and watch the same criterion find it. Without this, part 6 is a check that has only
+    // ever been observed passing.
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    await page.addInitScript(HANDLER_SPY);
+    await page.goto(APP);
+    await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    const verdict = await page.evaluate(() => {
+      const box = document.getElementById("home-switch");
+      const dead = document.createElement("p");
+      dead.id = "planted-dead-control";
+      dead.textContent = "Press me";
+      dead.style.cursor = "pointer";
+      dead.style.width = "max-content";
+      box.appendChild(dead);
+      const alive = document.createElement("p");
+      alive.id = "planted-live-control";
+      alive.textContent = "Press me too";
+      alive.style.cursor = "pointer";
+      alive.style.width = "max-content";
+      alive.addEventListener("click", () => {});
+      box.appendChild(alive);
+      const r = dead.getBoundingClientRect();
+      return {
+        deadWired: window.__wiredForPress(dead),
+        aliveWired: window.__wiredForPress(alive),
+        deadHasBox: r.width > 0 && r.height > 0,
+        deadCursor: getComputedStyle(dead).cursor,
+      };
+    });
+    assert(verdict.deadHasBox, "the planted control did not get a box, so nothing was tested");
+    assertEqual(verdict.deadCursor, "pointer", "the sweep's own criterion would not have picked the planted control up");
+    assertEqual(verdict.deadWired, false, "the spy reported a handler on a paragraph that has none");
+    assertEqual(verdict.aliveWired, true, "the spy missed a handler that IS there — it would pass everything");
+    await page.close();
+    return "a `cursor: pointer` paragraph reads as unwired; the same paragraph with one listener reads as wired";
+  });
+
+  await run.check("PART 6: the word `Enter` under the door both answers a click and keeps its promise", async () => {
+    // Row 3 in full, with real input rather than through `RichHome.hide()`: the caption is a
+    // `<p>`, so a native-button check could never have covered it, and every existing check
+    // on this screen drove it through the API. Two launches of the app answered neither the
+    // click nor — once the settings control had held focus — the key.
+    const page = await browser.newPage({ viewport: { width: 1024, height: 700 } });
+    const pageErrors = [];
+    page.on("pageerror", (e) => pageErrors.push(String(e)));
+    await page.goto(APP);
+    await page.waitForFunction("typeof window.RichHome === 'object'", { timeout: 10000 });
+    await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForSelector("#home-door-cap", { state: "visible" });
+    await settleOpeningScreen(page);
+
+    const capBox = await page.evaluate(() => {
+      const r = document.getElementById("home-door-cap").getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    // The click has to land on the caption itself and not on something painted over it.
+    const onTop = await page.evaluate(
+      (p) => {
+        const el = document.elementFromPoint(p.x, p.y);
+        return el ? el.id || el.tagName : null;
+      },
+      capBox
+    );
+    assertEqual(onTop, "home-door-cap", "something is painted over the word `Enter`, so this check is not testing it");
+    await page.mouse.click(capBox.x, capBox.y);
+    await page.waitForFunction(() => document.getElementById("home").hidden, { timeout: 4000 });
+    const capWhy = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+
+    // ...and the KEY still works after the settings control has held focus, which is where it
+    // stopped working. `settings-button.js` gives focus back to `#set-btn` when the menu
+    // closes, and the old refusal keyed on `.settings` containing the focused element, so one
+    // click on the only other control on the screen killed the key for the rest of the launch.
+    await page.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.click("#set-btn");
+    await page.waitForFunction(() => !document.getElementById("set-menu").hidden);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.getElementById("set-menu").hidden);
+    const focus = await page.evaluate(() => (document.activeElement && document.activeElement.id) || null);
+    assertEqual(focus, "set-btn", "the settings control no longer keeps focus after Escape, so this is testing nothing");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.getElementById("home").hidden, { timeout: 4000 });
+    const keyWhy = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+    assertEqual(keyWhy, "enter-key", "Return did not enter while the settings control held focus");
+
+    // AND THE MENU'S OWN Enter IS STILL THE MENU'S. Open it, put focus on a row, press Return:
+    // the screen must stay, because that keystroke belongs to the row.
+    await page.evaluate(() => window.RichHome.show("acceptance-suite"));
+    await page.waitForFunction(() => !document.getElementById("home").hidden);
+    await page.click("#set-btn");
+    await page.waitForFunction(() => !document.getElementById("set-menu").hidden);
+    await page.evaluate(() => document.getElementById("font-up").focus());
+    const leaveBefore = await page.evaluate(() => window.RichHome.state.lastLeaveReason);
+    await page.keyboard.press("Enter");
+    const after = await page.evaluate(() => ({
+      open: window.RichHome.isOpen(),
+      reason: window.RichHome.state.lastLeaveReason,
+    }));
+    assertEqual(
+      after.reason,
+      leaveBefore,
+      `Return on a row of the OPEN settings menu recorded a leave ("${after.reason}") — the screen went`
+    );
+    assert(after.open, "Return inside the open settings menu walked out of the opening screen");
+
+    assertEqual(pageErrors, [], "the opening screen threw during the walk");
+    await page.close();
+    return `a click on the word leaves ("${capWhy}"); Return leaves ("${keyWhy}") with #set-btn focused; Return inside the open menu does not`;
+  });
+
   await run.check("POSITIVE CONTROL: an unclassified new state IS flagged", async () => {
     // The drift comparator, run against a corpus with one extra string, so the part-1 check
     // is proven able to fail rather than merely observed passing.
