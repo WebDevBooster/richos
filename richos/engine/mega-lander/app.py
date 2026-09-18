@@ -131,6 +131,49 @@ def repositories(scope):
     return paths
 
 
+def carried_obligation(scope):
+    """The obligation THIS LEASE IS CARRYING, read off its own scope.
+
+    The app writes it there and the model never types it. A background lease is
+    bound to exactly one assignment before its first turn: the host calls
+    `bind_work_seat`, which binds a seat whose `audience` is "worker" and whose
+    `turn_id` IS the obligation -- "not a turn, and not the app's own assignment
+    id: the engine's seat reconciler maps a seat back to its assignment by
+    reading exactly this field off the row" (`app/crates/richos-core/src/ecs.rs`,
+    `bind_work_seat`). That binding is then written into the scope file this
+    module reads. So the fact has been sitting in `scope["binding"]["turn_id"]`
+    all along; nothing needed to be added to carry it, only read.
+
+    WHY THIS EXISTS. On 2026-09-18 the whole background-work flow ran for real
+    for the first time and stopped here. The work lease's brief names the
+    repositories and the title and no identifier at all, deliberately (spec
+    ss1.2: users describe the job, ids are the host's). `prepare` required an
+    `obligation_id`, so the model supplied the only thing it could -- a guess.
+    It called `inspect` first, still guessed "obl-add-notes-line" where the real
+    obligation was "qa-notes-line", and this module refused it in 8 ms with
+    "item is absent or outside the active scope". No receipt was written, no
+    worker ran, and the fixture repository never gained its commit.
+
+    Naming the obligation in the brief instead would have been the wrong fix:
+    it puts an identifier in front of a model, which is the thing that invites
+    an invented one. A scope the model cannot see and cannot alter cannot be
+    guessed wrong.
+
+    `None` for a conversation scope, where `turn_id` really is a turn and an
+    obligation must still be named by the caller.
+    """
+    binding = scope.get("binding")
+    if not isinstance(binding, dict) or binding.get("audience") != "worker":
+        return None
+    seat = scope.get("seat")
+    if not isinstance(seat, str) or not seat.strip():
+        return None
+    carried = binding.get("turn_id")
+    if not isinstance(carried, str) or not carried.strip() or len(carried) > 1024:
+        return None
+    return carried
+
+
 def run(command, *, body=None, cwd=None):
     result = subprocess.run(command, input=body, text=True, capture_output=True, cwd=cwd, timeout=120)
     if result.returncode: raise ValueError((result.stderr or result.stdout or "engine operation refused")[-12000:])
@@ -266,7 +309,13 @@ def prepare(scope_path, scope, args):
     if set(args) - {"request_id","obligation_id","repo","repos","title","brief","role","integration","base","review_of","continue_of"}:
         raise ValueError("unsupported preparation fields")
     request_id = text(args,"request_id",128)
-    obligation = text(args,"obligation_id")
+    # **THE SCOPE WINS, AND IT WINS SILENTLY** -- see `carried_obligation`. A work
+    # lease carries exactly one assignment, so an `obligation_id` in the call is at
+    # best a correct copy of a fact this module already holds and at worst the guess
+    # that broke the first real run. It is accepted by the schema (a model that
+    # names one is not refused for it) and it is not consulted. A conversation scope
+    # carries none, and there the argument is still required.
+    obligation = carried_obligation(scope) or text(args,"obligation_id")
     item = ecs(scope, {"protocol":1,"command":"inspect","binding":scope["binding"],"query":{"item_id":obligation}})["item"]
     if item["status"] not in ("accepted","active","pending","blocked"):
         raise ValueError("dispatch requires an accepted open obligation")
@@ -1064,9 +1113,15 @@ def verify_completion(scope, identity):
 
 
 def complete(scope_path, scope, args):
-    if set(args) != {"obligation_id", "worker_ids"}:
+    # **THE SAME DERIVATION `prepare` MAKES, AND IT IS NOT A SECOND FEATURE.** This
+    # is the call that CLOSES the assignment, so a guessed obligation here means a
+    # job that did all its work and never finished: the host's settle reading finds
+    # the obligation still open and reports a failure over work that actually
+    # landed. Fixing only `prepare` would have moved the defect one step later and
+    # made it harder to see.
+    if set(args) - {"obligation_id", "worker_ids"} or "worker_ids" not in args:
         raise ValueError("completion requires an obligation and its complete final worker set")
-    obligation = text(args, "obligation_id")
+    obligation = carried_obligation(scope) or text(args, "obligation_id")
     ids = args["worker_ids"]
     if not isinstance(ids, list) or not 1 <= len(ids) <= 50 or any(not isinstance(i, str) or not re.fullmatch(r"[a-f0-9]{64}", i) for i in ids) or len(set(ids)) != len(ids):
         raise ValueError("worker_ids must contain one to fifty distinct work receipt identities")
@@ -1122,9 +1177,9 @@ def call(scope_path, name, args):
 
 
 TOOLS = [
-    {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["obligation_id","worker_ids"],"additionalProperties":False}},
+    {"name":"complete","description":"Close a code assignment in ECS only after every requirement is satisfied and every final worker has a passing independent review, verified local integration and completed cleanup. Your connection already knows which assignment you are carrying, so leave obligation_id out; never invent one. Supply all final worker receipts, across every repository. Unresolved execution or omitted work is refused. Do not use this to claim unrelated or unverified business outcomes. Local completion never means publication.","inputSchema":{"type":"object","properties":{"obligation_id":{"type":"string"},"worker_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":50}},"required":["worker_ids"],"additionalProperties":False}},
     {"name":"repositories","description":"List repositories explicitly connected to this company. A company folder alone grants no execution access.","inputSchema":{"type":"object","properties":{},"additionalProperties":False}},
-    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for an existing ECS obligation. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","obligation_id","repo","title","brief"],"additionalProperties":False}},
+    {"name":"prepare","description":"Prepare an isolated generic worker or reviewer for the assignment this connection is carrying. Your connection already knows which assignment that is, so leave obligation_id out; never invent one. Persists intent before workspace creation. Returns agent_payload only while no dispatch has been attempted. Submit that exact JSON to Agent once. Preparation is not dispatch or completion. Reuse request_id for retries; uncertain work must be inspected first. To continue settled work, set continue_of to its worker receipt: the new worker starts at its actual saved commit. Dirty work is preserved and refused until its uncommitted files are reconciled. Never reset or discard those files to bypass the refusal. If this same worker also needs a workspace in other connected repositories, name them in repos; each gets its own isolated workspace, all under the one worker.","inputSchema":{"type":"object","properties":{**{key:{"type":"string"} for key in ("request_id","obligation_id","repo","title","brief","role","integration","base","review_of","continue_of")},"repos":{"type":"array","items":{"type":"string"},"maxItems":8}},"required":["request_id","repo","title","brief"],"additionalProperties":False}},
     {"name":"integrate","description":"After an authorized implementation and an actual passing independent review, fast-forward the recorded clean integration branch to the exact reviewed commit and clean up through Mega Lander. No push, rebase or conflict resolution. Dirty or moved targets are preserved and refused. This verifies one work result; it does not close the entire obligation.","inputSchema":{"type":"object","properties":{"worker_id":{"type":"string"},"reviewer_id":{"type":"string"}},"required":["worker_id","reviewer_id"],"additionalProperties":False}},
     {"name":"inspect","description":"Reconcile scoped dispatch receipts against actual provider and workspace observations. A run ending is not task completion. Inspect unresolved work before retrying after a restart.","inputSchema":{"type":"object","properties":{"offset":{"type":"integer"},"limit":{"type":"integer"}},"additionalProperties":False}},
 ]
