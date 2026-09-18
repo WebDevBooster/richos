@@ -202,6 +202,10 @@ than with an inventory of tools.
      which is the wrong end of the turn for §55's criterion.
    - **n=1 would be weak evidence for a stochastic property.** One lucky turn is not proof the
      model registers first.
+   **And the vehicle for it is itself blocked.** While this slice was being written, main took
+   `7729032e` — Ray's candidate-.8 walk could not start because the Mac's screen is locked. That
+   walk is where a repeated send → "On it!" measurement would come from, so §55's acceptance is
+   outstanding for two independent reasons, not one.
 2. **The doctrine steers; it does not enforce.** `tests/doctrine_sentinel.rs`'s own doc says so in
    as many words: *"What it does NOT prove: that the model will FOLLOW the shipping doctrine's
    judgment clauses … a preference, not an enforcement."* §55's acceptance is therefore a
@@ -223,6 +227,34 @@ than with an inventory of tools.
    workspace ready."*, `running` → *"Running."* The per-row sentences were already honest; the
    backend was writing the wrong state under them. `ui/timeline.js`'s `running` is worker and
    activity state, a different state machine, and is unaffected.
+
+## 7a. A pre-existing flaky test, established as NOT mine
+
+`work_host::tests::registering_returns_before_the_work_starts_and_the_work_still_runs` failed once
+during a full run and passed on the next. It was investigated rather than re-run.
+
+`work_host.rs:2032` is a wall-clock bound: `assert!(took < Duration::from_millis(100))`. Its own
+doc says *"the number is the assertion"* — it exists to catch a build that started preparing on the
+caller's thread, which would miss by an order of magnitude.
+
+Evidence it is load, not this branch:
+
+| Check | Result |
+|---|---|
+| the same test alone, 10 consecutive runs | **10/10 ok** |
+| registration cost at `ee59193a` (20 runs) | median **9.502 ms**, mean **10.402 ms** |
+| registration cost after every change here | median **8.816 ms**, mean **9.579 ms** — **faster** |
+
+It could only get faster: `Receipt::sentence` went from a `format!` over a title to a 6-byte
+literal, and the one addition to the path is a `trim_end_matches`. A 100 ms bound against a ~9 ms
+median is ~11x of headroom, so a failure means the machine stalled for >90 ms — and the machine was
+at that moment spawning app binaries in a loop for another agent's reaper test (see §8).
+
+**The bound was deliberately NOT widened.** Loosening a real guard to hide a load artifact would
+trade a flake for a blind spot, and this guard protects §0 row 2 — the thing his whole ask rests
+on. Recorded for Tom and Ray instead: under heavy parallel load this assertion can trip, and the
+way to tell a real regression from the artifact is the order of magnitude (a regression misses by
+10x, not by 10%).
 
 ## 8. Verification
 
