@@ -446,6 +446,14 @@ struct AppState {
     /// like the decision itself.
     can_come_back: bool,
     provider_auth: Mutex<richos_core::provider_auth::ProviderAuth>,
+    /// **The thread whose front desk this launch has already asked to be made ready** — the
+    /// CEO's §55, and the one-shot that keeps it to one attempt per thread opened.
+    ///
+    /// The timeline read that opens a thread is also polled, so without this a poll would spawn
+    /// a thread per call to ask a question whose answer is already `AlreadyReady`. It holds the
+    /// thread id rather than a bool because he has more than one conversation and each has its
+    /// own desk (`spine.rs`'s residency).
+    front_desk_primed_for: Mutex<Option<String>>,
     spine: Mutex<Spine>,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
@@ -685,8 +693,64 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 ///
 /// Fails closed on an unbound thread, exactly like `get_messages`.
 #[tauri::command(async)]
-fn get_timeline(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    timeline_payload(&state.spine.lock().unwrap(), &thread_id)
+fn get_timeline(app: AppHandle, state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
+    let payload = timeline_payload(&state.spine.lock().unwrap(), &thread_id);
+    // **HIS FRONT DESK IS MADE READY HERE, AFTER THE SNAPSHOT AND NEVER BEFORE IT** — the CEO's
+    // §55. See [`ready_the_front_desk`] for why this command is the hook.
+    ready_the_front_desk(&app, &thread_id);
+    payload
+}
+
+/// **Make this thread's front desk ready BEFORE he types, on a thread of its own** — the CEO's
+/// ruling §55, 2026-09-18: *"35 seconds of waiting for the first response is not [fine]"*.
+///
+/// # Why the timeline read is the hook, and not `setup`
+///
+/// The seconds this removes are a MODEL TURN, not a process start
+/// (`Spine::prime_front_desk`'s own documentation has the derivation), so the priming holds the
+/// spine's lock for as long as that turn takes — ~8 s, measured. Doing it inside `setup` would put
+/// those seconds in front of FIRST PAINT, because the page's own first reads (`list_threads`,
+/// `active_context`, this command) take the same lock. `get_timeline` is the read that opens a
+/// thread — `ui/main.js`'s `openThread` is `switch_thread` + `active_context` + `get_timeline` —
+/// so by the time this line runs the window is painted, he is looking at the conversation he is
+/// about to type into, and the snapshot he is looking at has already been handed over.
+///
+/// **The lock being held for ~8 s is an existing, tolerated condition, not a new one.**
+/// `send_message` takes the same lock and holds it for the WHOLE of a turn (`:707`, still held at
+/// the end of the function), which is longer than this. And a message he sends during priming is
+/// never slower than it is today: it waits for exactly the priming his own message used to
+/// perform, and then runs on a desk that is ready.
+///
+/// **One attempt per thread opened.** The verdict is reported on stderr and nowhere else: this is
+/// an optimization of WHEN the waiting happens, so a failure is not his business, and a UI that
+/// said anything about it would be telling him about the machinery §55 exists to hide.
+fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
+    {
+        let Some(state) = app.try_state::<AppState>() else { return };
+        let mut asked = state.front_desk_primed_for.lock().unwrap();
+        if asked.as_deref() == Some(thread_id) {
+            return;
+        }
+        *asked = Some(thread_id.to_string());
+    }
+    let app = app.clone();
+    let thread_id = thread_id.to_string();
+    std::thread::spawn(move || {
+        let Some(state) = app.try_state::<AppState>() else { return };
+        let verdict = state.spine.lock().unwrap().prime_front_desk(&thread_id);
+        match verdict {
+            richos_core::spine::FrontDeskReady::Ready { millis, spawned } => eprintln!(
+                "[richos] the front desk is ready before he types: {millis} ms{} — that is what his \
+                 first message used to wait through (CEO §55)",
+                if spawned { ", including the lease's own start" } else { "" }
+            ),
+            richos_core::spine::FrontDeskReady::AlreadyReady => {}
+            // Both of these are ordinary and neither is a failure of anything: a turn may be in
+            // flight when he switches threads, and a thread with no entity home fails closed
+            // everywhere else too. His first message primes as it always did.
+            other => eprintln!("[richos] the front desk was not made ready before he types: {other:?}"),
+        }
+    });
 }
 
 /// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
@@ -2374,6 +2438,7 @@ fn main() {
                 // answers waiting to disagree.
                 can_come_back: activation.presentation == activation::Presentation::Regular,
                 provider_auth: Mutex::new(Default::default()),
+                front_desk_primed_for: Mutex::new(None),
                 spine: Mutex::new(spine),
                 config: Mutex::new(config),
                 machinery_root,
