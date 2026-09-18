@@ -349,4 +349,58 @@ mutant M34.garbage-alarm-ignores-threshold "S22j" "$LIB" \
      cries-wolf failure: an alarm that always speaks is one somebody switches
      off, and then the mechanism is back to silence with extra steps."
 
+# ===========================================================================
+# D11 — a name-derived pid is attribution, not liveness
+# ===========================================================================
+
+mutant M35.name-pid-trusted-as-liveness "S23 " "$LIB" \
+    "        if from_ledger:{NL}            return True, \"\"" \
+    "        if True:{NL}            return True, \"\"" \
+    "A pid taken off a DIRECTORY NAME skips the two name-shape tests, so
+     \`1-frank-immortal-b\` is immortal again: pid 1 belongs to root and started
+     before every directory on the machine, and the KEEP is silent by
+     construction because a KEEP is the reaper working as designed."
+
+mutant M36.pid-reuse-not-detected "S23c" "$LIB" \
+    "        if born is not None and start is not None and start > born + 1:" \
+    "        if False:" \
+    "A process that started AFTER the directory was created is accepted as its
+     owner, which is precisely what pid reuse looks like. macOS recycles pids at
+     99998, so this is the ordinary way a week-old name comes to match a live
+     process."
+
+# M37 IS THE MUTANT THAT FOUND A DEFECT INSTEAD OF PROVING A PROPERTY, and the
+# note is worth more than the mutant. Written against the original shape — where
+# `if from_ledger:` returned pid_alive() and skipped EVERY test — it reported "the
+# suite still PASSED without this property", which sent me back to the code with a
+# better question than the one I had asked.
+#
+# What I found there was `scan_scratch_root`'s own comment claiming that TTL "lets
+# a row whose pid has been REUSED by an unrelated process still age out". It does
+# not: a live pid returns KEEP two lines before TTL is consulted, so a ledger row
+# from three days ago whose pid now belongs to an unrelated live process was
+# immortal in exactly the way `1-frank-immortal-b` was. THE COMMENT DESCRIBED A
+# SAFETY THE PROGRAM DID NOT HAVE.
+#
+# So the reuse test was moved ABOVE the ledger exemption — it is a fact about the
+# filesystem and the process table rather than a question of trust — and S23f is
+# the case for it. This mutant now proves what the exemption itself is worth.
+mutant M37.ledger-row-subjected-to-the-name-tests "S23e" "$LIB" \
+    "            alive, why_pid = self.owner_state(pid, bool(row), path)" \
+    "            alive, why_pid = self.owner_state(pid, False, path)" \
+    "A LEDGER ROW is put through the two NAME-SHAPE tests — the uid test and the
+     pid floor — which exist because digits in a directory name can be chosen by
+     anybody. The row was written by our own process at allocation time, so its
+     uid is implied; treating it as a guess means a legitimately recorded owner
+     can be dismissed and its live sandbox deleted."
+
+mutant M38.ledger-pid-reuse-not-detected "S23f" "$LIB" \
+    "        if born is not None and start is not None and start > born + 1:" \
+    "        if not from_ledger and born is not None and start is not None and start > born + 1:" \
+    "The reuse test is skipped FOR A LEDGER ROW ONLY, which is the state the
+     program was in when its own comment claimed TTL covered this. A three-day-old
+     row whose pid now belongs to an unrelated live process is immortal. S23c
+     stays green under this mutation, because a name-derived reuse is still caught
+     — which is what makes S23f the case that is actually about this line."
+
 mutation_end

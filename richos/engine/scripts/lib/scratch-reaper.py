@@ -532,6 +532,55 @@ def write_failures(path, rows):
                          % (path, exc))
 
 
+def process_table():
+    """{pid: (uid, start_epoch)} for EVERY process on the machine, or None.
+
+    ONE ps, read once. Separate from Liveness.claude_processes() because that one
+    filters to session process names by design and this one must see pid 1.
+    """
+    try:
+        r = subprocess.run(["ps", "-Ao", "pid=,uid=,lstart="],
+                           capture_output=True, text=True, timeout=20,
+                           env=_ps_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    out = {}
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+        try:
+            pid, uid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        out[pid] = (uid, lstart_epoch(" ".join(parts[2:7])))
+    return out
+
+
+def birth_time(path):
+    """When the directory came into being, or None.
+
+    st_birthtime on macOS, which is where this runs. NOT st_mtime: a tree that is
+    still being written has a recent mtime and tells you nothing about when it was
+    created, and creation is the only time that can be compared against a
+    process's start.
+    """
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    bt = getattr(st, "st_birthtime", None)
+    if bt:
+        return bt
+    # Linux has no birth time through os.stat; ctime is the closest available and
+    # is an inode-change time, so it is only ever LATER than the true creation.
+    # That makes the comparison below more willing to call a pid unattributed,
+    # which is the direction that loses coverage rather than work.
+    return getattr(st, "st_ctime", None)
+
+
 def pid_from_name(name):
     """The owning pid out of a `<pid>-<label>-<random>` directory name.
 
@@ -893,9 +942,17 @@ class Reaper(object):
         A LIVE PID IS ALWAYS KEEP, AND TTL NEVER OVERRIDES IT. An expired TTL
         means the caller underestimated its own run, which is a bad estimate
         and not permission to delete a directory a running process is writing
-        into. TTL earns its place on the other side: it is what lets a row
-        whose pid has been REUSED by an unrelated process still age out,
-        because the age floor and the TTL both have to pass.
+        into.
+
+        THIS COMMENT USED TO CLAIM TTL COVERED PID REUSE AND IT DID NOT.
+        It read: "TTL earns its place on the other side: it is what lets a row
+        whose pid has been REUSED by an unrelated process still age out, because
+        the age floor and the TTL both have to pass." A live pid returned KEEP
+        two lines above TTL was ever consulted, so a reused pid was immortal and
+        the comment described a safety the program did not have. What actually
+        answers pid reuse is owner_state(): a process that started after the
+        directory was created cannot have created it. TTL is what it always
+        was — a declaration of intent, never an authority to delete.
         """
         tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
         root = os.path.join(tmp, self.cfg["scratch_root_name"])
@@ -933,7 +990,7 @@ class Reaper(object):
                          "so its maker is done with it" % (pid, label))
                 continue
 
-            alive = pid_alive(pid)
+            alive, why_pid = self.owner_state(pid, bool(row), path)
             if alive is None:
                 self.add(path, "scratch-alloc", size, INDETERMINATE,
                          "cannot tell whether pid %d is alive, and a live "
@@ -999,7 +1056,11 @@ class Reaper(object):
                 self.add(path, "scratch-alloc", size, INDETERMINATE, refused)
                 continue
 
-            if pid:
+            if pid and why_pid:
+                why = ("pid %d is not this allocation's owner (%s) and nothing "
+                       "has touched this for %d min; its TTL was %d min"
+                       % (pid, why_pid, age // 60, ttl))
+            elif pid:
                 why = ("pid %d is ENDED (owner of '%s', from %s) and nothing "
                        "has touched this for %d min; its TTL was %d min"
                        % (pid, label, src, age // 60, ttl))
@@ -1009,6 +1070,110 @@ class Reaper(object):
                        "allocator for one, so an unrecorded child is garbage "
                        "by construction")
             self.add(path, "scratch-alloc", size, DELETE, why)
+
+    def owner_state(self, pid, from_ledger, path):
+        """(True|False|None, '' or why-it-is-not-the-owner) for an allocation.
+
+        =================================================================
+        D11 — A NAME-DERIVED PID IS ATTRIBUTION, NOT LIVENESS
+        =================================================================
+        `pid_from_name()` takes the digits before the first `-`, and `pid_alive()`
+        returns True on PermissionError. Frank put a directory called
+        `1-frank-immortal-b` in the allocator root and the reaper said:
+
+            KEEP  2.0 MB  .../richos-scratch/1-frank-immortal-b
+                  why: pid 1 is ALIVE (owner of 'unrecorded', from the directory
+                       name) — a live owner is kept whatever its TTL says
+
+        Forever, at any size, with no alert and no TTL escape — and SILENTLY BY
+        CONSTRUCTION, because a KEEP is the reaper working as designed. macOS
+        recycles pids at 99998, so a week-old directory whose name begins with a
+        number that is now a live pid is not exotic.
+
+        THE LEDGER ROW IS A DIFFERENT KIND OF FACT AND IS STILL TRUSTED. It was
+        written BY the allocator AT allocation time; the digits in a name are a
+        second copy of it for the case where the ledger is lost, and a copy that
+        can be forged by naming a directory is evidence of attribution and not of
+        life. So a name-derived pid has to pass three tests that a ledger row does
+        not, and each of them can only ever take a KEEP away:
+
+          1. IT MUST BE OURS. A PermissionError means the process belongs to
+             another user, and the allocator runs as us — so it cannot be the
+             caller. This one test alone retires `1-frank-immortal-b`.
+          2. IT MUST BE ABOVE A DECLARED FLOOR. Measured on this machine: the
+             lowest pid owned by uid 501 is 160, while root's boot daemons hold
+             1, 88, 90, 92, 93. A single- or double-digit pid is not a harness.
+          3. IT MUST HAVE STARTED NO LATER THAN THE DIRECTORY WAS CREATED. A
+             process that began after the directory existed cannot have made it,
+             which is exactly what pid reuse looks like.
+
+        THE BRIEF ASKED FOR TEST 3 THE OTHER WAY ROUND — "a pid whose process
+        start time precedes the directory's creation is unattributed" — and that
+        is inverted. A creator necessarily exists BEFORE it creates: a session
+        process started this morning and allocating scratch this afternoon is the
+        normal case, and refusing it would make every long-running owner
+        unattributed. What proves reuse is starting AFTERWARDS.
+
+        An unattributed pid does NOT mean delete. It means the allocation has no
+        proven live owner, so the ordinary ladder applies underneath it — the age
+        floor, the open-file wall, and all four walls.
+
+        =================================================================
+        THE REUSE TEST APPLIES TO A LEDGER ROW TOO, AND THAT IS A SECOND
+        HOLE IN THE SAME FAMILY — FOUND BY THE MUTATION HARNESS
+        =================================================================
+        Mutant M37 was written to prove the ledger branch was load-bearing and it
+        came back "the suite still PASSED without this property", which sent me
+        back to the code with a better question. `scan_scratch_root`'s own comment
+        claimed: "TTL earns its place on the other side: it is what lets a row
+        whose pid has been REUSED by an unrelated process still age out, because
+        the age floor and the TTL both have to pass."
+        **THAT WAS NOT TRUE OF THE CODE.** A live pid returned KEEP before TTL was
+        ever consulted — "a live owner is kept whatever its TTL says" — so a ledger
+        row from three days ago whose pid now belongs to an unrelated live process
+        was immortal in exactly the way `1-frank-immortal-b` was. The comment
+        described a safety the program did not have.
+        So the reuse test is applied to BOTH sources: it is a fact about the
+        filesystem and the process table rather than a question of how much a
+        record is trusted. What the ledger row earns is exemption from the two
+        NAME-shape tests — the uid test and the pid floor — because it was written
+        by our own process at allocation time and its uid is therefore implied.
+        """
+        if not pid or pid <= 0:
+            return False, ""
+        table = self.proc_table()
+        if table is None:
+            # The process table could not be read. pid_alive alone is what is
+            # left, and it is the OLD behavior — which is a loss of this check
+            # rather than a loss of safety, so it is taken rather than refused.
+            return pid_alive(pid), ""
+        if pid not in table:
+            return False, ""
+        uid, start = table[pid]
+        born = birth_time(path)
+        if born is not None and start is not None and start > born + 1:
+            return False, ("it started %d s after this directory was created, so "
+                           "it cannot have created it — this is pid reuse"
+                           % int(start - born))
+        if from_ledger:
+            return True, ""
+        if pid < self.cfg["min_owner_pid"]:
+            return False, ("it is below the declared floor of %d, and the lowest "
+                           "pid this user owns on this machine is 160 — a pid "
+                           "that low is a boot daemon, not an allocator's caller"
+                           % self.cfg["min_owner_pid"])
+        if uid != os.getuid():
+            return False, ("it belongs to uid %d and the allocator runs as %d, "
+                           "so it cannot be the process that asked for this "
+                           "directory — the name's digits collided with a live "
+                           "pid" % (uid, os.getuid()))
+        return True, ""
+
+    def proc_table(self):
+        """The whole-machine {pid: (uid, start)} table, read once per run."""
+        if "_ptable" not in self.__dict__:
+            self.__dict__["_ptable"] = process_table()
+        return self.__dict__["_ptable"]
 
     def scan_tmp(self, walls):
         tmp = os.environ.get("TMPDIR") or "/tmp"
@@ -2364,6 +2529,10 @@ def config_from_env():
             opt_number("SCRATCH_SKIPPED_NOTICE_BYTES", 1024 ** 3),
         "undecidable_notice_bytes":
             opt_number("SCRATCH_UNDECIDABLE_NOTICE_BYTES", 64 * 1024 ** 2),
+        # D11. The fallback is 0, which DISABLES the floor test and leaves the
+        # other two — an engine whose config predates this key keeps exactly the
+        # behavior it had rather than acquiring a number nobody declared.
+        "min_owner_pid": opt_number("SCRATCH_MIN_OWNER_PID", 0),
     }
 
 

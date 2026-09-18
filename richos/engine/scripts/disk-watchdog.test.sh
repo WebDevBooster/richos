@@ -27,7 +27,7 @@
 #        a deliberately silly number for exactly that reason.
 #   W2   a healthy machine: no alert, exit 0.
 #   W3   below the floor: the alert fires and names the free space.
-#   W4   a DROP larger than the threshold alerts even when absolute space is
+#   W4   a fall FASTER THAN THE DECLARED RATE alerts even when absolute space is
 #        fine. This is the arm that would have caught 2026-09-17.
 #   W5   the FIRST reading is not a drop. No previous state must not read as a
 #        fall from zero, or every fresh machine alerts once for nothing.
@@ -51,6 +51,13 @@
 #        environment — and still takes a reading and writes its log line.
 #   W16  --install REFUSES from a worktree or a temp directory, because the
 #        plist would bake in a path that stops existing at land time.
+#   W4c-W4f  THE DIVISOR (Frank's D7). The drop used to be a subtraction against a
+#        baseline of any age, so a ten-hour-old reading printed "DROPPED 30.0 GB"
+#        and called a normal working day our defect. It is a RATE now, and across a
+#        gap longer than a declared number of intervals NO RATE IS COMPUTED at all —
+#        the gap is reported instead (W4c/W4e, control W4d). W4f is the hole the fix
+#        itself opened, found by this suite: a sub-second gap made a 100 GB fall
+#        read as 496,862 GB/hour, so there is a MINIMUM gap too.
 #   W17  ONE ENVIRONMENT VARIABLE MUST NOT SILENCE THE FAILURE ALERT. The
 #        sweeper's failure record honored CLAUDE_CONFIG_DIR and this program's
 #        reader did not, so an exported variable — and the engine's own suites
@@ -119,6 +126,12 @@ DISK_PRIMARY_VOLUME="${W_PRIMARY:-/System/Volumes/Data}"
 DISK_EXTRA_VOLUMES="${5:-}"
 DISK_RICH_ALERT_GB="$1"
 DISK_DROP_ALERT_GB="$2"
+# THE DROP TEST BECAME A RATE ON 2026-09-18 (D7) AND THIS LINE KEEPS EVERY
+# EXISTING CALLER'S MEANING. Readings are 15 minutes apart, so N GB per reading
+# IS 4N GB/hour: every call site below still says what it always said, and the
+# cases that follow still measure the threshold rather than "it alerts".
+DISK_DROP_ALERT_GB_PER_HOUR="$(( $2 * 4 ))"
+DISK_DROP_MAX_GAP_INTERVALS="${7:-3}"
 DISK_CEO_NOTIFY_GB="$3"
 DISK_CEO_URGENT_GB="$4"
 DISK_CEO_REPEAT_HOURS="${6:-24}"
@@ -214,14 +227,23 @@ touch "$W_LA/com.richos.disk-watchdog.plist"
 # W5 FIRST, because it is about the absence of state: with no previous reading,
 # the fall from "nothing" must be zero and not the size of the disk.
 OUT="$(run_wd --alert)"; RC=$?
-if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'DROPPED'; then
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
     ok "W5  the FIRST reading is not a drop — no state is not a fall from zero"
 else
     bad "W5  a first reading alerted as a drop"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
 fi
 
-# Now plant a previous reading 100 GB higher than reality and re-read.
+# Now plant a previous reading 100 GB higher than reality, ONE DECLARED INTERVAL
+# OLD, and re-read.
+#
+# THE AGE OF THE BASELINE IS PART OF THE FIXTURE NOW, because the drop test is a
+# RATE. Back-to-back readings gave a gap under a second, and 100 GB across that is
+# 496,862 GB/hour — which exceeds every threshold and made W4b's control
+# meaningless. The suite found that, and the program grew a
+# DISK_DROP_MIN_GAP_SECONDS because of it: a denominator that is too small is
+# exactly as meaningless as one that is too large, and it errs toward a false
+# alarm rather than toward silence.
 run_wd --check >/dev/null 2>&1
 python3 - "$W_STATE" <<'PY'
 import json, sys
@@ -229,13 +251,20 @@ p = sys.argv[1]
 s = json.load(open(p))
 for v in s["volumes"]:
     v["free_bytes"] = v["free_bytes"] + 100 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 900
 json.dump(s, open(p, "w"), indent=1, sort_keys=True)
 PY
 OUT="$(run_wd --check)"; RC=$?
-if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'DROPPED'; then
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'FALLING at'; then
     ok "W4  a 100 GB fall between readings alerts with the absolute level fine"
 else
     bad "W4  the drop arm did not fire (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+if printf '%s' "$OUT" | grep -q 'GB/hour'; then
+    ok "W4a and it states a RATE, so the number can be argued with"
+else
+    bad "W4a the alert gives a fall with no elapsed time in it (D7)"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
 fi
 
@@ -248,14 +277,124 @@ p = sys.argv[1]
 s = json.load(open(p))
 for v in s["volumes"]:
     v["free_bytes"] = v["free_bytes"] + 100 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 900
 json.dump(s, open(p, "w"), indent=1, sort_keys=True)
 PY
 OUT="$(run_wd --check)"; RC=$?
-if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'DROPPED'; then
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
     ok "W4b CONTROL: the same 100 GB fall under a 500 GB threshold is silent"
 else
     bad "W4b CONTROL FAILED: it alerts regardless of the threshold"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+
+# ===========================================================================
+# W4c / W4d — A STALE BASELINE IS NOT A DROP (D7)
+# ===========================================================================
+# frank-opus-garbage1 aged the previous reading ten hours and the watchdog printed
+# "DROPPED 30.0 GB since the last reading ... CLASSIFICATION: RichOS garbage
+# (DEFECT)". The arithmetic had no elapsed-time term at all, so a closed laptop, a
+# wake from sleep, an upgrade window or a launchd job unloaded and reloaded
+# manufactured an alert out of a normal working day — 3 GB/hour on this machine.
+#
+# A fall averaged over ten hours says nothing about any hour inside it, so the
+# program now REFUSES TO COMPUTE A RATE across a gap that long and reports the gap.
+world dropstale
+write_cfg 1 20 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+# 30 GB higher than reality, and the reading is TEN HOURS old.
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 30 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 10 * 3600
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
+    ok "W4c a 30 GB fall across a TEN-HOUR gap raises no drop alert (D7)"
+else
+    bad "W4c a stale baseline still manufactures a drop alert (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+# THE CONTROL, and it is the one that stops W4c passing against an arm that has
+# simply been switched off: the SAME 30 GB fall inside one interval must alert.
+world dropfresh
+write_cfg 1 20 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 30 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 900
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'FALLING at'; then
+    ok "W4d CONTROL: the same 30 GB fall inside one interval DOES alert"
+else
+    bad "W4d CONTROL FAILED: the drop arm is off, so W4c proves nothing (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+# And the gap must be REPORTED rather than merely swallowed, inside a block that
+# is already being printed for another reason.
+world dropstalesay
+write_cfg 999999 20 1 1                 # the absolute floor fires, so a block prints
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 30 * 1024 ** 3
+s["reading_epoch"] = s["reading_epoch"] - 10 * 3600
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if printf '%s' "$OUT" | grep -q 'NO COMPARABLE PREVIOUS READING' \
+   && printf '%s' "$OUT" | grep -q '600 min'; then
+    ok "W4e the gap is REPORTED with its size, instead of divided by"
+else
+    bad "W4e the stale gap was swallowed silently (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -14
+fi
+
+# ===========================================================================
+# W4f — A GAP THAT IS TOO SHORT IS NOT A DROP EITHER
+# ===========================================================================
+# THE HOLE THE D7 FIX OPENED, and the suite is what found it. A rate has a
+# denominator, and a denominator is dangerous at BOTH ends: with back-to-back
+# readings the gap was under a second and a 100 GB fall read as
+# "FALLING at 496862.1 GB/hour" — above every conceivable threshold. In production
+# that is a launchd job firing twice in quick succession, or a person running
+# --check a moment after the timer did. It errs toward a FALSE ALARM, which is the
+# worse of the two directions, so it is refused like the stale case.
+world dropquick
+write_cfg 1 20 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+run_wd --check >/dev/null 2>&1
+python3 - "$W_STATE" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+# A large fall, and the baseline is from THIS SECOND.
+for v in s["volumes"]:
+    v["free_bytes"] = v["free_bytes"] + 100 * 1024 ** 3
+json.dump(s, open(p, "w"), indent=1, sort_keys=True)
+PY
+OUT="$(run_wd --check)"; RC=$?
+if [ "$RC" = "0" ] && ! printf '%s' "$OUT" | grep -q 'FALLING at'; then
+    ok "W4f a 100 GB fall across a SUB-SECOND gap raises no rate alert"
+else
+    bad "W4f a double-fire manufactured a rate alert (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
 fi
 
 # ===========================================================================

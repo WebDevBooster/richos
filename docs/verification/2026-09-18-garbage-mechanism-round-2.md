@@ -422,3 +422,160 @@ $ scripts/scratch-reaper.mutation.sh            all 34 properties proven load-be
   garbage lines to it, and case D4 failed immediately. Every new condition in the alert block has to
   be taught to that parser or it vanishes at the turn end, so D10 now pins the garbage line there
   too.
+
+---
+
+## 4. Fix 3(b) — a pid is attribution, not liveness (D11)
+
+Frank put a directory called `1-frank-immortal-b` in the allocator root:
+
+```
+KEEP  2.0 MB  .../richos-scratch/1-frank-immortal-b
+      why: pid 1 is ALIVE (owner of 'unrecorded', from the directory name)
+           — a live owner is kept whatever its TTL says
+```
+
+Forever, at any size, with no alert and no TTL escape — **and silently by construction, because a
+KEEP is the reaper working as designed.** `pid_alive()` returns True on `PermissionError`, which is
+what pid 1 gives, and macOS recycles pids at 99998, so a week-old name whose leading digits match a
+live pid is not exotic.
+
+### 4.1 Three tests, and the brief's third one was inverted
+
+A pid taken off a directory NAME is now believed as proof of life only if:
+
+1. **It is ours.** A `PermissionError` means another user's process, and the allocator runs as us, so
+   it cannot be the caller. **This test alone retires pid 1.**
+2. **It is above a declared floor.** Measured on this machine: the lowest pid owned by uid 501 is
+   **160**, while root's boot daemons hold **1, 88, 90, 92, 93**. `SCRATCH_MIN_OWNER_PID="100"`.
+3. **It started no later than the directory was created** (`st_birthtime`, which macOS has).
+
+**The brief asked for test 3 the other way round** — *"a pid whose process start time precedes the
+directory's creation is unattributed"* — and that is inverted. A creator necessarily exists BEFORE it
+creates: a session process started this morning and allocating scratch this afternoon is the normal
+case, and refusing it would make every long-running owner unattributed. What proves reuse is starting
+*afterwards*. I implemented the sound direction and am flagging the difference rather than quietly
+following the brief.
+
+An unattributed pid does **not** mean delete. It means there is no proven live owner, so the ordinary
+ladder applies underneath: the age floor, the open-file wall, and all four walls.
+
+### 4.2 A second hole in the same family, and the mutation harness found it
+
+M37 was written to prove the ledger exemption load-bearing and came back **"the suite still PASSED
+without this property"**, which sent me back to the code with a better question. `scan_scratch_root`'s
+own comment claimed:
+
+> TTL earns its place on the other side: it is what lets a row whose pid has been REUSED by an
+> unrelated process still age out, because the age floor and the TTL both have to pass.
+
+**That was not true of the code.** A live pid returned KEEP two lines before TTL was ever consulted —
+*"a live owner is kept whatever its TTL says"* — so **a ledger row from three days ago whose pid now
+belongs to an unrelated live process was immortal in exactly the way `1-frank-immortal-b` was.** The
+comment described a safety the program did not have.
+
+So the **reuse test applies to both sources**: it is a fact about the filesystem and the process
+table, not a question of how much a record is trusted. What a ledger row earns is exemption from the
+two NAME-shape tests (uid and floor), because it was written by our own process at allocation time.
+The comment is corrected to say what the code does.
+
+---
+
+## 5. Fix 3(c) — the drop alarm gets a divisor, and the rationale gets corrected (D7, D8)
+
+### 5.1 D7 — the rate
+
+`drop_bytes = old_free - free` against a baseline of any age, with no elapsed-time term. Frank aged
+the baseline ten hours — a closed laptop, a wake from sleep, an upgrade window, a launchd job
+unloaded and reloaded — and got a `MASSIVE ALERT ... DROPPED 30.0 GB ... CLASSIFICATION: RichOS
+garbage (DEFECT)`. **3 GB/hour is a normal working day on this machine**, reported as our defect.
+
+Now: a rate in GB/hour, and **across a gap longer than `DISK_DROP_MAX_GAP_INTERVALS` (3, i.e. 45
+minutes) no rate is computed at all** — the gap is reported instead, inside a block already printing
+for another reason so it can never itself raise an alarm. A fall averaged over ten hours is not a
+weaker measurement of the same thing; it is a different quantity wearing the same name.
+
+### 5.2 A hole the fix itself opened, and the suite found it
+
+Turning a difference into a rate makes the **denominator dangerous at both ends**. W4b failed
+immediately: with back-to-back readings the gap was under a second and a 100 GB fixture fall read as
+
+```
+FALLING at 496862.1 GB/hour (100.0 GB in the last 0 min, against a declared 2000 GB/hour)
+```
+
+In production that is a launchd job firing twice in quick succession, or a person running `--check` a
+moment after the timer did — and it errs toward a FALSE ALARM, the worse direction. So
+`DISK_DROP_MIN_GAP_SECONDS="60"` refuses a denominator that is too small for the same reason the
+maximum refuses one that is too large. W4f is the case.
+
+### 5.3 D8 — the rationale said something the record does not support
+
+`orchestration.config` said of `DISK_DROP_ALERT_GB="20"`: *"THIS IS THE THRESHOLD THAT WOULD HAVE
+CAUGHT 2026-09-17, and the absolute one would not have in time."* Frank checked it: the sandbox was
+created at 22:39 and the reaper's next run was 03:40, so 105 GB arrived across **at least five hours**
+— about **21 GB/hour**, or ~5 GB per 15-minute tick, **a quarter of the old threshold**. Neither that
+nor the back-to-back reading is measured anywhere, so the claim was unproven in both directions. What
+IS established is that **the absolute 60 GB floor would have fired**, because free space reached
+49 GB.
+
+The declaration now says that, and names the rate alarm's real job: *the faster incident nobody has
+measured yet.*
+
+**And the number is deliberately unchanged in effect.** `DISK_DROP_ALERT_GB_PER_HOUR="80"` IS 20 GB
+across a 15-minute interval, so nothing about a normal day changes and no new false positive is
+introduced. Lowering it to catch the measured 21 GB/hour lower bound would mean alerting at 5 GB per
+tick, which a cargo build, a Docker pull or an Xcode archive reaches legitimately — the cries-wolf
+failure that ends with the alarm switched off and the absolute floor doing the work alone anyway.
+
+`DISK_DROP_ALERT_GB` is retained, declared, and reported in the JSON beside the rate, so a reader
+comparing the old behavior with the new one can see both.
+
+### 5.4 The declarations are actually read — verified, not assumed
+
+```
+$ scripts/disk-watchdog.sh --json | .thresholds
+ drop_alert_gb: 20.0            drop_alert_gb_per_hour: 80.0
+ drop_max_gap_intervals: 3.0    drop_min_gap_seconds: 60.0
+ skipped_notice_bytes: 1073741824.0
+ undecidable_notice_bytes: 67108864.0
+ rich_alert_gb: 60.0  interval_minutes: 15.0
+ reading_gap_seconds: 74
+
+$ scripts/disk-watchdog.sh --status
+ok     /System/Volumes/Data        192.8 GB free of  460.4 GB ( 41.9%)  floor 60 GB
+ok     /Volumes/E1TB               863.5 GB free of  953.7 GB ( 90.5%)  floor 124 GB
+```
+
+That check is W1's whole reason for existing — the first version of this watchdog read *no*
+configuration at all and looked fine because a fallback matched the declaration.
+
+### 5.5 Tests
+
+```
+$ scripts/scratch-reaper.test.sh                90 passed, 0 failed
+   S23  a directory named for pid 1 is no longer immortal (D11)
+   S23b CONTROL: a live pid of OURS, above the floor, is still a live owner
+   S23c a live pid that started AFTER the directory is called pid reuse
+   S23d ...and it is collected rather than kept for ever
+   S23e a LEDGER row is exempt from the two NAME-shape tests
+   S23f a LEDGER row whose pid was REUSED is not a live owner either
+
+$ scripts/disk-watchdog.test.sh                 40 passed, 0 failed
+   W4a and it states a RATE, so the number can be argued with
+   W4c a 30 GB fall across a TEN-HOUR gap raises no drop alert (D7)
+   W4d CONTROL: the same 30 GB fall inside one interval DOES alert
+   W4e the gap is REPORTED with its size, instead of divided by
+   W4f a 100 GB fall across a SUB-SECOND gap raises no rate alert
+
+$ scripts/scratch-reaper.mutation.sh            all 38 properties proven load-bearing
+   M35.name-pid-trusted-as-liveness            -> S23  red
+   M36.pid-reuse-not-detected                  -> S23c red
+   M37.ledger-row-subjected-to-the-name-tests  -> S23e red
+   M38.ledger-pid-reuse-not-detected           -> S23f red
+```
+
+The pid-reuse fixture is **constructed rather than argued about**: the directory is created first,
+then a process is started, then the directory is RENAMED to carry that process's pid — rename
+preserves `st_birthtime` because the inode does not change. So the name says a live pid owns it and
+the filesystem says that process did not exist when the directory was made.

@@ -110,6 +110,18 @@
 #        reads (S22f); and the banner raises the alarm FROM THE LAST FULL PASS,
 #        dated, without paying for the expensive arm (S22g-S22i2, control S22j).
 #
+#   S23  A NAME-DERIVED PID IS ATTRIBUTION, NOT LIVENESS (Frank's D11). He put
+#        `1-frank-immortal-b` in the allocator root and the reaper answered "pid 1
+#        is ALIVE ... a live owner is kept whatever its TTL says" — forever, at any
+#        size, with no alert, and silently by construction because a KEEP is the
+#        reaper working as designed. A name-derived pid must now be OURS, above a
+#        declared floor, and have started no later than the directory was created
+#        (S23/S23c/S23d), while a live pid of ours still keeps its sandbox
+#        (S23b, the control that matters) and a LEDGER row stays exempt from the
+#        two name-shape tests (S23e). S23f is the second hole in the same family,
+#        found by mutant M37: a REUSED LEDGER pid was immortal too, and the code's
+#        own comment claimed TTL covered it when TTL never runs after a live KEEP.
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -1588,6 +1600,133 @@ case "$OUT" in
         bad "S22j the garbage alarm ignores its own declared threshold" ;;
     *)  ok "S22j CONTROL: below the declared threshold the alarm is silent" ;;
 esac
+
+# ===========================================================================
+# S23 — A NAME-DERIVED PID IS ATTRIBUTION, NOT LIVENESS (D11)
+# ===========================================================================
+# frank-opus-garbage1 put a directory called `1-frank-immortal-b` in the allocator
+# root and the reaper answered:
+#
+#   KEEP  2.0 MB  .../richos-scratch/1-frank-immortal-b
+#         why: pid 1 is ALIVE (owner of 'unrecorded', from the directory name)
+#              — a live owner is kept whatever its TTL says
+#
+# Forever, at any size, with no alert and no TTL escape — AND SILENTLY BY
+# CONSTRUCTION, because a KEEP is the reaper working as designed. pid_alive()
+# returns True on PermissionError, which is what pid 1 gives, and macOS recycles
+# pids at 99998, so a week-old name whose leading digits match a live pid is not
+# exotic.
+world immortal
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+start_claude; PID_D13="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D13" "$SID_LIVE"
+mkdir -p "$W_TMP/richos-scratch/1-immortal"
+echo payload >"$W_TMP/richos-scratch/1-immortal/payload.txt"
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/richos-scratch/1-immortal" ]; then
+    ok "S23  a directory named for pid 1 is no longer immortal (D11)"
+else
+    bad "S23  pid 1 still makes an allocation live forever"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# THE CONTROL THAT MATTERS: a directory named for a pid that IS a live process of
+# OURS, above the floor, started before the directory existed, is still KEPT.
+# Without it S23 passes against a reaper that has stopped believing any name.
+world liveowner
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+start_claude; PID_D14="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D14" "$SID_LIVE"
+mkdir -p "$W_TMP/richos-scratch/$PID_D14-mine"
+echo payload >"$W_TMP/richos-scratch/$PID_D14-mine/payload.txt"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/richos-scratch/$PID_D14-mine" ]; then
+    ok "S23b CONTROL: a live pid of OURS, above the floor, is still a live owner"
+else
+    bad "S23b a running owner's sandbox was deleted from under it — worse than D11"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# PID REUSE, CONSTRUCTED RATHER THAN ARGUED ABOUT. The directory is created FIRST,
+# then a process is started, then the directory is RENAMED to carry that process's
+# pid — and rename preserves st_birthtime because the inode does not change. So the
+# name says a live pid owns it and the filesystem says that process did not exist
+# when the directory was made.
+world pidreuse
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+mkdir -p "$W_TMP/richos-scratch/pending"
+echo payload >"$W_TMP/richos-scratch/pending/payload.txt"
+sleep 2
+start_claude; PID_D15="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D15" "$SID_LIVE"
+mv "$W_TMP/richos-scratch/pending" "$W_TMP/richos-scratch/$PID_D15-reused"
+OUT="$(run --dry-run --verbose)"
+if printf '%s' "$OUT" | grep -q 'this is pid reuse'; then
+    ok "S23c a live pid that started AFTER the directory is called pid reuse"
+else
+    bad "S23c pid reuse was read as a live owner, so the KEEP is immortal again"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+OUT="$(run --apply)"
+if [ ! -d "$W_TMP/richos-scratch/$PID_D15-reused" ]; then
+    ok "S23d ...and it is collected rather than kept for ever"
+else
+    bad "S23d named as reuse and still kept"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# AND A LEDGER ROW IS EXEMPT FROM ALL THREE TESTS, because it was written by the
+# allocator AT allocation time rather than derived from a name anybody can choose.
+# This is the case that keeps the narrowing narrow.
+#
+# THE FIXTURE IS DELIBERATELY EXTREME — a ledger row whose pid is 1 — because that
+# is the only shape where the two branches disagree, and a case where they agree
+# proves nothing about which one ran. The allocator writes `$$` and could never
+# produce this row; the point is to show the ledger branch is the branch taken.
+world ledgerpid
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+start_claude; PID_D16="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D16" "$SID_LIVE"
+alloc "recorded-by-pid-one" 1 "a-real-allocation" >/dev/null
+OUT="$(run --apply)"
+if [ -d "$W_TMP/richos-scratch/recorded-by-pid-one" ]; then
+    ok "S23e a LEDGER row is exempt from the two NAME-shape tests"
+else
+    bad "S23e the name-shape tests reached a ledger row, which is a positive record"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# THE SECOND HOLE IN THE SAME FAMILY, AND THE MUTATION HARNESS IS WHY IT IS HERE.
+# M37 came back "the suite still PASSED without this property", which sent me back
+# to the code — where scan_scratch_root's own comment claimed TTL let a row "whose
+# pid has been REUSED by an unrelated process still age out". It did not: a live
+# pid returned KEEP two lines before TTL was ever consulted, so a ledger row from
+# three days ago whose pid now belongs to an unrelated live process was immortal in
+# exactly the way `1-frank-immortal-b` was. The comment described a safety the
+# program did not have.
+#
+# So the REUSE test applies to a ledger row too — it is a fact about the filesystem
+# and the process table, not a question of how much a record is trusted.
+world ledgerreuse
+echo 'SCRATCH_MIN_OWNER_PID="100"' >>"$W_CFG"
+mkdir -p "$W_TMP/richos-scratch/pending2"
+echo payload >"$W_TMP/richos-scratch/pending2/payload.txt"
+sleep 2
+start_claude; PID_D17="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D17" "$SID_LIVE"
+mv "$W_TMP/richos-scratch/pending2" "$W_TMP/richos-scratch/ledger-reused"
+mkdir -p "$W_HOME/state"
+printf '{"path":"%s","label":"%s","pid":%d,"ppid":1,"session":"","created":"%s","ttl_minutes":360,"event":"new"}\n' \
+    "$W_TMP/richos-scratch/ledger-reused" "stale-row" "$PID_D17" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$W_HOME/state/scratch-ledger.jsonl"
+OUT="$(run --dry-run --verbose)"
+if printf '%s' "$OUT" | grep -q 'this is pid reuse'; then
+    ok "S23f a LEDGER row whose pid was REUSED is not a live owner either"
+else
+    bad "S23f a reused ledger pid is still immortal — the hole the old comment"
+    bad "     claimed TTL covered, and TTL never runs after a live KEEP"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # run-all-tests.sh discovers *.test.sh; a *.mutation.sh is invisible to it, and
