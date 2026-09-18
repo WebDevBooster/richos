@@ -5906,3 +5906,66 @@ body.bp-narrow .tl-user-bubble {
 .phone-steps li {
   margin: 0 0 4px;
 }
+
+/* ===================================================================================
+   THE TAILSCALE HOW-TO SCREENS (CEO §61 / §61.1) — Urban's §5 "New CSS, layout only".
+   Four rules, kept in ONE delimited block because two other branches are editing this
+   file at the same time. LAYOUT ONLY: every color below is a token already painted on
+   this same `--card` panel and already walked by `tests/contrast.js`.
+
+   COMPUTED WITH THE WCAG FORMULA, BOTH THEMES, ALPHA TOKENS FLATTENED ONTO `--card`
+   (`#182440` dark, `#fdfcf8` light) — not eyeballed, and re-derived here rather than
+   copied from the specification:
+
+     route option label      --ink on --card                 12.06:1 dark   18.07:1 light   (>=4.5, 17px text)
+     route option note       --ink-soft on --card             5.78:1 dark    6.36:1 light   (>=4.5, 16px text)
+     route option BORDER     --line-control vs --card         3.79:1 dark    4.06:1 light   (>=3.0, indicator)
+     tailnet name            --ink on --card                 12.06:1 dark   18.07:1 light   (>=4.5, 16px mono)
+
+   `--ink-soft` composites to rgb(151,159,175) on dark `--card` and rgb(89,94,102) on
+   light. (Urban's document records 6.38:1 for the light pair; the difference is whether
+   the composite is rounded to whole channels before the ratio is taken. 6.36:1 is the
+   rounded form — the color the renderer actually paints — and both clear 4.5:1.)
+   Nothing in this block is declared skippable and NO contrast exemption is claimed.
+
+   WHY THE OPTION BORDER IS `--line-control` AND NOT `.desk-btn`'s `--line`. Urban's §5:
+   `.desk-btn`'s border computes 1.24:1 dark and 1.50:1 light on this panel — an app-wide
+   row somebody already owns, which a new screen does not add another instance of. But on
+   the route screen that border is the ONLY thing separating two decisions, and a boundary
+   at 1.24:1 is not a boundary. `--line-control` is an existing token, no new color.
+
+   WHY 6px UNDER THE BUTTON AND 18px UNDER THE GROUP. `.overlay-note`'s shipped
+   `margin: -4px 0 12px` is calibrated for a note under a HEADING and is wrong under a
+   button: it puts the note 4px INTO the control above it and 12px clear of the next one,
+   so the sentence captions the wrong control — the measurement `.picker-defer` records
+   forty rules up. One `.phone-route` per option makes each note nearer its own button
+   (6px) than the next option's (18px).
+   =================================================================================== */
+.phone-route {
+  margin-bottom: 18px;
+}
+
+.phone-route > button {
+  width: 100%;
+  text-align: left;
+  border-color: var(--line-control);
+  font-size: 1.0625rem;
+  color: var(--ink);
+}
+
+.phone-route-note {
+  margin: 6px 0 0;
+}
+
+/* THIS MAC'S NAME ON THE TAILNET — the same shape and the same reasoning as
+   `.memory-location`: a name read character by character, so monospace, and wrapped at any
+   character rather than allowed to run off the panel. `--ink`, not `--ink-soft`: it is the
+   string the user compares against what their phone shows. */
+.phone-tailnet-name {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
