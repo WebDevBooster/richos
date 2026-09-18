@@ -1932,6 +1932,11 @@ fn main() {
             // the same reason the success line below names the binary instead of leaving a
             // working boot silent. When nothing answered, every place looked is printed:
             // "not found" without the list is what sends someone hunting.
+            // WHICH BUILD IS THIS — first, and on every launch. It is one line and it is the
+            // one a walk, an audit or a bug report needs before any other fact about the
+            // process is worth anything (`engine::source_commit`). Until 2026-09-18 a signed,
+            // notarized candidate carried no commit anywhere in it.
+            eprintln!("[richos] this app: {}", engine::source_commit_note());
             eprintln!("[richos] engine directory: {}", resolution.describe());
             if resolution.source.is_none() {
                 for (source, path) in &resolution.tried {

@@ -1274,7 +1274,29 @@ if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
   say "    $RICHOS_EXTRA_TAURI_CONFIG"
 fi
 
-if ! (cd "$src_tauri" && cargo "${build_args[@]}"); then
+# ---------------------------------------------------------------------------
+# THE SOURCE COMMIT, DERIVED BEFORE THE BUILD so it can be compiled INTO it.
+# ---------------------------------------------------------------------------
+#
+# `option_env!("RICHOS_SOURCE_SHA")` is a COMPILE-time read (`engine.rs::source_commit`), so
+# this has to be in the environment of the cargo invocation below — not of a later step. The
+# bundle is stamped from the same two variables after the build, so the plist and the
+# executable cannot disagree about which commit this is: there is one derivation, used twice.
+source_sha="$(git -C "$app_dir" rev-parse HEAD 2>/dev/null || true)"
+source_dirty=""
+if [ -n "$source_sha" ]; then
+  source_root="$(git -C "$app_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$(git -C "$source_root" status --porcelain --untracked-files=all 2>/dev/null || true)" ]; then
+    source_dirty="-dirty"
+  fi
+fi
+source_stamp="${source_sha}${source_dirty}"
+if [ -n "$source_stamp" ]; then
+  say ""
+  say "  source commit       : $source_stamp"
+fi
+
+if ! (cd "$src_tauri" && env RICHOS_SOURCE_SHA="$source_stamp" cargo "${build_args[@]}"); then
   warn ""
   warn "the build did not complete — nothing was packaged. The output above is the reason."
   exit 4
@@ -1320,6 +1342,72 @@ if ! python3 "$here/lib/no_host_paths.py" "$app_bundle"; then
     warn "directory. Nothing was signed."
     exit 5
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# WHICH COMMIT IS THIS? — stamped into the bundle, and proven inside the executable.
+# ---------------------------------------------------------------------------
+#
+# THE DEFECT THIS CLOSES, measured on candidate .8 (2026-09-18): `strings` on the shipped
+# executable found the version, `1.2.0-nightly.20260918.2`, and NO source commit anywhere;
+# `Contents/Info.plist` carried CFBundleShortVersionString / CFBundleVersion and nothing
+# else. So the only identity a walk could read off a candidate was a version string somebody
+# typed, which is exactly what the Freshness Contract refuses: *"Every artifact carries a
+# commit SHA baked INSIDE it; every consumer verifies that SHA before trusting the artifact.
+# No timestamps, no 'the deploy said success' — identity or refuse."*
+#
+# A `-dev.` build has carried its commit in the VERSION since 2026-09-17, and a release or
+# nightly has not — the two builds that go to the CEO were the two with no commit in them.
+#
+# WHY IT IS STAMPED HERE, BETWEEN THE BUILD AND THE SIGNING. Tauri's bundler signs the .app
+# during `cargo tauri build` when it has an identity, so a PlistBuddy write after that would
+# invalidate the signature — and on a notarized build, the notarization with it. But this
+# script already re-signs with the full explicit argv below (developer-id at the `--timestamp`
+# re-sign; ad-hoc immediately after), so a write placed HERE is covered by the signature that
+# actually ships. That is the whole reason this block sits where it sits, and it must stay
+# above both signing branches.
+#
+# `src-tauri/Info.plist`, which Tauri MERGES at bundle time, is deliberately not the place:
+# the value changes every commit, that file is tracked, and a build that rewrites a tracked
+# file leaves the tree dirty — which the freshness gates read as a build nobody can identify.
+if [ -z "$source_sha" ]; then
+  # A build outside a checkout cannot name its source, and saying so is the honest outcome.
+  # It is not fatal here: the `dev` intent already REFUSES for the same reason (it cannot
+  # compose its version), and a release/nightly always comes from make-release.sh in a
+  # checkout — so a hard failure would only ever fire on a case that is already refused.
+  warn ""
+  warn "  this build has no git HEAD to stamp, so the bundle will not name its source"
+  warn "  commit. Anything verifying this artifact can only go on its version string."
+else
+  if ! /usr/libexec/PlistBuddy \
+        -c "Add :RichOSSourceCommit string $source_stamp" \
+        "$app_bundle/Contents/Info.plist" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy \
+      -c "Set :RichOSSourceCommit $source_stamp" \
+      "$app_bundle/Contents/Info.plist" >/dev/null 2>&1 \
+      || { warn "could not stamp the source commit into Contents/Info.plist"; exit 1; }
+  fi
+  # READ IT BACK OFF THE BUNDLE. "PlistBuddy exited 0" is not the artifact; the plist is.
+  stamped="$(/usr/libexec/PlistBuddy -c 'Print :RichOSSourceCommit' \
+    "$app_bundle/Contents/Info.plist" 2>/dev/null || true)"
+  [ "$stamped" = "$source_stamp" ] \
+    || { warn "Contents/Info.plist says RichOSSourceCommit=$stamped, expected $source_stamp"; exit 1; }
+
+  # AND INSIDE THE EXECUTABLE, where the signature covers it and a plist edit cannot reach.
+  # Same proof `make-release.sh` applies to the engine digest, for the same reason: the value
+  # is compiled in with `option_env!`, which is worth nothing if the environment never
+  # reached the compiler. An `option_env!` string survives an optimized build as plain bytes.
+  exe_for_stamp="$app_bundle/Contents/MacOS/richos-tauri"
+  if [ -f "$exe_for_stamp" ] && ! grep -a -q "$source_sha" "$exe_for_stamp"; then
+    warn ""
+    warn "the source commit $source_sha is NOT inside $exe_for_stamp — RICHOS_SOURCE_SHA did"
+    warn "not reach the compiler, so the boot log cannot name the commit this app was built"
+    warn "from and only the plist would carry it. Refusing to sign a bundle that cannot"
+    warn "identify itself from the inside."
+    exit 1
+  fi
+  say ""
+  say "  source commit       : $source_stamp (Info.plist + compiled into the executable)"
 fi
 
 # The bundler signs the bundle ONLY when it has an identity. With none it leaves the

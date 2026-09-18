@@ -57,6 +57,39 @@
 
 use std::path::{Path, PathBuf};
 
+/// **WHICH COMMIT THIS APP WAS BUILT FROM**, or `None` when it was built outside a checkout.
+///
+/// `option_env!` — read at **compile** time, so the value is inside the executable the Developer
+/// ID signature covers, for the same reason `setup::engine_pin` is
+/// (`package-app.sh` exports `RICHOS_SOURCE_SHA` for the cargo invocation and then proves the
+/// string is in the produced executable before it signs anything).
+///
+/// # Why it exists
+///
+/// MEASURED on candidate .8, 2026-09-18: `strings` on the shipped executable found the version
+/// `1.2.0-nightly.20260918.2` and NO commit; `Contents/Info.plist` carried
+/// `CFBundleShortVersionString`, `CFBundleVersion` and nothing else. So the only identity a walk
+/// could read off a signed, notarized candidate was a version string somebody typed — which the
+/// Freshness Contract refuses by name: *"identity or refuse"*. A `-dev.` build had carried its
+/// commit in its version since 2026-09-17; the release and nightly builds — the two that reach
+/// the CEO — were the two that carried none.
+///
+/// The value is the full 40-character SHA, with `-dirty` appended when the tree the build came
+/// from had uncommitted changes. Uncommitted is a different artifact from committed and a stamp
+/// that hid the difference would be worse than no stamp.
+pub fn source_commit() -> Option<&'static str> {
+    option_env!("RICHOS_SOURCE_SHA").map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// The boot line for [`source_commit`] — printed on EVERY launch, including the one that cannot
+/// name a commit, because "this build cannot identify itself" is the fact worth having.
+pub fn source_commit_note() -> String {
+    match source_commit() {
+        Some(sha) => format!("built from {sha}"),
+        None => "built outside a checkout, so it cannot name its source commit".to_string(),
+    }
+}
+
 /// How many directory levels an ancestor walk climbs before giving up.
 ///
 /// The deepest real case is a `cargo` target: `…/richos/app/src-tauri/target/release/` is
@@ -1066,6 +1099,34 @@ mod tests {
         // The audit trail does not shrink: every candidate is still in `tried`.
         let sources: Vec<EngineSource> = got.tried.iter().map(|(s, _)| *s).collect();
         assert!(sources.contains(&EngineSource::InstallPointer), "{sources:?}");
+    }
+
+    /// **THE BUILD NAMES ITSELF, OR SAYS IT CANNOT.** There is no third state, and the absent
+    /// case is the one that has to be a sentence rather than a silence — a boot log that simply
+    /// omits the commit reads exactly like one from a build that had nothing to hide.
+    ///
+    /// This test binary carries no `RICHOS_SOURCE_SHA` (nothing in a plain `cargo test` sets it,
+    /// the same reason `required_engine_version()` is `None` here), so the branch it exercises is
+    /// the honest-refusal one. The populated branch is proven where it actually matters and
+    /// cannot be faked: `package-app.sh` greps the commit out of the produced executable and
+    /// refuses to sign a bundle that does not contain it.
+    #[test]
+    fn a_build_states_its_source_commit_or_states_that_it_cannot() {
+        let note = source_commit_note();
+        match source_commit() {
+            Some(sha) => {
+                assert!(note.contains(sha), "{note}");
+                assert!(note.starts_with("built from "), "{note}");
+                assert!(!sha.is_empty(), "an empty stamp must read as no stamp at all");
+            }
+            None => {
+                assert_eq!(
+                    note,
+                    "built outside a checkout, so it cannot name its source commit",
+                    "the absent case must be a statement, never an omission"
+                );
+            }
+        }
     }
 
     // =======================================================================================
