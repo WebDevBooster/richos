@@ -108,9 +108,23 @@ fi
 # shellcheck disable=SC1090
 . "$CONFIG" >/dev/null 2>&1 || true
 
-STATE="${DISK_STATE_JSON:-$HOME/.claude/state/disk-watchdog.json}"
+# CLAUDE_CONFIG_DIR IS HONORED HERE, AND THAT IS D9 CLOSED.
+#
+# The sweeper's failures_path() has always honored CLAUDE_CONFIG_DIR; this job's
+# reader did not, and SCRATCH_FAILURES_STATE was declared in no config file. So
+# ONE EXPORTED VARIABLE in an operator's shell profile made the sweeper write its
+# failures under $CLAUDE_CONFIG_DIR/state/ while the watchdog read
+# ~/.claude/state/ — and every MASSIVE ALERT about a garbage path that could not
+# be deleted went silently nowhere, with no sign that it was off. Frank proved it:
+# `CLAUDE_CONFIG_DIR=.../cfg disk-watchdog.sh --alert` exited 0 and printed
+# nothing while the failure record sat in the other directory.
+#
+# The engine's own suites export CLAUDE_CONFIG_DIR (run-all-tests.test.sh), so
+# this is a live knob and not a hypothetical one.
+_STATE_BASE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/state"
+STATE="${DISK_STATE_JSON:-$_STATE_BASE/disk-watchdog.json}"
 STATE="${STATE/#\~/$HOME}"
-LOG="${DISK_WATCHDOG_LOG:-$HOME/.claude/state/disk-watchdog.log}"
+LOG="${DISK_WATCHDOG_LOG:-$_STATE_BASE/disk-watchdog.log}"
 
 # ---------------------------------------------------------------------------
 # --uninstall / --installed / --install
@@ -234,14 +248,22 @@ fi
 # the general lesson and it is why disk-watchdog.test.sh case W1 declares a
 # deliberately UNUSUAL threshold and asserts it comes back out of --json: a test
 # using the real numbers would pass against a program reading none of them.
-export DISK_WATCHDOG_ENABLE DISK_PRIMARY_VOLUME DISK_EXTRA_VOLUMES
-export DISK_RICH_ALERT_GB DISK_DROP_ALERT_GB
-export DISK_CEO_NOTIFY_GB DISK_CEO_URGENT_GB DISK_CEO_REPEAT_HOURS
-export DISK_SCALE_EXTRA_VOLUMES DISK_WATCHDOG_MINUTES
-export DISK_CONSUMER_CANDIDATES DISK_STATE_JSON
-# Read to classify the shortfall as ours or not, and to report the sweeper's
-# standing failures. OBSERVED, never invoked: this job must not depend on the
-# sweeper, only look at what it left behind.
-export SCRATCH_ROOT_NAME SCRATCH_CLAUDE_ROOTS SCRATCH_FAILURES_STATE
+#
+# EXPORTED BY PATTERN AND NOT BY NAME, for the reason scratch-reaper.sh gives at
+# the same point: a list of names has failed twice by omission, and the failure
+# is invisible because the config says the key is set and the code says it reads
+# it. `compgen -v` enumerates what sourcing actually did, so a key cannot be
+# declared and missed.
+#
+# The SCRATCH_* keys are read to classify the shortfall as ours or not, to report
+# the sweeper's standing failures, and (from 2026-09-18) to report the GARBAGE
+# NOTHING WILL EVER COLLECT. OBSERVED, never invoked: this job must not depend on
+# the sweeper, only look at what it left behind.
+while read -r _k; do
+    case "$_k" in
+        DISK_*|SCRATCH_*|APP_TEST_INSTANCE_*|APP_INSTANCE_*) export "$_k" ;;
+    esac
+done < <(compgen -v)
+unset _k
 
 MODE="$MODE" STATE="$STATE" LOG="$LOG" exec python3 "$SCRIPT_DIR/lib/disk-watchdog.py"

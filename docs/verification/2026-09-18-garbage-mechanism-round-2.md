@@ -281,3 +281,144 @@ hook somebody deletes, so the budget is now **5 s** and the expensive arm absorb
 last, what it does not reach is counted, and Fix 2 says so out loud. The complete pass is the
 scheduled job's, four times a day, with no budget at all. Verified: `--notice --deadline 8` returned
 at 8.05 s having decided the cheap arms and printed no "UNKNOWN" banner.
+
+---
+
+## 3. Fix 2 — the garbage alarm, a failure in the exit code, and D9 closed
+
+Frank's verdict is the specification for this one:
+
+> The mechanism is not defeatable in the sense of being tricked — it is defeated by NOT BEING ASKED.
+> Its alarm is a disk-space alarm and a delete-failure alarm. **It has no garbage alarm.**
+
+The CEO's sentence has two halves — *always cleaned up* OR *Rich gets a MASSIVE ALERT* — and they
+were satisfied simultaneously only for the paths already swept. Everything else fell between them.
+
+### 3.1 `skipped` — and it is deliberately not `kept`
+
+The verdict line now carries `skipped=N skipped_bytes=B`, published to
+`scratch-reaper-state.json`, and it counts **what the program has LOOKED AT and will never take**:
+another program's temp directory, another user's, a symlink. A kept entry is alive or young and gets
+collected in due course; a skipped one sits there until a person removes it.
+
+```
+verdict: decided deletable=12946 reclaimable=310.0 MB kept=48534 undecidable=24
+         skipped=2934 skipped_bytes=1.0 GB
+```
+
+`not_measured=N` and `not_scanned=N` appear **only when they are true**, so the line a person is used
+to reading does not grow a field that is always zero.
+
+**A correction I made to my own first version, because it shipped two facts in one sentence.** The
+first cut folded budget-truncated entries into `skipped` and printed *"1.0 GB in 47,681 place(s)"* —
+a byte count from 2,830 measured entries wearing a place count inflated by 44,851 unmeasured ones.
+Two different facts in one sentence is a sentence nobody can act on.
+
+### 3.2 The banner quotes the last full pass, and says so
+
+**A bigger budget was the wrong answer and so was a smaller one.** With a 5 s budget the banner said
+*"44,851 temp entries were NOT MEASURED within the 5 s budget"* — at every session start, forever,
+because 60,942 temp entries is simply what this machine has. That line describes the budget, not the
+machine's health, and a line that is always true is wallpaper. Wallpaper is how a real signal comes
+to be skipped, which is the failure the whole mechanism exists to prevent.
+
+So `--notice` **does not attempt the expensive arm at all**. Its garbage numbers come from the state
+file the scheduled `--apply` publishes every six hours, and the banner **quotes the date**:
+
+```
+SCRATCH: 1.0 GB in 2934 place(s) is garbage NOTHING WILL EVER COLLECT — another
+program's temp directory, another user's, or a symlink. Nobody is coming for it;
+it goes when a person removes it. Measured by the scheduled pass at
+2026-09-18T04:40:00Z. See which: .../scratch-reaper.sh --verbose
+```
+
+A pile nothing will ever collect does not change in six hours — that is what makes it that pile —
+and leg 3 of the notice already shouts if no pass has completed in fourteen. Cost back to **1.5 s**
+from 11.6 s.
+
+### 3.3 The undecidable pile gets its own, lower threshold (D12)
+
+It shared `SCRATCH_NOTICE_BYTES` at 1 GiB, which was written for "an ordinary session's worth of dead
+scratch" and is far too high for a pile **no scheduled run will ever clear**. The two are different
+in kind: one shrinks by itself, the other never does. `SCRATCH_UNDECIDABLE_NOTICE_BYTES` is 64 MiB,
+measured against today's 164,580,800 B in 23 places — the stale-ledger-row problem §2.4 names, which
+is exactly what somebody should be told about.
+
+### 3.4 D9 — one environment variable turned the MASSIVE ALERT off
+
+The sweeper's `failures_path()` honored `CLAUDE_CONFIG_DIR`; the watchdog's reader did not; and
+`SCRATCH_FAILURES_STATE` was declared in no config file, so nothing reconciled them. Frank proved it:
+the reaper wrote the failure under `$CLAUDE_CONFIG_DIR/state/`, `disk-watchdog.sh --alert` exited 0
+and printed nothing. The engine's own suites export that variable, so it was a live knob.
+
+Closed in both directions, because either alone would leave the other half fragile:
+`disk-watchdog.sh` and `disk-watchdog.py` both resolve the base with the same
+`CLAUDE_CONFIG_DIR`-honoring rule the sweeper uses, **and** `SCRATCH_FAILURES_STATE`,
+`SCRATCH_REAPER_STATE` and `APP_INSTANCE_FAILURES_STATE` are now declared in `orchestration.config`.
+W17 asserts it against a config that deliberately does *not* declare the key, which is the state
+Frank found the engine in.
+
+### 3.5 D10 — a failed deletion is in the exit code and on stdout
+
+It was `return 3 if undecidable else 0`, with the failure list never consulted, and stdout said
+`applied: deleted=0 freed=0 B` — byte-identical in shape to a run with nothing to do. launchd saw
+green on a run that could not delete a thing, and the word FAILED existed only inside a log nobody
+reads. Now: **exit 4**, documented in the script header beside 0/2/3, and `failures=N` on the
+`applied:` line. 4 outranks 3 because a failed deletion is the branch of §54 where Rich deletes it by
+hand.
+
+### 3.6 D13, the part of it that is cheap and unambiguous
+
+`/private/tmp` was not in `DISK_CONSUMER_CANDIDATES`, so the 25.77 GiB pile there **could not appear
+in an alert at all** while the alert named `~/ab`, `/Volumes/E1TB/vm` and `~/.claude`. Added. **The
+other half of D13 is left open and named in §6** — `richos_garbage_bytes()` still counts only the
+allocator root and the claude roots, so the ours-or-not classification sees a fraction of our garbage.
+Fixing that properly means the sweeper publishing an "ours" figure, and half-fixing a classifier is
+worse than leaving it measured and recorded.
+
+### 3.7 Tests
+
+```
+$ scripts/scratch-reaper.test.sh                84 passed, 0 failed
+   S22   the verdict line carries skipped= AND skipped_bytes=
+   S22b  CONTROL: with nothing foreign the same line says skipped=0
+   S22c  a FAILED deletion exits 4 — launchd can no longer see green
+   S22d  and stdout says failures=N, not only the log file
+   S22e  CONTROL: a clean run still exits 0 and says failures=0
+   S22f  --apply PUBLISHES skipped/skipped_bytes/undecidable_bytes
+   S22g  the banner raises the GARBAGE ALARM from the last full pass
+   S22h  and it DATES the number, because it is not a live reading
+   S22i  and it does not attempt the expensive arm, so it stays cheap
+   S22i2 CONTROL: a full scan of the same world DOES find it
+   S22j  CONTROL: below the declared threshold the alarm is silent
+
+$ scripts/disk-watchdog.test.sh                 35 passed, 0 failed
+   W17  CLAUDE_CONFIG_DIR is honored — the failure alert cannot be silenced
+   W17b CONTROL: with no failure in that directory it is silent
+   W18  garbage nothing will ever collect reaches Rich's alert, with a count
+   W18b CONTROL: below the declared threshold it is completely silent
+   W18c an undecidable pile alerts on its OWN lower threshold, not the 1 GiB one
+
+$ scripts/hooks/notice-disk-alert.test.sh       14 passed, 0 failed
+   D10  the garbage alarm reaches the ONE-LINE turn-end summary, with its count
+   D10b CONTROL: below the threshold the turn end raises nothing at all
+
+$ scripts/hooks/session-start-scratch.test.sh    9 passed, 0 failed
+$ scripts/scratch-reaper.mutation.sh            all 34 properties proven load-bearing
+   M31.skipped-not-counted              -> S22  red
+   M32.failure-not-in-exit-code         -> S22c red
+   M33.notice-reruns-the-expensive-arm  -> S22i red
+   M34.garbage-alarm-ignores-threshold  -> S22j red
+```
+
+**Two things the harness and the suite caught in my own work, which is the reason they exist:**
+
+- **M33 first scored green against a banner that re-ran the expensive arm.** My assertion looked for
+  the string "NOT MEASURED", and a small test world never exhausts a budget, so that line never
+  appears and the mutation was invisible. The assertion has to be about the arm's RESULTS — the
+  banner cannot report a candidate only that arm can find — not about its failure mode. Same lesson
+  as M22 and M25.
+- **The turn-end summary parser silently dropped the `CLASSIFICATION:` line** when I added the
+  garbage lines to it, and case D4 failed immediately. Every new condition in the alert block has to
+  be taught to that parser or it vanishes at the turn end, so D10 now pins the garbage line there
+  too.

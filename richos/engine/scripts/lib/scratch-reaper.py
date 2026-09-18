@@ -701,6 +701,11 @@ class Reaper(object):
         # the whole pass. See scan_deferred_unknown.
         self._unknown = []
         self.deferred_skipped = 0
+        # Set by --notice: the expensive arm is NOT ATTEMPTED, and the garbage
+        # numbers come from the last full pass's state file instead. See
+        # scan_deferred_unknown.
+        self.skip_unknown_arm = False
+        self.unknown_not_scanned = 0
 
     def add(self, path, klass, size, action, why):
         self.entries.append(Entry(path, klass, size, action, why))
@@ -1374,6 +1379,25 @@ class Reaper(object):
         verdict line beside the undecidable count — an honest "N entries were not
         measured within the budget" is a usable sentence, and "UNKNOWN" is not.
         """
+        # --notice DOES NOT ATTEMPT THIS ARM AT ALL, and that is a correction to
+        # the first version of this change rather than a shortcut.
+        #
+        # With a budget, the arm reached part of the way and the banner said
+        # "44,851 temp entries were NOT MEASURED within the 5 s budget" — AT
+        # EVERY SESSION START, FOREVER, because 60,942 temp entries is what this
+        # machine simply has. That line describes the budget, not the machine's
+        # health, and a line that is always true is wallpaper. Wallpaper is how a
+        # real signal comes to be skipped, which is the failure this whole
+        # mechanism exists to prevent.
+        #
+        # So the banner's garbage numbers come from the LAST FULL PASS, which the
+        # scheduled job publishes to scratch-reaper-state.json every six hours.
+        # A pile of garbage nobody is coming for does not change in six hours —
+        # that is what makes it that pile — and leg 3 of the notice already
+        # shouts if the scheduled job has not completed a pass in fourteen.
+        if self.skip_unknown_arm:
+            self.unknown_not_scanned = len(self._unknown)
+            return
         held = {}
         done = 0
         try:
@@ -1733,11 +1757,54 @@ class Reaper(object):
     def undecidable_bytes(self):
         return sum(e.size for e in self.entries if e.action == INDETERMINATE)
 
+    def skipped(self):
+        """(count, bytes) OF GARBAGE NO RUN OF THIS PROGRAM WILL EVER TAKE.
+
+        FRANK'S FIX 2, AND IT IS THE HALF OF THE CEO'S RULE THE MECHANISM DID NOT
+        IMPLEMENT. His verdict: "Its alarm is a disk-space alarm and a
+        delete-failure alarm. It has no garbage alarm." Garbage no arm considered
+        produced neither a cleanup nor a word, and `kept=1611` out of 53,593 meant
+        no number in the verdict line could be used to notice.
+
+        Under deny-by-default nothing under the temp roots is unconsidered any
+        more, so the honest number changed shape. What this counts is what the
+        program has LOOKED AT AND WILL NEVER COLLECT:
+
+          * another program's temp directory (the declared foreign keep-list)
+          * another user's (the uid wall)
+          * a symlink, whose target is not this program's to reason about
+          * entries a BUDGETED run did not reach — counted, never guessed at
+
+        It is deliberately NOT the same number as `kept`. A kept entry is usually
+        alive or young and will be collected in due course; a skipped one will sit
+        there for ever unless a person removes it. 1.13 GB of it on this machine
+        on 2026-09-18, of which 942 MB is one VS Code installer directory.
+
+        ENTRIES A BUDGET DID NOT REACH ARE **NOT** COUNTED HERE, and the first
+        version of this method counted them. It printed "1.0 GB in 47,681
+        place(s)" — a byte count from 2,830 measured entries wearing a place count
+        inflated by 44,851 unmeasured ones. Two different facts in one sentence
+        is a sentence nobody can act on. `not_measured` is its own field.
+        """
+        n = sum(1 for e in self.entries if e.klass == "tmp-foreign")
+        b = sum(e.size for e in self.entries if e.klass == "tmp-foreign")
+        return n, b
+
     def verdict_line(self):
         d, i, k, b = self.counts()
-        return ("verdict: %s deletable=%d reclaimable=%s kept=%d "
-                "undecidable=%d" % ("undecided" if i else "decided",
-                                    d, human(b), k, i))
+        sn, sb = self.skipped()
+        line = ("verdict: %s deletable=%d reclaimable=%s kept=%d "
+                "undecidable=%d skipped=%d skipped_bytes=%s"
+                % ("undecided" if i else "decided", d, human(b), k, i,
+                   sn, human(sb)))
+        # ONLY WHEN IT IS TRUE, so the line a person is used to reading does not
+        # grow a field that is always zero. A budget that truncated the scan is
+        # an exceptional condition and reads as one.
+        if self.deferred_skipped:
+            line += " not_measured=%d" % self.deferred_skipped
+        if self.unknown_not_scanned:
+            line += " not_scanned=%d" % self.unknown_not_scanned
+        return line
 
     def prune_docker(self):
         """Docker's own caches, which no walk of the filesystem can reclaim.
@@ -2289,6 +2356,14 @@ def config_from_env():
         "unknown_age_hours": opt_number("SCRATCH_UNKNOWN_AGE_HOURS", 72),
         "unknown_git_is_fixture":
             opt("SCRATCH_UNKNOWN_GIT_IS_FIXTURE", "0") == "1",
+        # The two notice thresholds the garbage alarm uses. Their fallbacks are
+        # the CONSERVATIVE direction for a notice, which is to say the LOUD one:
+        # a machine whose config predates these keys is told about garbage it
+        # cannot collect rather than kept quiet about it.
+        "skipped_notice_bytes":
+            opt_number("SCRATCH_SKIPPED_NOTICE_BYTES", 1024 ** 3),
+        "undecidable_notice_bytes":
+            opt_number("SCRATCH_UNDECIDABLE_NOTICE_BYTES", 64 * 1024 ** 2),
     }
 
 
@@ -2345,6 +2420,9 @@ def main(argv=None):
         cfg = config_from_env()
         ws = load_workspaces()
         reaper = Reaper(cfg, ws)
+        # The banner never pays for the expensive arm. Its garbage numbers come
+        # from the last full pass, which the scheduled job publishes.
+        reaper.skip_unknown_arm = bool(args.notice)
         reaper.scan()
     except Fatal as exc:
         sys.stderr.write("scratch-reaper: %s\n" % exc)
@@ -2373,22 +2451,60 @@ def main(argv=None):
             print("SCRATCH: %s of dead scratch in %d place(s) is reclaimable "
                   "now — nothing running owns any of it. Free it: %s --apply"
                   % (human(b), d, cmd))
-        # The undecidable pile gets its own line and its own threshold. It is
-        # the one thing the scheduled job will NEVER clear on its own, so if
-        # nobody is told, it grows forever — which is the exact failure the
-        # whole mechanism was ordered to end.
-        if reaper.undecidable_bytes() >= cfg["notice_bytes"]:
+        # The undecidable pile gets its own line and ITS OWN, LOWER THRESHOLD.
+        # It is the one thing the scheduled job will NEVER clear on its own, so
+        # if nobody is told, it grows forever — which is the exact failure the
+        # whole mechanism was ordered to end. Sharing SCRATCH_NOTICE_BYTES hid up
+        # to a GiB of it (Frank's D12); the two piles are different in kind and
+        # get different numbers.
+        if reaper.undecidable_bytes() >= cfg["undecidable_notice_bytes"]:
             print("SCRATCH: %s in %d place(s) could not be decided and will "
                   "never be reclaimed by the scheduled job. Read why: %s "
                   "--verbose" % (human(reaper.undecidable_bytes()), i, cmd))
+        # THE GARBAGE ALARM, AND IT IS READ FROM THE LAST FULL PASS.
+        #
+        # The banner does not run the expensive deny-by-default arm (see
+        # scan_deferred_unknown), so these two numbers come from the state file
+        # the scheduled --apply publishes. THE NUMBER IS DATED IN THE SENTENCE —
+        # a figure presented as live that is six hours old is the stale-artifact
+        # failure, and the honest form costs one clause.
+        st = read_failures(default_state())      # same tolerant JSON reader
+        sb = int(st.get("skipped_bytes") or 0)
+        sn = int(st.get("skipped") or 0)
+        ub = int(st.get("undecidable_bytes") or 0)
+        un = int(st.get("undecidable") or 0)
+        when = st.get("last_apply") or "?"
+        if sb >= cfg["skipped_notice_bytes"]:
+            print("SCRATCH: %s in %d place(s) is garbage NOTHING WILL EVER "
+                  "COLLECT — another program's temp directory, another user's, "
+                  "or a symlink. Nobody is coming for it; it goes when a person "
+                  "removes it. Measured by the scheduled pass at %s. See which: "
+                  "%s --verbose" % (human(sb), sn, when, cmd))
+        if ub >= cfg["undecidable_notice_bytes"] \
+                and reaper.undecidable_bytes() < cfg["undecidable_notice_bytes"]:
+            # Only when the LIVE scan above did not already say it: the live
+            # arms and the full pass see different piles, and saying it twice in
+            # two shapes is worse than saying it once.
+            print("SCRATCH: %s in %d place(s) could not be decided by the "
+                  "scheduled pass at %s and no scheduled run will ever clear "
+                  "it. Read why: %s --verbose" % (human(ub), un, when, cmd))
         return 3 if undecidable else 0
 
+    n_failures = 0
+    skipped_n, skipped_b = reaper.skipped()
     if args.apply:
         deleted, freed, failures = reaper.apply(args.log or default_log())
+        n_failures = len(failures)
         write_state(default_state(), {
             "last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "deleted": deleted, "freed": freed,
-            "undecidable": undecidable, "failures": len(failures),
+            "undecidable": undecidable,
+            "undecidable_bytes": reaper.undecidable_bytes(),
+            # PUBLISHED SO THE WATCHDOG CAN SEE IT WITHOUT RUNNING THIS PROGRAM.
+            # The garbage alarm lives in the turn-end and session-start notices,
+            # which read the watchdog, which reads this file. Frank's Fix 2.
+            "skipped": skipped_n, "skipped_bytes": skipped_b,
+            "failures": n_failures,
             "verdict": "undecided" if undecidable else "decided",
         })
     if args.json:
@@ -2397,6 +2513,9 @@ def main(argv=None):
             "applied": bool(args.apply),
             "deleted": deleted, "freed": freed,
             "undecidable": undecidable,
+            "undecidable_bytes": reaper.undecidable_bytes(),
+            "skipped": skipped_n, "skipped_bytes": skipped_b,
+            "failures": n_failures,
             "entries": [{"path": e.path, "class": e.klass, "bytes": e.size,
                          "action": e.action, "why": e.why}
                         for e in reaper.entries],
@@ -2404,8 +2523,21 @@ def main(argv=None):
     else:
         print(reaper.report(verbose=args.verbose))
         if args.apply:
-            print("applied: deleted=%d freed=%s log=%s"
-                  % (deleted, human(freed), args.log or default_log()))
+            # `failures=` IS ON THIS LINE AND NOT ONLY IN THE LOG. Frank's D10:
+            # a run in which every deletion failed printed
+            # `applied: deleted=0 freed=0 B` — byte-identical in shape to a run
+            # with nothing to do — and exited 0. The word FAILED existed only
+            # inside a log file nobody reads.
+            print("applied: deleted=%d freed=%s failures=%d log=%s"
+                  % (deleted, human(freed), n_failures,
+                     args.log or default_log()))
+    # EXIT CODES, AND A FAILED DELETION IS NOW IN ONE (D10). It used to be
+    # `3 if undecidable else 0`, with `failures` never consulted — so launchd saw
+    # green on a run that could not delete a thing. 4 outranks 3 because a
+    # deletion that FAILED is the branch of §54 that says Rich deletes it by
+    # hand, and an undecidable entry is the branch that says somebody reads it.
+    if n_failures:
+        return 4
     return 3 if undecidable else 0
 
 

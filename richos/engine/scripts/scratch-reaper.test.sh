@@ -96,7 +96,19 @@
 #        sibling deleted in the same run (S21e). The PROOF is the process table
 #        and not the age (S21g/S21h). A declared shared root is swept too
 #        (S21i, which is /private/tmp). Wall 3 stands over the new arm
-#        (S21j/S21k) and so does the open-file wall (S21l/S21m).
+#        (S21j/S21k) and so does the open-file wall (S21l/S21m). The declared age
+#        floor is the SECOND condition and has its own case (S21n-S21p), which is
+#        also the case that found a one-hour DST error in lstart_epoch.
+#
+#   S22  THE GARBAGE ALARM, and a FAILED DELETION THAT REACHES THE EXIT CODE.
+#        Frank's verdict was that the mechanism had "a disk-space alarm and a
+#        delete-failure alarm" and "no garbage alarm", so garbage nothing would
+#        ever collect fell between the two halves of §54 in silence. The verdict
+#        line now carries skipped=/skipped_bytes= (S22, control S22b); a failed
+#        deletion exits 4 and says failures=N on stdout instead of only in a log
+#        (S22c/S22d, control S22e); --apply publishes the numbers the watchdog
+#        reads (S22f); and the banner raises the alarm FROM THE LAST FULL PASS,
+#        dated, without paying for the expensive arm (S22g-S22i2, control S22j).
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -1413,6 +1425,169 @@ else
     bad "S21p CONTROL FAILED: kept at any age, so S21n proves nothing"
     printf '%s\n' "$OUT" | sed 's/^/        /'
 fi
+
+# ===========================================================================
+# S22 — THE GARBAGE ALARM, AND A FAILED DELETION THAT REACHES THE EXIT CODE
+# ===========================================================================
+# frank-opus-garbage1's verdict on the whole mechanism: "Its alarm is a
+# disk-space alarm and a delete-failure alarm. It has no garbage alarm." The
+# CEO's rule has two halves — always cleaned up, OR Rich gets a MASSIVE ALERT —
+# and garbage nothing would ever collect fell between them in silence.
+
+deny_world skipcount
+start_claude; PID_D9="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D9" "$SID_LIVE"
+stale "$W_TMP/zforeign.not-ours-at-all"
+OUT="$(run --dry-run)"
+case "$OUT" in
+    *"skipped=0 "*|*"skipped=0"*)
+        bad "S22  the verdict line says skipped=0 with a foreign pile standing" ;;
+    *skipped=*skipped_bytes=*)
+        ok "S22  the verdict line carries skipped= AND skipped_bytes=" ;;
+    *) bad "S22  the verdict line carries no skipped count at all"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# THE CONTROL. A world with nothing foreign in it must say skipped=0 — otherwise
+# S22 is measuring a constant rather than the pile.
+deny_world skipzero
+start_claude; PID_D10="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D10" "$SID_LIVE"
+stale "$W_TMP/zzz-ordinary"
+OUT="$(run --dry-run)"
+case "$OUT" in
+    *"skipped=0"*) ok "S22b CONTROL: with nothing foreign the same line says skipped=0" ;;
+    *) bad "S22b skipped= is not zero on a world with nothing to skip"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+
+# --- a failed deletion reaches the exit code and stdout (D10) ----------------
+# It used to be `return 3 if undecidable else 0` with the failure list never
+# consulted, and stdout said `applied: deleted=0 freed=0 B` — byte-identical in
+# shape to a run with nothing to do. launchd saw green on a run that could not
+# delete a thing, and the word FAILED existed only inside the log.
+world failexit
+mkdir -p "$W_TMP/zlegacy-cannotgo/inner"
+echo payload >"$W_TMP/zlegacy-cannotgo/inner/payload.txt"
+# The PARENT's mode, not the tree's: _make_writable widens the tree it is handed
+# and never its parent, which is the hole Frank went through to force a failure.
+chmod 500 "$W_TMP" 2>/dev/null || true
+OUT="$(run --apply)"; RC=$?
+chmod 700 "$W_TMP" 2>/dev/null || true
+if [ "$RC" = "4" ]; then
+    ok "S22c a FAILED deletion exits 4 — launchd can no longer see green"
+else
+    bad "S22c a failed deletion exited $RC; a failure is not in the exit code (D10)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | tail -6
+fi
+case "$OUT" in
+    *"failures=1"*|*"failures=2"*|*"failures=3"*)
+        ok "S22d and stdout says failures=N, not only the log file" ;;
+    *) bad "S22d stdout gave no failure count — the run looks like a quiet one"
+       printf '%s\n' "$OUT" | sed 's/^/        /' | tail -6 ;;
+esac
+
+# THE CONTROL: the same world with nothing unremovable exits 0 and says
+# failures=0. Without it, S22c passes against a program that always exits 4.
+world failexitok
+mkdir -p "$W_TMP/zlegacy-cango"
+echo payload >"$W_TMP/zlegacy-cango/payload.txt"
+OUT="$(run --apply)"; RC=$?
+if [ "$RC" = "0" ] && printf '%s' "$OUT" | grep -q 'failures=0'; then
+    ok "S22e CONTROL: a clean run still exits 0 and says failures=0"
+else
+    bad "S22e a clean run exited $RC — exit 4 is not conditional on a failure"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | tail -6
+fi
+
+# --- the state file is the interface the watchdog reads ----------------------
+deny_world skipstate
+start_claude; PID_D11="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D11" "$SID_LIVE"
+stale "$W_TMP/zforeign.published"
+run --apply >/dev/null 2>&1
+SFILE="$W_HOME/state/scratch-reaper-state.json"
+if python3 - "$SFILE" <<'PY'
+import json, sys
+try:
+    st = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if (st.get("skipped_bytes") or 0) > 0
+         and "skipped" in st and "undecidable_bytes" in st else 1)
+PY
+then
+    ok "S22f --apply PUBLISHES skipped/skipped_bytes/undecidable_bytes"
+else
+    bad "S22f the state file carries no garbage numbers, so the watchdog cannot"
+    bad "     see them and the garbage alarm has nothing to read"
+    cat "$SFILE" 2>/dev/null | sed 's/^/        /'
+fi
+
+# --- the banner quotes the last full pass, and does NOT re-derive it ---------
+# The first version of this ran the expensive arm under a budget and printed
+# "44,851 entries were NOT MEASURED" at every session start forever. A line that
+# is always true is wallpaper, and wallpaper is how a real signal gets skipped.
+deny_world noticegarbage
+start_claude; PID_D12="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_D12" "$SID_LIVE"
+stale "$W_TMP/zzz-a-real-candidate"
+mkdir -p "$W_HOME/state"
+python3 - "$W_HOME/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
+           "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 7, "skipped_bytes": 5000000000,
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"' >>"$W_CFG"
+OUT="$(run --notice)"
+case "$OUT" in
+    *"NOTHING WILL EVER COLLECT"*)
+        ok "S22g the banner raises the GARBAGE ALARM from the last full pass" ;;
+    *) bad "S22g no garbage alarm with 5 GB of skipped garbage on the books"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+case "$OUT" in
+    *2026-09-18T04:40:00Z*)
+        ok "S22h and it DATES the number, because it is not a live reading" ;;
+    *) bad "S22h the banner presented a six-hour-old number as if it were live"
+       printf '%s\n' "$OUT" | sed 's/^/        /' ;;
+esac
+# THE OBSERVABLE FOR "IT DOES NOT ATTEMPT THE EXPENSIVE ARM" is that the banner
+# cannot see what only that arm decides. This world holds one stale undeclared
+# candidate and SCRATCH_NOTICE_BYTES is 1, so a banner that ran the arm would
+# announce reclaimable dead scratch. A banner that skips it cannot.
+#
+# ASSERTING ON "NOT MEASURED" WAS NOT ENOUGH AND THE MUTATION HARNESS SAID SO:
+# M33 scored green against a banner that re-ran the arm, because a small test
+# world never exhausts a budget and so never prints that line at all. The
+# assertion has to be about the arm's RESULTS, not about its failure mode.
+case "$OUT" in
+    *"of dead scratch"*)
+        bad "S22i the banner is attempting the expensive arm again — it reported"
+        bad "     scratch only that arm can find" ;;
+    *)  ok "S22i and it does not attempt the expensive arm, so it stays cheap" ;;
+esac
+# THE CONTROL: the very same world, scanned fully, DOES find that candidate.
+# Without it S22i passes against a banner that reports nothing ever.
+OUT2="$(run --dry-run)"
+case "$OUT2" in
+    *zzz-a-real-candidate*)
+        ok "S22i2 CONTROL: a full scan of the same world DOES find it" ;;
+    *) bad "S22i2 the candidate is invisible to a full scan too, so S22i is vacuous"
+       printf '%s\n' "$OUT2" | sed 's/^/        /' ;;
+esac
+
+# THE CONTROL: below the declared threshold the same banner is silent. Without
+# it, S22g passes against a banner that shouts unconditionally.
+echo 'SCRATCH_SKIPPED_NOTICE_BYTES="9999999999999"' >>"$W_CFG"
+OUT="$(run --notice)"
+case "$OUT" in
+    *"NOTHING WILL EVER COLLECT"*)
+        bad "S22j the garbage alarm ignores its own declared threshold" ;;
+    *)  ok "S22j CONTROL: below the declared threshold the alarm is silent" ;;
+esac
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------
 # run-all-tests.sh discovers *.test.sh; a *.mutation.sh is invisible to it, and

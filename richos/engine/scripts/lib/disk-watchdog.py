@@ -41,6 +41,25 @@ def expand(p):
     return os.path.expanduser(os.path.expandvars(p))
 
 
+def state_base():
+    """Where this machine's state files live, HONORING CLAUDE_CONFIG_DIR.
+
+    D9, AND IT IS THE CHEAPEST DEFEAT IN FRANK'S WHOLE REPORT. The sweeper's
+    failures_path() has always honored CLAUDE_CONFIG_DIR. This program's reader
+    did not, and SCRATCH_FAILURES_STATE was declared in no config file — so one
+    exported variable in a shell profile sent the sweeper's failure record to one
+    directory and this job's reader to another, and every MASSIVE ALERT about a
+    path that could not be deleted went nowhere with no sign that it was off.
+
+    Reconciled in both directions: this helper is the same resolution the sweeper
+    uses, and SCRATCH_FAILURES_STATE is now DECLARED in orchestration.config so
+    the two cannot drift by default either.
+    """
+    base = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() \
+        or os.path.join(os.path.expanduser("~"), ".claude")
+    return os.path.join(base, "state")
+
+
 # ---------------------------------------------------------------------------
 # reading a volume
 # ---------------------------------------------------------------------------
@@ -210,8 +229,9 @@ def log(path, line):
 
 def main():
     mode = env("MODE", "check")
-    state_path = expand(env("STATE", "~/.claude/state/disk-watchdog.json"))
-    log_path = expand(env("LOG", "~/.claude/state/disk-watchdog.log"))
+    sbase = state_base()
+    state_path = expand(env("STATE", os.path.join(sbase, "disk-watchdog.json")))
+    log_path = expand(env("LOG", os.path.join(sbase, "disk-watchdog.log")))
 
     primary = env("DISK_PRIMARY_VOLUME", "/System/Volumes/Data")
     extras = env("DISK_EXTRA_VOLUMES", "").split()
@@ -285,9 +305,37 @@ def main():
     # thresholds. Read from the sweeper's own state file rather than by running
     # it: this job must never depend on the sweeper, only observe it.
     fails_path = expand(env("SCRATCH_FAILURES_STATE",
-                            "~/.claude/state/scratch-failures.json"))
+                            os.path.join(sbase, "scratch-failures.json")))
     sweep_failures = read_state(fails_path)
     n_fail = len(sweep_failures) if isinstance(sweep_failures, dict) else 0
+
+    # --- THE GARBAGE ALARM (Frank's Fix 2) ----------------------------------
+    # His verdict on the whole mechanism was that "its alarm is a disk-space
+    # alarm and a delete-failure alarm — IT HAS NO GARBAGE ALARM", so garbage no
+    # arm considers produces neither a cleanup nor a word to anybody, and the
+    # reports read green while tens of gigabytes sit there. Both halves of §54
+    # ("always cleaned up" OR "Rich gets a MASSIVE ALERT") were satisfied at once
+    # only for the paths already swept.
+    #
+    # This is the missing half, and it is cheap because the sweeper now computes
+    # it: SKIPPED is garbage that will never be collected by the scheduled job —
+    # another program's temp directory, another user's, a symlink, or entries a
+    # budgeted run could not reach. UNDECIDABLE is the pile a tripped wall leaves
+    # behind, which no run will ever clear on its own.
+    #
+    # READ, NEVER RUN. The sweeper publishes both numbers to its own state file
+    # at every --apply; this job looks at what was left behind, exactly as it does
+    # for the failures. It never invokes the sweeper and never writes its file.
+    reaper_state = read_state(expand(env(
+        "SCRATCH_REAPER_STATE",
+        os.path.join(sbase, "scratch-reaper-state.json"))))
+    skipped_n = int(reaper_state.get("skipped") or 0)
+    skipped_b = int(reaper_state.get("skipped_bytes") or 0)
+    undec_n = int(reaper_state.get("undecidable") or 0)
+    undec_b = int(reaper_state.get("undecidable_bytes") or 0)
+    skipped_floor = env_num("SCRATCH_SKIPPED_NOTICE_BYTES", 1024 ** 3)
+    undec_floor = env_num("SCRATCH_UNDECIDABLE_NOTICE_BYTES", 64 * 1024 ** 2)
+    garbage_alarm = (skipped_b >= skipped_floor) or (undec_b >= undec_floor)
 
     # --- test instances that would not close (§54 addendum 4) ---------------
     # CEO: "Test app windows must always close/quit when testing is finished.
@@ -306,7 +354,7 @@ def main():
     n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
 
     alerting = [v for v in volumes if v["below_rich"] or v["drop_alert"]]
-    condition = bool(alerting) or n_fail > 0 or n_inst > 0
+    condition = bool(alerting) or n_fail > 0 or n_inst > 0 or garbage_alarm
 
     # --- attribution and classification, ONLY when something is wrong -------
     consumers, classification, garbage = [], "", 0
@@ -408,6 +456,19 @@ def main():
                 lines.append("      first seen %s, %s attempt(s), %s"
                              % (row.get("first", "?"), row.get("attempts", "?"),
                                 str(row.get("why", "?"))[:90]))
+        if garbage_alarm:
+            lines.append("")
+            lines.append("  GARBAGE NOTHING WILL EVER COLLECT ON ITS OWN:")
+            if skipped_b >= skipped_floor:
+                lines.append("    %s in %d place(s) SKIPPED — another program's temp"
+                             % (human(skipped_b), skipped_n))
+                lines.append("      directory, another user's, a symlink, or not reached")
+                lines.append("      within a budgeted run. The sweeper will never take it.")
+            if undec_b >= undec_floor:
+                lines.append("    %s in %d place(s) UNDECIDABLE — a wall tripped, and"
+                             % (human(undec_b), undec_n))
+                lines.append("      no scheduled run will ever clear that on its own.")
+            lines.append("      scripts/scratch-reaper.sh --verbose  says which, and why")
         if consumers:
             lines.append("")
             lines.append("  BIGGEST MEASURED CONSUMERS:")
@@ -485,6 +546,11 @@ def main():
         "top_consumers": consumers,
         "sweep_failures": n_fail,
         "test_instance_failures": n_inst,
+        "garbage_alarm": garbage_alarm,
+        "skipped": skipped_n,
+        "skipped_bytes": skipped_b,
+        "undecidable": undec_n,
+        "undecidable_bytes": undec_b,
         "notified": notified,
         "timer_installed": installed,
         "thresholds": {
@@ -523,6 +589,10 @@ def main():
         if n_fail:
             sys.stdout.write("ALERT  %d garbage path(s) could not be deleted\n"
                              % n_fail)
+        if garbage_alarm:
+            sys.stdout.write("ALERT  %s skipped + %s undecidable — garbage no "
+                             "scheduled run will take\n"
+                             % (human(skipped_b), human(undec_b)))
         if not installed:
             sys.stdout.write("ALERT  the launchd timer is NOT installed\n")
     elif mode == "check":

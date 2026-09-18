@@ -60,12 +60,18 @@
 # test proves that --apply decides nothing --dry-run did not show.
 #
 # EXIT CODES
-#   0  every candidate was decided
+#   0  every candidate was decided and nothing failed to delete
 #   2  a threshold is not declared, or the liveness primitive is missing
 #   3  something was UNDECIDABLE — a running process that no session file
 #      names, a wall that tripped. Undecidable is a failure, never a footnote
 #      beside a success-shaped count, which is the rule the worktree reaper
 #      learned the same way.
+#   4  A DELETION FAILED. Added 2026-09-18: it used to be `3 if undecidable
+#      else 0`, with the failure list never consulted, so a run in which every
+#      deletion failed printed `applied: deleted=0 freed=0 B` — the same shape
+#      as a run with nothing to do — and handed launchd a green exit. The word
+#      FAILED existed only inside a log file nobody reads. 4 outranks 3 because
+#      a failed deletion is the branch of §54 where Rich deletes it by hand.
 #
 # ===========================================================================
 # EVERY THRESHOLD IS DECLARED. NONE IS A DEFAULT.

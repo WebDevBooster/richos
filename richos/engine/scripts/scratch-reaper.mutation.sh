@@ -312,4 +312,41 @@ mutant M30.lstart-dst-offset "S21o" "$LIB" \
      so 'nothing running can own this' is answered against a clock that is wrong
      for half the year."
 
+# ===========================================================================
+# THE GARBAGE ALARM (Frank's Fix 2) — the reporting is a safety, not a comfort
+# ===========================================================================
+# It is tempting to treat a report as untestable decoration. It is the opposite
+# here: the CEO's rule has two halves and this IS the second one. A mechanism that
+# cannot say "there is garbage here and nobody is coming for it" satisfies §54
+# only for the paths it already sweeps, which was the whole of Frank's verdict.
+
+mutant M31.skipped-not-counted "S22 " "$LIB" \
+    "        n = sum(1 for e in self.entries if e.klass == \"tmp-foreign\")" \
+    "        n = 0 * sum(1 for e in self.entries if e.klass == \"tmp-foreign\")" \
+    "The skipped count is always zero, so a pile of garbage nothing will ever
+     collect reports as an empty one. This is the shape the mechanism was in
+     before Fix 2: 1.13 GB on this machine, and every report green."
+
+mutant M32.failure-not-in-exit-code "S22c" "$LIB" \
+    "    if n_failures:{NL}        return 4" \
+    "    if False:{NL}        return 4" \
+    "A run in which every deletion failed hands launchd a green exit again — D10
+     exactly, where \`applied: deleted=0 freed=0 B\` and EXIT=0 were
+     indistinguishable from a run with nothing to do."
+
+mutant M33.notice-reruns-the-expensive-arm "S22i" "$LIB" \
+    "        reaper.skip_unknown_arm = bool(args.notice)" \
+    "        reaper.skip_unknown_arm = False" \
+    "The SessionStart banner attempts the deny-by-default arm again, so every
+     session start pays for it and prints \"44,851 entries were NOT MEASURED
+     within the budget\" for ever. A line that is always true is wallpaper, and
+     wallpaper is how the real signal comes to be skipped."
+
+mutant M34.garbage-alarm-ignores-threshold "S22j" "$LIB" \
+    "        if sb >= cfg[\"skipped_notice_bytes\"]:" \
+    "        if True:" \
+    "The garbage alarm fires whatever the declared threshold says, which is the
+     cries-wolf failure: an alarm that always speaks is one somebody switches
+     off, and then the mechanism is back to silence with extra steps."
+
 mutation_end

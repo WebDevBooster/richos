@@ -51,6 +51,17 @@
 #        environment — and still takes a reading and writes its log line.
 #   W16  --install REFUSES from a worktree or a temp directory, because the
 #        plist would bake in a path that stops existing at land time.
+#   W17  ONE ENVIRONMENT VARIABLE MUST NOT SILENCE THE FAILURE ALERT. The
+#        sweeper's failure record honored CLAUDE_CONFIG_DIR and this program's
+#        reader did not, so an exported variable — and the engine's own suites
+#        export it — sent the two to different directories and turned the MASSIVE
+#        ALERT off with no sign that it was off (frank-opus-garbage1, D9).
+#   W18  THE GARBAGE ALARM. His verdict on everything above it: "its alarm is a
+#        disk-space alarm and a delete-failure alarm; it has no garbage alarm",
+#        so ~53 GiB produced neither a cleanup nor a word. Garbage the sweeper
+#        will never collect now reaches Rich, on its own declared threshold, with
+#        the silence control that matters more than the alarm (W18b) and a
+#        separate lower threshold for the undecidable pile (W18c, his D12).
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -532,6 +543,114 @@ if [ ! -f "$W_LA/com.richos.disk-watchdog.plist" ]; then
     ok "W16b ...and wrote no plist"
 else
     bad "W16b a plist was written despite the refusal"
+fi
+
+# ===========================================================================
+# W17 — ONE ENVIRONMENT VARIABLE MUST NOT SILENCE THE FAILURE ALERT (D9)
+# ===========================================================================
+# frank-opus-garbage1 turned the whole MASSIVE ALERT off with a single exported
+# variable and no sign that it was off. The sweeper's failures_path() honored
+# CLAUDE_CONFIG_DIR; this program's reader did not; and SCRATCH_FAILURES_STATE was
+# declared in no config file, so nothing reconciled them. The sweeper wrote its
+# failure under $CLAUDE_CONFIG_DIR/state/ and `--alert` read ~/.claude/state/ and
+# printed nothing, exit 0.
+#
+# The engine's own suites export CLAUDE_CONFIG_DIR (run-all-tests.test.sh:43), so
+# this was a live knob rather than a hypothetical one.
+world configdir
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+# The config here deliberately does NOT declare SCRATCH_FAILURES_STATE, which is
+# the state Frank found the shipped engine in: the DEFAULT has to honor
+# CLAUDE_CONFIG_DIR, or the declaration is the only thing standing between this
+# alert and silence.
+grep -v 'SCRATCH_FAILURES_STATE' "$W_CFG" >"$W_CFG.tmp" && mv "$W_CFG.tmp" "$W_CFG"
+mkdir -p "$W_DIR/cfg/state"
+python3 - "$W_DIR/cfg/state/scratch-failures.json" <<'PY'
+import json, sys
+json.dump({"/tmp/silenced-by-an-env-var": {
+    "first": "2026-09-18T09:04:35Z", "last": "2026-09-18T09:04:35Z",
+    "error": "[Errno 13] Permission denied", "attempts": 1}},
+    open(sys.argv[1], "w"), indent=1)
+PY
+OUT="$(CLAUDE_CONFIG_DIR="$W_DIR/cfg" run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'silenced-by-an-env-var'; then
+    ok "W17  CLAUDE_CONFIG_DIR is honored — the failure alert cannot be silenced"
+else
+    bad "W17  one exported variable still turns the MASSIVE ALERT off (D9, rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+# THE CONTROL. Without it this passes against a program that alerts on anything:
+# the same run with nothing in that directory must be silent.
+rm -f "$W_DIR/cfg/state/scratch-failures.json"
+OUT="$(CLAUDE_CONFIG_DIR="$W_DIR/cfg" run_wd --alert)"; RC=$?
+if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
+    ok "W17b CONTROL: with no failure in that directory it is silent"
+else
+    bad "W17b it alerted with nothing to alert about (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# ===========================================================================
+# W18 — THE GARBAGE ALARM (Frank's Fix 2)
+# ===========================================================================
+# His verdict on everything above this case: "Its alarm is a disk-space alarm and
+# a delete-failure alarm. IT HAS NO GARBAGE ALARM. So garbage that no arm looks at
+# produces neither a cleanup nor an alert" — while ~53 GiB sat on the disk and
+# every report read green. This is the missing channel: the sweeper publishes what
+# it will never collect, and this job says so without ever running the sweeper.
+world garbagealarm
+write_cfg 999999999 999999 1 1     # floors so low nothing else can alert
+sed -i.bak 's/^DISK_RICH_ALERT_GB=.*/DISK_RICH_ALERT_GB="1"/' "$W_CFG"
+touch "$W_LA/com.richos.disk-watchdog.plist"
+mkdir -p "$W_DIR/state"
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 3, "freed": 100,
+           "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 2934, "skipped_bytes": 1125454451,
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+{
+    echo "SCRATCH_REAPER_STATE=\"$W_DIR/state/scratch-reaper-state.json\""
+    echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"'
+    echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="67108864"'
+} >>"$W_CFG"
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] \
+   && printf '%s' "$OUT" | grep -q 'GARBAGE NOTHING WILL EVER COLLECT' \
+   && printf '%s' "$OUT" | grep -q '2934'; then
+    ok "W18  garbage nothing will ever collect reaches Rich's alert, with a count"
+else
+    bad "W18  the garbage alarm did not fire on 1.05 GB of skipped garbage (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -14
+fi
+# THE CONTROL, and it is the one that matters most for an alarm: below the
+# declared threshold it must be COMPLETELY silent. An alarm that always fires is
+# the failure this suite's own header ranks as worse than not firing at all.
+sed -i.bak 's/^SCRATCH_SKIPPED_NOTICE_BYTES=.*/SCRATCH_SKIPPED_NOTICE_BYTES="9999999999999"/' "$W_CFG"
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
+    ok "W18b CONTROL: below the declared threshold it is completely silent"
+else
+    bad "W18b the garbage alarm ignores its own threshold (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+# The UNDECIDABLE pile has its own, lower threshold — Frank's D12, where sharing
+# SCRATCH_NOTICE_BYTES hid up to a GiB of a pile no run will ever clear.
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
+           "undecidable": 23, "undecidable_bytes": 164580800,
+           "skipped": 0, "skipped_bytes": 0,
+           "failures": 0, "verdict": "undecided"}, open(sys.argv[1], "w"))
+PY
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'UNDECIDABLE'; then
+    ok "W18c an undecidable pile alerts on its OWN lower threshold, not the 1 GiB one"
+else
+    bad "W18c 157 MB of permanently undecidable garbage was silent (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
 fi
 
 echo ""
