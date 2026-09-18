@@ -1223,7 +1223,12 @@ fn main() {
     // the back end or changing anything.
     if first.as_deref() == Some(std::ffi::OsStr::new("--status-mcp")) {
         let result = args.next().ok_or_else(|| "Missing status scope".to_string())
-            .and_then(|scope| richos_core::status_tools::run_stdio(Path::new(&scope))
+            // **The screen reader goes with it** — the CEO's ruling §56. This arm IS the app's
+            // own executable, so the same `MacScreen` the work host uses is available here,
+            // and the front desk's answer carries the screen as it is right now beside the
+            // work that is waiting for it. A short-lived child of the GUI session reads the
+            // same session dictionary the app does.
+            .and_then(|scope| richos_core::status_tools::run_stdio(Path::new(&scope), &screen::MacScreen)
                 .map_err(|e| e.to_string()));
         if let Err(error) = result {
             startup_alert::cannot_start(

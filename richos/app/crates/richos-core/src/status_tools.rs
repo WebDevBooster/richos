@@ -145,7 +145,12 @@ fn section(rows: &[&Assignment]) -> (Vec<Value>, usize) {
 }
 
 /// The answer, shared by the protocol adapter and the tests.
-pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, String> {
+pub fn call(
+    scope_path: &Path,
+    screen: &dyn crate::screen::ScreenSource,
+    name: &str,
+    arguments: Value,
+) -> Result<Value, String> {
     if name != LOOK_TOOL_NAME {
         return Err("That status tool does not exist. Nothing was read.".into());
     }
@@ -226,19 +231,53 @@ pub fn call(scope_path: &Path, name: &str, arguments: Value) -> Result<Value, St
         // as a string so the front desk relays it instead of inventing a promise about how
         // long a lock lasts.
         "waiting_for_the_screen_says": crate::screen::says::waiting_for_the_screen(),
+        // **THE SCREEN AS IT IS RIGHT NOW** — the CEO's ruling §56's read half.
+        //
+        // A LIVE reading, and the only thing in this answer that is not read off disk. It is
+        // here because the section above is a list of things that are stuck, and a list of
+        // stuck things with no reason beside it is what makes a front desk guess at one. This
+        // server is the app's own executable (`main.rs`'s `--status-mcp`), so the shell hands
+        // it a real reader and the whole reading is one CoreGraphics call.
+        //
+        // **`unknown` is a third answer and never a synonym for `unlocked`** — the refusal
+        // this crate makes everywhere else. `this_answer_covers` tells the model so.
+        "screen": screen_reading(screen),
         // The honest boundary of this answer, in the result itself rather than in a
         // comment the model never sees — and the `starting`/`running` line is in it for the
         // same reason: the distinction is only worth having if the thing reading it is told
         // what it means.
-        "this_answer_covers": "Background work in this conversation only, as recorded on disk. It does not cover other conversations, and it is not a claim that a running assignment is making progress this second. Work under `starting` has been written down and the back end has not been confirmed to have taken it up yet: say it is starting, never that it is running. Work under `waiting_for_the_screen` needs the Mac's screen and the screen is locked; it is NOT waiting on him and there is nothing for him to do about it — it carries on by itself when the screen is unlocked, so say that and never ask him to unlock anything.",
+        "this_answer_covers": "Background work in this conversation only, as recorded on disk. It does not cover other conversations, and it is not a claim that a running assignment is making progress this second. Work under `starting` has been written down and the back end has not been confirmed to have taken it up yet: say it is starting, never that it is running. Work under `waiting_for_the_screen` needs the Mac's screen and the screen is locked; it is NOT waiting on him and there is nothing for him to do about it — it carries on by itself when the screen is unlocked, so say that and never ask him to unlock anything. `screen` is the one live reading here and everything else is from disk; its `state` is `unknown` when this build could not establish the screen at all, which is not the same as unlocked and must never be reported as either.",
     }))
+}
+
+/// One live screen reading, rendered for the front desk — the CEO's ruling §56.
+///
+/// **No number, no timestamp and no promise about how long a lock lasts.** The three words
+/// are the three answers `crate::screen::Screen` allows, and `display_asleep` is carried
+/// separately because a sleeping display on an unlocked session is still a usable session —
+/// this Mac's own 300-second screen-lock delay is why that is a real distinction rather than
+/// an academic one.
+fn screen_reading(screen: &dyn crate::screen::ScreenSource) -> Value {
+    let reading = screen.read();
+    json!({
+        "state": reading.screen.as_str(),
+        "display_asleep": reading.display_asleep,
+        // Whether this reading is the kind that makes screen-bound work wait. Given as a
+        // fact so the model never has to re-derive the polarity rule and get it backwards.
+        "blocks_screen_bound_work": reading.blocks(),
+    })
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
 
-fn response(scope: &Path, request: Value, initialized: &mut bool) -> Option<Value> {
+fn response(
+    scope: &Path,
+    screen: &dyn crate::screen::ScreenSource,
+    request: Value,
+    initialized: &mut bool,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0") || method.is_none() {
@@ -268,7 +307,7 @@ fn response(scope: &Path, request: Value, initialized: &mut bool) -> Option<Valu
                 return Some(error(id, -32602, "A tool name is required"));
             };
             let args = request.pointer("/params/arguments").cloned().unwrap_or_else(|| json!({}));
-            match call(scope, name, args) {
+            match call(scope, screen, name, args) {
                 Ok(value) => json!({"content":[{"type":"text","text":value.to_string()}],"isError":false}),
                 Err(why) => json!({"content":[{"type":"text","text":why}],"isError":true}),
             }
@@ -280,7 +319,12 @@ fn response(scope: &Path, request: Value, initialized: &mut bool) -> Option<Valu
 
 /// Newline-delimited JSON-RPC with bounded allocation. An oversized message is drained
 /// through its newline, rejected, and cannot be read as the command that follows it.
-pub fn serve(scope_path: &Path, mut reader: impl BufRead, mut writer: impl Write) -> io::Result<()> {
+pub fn serve(
+    scope_path: &Path,
+    screen: &dyn crate::screen::ScreenSource,
+    mut reader: impl BufRead,
+    mut writer: impl Write,
+) -> io::Result<()> {
     let mut initialized = false;
     loop {
         let mut frame = Vec::new();
@@ -309,7 +353,7 @@ pub fn serve(scope_path: &Path, mut reader: impl BufRead, mut writer: impl Write
             Some(error(Value::Null, -32600, "Message too large"))
         } else {
             match serde_json::from_slice::<Value>(&frame) {
-                Ok(value) => response(scope_path, value, &mut initialized),
+                Ok(value) => response(scope_path, screen, value, &mut initialized),
                 Err(_) => Some(error(Value::Null, -32700, "Invalid JSON")),
             }
         };
@@ -323,8 +367,8 @@ pub fn serve(scope_path: &Path, mut reader: impl BufRead, mut writer: impl Write
 }
 
 /// Entry point used before the desktop shell initializes. Stdout is exclusively MCP frames.
-pub fn run_stdio(scope_path: &Path) -> io::Result<()> {
-    serve(scope_path, io::stdin().lock(), io::stdout().lock())
+pub fn run_stdio(scope_path: &Path, screen: &dyn crate::screen::ScreenSource) -> io::Result<()> {
+    serve(scope_path, screen, io::stdin().lock(), io::stdout().lock())
 }
 
 /// Did the child actually load this tool? Read from its own init inventory, never from the
@@ -342,6 +386,7 @@ pub fn loaded_from_init(init: &Value) -> bool {
 mod tests {
     use super::*;
     use crate::assignment::Registration;
+    use crate::screen::{FakeScreen, ScreenReading, UnknownScreen};
 
     fn fixture() -> (PathBuf, PathBuf) {
         let root = std::env::temp_dir().join(format!("status-tools-{}", uuid::Uuid::new_v4()));
@@ -392,7 +437,7 @@ mod tests {
         assignment::advance(&state, "depot", "thread-one", &waiting, AssignmentState::Blocked, "it is ready for you to approve the change to your repository").unwrap();
         assignment::advance(&state, "depot", "thread-one", &done, AssignmentState::Settled, "it finished").unwrap();
 
-        let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let answer = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         let running_rows = answer["running"].as_array().unwrap();
         assert_eq!(running_rows.len(), 1);
         assert_eq!(running_rows[0]["what"], "landing the three branches");
@@ -439,7 +484,7 @@ mod tests {
         assignment::advance(&state, "depot", "thread-one", &running, AssignmentState::Running, "the back end took it")
             .unwrap();
 
-        let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let answer = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
 
         let screen_rows = answer["waiting_for_the_screen"].as_array().unwrap();
         assert_eq!(screen_rows.len(), 1);
@@ -470,6 +515,44 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// **The one LIVE reading in an answer that is otherwise entirely from disk** — the CEO's
+    /// ruling §56's read half, and its three answers kept apart.
+    ///
+    /// `unknown` is the one that matters: it is not a synonym for `unlocked`, and a front desk
+    /// that collapsed them would tell him the screen is fine on a build that cannot see it.
+    #[test]
+    fn the_status_read_carries_the_screen_as_it_is_now_and_keeps_unknown_apart_from_unlocked() {
+        let (root, scope) = fixture();
+
+        let locked = call(&scope, &*FakeScreen::locked(), LOOK_TOOL_NAME, json!({})).unwrap();
+        assert_eq!(locked["screen"]["state"], "locked");
+        assert_eq!(locked["screen"]["blocks_screen_bound_work"], true);
+
+        let unlocked = call(&scope, &*FakeScreen::unlocked(), LOOK_TOOL_NAME, json!({})).unwrap();
+        assert_eq!(unlocked["screen"]["state"], "unlocked");
+        assert_eq!(unlocked["screen"]["blocks_screen_bound_work"], false);
+        assert_eq!(unlocked["screen"]["display_asleep"], false);
+
+        // **A build that cannot read the screen says so, and it still does not block.**
+        let unknown = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
+        assert_eq!(unknown["screen"]["state"], "unknown");
+        assert_ne!(unknown["screen"]["state"], unlocked["screen"]["state"]);
+        assert_eq!(unknown["screen"]["blocks_screen_bound_work"], false);
+        assert!(unknown["screen"]["display_asleep"].is_null(), "an unestablished axis is null, not false");
+
+        // A sleeping display on an unlocked session is reported and does NOT block — this
+        // Mac's 300-second screen-lock delay is why that is a real distinction.
+        let asleep = ScreenReading { screen: crate::screen::Screen::Unlocked, display_asleep: Some(true) };
+        let dozing = call(&scope, &*FakeScreen::new(asleep), LOOK_TOOL_NAME, json!({})).unwrap();
+        assert_eq!(dozing["screen"]["display_asleep"], true);
+        assert_eq!(dozing["screen"]["blocks_screen_bound_work"], false);
+
+        // The model is told what `unknown` means, in the answer rather than in a comment.
+        let covers = unknown["this_answer_covers"].as_str().unwrap();
+        assert!(covers.contains("not the same as unlocked"), "{covers}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// **Work that has been written down is not work that is running — Ray's candidate-.7
     /// row 2, on the read rather than on the write.**
     ///
@@ -493,7 +576,7 @@ mod tests {
         assignment::advance(&state, "depot", "thread-one", &opening, AssignmentState::Preparing, "Opening the work connection.").unwrap();
         assignment::advance(&state, "depot", "thread-one", &truly, AssignmentState::Running, "The back end has started on it.").unwrap();
 
-        let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let answer = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         let starting: Vec<&str> =
             answer["starting"].as_array().unwrap().iter().map(|r| r["what"].as_str().unwrap()).collect();
         assert_eq!(starting.len(), 2, "{starting:?}");
@@ -523,7 +606,7 @@ mod tests {
     fn another_conversations_work_is_not_in_this_conversations_answer() {
         let (root, scope) = fixture();
         register(&root, "thread-two", "the other conversation's job");
-        let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let answer = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         for part in ["starting", "running", "waiting_for_you", "finished"] {
             assert!(answer[part].as_array().unwrap().is_empty(), "thread-two leaked into {part}");
         }
@@ -539,7 +622,7 @@ mod tests {
             },
         )
         .unwrap();
-        let theirs = call(&other, LOOK_TOOL_NAME, json!({})).unwrap();
+        let theirs = call(&other, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         // `starting`, not `running`: it was registered and never advanced, and those are now
         // two different answers — see the bucket comment in `call`.
         assert_eq!(theirs["starting"].as_array().unwrap()[0]["what"], "the other conversation's job");
@@ -557,13 +640,13 @@ mod tests {
             json!({"entity_id": "other"}),
             json!({"state_root": "/tmp"}),
         ] {
-            assert!(call(&scope, LOOK_TOOL_NAME, sneaky).is_err());
+            assert!(call(&scope, &UnknownScreen, LOOK_TOOL_NAME, sneaky).is_err());
         }
         for verb in ["stop", "approve", "decline", "retry", "prepare", "integrate", "record"] {
-            assert!(call(&scope, verb, json!({})).is_err(), "{verb} was answered by the status server");
+            assert!(call(&scope, &UnknownScreen, verb, json!({})).is_err(), "{verb} was answered by the status server");
         }
         // Positive control: the plain call answers.
-        assert!(call(&scope, LOOK_TOOL_NAME, json!({})).is_ok());
+        assert!(call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).is_ok());
         // And the inventory it advertises has exactly one tool, which is read-only.
         let listed = tools();
         let listed = listed["tools"].as_array().unwrap();
@@ -590,7 +673,7 @@ mod tests {
             &assignment::says::settled("the pricing review", "It landed on cc/pricing in depot."),
         )
         .unwrap();
-        let before = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let before = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         // The row is under `starting`: registered, never advanced. A notice is visible wherever
         // its assignment sits, which is the half of finding 6 this test is about.
         let notices = before["starting"][0]["notices"].as_array().unwrap();
@@ -599,7 +682,7 @@ mod tests {
         assert!(notices[0]["say"].as_str().unwrap().contains("the pricing review"));
         // Delivery marks it, and the same read then says so.
         assignment::take_pending_notices(&state, "depot", "thread-one").unwrap();
-        let after = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();
+        let after = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         assert_eq!(after["starting"][0]["notices"][0]["already_told_him"], true);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -613,7 +696,7 @@ mod tests {
         let rows = assignment::read_all(&root.join("engine-state"), "depot", "thread-one").unwrap();
         let seat = rows[0].seat.clone();
         let obligation = rows[0].obligation_id.clone();
-        let answer = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap().to_string();
+        let answer = call(&scope, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap().to_string();
         assert!(!answer.contains(&id), "the assignment id reached the model");
         assert!(!answer.contains(&seat), "the seat reached the model");
         assert!(!answer.contains(&obligation), "the obligation id reached the model");
@@ -630,11 +713,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("status-tools-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let absent = root.join("nothing.json");
-        let refused = call(&absent, LOOK_TOOL_NAME, json!({})).unwrap_err();
+        let refused = call(&absent, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap_err();
         assert!(refused.contains("Nothing was read.") || refused.contains("has not opened"));
         let damaged = root.join("damaged.json");
         std::fs::write(&damaged, "{\"version\":").unwrap();
-        assert!(call(&damaged, LOOK_TOOL_NAME, json!({})).is_err());
+        assert!(call(&damaged, &UnknownScreen, LOOK_TOOL_NAME, json!({})).is_err());
         let relative = root.join("relative.json");
         std::fs::write(
             &relative,
@@ -642,7 +725,7 @@ mod tests {
                 .to_string(),
         )
         .unwrap();
-        assert!(call(&relative, LOOK_TOOL_NAME, json!({})).is_err());
+        assert!(call(&relative, &UnknownScreen, LOOK_TOOL_NAME, json!({})).is_err());
         // Positive control: a good scope over an EMPTY register answers, and says empty.
         let good = root.join("good.json");
         write_scope(
@@ -655,7 +738,7 @@ mod tests {
             },
         )
         .unwrap();
-        let answer = call(&good, LOOK_TOOL_NAME, json!({})).unwrap();
+        let answer = call(&good, &UnknownScreen, LOOK_TOOL_NAME, json!({})).unwrap();
         assert!(answer["running"].as_array().unwrap().is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -686,7 +769,7 @@ mod tests {
         input.push_str(&json!({"jsonrpc":"2.0","id":4,"method":"ping"}).to_string());
         input.push('\n');
         let mut out = Vec::new();
-        serve(&scope, io::Cursor::new(input.into_bytes()), &mut out).unwrap();
+        serve(&scope, &UnknownScreen, io::Cursor::new(input.into_bytes()), &mut out).unwrap();
         let replies: Vec<Value> = String::from_utf8(out)
             .unwrap()
             .lines()
