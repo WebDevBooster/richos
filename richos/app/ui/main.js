@@ -1085,6 +1085,11 @@ async function openThread(threadId, opts) {
   restoreThreadViewState(threadId);
   resetWaitBandForThread();
   scheduleRender();
+  // AND THE SEND HE ALREADY MADE, if he pressed Return while this was still opening — audit-7
+  // row 10. AFTER `restoreThreadViewState`, which is what puts his sentence back in the box,
+  // and before the awaited calls below: `replayHeldSend` compares the box against what he
+  // actually submitted, so it has to run while that is still the box's state.
+  replayHeldSend(threadId);
   // WHERE ONBOARDING STANDS FOR THIS THREAD'S COMPANY. Re-derived on every thread open
   // rather than once at boot, because a thread's company is immutable and moving between
   // threads can move between companies — a notice left over from the last one would be a
@@ -1544,8 +1549,65 @@ function restoreUnsentText(text, threadId) {
   parkViewStateNow();
 }
 
+/// A send the CEO issued while the thread he is arriving at was still opening. Held, never
+/// dropped. See the note in `send()` below — audit-7 row 10.
+let sendHeldWhileOpening = null;
+
+/// Replay the send he already made, now that there is somewhere for it to go.
+///
+/// THE HOLD IS DROPPED RATHER THAN GUESSED AT in all three cases where it would be a guess: a
+/// different thread finished opening (his words are still in that thread's draft, and one more
+/// Return sends them); the composer no longer holds exactly the sentence he pressed Return on,
+/// so he has edited it since and a send would submit words he never submitted; or the surface
+/// did not end up on a conversation at all.
+///
+/// AT MOST ONE, which is the other half of the defect. Three Returns during the opening window
+/// are one held send, not three: `send()` overwrites the hold rather than queueing, and a
+/// person hammering Return because nothing happened must not find three copies of his sentence
+/// in the thread.
+function replayHeldSend(threadId) {
+  const held = sendHeldWhileOpening;
+  sendHeldWhileOpening = null;
+  if (!held) return;
+  if (held.threadId !== threadId) return;
+  if (mainView !== "conversation") return;
+  if (inputEl.value !== held.text) return;
+  send();
+}
+
 async function send(explicitText) {
-  if (mainView === "opening") return;
+  // AUDIT-7 ROW 10, AND IT WAS A SILENT DROP, NOT A REFUSAL. `mainView === "opening"` is the
+  // window between a thread being asked for and its timeline being on screen — six bridge
+  // round trips on a cold boot. Through that whole window the composer looks completely idle:
+  // it is editable, and `syncComposerMode` gives it the IDLE placeholder `Talk to Rich…`. So
+  // the CEO types, presses Return, and this line threw his sentence away without a word.
+  //
+  // Reproduced under WebKit with the harness's own slow-bridge lever at 400ms, which is what
+  // a cold first run costs:
+  //
+  //     click a thread   -> composer mode "opening", placeholder "Talk to Rich…",
+  //                         send visible but disabled, input editable
+  //     type + Return    -> text still in the box, ZERO user bubbles
+  //     6 s later        -> mode "idle", text still in the box, nothing sent
+  //     Return again     -> sent
+  //
+  // Which is exactly what Ray filed twice: "the first Return after clicking into the composer
+  // does not send; the second does" (audit-7 row 10, carried from audit-4 #18). His check 0
+  // took 26 seconds and two Returns on the CEO's own screen.
+  //
+  // It is NOT fixed by sending into a half-built surface. The refusal is right — `openThread`
+  // is mid-flight, the model is being replaced, and `drafts.set(threadId, inputEl.value)` a
+  // few lines into its tail already declares that typing during this window belongs to the
+  // thread being opened. What was missing is that the same declaration was never made for the
+  // SEND. So the send is held and replayed the moment the thread is on screen, by
+  // `replayHeldSend` above.
+  if (mainView === "opening") {
+    const text = (typeof explicitText === "string" ? explicitText : inputEl.value).trim();
+    if (text && openingThread) {
+      sendHeldWhileOpening = { threadId: openingThread.threadId, text: inputEl.value };
+    }
+    return;
+  }
   // Start/Resume sends its own acceptance without silently submitting or deleting a draft.
   const preserveDraft = typeof explicitText === "string";
   const text = preserveDraft ? explicitText.trim() : inputEl.value.trim();

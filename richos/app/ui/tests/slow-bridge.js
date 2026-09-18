@@ -356,6 +356,149 @@ async function main() {
     return `${seen.length} frames sampled across a 400ms read, live on every one`;
   });
 
+  // ---- 3. a send made while a thread is still opening is not thrown away -----------------
+  //
+  // THE THIRD DEFECT OF THIS EXACT SHAPE, and it is the one a person actually met. Ray filed
+  // it twice — audit-4 #18 and audit-7 row 10 — as "the first Return after clicking into the
+  // composer does not send; the second does". His check 0 cost 26 seconds and two Returns on
+  // the CEO's own screen.
+  //
+  // `send()` opened with `if (mainView === "opening") return;`. That view is the window
+  // between a thread being asked for and its timeline arriving — six bridge round trips — and
+  // through all of it the composer is editable and carries the IDLE placeholder `Talk to
+  // Rich…`. At 0 ms of latency the window is a few milliseconds wide and the defect is
+  // invisible, which is precisely why it belongs in this file: it is a correctness bug that
+  // only exists when the bridge is not instant.
+  for (const lag of LATENCIES.filter((l) => l > 0)) {
+    await run.check(`a send issued while the thread is still opening is honored, not dropped (${lag}ms bridge)`, async () => {
+      const page = await open(browser, lag);
+      await page.waitForSelector('.nav-thread[data-thread-id="hiring"]', { state: "attached" });
+      await bootDone(page);
+      // Start from a settled desk on a DIFFERENT thread, so opening "hiring" is a real
+      // navigation with a real opening window rather than the boot's own.
+      await page.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
+      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", {
+        timeout: 60000,
+      });
+      const other = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll(".nav-thread")).map((n) => n.dataset.threadId);
+        return rows.find((id) => id && id !== "hiring") || null;
+      });
+      assert(other, "the rail offers only one thread, so there is no navigation to type during");
+
+      await page.evaluate((id) => document.querySelector(`.nav-thread[data-thread-id="${id}"]`).click(), other);
+      // IN the window, and asserted to be in it rather than assumed: a check that typed after
+      // the view had settled would pass without ever touching the defect.
+      const during = await page.evaluate(() => ({
+        mode: document.getElementById("composer-row").dataset.mode,
+        placeholder: document.getElementById("input").placeholder,
+        editable: !document.getElementById("input").disabled,
+      }));
+      assertEqual(during.mode, "opening", "the composer was not in the opening window, so nothing was tested");
+      assert(during.editable, "the composer was disabled during the window — then a person could not type into it");
+
+      const SENTENCE = "Check 0: reply with exactly: candidate seven walk begins.";
+      await page.evaluate((t) => {
+        const i = document.getElementById("input");
+        i.focus();
+        i.value = t;
+        i.dispatchEvent(new Event("input", { bubbles: true }));
+      }, SENTENCE);
+      await page.keyboard.press("Enter");
+      // A person who sees nothing happen presses it again. AT MOST ONE MESSAGE MAY RESULT.
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
+
+      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", {
+        timeout: 60000,
+      });
+      // BOUNDED, AND THE FAILURE IS NAMED RATHER THAN A TIMEOUT. With the replay removed this
+      // wait can never be satisfied, and a 60s `waitForFunction` would report "Timeout
+      // exceeded" — true, and useless to whoever has to read it. Six call-times is the whole
+      // send path (`send_message` plus the events that paint its bubble) with room to spare,
+      // and then the state is asserted with the sentence in the message. Verified by removing
+      // `replayHeldSend(threadId)` from `openThread`: this check then goes red at both
+      // latencies saying his sentence is still sitting in the composer.
+      const arrived = await page
+        .waitForFunction(
+          (t) => Array.from(document.querySelectorAll(".tl-user-text")).some((n) => n.textContent.trim() === t),
+          SENTENCE,
+          { timeout: 6 * lag + 4000 }
+        )
+        .then(() => true)
+        .catch(() => false);
+      if (!arrived) {
+        const stuck = await page.evaluate(() => ({
+          box: document.getElementById("input").value,
+          mode: document.getElementById("composer-row").dataset.mode,
+          users: document.querySelectorAll(".tl-user-text").length,
+        }));
+        throw new Error(
+          `the send made during the opening window never arrived: the composer still holds ` +
+            `${JSON.stringify(stuck.box)}, the mode is ${JSON.stringify(stuck.mode)} and the thread shows ` +
+            `${stuck.users} user message(s). This is audit-7 row 10 — his sentence was thrown away, and ` +
+            `the second Return is what a person has to work out for himself`
+        );
+      }
+      const after = await page.evaluate((t) => {
+        const mine = Array.from(document.querySelectorAll(".tl-user-text")).filter(
+          (n) => n.textContent.trim() === t
+        );
+        return {
+          copies: mine.length,
+          box: document.getElementById("input").value,
+          thread: window.__RICHOS_TIMELINE__ ? window.__RICHOS_TIMELINE__().threadId : null,
+        };
+      }, SENTENCE);
+      assertEqual(
+        after.copies,
+        1,
+        `three Returns during the opening window produced ${after.copies} copies of his sentence — ` +
+          `one dropped send is a defect and three duplicates is a worse one`
+      );
+      assertEqual(after.box, "", "the composer still holds a sentence that was sent");
+      assertEqual(after.thread, other, `the held send landed on ${JSON.stringify(after.thread)} rather than the thread he typed it for`);
+      assertEqual(page.__errors, [], "the shell logged errors while the held send was replayed");
+
+      // AND THE HOLD IS DROPPED RATHER THAN GUESSED AT when he edits the sentence after
+      // pressing Return: a send must never submit words he did not submit.
+      await page.evaluate(() => document.querySelector('.nav-thread[data-thread-id="hiring"]').click());
+      const mode2 = await page.evaluate(() => document.getElementById("composer-row").dataset.mode);
+      assertEqual(mode2, "opening", "the second navigation had no opening window, so this half is testing nothing");
+      await page.evaluate(() => {
+        const i = document.getElementById("input");
+        i.focus();
+        i.value = "half a thought";
+        i.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await page.keyboard.press("Enter");
+      await page.evaluate(() => {
+        const i = document.getElementById("input");
+        i.value = "half a thought, changed";
+        i.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await page.waitForFunction(() => document.getElementById("composer-row").dataset.mode !== "opening", {
+        timeout: 60000,
+      });
+      await observe(page, 3 * lag + 400, "a send replayed on arrival would have painted its bubble within three call-times");
+      const edited = await page.evaluate(() => ({
+        box: document.getElementById("input").value,
+        sent: Array.from(document.querySelectorAll(".tl-user-text")).map((n) => n.textContent.trim()),
+      }));
+      assert(
+        !edited.sent.includes("half a thought") && !edited.sent.includes("half a thought, changed"),
+        `an edited sentence was sent anyway: ${JSON.stringify(edited.sent.slice(-3))}`
+      );
+      assertEqual(edited.box, "half a thought, changed", "his edited sentence is no longer in the composer");
+      await page.close();
+      return (
+        `in the opening window the composer reads "${during.placeholder}" and is editable; three Returns ` +
+        `produced exactly 1 message, on the right thread, with the box emptied; an edited sentence is ` +
+        `left in the box and never sent`
+      );
+    });
+  }
+
   await browser.close();
   process.exit(run.report() > 0 ? 1 : 0);
 }
