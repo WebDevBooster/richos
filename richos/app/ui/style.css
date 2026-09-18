@@ -4398,24 +4398,36 @@ body.bp-narrow .tl-user-bubble {
    those is walked by `tests/contrast.js` on a surface that already exists, so the only new
    arithmetic below is the option text and the title.
 
-   THE RATIOS, COMPUTED RATHER THAN EYEBALLED (WCAG AA, both themes, floor 4.5:1 for this
-   text — all of it is normal-weight and under 24px, so none of it claims the 3:1 large-text
-   allowance):
+   THE RATIOS, COMPUTED RATHER THAN EYEBALLED (WCAG AA, both themes, floor 4.5:1 — every
+   run of text here is normal weight and under 24px, so none of it claims the 3:1 large-text
+   allowance). MEASURED off the painted sheet in WebKit, both themes, every node:
 
-     .techy-scope-option span, .techy-scope-title   `--ink` on `--card`
-       dark    #dfe4ee on #182440                   12.08:1
-       light   #0c1322 on #fdfcf8                   18.07:1
+                                          dark        light
+     .techy-scope-title                   12.06:1     18.07:1
+     .techy-scope-option span  (x3)       12.06:1     18.07:1
+     #techy-scope-cancel   (.desk-btn)     5.78:1      6.38:1
+     #techy-scope-confirm  (--confirm)     7.68:1      4.72:1
 
-   Derived by hand from the token values in this file (`--ink`/`--card` at both `:root`
-   blocks) using the WCAG relative-luminance formula, and then measured independently by
-   `tests/contrast.js` check 9.techy-scope, which reads what is actually painted. The hand
-   figure exists so a future restyle of `--ink` or `--card` has a number to be checked
-   against rather than a memory of it having been fine.
+   Worst case 4.72:1, on the confirm button in light mode, against a floor of 4.5. Nothing
+   here is exempt — see the last paragraph.
 
-   THE HAND ARITHMETIC WAS CHECKED AGAINST A KNOWN ANSWER BEFORE IT WAS TRUSTED: the same
-   method applied to `--ink-soft` on `--card` gives 5.78:1 dark and 6.38:1 light, and
-   `contrast.js` check 11b independently reports 5.78:1 for #979faf on #182440 on the
-   settings tooltip. Two routes, one number.
+   PREDICTED BY HAND FIRST, FROM THE TOKENS IN THIS FILE, so a future restyle of `--ink`,
+   `--ink-soft` or `--card` has a number to be checked against rather than a memory of its
+   having been fine: `--ink` on `--card` works out at 12.08 / 18.07, and `--ink-soft` on
+   `--card` at 5.78 / 6.38. The measured column agrees on all four to the second decimal
+   except dark `--ink`, where the hand figure rounds 0.02 high.
+
+   TWO THINGS THAT WENT WRONG WHILE MEASURING, recorded because both produce a confident
+   wrong number rather than an error:
+
+     1. An ad-hoc script that seeded a made-up `localStorage` key printed the DARK palette
+        twice and called one of them light. `contrast.js`'s own comment (:1143-1165) warns
+        about exactly this; the theme has to be seeded into `richos-theme` AND the mock
+        store, because `syncAppearanceFromBackend` lets the backend win at init. The tell is
+        the body ground: dark is rgb(12,19,34) and light is rgb(234,230,221).
+     2. Reading the first three numbers out of a `color` and ignoring the fourth reported
+        Cancel at 12.06:1 when `--ink-soft` carries alpha 0.64; composited over `--card` it
+        is 5.78:1. A translucent foreground has to be composited before it is measured.
 
    NOTHING HERE IS EXEMPT. Every string in this sheet is a choice the CEO is being asked to
    make, which is the opposite of the narrow "not meant to be read closely" carve-out. */
