@@ -662,24 +662,61 @@ impl WorkHost {
                 self.forget_at_the_desk(record);
                 self.raise(record, NoticeKind::Interrupted, &assignment::says::interrupted(&record.title));
             }
+            // ===========================================================================
+            // WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, 2026-09-18
+            // ===========================================================================
+            //
+            // *"There's nothing that ever not lands on its own here in the terminal …
+            // So, yes, always land on its own."* So there are now three endings rather
+            // than the old two, and the split is made HERE because only the desk can say
+            // which of the last two this is.
+            //
+            // **The settle reading itself is unchanged**: it is still the obligation, and
+            // nothing else, that says whether the assignment is closed (`outcome`).
             Ok(_) => match self.outcome(backend, record) {
                 Outcome::Settled => {
-                    advance(AssignmentState::Settled, "The obligation behind this assignment is closed.");
+                    // **The outcome is the sentence, and it is read off the receipts**, not
+                    // composed from the fact that the obligation closed: what landed, on
+                    // which branch, in which repository, and whether a reviewer passed it.
+                    let landed = self.what_happened(record);
+                    advance(AssignmentState::Settled, &landed);
                     self.forget_at_the_desk(record);
-                    self.raise(record, NoticeKind::Settled, &assignment::says::settled(&record.title));
+                    self.raise(record, NoticeKind::Settled, &assignment::says::settled(&record.title, &landed));
                 }
-                Outcome::ReadyToApprove => {
-                    // **§5.7: the receipt names what it is waiting on.** If a request of
-                    // his is actually on the desk, the sentence says which step; if the
-                    // work stopped for the same reason without one reaching him (its call
-                    // never got that far, or this is a relaunch), the honest sentence is the
-                    // general one. Neither ever reads as finished.
+                // **A REAL QUESTION OF HIS IS WAITING.** The only thing `blocked` means
+                // now: the run asked for something the desk would have put in front of him
+                // in a visible turn and could not, so it waited (§5.2/§5.5/§5.7). The
+                // approval queue and its Approve/Decline controls exist for exactly this
+                // and no longer for a land.
+                //
+                // `forget_at_the_desk` is deliberately NOT called here — the request has
+                // to outlive the turn that raised it, which is the whole of §5.7.
+                Outcome::NotSettled if self.pending_decision(record).is_some() => {
                     advance(AssignmentState::Blocked, &self.waiting_on(record));
                     self.raise(
                         record,
                         NoticeKind::ReadyToApprove,
                         &assignment::says::ready_to_approve(&record.title),
                     );
+                }
+                // **NOTHING IS WAITING FOR HIM AND THE JOB DID NOT FINISH: a failed land,
+                // reported as one.** This is the arm §52 created. It used to be impossible
+                // to reach — an open obligation with no question on the desk meant the call
+                // had not got that far — and it is now the ordinary way a job fails: the
+                // land lock timed out, the reviewer asked for changes, the engine refused
+                // the merge, or the run stopped somewhere short of closing the assignment.
+                //
+                // It is `Failed` and not `Blocked`, and the reason is that `Blocked` is a
+                // thing he can act on with one press. There is nothing here for him to
+                // press: the sentence has to say what went wrong. `says::failed` is
+                // *"{title} stopped before it finished. {why}"* — which is exactly true of
+                // every case above, including the one where the land itself succeeded and
+                // the assignment was never closed.
+                Outcome::NotSettled => {
+                    let why = self.what_happened(record);
+                    advance(AssignmentState::Failed, &why);
+                    self.forget_at_the_desk(record);
+                    self.raise(record, NoticeKind::Failed, &assignment::says::failed(&record.title, &why));
                 }
                 Outcome::StillRunning(detail) => {
                     // §0's honest sentence: "anything we cannot witness counts as still
@@ -716,14 +753,96 @@ impl WorkHost {
     }
 
     /// What a blocked assignment is waiting on, in his words. Reads the desk, never guesses.
+    ///
+    /// **The `None` arm's old sentence is gone** (CEO ruling §52). It read *"The work has run
+    /// and stopped at the step that would change your repository"*, which was the truth when
+    /// a land was the only thing that could stop a run — and would be a false claim now,
+    /// because a land no longer stops anything. With nothing on the desk the honest sentence
+    /// says only that a step of his is outstanding, and the caller no longer reaches this arm
+    /// at all: `settle` tests the desk before choosing `Blocked`.
     fn waiting_on(&self, record: &Assignment) -> String {
         match self.pending_decision(record) {
             Some(request) => format!(
-                "The work has run and stopped at a step that is yours to approve: {}.",
+                "The work has run and stopped at a step that is yours to decide: {}.",
                 plain_action(&request.tool)
             ),
-            None => "The work has run and stopped at the step that would change your repository.".into(),
+            None => "The work has run and stopped at a step that is yours to decide.".into(),
         }
+    }
+
+    /// **WHAT ACTUALLY HAPPENED TO THIS ASSIGNMENT'S WORK, in his words, read off the
+    /// receipts** — the CEO's ruling §52, 2026-09-18: a job that lands on its own has to be
+    /// able to say what it landed, and he hears the OUTCOME rather than a state word.
+    ///
+    /// Every clause here comes from [`crate::work_status::trail`], which reads the land
+    /// record the engine wrote onto the work receipt under the repository's land lock. Nothing
+    /// is inferred: a land is a land because `integration.verified` is set, a review passed
+    /// because the REVIEWER's own receipt says so, and an unreadable record says it is
+    /// unreadable rather than saying nothing landed.
+    ///
+    /// **A land whose cleanup did not finish is still reported as a land**, with the leftover
+    /// beside it. Reporting it as a failure would tell him his branch had not moved when it
+    /// had, which is the same class of wrong answer as a false "done" and is worse to act on.
+    fn what_happened(&self, record: &Assignment) -> String {
+        let trail = match crate::work_status::trail(
+            &self.state,
+            &record.entity_id,
+            &record.thread_id,
+            &record.obligation_id,
+        ) {
+            Ok(trail) => trail,
+            // "I could not look" is never "nothing happened". Spec §6.2's rule, at the one
+            // place in this file where a read failure could have become a claim.
+            Err(_) => {
+                return "I could not read the work records, so I can't tell you what was landed.".into()
+            }
+        };
+        let mut parts: Vec<String> = Vec::new();
+        if trail.lands.is_empty() {
+            parts.push(
+                if trail.changes_requested > 0 {
+                    "The review asked for changes, so nothing was landed."
+                } else if trail.not_landed > 0 {
+                    "The work ran and nothing was landed."
+                } else if trail.workers == 0 {
+                    "No work was started, so nothing was landed."
+                } else {
+                    "Nothing was landed."
+                }
+                .to_string(),
+            );
+        } else {
+            let where_it_went: Vec<String> = trail
+                .lands
+                .iter()
+                .map(|land| format!("{} in {}", land.branch, land.repository_name()))
+                .collect();
+            parts.push(format!("It landed on {}.", and_list(&where_it_went)));
+            let reviewed = trail.lands.iter().filter(|land| land.reviewed).count();
+            // **The verdict is a reading with three answers, not a yes/no.** "All of it was
+            // reviewed" and "I have no review on record" are different things to be told, and
+            // collapsing the middle case into either would be a claim.
+            parts.push(
+                if reviewed == trail.lands.len() {
+                    "An independent review passed it first.".to_string()
+                } else if reviewed == 0 {
+                    "I have no passing review on record for it.".to_string()
+                } else {
+                    format!("An independent review passed {reviewed} of the {} pieces.", trail.lands.len())
+                },
+            );
+            if trail.cleanup_pending {
+                parts.push("One of its workspaces was left behind and still needs clearing up.".to_string());
+            }
+            if trail.not_landed > 0 {
+                parts.push(format!(
+                    "{} more {} and did not land.",
+                    trail.not_landed,
+                    if trail.not_landed == 1 { "piece of it ran" } else { "pieces of it ran" }
+                ));
+            }
+        }
+        parts.join(" ")
     }
 
     /// The request this assignment is waiting on him for, if one is on the desk — the head
@@ -1085,7 +1204,7 @@ impl WorkHost {
         };
         match state {
             Ok(crate::cognition::ObligationState::Settled) => Outcome::Settled,
-            Ok(crate::cognition::ObligationState::Open) => Outcome::ReadyToApprove,
+            Ok(crate::cognition::ObligationState::Open) => Outcome::NotSettled,
             // An obligation that is not there is not a finished one. It is a record this
             // build cannot account for, and the honest answer is that it is unresolved.
             Ok(crate::cognition::ObligationState::Absent) => Outcome::StillRunning(
@@ -1316,15 +1435,24 @@ pub enum Settlement {
 }
 
 /// What the ASSIGNMENT is, once its work turn has ended. Three answers, and the middle one
-/// is the whole point of the feature.
+/// changed meaning on 2026-09-18 without changing its reading.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The obligation is closed.
     Settled,
-    /// The workers are done and the obligation is still open: the work ran, reached the
-    /// step that would change his repository, and stopped there (spec §0 row 7, §5.4,
-    /// §7.8). What he is told is *"ready for you to approve"*, never *"done"*.
-    ReadyToApprove,
+    /// **The workers are done and the obligation is still open**, which used to be named
+    /// `ReadyToApprove` because it could only mean one thing: the work had reached the step
+    /// that would change his repository and stopped there, waiting for him (spec §0 row 7,
+    /// §5.4, §7.8).
+    ///
+    /// **CEO ruling §52 (2026-09-18) removed that single meaning, so the name had to go
+    /// too.** A land is no longer a question, so a run that ends with its obligation open is
+    /// one of two different things, and only the DESK can say which: a genuine permission
+    /// request of his is waiting (still `blocked`, still his to answer), or nothing is
+    /// waiting and the job simply did not finish — a failed land, reported as one. This
+    /// variant deliberately does not decide between them: the reading is the same, and the
+    /// decision belongs where the evidence is.
+    NotSettled,
     StillRunning(String),
 }
 
@@ -1353,26 +1481,59 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
             record.title
         );
     }
+    // **THE SENTENCE THE CEO'S RULING §52 REPLACED, and it is the whole feature in one
+    // instruction.** It read: *"Stop at the step that would change his repository and wait
+    // for him to approve it. Do not report this as done."* His ruling of 2026-09-18 —
+    // *"There's nothing that ever not lands on its own here in the terminal … So, yes, always
+    // land on its own"* — makes the land the job rather than a question, so the brief now
+    // tells the back end to finish, and the two claims it must still never make are spelled
+    // out: never report a land it did not perform, and never close an assignment it did not
+    // finish.
     format!(
         "This is a background assignment from the CEO. Carry it out with the desktop work \
-         tools.{repositories}\n\nThe assignment: {}\n\nStop at the step that would change \
-         his repository and wait for him to approve it. Do not report this as done.",
+         tools.{repositories}\n\nThe assignment: {}\n\nCarry it through to the end: do the \
+         work, get an independent review, land the reviewed result, and close the \
+         assignment. Do not ask him to approve the land — that is your job, not his. Report \
+         what you actually landed: the branch, the repository and the reviewer's verdict. If \
+         the land did not go through, say so and say why, and never describe unlanded work \
+         as landed or an open assignment as finished.",
         record.title
     )
 }
 
-/// **A provider tool name, in his language.** `mcp__richos_work__integrate` is a wire
-/// identifier; what he is being asked is whether to change his repository.
+/// **A provider tool name, in his language.** `Bash` is a wire identifier; what he is being
+/// asked is whether to run a command on his Mac.
 ///
 /// Anything unrecognized falls back to a phrase that claims nothing about what the step
 /// does — a made-up description of an action he is about to authorize would be worse than
 /// no description at all.
+///
+/// **`mcp__richos_work__integrate` was the first arm of this table and is deliberately
+/// gone** (CEO ruling §52, 2026-09-18). A land never reaches the permission desk now
+/// (`permissions.rs`), so nothing can put it in his queue and nothing can render the phrase
+/// *"putting the finished work into your repository"*. Leaving the arm in would have left
+/// wording in the product for a state the product can no longer be in, which is the same
+/// defect as a missing one wearing the opposite costume.
 pub fn plain_action(tool: &str) -> &'static str {
     match tool {
-        "mcp__richos_work__integrate" => "putting the finished work into your repository",
         "Bash" => "running a command on your Mac",
         "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => "changing a file on your Mac",
         _ => "a step it cannot take without you",
+    }
+}
+
+/// One, two or several things said the way a person says them: `a`, `a and b`, `a, b and c`.
+///
+/// **A list read aloud is the case this exists for.** A background job may land in more than
+/// one repository, and `cc/one, cc/two` spoken is a sentence he cannot parse. It is also why
+/// there is no trailing comma before the `and`: the CEO's own list convention throughout this
+/// app is the spoken one.
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -1760,21 +1921,37 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
-    /// **Spec §0 row 7 and §7.8, and the engine's own rule at `mega-lander/app.py:664-669`:
-    /// an assignment whose workers have all stopped is NOT settled — it is waiting for
-    /// him.**
+    /// **FOUR ENDINGS, AND THE THIRD IS THE ONE THE CEO'S RULING §52 CREATED.**
     ///
-    /// The three cases run against identical worker evidence (readable, empty: every worker
-    /// this lease started was observed ending), so the ONLY thing that differs is what the
-    /// obligation says. That is the test: with the workers' verdict held constant, an
-    /// assignment is `blocked` while its obligation is open, `settled` only when the
-    /// obligation is closed, and `running` when the obligation cannot be read at all.
+    /// The engine's rule is unchanged and still the foundation
+    /// (`mega-lander/app.py:664-669`): *"An assignment whose workers have all stopped is NOT
+    /// settled"* — settled is read from the OBLIGATION, never from the workers. Every case
+    /// below runs against identical worker evidence (readable, empty: every worker this lease
+    /// started was observed ending), so the workers' verdict is held constant throughout and
+    /// the only things that differ are the obligation and the DESK.
     ///
-    /// **Written this way because the obvious wrong build passes any weaker version.** The
-    /// app settled on the workers alone before the engine landed, and every assertion about
-    /// worker evidence would still have been green.
+    /// **What changed on 2026-09-18.** Its predecessor was
+    /// `workers_all_ending_means_ready_to_approve_and_only_the_obligation_can_settle_it` and
+    /// had three cases, because an open obligation with the workers done could mean only one
+    /// thing: the run had stopped at its land, waiting for him. §52 — *"There's nothing that
+    /// ever not lands on its own here in the terminal … So, yes, always land on its own"* —
+    /// makes that impossible, so the open-obligation case splits in two and only the desk can
+    /// say which it is:
+    ///
+    ///   1. obligation CLOSED                                → `settled`, and the sentence
+    ///      names what landed
+    ///   2. obligation OPEN, a real question of his waiting   → `blocked`, still his
+    ///   3. obligation OPEN, nothing waiting for him          → `failed`: a job that did not
+    ///      land, reported as one
+    ///   4. obligation UNREADABLE                             → `running`, never settled
+    ///
+    /// **Case 3 against case 2 is the whole assertion.** Either alone passes for the wrong
+    /// reason: a build that called every unfinished job `failed` would satisfy 3 and destroy
+    /// the approval queue, and a build that called every unfinished job `blocked` would
+    /// satisfy 2 and be the old behavior §52 overruled. They differ in one input — whether a
+    /// request of his is on the desk — and in nothing else.
     #[test]
-    fn workers_all_ending_means_ready_to_approve_and_only_the_obligation_can_settle_it() {
+    fn a_job_that_did_not_land_is_failed_and_only_a_question_of_his_makes_it_blocked() {
         use crate::cognition::ObligationState;
         let h = harness(5);
         // Identical, readable, empty worker evidence for every case below.
@@ -1784,41 +1961,72 @@ mod tests {
         std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
         let _runner = h.host.start();
 
-        // 1. The obligation is OPEN: ready for him to approve, and never "done".
+        // 1. The obligation is OPEN and NOTHING is waiting for him: the job did not land, and
+        //    that is what he is told — never "ready for you to approve", which would invite a
+        //    press that would do nothing, and never "done".
         *h.obligation.lock().unwrap() = Some(ObligationState::Open);
-        let waiting = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let unlanded = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
-        let row = assignment::read(&h.state, "depot", "thread-one", &waiting.id).unwrap();
-        assert_eq!(row.state, AssignmentState::Blocked, "an assignment waiting for him was called something else");
+        let row = assignment::read(&h.state, "depot", "thread-one", &unlanded.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "a job that did not land was not reported as one");
         assert_ne!(row.state, AssignmentState::Settled);
+        assert_ne!(row.state, AssignmentState::Blocked, "a job with no question for him was left waiting on him");
+        // The reason is in his terms and it is read off the receipts: there are none here, so
+        // no worker ever ran, which is a different sentence from work that ran and failed.
+        assert!(row.detail.contains("No work was started, so nothing was landed."), "{}", row.detail);
+        let failure = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(failure.kind, NoticeKind::Failed);
+        assert!(failure.text.contains("stopped before it finished"), "{}", failure.text);
+        assert!(failure.text.contains("nothing was landed"), "{}", failure.text);
+        assert!(!failure.text.contains("ready for you to approve"), "{}", failure.text);
+
+        // 1b. THE SAME OBLIGATION STATE, THE SAME WORKER EVIDENCE, one question of his on the
+        //     desk — and it is `blocked` instead. This is the control that keeps case 1 from
+        //     passing because everything unfinished is called failed.
+        let grant = a_question_for_him(&h, "obligation-q");
+        let asked = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-q".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &asked.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Blocked, "a real question of his did not leave the job waiting on him");
         let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
         assert_eq!(notice.kind, NoticeKind::ReadyToApprove);
-        assert!(notice.text.contains("ready for you to approve"));
+        assert!(notice.text.contains("waiting on a decision from you"), "{}", notice.text);
         for forbidden in ["done", "finished", "complete", "landed"] {
             assert!(!notice.text.to_lowercase().contains(forbidden), "{}", notice.text);
         }
+        std::fs::remove_file(grant).unwrap();
 
-        // 2. The obligation is CLOSED: settled, with the same worker evidence.
+        // 2. The obligation is CLOSED: settled, with the same worker evidence — and what he
+        //    hears is the OUTCOME (§52). There are no receipts in this harness, so the honest
+        //    outcome is that nothing was landed, said beside "is finished" rather than instead
+        //    of it: the obligation really is closed, and an assignment can close with nothing
+        //    to land.
         *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
         let closed = h
             .host
             .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
             .unwrap();
-        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
-        assert_eq!(
-            assignment::read(&h.state, "depot", "thread-one", &closed.id).unwrap().state,
-            AssignmentState::Settled
-        );
+        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &closed.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled);
+        let settled = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(settled.kind, NoticeKind::Settled);
+        assert!(settled.text.contains("is finished."), "{}", settled.text);
+        assert!(settled.text.contains("nothing was landed"), "the settled sentence claimed a land it has no record of: {}", settled.text);
 
-        // 3. The obligation cannot be read: still running. Never settled, never approved.
+        // 3. The obligation cannot be read: still running. Never settled, never approved,
+        //    and — the arm §52 adds a way to get wrong — never called a failed land either.
         *h.obligation.lock().unwrap() = None;
         let unknown = h
             .host
             .register(&h.binding, &Registration { obligation_id: "obligation-9".into(), ..registration(&h) })
             .unwrap();
-        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
+        assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
         let row = assignment::read(&h.state, "depot", "thread-one", &unknown.id).unwrap();
-        assert_eq!(row.state, AssignmentState::Running);
+        assert_eq!(row.state, AssignmentState::Running, "an unreadable record was called a failed land");
         assert!(row.detail.contains("still running"));
 
         h.host.shutdown();
@@ -1921,9 +2129,19 @@ mod tests {
         assert!(!brief.contains("work-seat:"));
         assert!(!brief.contains("obligation-that-must-not-appear"));
         assert!(!brief.contains("ledger:"));
-        // Row 7 travels in the brief as an instruction, not only as a refusal.
-        assert!(brief.contains("wait for him to approve"));
-        assert!(brief.contains("Do not report this as done."));
+        // **THE INSTRUCTION §52 REPLACED, asserted in both directions.** It used to be
+        // "wait for him to approve" plus "Do not report this as done."; a job lands on its
+        // own now, so the brief tells it to finish and to report what it landed — and the
+        // old sentence must be GONE rather than merely joined, because a brief carrying both
+        // would leave the back end to pick.
+        assert!(brief.contains("land the reviewed result"), "{brief}");
+        assert!(brief.contains("Do not ask him to approve the land"), "{brief}");
+        assert!(brief.contains("the branch, the repository and the reviewer's verdict"), "{brief}");
+        assert!(!brief.contains("wait for him to approve"), "the brief still holds the work at his approval: {brief}");
+        assert!(!brief.contains("Stop at the step"), "the brief still tells it to stop before landing: {brief}");
+        // The two claims it must still never make.
+        assert!(brief.contains("never describe unlanded work as landed"), "{brief}");
+        assert!(brief.contains("or an open assignment as finished"), "{brief}");
 
         // **The resumed brief carries the same discretion and one fact more**, and it names
         // the boundary of what he approved: the approval is for the step it stopped at and
@@ -1964,6 +2182,180 @@ mod tests {
         (path.clone(), crate::permissions::ScopedPermissions { desk: Arc::clone(&h.desk), scope: path })
     }
 
+    /// **A work receipt as the ENGINE writes it**, in the partition the engine writes it to
+    /// (`mega-lander/app.py:81`), so `what_happened` reads the real shape rather than one
+    /// invented here. `landed` is the branch the ref moved on, or `None` for a run that ended
+    /// without a land.
+    fn engine_receipt(h: &Harness, id: &str, obligation: &str, role: &str, landed: Option<&str>, verdict: Option<&str>) {
+        use sha2::{Digest, Sha256};
+        let partition = format!("{:x}", Sha256::digest(b"[\"depot\",\"thread-one\"]"));
+        let folder = h.state.join("work-receipts").join(partition);
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut row = serde_json::json!({"schema":1,"id":id,
+            "binding":{"entity_id":"depot","thread_id":"thread-one"},
+            "request":{"title":"landing the three branches","repo":"/fictional/project",
+                       "role":role,"obligation_id":obligation},
+            "status":"run-ended"});
+        if let Some(branch) = landed {
+            row["integration"] = serde_json::json!({"verified":true,"reviewer_id":"reviewer-1",
+                "branch":branch,"commit":"deadbeef","cleanup_pending":[]});
+            row["status"] = "integrated".into();
+        }
+        if let Some(verdict) = verdict {
+            row["review_observation"] = serde_json::json!({"valid":true,"report":{"verdict":verdict}});
+        }
+        std::fs::write(folder.join(format!("{id}.json")), serde_json::to_vec(&row).unwrap()).unwrap();
+    }
+
+    /// **WHAT HE HEARS IS THE OUTCOME — the CEO's ruling §52, end to end through the host.**
+    ///
+    /// *"There's nothing that ever not lands on its own here in the terminal … So, yes,
+    /// always land on its own."* So a finished job's sentence names the branch, the repository
+    /// and the reviewer's verdict, read off the receipt the engine wrote — and the receipt's
+    /// row carries the same words, so the surface and the spoken notice can never describe one
+    /// land two ways.
+    ///
+    /// **The negative half is in the same test and it is the half that can go wrong quietly**:
+    /// the identical assignment with an identical closed obligation and NO land on its
+    /// receipts says nothing was landed. Without it, a sentence that always claimed a land
+    /// would pass.
+    #[test]
+    fn a_finished_job_says_what_it_landed_and_never_claims_a_land_it_has_no_record_of() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Settled);
+        let _runner = h.host.start();
+
+        // The land the engine performed, and the reviewer that passed it.
+        engine_receipt(&h, "worker-1", "obligation-7", "worker", Some("cc/echo-1"), None);
+        engine_receipt(&h, "reviewer-1", "obligation-7", "reviewer", None, Some("passed"));
+        let landed = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &landed.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled);
+        // The branch, the repository BY NAME rather than by path, and the verdict.
+        assert!(row.detail.contains("It landed on cc/echo-1 in project."), "{}", row.detail);
+        assert!(row.detail.contains("An independent review passed it first."), "{}", row.detail);
+        assert!(!row.detail.contains("/fictional/"), "he was read an absolute path: {}", row.detail);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Settled);
+        assert!(notice.text.contains("cc/echo-1 in project"), "the notice does not say what landed: {}", notice.text);
+        assert!(notice.text.contains("An independent review passed it first."), "{}", notice.text);
+        // ONE DESCRIPTION OF ONE LAND: the row the surface renders and the sentence he hears
+        // carry the same clause, because both come from `what_happened`.
+        assert!(notice.text.contains(&row.detail), "the row and the notice describe the land differently");
+
+        // NEGATIVE HALF: same closed obligation, same worker evidence, no land on record.
+        let bare = h
+            .host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &bare.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Settled, "an assignment with nothing to land must still be able to close");
+        assert!(row.detail.contains("nothing was landed"), "{}", row.detail);
+        assert!(!row.detail.contains("It landed"), "a land was claimed with no record of one: {}", row.detail);
+
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A LAND THAT FAILED, reported as one, with the reviewer's refusal as the reason** —
+    /// §52's third ending. The obligation is open, nothing is waiting for him, and the receipts
+    /// say why: the reviewer asked for changes.
+    ///
+    /// Its control is the arm above it in `a_job_that_did_not_land_is_failed_and_only_a_question_of_his_makes_it_blocked`,
+    /// where there are no receipts at all and the sentence is the different one — so "the
+    /// reason came from the receipts" is a fact rather than one sentence for every failure.
+    #[test]
+    fn a_land_the_reviewer_refused_is_reported_as_a_failed_land_with_that_reason() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        let _runner = h.host.start();
+        engine_receipt(&h, "worker-1", "obligation-7", "worker", None, None);
+        engine_receipt(&h, "reviewer-1", "obligation-7", "reviewer", None, Some("changes-requested"));
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed);
+        assert_eq!(row.detail, "The review asked for changes, so nothing was landed.");
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert_eq!(notice.kind, NoticeKind::Failed);
+        assert!(notice.text.contains("stopped before it finished"), "{}", notice.text);
+        assert!(notice.text.contains("The review asked for changes"), "the reason was softened away: {}", notice.text);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A LAND WHOSE ASSIGNMENT WAS NEVER CLOSED is not called finished, and is not called
+    /// unlanded either.** The one case where §52's two honesty rules pull in opposite
+    /// directions: the branch really did move, and the obligation really is open. Both go in
+    /// the sentence.
+    #[test]
+    fn a_land_with_an_open_assignment_is_neither_finished_nor_reported_as_unlanded() {
+        use crate::cognition::ObligationState;
+        let h = harness(5);
+        every_worker_observed_ending(&h);
+        *h.obligation.lock().unwrap() = Some(ObligationState::Open);
+        let _runner = h.host.start();
+        engine_receipt(&h, "worker-1", "obligation-7", "worker", Some("cc/echo-1"), None);
+        engine_receipt(&h, "reviewer-1", "obligation-7", "reviewer", None, Some("passed"));
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Failed, "an open obligation was called finished");
+        assert!(row.detail.contains("It landed on cc/echo-1 in project."), "his branch moved and he was not told: {}", row.detail);
+        let notice = h.notices.0.lock().unwrap().last().unwrap().1.clone();
+        assert!(notice.text.contains("stopped before it finished"), "{}", notice.text);
+        assert!(notice.text.contains("It landed on cc/echo-1 in project."), "{}", notice.text);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// `and_list` is the spoken form: one, two, or several. A background job can land in more
+    /// than one repository, and a comma-separated list read aloud is one he cannot parse.
+    #[test]
+    fn a_list_of_lands_is_readable_aloud() {
+        let of = |items: &[&str]| and_list(&items.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(of(&[]), "");
+        assert_eq!(of(&["one"]), "one");
+        assert_eq!(of(&["one", "two"]), "one and two");
+        assert_eq!(of(&["one", "two", "three"]), "one, two and three");
+    }
+
+    /// **A genuine permission request of his, left on the shared desk for this assignment.**
+    ///
+    /// Since the CEO's ruling §52 this is the ONLY thing that produces `blocked`: a land no
+    /// longer asks him anything, so a test that wants a blocked assignment has to put a real
+    /// question there. `Bash` is that question — a command on his Mac, which no standing grant
+    /// covers.
+    ///
+    /// **It is raised BEFORE the work turn settles, and that ordering is the real one rather
+    /// than a convenience.** A step asks while he is away, the provider call gives up at its
+    /// own deadline (§5.7), the REQUEST stays in the queue, and the turn ends around it —
+    /// which is precisely the state `settle` reads. Several tests here used to raise the
+    /// question AFTER `wait_for_completed` and still saw `blocked`, because an open obligation
+    /// was enough on its own; it is not enough any more, and it never described a real
+    /// sequence.
+    ///
+    /// Returns the grant file to clean up. The request deliberately outlives the call.
+    fn a_question_for_him(h: &Harness, obligation: &str) -> PathBuf {
+        let (grant, lease) = work_lease_desk(h, obligation);
+        let call = lease.decide_within(
+            &serde_json::json!({"tool_name":"Bash","input":{"command":"one fictional command"}}),
+            std::time::Duration::from_millis(20),
+        );
+        assert_eq!(call.behavior(), "deny", "the desk approved something on his behalf");
+        assert!(
+            h.desk.background_queue().iter().any(|r| r.binding.turn_id == obligation),
+            "the question never reached his queue, so nothing below is about a blocked assignment"
+        );
+        grant
+    }
+
     /// **Spec §5.7, end to end through the host.** The step asked while he was away; the
     /// call ended at its deadline in *not approved*; he answered afterwards; and the
     /// assignment went back on the lease to carry out the step he approved.
@@ -1977,24 +2369,25 @@ mod tests {
         every_worker_observed_ending(&h);
         *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
         let _runner = h.host.start();
+        // The step it stopped at, raised against the shared desk and left at its deadline —
+        // BEFORE the work turn ends, which is the real order (§5.7) and, since §52, the only
+        // thing that makes an assignment `blocked` at all.
+        let (grant, lease) = work_lease_desk(&h, "obligation-7");
+        let call = lease.decide_within(
+            &serde_json::json!({"tool_name":"Bash","input":{"command":"one"}}),
+            std::time::Duration::from_millis(30),
+        );
+        assert_eq!(call.behavior(), "deny", "the deadline approved something on his behalf");
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_eq!(row.state, AssignmentState::Blocked, "the work did not stop at his decision");
         assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment reached the lease twice on its own");
-
-        // The step it stopped at, raised against the shared desk and left at its deadline.
-        let (grant, lease) = work_lease_desk(&h, "obligation-7");
-        let call = lease.decide_within(
-            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{"branch":"one"}}),
-            std::time::Duration::from_millis(30),
-        );
-        assert_eq!(call.behavior(), "deny", "the deadline approved something on his behalf");
         let waiting = h.desk.background_queue();
         assert_eq!(waiting.len(), 1, "the request did not survive its call");
         assert_eq!(
             h.host.pending_decision(&row).map(|r| r.tool),
-            Some("mcp__richos_work__integrate".to_string()),
+            Some("Bash".to_string()),
             "the host cannot see what its own assignment is waiting on"
         );
 
@@ -2008,17 +2401,24 @@ mod tests {
         assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)));
         assert_eq!(h.bound.lock().unwrap().len(), 2, "his approval did not put the work back on the lease");
 
-        // And the one exact action he approved is the one the resumed run may take — once.
-        let again = |input: serde_json::Value| {
+        // **AND HIS APPROVAL DOES NOT OUTLIVE THE ASSIGNMENT** (§5.4), which is a consequence
+        // of §52 rather than of this test: the resumed turn is the LAST one, because a job that
+        // lands on its own either closes the assignment or does not, and either way the
+        // assignment is over and the desk forgets it. An approval still spendable afterwards
+        // would be an approval attached to nothing.
+        //
+        // That his approval reaches the resumed RUN is measured where the window is
+        // deterministic — `permissions.rs`'s `the_deadline_ends_the_call_and_never_the_request`,
+        // on the desk itself. Asserting it here would be asserting a race.
+        let again = || {
             lease
                 .decide_within(
-                    &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":input}),
+                    &serde_json::json!({"tool_name":"Bash","input":{"command":"one"}}),
                     std::time::Duration::from_millis(20),
                 )
                 .behavior()
         };
-        assert_eq!(again(serde_json::json!({"branch":"one"})), "allow");
-        assert_eq!(again(serde_json::json!({"branch":"one"})), "deny", "an approval was reused");
+        assert_eq!(again(), "deny", "his approval outlived the assignment it belonged to");
         h.host.shutdown();
         std::fs::remove_file(grant).unwrap();
         std::fs::remove_dir_all(h.root).unwrap();
@@ -2033,12 +2433,13 @@ mod tests {
         every_worker_observed_ending(&h);
         *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
         let _runner = h.host.start();
+        let grant = a_question_for_him(&h, "obligation-7");
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
-        let (grant, lease) = work_lease_desk(&h, "obligation-7");
-        lease.decide_within(
-            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
-            std::time::Duration::from_millis(20),
+        assert_eq!(
+            assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap().state,
+            AssignmentState::Blocked,
+            "the assignment was not waiting on him, so there is no decline to test"
         );
         let waiting = h.desk.background_queue();
         let crate::permissions::Answered::ToAssignment { binding, .. } =
@@ -2058,7 +2459,7 @@ mod tests {
         // POSITIVE CONTROL for that scan: the settled sentence, which does speak of
         // finishing, fires on the same words — so a clean result above is a fact about this
         // sentence rather than about a scan that cannot match.
-        let settled = assignment::says::settled(&row.title).to_lowercase();
+        let settled = assignment::says::settled(&row.title, "").to_lowercase();
         assert!(["done", "finished", "complete", "landed"].iter().any(|w| settled.contains(w)));
         assert!(text.contains("declined"));
         assert_eq!(h.bound.lock().unwrap().len(), 1, "a decline put the work back on the lease");
@@ -2079,7 +2480,7 @@ mod tests {
         let (grant, lease) = work_lease_desk(&h, "obligation-7");
         let waiter = std::thread::spawn(move || {
             lease.decide_within(
-                &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+                &serde_json::json!({"tool_name":"Bash","input":{}}),
                 std::time::Duration::from_secs(5),
             )
         });
@@ -2108,7 +2509,7 @@ mod tests {
         // real order of events: the step asks, the call waits, the turn ends around it.
         let waiter = std::thread::spawn(move || {
             lease.decide_within(
-                &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+                &serde_json::json!({"tool_name":"Bash","input":{}}),
                 std::time::Duration::from_millis(600),
             )
         });
@@ -2118,10 +2519,14 @@ mod tests {
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_eq!(row.state, AssignmentState::Blocked);
         assert!(
-            row.detail.contains("putting the finished work into your repository"),
+            row.detail.contains("running a command on your Mac"),
             "the receipt does not say what it is waiting on: {}",
             row.detail
         );
+        // **AND IT MAKES NO CLAIM ABOUT HIS REPOSITORY.** The `None` arm of `waiting_on` used
+        // to say the work "stopped at the step that would change your repository", which a job
+        // that lands on its own can no longer promise (CEO ruling §52).
+        assert!(!row.detail.contains("repository"), "the receipt still claims his repository is untouched: {}", row.detail);
         assert!(!row.detail.contains("mcp__"), "the receipt shows a wire tool name: {}", row.detail);
         waiter.join().unwrap();
         h.host.shutdown();
@@ -2175,7 +2580,7 @@ mod tests {
         // same records, with the same conversation idle.
         let (grant, lease) = work_lease_desk(&h, "obligation-7");
         lease.decide_within(
-            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
+            &serde_json::json!({"tool_name":"Bash","input":{}}),
             std::time::Duration::from_millis(20),
         );
         let waiting = work_gate::background(&h.host.background_work(), &[]);
@@ -2233,6 +2638,10 @@ mod tests {
         every_worker_observed_ending(&h);
         *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
         let _runner = h.host.start();
+        // A question of his on the FIRST assignment, raised before its turn ends, so it is
+        // `blocked` and there is something to resume below (§52: a land asks him nothing, so
+        // an open obligation on its own no longer leaves an assignment resumable).
+        let grant = a_question_for_him(&h, "obligation-7");
         let first = h.host.register(&h.binding, &registration(&h)).unwrap();
         h.host
             .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
@@ -2242,11 +2651,6 @@ mod tests {
 
         // ...and a resume, which is the third time work goes onto the lease, does not open
         // one either.
-        let (grant, lease) = work_lease_desk(&h, "obligation-7");
-        lease.decide_within(
-            &serde_json::json!({"tool_name":"mcp__richos_work__integrate","input":{}}),
-            std::time::Duration::from_millis(20),
-        );
         let waiting = h.desk.background_queue();
         let crate::permissions::Answered::ToAssignment { binding, .. } =
             h.desk.resolve(&waiting[0].id, true).unwrap()
@@ -2365,6 +2769,10 @@ mod tests {
         // successor's — so the only thing deciding an outcome here is the obligation.
         witnessed(&h.state, "work-session-one");
         witnessed(&h.state, "work-session-rotated-1");
+        // A question of his, raised before the turn ends: since §52 a land asks him nothing,
+        // so this is what makes the assignment stop at a step of his and stay open across the
+        // renewal — which is the whole subject of this test.
+        let grant = a_question_for_him(&h, "obligation-7");
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         // Its state was written before the rotation and is untouched by it.
@@ -2429,6 +2837,7 @@ mod tests {
             AssignmentState::Settled
         );
         h.host.shutdown();
+        std::fs::remove_file(grant).unwrap();
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
@@ -2520,12 +2929,16 @@ mod tests {
         );
         host.start();
 
-        // 1. It stops at a step of his: still registered, so the app must stay up.
+        // 1. It stops at a step of his: still registered, so the app must stay up. Since §52
+        // a land asks him nothing, so the thing that stops it has to be a real question of
+        // his — raised before the turn ends, on the desk this host shares.
         witnessed(&h.state, "work-session-one");
         *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        let grant = a_question_for_him(&h, "obligation-7");
         host.register(&h.binding, &registration(&h)).unwrap();
         assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         assert_eq!(counter.idle.load(Ordering::SeqCst), 0, "the app would have quit on work waiting for him");
+        std::fs::remove_file(grant).unwrap();
 
         // 2. It settles, and nothing is left open anywhere.
         *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);

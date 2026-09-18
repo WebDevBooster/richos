@@ -301,3 +301,54 @@ ending is the process that died.
 | Id | State | What it was |
 |---|---|---|
 | `esc-20260917T214008Z-28032960` | `work-complete` | The build is done and two acceptance steps cannot be walked on this Mac while another agent's audit holds the screen; the Dock-icon and menu-bar clicks need a seat with accessibility permission, or a bundled app and a free screen. |
+
+---
+
+## 6. APPENDED 2026-09-18 — the one open item of the Two Riches spec is closed, the other way
+
+**CEO ruling §52, verbatim:** *"There's nothing that ever not lands on its own here in the
+terminal. Anything including things like design mockups always land before they are presented
+to me for review. So, yes, always land on its own."*
+
+**What that overrules in this record and in its three siblings.** Everything above about the
+window, the process model and crash recovery stands unchanged and was not touched. What does
+not stand is the one sentence all four records share about how a job ENDS: that an assignment
+whose workers have ended while its obligation is open has run to the step that would change his
+repository, stopped there, and is *"ready for you to approve"*. That was a true reading of the
+code as it was, and the reason it was true was narrow — `mcp__richos_work__integrate` was the
+one work tool not on the permission desk's allow-list, so the job had nowhere to go but his
+queue. §52 grants it, on the background audience alone.
+
+**So the sentences in §0 row 7, §5.4 and §7.8 of the annex, and every place in these four
+records that quotes them, describe a state this build can no longer be in.** They are left
+as written rather than edited: they are what was measured on 2026-09-17, and the record of a
+measurement is not improved by being made to agree with a later decision.
+
+**What replaced it, with the evidence in this repository:**
+
+| Ending | State | Where |
+|---|---|---|
+| obligation closed | `settled`, and the sentence names what landed | `work_host.rs`'s `settle`, `Outcome::Settled` |
+| obligation open, a request of his on the desk | `blocked`, still his, Approve/Decline beside it | same, `Outcome::NotSettled if self.pending_decision(…).is_some()` |
+| obligation open, nothing waiting for him | `failed` — a job that did not finish, with the reason | same, `Outcome::NotSettled` |
+| obligation unreadable | `running`, never any of the above | `outcome()` |
+
+The settle READING is unchanged and is still the obligation alone
+(`richos/engine/mega-lander/app.py:664-669`). What he hears for a finished job is the outcome —
+the branch, the repository by its own folder name, and whether an independent review passed it
+— read off the land record the engine writes onto the work receipt
+(`work_status::trail`, from `app.py:809-836` and `:81`), never inferred from the obligation
+having closed, and never reported as "nothing landed" when the record simply could not be read.
+
+**Two sentences that were true here and became false were removed rather than kept.** Both
+promised his repository was untouched while a job waited on him — `says::ready_to_approve` and
+`waiting_on`'s no-request arm. A job that lands on its own may reach a step of his AFTER
+landing something, so either would have told him his branch had not moved when it had.
+
+**And the queue this slice's sibling built is not vestigial.** It exists for a request the desk
+would have put in front of him in a visible turn and cannot, because there is no turn — a
+command on his Mac, a write outside the workspace. That was always its purpose; a land was only
+ever held there because the tool that performs it had no grant.
+
+Branch: `cc/echo-opus-land1`. The full reasoning, the mutation checks and the test repairs are
+in that branch's commit messages.

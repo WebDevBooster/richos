@@ -33,10 +33,21 @@ pub struct AssignmentError(pub String);
 
 /// The states an assignment can be in, and the two that are kept apart on purpose.
 ///
-/// `Blocked` is the state spec §0 row 7 exists for: the work ran to the step that would
-/// change his repository, and stopped there because `integrate` is not on the permission
-/// desk's allow-list (`permissions.rs:58-59`). It is NOT `Settled`, and the sentence it
-/// produces is *"ready for you to approve"*, never *"done"*.
+/// **`Blocked` means a decision of his is outstanding, and since 2026-09-18 that is ALL it
+/// means.** It used to be the state spec §0 row 7 existed for — the work ran to the step that
+/// would change his repository and stopped there, because `integrate` was not on the
+/// permission desk's allow-list. The CEO's ruling §52 closes that: *"There's nothing that
+/// ever not lands on its own here in the terminal. Anything including things like design
+/// mockups always land before they are presented to me for review. So, yes, always land on
+/// its own."* A land is now granted outright to a background lease (`permissions.rs`), so it
+/// can never produce this state.
+///
+/// What still can: a request the desk would have put in front of him in a visible turn and
+/// could not, because there is no turn — a command, a write outside the workspace, any tool
+/// with no standing grant (§5.2/§5.5/§5.7). It is NOT `Settled`, and it is written only when
+/// a request is actually on the desk (`work_host.rs`'s `settle`). **A run that ends with its
+/// obligation open and NOTHING waiting for him is [`Self::Failed`]** — a job that did not
+/// finish, reported as one, with the reason — and never this.
 ///
 /// `Interrupted` is what a stop produces (spec §7.4a) and is never `Settled` either.
 /// Nothing in this file ever converts one into the other; that is spec §6.1's rule, and
@@ -51,11 +62,17 @@ pub enum AssignmentState {
     Preparing,
     /// Prepared and dispatched. A worker start has been recorded.
     Running,
-    /// Stopped at a decision that is his. Waiting, not finished.
+    /// Stopped at a decision that is his. Waiting, not finished. See this enum's own doc for
+    /// what can and can no longer produce it.
     Blocked,
     /// Witnessed finishing. Never inferred, never a timeout, never a process exit.
     Settled,
-    /// Registration or preparation failed. Spec §1.4: never softened into "I have started it".
+    /// **The job did not finish.** Registration or preparation failed (spec §1.4: never
+    /// softened into "I have started it"), the lease refused to open — or, since the CEO's
+    /// ruling §52, **the work ran and did not land**: the land lock timed out, the reviewer
+    /// asked for changes, the engine refused the merge, or the run stopped short of closing
+    /// the assignment. A failed land is a failed land, and the recorded `detail` says which
+    /// of those it was in his words.
     Failed,
     /// Stopped by him, or by quit. Files retained.
     Interrupted,
@@ -684,15 +701,35 @@ pub fn open(state: &Path) -> Result<Vec<Assignment>, AssignmentError> {
 ///
 /// **American English, spoken-safe, comparative rather than absolute, no identifiers.**
 pub mod says {
-    /// Spec §0 row 7 / §7.8: *"you hear 'ready for you to approve', never 'done'."*
+    /// **What he hears when a job is waiting on a decision of his** — spec §0 row 7 / §7.8's
+    /// *"you hear 'ready for you to approve', never 'done'"*, narrowed by the CEO's ruling
+    /// §52 (2026-09-18) to the only case that can still produce it.
+    ///
+    /// **Its second clause is gone, and it had to go.** It read *"Nothing has been changed in
+    /// your repository yet — the last step is yours"*, which was true while the only thing
+    /// that could stop a background job was a land. A job now lands on its own and stops only
+    /// at a step the desk would have asked him about in a visible turn — a command, a write
+    /// outside its workspace — which it may well reach AFTER landing something. So the old
+    /// sentence would have told him his repository was untouched while his branch had already
+    /// moved. What is left claims only what is known: it is waiting on him.
     pub fn ready_to_approve(title: &str) -> String {
-        format!(
-            "{title} is ready for you to approve. Nothing has been changed in your \
-             repository yet — the last step is yours."
-        )
+        format!("{title} is waiting on a decision from you before it can go on.")
     }
-    pub fn settled(title: &str) -> String {
-        format!("{title} is finished, and I've kept everything it produced with your saved work.")
+    /// **What he hears when a job is finished, and `outcome` is the whole of §52 in this
+    /// module.** *"There's nothing that ever not lands on its own here in the terminal …
+    /// So, yes, always land on its own."* — so the sentence names what LANDED, in the words
+    /// `work_host`'s `what_happened` read off the receipts, rather than stopping at
+    /// "finished".
+    ///
+    /// **`outcome` is allowed to be empty and the sentence still stands.** An assignment can
+    /// close with nothing to land, and a caller with nothing to say is better than a caller
+    /// inventing a clause.
+    pub fn settled(title: &str, outcome: &str) -> String {
+        let outcome = outcome.trim();
+        if outcome.is_empty() {
+            return format!("{title} is finished, and I've kept everything it produced with your saved work.");
+        }
+        format!("{title} is finished. {outcome} Everything it produced is with your saved work.")
     }
     /// Spec §3.7: *"A failure says what stopped and what it is waiting on."*
     pub fn failed(title: &str, waiting_on: &str) -> String {
@@ -871,23 +908,49 @@ mod tests {
         std::fs::remove_dir_all(state).unwrap();
     }
 
-    /// Spec §0 row 7 and §7.8: "ready for you to approve", never "done". The wording IS
-    /// the test, and the negative half has a positive control — the same assertion run
-    /// against the settled sentence, which DOES speak of finishing, so a check that passed
-    /// because the assertion was vacuous would fail here.
+    /// **Spec §7.8's rule survives the CEO's ruling §52; its example does not.** The rule —
+    /// *"the wording IS the test"* — is that a sentence about an unfinished job never speaks
+    /// of finishing. The example it was written around, a job held at its land, is gone: a
+    /// job lands on its own now (2026-09-18).
+    ///
+    /// So the negative scan runs against the sentence that CAN still be produced — a job
+    /// waiting on a decision of his — and its positive control is the settled sentence, which
+    /// does speak of finishing. Without that control a vacuous scan would pass.
     #[test]
-    fn a_blocked_assignment_is_ready_to_approve_and_is_never_called_done() {
+    fn a_blocked_assignment_says_it_is_waiting_and_is_never_called_done() {
         let ready = says::ready_to_approve("landing the three branches");
-        assert!(ready.contains("ready for you to approve"));
+        assert!(ready.contains("waiting on a decision from you"), "{ready}");
         for forbidden in ["done", "finished", "complete", "landed"] {
             assert!(!ready.to_lowercase().contains(forbidden), "approval notice implied completion: {ready}");
         }
+        // **AND IT MAKES NO CLAIM ABOUT HIS REPOSITORY.** Its old second clause said nothing
+        // had been changed there, which a job that lands on its own can no longer promise.
+        assert!(!ready.to_lowercase().contains("repository"), "the notice still claims his repository is untouched: {ready}");
         // Positive control: the forbidden-word scan can fail.
-        let settled = says::settled("landing the three branches");
+        let settled = says::settled("landing the three branches", "");
         assert!(settled.to_lowercase().contains("finished"));
         assert!(AssignmentState::Blocked.is_open(), "blocked is waiting for him, not settled");
         assert!(!AssignmentState::Settled.is_open());
         assert!(!AssignmentState::Interrupted.is_open());
+    }
+
+    /// **§52: he hears the OUTCOME.** The settled sentence carries what landed — the branch,
+    /// the repository, the verdict — in the words `work_host`'s `what_happened` read off the
+    /// receipts, and it still stands on its own when there is nothing to report rather than
+    /// inventing a clause.
+    #[test]
+    fn the_settled_sentence_says_what_landed_and_survives_having_nothing_to_say() {
+        let with = says::settled("landing the three branches", "It landed on cc/echo-1 in project. An independent review passed it first.");
+        assert!(with.contains("cc/echo-1 in project"), "{with}");
+        assert!(with.contains("An independent review passed it first."), "{with}");
+        assert!(with.contains("is finished."), "{with}");
+        // Whitespace-only is the same as nothing: a caller with nothing to say must not
+        // produce "X is finished.  Everything it produced…" with a hole in the middle.
+        for nothing in ["", "   "] {
+            let bare = says::settled("landing the three branches", nothing);
+            assert!(bare.contains("is finished, and I've kept everything it produced"), "{bare}");
+            assert!(!bare.contains("  "), "an empty outcome left a gap in the sentence: {bare:?}");
+        }
     }
 
     /// Spec §3.4: a notice is held until he has been told, and taking it marks it. The
@@ -911,7 +974,7 @@ mod tests {
         let first = take_pending_notices(&state, "depot", "thread-one").unwrap();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].kind, NoticeKind::ReadyToApprove);
-        assert!(first[0].text.contains("ready for you to approve"));
+        assert!(first[0].text.contains("waiting on a decision from you"));
         // The flag is on disk, not in memory: re-read from the path a relaunch would use.
         let second = take_pending_notices(&state, "depot", "thread-one").unwrap();
         assert!(second.is_empty(), "a notice was delivered twice: {second:?}");

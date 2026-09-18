@@ -99,11 +99,30 @@ A result reaches him as a durable notice held on its assignment until he has bee
 result that lands while he is away is found when he returns; it is also pushed while he is
 present. A notice arriving during a turn or a spoken exchange waits for the boundary.
 
-An assignment's workers all ending does not settle it. Settled is read from the obligation.
-An assignment whose workers have ended while its obligation is open has run to the step that
-would change his repository and stopped there, because local integration is not on the list
-of actions a worker may take without asking — so what he is told is that it is ready for him
-to approve, never that it is done.
+**A background job lands on its own, and what he is told is the outcome.** Local integration
+is on the list of actions the back end may take without asking, and it is the only work tool
+granted on the background audience alone: a conversation cannot reach it at all, and a land
+never reaches the permission desk, so it can never become a question for him. What the engine
+requires of a land is unchanged — an observed run end on both the worker and an independent
+reviewer, a passing verdict on the exact reviewed commit, clean checkouts, an unmoved recorded
+tip, a fast-forward, and no push.
+
+An assignment's workers all ending does not settle it. Settled is read from the obligation. An
+assignment whose workers have ended while its obligation is open is one of two things, and
+only the permission desk tells them apart. If a request of his is waiting there, the
+assignment is waiting on his decision and says so, with the approve and decline controls
+beside it. If nothing is waiting there, the job did not finish and is reported as a job that
+did not finish, with the reason: the land lock timed out, the reviewer asked for changes, the
+engine refused the merge, or the run stopped short of closing the assignment. Neither is ever
+described as done.
+
+A finished assignment's sentence names what landed — the branch, the repository by its own
+name rather than its path, and whether an independent review passed it — read off the land
+record the engine writes onto the work receipt, never inferred from the obligation having
+closed. A record that cannot be read says it cannot be read and never that nothing landed. A
+land whose workspace cleanup did not finish is reported as a land with the leftover beside it,
+because telling him his branch had not moved when it had is worse to act on than telling him
+nothing at all.
 
 Each conversation thread holds one front desk and one back end. The conversation talks to the
 CEO and relays; that thread's standing back-end lease starts and stops jobs, dispatches, lands
@@ -157,7 +176,11 @@ sent one second into a scripted three-second reply on another conversation was a
 runs was the app's own share.
 
 A request for an action that is not on that list waits for him rather than being refused for
-want of a visible turn. The permission desk holds one ordered queue for both leases: the
+want of a visible turn. **That, and only that, is what the queue is for** — a command on his
+Mac, a write outside the workspace, any action the desk would have put in front of him in a
+visible turn and cannot because there is no turn. A land is not among them and never was among
+the things he was meant to be asked about; it was only ever held there because the tool that
+performs it had no grant. The permission desk holds one ordered queue for both leases: the
 head of the conversation's requests is shown on the permission sheet, and background work's
 are shown on the assignment they belong to, with the approve and decline controls beside the
 sentence that says the decision is his. A background request is held by the ASSIGNMENT's
@@ -170,9 +193,10 @@ never in approval. The request does not end with it: the receipt says which step
 waiting on, and his later answer applies to the assignment. Approved, the assignment goes
 back on the work lease to take the step he approved — one exact action, one exact input, once
 — and the run that resumes has no standing permission for anything else. Declined, it stops
-where it stands with nothing in his repository changed and everything it produced kept.
-Nothing is ever approved on his behalf, and nothing restarts by itself: a resume happens
-because he pressed approve.
+where it stands with everything it produced kept. Nothing is ever approved on his behalf, and
+nothing restarts by itself: a resume happens because he pressed approve. His approval does not
+outlive the assignment: the resumed turn is the last one, and the desk forgets the assignment
+and any standing decision for it when that turn ends.
 
 The queue lives in the running process. An assignment that stopped at a decision of his
 before a restart is still recorded as waiting, and the surface says so and points at the

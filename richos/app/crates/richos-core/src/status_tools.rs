@@ -437,7 +437,7 @@ mod tests {
             "thread-one",
             &id,
             assignment::NoticeKind::Settled,
-            &assignment::says::settled("the pricing review"),
+            &assignment::says::settled("the pricing review", "It landed on cc/pricing in depot."),
         )
         .unwrap();
         let before = call(&scope, LOOK_TOOL_NAME, json!({})).unwrap();

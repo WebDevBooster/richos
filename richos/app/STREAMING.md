@@ -716,10 +716,13 @@ Three rules for whoever renders it:
    Nothing times out and nothing is discarded — `take_work_notices` would hand the same
    notice over again if the held copy were lost, because the durable flag is only set when
    the backend hands it out.
-2. **"Ready for you to approve", never "done".** `ready-to-approve` is an assignment that ran
-   to the step that would change his repository and stopped there, because local integration
-   is not on the permission desk's allow-list. It is not a completion and must never be
-   rendered as one.
+2. **NEVER "done" FOR SOMETHING NOT WITNESSED FINISHING.** The `ready-to-approve` kind keeps
+   its wire name and has a narrower meaning since the CEO's ruling §52 (2026-09-18): a job
+   lands on its own, so this is no longer an assignment held at its land — it is one waiting on
+   a decision of his on some step the desk could not put in front of him (a command, a write
+   outside its workspace). It is not a completion and must never be rendered as one. Neither is
+   `failed`, which since the same ruling also covers a job that ran and did not land. Only
+   `settled` is a completion, and its sentence carries what landed.
 3. **It is an attributed local line, never Rich's own turn text.** It renders through the same
    path `rich://voice-notice` uses — a local notice with a synthetic turn id and no turn
    record — so it can never grow a duration row claiming work that never happened, and the

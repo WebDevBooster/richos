@@ -80,6 +80,168 @@ pub fn read(state: &Path, entity: &str, thread: &str) -> Result<WorkSummary, Str
     Ok(summary)
 }
 
+// =======================================================================================
+// THE LAND RECORD, READ OFF THE RECEIPTS — CEO ruling §52, 2026-09-18
+// =======================================================================================
+//
+// *"There's nothing that ever not lands on its own here in the terminal … So, yes, always
+// land on its own."* A job that lands on its own has to be able to tell him WHAT it landed,
+// and this is where that comes from.
+//
+// **The engine writes the land into the work receipt, and the app reads it there rather
+// than anywhere else.** `integrate` records `integration = {reviewer_id, commit, branch,
+// before, verified}` on the worker's receipt under this repository's land lock, at the
+// moment the ref actually moved, and saves it into
+// `<state>/work-receipts/sha256([entity,thread])/<id>.json`
+// (`richos/engine/mega-lander/app.py:809-836`, `:81`). That file is already partitioned by
+// company and thread, so a land can never be read across a company boundary — which is
+// exactly why it, and not the engine's own `.lands` history beside the repository lock, is
+// the source here. That history is keyed by REPOSITORY and holds every conversation's
+// lands; reading it would mean the app deciding which rows were its own.
+//
+// **Nothing in here infers a land.** `verified` is written by the engine after a
+// fast-forward it performed; absence of `verified` is absence of a land, never a failure;
+// and the reviewer's verdict is read off the REVIEWER's own receipt rather than taken from
+// the fact that a land happened, because "the engine would not have landed it without a
+// passing review" is a claim about the engine and this is a report about evidence.
+
+/// One land, as the receipts recorded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Land {
+    /// The repository the engine merged into, exactly as the receipt spells it (a path).
+    pub repository: String,
+    /// The integration branch the ref moved on.
+    pub branch: String,
+    /// **An independent reviewer's own receipt says `passed` on this exact worker.** Read
+    /// from the reviewer named by `integration.reviewer_id`, never assumed from the land.
+    pub reviewed: bool,
+}
+
+impl Land {
+    /// The repository in his terms: its own folder name, not the path to it. He asked for
+    /// work in a repository he knows by name, and a sentence read aloud that spells out an
+    /// absolute path is a sentence he cannot use.
+    pub fn repository_name(&self) -> &str {
+        self.repository.trim_end_matches('/').rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or(&self.repository)
+    }
+}
+
+/// **What the receipts say happened to ONE assignment's work.** Five counts, each of which
+/// turns into one clause of what he is told, and none of which is a guess.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkTrail {
+    /// Every land recorded for this assignment, in receipt-id order.
+    pub lands: Vec<Land>,
+    /// Reviewer receipts on this assignment whose observed verdict asked for changes. A
+    /// reason a land did not happen, and a real one: the reviewer refused it.
+    pub changes_requested: usize,
+    /// Worker receipts whose run has ended and which carry no verified integration. The
+    /// honest count of work that was done and not landed.
+    pub not_landed: usize,
+    /// Worker receipts at all. **Zero is a fact and not a gap**: no worker ever ran for this
+    /// assignment, which is a different failure from one whose work was refused.
+    pub workers: usize,
+    /// A land the engine performed whose workspace cleanup it could not finish. The commit
+    /// is integrated; a worktree or a branch was left behind. Reported, never softened, and
+    /// never allowed to read as a failed land.
+    pub cleanup_pending: bool,
+}
+
+/// Read one assignment's trail. `obligation` is the assignment's obligation id, which the
+/// engine stamps on every receipt it writes for it (`request.obligation_id`).
+///
+/// **An unreadable record is an error and never an empty trail.** A caller that treated
+/// "I could not read it" as "nothing happened" would tell him nothing landed on the day the
+/// state directory was unreadable, which is the one answer this module exists to refuse. The
+/// one exception is a partition that does not exist: no receipts were ever written for this
+/// thread, which is the honest empty.
+pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Result<WorkTrail, String> {
+    let identity = serde_json::to_vec(&[entity, thread]).map_err(|e| e.to_string())?;
+    let parent = state.join("work-receipts");
+    let root = parent.join(format!("{:x}", Sha256::digest(identity)));
+    if parent.is_symlink() || root.is_symlink() {
+        return Err("Work records have been redirected.".into());
+    }
+    let entries = match std::fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(WorkTrail::default()),
+        Err(_) => return Err("Saved work could not be read.".into()),
+    };
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(|_| "Saved work could not be listed.")?.path();
+        if path.extension().is_some_and(|e| e == "json") {
+            paths.push(path);
+        }
+        if paths.len() > 10000 {
+            return Err("There are too many saved work records for this assignment.".into());
+        }
+    }
+    paths.sort();
+    // Two passes, because a worker's land names its reviewer by id and the reviewer's
+    // receipt may sort either side of it. Rows are held once, bounded the same way `read`
+    // bounds itself.
+    let mut rows: Vec<Value> = Vec::new();
+    let mut bytes_read = 0u64;
+    for path in &paths {
+        let meta = std::fs::symlink_metadata(path).map_err(|_| "A saved work record could not be read.")?;
+        bytes_read += meta.len();
+        if !meta.is_file() || meta.len() > 1024 * 1024 || bytes_read > 16 * 1024 * 1024 {
+            return Err("A saved work record is too large or redirected.".into());
+        }
+        let bytes = std::fs::read(path).map_err(|_| "A saved work record could not be read.")?;
+        let row: Value = serde_json::from_slice(&bytes).map_err(|_| "A saved work record is damaged.")?;
+        if row["schema"] != 1 || row["binding"]["entity_id"] != entity || row["binding"]["thread_id"] != thread {
+            return Err("A saved work record has an unsupported schema or different scope.".into());
+        }
+        if row["request"]["obligation_id"].as_str() != Some(obligation) {
+            continue;
+        }
+        rows.push(row);
+        if rows.len() > 200 {
+            return Err("There are too many saved work records for this assignment.".into());
+        }
+    }
+    // The reviewers first: receipt id to the verdict its own observation carries.
+    let mut verdicts: Vec<(String, String)> = Vec::new();
+    for row in &rows {
+        if row["request"]["role"].as_str() != Some("reviewer") || row["review_observation"]["valid"] != true {
+            continue;
+        }
+        let (Some(id), Some(verdict)) =
+            (row["id"].as_str(), row["review_observation"]["report"]["verdict"].as_str())
+        else {
+            continue;
+        };
+        verdicts.push((id.to_string(), verdict.to_string()));
+    }
+    let mut trail = WorkTrail {
+        changes_requested: verdicts.iter().filter(|(_, v)| v == "changes-requested").count(),
+        ..Default::default()
+    };
+    for row in &rows {
+        if row["request"]["role"].as_str() == Some("reviewer") {
+            continue;
+        }
+        trail.workers += 1;
+        let integration = &row["integration"];
+        if integration["verified"] == true {
+            let reviewer = integration["reviewer_id"].as_str().unwrap_or("");
+            trail.lands.push(Land {
+                repository: row["request"]["repo"].as_str().unwrap_or("").to_string(),
+                branch: integration["branch"].as_str().unwrap_or("").to_string(),
+                reviewed: verdicts.iter().any(|(id, v)| id == reviewer && v == "passed"),
+            });
+            if integration["cleanup_pending"].as_array().is_some_and(|a| !a.is_empty()) {
+                trail.cleanup_pending = true;
+            }
+        } else if row["status"].as_str() == Some("run-ended") {
+            trail.not_landed += 1;
+        }
+    }
+    Ok(trail)
+}
+
 #[cfg(test)] mod tests {
     use super::*;
     #[test] fn scoped_saved_evidence_never_infers_liveness_or_completion() {
@@ -99,6 +261,131 @@ pub fn read(state: &Path, entity: &str, thread: &str) -> Result<WorkSummary, Str
         assert!(read(&root,"depot","thread").is_err());
         std::fs::write(path.join("receipt.json"),"partial").unwrap();
         assert!(read(&root,"depot","thread").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // ---- CEO ruling §52: the land record is read, never inferred ------------------------
+
+    fn receipt(id: &str, obligation: &str, role: &str) -> Value {
+        serde_json::json!({"schema":1,"id":id,
+            "binding":{"entity_id":"depot","thread_id":"thread"},
+            "request":{"title":"Fictional work","repo":"/fictional/project","role":role,"obligation_id":obligation},
+            "status":"run-ended"})
+    }
+    fn write(root: &std::path::Path, rows: &[Value]) -> std::path::PathBuf {
+        let path = root.join("work-receipts").join(format!("{:x}", Sha256::digest(b"[\"depot\",\"thread\"]")));
+        std::fs::create_dir_all(&path).unwrap();
+        for row in rows {
+            let name = format!("{}.json", row["id"].as_str().unwrap());
+            std::fs::write(path.join(name), serde_json::to_vec(row).unwrap()).unwrap();
+        }
+        path
+    }
+    fn temp() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("work-trail-{}", uuid::Uuid::new_v4()))
+    }
+
+    /// **The land, the branch and the verdict, all read off evidence** — and the verdict is
+    /// read off the REVIEWER's receipt, not deduced from the land having happened.
+    ///
+    /// The second assignment in the same partition is the positive control for the scoping:
+    /// without it, "this trail names one land" would pass equally over a reader that ignored
+    /// `obligation_id` entirely.
+    #[test] fn a_land_is_read_with_its_branch_and_its_reviewers_own_verdict() {
+        let root = temp();
+        let mut worker = receipt("aaa", "obligation-7", "worker");
+        worker["integration"] = serde_json::json!({"verified":true,"reviewer_id":"bbb",
+            "branch":"cc/echo-1","commit":"deadbeef","cleanup_pending":[]});
+        let mut reviewer = receipt("bbb", "obligation-7", "reviewer");
+        reviewer["review_observation"] = serde_json::json!({"valid":true,"report":{"verdict":"passed"}});
+        // ANOTHER assignment's land, in the same partition. It must not appear.
+        let mut other = receipt("ccc", "obligation-9", "worker");
+        other["integration"] = serde_json::json!({"verified":true,"reviewer_id":"zzz",
+            "branch":"cc/somebody-else","commit":"cafe","cleanup_pending":[]});
+        write(&root, &[worker, reviewer, other]);
+
+        let trail = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!(trail.lands.len(), 1, "the trail crossed into another assignment's land");
+        assert_eq!(trail.lands[0].branch, "cc/echo-1");
+        assert_eq!(trail.lands[0].repository, "/fictional/project");
+        assert_eq!(trail.lands[0].repository_name(), "project", "he would have been read an absolute path");
+        assert!(trail.lands[0].reviewed, "the reviewer's own passing verdict was not found");
+        assert_eq!(trail.not_landed, 0);
+        assert_eq!(trail.changes_requested, 0);
+        assert_eq!(trail.workers, 1);
+        assert!(!trail.cleanup_pending);
+        // The other assignment reads its own land and nobody else's.
+        assert_eq!(super::trail(&root, "depot", "thread", "obligation-9").unwrap().lands[0].branch, "cc/somebody-else");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **`reviewed` is a reading and not a courtesy.** The same land with its reviewer's
+    /// receipt saying `changes-requested` reports `reviewed: false` — so a sentence built on
+    /// this field can never tell him a review passed because a merge happened.
+    #[test] fn a_land_whose_reviewer_refused_it_is_not_reported_as_reviewed() {
+        let root = temp();
+        let mut worker = receipt("aaa", "obligation-7", "worker");
+        worker["integration"] = serde_json::json!({"verified":true,"reviewer_id":"bbb",
+            "branch":"cc/echo-1","commit":"deadbeef","cleanup_pending":[]});
+        let mut reviewer = receipt("bbb", "obligation-7", "reviewer");
+        reviewer["review_observation"] = serde_json::json!({"valid":true,"report":{"verdict":"changes-requested"}});
+        write(&root, &[worker, reviewer]);
+        let trail = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!(trail.lands.len(), 1);
+        assert!(!trail.lands[0].reviewed, "a land was called reviewed on the strength of being a land");
+        assert_eq!(trail.changes_requested, 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **The three shapes of "it did not land", kept apart**, because they are three
+    /// different things to tell him: the reviewer refused it, the work ran and never landed,
+    /// and no worker ever ran at all.
+    #[test] fn the_reasons_a_land_did_not_happen_are_counted_separately() {
+        let root = temp();
+        let worker = receipt("aaa", "obligation-7", "worker");
+        let mut reviewer = receipt("bbb", "obligation-7", "reviewer");
+        reviewer["review_observation"] = serde_json::json!({"valid":true,"report":{"verdict":"changes-requested"}});
+        write(&root, &[worker, reviewer]);
+        let refused = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!((refused.lands.len(), refused.not_landed, refused.changes_requested, refused.workers), (0, 1, 1, 1));
+        // Nothing for this assignment at all: not a land, not a refusal, no worker.
+        let nothing = trail(&root, "depot", "thread", "obligation-never").unwrap();
+        assert_eq!(nothing, WorkTrail::default(), "an assignment with no receipts read as something");
+        // And a partition that was never written is the honest empty rather than an error.
+        assert_eq!(trail(&temp(), "depot", "thread", "obligation-7").unwrap(), WorkTrail::default());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **A land whose cleanup did not finish is still a land**, and the leftover is reported
+    /// beside it rather than instead of it. Getting this backwards would tell him nothing
+    /// landed while his branch had already moved.
+    #[test] fn a_land_with_unfinished_cleanup_is_a_land_and_says_so() {
+        let root = temp();
+        let mut worker = receipt("aaa", "obligation-7", "worker");
+        worker["integration"] = serde_json::json!({"verified":true,"reviewer_id":"bbb",
+            "branch":"cc/echo-1","commit":"deadbeef","cleanup_pending":["one worktree remains"]});
+        let mut reviewer = receipt("bbb", "obligation-7", "reviewer");
+        reviewer["review_observation"] = serde_json::json!({"valid":true,"report":{"verdict":"passed"}});
+        write(&root, &[worker, reviewer]);
+        let trail = trail(&root, "depot", "thread", "obligation-7").unwrap();
+        assert_eq!(trail.lands.len(), 1);
+        assert!(trail.cleanup_pending);
+        assert_eq!(trail.not_landed, 0, "a landed commit was counted as not landed");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// **An unreadable record is an error, never an empty trail.** The positive control is
+    /// the assertion above it: the same call over the same directory succeeds before the
+    /// damage, so the error is a fact about the damaged row.
+    #[test] fn a_damaged_record_refuses_to_answer_rather_than_reporting_nothing_landed() {
+        let root = temp();
+        let mut worker = receipt("aaa", "obligation-7", "worker");
+        worker["integration"] = serde_json::json!({"verified":true,"reviewer_id":"bbb",
+            "branch":"cc/echo-1","commit":"deadbeef","cleanup_pending":[]});
+        let path = write(&root, &[worker]);
+        assert_eq!(trail(&root, "depot", "thread", "obligation-7").unwrap().lands.len(), 1);
+        std::fs::write(path.join("aaa.json"), "partial").unwrap();
+        assert!(trail(&root, "depot", "thread", "obligation-7").is_err(), "a damaged record read as nothing landed");
         std::fs::remove_dir_all(root).unwrap();
     }
 }
