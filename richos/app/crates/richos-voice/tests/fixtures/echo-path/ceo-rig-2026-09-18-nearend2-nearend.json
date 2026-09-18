@@ -12,7 +12,8 @@
     [20.912, 21.664]
   ],
   "near_end_total_secs": 4.880,
-  "near_end_frames_at_16ms": 299,
+  "near_end_frames_at_16ms": 305,
+  "that_frame_count_was_299_until_2026-09-18_and_299_was_wrong": "Every interval above is a whole number of 256-sample frames — 119, 69, 52, 18, 47 — and they sum to 305, under either counting convention (duration/0.016 and fully-contained-frames give the same answer because no interval boundary falls mid-frame). 305 x 256 / 16000 = 4.880 s, which is the near_end_total_secs this same sidecar states, and 299 x 256 / 16000 = 4.784 s, which it does not. Nothing read this field: the tests derive everything from near_end_intervals_secs, and the 205-frames-above-baseline figure below is a different quantity and is unaffected. Re-derived and pinned in tests/barge_in_on_the_ceos_rig.rs::every_duration_in_this_file_is_the_frame_math.",
 
   "his_level_at_the_microphone_dbfs": -18.1,
   "echo_only_level_at_the_microphone_dbfs": -46.7,
