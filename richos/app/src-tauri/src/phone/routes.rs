@@ -2,7 +2,7 @@
 //! contract `docs/architecture/phone-channel.md`.
 //!
 //! **RECONCILED 2026-09-18 with the landed phone app.** Every route name, header, field name and
-//! status code below comes from `richos/app/phone/lib/api.js`, which shipped first (`dfa7ed27`).
+//! status code below comes from `richos/web/web-app/lib/api.js`, which shipped first (`dfa7ed27`).
 //! The phone is a tested artifact and this Rust was not yet reachable from anywhere, so this is
 //! the side that moved.
 //!
@@ -30,13 +30,15 @@
 //! behind a signature.
 
 use super::api_base::ApiBaseDesk;
+use super::assets::PhoneApp;
 use super::device::{parse_authorization, DeviceDesk, Presented, Refusal};
 use super::push::Subscription;
 use super::rows::rows_from_payload;
 use super::stream::{Frame, PhoneHub, Replay};
 use super::MAX_BODY_BYTES;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// One request, as the listener read it off the wire.
@@ -121,13 +123,13 @@ pub struct Channel {
     pub api_base: Arc<ApiBaseDesk>,
     pub hub: Arc<PhoneHub>,
     pub bridge: Arc<dyn Bridge>,
-    /// Where the static phone app lives. `None` on a build with no phone assets bundled, in
-    /// which case `/` is a 404 like anything else — never a placeholder page, because a
-    /// placeholder that looks like the app is worse than nothing.
-    pub assets: Option<PathBuf>,
+    /// The static phone app, compiled into this executable by `build.rs` ([`super::assets`]).
+    /// An app with no files in it serves `/` as a 404 like anything else — never a
+    /// placeholder page, because a placeholder that looks like the app is worse than nothing.
+    pub assets: PhoneApp,
     pub vapid_public: String,
     /// The certificate authority's SHA-256 as colon-separated hex. **The Mac sends the hash and
-    /// the phone renders the six words itself** (`app/phone/lib/fingerprint.js`): *"if the Mac
+    /// the phone renders the six words itself** (`web/web-app/lib/fingerprint.js`): *"if the Mac
     /// sent pretty words, a Mac that wanted to could send words that do not belong to the
     /// certificate it is actually serving."*
     pub fingerprint_hex: String,
@@ -492,10 +494,8 @@ fn audio(channel: &Channel, request: &Incoming, message_id: &str) -> Outcome {
 // -------------------------------------------------------------------------------------
 
 fn static_asset(channel: &Channel, path: &str) -> Outcome {
-    let Some(root) = channel.assets.as_ref() else { return Outcome::NotFound };
     // `strip_prefix`, ONE slash, deliberately not `trim_start_matches`. Stripping every leading
-    // slash makes `//app.js` and `/app.js` the same request — two URLs for one resource — and it
-    // hides the empty path segment `safe_join` exists to refuse. A test caught exactly that.
+    // slash would make `//app.js` and `/app.js` the same request — two URLs for one resource.
     let relative = if path == "/" {
         "index.html"
     } else {
@@ -504,55 +504,20 @@ fn static_asset(channel: &Channel, path: &str) -> Outcome {
             None => return Outcome::NotFound,
         }
     };
-    let Some(file) = safe_join(root, relative) else { return Outcome::NotFound };
-    let Ok(bytes) = std::fs::read(&file) else { return Outcome::NotFound };
+    // ONE LOOKUP, EXACT, against the table this build compiled in. What used to be here was a
+    // `safe_join` against a directory on disk: it refused `..`, `.`, empty segments, null bytes
+    // and absolute paths by inspection, then canonicalized the result and required it to sit
+    // inside the canonicalized root, because a symbolic link could otherwise point out of the
+    // directory. None of that is needed against a fixed set of keys, and none of it is missing:
+    // every one of those probes is simply a name this build never embedded, so it misses here
+    // and gets the same flat 404 as any other unknown path. `PhoneApp::file` says the same
+    // thing from the other side, and the tests below still fire every probe at this route.
+    let Some((content_type, bytes)) = channel.assets.file(relative) else { return Outcome::NotFound };
     Outcome::Bytes {
         status: 200,
-        content_type: content_type_for(&file).to_string(),
-        body: bytes,
+        content_type: content_type.to_string(),
+        body: bytes.to_vec(),
         download_as: None,
-    }
-}
-
-/// Resolve a request path inside the asset root, or refuse.
-///
-/// **Two refusals, and neither is enough alone.** A component of `..`, `.`, an empty segment, a
-/// null byte or an absolute path are refused by inspection; and then the resolved path is
-/// canonicalized and required to sit inside the canonicalized root, which is what catches a
-/// symbolic link pointing out of the directory.
-pub fn safe_join(root: &Path, relative: &str) -> Option<PathBuf> {
-    if relative.is_empty() || relative.contains('\0') || relative.starts_with('/') {
-        return None;
-    }
-    if relative.split('/').any(|part| part == ".." || part == "." || part.is_empty()) {
-        return None;
-    }
-    let candidate = root.join(relative);
-    let real_root = root.canonicalize().ok()?;
-    let real = candidate.canonicalize().ok()?;
-    if !real.starts_with(&real_root) {
-        return None;
-    }
-    if !real.is_file() {
-        return None;
-    }
-    Some(real)
-}
-
-fn content_type_for(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
-        "html" => "text/html; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" => "application/json; charset=utf-8",
-        "webmanifest" => "application/manifest+json",
-        "png" => "image/png",
-        "svg" => "image/svg+xml",
-        "woff2" => "font/woff2",
-        "wav" => "audio/wav",
-        // Deliberately not `text/plain`: an unknown type served as text is a type the browser may
-        // try to render.
-        _ => "application/octet-stream",
     }
 }
 
@@ -615,6 +580,18 @@ mod tests {
     use crate::phone::device::signing_string;
     use crate::phone::device::tests::Phone;
     use std::sync::Mutex;
+
+    /// A stand-in for the embedded phone app: two files, named as the real table names
+    /// them. These tests are about the ROUTE — which paths reach the app and which get a
+    /// flat 404 — so a two-entry table says everything a 31-entry one would, and says it
+    /// without tying the route's tests to the phone app's contents.
+    ///
+    /// That the REAL table holds the real files, byte for byte, is asserted in
+    /// `super::super::assets`, where it belongs.
+    const TEST_APP: &[(&str, &[u8])] = &[
+        ("index.html", b"<!doctype html><title>Rich</title>"),
+        ("app.js", b"// the phone app"),
+    ];
 
     struct TempDir(PathBuf);
     impl TempDir {
@@ -718,23 +695,19 @@ mod tests {
         let hub = PhoneHub::new();
         hub.set_live(true);
         let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, rows });
-        let assets = dir.0.join("assets");
-        std::fs::create_dir_all(&assets).unwrap();
-        std::fs::write(assets.join("index.html"), "<!doctype html><title>Rich</title>").unwrap();
-        std::fs::write(assets.join("app.js"), "// the phone app").unwrap();
         let channel = Channel {
             devices,
             api_base: Arc::new(ApiBaseDesk::home_only("https://mm1.local:8443")),
             hub,
             bridge: Arc::clone(&bridge) as Arc<dyn Bridge>,
-            assets: Some(assets),
+            assets: PhoneApp::from_files(TEST_APP),
             vapid_public: "BExampleVapidKey".into(),
             fingerprint_hex: "3D:9C:A1".into(),
         };
         Fixture { dir, channel, phone, device_id, challenge, bridge }
     }
 
-    /// Build a signed request exactly as `app/phone/lib/api.js` does.
+    /// Build a signed request exactly as `web/web-app/lib/api.js` does.
     fn signed(f: &Fixture, method: &str, path: &str, query: &str, body: &str) -> Incoming {
         let path_with_query =
             if query.is_empty() { path.to_string() } else { format!("{path}?{query}") };
@@ -857,7 +830,7 @@ mod tests {
 
     #[test]
     fn a_forgotten_phone_is_told_so_once_rather_than_refused_forever() {
-        // The one deliberate non-404: `app/phone/lib/api.js` treats 403 + `{"revoked":true}` as
+        // The one deliberate non-404: `web/web-app/lib/api.js` treats 403 + `{"revoked":true}` as
         // final, clears its credential and says so. A 404 would be a phone that hammers his Mac.
         let f = fixture("revoked");
         f.channel.devices.forget().unwrap();
@@ -977,7 +950,7 @@ mod tests {
                 assert!(v["device_id"].as_str().unwrap().starts_with("dev_"));
                 assert_eq!(v["api_base"], "https://mm1.local:8443");
                 assert_eq!(v["vapid_public_key"], "BExampleVapidKey");
-                // THE HASH, NOT THE WORDS. `app/phone/lib/fingerprint.js` renders the six words
+                // THE HASH, NOT THE WORDS. `web/web-app/lib/fingerprint.js` renders the six words
                 // itself, deliberately: words the Mac chose could belong to a different
                 // certificate than the one it is serving.
                 assert_eq!(v["ca_fingerprint_sha256"], "3D:9C:A1");
@@ -1253,13 +1226,16 @@ mod tests {
     }
 
     #[test]
-    fn nothing_outside_the_asset_directory_can_be_reached() {
+    fn nothing_outside_the_embedded_app_can_be_reached() {
+        // **THE ATTACK SURFACE IS GONE, AND THE PROBES STAY.** These paths used to be
+        // refused by `safe_join`'s inspection and by a canonicalized-root containment
+        // check; the app is a table in the binary now, so each one is simply a key this
+        // build never compiled in. The symbolic-link case that used to sit here is NOT
+        // listed as passing — it was a property of a directory, there is no directory, and
+        // a test that writes a link nothing reads would be a green line proving nothing.
         let f = fixture("traversal");
-        let root = f.channel.assets.clone().unwrap();
         let outside = f.dir.0.join("private.txt");
         std::fs::write(&outside, "the CEO's conversation").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, root.join("link.txt")).unwrap();
 
         for probe in [
             "/../private.txt",
@@ -1267,22 +1243,21 @@ mod tests {
             "/./app.js",
             "//app.js",
             "/assets/../../private.txt",
+            "/lib//api.js",
+            &format!("/{}", outside.display()),
         ] {
             assert_eq!(dispatch(&f.channel, &plain("GET", probe)), Outcome::NotFound, "{probe} was served");
         }
-        #[cfg(unix)]
-        assert_eq!(
-            dispatch(&f.channel, &plain("GET", "/link.txt")),
-            Outcome::NotFound,
-            "a symbolic link out of the asset directory was followed"
-        );
         assert_eq!(dispatch(&f.channel, &plain("GET", "/app.js")).status(), 200);
     }
 
     #[test]
-    fn a_build_with_no_phone_assets_serves_nothing_rather_than_a_placeholder() {
+    fn a_build_with_no_phone_app_serves_nothing_rather_than_a_placeholder() {
+        // Unreachable in a shipped build — `build.rs` refuses to compile one that embedded
+        // nothing — and the route still has to answer for it, because "serve a placeholder
+        // that looks like the app" must stay a thing this code cannot do.
         let mut f = fixture("no-assets");
-        f.channel.assets = None;
+        f.channel.assets = PhoneApp::from_files(&[]);
         assert_eq!(dispatch(&f.channel, &plain("GET", "/")), Outcome::NotFound);
         assert_eq!(dispatch(&f.channel, &plain("GET", "/index.html")), Outcome::NotFound);
     }

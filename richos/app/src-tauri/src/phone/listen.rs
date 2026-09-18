@@ -334,7 +334,7 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
 /// Turn a described response into an HTTP one, with a fresh challenge attached.
 ///
 /// **Every response carries `X-RichOS-Challenge`, including a 404 and a 429.** That is how the
-/// phone gets the next thing to sign (`app/phone/lib/api.js` reads the header on every response),
+/// phone gets the next thing to sign (`web/web-app/lib/api.js` reads the header on every response),
 /// and it is why the contract needs no challenge route. A refusal that omitted it would leave a
 /// phone whose challenge had aged out with no way back.
 fn render(channel: &Channel, outcome: Outcome) -> Response<BoxBody> {
@@ -463,9 +463,9 @@ fn open_stream(channel: Arc<Channel>, opening: Vec<String>) -> Response<BoxBody>
 ///
 /// Written out rather than adding `percent-encoding` as a direct dependency: it is a dozen lines,
 /// and the only thing this needs is a path or one query value. **A malformed escape is left alone
-/// rather than guessed at** — and it does not matter either way, because `routes::safe_join`
-/// refuses anything with a `..` component *after* this ran, so a decode that produced one would
-/// still be caught.
+/// rather than guessed at** — and it does not matter either way, because the static route resolves
+/// by exact match against the app embedded in this binary (`phone::assets`), so a decode that
+/// produced a `..` component would name nothing and get the same flat 404.
 pub fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -496,23 +496,28 @@ mod tests {
         assert_eq!(percent_decode("/%2e%2e/private.txt"), "/../private.txt");
         assert_eq!(percent_decode("/a%20b.js"), "/a b.js");
         assert_eq!(percent_decode("RichOS-Device%20dev_a.CH.AAAA"), "RichOS-Device dev_a.CH.AAAA");
-        // Broken escapes: left as they are, and `safe_join` refuses them either way.
+        // Broken escapes: left as they are, and the lookup misses on them either way.
         assert_eq!(percent_decode("/a%2"), "/a%2");
         assert_eq!(percent_decode("/a%zz"), "/a%zz");
         assert_eq!(percent_decode("%"), "%");
     }
 
     #[test]
-    fn decoding_happens_before_the_traversal_check_so_an_escaped_dot_dot_is_still_refused() {
+    fn decoding_happens_before_the_lookup_so_an_escaped_dot_dot_is_still_refused() {
         // The pair that matters: this function turns `%2e%2e` into `..`, and the route layer then
-        // refuses it. Either half alone would let `/%2e%2e/private.txt` through.
+        // has nothing by that name. Either half alone would let `/%2e%2e/private.txt` through —
+        // decoding after the lookup would let the escaped form reach a later consumer intact.
         let decoded = percent_decode("/%2e%2e/private.txt");
         assert_eq!(decoded, "/../private.txt");
         assert!(decoded.split('/').any(|part| part == ".."));
-        assert_eq!(
-            super::super::routes::safe_join(std::path::Path::new("/tmp"), "../private.txt"),
-            None
-        );
+        // The app is a table compiled into this binary, so the decoded path is refused by not
+        // existing rather than by inspection (`phone::assets`). Asserted against the REAL
+        // embedded app, which is the one a request actually meets.
+        let app = super::super::assets::PhoneApp::embedded();
+        assert!(app.file("../private.txt").is_none());
+        assert!(app.file(decoded.trim_start_matches('/')).is_none());
+        // And a real one resolves, so the line above is not passing because everything fails.
+        assert!(app.file("app.js").is_some());
     }
 
     #[test]
@@ -575,7 +580,7 @@ mod tests {
 
     #[test]
     fn a_revoked_phone_gets_the_one_body_the_phone_acts_on() {
-        // `app/phone/lib/api.js` looks for exactly `{"revoked":true}` and treats it as final.
+        // `web/web-app/lib/api.js` looks for exactly `{"revoked":true}` and treats it as final.
         let response = render_with(Outcome::Revoked, None);
         assert_eq!(response.status().as_u16(), 403);
         assert_eq!(response.headers().get("content-type").unwrap(), "application/json; charset=utf-8");
@@ -874,7 +879,7 @@ mod tests {
                 thread: thread.clone(),
                 entity,
             }) as Arc<dyn Bridge>,
-            assets: None,
+            assets: crate::phone::assets::PhoneApp::embedded(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: ca.fingerprint_hex(),
         });
@@ -896,6 +901,37 @@ mod tests {
         // --- the phone -----------------------------------------------------------------------
         let client = TlsClient::new(&ca.ca_der, https_port);
         let phone = crate::phone::device::tests::Phone::new();
+
+        // 0. THE APP LOADS — and it is numbered zero because it happens before everything else
+        //    below it: the phone fetches the app in order to have a pairing screen at all.
+        //
+        //    THIS IS THE STEP THE CHANNEL HAD NEVER HAD, and its absence is what let a bundle
+        //    ship with no phone app in it for a day. The channel here is built with
+        //    `PhoneApp::embedded()` — the real table this build compiled in, not a fixture — so
+        //    a build that embedded nothing, or embedded the wrong bytes, fails right here over
+        //    a real TLS socket.
+        let (status, headers, body) = client.request("GET", "/", &[], b"");
+        assert_eq!(status, 200, "the phone app did not load: {}", String::from_utf8_lossy(&body));
+        assert_eq!(header_of(&headers, "content-type"), Some("text/html; charset=utf-8"));
+        let shell = String::from_utf8_lossy(&body).into_owned();
+        assert!(shell.contains("<script src=\"/app.js\""), "what loaded is not the phone app: {shell}");
+        for (path, content_type) in [
+            ("/app.js", "text/javascript; charset=utf-8"),
+            ("/sw.js", "text/javascript; charset=utf-8"),
+            ("/styles.css", "text/css; charset=utf-8"),
+            ("/manifest.webmanifest", "application/manifest+json"),
+            ("/icons/icon-192.png", "image/png"),
+        ] {
+            let (status, headers, body) = client.request("GET", path, &[], b"");
+            assert_eq!(status, 200, "{path} is not served");
+            assert_eq!(header_of(&headers, "content-type"), Some(content_type), "{path}");
+            assert!(!body.is_empty(), "{path} was served empty");
+        }
+        // And nothing that is not the app, over the same socket.
+        for path in ["/README.md", "/package.json", "/test/api.test.js", "/../private.txt"] {
+            let (status, _h, _b) = client.request("GET", path, &[], b"");
+            assert_eq!(status, 404, "{path} was served");
+        }
 
         // 1. PAIR. No signature: this is the request that establishes the credential.
         let pair_body = serde_json::json!({
@@ -923,7 +959,7 @@ mod tests {
         assert_eq!(status, 404, "an unsigned POST was answered");
         assert!(body.is_empty(), "a refusal carried a body: {}", String::from_utf8_lossy(&body));
 
-        // 3. POST HIS WORDS, signed exactly as `app/phone/lib/api.js` signs them.
+        // 3. POST HIS WORDS, signed exactly as `web/web-app/lib/api.js` signs them.
         let words = "where are we on the proposal?";
         let message_body = serde_json::json!({
             "client_id": "01JE2E",
@@ -1099,7 +1135,7 @@ mod tests {
                 thread: thread.clone(),
                 entity,
             }) as Arc<dyn Bridge>,
-            assets: None,
+            assets: crate::phone::assets::PhoneApp::embedded(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: ca.fingerprint_hex(),
         });

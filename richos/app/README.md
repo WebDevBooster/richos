@@ -633,6 +633,14 @@ richos/app/
                               whole of its updater surface
     src/events.rs            the relay: one LiveObserver that puts §13's payloads on the
                               webview, and nothing that can widen them
+    src/phone/assets.rs      THE PHONE APP, COMPILED INTO THIS EXECUTABLE. The source tree is
+                              `richos/web/web-app/` (moved there from `app/phone/` on
+                              2026-09-18 by CEO instruction); build.rs's `embed_phone` stages
+                              it into $OUT_DIR and generates the include_bytes! table, so the
+                              developer run and the shipped bundle serve the same bytes and
+                              no path is needed to find them. It is NOT a Tauri resource and
+                              NOT a directory in Contents/Resources — build.rs says why.
+                              A build that embeds nothing does not compile
     src/timeline_view.rs     the get_timeline command body — Timeline::view(Ceo) -> payload
     examples/timeline_payload.rs prints that payload from a real ledger (what realbytes.js
                               renders, so backend/UI field drift cannot go unnoticed)
@@ -659,6 +667,16 @@ richos/app/
                               do the microphone and accessibility grants survive?
     generate-app-icons.sh    one artwork PNG in, every artefact tauri.conf.json declares out
     lib/app_icons.py         the generator + verifier both of the above run
+    lib/no_host_paths.py     the ARTIFACT check: refuses a built bundle carrying the build
+                              machine's home directory, which --remap-path-prefix cannot
+                              always prevent because a macro's output is program data
+    lib/no_compile_time_paths.py  the SOURCE half of the same guarantee, run by
+                              package-app.sh immediately BEFORE the compile. On 2026-09-18
+                              the artifact check refused a nightly after a full release
+                              build over one line — env!("CARGO_MANIFEST_DIR") — that had
+                              been readable in the source the whole time. Same defect, one
+                              second instead of an hour. It does not replace the artifact
+                              check and its own header says so
     updater-e2e.sh           THE ROW 12 DELIVERABLE: builds 0.1.0 and 0.1.1, serves a
                               manifest, makes the first BECOME the second on this machine,
                               then flips one byte and requires the install to REFUSE.
@@ -674,9 +692,12 @@ richos/app/
                               has started answering are all red
     run-tests.test.sh        the harness's own allowance, held to account: seven cases against
                               a copy of it and fake suites with known exit codes
-    *.test.sh                nine of them, and the list is NOT typed here for the reason
-                              run-tests.sh gives — a second copy of an inventory is how the
-                              first one drifts. Measured on a GitHub macos-latest runner,
+    *.test.sh                fourteen at this commit, counted with `ls scripts/*.test.sh |
+                              wc -l` rather than by reading this line — which said "nine"
+                              until 2026-09-18, when it was three behind before the tenth
+                              was even added. The list is NOT typed here for the reason
+                              run-tests.sh gives, and a typed COUNT drifts the same way a
+                              typed list does. Measured on a GitHub macos-latest runner,
                               2026-09-10, run 34446378461: 8 suites, 147 checks, and
                               gui-boot.test.sh declared as a gap because no public runner can
                               hold the loro compiler its fixture copies

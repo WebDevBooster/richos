@@ -1,17 +1,17 @@
 # The phone channel — the contract between the Mac and the phone app
 
 **Status:** the contract for slice A of `richos-hq/docs/plans/richos-phone-client-2026-09-18.md`.
-**Mac half:** `richos/app/src-tauri/src/phone/`. **Phone half:** `richos/app/phone/`.
+**Mac half:** `richos/app/src-tauri/src/phone/`. **Phone half:** `richos/web/web-app/`.
 
 > ## RECONCILED 2026-09-18, AND THE PHONE WON
 >
 > This file was written first, before either half was built, so the two would be built against one
 > document. The phone was then finished first and **landed** (`dfa7ed27`) against its own stub
-> (`richos/app/phone/CONTRACT-STUB.md`), which had to invent several things this file had settled
+> (`richos/web/web-app/CONTRACT-STUB.md`), which had to invent several things this file had settled
 > differently.
 >
 > **Every one of those differences is resolved in the phone's favor, and this file now describes
-> what `richos/app/phone/lib/api.js` actually does.** Nothing under `richos/app/phone/` was
+> what `richos/web/web-app/lib/api.js` actually does.** Nothing under `richos/web/web-app/` was
 > changed. The reason is not seniority: the phone is a shipped, tested artifact with 1,200 lines
 > of tests behind it, and the Mac's Rust was not yet reachable from anywhere — so the Mac was the
 > cheaper side to move, and a contract that describes something other than the code is worse than
@@ -84,7 +84,7 @@ starts, in his words, and the profile's own description repeats it (plan §2.1).
 
 ## 3. The static app
 
-`GET /` and `GET /<asset>` on 8443 serve the files in `richos/app/phone/`, bundled into the
+`GET /` and `GET /<asset>` on 8443 serve the files in `richos/web/web-app/`, bundled into the
 application as a resource. **No credential is required and none can be:** the phone loads the app
 in order to pair, so a lock here would be a lock whose key is behind the lock.
 
@@ -102,7 +102,7 @@ that then fails in a way nobody can read.
 
 ## 4. The credential
 
-Authority: `richos/app/phone/lib/api.js`.
+Authority: `richos/web/web-app/lib/api.js`.
 
 At pairing the phone generates a **non-extractable** WebCrypto ECDSA P-256 key and registers the
 public half (plan §2.7). Plan §2.7's cheaper alternative — a long random bearer token — is **not**
@@ -204,10 +204,10 @@ Response `200`:
 }
 ```
 
-**The Mac sends the HASH and the phone renders the six words itself** (`app/phone/lib/fingerprint.js`),
+**The Mac sends the HASH and the phone renders the six words itself** (`web/web-app/lib/fingerprint.js`),
 and the ordering is the point: *"if the Mac sent pretty words, a Mac that wanted to could send
 words that do not belong to the certificate it is actually serving."* The Mac computes the same six
-words only for its **own** screen, from `app/phone/lib/wordlist.js` — the same 256-word list, in the
+words only for its **own** screen, from `web/web-app/lib/wordlist.js` — the same 256-word list, in the
 same order, cross-checked by a Rust test that reads the phone's file off disk. The derivation is
 the first six bytes of the SHA-256 of the root's DER, one word per byte: **48 bits**, compared by a
 person. Ample for what it defends, which is not a brute-force search but somebody getting the CEO

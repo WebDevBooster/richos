@@ -12,7 +12,7 @@
 //!
 //! # The wire shape is the landed phone's
 //!
-//! **RECONCILED 2026-09-18.** `app/phone/lib/api.js` shipped first and subscribes to exactly five
+//! **RECONCILED 2026-09-18.** `web/web-app/lib/api.js` shipped first and subscribes to exactly five
 //! event names — `hello`, `message`, `delta`, `state`, `heartbeat` — and merges on an integer
 //! cursor. So the §13 live family is translated into those ([`super::rows`]) rather than forwarded
 //! verbatim, and the cursor is an integer rather than the `<boot>-<seq>` string an earlier draft
@@ -481,7 +481,7 @@ mod tests {
     #[test]
     fn a_real_turn_becomes_the_events_the_landed_phone_subscribes_to() {
         // END TO END THROUGH THE SPINE: a real reply, translated, and nothing on the wire that
-        // `app/phone/lib/api.js` does not handle. Its listener list is
+        // `web/web-app/lib/api.js` does not handle. Its listener list is
         // ['hello','message','delta','state','heartbeat'] — so anything else here would be bytes
         // his cellular connection carries for nothing.
         let hub = live_hub();

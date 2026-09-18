@@ -1,6 +1,6 @@
 //! **THE MESSAGE ROW — the one translation between the Mac's gated bytes and the phone's shape.**
 //!
-//! The landed phone merges rows shaped like this (`app/phone/CONTRACT-STUB.md` §2(b)):
+//! The landed phone merges rows shaped like this (`web/web-app/CONTRACT-STUB.md` §2(b)):
 //!
 //! ```text
 //! {"id","thread_id","cursor","role":"ceo"|"rich","kind":"text"|"voice","text","created_at",

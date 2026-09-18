@@ -572,7 +572,7 @@ pub fn mobileconfig(
 // -------------------------------------------------------------------------------------
 
 /// **256 words, one per byte — and it is NOT this file's list.** It is
-/// `richos/app/phone/lib/wordlist.js`, copied in order, because the whole point of the six
+/// `richos/web/web-app/lib/wordlist.js`, copied in order, because the whole point of the six
 /// words is that the Mac's screen and the phone's screen show **the same six**, and two lists
 /// that merely look similar is the one way this feature can be wrong in a way nobody notices.
 ///
@@ -583,7 +583,7 @@ pub fn mobileconfig(
 ///
 /// What IS tested here is the only thing a second copy can usefully assert:
 /// [`tests::the_word_list_is_the_phones_word_list_in_the_same_order`] reads
-/// `app/phone/lib/wordlist.js` off disk and compares it entry by entry. A drift on either side
+/// `web/web-app/lib/wordlist.js` off disk and compares it entry by entry. A drift on either side
 /// fails the Mac's own test suite.
 ///
 /// **And the derivation runs on the PHONE, from the hex the Mac sends.** `lib/fingerprint.js`
@@ -881,7 +881,7 @@ mod tests {
         //
         // So this does not test a property of the list. It reads the phone's own file and
         // compares. A word changed on either side fails here.
-        let phone = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../phone/lib/wordlist.js");
+        let phone = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/web-app/lib/wordlist.js");
         let source = std::fs::read_to_string(&phone)
             .unwrap_or_else(|e| panic!("could not read {}: {e}", phone.display()));
         // The list is the quoted words inside the `const WORDS = [ … ];` array. Taking every

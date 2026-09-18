@@ -43,7 +43,7 @@ const path = require('node:path');
 
 const { createStubMac } = require('./stub-mac.js');
 const fingerprint = require('../lib/fingerprint.js');
-const contrastLib = require('../../ui/tests/lib/contrast.js');
+const contrastLib = require('../../../app/ui/tests/lib/contrast.js');
 
 // The app's own browser harness already installs Playwright WITH WebKit (`app/ui/tests` pins it and
 // its postinstall runs `playwright install webkit`), so that one is preferred: a Playwright whose

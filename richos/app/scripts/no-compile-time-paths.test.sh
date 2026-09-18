@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+#
+# no-compile-time-paths.test.sh — the source-side half of "no build-machine path ships".
+#
+# THE DEFECT, AND WHY A SECOND CHECK EXISTS FOR IT. `no_host_paths.py` reads the BUILT
+# bundle and is the guarantee. On 2026-09-18 it did its job: the nightly of `e6f62448`
+# compiled, bundled, and was then refused because `RichOS.app` carried
+# `/Users/alex/.richos-nightly/source/richos/app/src-tauri` — one line of Rust,
+# `env!("CARGO_MANIFEST_DIR")`, which `--remap-path-prefix` cannot touch because a macro's
+# output is program data rather than compiler metadata. The cost of finding it there was a
+# whole release build. `no_compile_time_paths.py` finds the same thing in under a second,
+# on the source, and does not replace the artifact check: only the artifact can answer for
+# a vendored library baking in `__FILE__` or a toolchain that starts leaking again.
+#
+# WHAT THIS SUITE IS FOR. A checker that reports clean is worth nothing until it has been
+# made to report dirty. Every negative case below therefore has a positive probe beside it
+# — the same input with the exemption removed — so "no finding" can never be passing for
+# the wrong reason.
+#
+# Cases:
+#   P1  the checker's own self-test passes (16 cases, including the two bugs it caught
+#       in its first draft: a `//` inside a string, and a one-line `#[cfg(test)]` item)
+#   P2  the REAL tree is clean
+#   P3  the exact line that shipped on 2026-09-18, planted, is REFUSED and named
+#   P4  a hand-written home directory in a string literal is REFUSED
+#   P5  the same line inside `#[cfg(test)]` is NOT refused — with P3 as its positive probe
+#   P6  `env!("OUT_DIR")` inside `include_bytes!` is NOT refused (this is how the phone app
+#       is embedded), and used as a VALUE it IS — the probe and the case in one file
+#   P7  a placeholder home (`/Users/you/`, `/Users/example/`) is NOT refused
+#   P8  a missing root is exit 2, never a clean pass over nothing
+#   P9  the phone app is reachable from where build.rs looks for it — the check that would
+#       have failed the moment the 2026-09-18 move landed with a stale relative path
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP="$(cd "$DIR/.." && pwd)"
+ROOT="$(cd "$APP/../.." && pwd)"
+CHECK="$DIR/lib/no_compile_time_paths.py"
+
+PASS=0; FAIL=0
+ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
+bad() { printf '  FAIL  %s\n         %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
+
+[ -f "$CHECK" ] || { echo "no-compile-time-paths.test.sh: no $CHECK — refusing to report a result." >&2; exit 2; }
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/no-compile-time-paths-test.XXXXXX")" || exit 2
+trap 'rm -rf "$WORK"' EXIT
+
+run() {  # run <dir-or-file> -> prints output, returns the checker's exit code
+    python3 "$CHECK" "$1" 2>&1
+}
+
+# --- P1 ---------------------------------------------------------------------------------
+out="$(python3 "$CHECK" --self-test 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+    ok "P1 the checker's own self-test passes ($(printf '%s' "$out" | grep -c '^  ok') cases)"
+else
+    bad "P1 the checker's own self-test passes" "$(printf '%s' "$out" | grep FAIL | head -3)"
+fi
+
+# --- P2 ---------------------------------------------------------------------------------
+out="$(run "$APP/src-tauri/src")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+    ok "P2 the real src-tauri source is clean"
+else
+    bad "P2 the real src-tauri source is clean" "$out"
+fi
+
+# --- P3 ---------------------------------------------------------------------------------
+# The line as it actually stood at `src/phone/mod.rs:633` on 2026-09-18.
+mkdir -p "$WORK/p3"
+cat > "$WORK/p3/shipped.rs" <<'RS'
+fn phone_assets() -> Option<std::path::PathBuf> {
+    let from_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../phone");
+    if from_source.join("index.html").is_file() { return Some(from_source); }
+    None
+}
+RS
+out="$(run "$WORK/p3")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'CARGO_MANIFEST_DIR' && printf '%s' "$out" | grep -q 'shipped.rs:2'; then
+    ok "P3 the line that shipped on 2026-09-18 is refused, by file and line"
+else
+    bad "P3 the line that shipped on 2026-09-18 is refused, by file and line" "exit $rc: $out"
+fi
+
+# --- P4 ---------------------------------------------------------------------------------
+mkdir -p "$WORK/p4"
+cat > "$WORK/p4/hand.rs" <<'RS'
+fn log_path() -> &'static str { "/Users/alex/Library/Logs/RichOS/startup.log" }
+RS
+out="$(run "$WORK/p4")"; rc=$?
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'home directory in a string literal'; then
+    ok "P4 a hand-written home directory in a string literal is refused"
+else
+    bad "P4 a hand-written home directory in a string literal is refused" "exit $rc: $out"
+fi
+
+# --- P5 ---------------------------------------------------------------------------------
+# The same two lines, inside test code. P3 and P4 are the positive probes: they prove this
+# checker refuses those exact lines when they are NOT behind `#[cfg(test)]`.
+mkdir -p "$WORK/p5"
+cat > "$WORK/p5/tested.rs" <<'RS'
+fn nothing() {}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_word_list_is_the_phones_word_list() {
+        let phone = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/web-app/lib/wordlist.js");
+        let _ = std::fs::read_to_string(&phone);
+        let _ = "/Users/alex/ab/richos";
+    }
+}
+RS
+out="$(run "$WORK/p5")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+    ok "P5 the same lines inside #[cfg(test)] are not refused (P3/P4 are the probes)"
+else
+    bad "P5 the same lines inside #[cfg(test)] are not refused" "exit $rc: $out"
+fi
+
+# --- P6 ---------------------------------------------------------------------------------
+mkdir -p "$WORK/p6a" "$WORK/p6b"
+cat > "$WORK/p6a/embedded.rs" <<'RS'
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/phone_app.rs"));
+}
+static ONE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/phone/app.js"));
+RS
+cat > "$WORK/p6b/value.rs" <<'RS'
+fn out() -> &'static str { env!("OUT_DIR") }
+RS
+out_a="$(run "$WORK/p6a")"; rc_a=$?
+out_b="$(run "$WORK/p6b")"; rc_b=$?
+if [ "$rc_a" -eq 0 ] && [ "$rc_b" -eq 1 ]; then
+    ok "P6 OUT_DIR is allowed inside include!/include_bytes! and refused as a value"
+else
+    bad "P6 OUT_DIR is allowed inside include!/include_bytes! and refused as a value" \
+        "include: exit $rc_a ($out_a); value: exit $rc_b ($out_b)"
+fi
+
+# --- P7 ---------------------------------------------------------------------------------
+mkdir -p "$WORK/p7"
+cat > "$WORK/p7/placeholders.rs" <<'RS'
+const A: &str = "/Users/you/Documents/one.md";
+const B: &str = "/Users/example/Projects/seeded/client-00001";
+RS
+out="$(run "$WORK/p7")"; rc=$?
+if [ "$rc" -eq 0 ]; then
+    ok "P7 placeholder homes are not findings — the same names no_host_paths.py allows"
+else
+    bad "P7 placeholder homes are not findings" "exit $rc: $out"
+fi
+
+# --- P8 ---------------------------------------------------------------------------------
+out="$(run "$WORK/does-not-exist")"; rc=$?
+if [ "$rc" -eq 2 ]; then
+    ok "P8 a missing root is exit 2, never a clean pass over nothing"
+else
+    bad "P8 a missing root is exit 2, never a clean pass over nothing" "exit $rc: $out"
+fi
+
+# --- P9 ---------------------------------------------------------------------------------
+# WHERE build.rs LOOKS, read out of build.rs rather than typed here. The phone app moved on
+# 2026-09-18 (`app/phone` -> `web/web-app`) and a stale relative path here would mean a
+# build that embeds nothing — which is the defect this whole slice is about, so it is not
+# left to a compile to discover.
+target="$(grep -o 'embed_phone(Path::new("[^"]*"))' "$APP/src-tauri/build.rs" | sed 's/.*"\(.*\)".*/\1/')"
+if [ -z "$target" ]; then
+    bad "P9 build.rs names the phone app's directory" "no embed_phone(Path::new(...)) in build.rs"
+elif [ -f "$APP/src-tauri/$target/index.html" ] && [ -f "$APP/src-tauri/$target/sw.js" ]; then
+    ok "P9 build.rs's phone-app path ($target) holds the app"
+else
+    bad "P9 build.rs's phone-app path holds the app" "$APP/src-tauri/$target has no index.html/sw.js"
+fi
+
+printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ] || exit 1
+exit 0

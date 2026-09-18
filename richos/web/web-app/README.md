@@ -1,5 +1,10 @@
 # Rich, on a phone
 
+`richos/web/web-app/` — moved here from `richos/app/phone/` on 2026-09-18 by the CEO's own
+instruction: *"we should create `/Users/alex/ab/richos/richos/web/web-app` and put the PWA in
+there"*. The desktop app embeds this directory at build time (`app/src-tauri/build.rs`,
+`embed_phone`), so a file added here is a file the shipped Mac app serves.
+
 The static app the RichOS desktop app serves over HTTPS from the user's own Mac. One screen, four
 verbs: **send text**, **send a voice note**, **receive Rich**, **hear Rich**.
 

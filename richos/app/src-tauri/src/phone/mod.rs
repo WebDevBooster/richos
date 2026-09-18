@@ -37,6 +37,7 @@
 //! rather than a rule to remember.
 
 pub mod api_base;
+pub mod assets;
 pub mod bridge;
 pub mod ca;
 pub mod device;
@@ -616,23 +617,19 @@ struct Gathered {
     bridge: Arc<bridge::PhoneBridge>,
 }
 
-/// Where the static phone app lives.
+/// Where the static phone app lives: **in this executable.**
 ///
-/// `None` on a build with no phone assets, which is an ordinary developer build and not an error —
-/// the routes then serve nothing rather than a placeholder that looks like the app.
-fn phone_assets() -> Option<std::path::PathBuf> {
-    // The bundled location first, then the checkout's, so a developer running from source gets the
-    // same channel the shipped bundle does without a second code path.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(resources) = exe.parent().and_then(|p| p.parent()).map(|p| p.join("Resources/phone")) {
-            if resources.join("index.html").is_file() {
-                return Some(resources);
-            }
-        }
-    }
-    let from_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../phone");
-    if from_source.join("index.html").is_file() {
-        return Some(from_source);
-    }
-    None
+/// It used to be a search — the bundle's `Contents/Resources/phone` first, then the checkout's own
+/// copy (`app/phone` as it was then) by way of `env!("CARGO_MANIFEST_DIR")`. Neither arm was
+/// reachable on a customer's
+/// Mac: nothing ever wrote `Contents/Resources/phone` (no `resources` entry existed in
+/// `tauri.conf.json`, and the 2026-09-18 bundle's `Resources` held `icon.icns` alone), and the
+/// second arm named a directory on the build machine. So the search always fell through to `None`
+/// in a shipped build and the phone channel served nothing — while the builder's home directory
+/// went to the customer inside the binary, which is what `no_host_paths.py` refused.
+///
+/// There is nothing to search for now. [`assets::PhoneApp::embedded`] returns the table
+/// `build.rs` compiled in, and a build that embedded nothing does not compile.
+fn phone_assets() -> assets::PhoneApp {
+    assets::PhoneApp::embedded()
 }
