@@ -1572,7 +1572,8 @@ window.RichHome = (function () {
     } catch (e) {
       launch = null;
     }
-    if (launch && launch.kind === "second-window") {
+    var secondWindow = !!(launch && launch.kind === "second-window");
+    if (secondWindow) {
       root.hidden = true;
       state.open = false;
       state.lastLeaveReason = "second-window";
@@ -1660,7 +1661,18 @@ window.RichHome = (function () {
       // ...AND NOT AT ALL ON A SECOND WINDOW. A WebGL field drawing behind a hidden screen is a
       // GPU cost on a window whose whole point is the conversation in front of it; `show()`
       // starts it (or resumes it) the moment the logo asks for the screen.
-      if (!state.open) return;
+      //
+      // GATED ON THE LAUNCH KIND AND NOT ON `state.open`, and the difference is a real defect
+      // this line shipped for about an hour. "The screen was never opened" and "the screen has
+      // already been left" are not the same condition: a caller that leaves before the document
+      // has finished parsing — which is every acceptance suite, through `leaveHome` — would take
+      // an `!state.open` branch and the picture would never start at all. Measured on the
+      // permission surface, where the sheet is pending from the first poll: `contrast.js`
+      // counted 418 text-bearing elements against 480 on `6a5b6496`, and the 31 per theme that
+      // went missing were the home screen's own — `#home-owner`, `#home-brand-line`, the six
+      // `li#home-spc-*`, the nine `span.v` counters. Nothing a person could see, and a guard
+      // that says one thing and tests another all the same.
+      if (secondWindow) return;
       if (window.requestIdleCallback) {
         window.requestIdleCallback(startField, { timeout: FIELD_IDLE_TIMEOUT_MS });
       } else {
