@@ -48,6 +48,7 @@ pub mod routes;
 pub mod rows;
 pub mod secrets;
 pub mod stream;
+pub mod tailnet;
 
 use std::fmt;
 
