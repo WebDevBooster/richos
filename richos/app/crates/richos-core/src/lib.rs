@@ -89,6 +89,14 @@ pub mod reachability;
 pub mod recovery;
 pub mod reprime;
 pub mod runtime;
+/// **WAITING FOR THE SCREEN** — the CEO's ruling §56 (2026-09-18): *"I like that "Watch for
+/// the Mac's screen to unlock" feature that you had running here. Should be added to the
+/// RichOS app for automatic use when Rich needs it."* The decision half lives here and the
+/// reading is in the shell (`src-tauri/src/screen.rs`), exactly as [`work_gate`] splits the
+/// update gate — and its polarity is the INVERSE of that gate's: a reading this build could
+/// not establish never blocks, because §56's wait has no timeout and an unbounded wait on
+/// nothing is a worse failure than proceeding.
+pub mod screen;
 pub mod setup;
 pub mod skills;
 pub mod skip;
@@ -144,6 +152,10 @@ pub use steering::{
 };
 pub use stream::{StreamEvent, TurnObserver};
 pub use reachability::{ReachabilityProbe, ReachabilityVerdict, WorkSize};
+pub use screen::{
+    FakeScreen, Screen, ScreenReading, ScreenSource, ScreenWatch, UnknownScreen, WaitOutcome,
+    SCREEN_POLL,
+};
 pub use upstream::{
     FakeUpstream, RetryBudget, TurnLoss, UpstreamFailure, UpstreamFault, MAX_UPSTREAM_RETRIES,
 };
