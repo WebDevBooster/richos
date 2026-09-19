@@ -271,6 +271,46 @@ pub const WITHHELD_AFTER_THE_RECEIPT: &str =
     "[richos] the register's receipt had already been said, so the model's own words after it were \
      withheld from the conversation";
 
+/// **What the app says on stderr when it withheld a closing line added after the checkpoint.**
+///
+/// **Ray's candidate-.11 defect 2.4, and it is the doctrine's own rule made enforceable.**
+/// `doctrine/front-desk.md` already says it, under "The record": *"Say it once, and let the
+/// checkpoint be the last thing on the turn. … Write the checkpoint and stop: do not repeat what
+/// you already said, do not announce that you wrote anything, and do not add a closing sentence."*
+/// On his walk it was not obeyed. One question — *"how is it going?"* — came back under "Worked
+/// (2 steps)" as two paragraphs saying the same thing in different words
+/// (`docs/verification/2026-09-19-nightly-11-onscreen/07-mac-duplicate-answer.png`):
+///
+/// > "It's in progress. A helper is adding the line to the notes file now. It hasn't been landed
+/// > yet, and nothing is waiting on you."
+/// >
+/// > "It's still in progress. Someone is adding the line to the notes file right now, and it
+/// > hasn't been landed yet. You don't need to do anything."
+///
+/// **This file's own standard for that: a sentence that is not obeyed is not a fix**
+/// (`first_reply.rs`, at length). So the order is kept where the app can see it, exactly as
+/// [`WITHHELD_AFTER_THE_RECEIPT`] keeps the receipt's.
+///
+/// # Why the checkpoint is a SAFE boundary, and why no similarity test is used
+///
+/// A rule that withheld a later paragraph for RESEMBLING an earlier one would be a threshold
+/// somebody picked, and it would eventually swallow a correction — *"it has been landed after
+/// all"* shares almost every word with *"it hasn't been landed yet"*. This is structural instead,
+/// and it rests on a property the app already enforces:
+///
+/// 1. The continuity server's scope is shut until [`ReaderState::he_has_now_been_spoken_to`]
+///    opens it, and the engine's own adapter re-reads that file on every call
+///    (`engine/ecs/adapters/mcp.py:24-26`). **So a checkpoint cannot succeed until he has heard
+///    something.** Withholding what follows one can therefore never produce a silent turn.
+/// 2. The doctrine puts the checkpoint LAST. Text after it is, by the app's own instruction, the
+///    closing line — which is the thing he read twice.
+///
+/// Withheld and RECORDED, never silently dropped, for the reason the receipt's notice gives.
+pub const WITHHELD_AFTER_THE_CHECKPOINT: &str =
+    "[richos] the conversation checkpoint had already been written, so the closing line the model \
+     added after it was withheld from the conversation (front-desk.md: \"say it once, and let the \
+     checkpoint be the last thing on the turn\")";
+
 /// The continuity checkpoint tool — the front desk's own bookkeeping.
 pub const CONTINUITY_CHECKPOINT_TOOL: &str = "mcp__richos_continuity__checkpoint";
 
@@ -1299,6 +1339,21 @@ struct ReaderState {
     receipt_said: Option<String>,
     /// What was withheld after the receipt, kept so the turn's end can SAY what it took.
     withheld_after_receipt: String,
+    /// **Has this turn written its conversation checkpoint AFTER he was spoken to?** — Ray's
+    /// candidate-.11 defect 2.4, and [`WITHHELD_AFTER_THE_CHECKPOINT`] has the whole of it.
+    ///
+    /// **The `spoken_this_turn` half of that sentence is the safety property and not a
+    /// refinement.** A model that calls the checkpoint BEFORE saying anything is the run-B
+    /// shape that was measured on 2026-09-18 (3.0 s and 2.4 s of silence in front of his
+    /// words); the engine's adapter refuses that call, and a flag set on it would withhold the
+    /// reply that had not happened yet — a silent Rich, which is a far worse defect than the
+    /// one this removes. So it is only ever set on a checkpoint that comes after his words,
+    /// which is the only kind that can succeed.
+    ///
+    /// Host-owned, reset with the send, exactly like `receipt_said`.
+    checkpoint_after_his_words: bool,
+    /// What was withheld after the checkpoint, kept so the turn's end can SAY what it took.
+    withheld_after_checkpoint: String,
     /// **The front desk's bookkeeping grant, held here because this is where his first words
     /// are seen** — [`ActionGrant::ContinuityTools`]. `None` on a lease with no continuity
     /// server (every work lease, and any lease started without a bridge).
@@ -1411,6 +1466,8 @@ impl Default for ReaderState {
             register_call_id: None,
             receipt_said: None,
             withheld_after_receipt: String::new(),
+            checkpoint_after_his_words: false,
+            withheld_after_checkpoint: String::new(),
             turns_named_by_the_child: false,
         }
     }
@@ -2145,6 +2202,16 @@ impl NativeClient {
                     if same { "the same sentence again" } else { "NOT the sentence the app said" },
                 );
             }
+            // The same layer for the checkpoint's closing line, at the same point and for the
+            // same reason: a host that silently swallows the model's words is the silent
+            // degrade §16 forbids, so whoever debugs the turn sees what was taken.
+            if !st.withheld_after_checkpoint.is_empty() {
+                let withheld = st.withheld_after_checkpoint.trim().to_string();
+                eprintln!(
+                    "{WITHHELD_AFTER_THE_CHECKPOINT} ({} chars): {withheld:?}",
+                    withheld.chars().count(),
+                );
+            }
             drop(st);
             let sink = current.lock().unwrap().take();
             match sink {
@@ -2241,6 +2308,7 @@ impl NativeClient {
                         state.lock().unwrap().register_call_id = Some(id.to_string());
                     }
                 }
+                Self::note_the_checkpoint(block, state);
             }
             if ev_ty == "content_block_delta"
                 && ev.get("delta").and_then(|d| d.get("type")).and_then(|v| v.as_str()) == Some("text_delta")
@@ -2256,6 +2324,16 @@ impl NativeClient {
                     if st.receipt_said.is_some() {
                         st.withheld_after_receipt.push_str(t);
                         st.he_has_now_been_spoken_to();
+                        drop(st);
+                        Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
+                        return;
+                    }
+                    // **AND THE CLOSING LINE AFTER THE CHECKPOINT, for the same reason and by
+                    // the same mechanism** — Ray's candidate-.11 defect 2.4. He has already been
+                    // answered (that is what let the checkpoint through at all) and the doctrine
+                    // puts the checkpoint last, so this run is the second copy he read.
+                    if st.checkpoint_after_his_words {
+                        st.withheld_after_checkpoint.push_str(t);
                         drop(st);
                         Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
                         return;
@@ -2380,6 +2458,10 @@ impl NativeClient {
                         state.lock().unwrap().register_call_id = Some(id.to_string());
                     }
                 }
+                // The checkpoint off the COMPLETE message too, for the reason the register's id
+                // is read here as well: `--include-partial-messages` is a flag, and whichever
+                // frame arrives first must be enough.
+                Self::note_the_checkpoint(block, state);
             }
         }
 
@@ -2407,6 +2489,10 @@ impl NativeClient {
                 if st.receipt_said.is_some() {
                     st.withheld_after_receipt.push_str(&whole);
                     st.he_has_now_been_spoken_to();
+                } else if st.checkpoint_after_his_words {
+                    // The closing line on the degraded path too: a stream that has stopped
+                    // carrying partial messages must not hand him the second copy either.
+                    st.withheld_after_checkpoint.push_str(&whole);
                 } else {
                     drop(st);
                     Self::route(ChunkMsg::Text(whole), current, between, &msg);
@@ -2416,6 +2502,31 @@ impl NativeClient {
         }
 
         Self::route(ChunkMsg::Frame(msg.clone()), current, between, &msg);
+    }
+
+    /// **THE TURN HAS WRITTEN ITS CHECKPOINT, AND HE HAD ALREADY BEEN ANSWERED WHEN IT DID** —
+    /// Ray's candidate-.11 defect 2.4. [`WITHHELD_AFTER_THE_CHECKPOINT`] has the reasoning and
+    /// the two paragraphs he read; `ReaderState::checkpoint_after_his_words` has why the second
+    /// half of that sentence is the safety property.
+    ///
+    /// `block` is one `content` entry off either frame that can carry a `tool_use` — the
+    /// streamed `content_block_start` or the whole `assistant` message. Anything else is
+    /// ignored, so this costs one string compare per block.
+    fn note_the_checkpoint(block: &Value, state: &Arc<Mutex<ReaderState>>) {
+        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+            return;
+        }
+        if block.get("name").and_then(|v| v.as_str()) != Some(CONTINUITY_CHECKPOINT_TOOL) {
+            return;
+        }
+        let mut st = state.lock().unwrap();
+        // **NEVER BEFORE HIS FIRST WORDS.** A checkpoint ahead of the reply is refused by the
+        // engine's own adapter (the scope file is shut until `he_has_now_been_spoken_to` opens
+        // it), so it establishes nothing — and taking it as "the turn has spoken" would withhold
+        // the reply that has not happened yet.
+        if st.spoken_this_turn {
+            st.checkpoint_after_his_words = true;
+        }
     }
 
     /// ROUTED WHEN THERE IS A TURN, PARKED WHEN THERE IS NOT (§1.5, gap #1).
@@ -2654,6 +2765,11 @@ impl NativeClient {
                 state.register_call_id = None;
                 state.receipt_said = None;
                 state.withheld_after_receipt.clear();
+                // And the checkpoint's two, for the identical reason: a checkpoint belongs to
+                // ONE turn, and one carried into the next would withhold that turn's reply on
+                // the strength of this turn's bookkeeping.
+                state.checkpoint_after_his_words = false;
+                state.withheld_after_checkpoint.clear();
                 drop(state);
             }
             if let Err(error) = Self::write_line(&self.stdin, &msg) {
@@ -5442,6 +5558,108 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
             assert_eq!(client.prompt("Run the tests", &mut collect).unwrap(), "end_turn");
         }
         assert_eq!(said, "Done.", "a tool that is not the register must not be able to put words in his mouth");
+    }
+
+    /// One turn that writes its conversation checkpoint, as the wire carries it.
+    ///
+    /// `before` is what the model says first, `after` is whatever it adds once the checkpoint
+    /// has been written, and `speak_first` chooses which side of the checkpoint the reply falls
+    /// on — the two variables this behavior is entirely about.
+    ///
+    /// **No apostrophes in `before`/`after`.** The frames go through a single-quoted `sh`
+    /// string; Ray's verbatim sentences are in the tests' own documentation, where they can be
+    /// read, rather than mangled into a shell literal here.
+    fn a_checkpointed_turn(tag: &str, before: &str, after: &str, speak_first: bool) -> Vec<TurnItem2> {
+        let reply = if speak_first {
+            format!(r#"printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{before}"}}}}}}'"#)
+        } else {
+            String::new()
+        };
+        let script = write_script(tag, &format!(r#"
+read -r init
+printf '%s\n' '{{"type":"control_response","response":{{"subtype":"success","request_id":"req_init","response":{{}}}}}}'
+read -r prompt
+printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start"}}}}'
+{reply}
+printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_start","content_block":{{"type":"tool_use","id":"toolu_CP","name":"mcp__richos_continuity__checkpoint","input":{{}}}}}}}}'
+printf '%s\n' '{{"type":"assistant","message":{{"content":[{{"type":"tool_use","id":"toolu_CP","name":"mcp__richos_continuity__checkpoint","input":{{"summary":"the conversation so far"}}}}]}}}}'
+printf '%s\n' '{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"toolu_CP","content":"checkpoint written"}}]}}}}'
+printf '%s\n' '{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{after}"}}}}}}'
+printf '%s\n' '{{"type":"result","stop_reason":"end_turn"}}'
+"#));
+        let client = NativeClient::spawn(&script, Path::new("/tmp"), &doctrine_fixture(), &skills_fixture()).unwrap();
+        let mut log = Vec::new();
+        {
+            let mut collect = |item: TurnItem| match item {
+                TurnItem::Text { text, .. } => log.push(TurnItem2::Said(text.to_string())),
+                TurnItem::Machinery(record) => log.push(TurnItem2::Machinery(
+                    record.kind,
+                    record.title.clone(),
+                    record.summary.clone().unwrap_or_default(),
+                )),
+            };
+            assert_eq!(client.prompt("how is it going?", &mut collect).unwrap(), "end_turn");
+        }
+        log
+    }
+
+    #[test]
+    fn one_question_gets_one_answer_and_the_closing_line_after_the_checkpoint_never_reaches_him() {
+        // **RAY'S CANDIDATE-.11 DEFECT 2.4, AS THE WIRE CARRIES IT.** He asked "how is it
+        // going?" once and read the answer twice, under "Worked (2 steps)"
+        // (`docs/verification/2026-09-19-nightly-11-onscreen/07-mac-duplicate-answer.png`):
+        //
+        //   "It's in progress. A helper is adding the line to the notes file now. It hasn't
+        //    been landed yet, and nothing is waiting on you."
+        //
+        //   "It's still in progress. Someone is adding the line to the notes file right now,
+        //    and it hasn't been landed yet. You don't need to do anything."
+        //
+        // `doctrine/front-desk.md` already forbids the second one — *"Write the checkpoint and
+        // stop: do not repeat what you already said … and do not add a closing sentence"* — and
+        // that is exactly the point: a sentence that is not obeyed is not a fix, so the order is
+        // kept here, where the host can see both and he can only ever see one.
+        let log = a_checkpointed_turn(
+            "closing-line-after-the-checkpoint",
+            "It is in progress. A helper is adding the line to the notes file now.",
+            "It is still in progress. Someone is adding the line to the notes file right now.",
+            true,
+        );
+
+        let said: Vec<&String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t), _ => None }).collect();
+        assert_eq!(
+            said,
+            vec!["It is in progress. A helper is adding the line to the notes file now."],
+            "one question, one answer: {log:#?}"
+        );
+
+        // The checkpoint's own technical row is untouched — the conversation lost a duplicate
+        // line, the machinery lane lost nothing.
+        assert!(log.iter().any(|i| matches!(i, TurnItem2::Machinery(_, title, _)
+            if title == CONTINUITY_CHECKPOINT_TOOL)), "{log:#?}");
+    }
+
+    #[test]
+    fn a_checkpoint_written_before_his_first_words_never_withholds_the_reply() {
+        // **THE SAFETY PROPERTY, AND IT IS THE HALF THAT MATTERS MOST.** A model that writes
+        // the checkpoint FIRST is the run-B shape measured on 2026-09-18 — 3.0 s and 2.4 s of
+        // silence in front of his words (`first-words-2026-09-18-logs/run-B-*`). That call is
+        // refused by the engine's own adapter, so it establishes nothing; a rule that read it as
+        // "the turn has spoken" would swallow the reply that had not happened yet and leave him
+        // with a turn that produced no words at all. Silent Rich is a far worse defect than a
+        // doubled line, so the flag is only ever set on a checkpoint that comes AFTER his words.
+        let log = a_checkpointed_turn(
+            "checkpoint-before-the-reply",
+            "never said",
+            "It is in progress. Nothing is waiting on you.",
+            false,
+        );
+        let said: Vec<&String> = log.iter().filter_map(|i| match i { TurnItem2::Said(t) => Some(t), _ => None }).collect();
+        assert_eq!(
+            said,
+            vec!["It is in progress. Nothing is waiting on you."],
+            "a checkpoint ahead of the reply must never withhold the reply: {log:#?}"
+        );
     }
 
     #[test]
