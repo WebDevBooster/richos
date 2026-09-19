@@ -206,48 +206,122 @@ fixed it:
   percent of its fade), and the splash bar is photographed once it reports it has landed rather
   than at an arbitrary point in its run.
 
-**Eight files still change, and they are named rather than excused.** Measured over four
-consecutive full runs from a clean tree on 2026-09-05: 88 of the 96 were byte-identical after
-every one of them, and these eight were not. Five of the eight are one cause and three are
-another, and only four of the eight change on every run.
+### RE-MEASURED 2026-09-19: THE CHURN WAS MOSTLY STALENESS, AND IT WAS COSTING REAL CHANGES
 
-**The live field.** `home/field-engine.js` integrates 7,500 objects on springs and flies packets
-along 12,817 links, all of it off `performance.now()`, so two runs photograph it at different
-moments in its own life. Its randomness is already seeded (`mulberry32(6401)`); the wall clock is
-the only thing about it that is not reproducible. A test-side frame clock — `performance.now()`
-replaced by a counter that advances one 60Hz step per animation frame — was built and measured
-to take two loads paused at the same frame from 44,039 differing samples down to 293, and it is
-NOT installed here: the surfaces that would need it also race the curtain's 4,000ms ceiling, and
-unpicking that is a larger change than this one. It is written down rather than half-done.
+Seven consecutive same-source runs of every suite that writes shots — five from a clean tree
+at `5f3a1a1e` and two more from the regenerated tree at `a1c65c3a` — one directory at a time. 131 committed shots in 13 directories. The result splits in
+two, and the bigger half was not what anybody was looking at:
 
-**Gradient dither.** The three splash files differ by no more than 2 of 255, scattered, with no
-element having moved — the compositor's own dithering of the same gradient, which is not
-something a suite can wait for. Two of the three do not change on every run.
+* **104 of the 131 differed from the committed copy** — not because anything was unstable, but
+  because the product had changed and nobody had regenerated them. The settings button had moved
+  about 12px (2,305 pixels of difference, repeated identically across some sixty shots), the
+  phone sheet had grown a footer bar of three controls, and neither reached the record.
+* **7 differed from one run to the next**, and 11 did so at least once across the seven.
 
-The "how often" column is four consecutive full runs, and it is there because "sometimes" is a
-fact about a flake that rounding to "always" would misdescribe.
+**The 104 were the damage.** `git checkout -- richos/app/ui/tests/shots-*` after a run was the
+standing habit, and every one of those reverts threw away a legitimately updated reference. A
+reference that is dirty after every run trains everybody to discard it, and a reference nobody
+trusts protects nothing — which is the whole reason the run-to-run half matters at all.
 
-| Still not byte-stable | How often | Measured, run to run | Why |
+**Three things were still moving when the shutter opened, and each is now waited for by a
+stated condition rather than a duration.** All three are in `lib/harness.js`, with the
+measurement in the comment that fixed them:
+
+* **the pointer, left where the last click put it** — `contrast.js` drives forty-two surfaces by
+  clicking them, and where the new state puts a different control under that point the control
+  is photographed hovered (`style.css:1628`). `voice-model-progress.png` alternated between a
+  hovered and an unhovered `Stop the download` on every run, 1,200 pixels at delta 109.
+  `parkPointer` moves the pointer out and waits for the **hover chain itself** to agree with
+  where the pointer now is. Opt-in: a suite that photographs a hover on purpose keeps it.
+* **a three-second background poll** — `main.js:3098` re-renders the work chip from
+  `get_worker_status` on every tick, so a shot between a driven state change and the next tick
+  shows the step before it (`shots-26/ms-05` read `· 1 I can't see` in one run and `· 1 done ·
+  1 I can't see` in the next, 962 pixels at delta 131). `awaitWorkerChipSettled` waits for the
+  product's own re-render to agree with what is already on screen.
+* **a live counter counting the harness** — `main.js:1437` ticks the elapsed time once a second
+  while a row is live, so §26's `Working for 18s` had become 34s in one run and 35s in the next
+  and five of nine shots moved for no reason but how long the walk took. `pinClock` pins the
+  page's wall clock for the length of the capture and recomputes the row through the product's
+  own visibility handler (`main.js:1446`) — no re-implemented formatter, no waited-out tick.
+
+### AND WHAT IS LEFT IS DECLARED, WITH ITS CAUSE, ITS MEASUREMENT AND ITS BOUND
+
+`lib/shot-stability.js` is the only place a committed shot may differ without being rewritten.
+It names **one file at a time**. There is no global tolerance and there will not be one: a
+global tolerance is a lie told about every file at once, while a declaration is a claim about a
+single file that says what is moving in it — and a claim can be checked, argued with and
+removed.
+
+`samePicture` is **not** loosened. It stays exact, because it is the primitive everything else
+rests on; the bound is a separate, named layer applied by `publishShot`, so *"these two are the
+same picture"* and *"these two differ by less than I have declared for this one file"* stay
+different sentences.
+
+**A held shot is never silent.** Every run prints the file, the class, the measured difference
+and the bound it was held under, exactly as loudly as it prints a shot that changed:
+
+```
+  shot held: shots-home/home-named.png — the live field, running — 291789/1296000 pixels
+    (22.5146%), worst channel delta 245 — inside its declared bound (at most 35.0% of pixels)
+```
+
+That line is the only thing standing between a bound and a blindfold. Read the numbers in it,
+not just the file names.
+
+| Declared | Class | Measured, run to run | Bound |
 |---|---|---|---|
-| `shots-home/home-named.png` | 4 of 4 | 12.9%–21.2% of pixels, delta up to 248 | the live field, running |
-| `shots-home/home-returned.png` | 4 of 4 | 14.9%–24.4%, delta up to 250 | the live field, running |
-| `shots-home/home-anonymized.png` | 4 of 4 | 6.5%–18.2%, delta up to 250 | the live field, running |
-| `shots-splash/material-round-11-v1.png` | 4 of 4 | 0.10%–0.26%, delta 2 | dither in the composite's shipping half (the study half settles: 326 samples) |
-| `shots-splash/splash-01-round-11-v1.png` | 3 of 4 | 20.7% of pixels, delta **1** | dither across the ground, nothing moved |
-| `shots-10-1/10-1-start-screen-always-dark.png` | 3 of 4 | 0.29%–0.32%, delta up to 127 | the curtain is held up on purpose and the same live field shows through it |
-| `shots-contrast/opening-screen.png` | 3 of 4 | 1 pixel to 0.29%, delta up to 90 | same, through a nearly opaque curtain |
-| `shots-splash/material-round-11-v2.png` | 2 of 4 | 0.27%–0.37%, delta 2 | as `-v1` |
+| `shots-home/home-named.png` | the live field, running | 6.08%–24.90% of pixels, delta 234–253 | 35% of pixels |
+| `shots-home/home-returned.png` | the live field, running | 14.08%–25.14%, delta 239–247 | 35% of pixels |
+| `shots-home/home-anonymized.png` | the live field, running | 6.44%–17.77%, delta 205–248 | 35% of pixels |
+| `shots-splash/material-round-11-v1.png` | compositor dither | 0.07%–0.59%, delta **2** every time | delta ≤ 2 |
+| `shots-splash/material-round-11-v2.png` | compositor dither | 0.17%–0.77%, delta **2** every time | delta ≤ 2 |
+| `shots-contrast/inspector.png` | compositor dither | unchanged in three of seven, else 0.52%, delta 2 and once 3 | delta ≤ 3 |
+| `shots-26/ms-04-...png` | one unanchored elapsed counter | 79 pixels (0.0057%) every time, delta 135 — one digit | 0.02% of pixels |
+| `shots-26/ms-05-...png` | one unanchored elapsed counter | 116 pixels (0.0084%) every time, delta 135 — one digit | 0.02% of pixels |
 
-Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is signal.
+**The live field cannot be frozen into a byte-equal shot, and that is measured rather than
+assumed.** `home/field-engine.js:1031` integrates 7,500 objects on springs and flies packets
+along 12,817 links off `performance.now()`; its randomness is seeded (`mulberry32(6401)`) and
+there is no `Math.random` anywhere in it, so the wall clock is the whole of it. A test-side
+frame clock — `performance.now()` replaced by a counter advancing one 60Hz step per animation
+frame — was built and measured on 2026-09-05 and took two loads paused at the same frame from
+44,039 differing samples to **293**, not to 0: the blur and glow framebuffer passes are
+floating-point and order-dependent on the GPU. It would buy a smaller envelope at the cost of a
+clock override across three large suites and would still need a row above.
 
-**`splash-01-round-11-v1.png`'s row is a canary, and it earned that on 2026-09-05.** Its
-signature is 20.7% of pixels at worst channel delta **1** — dither, nothing moved. For a day it
-was drifting 905,792 of 1,024,000 pixels (88.46%) at delta **63**, and nothing failed, because
-check 5's guard asked only whether `#splash` was still in the DOM. It was: the ceiling had fired,
-the fade had finished, and the node had 40 ms left before removal, so the suite filed a
-photograph of the home screen through a curtain at opacity 0 and called it green. A shot whose
-recorded delta is 1 and whose measured delta is 63 is not the same picture, and this table is
-where that shows. Read the numbers in the `shot changed:` lines, not just the file names.
+**The dither bounds are on the DELTA, not the area, and that is what makes them checks.**
+`splash-01-round-11-v1.png` drifted for a day in September 2026 at 88.46% of pixels and delta
+**63** — a photograph of the home screen through a curtain at opacity 0 — and nothing failed,
+because check 5's guard asked only whether `#splash` was still in the DOM. A delta bound fails
+that on the spot; an area bound would not.
+
+**`shots-26`'s two entries are a fixture gap, named rather than bought off.** §26.12 opens a
+second Sage run and `ui/mock.js` stamps its `startedAt` from the real clock, so one
+right-aligned counter reads `31s` or `32s` depending on how fast the walk got there. Anchoring
+that start the way the first one is anchored (beside `setMemoryStrategyAnchor`, `ui/mock.js`)
+deletes both rows.
+
+Everything else in `shots-*` is byte-identical across consecutive runs, so a diff in it is
+signal.
+
+**To regenerate deliberately**, which ignores every bound and writes whenever the picture
+differs at all:
+
+```sh
+RICHOS_SHOTS_REGENERATE=all node contrast.js          # a whole run
+RICHOS_SHOTS_REGENERATE=shots-home node home.js       # one directory
+RICHOS_SHOTS_REGENERATE=shots-home/home-named.png ... # one file
+```
+
+**`splash-01-round-11-v1.png` is where the canary story comes from, and it no longer needs a
+row.** Its signature was 20.7% of pixels at worst channel delta **1** — dither, nothing moved.
+For a day in September 2026 it drifted 905,792 of 1,024,000 pixels (88.46%) at delta **63**, and
+nothing failed, because check 5's guard asked only whether `#splash` was still in the DOM. It
+was: the ceiling had fired, the fade had finished, and the node had 40 ms left before removal,
+so the suite filed a photograph of the home screen through a curtain at opacity 0 and called it
+green. It measured byte-identical across all five runs on 2026-09-19, so it is not declared —
+and if it ever drifts again it will be written, announced, and land in `git status` as the one
+thing a reference is for.
 
 ## What is here
 
@@ -270,7 +344,8 @@ where that shows. Read the numbers in the `shot changed:` lines, not just the fi
 | `affordances.js` | THE RULE: a state the user could change must render the control that changes it. The state inventory is derived from source every run (`lib/state-strings.js`), classified in `lib/state-registry.js`, and the two sets must be EQUAL — a new user-visible string that nobody has classified fails the suite. Every ACTIONABLE state is then driven up in the real shell and its control asserted present, visible, enabled and interactive. Carries a negative control (the scrape examined 112 states, not zero) and four positive controls (a missing, a hidden, and a fake control, and an unclassified state, must each be flagged). |
 | `lib/state-strings.js` | The derivation. Comment-stripping scanners for JS and Rust, HTML text nodes and human-readable attributes, `+`-concatenation folding, and four named blind spots. `node lib/state-strings.js` prints the inventory with file:line. |
 | `lib/state-registry.js` | The classification, one row per state, each with its reasoning. Annotation only — the inventory above is the authority. |
-| `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner. |
+| `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner, and the shutter's own stated conditions — settled animations, pinned loops, a parked pointer, a caught-up work chip and a pinned wall clock. |
+| `lib/shot-stability.js` | WHICH committed shots may differ from run to run, by how much, and why — one file at a time, each with its cause, its measurement and its bound. Self-tests at require time: every declared file must exist, every entry must carry a bound and a reason, and the arithmetic is probed symmetrically so a bound that held everything would fail here. |
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
 | `steering.js` | §25 "Steering and stop", criterion by criterion, through the real shell. The `You stopped after {duration}` row from the real wire bytes, the crash that is never attributed to the CEO, a stop that reached nothing saying so, and the stop control at §20's three widths. |
 | `second-mouth.js` | A MESSAGE HE DID NOT TYPE HERE — Ray's candidate .13 defect R3. This window drew the CEO's own sentence itself, optimistically, and therefore never needed to be told what he said; his phone is a second mouth and made that assumption false, so a message typed there took **5.68 s** to reach the Mac (measured twice) and arrived in the same frame as Rich's finished answer, against 0.096 s the other way. The window is handed the exact event sequence `spine.rs` emits for a phone message — `turn-status: queued`, `rich://ceo-message`, the sidebar row — with NO composer interaction, and his sentence has to be on screen before Rich has written a word. The negative control withholds `rich://ceo-message` and nothing else, which is `a2cef8ee` exactly: the status events arrive, the rail moves, the thread stays blank. Plus the two things a new listener can break — his own typing still renders exactly ONE bubble through the optimistic path, the event and the reload, and an event fenced to another company never reaches this screen. |
