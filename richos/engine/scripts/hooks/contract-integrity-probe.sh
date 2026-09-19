@@ -1163,6 +1163,19 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # actually used: the `pmset displaysleepnow` that blacked out the CEO's
     # monitors reached the teammate through the mailbox, and its spawn prompt
     # does not contain the word.
+    #
+    # guard-public-record-repo.sh appears TWICE: once under `Agent` in
+    # hooks.json and once in the Bash chain's manifest. The two entries are the
+    # two ends of one incident — the dispatch that sent a research read into the
+    # PUBLIC repository, and the commit that put its ledger in published
+    # history. Refusing only the second would leave a teammate discovering at
+    # commit time that its whole workspace is in the wrong repository.
+    #
+    # guard-reference-ledger.sh appears ONCE, on `Agent` only, and the asymmetry
+    # is deliberate: it judges what a DISPATCH is about to build, which is a
+    # question only a spawn prompt answers. A Write registration would have to
+    # re-derive "which surface is this file on" from a path, and that is the
+    # ledger's own job.
     BR_EXPECTED="\
 engine-status.sh|SessionStart
 workspace-lifecycle.sh|SessionStart
@@ -1195,6 +1208,9 @@ guard-host-display-power.sh|PreToolUse
 guard-host-display-power.sh|PreToolUse
 guard-host-display-power.sh|PreToolUse
 guard-host-display-power.sh|PreToolUse
+guard-reference-ledger.sh|PreToolUse
+guard-public-record-repo.sh|PreToolUse
+guard-public-record-repo.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 dispatch-pretooluse.sh|PreToolUse

@@ -1,0 +1,114 @@
+# adoption-ledger.surfaces — WHICH SURFACES A NAMED REFERENCE ALREADY ANSWERED.
+#
+# ===========================================================================
+# WHAT THIS FILE IS
+# ===========================================================================
+# One record per AREA of the adoption ledger. An area is a surface of our own
+# code that somebody has already read a proven third-party project against and
+# written down a verdict for. A dispatch that BUILDS on such a surface must
+# cite the row, so the engineer starts from the verdict instead of re-deriving
+# it — CEO ruling, 2026-09-19, in his words:
+#
+#     "In other words, you ARE FUCKING REINVENTING THE FUCKING WHEEL FROM
+#      SCRATCH"
+#
+# guard-reference-ledger.sh is the only consumer. It reads this file and
+# nothing else: the signals below are DATA, so adding an area is an edit here
+# and never an edit to a guard.
+#
+# ===========================================================================
+# THE RECORD FORMAT
+# ===========================================================================
+# Blank-line separated records, `key: value` per line, `#` comments. The same
+# shape owned-systems.declaration and spawn-guard-audience.declaration use,
+# deliberately: two declaration formats in one engine is one format too many.
+#
+#   ledger:       (header record, exactly one) the document that carries the
+#                 verdicts, as a repository-relative path.
+#   ledger-repo:  the repository it lives in. The guard opens the document to
+#                 check that a cited section EXISTS; where it cannot be found,
+#                 a citation is accepted on its shape and logged UNVERIFIED.
+#                 "I cannot check" is never "forbidden".
+#   ledger-name:  what a citation may call it, besides the file name.
+#
+#   area:     the row's id. Appears in the refusal.
+#   section:  the ledger section to cite, e.g. 2.5.
+#   verdict:  the ledger's own verdict, quoted back in the refusal so the
+#             engineer learns the answer from the refusal itself.
+#   paths:    comma-separated PATH FRAGMENTS of OUR code. STRONG — one match
+#             inside a build section fires the row. A fragment is matched
+#             literally and must be specific enough to name one surface:
+#             `run-tests.sh` is a path, `tests` is not.
+#   weak-paths:
+#             the same, for a file that the row's surface SHARES with other
+#             work. A weak path fires only when one of the row's `terms` also
+#             appears somewhere in the prompt. MEASURED, not invented:
+#             `ui/phone.js` began life as a strong path and fired on 13 phone
+#             briefs of 2026-09-19, twelve of which were about button focus,
+#             scroll position and splash placement. Exactly ONE of the
+#             thirteen carried a transport word anywhere in its text, and it
+#             is the one the CEO's ruling is about.
+#   terms:    comma-separated PHRASES. STRONG, and therefore every one of them
+#             must be a phrase somebody only writes when working on this
+#             surface. Single ordinary words — port, scratch, lint, sign,
+#             retry, publish — are DELIBERATELY ABSENT: the brief that ordered
+#             this guard proposed exactly those, they were measured against 288
+#             real briefs and 37 real spawn prompts, and every one of them fired
+#             on text about something else. The measurement is in
+#             guard-reference-ledger.test.sh's header.
+#
+# A row may share a path with another row; the refusal names every row that
+# matched, because an engineer touching run-tests.sh is standing on the harness
+# verdict AND the developer-loop verdict at once.
+
+ledger: docs/research/t3code-tooling-what-to-adopt-2026-09-19.md
+ledger-repo: richos-hq
+ledger-name: adoption ledger
+
+area: build-sign-notarize-publish
+section: 2.1
+verdict: COPY THE APPROACH (three named designs); NOT APPLICABLE (the code)
+paths: app/scripts/nightly-local.py, app/scripts/make-release.sh, app/scripts/package-app, app/scripts/verify-engine-asset-members.sh
+terms: notarize, notarization, code signing, hardened runtime, bundle invariant, staple the notarization
+
+area: update-channel-and-rollback
+section: 2.2
+verdict: COPY THE APPROACH, narrowly — our updater is NOT behind theirs on transactionality
+paths: crates/richos-user-update, richos-user-update/src
+terms: update channel, updater manifest, prepared update, trial migration, auto-update, differential update, delta download
+
+area: test-harness-and-screenshot-stability
+section: 2.3
+verdict: NOT APPLICABLE on screenshots (we are ahead); ADOPT AS-IS on the isolation rule
+paths: app/scripts/run-tests.sh, ui/tests/lib/harness.js, ui/tests/lib/shot-stability.js
+terms: test retries, retry the test, flaky test, flakiness, screenshot stability, visual regression, file parallelism, shard the suite, reference screenshot
+
+area: release-gating
+section: 2.4
+verdict: COPY THE APPROACH — the highest value-per-day item in the ledger
+paths: .github/workflows/ci.yml, .github/workflows/release.yml
+terms: release gating, release smoke, release-only step, nightly channel, promote the nightly, preview channel, timeout-minutes, continue-on-error
+
+area: developer-loop-shared-resources
+section: 2.5
+verdict: ADOPT AS-IS — derive EVERY shared resource from the worktree
+paths: app/scripts/run-tests.sh, ui/tests/lib/harness.js
+terms: worktree-derived, derive the port, port collision, fixed port, shared cache, scratch root, dev state directory, per-worktree, simultaneous runs collide
+
+area: phone-connection-runtime
+section: 2.6
+verdict: COPY THE APPROACH — the connection runtime and the outbox were named on 2026-09-18
+paths: web-app/lib/link.js, src/phone/listen.rs, src/phone/mod.rs, phone/outbox
+weak-paths: ui/phone.js, web-app/lib/
+terms: outbox, reconnect, delivery retry, retry backoff, MAX_RETRY_MS, session reaper, could not be sent, intake
+
+area: agent-contract
+section: 2.7
+verdict: the single most transplantable artifact in the repository — and it is prose, not code
+paths: AGENTS.md
+terms: agent contract
+
+area: lint-layer-and-debt-ratchet
+section: 3.2
+verdict: full gap — we have NOTHING at the compiler/linter layer
+terms: lint rule, lint plugin, custom lint, debt ratchet, per-file ceiling, oxlint

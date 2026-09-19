@@ -757,7 +757,52 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # home-network-phone.mutation.sh (12 properties). It appears TWICE in the
 # probe's BR_EXPECTED, once per registration, and is deliberately absent from
 # Layer M's single-registration list.
+# guard-host-display-power.sh, ADDED 2026-09-19 — BLOCKING, and the MOST
+# registered rule in the engine: FOUR entries, on Agent, on SendMessage, and in
+# BOTH dispatcher chains (Bash and Write), because ceo-decisions §65 says "no
+# agent, and no brief, MESSAGE or script" may touch the host's display, sleep,
+# lock, session or input. The SendMessage entry is not symmetry — the
+# `pmset displaysleepnow` that blacked out the CEO's monitors reached the
+# teammate through the mailbox, and its spawn prompt does not contain the word.
+# Suite: guard-host-display-power.test.sh; harness:
+# host-display-power.mutation.sh.
+# IT WAS WIRED WITHOUT BEING ADDED HERE, exactly as notice-disk-alert.sh was
+# the day before, and for the same structural reason: this file's unanimity is
+# only evaluated when a NEW hook script appears, so the debt sits invisible
+# until the next author inherits it. On 2026-09-20 that was the §66
+# reference-ledger guard, whose commit the completeness predicate refused
+# fail-closed until this entry existed. Twice in two days is a pattern, not an
+# accident: the acknowledgement belongs in the same commit as the registration.
+# guard-reference-ledger.sh, ADDED 2026-09-20 — BLOCKING, PreToolUse[Agent]
+# only. It refuses a spawn whose own BUILD SECTION names a surface the adoption
+# ledger already answered, unless the prompt carries a live `reference:` line
+# naming the ledger AND a section that EXISTS in it (or an argued
+# `reference: none — <40+ characters>`, logged). ceo-decisions §66: Reed named
+# the connection runtime and the outbox on 2026-09-18 and three phone briefs
+# rebuilt them from scratch the next day, which is what "you ARE FUCKING
+# REINVENTING THE FUCKING WHEEL FROM SCRATCH" is about. The SURFACES ARE DATA,
+# in scripts/hooks/adoption-ledger.surfaces, so adding an area never edits the
+# guard. Measured over 302 real briefs and spawn prompts: 11 refused, 9 of them
+# build dispatches onto a ledger surface. Suite:
+# guard-reference-ledger.test.sh (39 cases); harness:
+# reference-ledger.mutation.sh.
+# guard-public-record-repo.sh, ADDED 2026-09-20 — BLOCKING, on TWO surfaces:
+# PreToolUse[Agent] in hooks.json and the Bash chain's manifest. It refuses a
+# dispatch whose deliverable is a research read, a brief or a plan into a
+# repository carrying a publication declaration, and a commit that ADDS a file
+# under docs/research/, docs/briefs/ or docs/plans/ there. The CEO, 2026-09-20:
+# "how many more times will the wrong shit be put into the Git history in the
+# public repo????" — a read was dispatched with --repo richos and its ledger
+# entered published history, which a later move does not undo. Its sibling
+# publication guards scan what a file SAYS; this one is about CLASS, and
+# docs/verification/ is deliberately out of scope. Measured over 302 real
+# prompts and briefs: ONE refused, and it is the dispatch that caused the
+# incident. Suite: guard-public-record-repo.test.sh (30 cases); harness:
+# public-record-repo.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+guard-host-display-power.sh
+guard-public-record-repo.sh
+guard-reference-ledger.sh
 guard-no-home-network-phone.sh
 notice-disk-alert.sh
 left-off-report.sh
