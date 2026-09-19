@@ -117,14 +117,24 @@ log "guest IP: $IP"
 if ! ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" -o BatchMode=yes \
        "$TESTVM_GUEST_USER@$IP" true 2>/dev/null; then
   log "installing the ssh key into the guest..."
-  command -v sshpass >/dev/null 2>&1 || brew install sshpass >/dev/null 2>&1 || true
-  if command -v sshpass >/dev/null 2>&1; then
-    sshpass -p "$TESTVM_GUEST_PASS" ssh-copy-id "${TESTVM_SSH_OPTS[@]}" \
-      -i "$TESTVM_SSH_KEY.pub" "$TESTVM_GUEST_USER@$IP" >/dev/null 2>&1 \
-      || die "could not install the ssh key into the guest"
-  else
-    die "sshpass unavailable and key auth not working — cannot provision non-interactively"
-  fi
+  # /usr/bin/expect, not sshpass: expect ships with macOS, and sshpass is not
+  # in Homebrew core (it needs a third-party tap). One fewer dependency on a
+  # machine where every install is a thing that can break later.
+  #
+  # The stock admin/admin password is used HERE ONCE and never again; every
+  # later call in this harness authenticates with the dedicated key. It is the
+  # image's published default and reaches nothing but a disposable guest.
+  expect <<EXPECT_EOF >/dev/null 2>&1
+set timeout 60
+spawn ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $TESTVM_SSH_KEY.pub $TESTVM_GUEST_USER@$IP
+expect {
+  -re "assword:" { send "$TESTVM_GUEST_PASS\r"; exp_continue }
+  eof
+}
+EXPECT_EOF
+  ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" -o BatchMode=yes \
+      "$TESTVM_GUEST_USER@$IP" true 2>/dev/null \
+    || die "could not install the ssh key into the guest"
 fi
 log "passwordless ssh works"
 
