@@ -1341,6 +1341,45 @@ async function openSheet(browser, theme, preset) {
       where.codeTopInPanel + "px into a " + where.panelHeight + "px panel (scrollTop " + where.scrollTop + ")";
   });
 
+  await run.check("22  no raw socket dump on the pairing screen, on either route", async () => {
+    // Urban's G5, his frame 06: eight address:port pairs over four lines, drawn whenever a code
+    // was live, on both routes, for every user, and not behind the technical view. *"It tells
+    // the reader nothing they can act on, and it is the one thing on this flow that looks like a
+    // debug log that shipped."* He was given a choice of Techy Mode or nowhere and said nowhere.
+    const found = [];
+    const home = await openSheet(browser, "dark", { phonePairing: true });
+    await home.waitForSelector("#phone-pairing:not([hidden])");
+    found.push(await home.evaluate(() => ({
+      route: "home",
+      node: !!document.getElementById("phone-bound"),
+      text: document.querySelector("#phone-sheet .overlay-panel").innerText,
+    })));
+    await home.close();
+
+    const ts = await takeTheTailscaleRoute("dark", {
+      state: "ready", name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
+    });
+    await ts.click("#phone-ts-start");
+    await ts.waitForSelector("#phone-pairing:not([hidden])");
+    found.push(await ts.evaluate(() => ({
+      route: "tailnet",
+      node: !!document.getElementById("phone-bound"),
+      text: document.querySelector("#phone-sheet .overlay-panel").innerText,
+    })));
+    await ts.close();
+
+    for (const f of found) {
+      assert(!f.node, "THE DEFECT: the bound-address node is still in the sheet on the " + f.route + " route");
+      assert(!/answering on/i.test(f.text), "the sheet still says what it is answering on (" + f.route + ")");
+      // The pattern the dump is made of, and the one the pairing URL is NOT: an address with a
+      // port. `https://mm1.local:8443/#pair=…` is a name and a port and does not match.
+      const dump = f.text.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/g);
+      assertEqual(dump, null, "an address:port pair is still on the " + f.route + " screen");
+    }
+    return "both routes: no #phone-bound, no \"answering on\", no address:port pair in the rendered panel";
+  });
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;

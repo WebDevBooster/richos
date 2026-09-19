@@ -186,7 +186,16 @@
       <p class="overlay-note" id="phone-ts-failure" hidden>If the code opens to a page that cannot
         connect, your phone is signed in to a different Tailscale account than this Mac.</p>
 
-      <p class="overlay-note" id="phone-bound"></p>
+      <!-- THE SOCKET DUMP THAT USED TO BE HERE IS GONE — Urban's G5, and his own preference
+           between the two options he gave. Eight address:port pairs over four lines, drawn
+           whenever a code was live, on both routes, for every user, and not behind the technical
+           view: *"It tells the reader nothing they can act on, and it is the one thing on this
+           flow that looks like a debug log that shipped ... deletion is the change I want most on
+           this screen — it costs nothing and it takes 90 px out of the very overflow problem in
+           finding 2."* His frame 06. The addresses are still logged by the Mac at every start
+           (mod.rs prints the whole bind list beside the origin and the trust page), so nothing
+           that could diagnose anything was lost — it moved off a consumer screen and stayed in
+           the place a diagnosis is actually read from. -->
       <p class="overlay-note" id="phone-message" role="status"></p>
       <!-- WHAT HAPPENS WHEN THE CODE RUNS OUT, ON THE SCREEN IT RAN OUT ON. It used to happen
            in silence: the Mac dropped the window, the next poll returned no code, and the
@@ -991,10 +1000,6 @@
     field("phone-trust-url").textContent = live && !onTailscale ? status.trustUrl || "" : "";
     field("phone-pair-url").textContent = live ? status.pairUrl || "" : "";
     field("phone-words").textContent = live ? (status.fingerprintWords || []).join("  ") : "";
-    field("phone-bound").textContent =
-      live && status.bound && status.bound.length
-        ? "This Mac is answering on " + status.bound.join(", ") + "."
-        : "";
     // The headings above those blocks go with them: a numbered step over an empty space is a
     // screen telling him to do something that is not there.
     field("phone-code-title").hidden = !live;
