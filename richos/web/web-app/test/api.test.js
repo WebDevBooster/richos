@@ -59,14 +59,14 @@ function response(status, body, headers) {
 function makeApi(handler, initial, eventSourceImpl, origin) {
 	const calls = [];
 	const signer = makeSigner('device-1');
-	const state = Object.assign({ apiBase: 'https://mm1.local:8443', challenge: 'challenge-one', deviceId: 'device-1' }, initial || {});
+	const state = Object.assign({ apiBase: 'https://mm1.tail9a3b2.ts.net:8443', challenge: 'challenge-one', deviceId: 'device-1' }, initial || {});
 	const api = createApi({
 		state,
 		signer,
 		// THE PAGE THIS PHONE WAS INSTALLED FROM. Node has no `location`, and an origin that
 		// cannot be determined refuses every advertised `api_base` (plan §2 C) — so a test that
 		// leaves it out is not testing the module the browser runs.
-		origin: origin || 'https://mm1.local:8443',
+		origin: origin || 'https://mm1.tail9a3b2.ts.net:8443',
 		fetchImpl: async (url, init) => {
 			calls.push({ url, init });
 			return handler(url, init, calls.length);
@@ -146,8 +146,8 @@ test('the API base is DATA: it is read at every request rather than baked in whe
 	// here on the state itself, which is the seam; what may legally WRITE to that state is the
 	// separate question the next two tests answer.
 	const { api, calls, state } = makeApi(() => response(200, { message_id: 'm', cursor: 1 }));
-	await api.sendText({ clientId: 'c-3', threadId: 't-1', text: 'at home', sentAt: 'now' });
-	assert.ok(calls[0].url.startsWith('https://mm1.local:8443/'), calls[0].url);
+	await api.sendText({ clientId: 'c-3', threadId: 't-1', text: 'on the train', sentAt: 'now' });
+	assert.ok(calls[0].url.startsWith('https://mm1.tail9a3b2.ts.net:8443/'), calls[0].url);
 
 	state.apiBase = 'https://198.51.100.7:8443';
 	await api.sendText({ clientId: 'c-4', threadId: 't-1', text: 'from away', sentAt: 'now' });
@@ -161,7 +161,7 @@ test('an advertised base on ANOTHER origin is refused, with a reason, and the ph
 	// know why. Refusing it here, with the reason written down, is the same outcome said honestly.
 	const { api, state } = makeApi(() => response(200, {}));
 	api.setApiBase('https://198.51.100.7:8443');
-	assert.strictEqual(state.apiBase, 'https://mm1.local:8443', 'a cross-origin base was stored');
+	assert.strictEqual(state.apiBase, 'https://mm1.tail9a3b2.ts.net:8443', 'a cross-origin base was stored');
 	assert.strictEqual(state.apiBaseRefusal.reason, 'a different origin from the app');
 	assert.strictEqual(state.apiBaseRefusal.value, 'https://198.51.100.7:8443');
 	assert.ok(state.apiBaseRefusal.at, 'the refusal was recorded without a time');
@@ -170,10 +170,10 @@ test('an advertised base on ANOTHER origin is refused, with a reason, and the ph
 // THE POSITIVE CONTROL for the test above: the door is checked, not welded shut.
 test('a same-origin base the Mac advertises IS stored, and it clears an earlier refusal', async () => {
 	const written = [];
-	const state = { apiBase: 'https://mm1.local:8443/', challenge: 'c', deviceId: 'd' };
+	const state = { apiBase: 'https://mm1.tail9a3b2.ts.net:8443/', challenge: 'c', deviceId: 'd' };
 	const api = createApi({
 		state,
-		origin: 'https://mm1.local:8443',
+		origin: 'https://mm1.tail9a3b2.ts.net:8443',
 		signer: { deviceId: 'd', async sign() { return 's'; }, async sha256Hex() { return '0'.repeat(64); } },
 		onState: (s) => written.push({ base: s.apiBase, refusal: s.apiBaseRefusal })
 	});
@@ -181,9 +181,9 @@ test('a same-origin base the Mac advertises IS stored, and it clears an earlier 
 	api.setApiBase('https://elsewhere.example');
 	assert.strictEqual(state.apiBaseRefusal.reason, 'a different origin from the app');
 
-	api.setApiBase('https://mm1.local:8443/');
+	api.setApiBase('https://mm1.tail9a3b2.ts.net:8443/');
 	// Normalized to the bare origin, so one Mac has one spelling.
-	assert.strictEqual(state.apiBase, 'https://mm1.local:8443');
+	assert.strictEqual(state.apiBase, 'https://mm1.tail9a3b2.ts.net:8443');
 	assert.strictEqual(state.apiBaseRefusal, null, 'a superseded refusal outlived the address that replaced it');
 	assert.strictEqual(written.length, 2, 'the screen was not told about one of the two changes');
 });
@@ -197,13 +197,13 @@ test('the `hello` frame goes through the same door as everything else', async ()
 	await api.openEvents('t-1', 0, {});
 	Stub.made[0].deliver('hello', { challenge: 'from-hello', api_base: 'https://evil.example', capabilities: ['text'] });
 	assert.strictEqual(state.challenge, 'from-hello', 'the challenge did not come through');
-	assert.strictEqual(state.apiBase, 'https://mm1.local:8443', 'a `hello` moved this phone to another origin');
+	assert.strictEqual(state.apiBase, 'https://mm1.tail9a3b2.ts.net:8443', 'a `hello` moved this phone to another origin');
 	assert.strictEqual(state.apiBaseRefusal.reason, 'a different origin from the app');
 
 	// THE POSITIVE CONTROL, on the same channel: a `hello` naming the app's own origin is taken,
 	// and the refusal it replaces does not survive it.
-	Stub.made[0].deliver('hello', { challenge: 'from-hello-2', api_base: 'https://mm1.local:8443' });
-	assert.strictEqual(state.apiBase, 'https://mm1.local:8443');
+	Stub.made[0].deliver('hello', { challenge: 'from-hello-2', api_base: 'https://mm1.tail9a3b2.ts.net:8443' });
+	assert.strictEqual(state.apiBase, 'https://mm1.tail9a3b2.ts.net:8443');
 	assert.strictEqual(state.apiBaseRefusal, null);
 });
 
@@ -271,7 +271,7 @@ test('pairing stores the device and the first challenge, and needs no signature 
 		device_id: 'device-9',
 		ca_fingerprint_sha256: 'a'.repeat(64),
 		challenge: 'first-challenge',
-		api_base: 'https://mm1.local:8443',
+		api_base: 'https://mm1.tail9a3b2.ts.net:8443',
 		vapid_public_key: 'BPk…'
 	}), { deviceId: null, challenge: null });
 

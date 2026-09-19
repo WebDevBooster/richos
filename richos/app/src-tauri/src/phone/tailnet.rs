@@ -353,7 +353,7 @@ impl TailnetState {
             TailnetState::Absent => {
                 "Tailscale is not on this Mac. Installing it here and on your phone, and signing \
                  in to the same free account on both, is what lets you reach me when you are away \
-                 from home."
+                 from your desk."
             }
             TailnetState::NotRunning => {
                 "Tailscale is on this Mac but it is not running right now. Open it, and I will \
@@ -369,7 +369,7 @@ impl TailnetState {
             }
             TailnetState::Stopped => {
                 "Tailscale is signed in and switched off, so its name for this Mac does not work \
-                 anywhere, including here at home. Switch it back on."
+                 anywhere — not even on a phone sitting beside it. Switch it back on."
             }
             TailnetState::InUseByAnotherUser => {
                 "Tailscale is being used by a different account on this Mac, so I cannot read it \

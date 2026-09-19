@@ -33,10 +33,10 @@
 //! `accept()` against one shutdown — and `tokio::time::timeout` does the other. An attribute is
 //! not worth a `[[package]]` line.
 
-use super::routes::{dispatch, dispatch_trust, Channel, Incoming, Outcome};
+use super::routes::{dispatch, Channel, Incoming, Outcome};
 use super::{PhoneError, KEEPALIVE_MS, MAX_BODY_BYTES};
 #[cfg(test)]
-use super::{HTTPS_PORT, TRUST_PORT};
+use super::HTTPS_PORT;
 use bytes::Bytes;
 use futures_util::future::{select, Either};
 use http_body_util::{BodyExt, Full, Limited};
@@ -67,33 +67,36 @@ impl Listener {
     /// any address fails to bind, every socket already bound is dropped and the whole start fails
     /// — a half-bound listener that answers on one interface and not another is worse than one
     /// that says it could not start.
-    /// `https_port` and `trust_port` are parameters and not the constants, for one reason: the
-    /// end-to-end test in this file stands a REAL listener up on an ephemeral pair so it can prove
-    /// the handshake and the routes against a real TLS client, and a test that fought the shipped
-    /// app for port 8443 would be a test that fails when he has the app open.
+    /// `https_port` is a parameter and not the constant, for one reason: the end-to-end test in
+    /// this file stands a REAL listener up on an ephemeral port so it can prove the handshake and
+    /// the routes against a real TLS client, and a test that fought the shipped app for port 8443
+    /// would be a test that fails when he has the app open.
     /// **[`super::PhoneRuntime::start`] is the only production caller and it passes
-    /// [`HTTPS_PORT`] and [`TRUST_PORT`].**
+    /// [`HTTPS_PORT`].**
+    ///
+    /// **THE SECOND SOCKET IS GONE — CEO §61, 2026-09-19.** Every address also carried a plain
+    /// HTTP listener on the neighboring port, which served one file: an Apple `.mobileconfig`
+    /// for the phone to install, so that a certificate this Mac made for itself would be trusted
+    /// on the local network. §61 rules that a phone app inside the home network is *"utterly
+    /// useless"* and that the Tailscale path is the product, and on that path the certificate is
+    /// publicly trusted and nothing is installed on the phone. So there is nothing for that port
+    /// to serve, and a port bound with nothing behind it is an open port asking to be explained.
     pub fn start(
         channel: Arc<Channel>,
         tls: Arc<rustls::ServerConfig>,
-        profile: Arc<String>,
         addresses: &[IpAddr],
         https_port: u16,
-        trust_port: u16,
     ) -> Result<Self, PhoneError> {
         check_addresses(addresses)?;
         let mut https: Vec<StdTcpListener> = Vec::new();
-        let mut trust: Vec<StdTcpListener> = Vec::new();
         let mut bound: Vec<SocketAddr> = Vec::new();
         for address in addresses {
-            for (port, into) in [(https_port, &mut https), (trust_port, &mut trust)] {
-                let socket = SocketAddr::new(*address, port);
-                let listener = StdTcpListener::bind(socket)
-                    .map_err(|e| PhoneError::Io(format!("could not listen on {socket}: {e}")))?;
-                listener.set_nonblocking(true)?;
-                bound.push(socket);
-                into.push(listener);
-            }
+            let socket = SocketAddr::new(*address, https_port);
+            let listener = StdTcpListener::bind(socket)
+                .map_err(|e| PhoneError::Io(format!("could not listen on {socket}: {e}")))?;
+            listener.set_nonblocking(true)?;
+            bound.push(socket);
+            https.push(listener);
         }
 
         let (shutdown, _rx) = watch::channel(false);
@@ -110,7 +113,7 @@ impl Listener {
                         return;
                     }
                 };
-                runtime.block_on(serve_all(channel, tls, profile, https, trust, stop.subscribe()));
+                runtime.block_on(serve_all(channel, tls, https, stop.subscribe()));
             })
             .map_err(|e| PhoneError::Io(format!("could not start the phone channel thread: {e}")))?;
 
@@ -209,23 +212,23 @@ fn certified_key(
 
 /// **Which certificate this Mac presents, decided by the name the phone asked for.**
 ///
-/// The Tailscale path (CEO §61, reach document §2.3) gives this Mac a SECOND name —
-/// `mm1.<tailnet>.ts.net` — with a **publicly trusted** certificate, which is what deletes the
-/// sixteen taps. It does not replace `mm1.local`: a Mac can be reachable both ways at once, and
-/// the brief is explicit that the home case keeps working unchanged.
+/// The Tailscale path (CEO §61, reach document §2.3) gives this Mac a name —
+/// `mm1.<tailnet>.ts.net` — with a **publicly trusted** certificate, and that is what the phone
+/// meets. It is the only name the product ever hands out.
 ///
-/// # Home is the fallback for EVERY name, and that is the safety property
+/// # The Mac's own leaf is the fallback for every OTHER name, and that is a safety property
 ///
 /// [`resolve`](CertDesk::resolve) returns the tailnet key **only** for an exact,
 /// case-insensitive match on the tailnet name, and the Mac-CA leaf for everything else — another
-/// name, a bare IP address (which carries no SNI at all), or a client too old to send one. So the
-/// worst a wrong or missing SNI can do is produce exactly the behavior this listener had before
-/// the tailnet existed. A resolver that returned `None` on no match would instead turn "connect by
-/// IP" into a handshake failure, which is the home path breaking for a Tailscale user.
+/// name, a bare IP address (which carries no SNI at all), or a client too old to send one.
+/// Nothing the product does points anything at those, so what the fallback buys is that a
+/// connection which arrives anyway gets a handshake and a 404 rather than a TLS alert nobody can
+/// read. The same authority is what the six words on the pairing screen name, which is why it
+/// outlived the path that once asked a phone to install it (CEO §61).
 pub struct CertDesk {
-    /// The Mac's own leaf, from [`super::ca`]. Always present: the listener does not start without
-    /// it, and it is what every address and `mm1.local` are served with.
-    home: Arc<rustls::sign::CertifiedKey>,
+    /// The Mac's own leaf, from [`super::ca`]. Always present: the listener does not start
+    /// without it, and it is what anything that does not ask for the tailnet name is served.
+    own: Arc<rustls::sign::CertifiedKey>,
     /// The tailnet name, normalized, and the publicly trusted chain for it. `None` until Tailscale
     /// is signed in, certificates are enabled for the tailnet, and `tailscale cert` has answered.
     tailnet: Option<(String, Arc<rustls::sign::CertifiedKey>)>,
@@ -258,13 +261,16 @@ impl rustls::server::ResolvesServerCert for CertDesk {
                 return Some(Arc::clone(key));
             }
         }
-        Some(Arc::clone(&self.home))
+        Some(Arc::clone(&self.own))
     }
 }
 
-/// Build the TLS configuration from the leaf the certificate authority issued.
+/// Build the TLS configuration from the leaf the certificate authority issued, with no tailnet
+/// certificate beside it.
 ///
-/// The home-only case, unchanged in behavior: one certificate, presented for every name.
+/// **No production caller** since CEO §61: [`super::PhoneRuntime::start`] does not start a
+/// channel without a tailnet certificate. It is the shape the unit tests in this file need — a
+/// real `ServerConfig` over a real leaf, with no Tailscale on the machine running them.
 pub fn tls_config(
     leaf_der: &[u8],
     leaf_key_pkcs8: &[u8],
@@ -289,9 +295,10 @@ pub fn tls_config_with_tailnet(
     // depending on which unrelated feature ran first is a defect waiting for one first run.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // The ROOT is deliberately not in the home chain. The phone installed it; sending it again
-    // would be a bigger handshake that proves nothing.
-    let home = certified_key(
+    // The ROOT is deliberately not in this chain. Nothing that reaches this leaf trusts the
+    // root anyway — §61 removed the path that put it on a phone — so sending it would be a
+    // bigger handshake that proves nothing.
+    let own = certified_key(
         vec![leaf_der.to_vec()],
         &super::tailnet::KeyDer::Pkcs8(leaf_key_pkcs8.to_vec()),
     )
@@ -306,7 +313,7 @@ pub fn tls_config_with_tailnet(
 
     let mut config = rustls::ServerConfig::builder()
         .with_no_client_auth()
-        .with_cert_resolver(Arc::new(CertDesk { home, tailnet }));
+        .with_cert_resolver(Arc::new(CertDesk { own, tailnet }));
     // HTTP/1.1 only, matching plan §2.6's *"No WebSocket on either side. Upgrade later only if a
     // measurement demands it"* — one protocol, one code path.
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
@@ -316,9 +323,7 @@ pub fn tls_config_with_tailnet(
 async fn serve_all(
     channel: Arc<Channel>,
     tls: Arc<rustls::ServerConfig>,
-    profile: Arc<String>,
     https: Vec<StdTcpListener>,
-    trust: Vec<StdTcpListener>,
     shutdown: watch::Receiver<bool>,
 ) {
     let acceptor = tokio_rustls::TlsAcceptor::from(tls);
@@ -331,10 +336,6 @@ async fn serve_all(
             Arc::clone(&channel),
             shutdown.clone(),
         )));
-    }
-    for listener in trust {
-        let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { continue };
-        tasks.push(tokio::spawn(accept_trust(listener, Arc::clone(&profile), shutdown.clone())));
     }
     for task in tasks {
         let _ = task.await;
@@ -399,35 +400,6 @@ async fn accept_https(
     }
 }
 
-async fn accept_trust(
-    listener: tokio::net::TcpListener,
-    profile: Arc<String>,
-    shutdown: watch::Receiver<bool>,
-) {
-    while !*shutdown.borrow() {
-        let Some((stream, _peer)) = accept_one(&listener, &shutdown).await else {
-            if *shutdown.borrow() {
-                return;
-            }
-            continue;
-        };
-        let profile = Arc::clone(&profile);
-        tokio::spawn(async move {
-            let io = hyper_util::rt::TokioIo::new(stream);
-            let service = service_fn(move |request: Request<HyperBody>| {
-                let profile = Arc::clone(&profile);
-                async move {
-                    let method = request.method().as_str().to_string();
-                    let path = percent_decode(request.uri().path());
-                    Ok::<_, std::convert::Infallible>(render_plain(dispatch_trust(
-                        &profile, &method, &path,
-                    )))
-                }
-            });
-            let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, service).await;
-        });
-    }
-}
 
 async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<BoxBody> {
     let method = request.method().as_str().to_string();
@@ -464,11 +436,6 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
 fn render(channel: &Channel, outcome: Outcome) -> Response<BoxBody> {
     let challenge = channel.devices.issue_challenge().ok();
     render_with(outcome, challenge)
-}
-
-/// The trust endpoint's responses. No challenge: that port has no credential and never will.
-fn render_plain(outcome: Outcome) -> Response<BoxBody> {
-    render_with(outcome, None)
 }
 
 fn render_with(outcome: Outcome, challenge: Option<String>) -> Response<BoxBody> {
@@ -645,12 +612,13 @@ mod tests {
     }
 
     #[test]
-    fn the_two_ports_are_the_ones_the_plan_pinned() {
-        // The port is part of the origin (plan §2.1), so changing either of these means the phone
-        // app has to be re-installed. They are asserted so a change is a decision.
+    fn the_port_is_the_one_the_plan_pinned() {
+        // The port is part of the origin (plan §2.1), so changing it means the phone app has to
+        // be re-installed. It is asserted so a change is a decision.
+        //
+        // THERE IS ONE PORT NOW. The neighboring one served the trust page, and CEO §61 removed
+        // the path that needed it — see `Listener::start`.
         assert_eq!(HTTPS_PORT, 8443);
-        assert_eq!(TRUST_PORT, 8444);
-        assert_eq!(TRUST_PORT, HTTPS_PORT + 1, "the trust port must be the neighboring one");
     }
 
     #[test]
@@ -715,22 +683,6 @@ mod tests {
         let response = render_with(Outcome::RateLimited, None);
         assert_eq!(response.status().as_u16(), 429);
         assert_eq!(response.headers().get("retry-after").unwrap(), "60");
-    }
-
-    #[test]
-    fn the_profile_is_offered_as_a_download_with_apples_own_content_type() {
-        let response = render_plain(dispatch_trust("<plist/>", "GET", "/ca"));
-        assert_eq!(response.status().as_u16(), 200);
-        assert_eq!(response.headers().get("content-type").unwrap(), "application/x-apple-aspen-config");
-        assert!(response
-            .headers()
-            .get("content-disposition")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .contains("richos-local-ca.mobileconfig"));
-        // No challenge on the trust port: it has no credential and never will.
-        assert!(response.headers().get("x-richos-challenge").is_none());
     }
 
     #[test]
@@ -1097,16 +1049,20 @@ mod tests {
         headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
     }
 
-    /// An ephemeral port pair, taken by binding and releasing — so the test never fights the
-    /// shipped app for 8443.
-    fn free_port_pair() -> (u16, u16) {
+    /// **The API base these tests hand the phone.** A fixed string rather than something
+    /// derived from the listener's own port: what is under test here is that what the desk was
+    /// given is what comes back on the wire, and a value that moved with the port would be
+    /// asserting the format call instead. It is a tailnet name because that is the only kind of
+    /// origin the product hands out (CEO §61).
+    const TEST_API_BASE: &str = "https://mm1.tail9a3b2.ts.net:8443";
+
+    /// An ephemeral port, taken by binding and releasing — so the test never fights the
+    /// shipped app for 8443. It was a PAIR until CEO §61 took the trust listener away.
+    fn free_port() -> u16 {
         let a = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = a.local_addr().unwrap().port();
         drop(a);
-        let b = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let other = b.local_addr().unwrap().port();
-        drop(b);
-        (port, other)
+        port
     }
 
     /// **THE LIVE PROOF: this Mac, its real tailnet name, a publicly trusted certificate, and
@@ -1180,7 +1136,6 @@ mod tests {
             addresses: state.addresses().to_vec(),
         };
         let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
-        let profile = Arc::new(ca.mobileconfig());
 
         let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
         spine.set_entity_registry(
@@ -1205,7 +1160,7 @@ mod tests {
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
         let channel = Arc::new(Channel {
             devices: Arc::clone(&devices),
-            api_base: Arc::new(ApiBaseDesk::home_only(origin.clone())),
+            api_base: Arc::new(ApiBaseDesk::only(origin.clone())),
             hub: Arc::clone(&hub),
             bridge: Arc::new(SpineBridge {
                 spine: Arc::clone(&spine),
@@ -1231,10 +1186,8 @@ mod tests {
         let mut listener = match Listener::start(
             Arc::clone(&channel),
             tls,
-            Arc::clone(&profile),
             state.addresses(),
             HTTPS_PORT,
-            TRUST_PORT,
         ) {
             Ok(listener) => listener,
             Err(e) => {
@@ -1326,7 +1279,6 @@ mod tests {
             addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
         };
         let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
-        let profile = Arc::new(ca.mobileconfig());
 
         let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
         spine.set_entity_registry(
@@ -1352,7 +1304,7 @@ mod tests {
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
         let channel = Arc::new(Channel {
             devices: Arc::clone(&devices),
-            api_base: Arc::new(ApiBaseDesk::home_only(names.origin())),
+            api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
             hub: Arc::clone(&hub),
             bridge: Arc::new(SpineBridge {
                 spine: Arc::clone(&spine),
@@ -1369,14 +1321,12 @@ mod tests {
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;
         let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
-        let (https_port, trust_port) = free_port_pair();
+        let https_port = free_port();
         let mut listener = Listener::start(
             Arc::clone(&channel),
             tls,
-            Arc::clone(&profile),
             &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
             https_port,
-            trust_port,
         )
         .expect("the listener did not start");
 
@@ -1433,7 +1383,7 @@ mod tests {
         let device_id = paired["device_id"].as_str().unwrap().to_string();
         let mut challenge = paired["challenge"].as_str().unwrap().to_string();
         assert_eq!(paired["ca_fingerprint_sha256"], ca.fingerprint_hex());
-        assert_eq!(paired["api_base"], names.origin());
+        assert_eq!(paired["api_base"], TEST_API_BASE);
 
         // 2. AN UNPAIRED CALLER STILL SEES NOTHING, over the same real socket. The positive
         //    control for every 404 in the unit tests, asserted against the wire this time.
@@ -1518,28 +1468,18 @@ mod tests {
         );
         assert!(wire.contains(words), "his own words are not on the stream: {wire}");
 
-        // 6. THE TRUST ENDPOINT serves exactly one file, in the clear, on the neighboring port.
-        let mut plain = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, trust_port)).unwrap();
-        plain.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
-        plain
-            .write_all(b"GET /ca HTTP/1.1\r\nHost: mm1.local\r\nConnection: close\r\n\r\n")
-            .unwrap();
-        let mut raw = Vec::new();
-        let _ = plain.read_to_end(&mut raw);
-        let (status, headers, body) = parse_response(&raw);
-        assert_eq!(status, 200);
-        assert_eq!(header_of(&headers, "content-type"), Some("application/x-apple-aspen-config"));
-        assert!(String::from_utf8_lossy(&body).contains("com.apple.security.root"));
-
-        // 7. AND NOTHING ELSE ON THAT PORT.
-        let mut plain = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, trust_port)).unwrap();
-        plain.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
-        plain
-            .write_all(b"GET /ca.crt HTTP/1.1\r\nHost: mm1.local\r\nConnection: close\r\n\r\n")
-            .unwrap();
-        let mut raw = Vec::new();
-        let _ = plain.read_to_end(&mut raw);
-        assert_eq!(parse_response(&raw).0, 404);
+        // 6 AND 7 WERE THE TRUST ENDPOINT — CEO §61, 2026-09-19. They stood a plain-HTTP
+        //    socket up on the neighboring port, fetched `/ca`, asserted the Apple content type
+        //    and `com.apple.security.root` in the body, then asserted a 404 for everything else
+        //    on that port. §61 removed the path that needed a phone to install anything, and
+        //    `Listener::start` no longer binds a second port at all. What used to prove "the
+        //    trust page serves one file and nothing else" is now proved by there being no
+        //    second socket: `listener.bound` is asserted below.
+        assert_eq!(
+            listener.bound,
+            vec![std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), https_port)],
+            "the channel bound something other than the one HTTPS socket"
+        );
 
         // 8. STOPPING THE CHANNEL FREES THE PORT. "Off means no socket, not a closed door" — the
         //    proof is that the port can be bound again the instant `stop()` returns.
@@ -1586,7 +1526,6 @@ mod tests {
         };
         let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
         let ca_path = dir.join("phone/ca.crt");
-        let profile = Arc::new(ca.mobileconfig());
 
         let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
         spine.set_entity_registry(
@@ -1609,7 +1548,7 @@ mod tests {
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
         let channel = Arc::new(Channel {
             devices: Arc::clone(&devices),
-            api_base: Arc::new(ApiBaseDesk::home_only(names.origin())),
+            api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
             hub: Arc::clone(&hub),
             bridge: Arc::new(SpineBridge {
                 spine: Arc::clone(&spine),
@@ -1625,14 +1564,12 @@ mod tests {
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;
         let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
-        let (https_port, trust_port) = free_port_pair();
+        let https_port = free_port();
         let mut listener = Listener::start(
             Arc::clone(&channel),
             tls,
-            Arc::clone(&profile),
             &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
             https_port,
-            trust_port,
         )
         .unwrap();
 
@@ -1748,18 +1685,16 @@ mod tests {
         assert!(stderr.is_empty(), "{stderr}");
         assert_eq!(stdout.trim(), "404 0", "an unsigned POST was answered: {stdout}");
 
-        // 5. THE PROFILE, off the plain-HTTP neighbor, with Apple's own content type.
-        let (stdout, stderr) = curl(&[
-            "--resolve",
-            &format!("mm1.local:{trust_port}:127.0.0.1"),
-            "-o",
-            "/dev/null",
-            "-w",
-            "%{http_code} %{content_type}",
-            &format!("http://mm1.local:{trust_port}/ca"),
-        ]);
-        assert!(stderr.is_empty(), "{stderr}");
-        assert_eq!(stdout.trim(), "200 application/x-apple-aspen-config", "{stdout}");
+        // 5 WAS THE PROFILE, fetched off the plain-HTTP neighbor and checked for Apple's own
+        //    content type. CEO §61 removed the path that asked a phone to install one, and with
+        //    it the second socket — so what stands in its place is that there is no second
+        //    socket to fetch anything from.
+        assert_eq!(
+            listener.bound.len(),
+            1,
+            "the channel bound more than the one HTTPS socket: {:?}",
+            listener.bound
+        );
 
         listener.stop();
         let _ = std::fs::remove_dir_all(&dir);

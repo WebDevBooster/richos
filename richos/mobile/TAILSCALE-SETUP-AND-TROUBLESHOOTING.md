@@ -277,7 +277,7 @@ currently connected to it.
 
 **What to do.** Open Tailscale on the phone and turn the switch on. Note that the switch being off is the
 normal state after a reboot on some phones, and that it also stops the Mac's Tailscale name from resolving
-**on the phone**, including at home.
+**on the phone** — everywhere, including on a phone sitting next to the Mac.
 
 ---
 

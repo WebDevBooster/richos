@@ -322,12 +322,21 @@ const SURFACES = [
   },
   {
     // TWO SURFACES FOR ONE PANEL, because the panel has two states and they share almost no
-    // words. The pairing state carries the sixteen steps, the two warnings and the six words he
-    // COMPARES; the paired state carries the sentence about removing the profile from his phone.
+    // words. The pairing state carries the code, the countdown, the four phone steps and the six
+    // words he COMPARES; the paired state carries the device card and what forgetting it does.
     // Walking one of them and printing "phone: covered" would leave the other unmeasured.
+    //
+    // THE PAIRING STATE NEEDS A READY TAILNET NOW (CEO §61). It used to be reachable with no
+    // Tailscale at all, because the removed path served that Mac; the one path refuses to, and a
+    // fixture that cannot reach the screen would walk an empty panel and report it covered.
     name: "phone-pairing",
-    what: "the pairing screen: the two warnings, the sixteen steps, the countdown and the six words",
-    preset: {phonePairing: true},
+    what: "the pairing screen: the code, the countdown, the four phone steps and the six words",
+    preset: {phonePairing: true, phoneTailnet: {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+    }},
     drive: async (p) => {
       await p.click("#set-btn");
       await p.click("#set-phone-open");
@@ -342,7 +351,7 @@ const SURFACES = [
   },
   {
     name: "phone-paired",
-    what: "the same screen once a phone is paired: what it can do, and how to remove the profile",
+    what: "the same screen once a phone is paired: what it can do, and what forgetting it does",
     preset: {phonePaired: true},
     drive: async (p) => {
       await p.click("#set-btn");
@@ -356,25 +365,22 @@ const SURFACES = [
   },
   {
     // THE TWO SCREENS CEO §61.1 ADDED, and they are their own surfaces for the same reason the
-    // pairing and paired states are two: they share almost no words with either. The route screen
-    // is the only place in the app where a control's BORDER is the thing separating two decisions,
-    // which is why `.phone-route > button` names `--line-control` explicitly. Walking the pairing
-    // screen and calling the phone sheet covered would leave that unmeasured.
+    // pairing and paired states are two: they share almost no words with either.
     //
-    // THAT SENTENCE USED TO END "`.desk-btn`'s `--line` computes 1.24:1 dark and 1.50:1 light on
-    // this panel, which is why". It no longer does: Urban's G6 moved `.desk-btn`'s own border to
-    // `--line-control` (3.79:1 dark, 4.06:1 light — measured from the rendered pixels in both
-    // themes), because on the PAIRED card that border is the only thing making a button a button.
-    // So `.phone-route > button` and the plain button now say the same thing, and this note is
-    // kept rather than deleted so nobody re-derives the old numbers from a stale comment.
+    // THIS SURFACE USED TO BE TWO SCREENS IN ONE WALK — the route chooser and then the identity
+    // warning behind it — and the chooser was the only place in the app where a control's BORDER
+    // was the thing separating two decisions, which is why `.phone-route > button` named
+    // `--line-control` explicitly. CEO §61 removed the chooser, so this surface is the identity
+    // warning alone and it is now the sheet's FIRST screen. The border note is kept because the
+    // token outlived the screen: Urban's G6 moved `.desk-btn`'s own border to `--line-control`
+    // (3.79:1 dark, 4.06:1 light — measured from the rendered pixels in both themes), because on
+    // the PAIRED card that border is the only thing making a button a button.
     name: "phone-identity",
-    what: "the route choice and the identity warning that precedes any Tailscale account",
+    what: "the identity warning that precedes any Tailscale account, and is the sheet's first screen",
     preset: {phoneTailnet: {state: "absent"}},
     drive: async (p) => {
       await p.click("#set-btn");
       await p.click("#set-phone-open");
-      await p.waitForSelector("#phone-route:not([hidden])");
-      await p.click("#phone-route-anywhere");
       await p.waitForSelector("#phone-identity:not([hidden])");
       await overlaySettled(p, "#phone-sheet");
     },
@@ -393,8 +399,6 @@ const SURFACES = [
     drive: async (p) => {
       await p.click("#set-btn");
       await p.click("#set-phone-open");
-      await p.waitForSelector("#phone-route:not([hidden])");
-      await p.click("#phone-route-anywhere");
       // The tailnet name is the last thing this screen paints, so its presence is the signal that
       // the state is up rather than a guess at a delay.
       await p.waitForFunction(() => {
@@ -2448,7 +2452,7 @@ async function main() {
       "The DOM check therefore covers the whole of every surface it reaches — every failure it reports " +
       "is a node with a computed style, and every node with a computed style was reported.\n          " +
       seen.canvasInPhone + " <canvas> element(s) inside #phone-sheet were EXCLUDED and ARE covered, " +
-      "elsewhere: they are the two pairing QR codes, and `tests/phone.js` measures them FROM THE " +
+      "elsewhere: it is the pairing QR code, and `tests/phone.js` measures it FROM THE " +
       "PIXELS in this same WebKit — only the #000000 modules and the #ffffff quiet zone this shell " +
       "paints are present, which is 21:1, and the quiet zone is white on all four edges, which is " +
       "what makes a code scan on a dark page.\n          " +

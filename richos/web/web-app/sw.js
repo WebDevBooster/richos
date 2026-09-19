@@ -2,8 +2,9 @@
 //
 //  1. IT KEEPS THE SHELL, so the app OPENS where his Mac does not resolve — on a train, on someone
 //     else's Wi-Fi. That is not a trick; it is the ordinary reason a PWA has a service worker, and
-//     plan §10.7 depends on it: the origin stays `https://<his-mac>.local:8443` forever and the app
-//     must still open there when that name means nothing on the network he is standing in.
+//     plan §10.7 depends on it: the origin stays `https://<his-mac>.<tailnet>.ts.net:8443`
+//     forever and the app must still open there when that name cannot be resolved — which is
+//     every moment Tailscale is off on either device.
 //
 //  2. IT SHOWS RICH'S REPLY WHEN THE APP IS CLOSED, and writes it into storage on the way past. The
 //     push payload is encrypted end to end by RFC 8291 — Apple relays a blob it cannot read — and it

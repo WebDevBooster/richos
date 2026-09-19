@@ -1,6 +1,22 @@
 'use strict';
 
-// THE SENTENCE UNDER THE SIX WORDS SAYS THE RIGHT THING FOR THE WAY IN. `npm test`.
+// THE SENTENCE UNDER THE SIX WORDS SAYS THE RIGHT THING, AND THERE IS ONE OF IT. `npm test`.
+//
+// **CEO §61, 2026-09-18:** *"it's an app that lets the user use RichOS (in some way) while being
+// on the go and away from office i.e. outside the home network. Because any mobile app or PWA is
+// utterly useless within the home network. The desktop app is a much better tool in that case …
+// The Tailscale setup is where we start now."*
+//
+// WHAT THIS FILE USED TO BE. The Mac served this app on two kinds of origin —
+// `https://<name>.local:8443` with a certificate it had made for itself and asked the phone to
+// install, and `https://<name>.ts.net:8443` with a publicly trusted one — and `app.js` chose one
+// of two sentences by reading `location.hostname`. Six tests pinned that choice, including three
+// about the suffix match, because handing the "nothing was installed" promise to whoever registers
+// `evilts.net` would have been a real defect.
+//
+// §61 removed the first origin. There is nothing left to choose between, so the whole class of
+// defect those three tests guarded is gone with the branch rather than still guarded — and what
+// remains to assert is the thing Ray's §4.2 was actually about.
 //
 // Ray's candidate .11 walk, §4.2
 // (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md`):
@@ -10,18 +26,9 @@
 //      careful person reading both concludes something IS wrong, at the exact moment he is being
 //      asked to make a security decision."
 //
-// The Mac serves this app on two kinds of origin and only two: `https://<name>.local:8443` from a
-// certificate authority it made for itself (`app/src-tauri/src/phone/api_base.rs:13`), and
-// `https://<name>.ts.net:8443` with a publicly trusted certificate — *"which is what deletes the"*
-// profile step (`phone/listen.rs:213`, `phone/mod.rs:315`). Ray reached the second one on the
-// CEO's Android with no interstitial, which is only possible with a certificate the phone already
-// trusts.
-//
-// THE TWO FUNCTIONS UNDER TEST ARE THE SHIPPED ONES, lifted out of `app.js` by name and run here.
+// THE FUNCTION UNDER TEST IS THE SHIPPED ONE, lifted out of `app.js` by name and run here.
 // `app.js` is an IIFE that boots a browser app the moment it loads, so it cannot be `require`d;
-// these two are pure, take nothing but `location`, and are therefore driveable exactly as they
-// ship. What is NOT proved here is that the pairing screen calls them — `test/desktop-verify.js`
-// walks the running app for that, and a byte-level assertion below stands in for it in `npm test`.
+// this one is pure, takes nothing at all, and is therefore driveable exactly as it ships.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -38,19 +45,18 @@ function lift(name) {
 	return found[0];
 }
 
-/// The two shipped functions, with a `location` of this test's choosing and nothing else in scope.
-function sentenceOn(hostname) {
-	const source = `${lift('onTheTailscalePath')}\n${lift('whatTheSixWordsAre')}\nreturn whatTheSixWordsAre();`;
+/// The shipped function, with nothing else in scope.
+function theSentence() {
 	// eslint-disable-next-line no-new-func
-	return new Function('location', source)({ hostname });
+	return new Function(`${lift('whatTheSixWordsAre')}\nreturn whatTheSixWordsAre();`)();
 }
 
-test('on the Tailscale path the phone does not claim there is a certificate — the Mac just said there is none', () => {
-	const said = sentenceOn('mm1.tail770f6e.ts.net');
+test('the phone does not claim there is a certificate — the Mac says there is none', () => {
+	const said = theSentence();
 	assert.doesNotMatch(
 		said,
 		/certificate/i,
-		`the phone still talks about a certificate on the path the Mac promised has none: ${said}`
+		`the phone talks about a certificate on a path the Mac promised has none: ${said}`
 	);
 	assert.match(said, /your Mac/, 'the sentence stopped naming whose key it is');
 	assert.match(
@@ -58,32 +64,27 @@ test('on the Tailscale path the phone does not claim there is a certificate — 
 		/this phone is talking to your Mac and to nothing else/,
 		'the sentence he is actually making the decision on is gone'
 	);
+	assert.match(
+		said,
+		/Nothing was installed on this phone/,
+		'the sentence stopped saying the thing that makes the Mac and the phone agree'
+	);
 });
 
-test('on the home path it still names the certificate, because that is the one he was asked to install', () => {
-	const said = sentenceOn('mm1.local');
-	assert.match(said, /the certificate your Mac made for itself/, `the home-path sentence changed: ${said}`);
-});
-
-test('an address nobody has thought of gets the home-path sentence, not the Tailscale one', () => {
-	// The cautious way round: the home sentence names a profile he may have installed and is
-	// harmless where he has not; the Tailscale sentence PROMISES nothing was installed, which is a
-	// promise this app must not make about a path it cannot recognize.
-	for (const host of ['192.168.1.42', 'mm1.local', 'localhost', 'ts.net.example.com', '']) {
-		assert.match(
-			sentenceOn(host),
-			/the certificate your Mac made for itself/,
-			`${host || '(empty)'} was read as the Tailscale path`
-		);
-	}
-});
-
-test('the Tailscale path is matched on the whole label, not on the three characters', () => {
-	// `evil-ts.net` is a different domain from `ts.net`, and `nots.net` is a third. A suffix test
-	// that forgets the dot hands the "nothing was installed" promise to whoever registers one.
-	assert.match(sentenceOn('mm1.evilts.net'), /the certificate your Mac made for itself/);
-	assert.match(sentenceOn('nots.net'), /the certificate your Mac made for itself/);
-	assert.doesNotMatch(sentenceOn('MM1.TAIL770F6E.TS.NET'), /certificate/i, 'the host is not compared case-insensitively');
+test('nothing reads the address bar to decide what to say', () => {
+	// The branch is the defect class. A build that grew one back would be choosing a sentence
+	// from an origin again, and the origin it would choose the second sentence for is a path
+	// §61 removed.
+	assert.strictEqual(
+		appJs.includes('function onTheTailscalePath()'),
+		false,
+		'the origin sniff is back, so there are two sentences again'
+	);
+	assert.doesNotMatch(
+		lift('whatTheSixWordsAre'),
+		/location|hostname|if\s*\(/,
+		'the sentence is chosen rather than stated'
+	);
 });
 
 test('the pairing screen writes the sentence before it shows the words', () => {
@@ -91,13 +92,18 @@ test('the pairing screen writes the sentence before it shows the words', () => {
 	assert.ok(flow, 'the moment the six words go on screen has moved');
 	const noteAt = flow[0].indexOf("$('fingerprint-note').textContent = whatTheSixWordsAre()");
 	const wordsAt = flow[0].indexOf("$('fingerprint-words').textContent");
-	assert.ok(noteAt !== -1, 'nothing sets the sentence, so the markup default is what he reads on every path');
-	assert.ok(noteAt < wordsAt, 'the words appear before the sentence that explains them is corrected');
+	assert.ok(noteAt !== -1, 'nothing sets the sentence, so the markup default is what he reads');
+	assert.ok(noteAt < wordsAt, 'the words appear before the sentence that explains them is set');
 });
 
-test('what ships in the markup is the home-path sentence, and it has an id to replace', () => {
+test('the markup ships the same sentence app.js sets, so the two cannot disagree', () => {
 	const note = html.match(/<p class="fingerprint-note"[^>]*>([^<]*)<\/p>/);
 	assert.ok(note, 'the note under the six words is gone from index.html');
-	assert.match(note[0], /id="fingerprint-note"/, 'the note has no id, so nothing can correct it');
-	assert.match(note[1], /the certificate your Mac made for itself/);
+	assert.match(note[0], /id="fingerprint-note"/, 'the note has no id, so nothing can set it');
+	assert.strictEqual(
+		note[1].trim(),
+		theSentence(),
+		'the markup and app.js say different things under the six words'
+	);
+	assert.doesNotMatch(note[1], /certificate/i, 'the markup still names a certificate');
 });

@@ -70,7 +70,7 @@ const RENEW_WITHIN_SECONDS: &str = "2592000";
 
 /// The certificate authority and the leaf it has issued for where this Mac currently is.
 pub struct PhoneCa {
-    /// The root certificate, DER. What the `.mobileconfig` carries and what the six-word
+    /// The root certificate, DER. What the six-word
     /// fingerprint is computed over.
     pub ca_der: Vec<u8>,
     /// The leaf certificate, DER — what the TLS listener presents.
@@ -79,6 +79,13 @@ pub struct PhoneCa {
     /// listener and nowhere else.
     pub leaf_key_pkcs8: Vec<u8>,
     /// The names this leaf was issued for.
+    ///
+    /// **Nothing reads it since CEO §61** — the `.mobileconfig` builder did, to put this Mac's
+    /// own name in the profile a phone installed, and there is no profile. It is kept because it
+    /// is the record of what the leaf in this struct actually covers, which `needs_reissue` asks
+    /// the same question of against the file on disk; a struct that held a certificate and not
+    /// the names it was issued for would be one fact short of being checkable.
+    #[allow(dead_code)]
     pub names: LocalNames,
 }
 
@@ -178,14 +185,8 @@ impl PhoneCa {
         digest.iter().take(6).map(|b| WORDS[*b as usize]).collect()
     }
 
-    /// The `.mobileconfig` the trust endpoint serves, and the only thing that endpoint ever
-    /// serves.
-    pub fn mobileconfig(&self) -> String {
-        mobileconfig(&self.ca_der, &self.names, &self.fingerprint_hex(), &self.fingerprint_words())
-    }
-
     /// Everything "Forget this phone" and uninstall destroy on the Mac side (plan §4.1).
-    /// The profile on the phone is his to remove, and the settings screen tells him where.
+    /// Since CEO §61 there is nothing on the phone to match it: the one path installs nothing.
     pub fn forget(dir: &Path, secrets: &dyn SecretStore) -> Result<(), PhoneError> {
         secrets.forget_all()?;
         let home = dir.join("phone");
@@ -460,112 +461,26 @@ pub fn pem_body(text: &str, label: &str) -> Result<Vec<u8>, PhoneError> {
 }
 
 // -------------------------------------------------------------------------------------
-// The configuration profile
+// The configuration profile — REMOVED, CEO §61, 2026-09-19
 // -------------------------------------------------------------------------------------
-
-/// A UUID derived from the certificate rather than drawn at random, so installing the same
-/// authority twice REPLACES the profile in place instead of stacking a second copy he then
-/// has to tell apart. Version nibble 5 and the RFC 4122 variant bits, so it is a well-formed
-/// name-based UUID and not something that merely looks like one. (The shape is the phone
-/// probe's `lib/mobileconfig.js`, reused deliberately: it is working reference code that was
-/// installed on his own iPhone today.)
-fn derived_uuid(namespace: &str, bytes: &[u8]) -> String {
-    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
-    ctx.update(namespace.as_bytes());
-    ctx.update(bytes);
-    let digest = ctx.finish();
-    let mut b = [0u8; 16];
-    b.copy_from_slice(&digest.as_ref()[..16]);
-    b[6] = (b[6] & 0x0f) | 0x50;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    let h = hex(&b).to_uppercase();
-    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
-}
-
-fn escape_xml(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-/// Apple's plist `<data>` is base64. The wrapping is cosmetic; the line length is not,
-/// because a single 1.2 KB line in a file a person may open in a text editor is a file
-/// nobody reads.
-fn data_block(bytes: &[u8], indent: &str) -> String {
-    let b64 = super::b64std(bytes);
-    b64.as_bytes()
-        .chunks(60)
-        .map(|c| format!("{indent}{}", String::from_utf8_lossy(c)))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Build the profile. Separated from [`PhoneCa`] so the tests can render one from a fixed
-/// certificate and assert on the bytes.
-pub fn mobileconfig(
-    ca_der: &[u8],
-    names: &LocalNames,
-    fingerprint_hex: &str,
-    fingerprint_words: &[&str],
-) -> String {
-    let display = names.display_name();
-    let profile_uuid = derived_uuid("richos.phone-channel.profile", ca_der);
-    let cert_uuid = derived_uuid("richos.phone-channel.certificate", ca_der);
-    let words = fingerprint_words.join(" ");
-    // Written as plain text rather than assembled with a plist library, for the same reason
-    // the rest of this has no new dependency, and because a profile is a file a person may
-    // want to read before installing it.
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>PayloadContent</key>
-	<array>
-		<dict>
-			<key>PayloadType</key>
-			<string>com.apple.security.root</string>
-			<key>PayloadVersion</key>
-			<integer>1</integer>
-			<key>PayloadIdentifier</key>
-			<string>com.richos.app.phone-channel.ca</string>
-			<key>PayloadUUID</key>
-			<string>{cert_uuid}</string>
-			<key>PayloadDisplayName</key>
-			<string>{display_escaped}</string>
-			<key>PayloadDescription</key>
-			<string>The certificate that lets this phone open Rich on your own Mac over a private connection. It is valid only for {host} and for nothing on the internet.</string>
-			<key>PayloadCertificateFileName</key>
-			<string>richos-local-ca.crt</string>
-			<key>PayloadContent</key>
-			<data>
-{cert_data}
-			</data>
-		</dict>
-	</array>
-	<key>PayloadType</key>
-	<string>Configuration</string>
-	<key>PayloadVersion</key>
-	<integer>1</integer>
-	<key>PayloadIdentifier</key>
-	<string>com.richos.app.phone-channel</string>
-	<key>PayloadUUID</key>
-	<string>{profile_uuid}</string>
-	<key>PayloadOrganization</key>
-	<string>RichOS</string>
-	<key>PayloadDisplayName</key>
-	<string>{display_escaped}</string>
-	<key>PayloadDescription</key>
-	<string>Not signed, which is why your phone shows this in red: signing it would need a certificate from a company Apple already trusts, and the point of this one is that no such company is involved. Your own Mac made it a moment ago and it has never left your home network. The six words are {words}, and your Mac is showing you the same six. SHA-256: {fingerprint_hex}. After you install this, switch it on under Settings, General, About, Certificate Trust Settings. Delete this profile to undo all of it.</string>
-	<key>PayloadRemovalDisallowed</key>
-	<false/>
-</dict>
-</plist>
-"#,
-        display_escaped = escape_xml(&display),
-        host = escape_xml(&names.bonjour),
-        cert_data = data_block(ca_der, "\t\t\t"),
-        words = escape_xml(&words),
-    )
-}
+//
+// This file used to build an Apple `.mobileconfig`: the root below, wrapped in a plist with a
+// derived version-5 UUID so installing it twice replaced rather than stacked, the six words and
+// the SHA-256 in its own description, and Apple's `Certificate Trust Settings` named in it
+// because the phone needs a second switch after the install. `listen.rs` served it on the
+// neighboring port and `phone.js` drew a QR code pointing at it.
+//
+// All of it existed so a phone on the same local network could trust a certificate this Mac had
+// signed for itself. §61: *"any mobile app or PWA is utterly useless within the home network.
+// The desktop app is a much better tool in that case … The Tailscale setup is where we start
+// now."* On that path the certificate is publicly trusted, nothing is installed on the phone,
+// and there is nothing for a profile to carry.
+//
+// WHAT STAYED, AND WHY THIS FILE IS STILL HERE: the root and leaf themselves. The leaf is the
+// certificate this listener presents to anything that does not ask for the tailnet name
+// (`listen.rs`'s `CertDesk`), and the root's SHA-256 is where the six words come from — the
+// fingerprint the phone renders for itself and the user compares out loud. Neither has anything
+// to do with a phone installing anything.
 
 // -------------------------------------------------------------------------------------
 // The word list
@@ -800,55 +715,6 @@ mod tests {
         left.sort();
         assert_eq!(left, vec!["ca.crt".to_string(), "leaf.crt".to_string()], "scratch was left behind");
     }
-
-    // --- the profile -----------------------------------------------------------------
-
-    #[test]
-    fn the_profile_carries_the_root_and_says_the_two_things_he_must_know_first() {
-        let dir = TempDir::new("profile");
-        let secrets = MemorySecrets::default();
-        let ca = PhoneCa::open(&dir.0, &secrets, test_names()).unwrap();
-        let profile = ca.mobileconfig();
-
-        assert!(profile.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
-        assert!(profile.contains("<string>com.apple.security.root</string>"));
-        assert!(profile.contains("RichOS on MM1"));
-        // The red word, explained BEFORE he meets it — plan §2.1.
-        assert!(profile.contains("Not signed"), "the profile does not explain the red word");
-        // Apple's documented extra step, in the file itself as well as on the Mac's screen.
-        assert!(profile.contains("Certificate Trust Settings"));
-        // The fingerprint, both ways.
-        assert!(profile.contains(&ca.fingerprint_hex()));
-        for word in ca.fingerprint_words() {
-            assert!(profile.contains(word), "the six words are not in the profile");
-        }
-        // The certificate really is in there: the base64 body decodes to the root's DER.
-        let body: String = profile
-            .split("<data>")
-            .nth(1)
-            .unwrap()
-            .split("</data>")
-            .next()
-            .unwrap()
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        assert_eq!(unb64std(&body).unwrap(), ca.ca_der);
-    }
-
-    #[test]
-    fn the_profile_identifier_is_derived_so_installing_twice_replaces_rather_than_stacks() {
-        let a = derived_uuid("ns", b"the same certificate");
-        let b = derived_uuid("ns", b"the same certificate");
-        let c = derived_uuid("ns", b"a different certificate");
-        assert_eq!(a, b);
-        assert_ne!(a, c);
-        assert_eq!(a.len(), 36);
-        assert_eq!(&a[14..15], "5", "not a version-5 UUID: {a}");
-        assert!(matches!(&a[19..20], "8" | "9" | "A" | "B"), "wrong variant bits: {a}");
-    }
-
-    // --- the word list ----------------------------------------------------------------
 
     #[test]
     fn the_word_list_is_exactly_one_word_per_byte_and_every_word_is_distinct() {

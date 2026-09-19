@@ -1,12 +1,22 @@
-// USE RICH FROM YOUR PHONE — the pairing screen, and the QR codes measured FROM THE PIXELS.
+// USE RICH FROM YOUR PHONE — the pairing screen, its QR code measured FROM THE PIXELS, and the
+// one path CEO §61 leaves.
+//
+// **§61, 2026-09-18:** *"it's an app that lets the user use RichOS (in some way) while being on
+// the go and away from office i.e. outside the home network. Because any mobile app or PWA is
+// utterly useless within the home network … The Tailscale setup is where we start now."* The
+// route chooser, the self-signed certificate, the trust code and the sixteen taps through Apple's
+// settings are gone from the product, and the checks that pinned them are gone with them — checks
+// 4, 5 and 6 are now about what replaced them, and 27, 29 and 30 about the screens that remain.
+// Check 5 is the one that would notice a second path coming back on this surface;
+// `tests/no-home-network.js` is the one that would notice it coming back anywhere.
 //
 // TWO JOBS, AND THE FIRST ONE IS A DEBT THIS FILE EXISTS TO PAY.
 //
 // `contrast.js` check 14 refuses a `<canvas>` on any walked surface, because a computed-style walk
 // cannot read a pixel one painted — *"a green run here must not be read as covering it. If it
 // belongs to a surface that IS measured from the pixels somewhere, exclude it here BY NAME and say
-// where — never by raising a threshold."* The pairing screen has two canvases, so the exclusion
-// names this file, and check 3 below is what makes that name worth something: it reads the rendered
+// where — never by raising a threshold."* The pairing screen has a canvas, so the exclusion names
+// this file, and check 3 below is what makes that name worth something: it reads the rendered
 // QR back with `getImageData` in the same WebKit and asserts what is actually painted.
 //
 // THE SECOND JOB IS THE PORT. `ui/qr.js` is `tools/phone-probe/lib/qr.js` with three changes and
@@ -15,13 +25,6 @@
 // Check 1 runs both modules over the same strings and asserts the matrices are identical, module
 // for module. That is the only thing a second copy of anything can usefully promise, and without
 // it the copy would be a second implementation to be wrong in a second way.
-//
-// AND THE THIRD IS THE PROSE, which is not decoration on this screen. Plan §2.1 names two things
-// the CEO must be told BEFORE he starts — the red "Unverified", and Apple's own iOS 18.0/18.1 bug
-// that hides the switch at step 15 — because *"we want to know that on day one rather than three
-// days into slice A."* A person who meets a red warning he was not warned about stops. Checks 4, 5
-// and 6 assert the warnings are there, that they come BEFORE the codes in reading order, and that
-// the sixteen steps are sixteen and name both hazards where they fall.
 //
 // Run: node phone.js   (or `npm test` for every suite in this directory)
 
@@ -50,12 +53,27 @@ const PROBE_QR = require(path.resolve(UI_DIR, "..", "..", "tools", "phone-probe"
 
 /// The strings the pairing screen actually encodes, plus the two edges of the version table. A
 /// cross-check over one happy string would not notice a version boundary handled differently.
+///
+/// The trust address that used to head this list — `http://mm1.local:8444/ca` — went with the
+/// path it belonged to (CEO §61). Its length is kept as an anonymous string, because what this
+/// list is for is version boundaries and dropping a length would drop a boundary.
 const ENCODED = [
-  "http://mm1.local:8444/ca",
-  "https://mm1.local:8443/#pair=K7QF2M9X",
-  "https://a-much-longer-hostname-than-his.local:8443/#pair=ZZZZZZZZ",
+  "https://mm1.tail9a3b2.ts.net:8443/#pair=K7QF2M9X",
+  "https://mm1.tail770f6e.ts.net:8443/#pair=ZZZZZZZZ",
+  "xxxxxxxxxxxxxxxxxxxxxxxx",
   "x",
 ];
+
+/// **THE MAC EVERY DEFAULT-PRESET CHECK MODELS**, and it is the only Mac the shipped flow opens a
+/// pairing window on: signed in, certified, with a name. Before §61 the default was a Mac with no
+/// Tailscale at all, which the old second path served happily and this one refuses to — a fixture
+/// that cannot reach the screen under test is a fixture that passes for the wrong reason.
+const READY_TAILNET = {
+  state: "ready",
+  name: "mm1.tail9a3b2.ts.net",
+  origin: "https://mm1.tail9a3b2.ts.net:8443",
+  account: "Google as someone@gmail.com",
+};
 
 async function openSheet(browser, theme, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
@@ -68,7 +86,7 @@ async function openSheet(browser, theme, preset) {
   // reads it while building its state — `contrast.js` says the same thing from its side.
   await page.addInitScript((v) => {
     window.__RICHOS_MOCK_PRESET__ = v;
-  }, preset || { phonePairing: true });
+  }, preset || { phonePairing: true, phoneTailnet: READY_TAILNET });
   // BOTH THE MIRROR AND THE STORE, for the reason `contrast.js` spells out at length: the
   // mirror is a cache, `syncAppearanceFromBackend` reconciles it against the backend at init,
   // and THE BACKEND WINS. Seeding the mirror alone measures the store's theme while claiming
@@ -98,7 +116,7 @@ async function openSheet(browser, theme, preset) {
 }
 
 (async () => {
-  const run = createRun("phone", "the pairing screen, its two QR codes and the warnings that come first");
+  const run = createRun("phone", "the pairing screen, its QR code, and the one path §61 leaves");
   const playwright = await loadPlaywright();
   const browser = await playwright.webkit.launch();
 
@@ -141,43 +159,47 @@ async function openSheet(browser, theme, preset) {
 
   // ---- 2. both codes are drawn ------------------------------------------------------------
 
-  await run.check("2  the pairing screen draws both codes, at the sizes their content needs", async () => {
+  await run.check("2  the pairing screen draws its code, at the size its content needs", async () => {
+    // ONE CODE, NOT TWO. The first of the pair pointed at `http://<name>.local:8444/ca`, the page
+    // that served a profile for the phone to install, and CEO §61 removed the path that needed
+    // it. The canvas and the address beside it are gone from the markup — check 4 asserts that
+    // from the other side.
     const page = await openSheet(browser, "dark");
     const drawn = await page.evaluate(() => {
-      const one = document.getElementById("phone-qr-trust");
       const two = document.getElementById("phone-qr-pair");
       return {
-        trust: { hidden: one.hidden, width: one.width, height: one.height },
+        trustCanvasStillThere: !!document.getElementById("phone-qr-trust"),
         pair: { hidden: two.hidden, width: two.width, height: two.height },
-        trustUrl: document.getElementById("phone-trust-url").textContent,
         pairUrl: document.getElementById("phone-pair-url").textContent,
       };
     });
     await page.close();
-    assert(!drawn.trust.hidden && !drawn.pair.hidden, "a code is hidden: " + JSON.stringify(drawn));
-    // (25 + 8) * 5 = 165 for the trust URL's version-2 symbol; (29 + 8) * 5 = 185 for the
-    // pairing URL's version 3. Derived rather than remembered: the encoder decides the version
-    // from the byte length and this asserts the canvas followed it.
+    assert(!drawn.trustCanvasStillThere, "the removed path's QR canvas is still in the markup");
+    assert(!drawn.pair.hidden, "the code is hidden: " + JSON.stringify(drawn));
+    // Derived rather than remembered: the encoder decides the version from the byte length and
+    // this asserts the canvas followed it. (size + 8 quiet modules) x 5 px.
     const expect = (text) => (SHIPPED_QR.encode(text).size + 8) * 5;
-    assertEqual(drawn.trust.width, expect(drawn.trustUrl), "the trust code's canvas is the wrong size");
     assertEqual(drawn.pair.width, expect(drawn.pairUrl), "the pairing code's canvas is the wrong size");
-    assert(drawn.trust.width === drawn.trust.height, "the trust code is not square");
     assert(drawn.pair.width === drawn.pair.height, "the pairing code is not square");
-    // THE ADDRESS IS WRITTEN OUT BESIDE EVERY CODE. A code and nothing else is a screen that
+    // THE ADDRESS IS WRITTEN OUT BESIDE THE CODE. A code and nothing else is a screen that
     // cannot be used by anyone whose camera will not focus, and it is the only way to tell what
     // the code points at without scanning it.
-    assert(/^http:\/\/[a-z0-9.-]+\.local:8444\/ca$/.test(drawn.trustUrl), drawn.trustUrl);
-    assert(/^https:\/\/[a-z0-9.-]+\.local:8443\/#pair=[A-Z0-9]{8}$/.test(drawn.pairUrl), drawn.pairUrl);
+    //
+    // AND IT IS A TAILNET NAME. A `.local` address here would be the removed path's origin
+    // coming back through the one door §61 leaves open.
+    assert(
+      /^https:\/\/[a-z0-9.-]+\.ts\.net:8443\/#pair=[A-Z0-9]{8}$/.test(drawn.pairUrl),
+      "the pairing address is not a tailnet name: " + drawn.pairUrl
+    );
     return (
-      "both codes drawn and square, " + drawn.trust.width + "px and " + drawn.pair.width +
-      "px, each at (size + 8 quiet modules) x 5 for the version its own URL needs, with the " +
-      "address written out beside it"
+      "one code, drawn and square at " + drawn.pair.width + "px — (size + 8 quiet modules) x 5 " +
+      "for the version its own URL needs — with " + drawn.pairUrl + " written out beside it"
     );
   });
 
   // ---- 3. THE PIXELS — the debt check 14's exclusion is paid with ------------------------
 
-  await run.check("3  the QR codes are measured FROM THE PIXELS: 21:1, and a white quiet zone on all four edges", async () => {
+  await run.check("3  the QR code is measured FROM THE PIXELS: 21:1, and a white quiet zone on all four edges", async () => {
     // WHY FROM THE PIXELS AND NOT FROM THE SOURCE. `phone.js` sets `fillStyle` twice and a
     // reader can see both values, which proves what the code SAYS. It does not prove what WebKit
     // painted — a canvas with a transparent background over a dark page reads as dark modules on
@@ -211,7 +233,7 @@ async function openSheet(browser, theme, preset) {
           };
           return { colors: [...seen.keys()].sort(), edges, width, height };
         }
-        return { trust: look("phone-qr-trust"), pair: look("phone-qr-pair") };
+        return { pair: look("phone-qr-pair") };
       });
       await page.close();
 
@@ -256,76 +278,147 @@ async function openSheet(browser, theme, preset) {
 
   // ---- 4, 5, 6. the prose, which is the feature -------------------------------------------
 
-  await run.check("4  both warnings are on the screen, in his words", async () => {
+  await run.check("4  nothing is installed on the phone, and the screen says so where it matters", async () => {
+    // WHAT CHECKS 4, 5 AND 6 USED TO BE, and why they are one check now.
+    //
+    // They asserted the two warnings this flow opened with — the red "Unverified", and Apple's
+    // iOS 18.0/18.1 bug that hides the trust switch — and that the sixteen taps were sixteen and
+    // named both hazards where they fall. All three were about a path CEO §61 removed on
+    // 2026-09-19: *"any mobile app or PWA is utterly useless within the home network … The
+    // Tailscale setup is where we start now."* There is no certificate for the phone, so there
+    // is no red word to warn about and no switch to find.
+    //
+    // WHAT REPLACES THEM IS THE TRIPWIRE, and it is not decoration. A user on this path who is
+    // asked to install a profile is on an origin that is not this Mac's, and the only person who
+    // can notice that is the person holding the phone. So the screen says outright that nothing
+    // is installed — which is both the good news and the thing that makes the bad news legible.
     const page = await openSheet(browser, "dark");
-    const text = await page.textContent("#phone-pairing");
+    const text = (await page.textContent("#phone-pairing")).replace(/\s+/g, " ");
+    const gone = await page.evaluate(() => ({
+      trustCanvas: !!document.getElementById("phone-qr-trust"),
+      trustUrl: !!document.getElementById("phone-trust-url"),
+      sixteenSteps: !!document.getElementById("phone-steps"),
+      homeWarnings: !!document.getElementById("phone-home-warnings"),
+    }));
     await page.close();
-    const flat = text.replace(/\s+/g, " ");
-    assert(/Unverified/.test(flat), "the red word is never named, so he meets it cold");
     assert(
-      /nobody vouched for the file except your own Mac/i.test(flat),
-      "the red word is named but not explained — naming a warning without saying why it is there " +
-        "is a screen that worries him and tells him nothing"
+      /Nothing has to be installed on your phone/i.test(text),
+      "the screen does not say that nothing is installed: " + JSON.stringify(text.slice(0, 400))
     );
-    assert(/iOS 18\.0 and 18\.1/.test(flat), "Apple's own missing-switch bug is not named");
     assert(
-      /stop and tell me/i.test(flat),
-      "he is told the switch may be missing and not what to do about it. Plan §2.1: if his phone " +
-        "shows that, the home-network design is BLOCKED and we want to know on day one"
+      /asks you to install a profile, something is wrong/i.test(text),
+      "the tripwire is gone — a user asked for a profile has nothing telling him that is wrong"
     );
-    return "both warnings present and both explained, including what to do if the switch is missing";
+    assert(
+      !/Unverified/i.test(text) && !/iOS 18/i.test(text),
+      "a warning about the removed path's red word is still on the screen: " + JSON.stringify(text.slice(0, 400))
+    );
+    for (const [what, present] of Object.entries(gone)) {
+      assert(!present, "the removed path's node `" + what + "` is still in the markup");
+    }
+    return (
+      "the pairing screen says nothing is installed and names the one thing that would mean " +
+      "something is wrong; the four nodes the removed path needed are not in the markup"
+    );
   });
 
-  await run.check("5  the warnings come BEFORE the codes in reading order", async () => {
-    // The whole value of a warning is that it arrives first. A screen with the same sentences
-    // below the codes is a screen he reads after he has already met the red word.
-    const page = await openSheet(browser, "dark");
-    const order = await page.evaluate(() => {
-      const nodes = [...document.querySelectorAll("#phone-pairing *")];
-      const find = (test) => nodes.findIndex((n) => test(n.textContent || ""));
-      return {
-        unverified: find((t) => /Unverified/.test(t) && t.length < 600),
-        appleBug: find((t) => /iOS 18\.0 and 18\.1/.test(t) && t.length < 600),
-        firstQr: nodes.findIndex((n) => n.tagName === "CANVAS"),
-      };
-    });
-    await page.close();
-    assert(order.unverified >= 0 && order.appleBug >= 0 && order.firstQr >= 0, JSON.stringify(order));
-    assert(
-      order.unverified < order.firstQr,
-      "the Unverified warning comes after the first code in the document, so he meets the red " +
-        "word before he is told about it"
-    );
-    assert(
-      order.appleBug < order.firstQr,
-      "the missing-switch warning comes after the first code, which is too late to be a warning"
-    );
-    return "both warnings precede the first code in document order";
+  await run.check("5  the sheet opens on the Tailscale flow, with no question in front of it", async () => {
+    // CEO §61, and the defect this check exists to keep out. The flow used to open on *"Where do
+    // you want to use it?"* with two options, the second of which led to a self-signed
+    // certificate and sixteen taps. §61 does not keep that as a lesser path — it says the thing
+    // it does is useless — so the entry point is the first screen of the one path there is.
+    //
+    // THREE MACS, because the entry point depends on what detection finds and on nothing else:
+    // no Tailscale at all, Tailscale with no account this Mac can name, and a ready Mac.
+    const cases = [
+      {
+        what: "a Mac with no Tailscale",
+        tailnet: { state: "absent" },
+        // No account is known, so §61.1's identity warning is what he meets.
+        expect: "phone-identity",
+      },
+      {
+        what: "a Mac signed in but with no name yet",
+        tailnet: { state: "certificates-off", account: "Google as someone@gmail.com" },
+        expect: "phone-ts-wait",
+      },
+      {
+        what: "a ready Mac",
+        tailnet: {
+          state: "ready",
+          name: "mm1.tail9a3b2.ts.net",
+          origin: "https://mm1.tail9a3b2.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        },
+        expect: "phone-ts-ready",
+      },
+    ];
+    const seen = [];
+    for (const c of cases) {
+      const page = await openSheet(browser, "dark", { phoneTailnet: c.tailnet });
+      const state = await page.evaluate(() => {
+        const vis = (id) => {
+          const node = document.getElementById(id);
+          return !!node && !node.hidden;
+        };
+        return {
+          chooser: !!document.getElementById("phone-route"),
+          offScreen: !!document.getElementById("phone-off"),
+          identity: vis("phone-identity"),
+          wait: vis("phone-ts-wait"),
+          ready: vis("phone-ts-ready"),
+          // Every control on the sheet, so a chooser cannot come back under another id.
+          labels: [...document.querySelectorAll("#phone-sheet button")]
+            .filter((b) => b.offsetParent !== null)
+            .map((b) => b.textContent.trim()),
+        };
+      });
+      await page.close();
+      assert(!state.chooser, c.what + ": the route chooser is back in the markup");
+      assert(!state.offScreen, c.what + ": the removed path's own screen is back in the markup");
+      assert(
+        state[{ "phone-identity": "identity", "phone-ts-wait": "wait", "phone-ts-ready": "ready" }[c.expect]],
+        c.what + " did not open on " + c.expect + ": " + JSON.stringify(state)
+      );
+      for (const label of state.labels) {
+        assert(
+          !/at home/i.test(label) && !/different way/i.test(label),
+          c.what + ": a control still offers a second path or a way back to a chooser: " +
+            JSON.stringify(label)
+        );
+      }
+      seen.push(c.what + " -> " + c.expect);
+    }
+    return "three Macs, three entry points, no question in front of any of them: " + seen.join("; ");
   });
 
-  await run.check("6  the sixteen taps are sixteen, and the two hazards are named where they fall", async () => {
+  await run.check("6  the four things to do on the phone are four, and none of them is an install", async () => {
+    // The CEO's own steps, and they override Urban's three: he installed and uninstalled
+    // Tailscale on Android THREE TIMES looking for a "connect to Mac" step that does not exist.
+    // Urban's Screen 5 stopped at "sign in", which is where that hunt begins. The VPN prompt and
+    // the switch reading Connected are what end it.
     const page = await openSheet(browser, "dark");
-    const steps = await page.evaluate(() =>
-      [...document.querySelectorAll("#phone-steps li")].map((n) => n.textContent.trim())
+    const steps = await page.$$eval("#phone-ts-steps ol.phone-steps li", (nodes) =>
+      nodes.map((n) => n.textContent.replace(/\s+/g, " ").trim())
     );
+    const text = (await page.textContent("#phone-ts-steps")).replace(/\s+/g, " ");
     await page.close();
-    // SIXTEEN, because the plan counted them: "'a one-time setup step' is how a plan hides a bad
-    // afternoon". A screen that says "follow the prompts" over sixteen taps lies about the cost.
-    assertEqual(steps.length, 16, "the step list is not sixteen steps long");
-    assert(/Unverified/.test(steps[8]), "step 9 does not warn about the red word: " + steps[8]);
+    assertEqual(steps.length, 4, "the four phone steps are not four: " + JSON.stringify(steps));
+    assert(/Install Tailscale from the store/.test(steps[0]), steps[0]);
+    assert(/same/i.test(steps[1]) && /network/i.test(steps[1]), steps[1]);
+    assert(/VPN/.test(steps[2]), steps[2]);
+    assert(/Connected/.test(steps[3]), steps[3]);
     assert(
-      /Certificate Trust Settings/.test(steps[14]),
-      "step 15 does not name Apple's own screen: " + steps[14]
+      /There is no pairing step in Tailscale/.test(text),
+      "the sentence that ends the hunt for a pairing step is gone"
     );
-    assert(
-      /18\.0 and 18\.1/.test(steps[14]),
-      "step 15 is where the switch is missing and it does not say so: " + steps[14]
-    );
-    assert(
-      steps.every((s) => s.length > 0 && !/^TODO/i.test(s)),
-      "a step is empty or unwritten"
-    );
-    return "sixteen steps; step 9 names the red word and step 15 names the switch that can be absent";
+    for (const step of steps) {
+      assert(
+        !/profile|certificate|passcode|Certificate Trust/i.test(step),
+        "a phone step asks for something to be installed on the phone: " + JSON.stringify(step)
+      );
+    }
+    return "four steps, ending at the switch that says Connected, and not one of them installs anything on the phone";
   });
 
   // ---- 7. the six words, and the countdown -------------------------------------------------
@@ -405,10 +498,10 @@ async function openSheet(browser, theme, preset) {
         // The one control the screen is about, and it must be pressable where he is standing.
         newCode: visible("phone-refresh") && !document.getElementById("phone-refresh").disabled,
         newCodeLabel: document.getElementById("phone-refresh").textContent.trim(),
-        // The screens he must NOT have been thrown back to.
+        // The screen he must NOT have been thrown back to. (The route chooser and the other
+        // path's own screen were in this list; §61 deleted both, and check 5 is what asserts
+        // they are not in the markup at all.)
         readyScreen: visible("phone-ts-ready"),
-        routeScreen: visible("phone-route"),
-        offScreen: visible("phone-off"),
       };
     });
     await expired.close();
@@ -422,7 +515,7 @@ async function openSheet(browser, theme, preset) {
         JSON.stringify(shown)
     );
     assert(
-      !shown.readyScreen && !shown.routeScreen && !shown.offScreen,
+      !shown.readyScreen,
       "an expired code threw him back to an earlier screen: " + JSON.stringify(shown)
     );
     assert(
@@ -495,18 +588,31 @@ async function openSheet(browser, theme, preset) {
     // weakening this to a search over the flat text would have passed on a card with no heading.
     assertEqual(heading, "iPhone", "the paired phone is not named in the card's heading: " + text);
     assert(/is paired/.test(text), "the card does not say the phone is paired: " + text);
+    // **WHAT THIS ASSERTION WAS, AND WHAT IT BECAME.** It read
+    // `/does not remove the certificate from your phone/` and then required Apple's own
+    // `VPN & Device Management` and `Remove Profile` by name, because forgetting a phone that
+    // had paired over the removed path left a profile on it that only the user could delete.
+    // CEO §61 removes that path: nothing is installed on the phone, so there is nothing left
+    // behind and a card that named an iOS menu would be sending him to undo something that was
+    // never done. The rule underneath it — plan §4.1's *"a cleanup the user has to know to do is
+    // a cleanup that does not happen"* — is unchanged and is what is asserted instead: the card
+    // says exactly what forgetting does, and says outright that the phone needs nothing.
+    //
+    // The MIGRATION case, where a record from an older build means there may be something to
+    // remove after all, is check 9b's third and fourth combinations.
     assert(
-      /does .{0,4}not.{0,4} remove the certificate from your phone/i.test(text),
-      "the screen does not say that forgetting here leaves the profile on his phone: " + text
+      /There is nothing to remove from your phone/i.test(text),
+      "the card does not say the phone needs nothing done to it: " + text
     );
     assert(
-      // "VPN & Device Management" — Apple's own screen name, and the spelling the sixteen
-      // steps above already use. This one paragraph said "VPN and Device Management", which is
-      // a screen name that does not exist on the phone he is holding.
-      /VPN & Device Management/.test(text) && /Remove Profile/.test(text),
-      "the screen does not say WHERE on the phone to remove it, which is the whole point: " + text
+      /deletes the keys/i.test(text) && /stops this Mac answering/i.test(text),
+      "the card does not say what forgetting actually does: " + text
     );
-    return "the paired state names the phone, offers the way out, and says what the Mac cannot undo for him";
+    assert(
+      !/Remove Profile/.test(text) && !/VPN & Device Management/.test(text),
+      "the card sends him to remove something this build never put on his phone: " + text
+    );
+    return "the paired state names the phone, offers the way out, and says exactly what forgetting does";
   });
 
   // ---- 9d. DEFECT 4.5 — the Mac names the control the paired phone actually has -------------
@@ -572,84 +678,77 @@ async function openSheet(browser, theme, preset) {
     }
   );
 
-  // ---- 9c. DEFECT 3.1 — the first sentence describes the option he chose --------------------
+  // ---- 9c. DEFECT 3.1 — the first sentence is true of the path the product has -------------
 
   await run.check(
-    "9c  the lead paragraph follows the chosen option, and the flow has one word for the place",
+    "9c  the lead paragraph is true of the one path, on every screen of it",
     async () => {
       // RAY'S CANDIDATE .11 DEFECT 3.1. Every screen opened with "Your phone talks to this Mac
       // directly, over your own home network ... there is no account to make" — a description
-      // of "At home only" — and it stayed there unchanged after he pressed "Anywhere", which is
-      // not the home network and does involve making an account. Screenshots 13, 14, 15, 17.
-      const page = await openSheet(browser, "dark", {
-        phoneTailnet: {
-          state: "ready",
-          name: "mm1.tail770f6e.ts.net",
-          origin: "https://mm1.tail770f6e.ts.net:8443",
-          account: "Google as someone@gmail.com",
+      // of the option he had NOT chosen — and it stayed there unchanged after he pressed the
+      // other one. Screenshots 13, 14, 15, 17.
+      //
+      // THE FIX AT THE TIME WAS TO KEY THE SENTENCE OFF THE PATH. CEO §61 removes the second
+      // path, so the key goes and one sentence is left — and this check moves with it: a lead
+      // that changes between screens is now the defect, not the fix.
+      const seen = [];
+      const cases = [
+        { what: "identity", tailnet: { state: "absent" }, screen: "#phone-identity" },
+        {
+          what: "waiting",
+          tailnet: { state: "certificates-off", account: "Google as someone@gmail.com" },
+          screen: "#phone-ts-wait",
         },
-      });
-      // THE FIRST PARAGRAPH OF THE PANEL, by position rather than by id — the only direct
-      // `p.overlay-note` child of `.overlay-panel`, on this build and on the one Ray walked. So
-      // this check measures the SENTENCE, and a build where that sentence is a fixed literal
-      // fails on what it says rather than on a missing element.
-      const lead = async () =>
-        (
-          await page.textContent("#phone-sheet .overlay-panel > p.overlay-note")
-        )
+        { what: "ready", tailnet: READY_TAILNET, screen: "#phone-ts-ready" },
+      ];
+      let first = null;
+      for (const c of cases) {
+        const page = await openSheet(browser, "dark", { phoneTailnet: c.tailnet });
+        await page.waitForSelector(c.screen + ":not([hidden])");
+        // THE FIRST PARAGRAPH OF THE PANEL, by position rather than by id — the only direct
+        // `p.overlay-note` child of `.overlay-panel`, on this build and on the one Ray walked.
+        // So this check measures the SENTENCE, and a build where that sentence is a fixed
+        // literal fails on what it says rather than on a missing element.
+        const lead = (await page.textContent("#phone-sheet .overlay-panel > p.overlay-note"))
           .replace(/\s+/g, " ")
           .trim();
+        await page.close();
+        assert(
+          /Tailscale/.test(lead) && /account/.test(lead),
+          c.what + ": the lead does not name the network or the account it costs: " + JSON.stringify(lead)
+        );
+        assert(
+          !/home network/i.test(lead) && !/no account to make/i.test(lead),
+          "THE DEFECT: the lead still describes the removed path, which is not the network he is " +
+            "on and is not true of the account he has to make: " + JSON.stringify(lead)
+        );
+        if (first === null) first = lead;
+        assertEqual(
+          lead,
+          first,
+          "the lead changed between screens. With one path there is nothing for it to follow, so " +
+            "a lead that moves is a lead keyed off something that is not the product"
+        );
+        seen.push(c.what);
+      }
 
-      const chooser = await lead();
-      assert(
-        !/home network/i.test(chooser),
-        "before he has chosen anything the screen already describes one of the two options: " +
-          JSON.stringify(chooser)
-      );
-
-      await page.click("#phone-route-anywhere");
-      await page.waitForSelector("#phone-ts-ready:not([hidden])");
-      const anywhere = await lead();
-      assert(
-        /Tailscale/.test(anywhere) && /account/.test(anywhere),
-        "the Anywhere path's lead does not name the network or the account it costs: " +
-          JSON.stringify(anywhere)
-      );
-      assert(
-        !/own home network/i.test(anywhere) && !/no account to make/i.test(anywhere),
-        "THE DEFECT: the Anywhere path still opens by describing the home-network option, which " +
-          "is not the network he is on and is not true of the account he has to make: " +
-          JSON.stringify(anywhere)
-      );
-
-      await page.click("#phone-ts-ready-back");
-      await page.waitForSelector("#phone-route:not([hidden])");
-      await page.click("#phone-route-home");
-      await page.waitForSelector("#phone-off:not([hidden])");
-      const atHome = await lead();
-      assert(
-        /own home network/i.test(atHome) && /no account to make/i.test(atHome),
-        "the At-home path lost the sentence that is true of it: " + JSON.stringify(atHome)
-      );
-
-      // ONE WORD FOR THE PLACE. It was "the office", "the house" and "home" in three adjacent
-      // sentences. The option is called "At home only" and the thing it describes is "your own
-      // home network", so the other two were the odd ones out.
+      // ONE WORD FOR THE PLACE, and the surviving half of that finding. The flow said "the
+      // office", "the house" and "home" in three adjacent sentences. Two of the three sentences
+      // went with the route chooser; this keeps the stray words out of what is left.
+      const page = await openSheet(browser, "dark");
       const whole = (await page.textContent("#phone-sheet")).replace(/\s+/g, " ");
       await page.close();
-      const strays = ["the office", "the house"].filter((word) => whole.includes(word));
+      const strays = ["the office", "the house", "home network"].filter((w) => whole.includes(w));
       assertEqual(
         strays,
         [],
-        "the flow uses more than one word for the same place, which is how he ends up wondering " +
-          "whether they are three different places"
+        "the flow names a place it has no business naming — §61 is that the phone is for being " +
+          "away from one, not that the app has an opinion about which"
       );
-
       return (
-        "three leads, one per state: no choice -> " + JSON.stringify(chooser.slice(0, 48) + "…") +
-        "; Anywhere -> names Tailscale and the account; At home only -> keeps the sentence that " +
-        'is true of it. And 0 stray words for the place ("the office", "the house") across the ' +
-        "whole sheet, read with every screen's markup in the DOM."
+        seen.length + " screens, one lead: " + JSON.stringify(first.slice(0, 64) + "…") +
+        " — and 0 stray words for the place across the whole sheet, with every screen's markup " +
+        "in the DOM."
       );
     }
   );
@@ -657,7 +756,7 @@ async function openSheet(browser, theme, preset) {
   // ---- 9b. DEFECT 3.2 — the card says the same thing on the second open as on the first ----
 
   await run.check(
-    "9b  the paired card's copy comes from the record: four combinations, and identical on reopen",
+    "9b  the paired card's copy comes from the record: this build's path and an older one, identical on reopen",
     async () => {
       // RAY'S CANDIDATE .11 DEFECT 3.2, REPRODUCED AND THEN PINNED.
       //
@@ -669,6 +768,13 @@ async function openSheet(browser, theme, preset) {
       // The cause is that the copy was keyed off the sheet's `route`, which `open()` resets to
       // null on every open by design. So the SECOND OPEN is the whole test: same status, same
       // phone, and the card must say the same words.
+      // **TWO ANSWERS NOW, NOT FIVE** (CEO §61). The five were four combinations of path and
+      // platform plus a legacy record; with one way to pair, what the card says about a phone
+      // paired TODAY does not depend on the phone at all — nothing was put on it. What is left
+      // is that answer and the migration sentence for a record an older build wrote, which
+      // still has to say something true: pair it again, and the old build may have left a
+      // profile on the phone. Both platforms are still walked against the one answer, because
+      // a card that grew a platform branch again would be defect 3.2 coming back.
       const combinations = [
         {
           via: "tailnet",
@@ -683,37 +789,28 @@ async function openSheet(browser, theme, preset) {
           platform: "ios",
           name: "iPhone",
           must: [/nothing to remove from your phone/i],
-          mustNot: [/VPN & Device Management/, /Remove Profile/],
+          mustNot: [/VPN & Device Management/, /Remove Profile/, /Settings, then General/],
           limit: true,
         },
         {
+          // A RECORD FROM A BUILD WITH A SECOND PATH — including one written before the field
+          // existed, which reads the same way here and is told the same true thing. It must not
+          // fall back to the answer that is true of a phone paired today: the defect was a
+          // default stated as a fact, and a default in here would be the same defect one layer
+          // down.
           via: "home",
           platform: "ios",
           name: "iPhone",
-          must: [/VPN & Device Management/, /Remove Profile/],
-          mustNot: [/nothing to remove from your phone/i],
+          must: [/older version of RichOS/i, /pair it again/i],
+          mustNot: [/nothing to remove from your phone/i, /Remove Profile/],
           limit: false,
         },
         {
-          via: "home",
-          platform: "android",
-          name: "Android phone",
-          // An Android phone on the home path never took a profile: what this Mac serves at the
-          // trust endpoint is an Apple `.mobileconfig` and nothing else. So it must not be sent
-          // to an iOS menu, and it must not be told a menu path nobody here verified either.
-          must: [/nothing RichOS put on your Android phone to remove/i],
-          mustNot: [/VPN & Device Management/, /Remove Profile/, /Settings, then General/],
-          limit: false,
-        },
-        {
-          // THE FIFTH: a record written before either field existed. It must say it does not
-          // know rather than fall back to one of the four — the defect was a default stated as
-          // a fact, and a default in here would be the same defect one layer down.
           via: "",
           platform: "",
           name: "iPhone",
-          must: [/did not record which way it connected/i, /Pair it again/],
-          mustNot: [/VPN & Device Management/, /nothing to remove from your phone/i],
+          must: [/older version of RichOS/i, /pair it again/i],
+          mustNot: [/nothing to remove from your phone/i, /Remove Profile/],
           limit: false,
         },
       ];
@@ -827,23 +924,19 @@ async function openSheet(browser, theme, preset) {
   // None of the four checks below could have been written before this run: `mock.js` reported no
   // `tailnet` at all, so every Tailscale screen was unreachable in a browser.
 
-  /// Open the sheet and take the Anywhere route, which is where §61.1's flow begins.
+  /// Open the sheet on the flow, which since CEO §61 is the only flow there is.
   ///
-  /// It also reads the identity screen when one is up, because every screen after it is BEHIND
-  /// it — which is the property check 11 is about, and the reason every other check has to pass
-  /// through it to reach anything.
-  async function takeTheTailscaleRoute(theme, tailnet) {
+  /// It used to click through the route chooser; there is no chooser. What it still does is read
+  /// the identity screen when one is up, because every screen after it is BEHIND it — which is
+  /// the property check 11 is about, and the reason every other check has to pass through here.
+  async function openTheFlow(theme, tailnet) {
     const page = await openSheet(browser, theme, { phoneTailnet: tailnet });
-    await page.waitForSelector("#phone-route:not([hidden])");
-    await page.click("#phone-route-anywhere");
     if (await page.isVisible("#phone-identity")) await page.click("#phone-identity-ok");
     return page;
   }
 
   await run.check("11  the identity trap is stated BEFORE the download step, and it states all five things", async () => {
     const page = await openSheet(browser, "dark", { phoneTailnet: { state: "absent" } });
-    await page.waitForSelector("#phone-route:not([hidden])");
-    await page.click("#phone-route-anywhere");
     const shown = await page.evaluate(() => ({
       identity: !document.getElementById("phone-identity").hidden,
       wait: !document.getElementById("phone-ts-wait").hidden,
@@ -851,8 +944,9 @@ async function openSheet(browser, theme, preset) {
       heading: document.querySelector("#phone-identity .phone-step-title").textContent,
     }));
     // FIRST, and that is the whole point: by the time somebody is on the download screen the next
-    // thing they do is create the account, inside somebody else's sign-in sheet.
-    assert(shown.identity, "picking Anywhere went straight past the identity screen");
+    // thing they do is create the account, inside somebody else's sign-in sheet. It is also the
+    // FIRST SCREEN OF THE SHEET now (CEO §61) rather than the screen behind a chosen route.
+    assert(shown.identity, "the sheet opened past the identity screen");
     assert(!shown.wait, "the download screen is up at the same time as the identity screen");
     assert(
       /no password/i.test(shown.heading),
@@ -899,7 +993,7 @@ async function openSheet(browser, theme, preset) {
   });
 
   await run.check("12  once the Mac is signed in, the screen names the provider and the login name it used", async () => {
-    const page = await takeTheTailscaleRoute("dark", {
+    const page = await openTheFlow("dark", {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -929,7 +1023,7 @@ async function openSheet(browser, theme, preset) {
     // Reached the way a person reaches it: the route, the ready screen, then "Set my phone up".
     // A preset that starts mid-pairing would land on the HOME screen, because the route is not
     // remembered across an open — Urban's §1, and `phone.js`'s own `route = null` on open.
-    const page = await takeTheTailscaleRoute("dark", {
+    const page = await openTheFlow("dark", {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -969,7 +1063,7 @@ async function openSheet(browser, theme, preset) {
     // stale registration per reinstall, and both were `"Online": false` because Tailscale on the
     // phone was switched off. Read as "your phone is on this network", that state sends somebody
     // who has done everything right back to check their identity.
-    const off = await takeTheTailscaleRoute("dark", {
+    const off = await openTheFlow("dark", {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -988,7 +1082,7 @@ async function openSheet(browser, theme, preset) {
       "an offline phone is told to sign in again, which is the wrong fix: " + JSON.stringify(offLine)
     );
 
-    const on = await takeTheTailscaleRoute("dark", {
+    const on = await openTheFlow("dark", {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -1009,7 +1103,7 @@ async function openSheet(browser, theme, preset) {
     // The mismatch itself. A phone signed in to a DIFFERENT identity is in a different tailnet and
     // appears nowhere at all, so absence is the evidence — but only after a wait, because before
     // that "not here yet" and "still signing in" are the same thing.
-    const page = await takeTheTailscaleRoute("dark", {
+    const page = await openTheFlow("dark", {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -1053,7 +1147,7 @@ async function openSheet(browser, theme, preset) {
     ];
     const seen = [];
     for (const [state, label, target] of cases) {
-      const page = await takeTheTailscaleRoute("dark", { state, name: "mm1.tail9a3b2.ts.net" });
+      const page = await openTheFlow("dark", { state, name: "mm1.tail9a3b2.ts.net" });
       const shown = await page.evaluate(() => ({
         label: document.getElementById("phone-ts-open").textContent.trim(),
         visible: !document.getElementById("phone-ts-open").hidden,
@@ -1113,7 +1207,10 @@ async function openSheet(browser, theme, preset) {
             };
             return {
               tailscaleSteps: vis("phone-ts-steps"),
-              homeWarnings: vis("phone-home-warnings"),
+              // The nodes the blocker drew. They are not hidden now, they are not in the
+              // markup — so these read `false` for a structural reason rather than a
+              // conditional one, which is the strongest form this check can take.
+              homeWarnings: !!document.getElementById("phone-home-warnings"),
               trustQrUrl: (document.getElementById("phone-trust-url") || {}).textContent || "",
               lead: (document.getElementById("phone-lead") || {}).textContent || "",
               panel: (document.querySelector("#phone-sheet .overlay-panel") || {}).innerText || "",
@@ -1122,16 +1219,15 @@ async function openSheet(browser, theme, preset) {
 
           assert(
             !seen.homeWarnings,
-            "THE BLOCKER: the home path's certificate warnings are on a screen serving the " +
-              "tailnet, which installs no certificate"
+            "THE BLOCKER: the removed path's certificate warnings are back in the markup"
           );
           assert(
             !/8444\/ca/.test(seen.trustQrUrl),
-            `THE BLOCKER: the trust URL is on screen on the Tailscale path: ${JSON.stringify(seen.trustQrUrl)}`
+            `THE BLOCKER: the trust URL is on screen: ${JSON.stringify(seen.trustQrUrl)}`
           );
           assert(
             !/sixteen|16 taps/i.test(seen.panel),
-            "THE BLOCKER: the sixteen certificate taps are on a path that installs no certificate"
+            "THE BLOCKER: the sixteen certificate taps are back on a path that installs nothing"
           );
           assert(
             /Tailscale/.test(seen.lead),
@@ -1140,9 +1236,9 @@ async function openSheet(browser, theme, preset) {
           if (preset.phonePairing) {
             assert(seen.tailscaleSteps, "the four phone steps are not on the Tailscale screen");
             assert(
-              /no certificate to install on this path|Nothing was installed/i.test(seen.panel),
-              "the no-certificate tripwire sentence is hidden — the one sentence written to " +
-                "catch this defect is hidden by the condition that causes it"
+              /Nothing has to be installed on your phone/i.test(seen.panel),
+              "the tripwire sentence is not on the screen — the one sentence written to catch " +
+                "this defect was hidden by the condition that caused it"
             );
           }
           await page.close();
@@ -1196,7 +1292,7 @@ async function openSheet(browser, theme, preset) {
 
   // ---- G2: the pairing screen has a way back, and it stops serving ------------------------
 
-  await run.check("19  `Pick a different way` is on the pairing screen too, and it stops serving", async () => {
+  await run.check("19  the pairing screen has a way out, and it stops serving", async () => {
     // Urban's G2, seen live and unreachable afterwards: *"Once `Set my phone up` is pressed, the
     // route chooser is unreachable for the life of the app process — `expired` also sets
     // `pairing`, so waiting does not restore it either. I hit this live: after the walk, the
@@ -1206,7 +1302,7 @@ async function openSheet(browser, theme, preset) {
     // re-reach were the dark ones, and a fix proved only in light would not answer him.
     const out = [];
     for (const theme of ["dark", "light"]) {
-      const page = await takeTheTailscaleRoute(theme, {
+      const page = await openTheFlow(theme, {
         state: "ready",
         name: "mm1.tail9a3b2.ts.net",
         origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -1216,9 +1312,11 @@ async function openSheet(browser, theme, preset) {
       await page.click("#phone-ts-start");
       await page.waitForSelector("#phone-pairing:not([hidden])");
 
-      // THE CONTROL IS ON THE SCREEN AND IT IS CLICKABLE, not merely in the markup: the four
-      // other copies of this label live in blocks that are hidden on this screen, so a check
-      // that only looked for the text would pass on a button nobody can press.
+      // THE CONTROL IS ON THE SCREEN AND IT IS CLICKABLE, not merely in the markup. When
+      // this was written four other copies of the label lived in blocks hidden on this screen,
+      // so a check that only looked for the text would pass on a button nobody can press; the
+      // other four went with the route chooser (CEO §61) and this is the one that was never
+      // about the chooser — it is the one with a socket and a live code behind it.
       const before = await page.evaluate(() => {
         const back = document.getElementById("phone-pairing-back");
         return {
@@ -1229,17 +1327,23 @@ async function openSheet(browser, theme, preset) {
         };
       });
       before.listening = (await page.evaluate(() => window.RichBridge.invoke("phone_status"))).listening;
-      assert(before.present, "THE DEFECT: the pairing screen has no `Pick a different way`");
-      assert(before.visible, "`Pick a different way` is in the markup but not on the screen");
-      assertEqual(before.label, "Pick a different way", "the control is not under the name the rest of the flow uses");
+      assert(before.present, "THE DEFECT: the pairing screen has no way out");
+      assert(before.visible, "the way out is in the markup but not on the screen");
+      assertEqual(
+        before.label,
+        "Stop and go back",
+        "the control does not say what it does. It read `Pick a different way` while there were " +
+          "ways to pick between; §61 leaves one, and a label naming a chooser that does not " +
+          "exist is the N1 defect in one word"
+      );
       assert(before.listening === true, "the harness never started serving, so stopping proves nothing");
 
       await page.click("#phone-pairing-back");
-      await page.waitForSelector("#phone-route:not([hidden])");
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
       const after = await page.evaluate(async () => {
         const status = await window.RichBridge.invoke("phone_status");
         return {
-          route: !document.getElementById("phone-route").hidden,
+          ready: !document.getElementById("phone-ts-ready").hidden,
           pairing: !document.getElementById("phone-pairing").hidden,
           listening: status.listening,
           pairUrl: status.pairUrl,
@@ -1247,31 +1351,42 @@ async function openSheet(browser, theme, preset) {
       });
       await page.close();
 
-      assert(after.route, "pressing it did not return to the route chooser");
+      // WHERE IT LANDS: `This Mac is ready`, which is the screen behind the pairing screen now
+      // that there is no chooser in front of it. A Mac that is signed in and certified is still
+      // signed in and certified after the window is put down.
+      assert(after.ready, "pressing it did not return to `This Mac is ready`");
       assert(!after.pairing, "the pairing screen is still up after backing out of it");
-      // **AND IT STOPPED SERVING**, which is the half that is not a button. `choosing` requires
-      // `!status.listening`, so a Mac still answering would redraw the pairing screen on the
-      // next poll and this control would read as one that does nothing.
-      assert(after.listening === false, "THE DEFECT'S SECOND HALF: the Mac is still serving after `Pick a different way`");
+      // **AND IT STOPPED SERVING**, which is the half that is not a button. `pairing` is true
+      // while the Mac is listening and unpaired, so a Mac still answering would redraw the
+      // pairing screen on the next poll and this control would read as one that does nothing.
+      assert(after.listening === false, "THE DEFECT'S SECOND HALF: the Mac is still serving after `Stop and go back`");
       assert(after.pairUrl === null, "the code he backed out of is still live");
-      out.push(theme + ": listening " + before.listening + " -> " + after.listening + ", route chooser back");
+      out.push(theme + ": listening " + before.listening + " -> " + after.listening + ", back on `This Mac is ready`");
     }
     return out.join("; ");
   });
 
   // ---- G3/G4/G5: what the screen puts first, where it puts him back, and what it stopped -----
 
-  await run.check("20  the code is ABOVE the phone steps on the Tailscale route, and the home route keeps 1-2-3", async () => {
+  await run.check("20  the code is ABOVE the phone steps, and no heading numbers a sequence that is not there", async () => {
     // Urban's G3, measured on his own frames 04 and 05: at 1024x700 — the app's own minimum and
     // the size it restores itself to — the pairing screen is about three viewport heights tall,
     // and the code was about 1.5 screens down. *"The four phone steps are preparation for a
     // person who has not started; the code is what a person who is standing there with their
     // phone needs. Order the screen for the second person."*
     //
-    // AND THE HOME ROUTE IS THE OTHER HALF OF THE SAME CHECK. Its three headings are numbered
-    // and the numbers are a real sequence — the certificate at step 1 is what makes step 2's
-    // address open at all — so a fix that moved the code on BOTH routes would put step 2 above
-    // step 1. Reading order is asserted on each route, in opposite directions.
+    // THIS CHECK USED TO HAVE A SECOND HALF, and it is worth saying what it was. The other route
+    // numbered its three headings 1, 2, 3 and the numbers were a real sequence — the certificate
+    // at step 1 was what made step 2's address open at all — so a fix that moved the code on
+    // BOTH routes would have put step 2 above step 1, and reading order was asserted in opposite
+    // directions on the two. CEO §61 removed that route, and with it the only sequence on this
+    // screen; what is left is Urban's N4, which is that a heading must not say "Then" or "2."
+    // over a screen where nothing comes before it.
+    //
+    // AND IT IS THE MARKUP'S ORDER NOW, not a node the render moves. That is asserted here by
+    // measuring the DOM with no render having had a chance to reorder anything: the page is
+    // opened on a live window, so if the order were still being produced at render time this
+    // check would pass and the `hidden` case below would not.
     const order = async (page, a, b) =>
       page.evaluate((s) => {
         const first = document.querySelector(s.a);
@@ -1281,32 +1396,44 @@ async function openSheet(browser, theme, preset) {
         return first.compareDocumentPosition(second) & 4 ? "a-then-b" : "b-then-a";
       }, { a, b });
 
-    const ts = await takeTheTailscaleRoute("dark", {
-      state: "ready", name: "mm1.tail9a3b2.ts.net",
-      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
-    });
+    const ts = await openTheFlow("dark", READY_TAILNET);
     await ts.click("#phone-ts-start");
     await ts.waitForSelector("#phone-pairing:not([hidden])");
-    const onTailnet = await order(ts, "#phone-code-block", "#phone-ts-steps");
-    const codeVisible = await ts.evaluate(() => !document.getElementById("phone-code-block").hidden);
-    await ts.close();
-
-    const home = await openSheet(browser, "dark", { phonePairing: true });
-    await home.waitForSelector("#phone-pairing:not([hidden])");
-    const onHome = await order(home, "#phone-home-warnings", "#phone-code-block");
-    const headings = await home.evaluate(() => ({
-      trust: document.querySelector("#phone-home-warnings .phone-step-title").textContent.trim(),
+    const live = await order(ts, "#phone-code-block", "#phone-ts-steps");
+    const headings = await ts.evaluate(() => ({
       code: document.getElementById("phone-code-title").textContent.trim(),
       words: document.getElementById("phone-words-title").textContent.trim(),
+      codeVisible: !document.getElementById("phone-code-block").hidden,
     }));
-    await home.close();
+    await ts.close();
 
-    assert(codeVisible, "the code block is hidden on a screen with a live code");
-    assertEqual(onTailnet, "a-then-b", "THE DEFECT: on the Tailscale route the four phone steps still come before the code");
-    assertEqual(onHome, "a-then-b", "the home route's certificate step no longer comes before the code it makes readable");
-    assert(/^1\./.test(headings.trust) && /^2\./.test(headings.code) && /^3\./.test(headings.words),
-      "the home route's numbering is out of step with its order: " + JSON.stringify(headings));
-    return "tailnet: code then steps; home: " + JSON.stringify([headings.trust.slice(0, 2), headings.code.slice(0, 2), headings.words.slice(0, 2)]);
+    // AND THE SAME ORDER ON AN EXPIRED WINDOW, where the code block is hidden rather than
+    // absent. The mover's idempotence note was about exactly this case going wrong on a poll.
+    const gone = await openSheet(browser, "dark", {
+      phonePairingExpired: true,
+      phoneTailnet: READY_TAILNET,
+    });
+    await gone.waitForSelector("#phone-pairing:not([hidden])");
+    const expiredOrder = await order(gone, "#phone-code-block", "#phone-ts-steps");
+    await gone.close();
+
+    assert(headings.codeVisible, "the code block is hidden on a screen with a live code");
+    assertEqual(live, "a-then-b", "THE DEFECT: the four phone steps still come before the code");
+    assertEqual(expiredOrder, "a-then-b", "the order moved when the code expired");
+    // URBAN'S N4: *"Then"* pointed backwards at a step G3 had moved below it. There is nothing
+    // above either heading now, so neither may claim there is.
+    assert(
+      !/^\d\./.test(headings.code) && !/\bThen\b/.test(headings.code),
+      "the code heading numbers or refers back to a step that is not above it: " + JSON.stringify(headings.code)
+    );
+    assert(
+      !/^\d\./.test(headings.words),
+      "the six-words heading numbers a sequence that is not there: " + JSON.stringify(headings.words)
+    );
+    return (
+      "code then steps, live and expired alike, from the markup's own order; headings " +
+      JSON.stringify([headings.code, headings.words]) + " with no numbering and no backward reference"
+    );
   });
 
   await run.check("21  `Show me another code` puts the code back on screen, not the top of the sheet", async () => {
@@ -1364,7 +1491,7 @@ async function openSheet(browser, theme, preset) {
     })));
     await home.close();
 
-    const ts = await takeTheTailscaleRoute("dark", {
+    const ts = await openTheFlow("dark", {
       state: "ready", name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
     });
@@ -1547,7 +1674,7 @@ async function openSheet(browser, theme, preset) {
     // one that whispers it ... it is the thing that decides whether this works, and the machine
     // name is not."* `phone.js` used `textContent` here while the two screens below it use
     // `innerHTML` with `<strong>` — *"one of the three is wrong and it is the first one."*
-    const page = await takeTheTailscaleRoute("dark", {
+    const page = await openTheFlow("dark", {
       state: "ready", name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
     });
@@ -1577,34 +1704,30 @@ async function openSheet(browser, theme, preset) {
   // ---- N1: the chooser has two doors, and both of them now lead where they say ------------
 
   await run.check(
-    "27  the answer he gives is the path the Mac serves: `At home only` on a Mac whose tailnet is ready",
+    "27  the Mac serves the one path, and the account §61.1 exists for is named on the screen",
     async () => {
-      // URBAN'S N1 BLOCKER, signoff 2026-09-19 10.40, his frames 10 -> 11 -> 12. He pressed `At
-      // home only` — *"Your phone talks to this Mac directly, over your own home network …
-      // there is no account to make"* — then `Set my phone up`, and got the **Tailscale**
-      // screen: a `…ts.net` pairing URL, *"Install Tailscale from the store"*, and *"Sign in
-      // with Google as <his account>"*. *"A product that asks a question and ignores the answer
-      // has spent the trust the rest of this flow earned."*
+      // **WHAT THIS CHECK WAS, AND WHY IT IS THIS NOW.**
+      //
+      // It was Urban's N1 blocker (signoff 2026-09-19 10.40, frames 10 -> 11 -> 12): he pressed
+      // `At home only` — *"there is no account to make"* — then `Set my phone up`, and got the
+      // Tailscale screen with a `…ts.net` pairing URL and his own account in step 2. *"A product
+      // that asks a question and ignores the answer has spent the trust the rest of this flow
+      // earned."* The fix was to carry the answer across the bridge, and this check walked both
+      // doors.
+      //
+      // CEO §61, the next day, removed the question: *"any mobile app or PWA is utterly useless
+      // within the home network … The Tailscale setup is where we start now."* A product that
+      // asks no question cannot ignore an answer. So the half of N1 that survives is the half
+      // that was always about the product rather than about the chooser — what the Mac actually
+      // serves, and whether the screen names the account §61.1 exists for.
       //
       // **THE MAC IN THIS CHECK IS HIS MAC**: `state: "ready"`, an account, a certificate that
-      // would issue. That is the only Mac the defect happens on, and it is the only Mac this
-      // ships against — a fixture with no tailnet would pass on the broken build.
+      // would issue. It is the only Mac this ships against.
       //
       // **BOTH THEMES**, because his acceptance says both.
-      //
-      // **AND BOTH DOORS IN ONE CHECK.** §61 keeps the Tailscale path and puts it first, so a
-      // fix that served the home path to everybody would satisfy the first half of this check
-      // and break the CEO's own priority. The two halves share a fixture and differ in one
-      // thing: which button was pressed.
-      const READY = {
-        state: "ready",
-        name: "mm1.tail9a3b2.ts.net",
-        origin: "https://mm1.tail9a3b2.ts.net:8443",
-        account: "Google as someone@gmail.com",
-      };
-      // What the user can actually READ: `innerText` and not `textContent`, because every
-      // Tailscale node is in the markup on both routes and hidden on one of them. The account
-      // being *in the DOM* is not the defect; the account being *on the screen* is.
+      const READY = READY_TAILNET;
+      // What the user can actually READ: `innerText` and not `textContent`, because a hidden
+      // node is still in the DOM. Being *in the DOM* is not the defect; being *on the screen* is.
       const readScreen = () =>
         (async () => {
           const status = await window.RichBridge.invoke("phone_status");
@@ -1615,10 +1738,7 @@ async function openSheet(browser, theme, preset) {
           return {
             servingVia: status.servingVia,
             pairUrl: (document.getElementById("phone-pair-url").textContent || "").trim(),
-            trustUrl: (document.getElementById("phone-trust-url").textContent || "").trim(),
-            steps: document.querySelectorAll("#phone-steps li").length,
             tsSteps: shown("phone-ts-steps"),
-            warnings: shown("phone-home-warnings"),
             visibleText: document
               .getElementById("phone-sheet")
               .innerText.replace(/\s+/g, " ")
@@ -1628,70 +1748,38 @@ async function openSheet(browser, theme, preset) {
 
       const out = [];
       for (const theme of ["dark", "light"]) {
-        // ---- the door that was lying ----
-        const home = await openSheet(browser, theme, { phoneTailnet: READY });
-        await home.waitForSelector("#phone-route:not([hidden])");
-        await home.click("#phone-route-home");
-        await home.waitForSelector("#phone-off:not([hidden])");
-        await home.click("#phone-start");
-        await home.waitForSelector("#phone-pairing:not([hidden])");
-        const athome = await home.evaluate(readScreen);
-        await home.close();
-
-        assertEqual(
-          athome.servingVia,
-          "home",
-          "THE BLOCKER: he answered `At home only` and the Mac is serving over " +
-            athome.servingVia + " (" + theme + ")"
-        );
-        assert(
-          /^https:\/\/mm1\.local:8443\/#pair=/.test(athome.pairUrl),
-          "the pairing URL is not on the home name: " + JSON.stringify(athome.pairUrl)
-        );
-        assertEqual(athome.trustUrl, "http://mm1.local:8444/ca", "the trust code is not on the screen that needs it");
-        assert(athome.warnings, "the home path's two warnings are not on the home path");
-        assertEqual(athome.steps, 16, "the sixteen certificate taps are not on the screen");
-        assert(!athome.tsSteps, "THE BLOCKER'S OWN SENTENCE: the four Tailscale steps are on the At-home screen");
-        // **AND THE ACCOUNT IS NAMED NOWHERE**, which is his acceptance in his own words and the
-        // §61.1 half: this is the user who deliberately picked the route with no shared identity.
-        for (const forbidden of [
-          "someone@gmail.com",
-          "Google as",
-          "Install Tailscale from the store",
-          "Tailscale account",
-          "ts.net",
-        ]) {
-          assert(
-            !athome.visibleText.includes(forbidden),
-            "THE BLOCKER: " + JSON.stringify(forbidden) +
-              " is on screen after he chose `At home only` (" + theme + ")"
-          );
-        }
-
-        // ---- and the door that was already right ----
-        const tail = await takeTheTailscaleRoute(theme, READY);
+        const tail = await openTheFlow(theme, READY);
         await tail.waitForSelector("#phone-ts-ready:not([hidden])");
         await tail.click("#phone-ts-start");
         await tail.waitForSelector("#phone-pairing:not([hidden])");
-        const anywhere = await tail.evaluate(readScreen);
+        const served = await tail.evaluate(readScreen);
         await tail.close();
 
-        assertEqual(anywhere.servingVia, "tailnet", "`Anywhere` stopped being served over the tailnet (" + theme + ")");
+        assertEqual(served.servingVia, "tailnet", "the Mac is not serving the tailnet (" + theme + ")");
         assert(
-          /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(anywhere.pairUrl),
-          "the Tailscale route's code no longer goes out under the tailnet name: " + JSON.stringify(anywhere.pairUrl)
+          /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(served.pairUrl),
+          "the code no longer goes out under the tailnet name: " + JSON.stringify(served.pairUrl)
         );
-        assert(anywhere.tsSteps, "the four Tailscale steps are gone from the Tailscale route");
-        assert(!anywhere.warnings, "the certificate warnings are on the route that installs no certificate");
+        assert(served.tsSteps, "the four Tailscale steps are gone from the screen that is the Tailscale path");
+        // **AND THE ACCOUNT IS NAMED**, which is the whole of §61.1: the one thing the user does
+        // not know is which identity this Mac used, and "use the same account" is advice nobody
+        // can follow without it.
         assert(
-          anywhere.visibleText.includes("someone@gmail.com"),
-          "the Tailscale route stopped naming the account, which is the whole of §61.1"
+          served.visibleText.includes("someone@gmail.com"),
+          "the screen stopped naming the account, which is the whole of §61.1 (" + theme + ")"
         );
+        // AND NOTHING OF THE REMOVED PATH IS ON THE SCREEN. Not hidden — the nodes are gone —
+        // but read back from what a person sees, because that is the claim.
+        for (const forbidden of ["mm1.local", ":8444", "Unverified", "Certificate Trust", "at home"]) {
+          assert(
+            !served.visibleText.toLowerCase().includes(forbidden.toLowerCase()),
+            "the removed path's " + JSON.stringify(forbidden) + " is on screen (" + theme + ")"
+          );
+        }
 
         out.push(
-          theme + ": At home only -> " + athome.servingVia + " " + athome.pairUrl.split("/#")[0] +
-            ", 16 steps, 0 Tailscale steps, account absent; Anywhere -> " + anywhere.servingVia +
-            " " + anywhere.pairUrl.split("/#")[0]
+          theme + ": servingVia " + served.servingVia + ", " + served.pairUrl.split("/#")[0] +
+            ", four phone steps, account named"
         );
       }
       return out.join("; ");
@@ -1761,7 +1849,7 @@ async function openSheet(browser, theme, preset) {
       for (const route of ["home", "tailnet"]) {
         const page =
           route === "tailnet"
-            ? await takeTheTailscaleRoute("dark", {
+            ? await openTheFlow("dark", {
                 state: "ready",
                 name: "mm1.tail9a3b2.ts.net",
                 origin: "https://mm1.tail9a3b2.ts.net:8443",
@@ -1819,154 +1907,100 @@ async function openSheet(browser, theme, preset) {
   );
 
   await run.check(
-    "29  the At-home route's own screen has the way back, and it takes nothing down to give it",
+    "29  one way out, on the one screen with something to put down, and no copy that does nothing",
     async () => {
-      // URBAN'S N3 (MEDIUM), his frame 10: *"`Pick a different way` is on Screen 0, on Screens
-      // 2/3/7, on `This Mac is ready` and — since G2 — on the pairing screen. It is absent from
-      // exactly one: the screen you land on by answering the question. A user who picks `At home
-      // only`, reads the two sentences and changes their mind has Close and nothing else."*
+      // **URBAN'S N3, AND WHAT §61 DID TO IT.**
       //
-      // **AND IT MUST NOT BECOME A SIXTH VARIANT OF THE CONTROL.** The pairing screen's copy
-      // stops the socket because there is one; this screen has never started anything, so a
-      // back button that called `phone_stop_pairing` would be reaching for a thing that is not
-      // there. The check asserts the Mac is untouched across the press.
-      const page = await openSheet(browser, "dark", {
-        phoneTailnet: {
-          state: "ready",
-          name: "mm1.tail9a3b2.ts.net",
-          origin: "https://mm1.tail9a3b2.ts.net:8443",
-          account: "Google as someone@gmail.com",
+      // N3 (MEDIUM), his frame 10: *"`Pick a different way` is on Screen 0, on Screens 2/3/7, on
+      // `This Mac is ready` and — since G2 — on the pairing screen. It is absent from exactly
+      // one: the screen you land on by answering the question."* The fix was a fifth copy, on
+      // the screen the answer led to.
+      //
+      // CEO §61 removed the question and the screen the answer led to, and with them the reason
+      // four of those five copies existed: every one of them returned to the chooser, and a
+      // chooser that does not exist is a destination that does not exist. A button that returns
+      // to the screen you are standing on is a control that does nothing, which is the defect
+      // N3 was about pointing the other way.
+      //
+      // So what N3's finding becomes is this: the way out is on the ONE screen that has
+      // something to put down — a live code and an open socket — and nowhere else, and Close is
+      // on every screen as it always was. Check 19 walks what that control does; this one walks
+      // how many of it there are, and what the other screens offer instead.
+      const screens = [
+        { what: "identity", tailnet: { state: "absent" }, id: "phone-identity" },
+        {
+          what: "waiting",
+          tailnet: { state: "certificates-off", account: "Google as someone@gmail.com" },
+          id: "phone-ts-wait",
         },
-      });
-      await page.waitForSelector("#phone-route:not([hidden])");
-      await page.click("#phone-route-home");
-      await page.waitForSelector("#phone-off:not([hidden])");
-
-      const before = await page.evaluate(async () => {
-        const back = document.getElementById("phone-off-back");
-        const status = await window.RichBridge.invoke("phone_status");
-        return {
-          present: !!back,
-          // `offsetParent` rather than a text search: four other copies of this label are in the
-          // markup on every screen, hidden with their blocks, so a check that looked for the
-          // string would pass on a button nobody can press. Check 19 makes the same distinction.
-          visible: !!back && back.offsetParent !== null,
-          label: back ? back.textContent.trim() : "",
-          listening: status.listening,
-          // EVERY COPY OF THE CONTROL, counted in the markup: five screens, five buttons.
-          copies: [...document.querySelectorAll("#phone-sheet button")]
-            .filter((b) => b.textContent.trim() === "Pick a different way")
-            .map((b) => b.id),
-        };
-      });
-      assert(before.present, "THE DEFECT: the At-home route's screen has no `Pick a different way`");
-      assert(before.visible, "the control is in the markup but not on the screen he is looking at");
-      assertEqual(before.label, "Pick a different way", "the control is not under the name the rest of the flow uses");
-      assertEqual(before.listening, false, "something was already serving on a screen that has started nothing");
-      assertEqual(
-        before.copies.sort(),
-        ["phone-identity-back", "phone-off-back", "phone-pairing-back", "phone-ts-back", "phone-ts-ready-back"],
-        "the five screens do not carry five copies of the way back"
-      );
-
-      await page.click("#phone-off-back");
-      await page.waitForSelector("#phone-route:not([hidden])");
-      const after = await page.evaluate(async () => {
-        const status = await window.RichBridge.invoke("phone_status");
-        return {
-          chooser: !document.getElementById("phone-route").hidden,
-          off: !document.getElementById("phone-off").hidden,
-          listening: status.listening,
-          pairUrl: status.pairUrl,
-        };
-      });
-      await page.close();
-      assert(after.chooser, "pressing it did not return to the route chooser");
-      assert(!after.off, "the At-home screen is still up after backing out of it");
-      // NOTHING WAS TAKEN DOWN, because nothing was up: the Mac is in exactly the state it was
-      // in before he answered the question.
-      assertEqual(after.listening, false, "the back button started or stopped something on a screen with nothing running");
-      assertEqual(after.pairUrl, null, "a pairing code exists after a screen that never asked for one");
-      return (
-        "5 copies " + JSON.stringify(before.copies) + "; At home only -> back to the chooser with " +
-        "listening " + before.listening + " -> " + after.listening
-      );
+        { what: "ready", tailnet: READY_TAILNET, id: "phone-ts-ready" },
+      ];
+      const seen = [];
+      for (const screen of screens) {
+        const page = await openSheet(browser, "dark", { phoneTailnet: screen.tailnet });
+        await page.waitForSelector("#" + screen.id + ":not([hidden])");
+        const state = await page.evaluate(async () => {
+          const status = await window.RichBridge.invoke("phone_status");
+          const visible = [...document.querySelectorAll("#phone-sheet button")].filter(
+            (b) => b.offsetParent !== null
+          );
+          return {
+            labels: visible.map((b) => b.textContent.trim()),
+            // EVERY copy in the markup, hidden ones included — a control that comes back on a
+            // screen this loop does not open would still be counted here.
+            backCopies: [...document.querySelectorAll("#phone-sheet button")]
+              .filter((b) => /go back|different way/i.test(b.textContent))
+              .map((b) => b.id),
+            listening: status.listening,
+          };
+        });
+        await page.close();
+        assertEqual(
+          state.backCopies,
+          ["phone-pairing-back"],
+          screen.what + ": the way out exists on more than the one screen that has something to " +
+            "put down, so at least one copy of it returns to where it was pressed"
+        );
+        assert(
+          state.labels.includes("Close"),
+          screen.what + ": Close is not on the screen, and it is the way out of every one of them"
+        );
+        assertEqual(
+          state.listening,
+          false,
+          screen.what + ": something is serving on a screen that has started nothing"
+        );
+        seen.push(screen.what + " -> " + JSON.stringify(state.labels));
+      }
+      return "one back control in the markup (phone-pairing-back), Close on all of: " + seen.join("; ");
     }
   );
 
-  await run.check(
-    "30  the Tailscale code heading does not refer back to a step that is below it",
-    async () => {
-      // URBAN'S N4 (LOW), frames 03 and 15: G3 moved this heading to the top of the screen and
-      // *"Then"* stayed, pointing backwards at a step that is now underneath it. *"Three words,
-      // and it is the one thing on the finished screen that reads like a file that was edited
-      // rather than written."*
-      //
-      // **AND THE HOME ROUTE KEEPS ITS OWN "2. Then"**, which is the half that makes this a fix
-      // rather than a find-and-replace: there a numbered 1. really is above it.
-      const ts = await takeTheTailscaleRoute("dark", {
-        state: "ready",
-        name: "mm1.tail9a3b2.ts.net",
-        origin: "https://mm1.tail9a3b2.ts.net:8443",
-        account: "Google as someone@gmail.com",
-      });
-      await ts.click("#phone-ts-start");
-      await ts.waitForSelector("#phone-pairing:not([hidden])");
-      const tailnet = await ts.evaluate(() => ({
-        code: document.getElementById("phone-code-title").textContent.trim(),
-        // WHAT IS ACTUALLY ABOVE IT, so this is about position and not only about a word: on
-        // this route the code block is the first thing under the opening sentence (G3), which
-        // is what made "Then" wrong in the first place.
-        // 4 === DOCUMENT_POSITION_FOLLOWING.
-        codeFirst: !!(
-          document
-            .getElementById("phone-code-block")
-            .compareDocumentPosition(document.getElementById("phone-ts-steps")) & 4
-        ),
-      }));
-      await ts.close();
-
-      const home = await openSheet(browser, "dark", { phonePairing: true });
-      await home.waitForSelector("#phone-pairing:not([hidden])");
-      const homeHeadings = await home.evaluate(() => ({
-        trust: document.querySelector("#phone-home-warnings .phone-step-title").textContent.trim(),
-        code: document.getElementById("phone-code-title").textContent.trim(),
-      }));
-      await home.close();
-
-      assert(
-        !/^then\b/i.test(tailnet.code),
-        'THE DEFECT: the Tailscale code heading still begins with "Then" — ' + JSON.stringify(tailnet.code)
-      );
-      assertEqual(tailnet.code, "Point your phone's camera at this", "the Tailscale heading is not the sentence Urban asked for");
-      assert(tailnet.codeFirst, "the code no longer comes before the phone steps, which is what made 'Then' wrong");
-      // THE HOME ROUTE IS UNTOUCHED: "1." above, "2. Then" below, and the word is correct there.
-      assert(/^1\./.test(homeHeadings.trust), "the home route lost the step the word refers back to");
-      assertEqual(homeHeadings.code, "2. Then point it at this, to open Rich", "the home route's heading changed with the Tailscale one");
-      return "tailnet: " + JSON.stringify(tailnet.code) + "; home: " + JSON.stringify(homeHeadings.code) +
-        " under " + JSON.stringify(homeHeadings.trust.slice(0, 2));
-    }
-  );
+  // CHECK 30 WAS URBAN'S N4 and it is now inside check 20, where the headings are.
+  //
+  // N4 (LOW), frames 03 and 15: G3 moved the code heading to the top of the screen and *"Then"*
+  // stayed, pointing backwards at a step that was now underneath it. Its second half — *"and the
+  // home route keeps its own 2. Then, which is the half that makes this a fix rather than a
+  // find-and-replace"* — was about a route CEO §61 removed, and a check whose two halves are a
+  // comparison cannot keep only one half and stay a comparison. So the surviving assertion moved
+  // to the check that measures reading order on this screen: no heading may number or refer back
+  // to a step that is not above it, which is N4's finding without its counterexample.
 
   await run.check(
-    "31  a reopened sheet asks for a fresh code with NO route, and stays on the path it was on",
+    "31  a reopened sheet asks for a fresh code, and the Mac stays on the channel it has up",
     async () => {
-      // THE ONE STRUCTURAL RISK IN N1's SHAPE, pinned before it can bite. `phone_begin_pairing`
-      // now carries the user's answer — and `open()` forgets that answer on every open by design
-      // (Urban §1), so `Show me another code` pressed after a reopen sends `route: null`.
+      // WHAT THIS CHECK WAS FOR, AND WHY IT IS STILL HERE. `phone_begin_pairing` briefly carried
+      // the user's chosen route (Urban's N1) while `open()` forgot that choice on every open
+      // (Urban §1), so `Show me another code` after a reopen sent `route: null` — and the risk
+      // was that a returning user pressed the one button on the screen and got a code on the
+      // other path. CEO §61 removes the route and the other path, so the argument is gone from
+      // both sides of the bridge.
       //
-      // That is correct, and this check is what makes it more than a claim. The Mac consults the
-      // route when it BUILDS a channel; a channel that is already up returns early from `start`
-      // and keeps the path it came up on, which is what `servingVia` reports. If that were ever
-      // to stop being true, a returning user on the Tailscale route would press the one button on
-      // the screen and be handed a home-path code — Urban's N1 defect pointing the other way, and
-      // reachable from a screen he is already standing on.
-      const page = await takeTheTailscaleRoute("dark", {
-        state: "ready",
-        name: "mm1.tail9a3b2.ts.net",
-        origin: "https://mm1.tail9a3b2.ts.net:8443",
-        account: "Google as someone@gmail.com",
-      });
+      // The property it pinned is not gone: a channel that is already up must not be re-planned
+      // by a second call. `PhoneRuntime::start` returns early for a running channel, and
+      // `servingVia` keeps reporting the path it came up on. A build that re-planned would tear
+      // a live socket down under a user who pressed a button labeled "another code".
+      const page = await openTheFlow("dark", READY_TAILNET);
       await page.waitForSelector("#phone-ts-ready:not([hidden])");
       await page.click("#phone-ts-start");
       await page.waitForSelector("#phone-pairing:not([hidden])");
@@ -1978,8 +2012,8 @@ async function openSheet(browser, theme, preset) {
       await page.click("#set-phone-open");
       await page.waitForSelector("#phone-sheet:not([hidden])");
       await page.waitForSelector("#phone-pairing:not([hidden])");
-      // THE SHEET REALLY HAS FORGOTTEN THE ANSWER at this point, which is what makes the press
-      // below the interesting one rather than a repeat of check 27.
+      // A SECOND CALL INTO A RUNNING CHANNEL, which is what makes the press below the
+      // interesting one rather than a repeat of check 27.
       await page.click("#phone-refresh");
       await page.waitForTimeout(250);
 
@@ -1993,7 +2027,6 @@ async function openSheet(browser, theme, preset) {
           servingVia: status.servingVia,
           pairUrl: (document.getElementById("phone-pair-url").textContent || "").trim(),
           tsSteps: shown("phone-ts-steps"),
-          warnings: shown("phone-home-warnings"),
           heading: document.getElementById("phone-code-title").textContent.trim(),
         };
       });
@@ -2009,10 +2042,9 @@ async function openSheet(browser, theme, preset) {
         /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(after.pairUrl),
         "the fresh code went out under a different origin: " + JSON.stringify(after.pairUrl)
       );
-      assert(after.tsSteps, "the Tailscale steps went away when the route was forgotten");
-      assert(!after.warnings, "the home path's certificate warnings appeared on the Tailscale route");
-      assertEqual(after.heading, "Point your phone's camera at this", "the screen fell back to the home route's heading");
-      return "reopened with no route, pressed `Show me another code`: servingVia " +
+      assert(after.tsSteps, "the four phone steps went away on a reopen");
+      assertEqual(after.heading, "Point your phone's camera at this", "the code heading changed on a reopen");
+      return "reopened, pressed `Show me another code`: servingVia " +
         started.servingVia + " -> " + after.servingVia + ", " + after.pairUrl.split("/#")[0];
     }
   );
@@ -2021,7 +2053,14 @@ async function openSheet(browser, theme, preset) {
     const errors = [];
     let combinations = 0;
     for (const theme of ["dark", "light"]) {
-      for (const preset of [{ phonePairing: true }, { phonePaired: true }]) {
+      for (const preset of [
+        { phonePairing: true, phoneTailnet: READY_TAILNET },
+        { phonePaired: true, phoneTailnet: READY_TAILNET },
+        // And the three how-to screens, which are where a first-time user actually stands.
+        { phoneTailnet: { state: "absent" } },
+        { phoneTailnet: { state: "certificates-off", account: "Google as someone@gmail.com" } },
+        { phoneTailnet: READY_TAILNET },
+      ]) {
         const page = await openSheet(browser, theme, preset);
         await page.close();
         errors.push(...page.__errors);
@@ -2040,7 +2079,7 @@ async function openSheet(browser, theme, preset) {
           account: "Google as someone@gmail.com",
         },
       ]) {
-        const page = await takeTheTailscaleRoute(theme, tailnet);
+        const page = await openTheFlow(theme, tailnet);
         await page.close();
         errors.push(...page.__errors);
         combinations += 1;
@@ -2056,8 +2095,8 @@ async function openSheet(browser, theme, preset) {
   console.log(
     failed
       ? "\n" + failed + " check(s) FAILED"
-      : "\nhe is warned before he meets the red word, the sixteen taps are sixteen, and the two " +
-        "codes are black on white with a white quiet zone — measured from the pixels, in both themes."
+      : "\nthe sheet opens on the one path §61 leaves, nothing is installed on the phone, and " +
+        "the code is black on white with a white quiet zone — measured from the pixels, in both themes."
   );
   process.exit(failed ? 1 : 0);
 })().catch((e) => {

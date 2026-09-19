@@ -141,10 +141,14 @@ pub struct Channel {
     /// answers "did the tailnet branch happen" with a `Some`/`None`, so carrying that answer
     /// costs nothing and needs no `.ts.net` suffix test to read it back.
     ///
-    /// **A `Mutex` because the answer can still change after this struct is built.**
-    /// `PhoneRuntime::start` constructs the channel, then tries to bind, and falls back to the
-    /// home addresses when the tailnet ones will not — which is a real move from `tailnet` to
-    /// `home` after construction. One write, at start, under no contention.
+    /// **A `Mutex` for a value that no longer moves, and that is worth saying plainly.**
+    /// `PhoneRuntime::start` used to construct the channel, try to bind, and fall back to the
+    /// home addresses when the tailnet ones would not — a real move from `tailnet` to `home`
+    /// after construction. CEO §61 removed the fallback along with the path it fell back to, so
+    /// today this is written once at construction and never again. It is left as a `Mutex`
+    /// rather than plumbed as a plain field because `Channel` is shared behind an `Arc` and the
+    /// interior mutability is what every reader already expects; making it immutable is a
+    /// refactor of every call site for no behavior.
     pub pairing_path: Mutex<&'static str>,
 }
 
@@ -163,19 +167,13 @@ pub fn dispatch(channel: &Channel, request: &Incoming) -> Outcome {
     }
 }
 
-/// The plain-HTTP trust endpoint on the neighboring port. Plan §2.1 item 4: *"That endpoint serves
-/// exactly one file, as `application/x-apple-aspen-config`, and 404s everything else."*
-pub fn dispatch_trust(profile: &str, method: &str, path: &str) -> Outcome {
-    if method == "GET" && path == "/ca" {
-        return Outcome::Bytes {
-            status: 200,
-            content_type: "application/x-apple-aspen-config".to_string(),
-            body: profile.as_bytes().to_vec(),
-            download_as: Some("richos-local-ca.mobileconfig".to_string()),
-        };
-    }
-    Outcome::NotFound
-}
+// THE TRUST ENDPOINT IS GONE — CEO §61, 2026-09-19. Plan §2.1 item 4 gave this Mac a
+// plain-HTTP route on the neighboring port serving exactly one file, an Apple
+// `.mobileconfig`, so that a phone on the same network could be made to trust a certificate
+// this Mac had signed for itself. §61 rules that a phone app inside the home network is
+// *"utterly useless"* and that the Tailscale path is the product; on that path the
+// certificate is publicly trusted and nothing is installed on the phone at all. The route,
+// its port and the profile it served went together — see `Listener::start` and `ca.rs`.
 
 // -------------------------------------------------------------------------------------
 // The credential
@@ -767,7 +765,7 @@ mod tests {
         let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, rows });
         let channel = Channel {
             devices,
-            api_base: Arc::new(ApiBaseDesk::home_only("https://mm1.local:8443")),
+            api_base: Arc::new(ApiBaseDesk::only("https://mm1.tail9a3b2.ts.net:8443")),
             hub,
             bridge: Arc::clone(&bridge) as Arc<dyn Bridge>,
             assets: PhoneApp::from_files(TEST_APP),
@@ -1081,7 +1079,7 @@ mod tests {
                 assert_eq!(status, 200);
                 let v: Value = serde_json::from_str(&body).unwrap();
                 assert!(v["device_id"].as_str().unwrap().starts_with("dev_"));
-                assert_eq!(v["api_base"], "https://mm1.local:8443");
+                assert_eq!(v["api_base"], "https://mm1.tail9a3b2.ts.net:8443");
                 assert_eq!(v["vapid_public_key"], "BExampleVapidKey");
                 // THE HASH, NOT THE WORDS. `web/web-app/lib/fingerprint.js` renders the six words
                 // itself, deliberately: words the Mac chose could belong to a different
@@ -1183,7 +1181,7 @@ mod tests {
                 let data: Value =
                     serde_json::from_str(wire.split("data: ").nth(1).unwrap().trim_end()).unwrap();
                 assert!(!data["challenge"].as_str().unwrap().is_empty());
-                assert_eq!(data["api_base"], "https://mm1.local:8443");
+                assert_eq!(data["api_base"], "https://mm1.tail9a3b2.ts.net:8443");
                 assert_eq!(data["thread_id"], "thr_5c1e");
                 assert_eq!(data["latest_cursor"], 4);
                 assert_eq!(data["vapid_public_key"], "BExampleVapidKey");
@@ -1430,29 +1428,12 @@ mod tests {
         assert_eq!(dispatch(&f.channel, &plain("GET", "/index.html")), Outcome::NotFound);
     }
 
-    // --- the trust endpoint ----------------------------------------------------------------------
-
-    #[test]
-    fn the_trust_endpoint_serves_exactly_one_file_and_404s_everything_else() {
-        let profile = "<?xml version=\"1.0\"?><plist/>";
-        match dispatch_trust(profile, "GET", "/ca") {
-            Outcome::Bytes { status, content_type, body, download_as } => {
-                assert_eq!(status, 200);
-                assert_eq!(content_type, "application/x-apple-aspen-config");
-                assert_eq!(body, profile.as_bytes());
-                assert_eq!(download_as.as_deref(), Some("richos-local-ca.mobileconfig"));
-            }
-            other => panic!("{other:?}"),
-        }
-        for (method, path) in [
-            ("GET", "/"),
-            ("GET", "/ca.crt"),
-            ("GET", "/ca/"),
-            ("POST", "/ca"),
-            ("GET", "/api/messages"),
-            ("GET", "/../etc/passwd"),
-        ] {
-            assert_eq!(dispatch_trust(profile, method, path), Outcome::NotFound, "{method} {path}");
-        }
-    }
+    // --- the trust endpoint: REMOVED, CEO §61 -------------------------------------------------
+    //
+    // `the_trust_endpoint_serves_exactly_one_file_and_404s_everything_else` proved plan §2.1
+    // item 4: a plain-HTTP route on the neighboring port answering `GET /ca` with an Apple
+    // `.mobileconfig` and 404ing six other shapes. The route, the port and the profile all went
+    // when §61 removed the path that had a phone install anything — see the note where
+    // `dispatch_trust` used to be, and `listen.rs`'s end-to-end walk, which now asserts that the
+    // channel binds one socket rather than that the second one behaves.
 }

@@ -109,21 +109,21 @@ test('what comes back is RE-ENCODED, so nothing that arrived passes through as i
 // `api_base` — what becomes the prefix of every later request
 // --------------------------------------------------------------------------------------------
 
-const PAGE = 'https://mm1.local:8443';
+const PAGE = 'https://mm1.tail9a3b2.ts.net:8443';
 
 const REFUSED_BASE = [
 	['https://198.51.100.7:8443', 'a different origin from the app', 'another host — the §2 C clause, until the Mac speaks CORS'],
-	['https://mm1.local:9443', 'a different origin from the app', 'the same host on another port is another origin'],
-	['https://mm1.local', 'a different origin from the app', 'the same host with no port is another origin'],
-	['http://mm1.local:8443', 'not an https address', 'a downgrade to cleartext'],
-	['https://someone:secret@mm1.local:8443', 'credentials in the address', 'credentials in a URL are a phishing primitive'],
-	['https://mm1.local:8443/?x=1', 'a query string in the address', 'the Mac advertises a bare origin'],
-	['https://mm1.local:8443/#x', 'a fragment in the address', 'same'],
-	['https://mm1.local:8443/api', 'a path in the address', 'a path would silently re-root every route'],
-	['//mm1.local:8443', 'not an absolute URL', 'protocol-relative is not absolute'],
+	['https://mm1.tail9a3b2.ts.net:9443', 'a different origin from the app', 'the same host on another port is another origin'],
+	['https://mm1.tail9a3b2.ts.net', 'a different origin from the app', 'the same host with no port is another origin'],
+	['http://mm1.tail9a3b2.ts.net:8443', 'not an https address', 'a downgrade to cleartext'],
+	['https://someone:secret@mm1.tail9a3b2.ts.net:8443', 'credentials in the address', 'credentials in a URL are a phishing primitive'],
+	['https://mm1.tail9a3b2.ts.net:8443/?x=1', 'a query string in the address', 'the Mac advertises a bare origin'],
+	['https://mm1.tail9a3b2.ts.net:8443/#x', 'a fragment in the address', 'same'],
+	['https://mm1.tail9a3b2.ts.net:8443/api', 'a path in the address', 'a path would silently re-root every route'],
+	['//mm1.tail9a3b2.ts.net:8443', 'not an absolute URL', 'protocol-relative is not absolute'],
 	['/api', 'not an absolute URL', 'a bare path'],
 	['not a url', 'whitespace in the address', 'whitespace is caught before the parser sees it'],
-	['https://mm1.local:8443 ', 'whitespace in the address', 'a trailing space'],
+	['https://mm1.tail9a3b2.ts.net:8443 ', 'whitespace in the address', 'a trailing space'],
 	['', 'not an address', 'the empty string'],
 	[null, 'not an address', 'nothing at all'],
 	[42, 'not an address', 'a number']
@@ -139,7 +139,8 @@ test('every unusable `api_base` is refused, by the rule that refuses it', () => 
 
 // THE POSITIVE CONTROL for the whole table above.
 test('the same-origin address the Mac really advertises is stored', () => {
-	// `api_base.rs:13`: "the origin is `https://<name>.local:8443` forever".
+	// `api_base.rs`: the origin is fixed for the life of an installed phone app, and since CEO
+	// §61 it is the Mac's tailnet name.
 	assert.deepStrictEqual(validateApiBase(PAGE, PAGE), { ok: true, value: PAGE, reason: null });
 	// Normalized to the bare origin, so a trailing slash is not a second spelling of the same Mac.
 	assert.deepStrictEqual(validateApiBase(`${PAGE}/`, PAGE), { ok: true, value: PAGE, reason: null });
