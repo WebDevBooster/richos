@@ -1,0 +1,8 @@
+=== PRISTINE run-tests.test.sh at 62e5affd, under the build's environment:
+      FAIL  S2 without the flag nothing changes
+      FAIL  S4 a host-screen suite that RAN writes a proof
+    === run-tests.test.sh: 2 FAILED, 24 passed ===
+    exit=1
+=== FIXED run-tests.test.sh on this branch, same environment:
+    === run-tests tests: all 28 passed ===
+    exit=0

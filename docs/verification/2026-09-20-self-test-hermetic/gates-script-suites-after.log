@@ -1,0 +1,768 @@
+14 suite(s) discovered under /Users/alex/ab/richos-wt/zach-opus-buildtime3/richos/app/scripts
+  pool: 3 concurrent (override with --jobs N or RUN_TESTS_JOBS)
+  declared host gap: front-door.test.sh — this suite drives the SHIPPED window — it needs a built RichOS.app, which THIS build has not produced yet at the gate stage, and a person's unlocked screen to put it on (its own P1/P2 refuse a sleeping or locked one). There is no app for it to drive on a build host, so it reports the gap and launches nothing. It is run by hand, or from a walk, against a published release: scripts/front-door.test.sh --release <release dir>. Measured on this Mac, 2026-09-18: a bare invocation exits 2 in nine lines and no process.
+  NOT RUN (no screen): front-door.test.sh — no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset
+  NOT RUN (no screen): gui-boot.test.sh — no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset
+
+--- front-door.test.sh
+    NOT RUN (no screen): no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset
+    This candidate carries no gui-boot result. `nightly-local.py publish` will
+    refuse it until --gui-proof names one taken against the same commit.
+
+--- frontend-payload.test.sh
+
+=== P. what ships as the frontend ===
+  PASS  P1 tauri.conf.json sets build.frontendDist (../ui-dist)
+  PASS  P2 frontendDist is not the source tree app/ui
+  PASS  P3 the staged frontend directory is git-ignored
+  PASS  P4 build.rs stages the frontend, so a plain cargo build cannot bypass it
+  PASS  P5 the exclusion list names tests
+  PASS  P6 the exclusion list names node_modules
+  PASS  P7 the staging refuses rather than warns
+  PASS  P8 the screenshots are still in the repository (13 shots-* directories)
+  PASS  P9 the staged tree on this machine carries no excluded directory
+  PASS  P10 the staged tree carries the product (index.html)
+
+=== frontend-payload tests: all 10 passed ===
+
+--- gui-boot.test.sh
+    NOT RUN (no screen): no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset
+    This candidate carries no gui-boot result. `nightly-local.py publish` will
+    refuse it until --gui-proof names one taken against the same commit.
+
+--- make-engine-asset.test.sh
+  PASS  L1 a repository with no root LICENSE is REFUSED, by name
+  PASS  L2 a repository with no third-party notices is REFUSED, by name
+  PASS  L3 a complete fixture builds an archive
+  PASS  L4 the archive contains engine/LICENSE
+  PASS  L5 the archived LICENSE is byte-identical to the repository's root LICENSE
+  PASS  L6 the archive contains engine/THIRD-PARTY-NOTICES.md
+  PASS  L7 bundled third-party license files survive into the archive
+  PASS  L8 a skill declaring a license with no license file beside it is REFUSED
+  PASS  L9 the real root LICENSE is the canonical AGPL v3 text
+  PASS  L10 the real repository has docs/legal/THIRD-PARTY-NOTICES.md
+  PASS  L11 the real engine carries 17 bundled license files (16 known bundled works)
+  PASS  L12 the real archive builds deterministically and carries the canonical LICENSE
+  PASS  L13 the digest survives a different umask and a different timezone (50549a774f59467fda5e2273d930db09a9d95096f0b0f1cf9d270eb0070b5960)
+  PASS  L14 every member of the real archive is tracked source or declared runtime (7546 members)
+  PASS  L15 gitignored files in the source engine do not reach the archive
+  PASS  L16 an archive carrying an untracked member is REFUSED, and the member is named
+  PASS  L17 a missing members check REFUSES the build rather than skipping the check
+  PASS  L18 building outside a git checkout is REFUSED, not silently fallen back from
+  PASS  L19 extracted voice core runs with the delivered Node runtime
+  PASS  L20 the first run with no recorded proof still builds a second time
+  PASS  L21 an already-proved archive does not rebuild, and the skip names the run that proved it
+  PASS  L22 editing the script brings the second build back, even though the archive is unchanged
+
+=== make-engine-asset tests: all 22 passed ===
+
+--- make-release.test.sh
+
+=== R. the release chain refuses out of order ===
+  PASS  R1 plan names the version (1.2.0) and the endpoint, and creates nothing
+  PASS  R2 verify-engine with no pin refuses
+  PASS  R3 verify-engine against a URL that serves nothing refuses
+  PASS  R4 verify-engine against bytes that are not the pinned bytes refuses
+  PASS  R5 verify-engine against the pinned bytes writes a receipt naming that digest
+  PASS  R5a app with no deny-list refuses at the names gate, before the pin
+  PASS  R6 app with no pin refuses
+  PASS  R7 app with a pin and no receipt refuses
+  PASS  R8 app with a receipt for a different digest refuses
+  PASS  R9 app with a good receipt and no signing key refuses
+  PASS  R10 verify-release with nothing staged refuses
+
+=== make-release.test.sh: all 11 passed ===
+
+--- nightly-local.test.sh
+test_a_candidate_from_before_the_field_still_publishes (__main__.LocalTests.test_a_candidate_from_before_the_field_still_publishes)
+...and the mirror image, which the first version of this got WRONG. ... ok
+test_a_candidate_whose_gui_boot_did_not_run_is_refused_without_a_proof (__main__.LocalTests.test_a_candidate_whose_gui_boot_did_not_run_is_refused_without_a_proof)
+THE CASE THE WHOLE MODE TURNS ON. ... ok
+test_a_file_that_is_not_a_proof_is_refused_by_name (__main__.LocalTests.test_a_file_that_is_not_a_proof_is_refused_by_name)
+A malformed proof is refused loudly rather than read past: this file is the one ... ok
+test_a_proof_against_this_candidate_lets_it_publish (__main__.LocalTests.test_a_proof_against_this_candidate_lets_it_publish) ... ok
+test_a_proof_for_a_different_suite_is_refused (__main__.LocalTests.test_a_proof_for_a_different_suite_is_refused) ... ok
+test_a_proof_naming_the_build_commit_is_accepted (__main__.LocalTests.test_a_proof_naming_the_build_commit_is_accepted)
+The bundle is compiled from `build_commit` -- the version-bump commit whose ... ok
+test_a_proof_taken_against_another_tree_is_refused (__main__.LocalTests.test_a_proof_taken_against_another_tree_is_refused)
+The sha is the whole point, exactly as it is for --checks-done-at-land. ... ok
+test_a_proof_that_records_a_failure_is_refused (__main__.LocalTests.test_a_proof_that_records_a_failure_is_refused) ... ok
+test_a_screenless_build_that_lost_its_report_is_refused_too (__main__.LocalTests.test_a_screenless_build_that_lost_its_report_is_refused_too)
+Silence from a build that was TOLD not to use the screen is not a pass. ... ok
+test_a_sha_that_is_not_this_runs_source_is_refused (__main__.LocalTests.test_a_sha_that_is_not_this_runs_source_is_refused)
+The whole safety of the flag is this comparison. ... ok
+test_a_shipped_bundle_boot_in_a_guest_is_accepted_evidence (__main__.LocalTests.test_a_shipped_bundle_boot_in_a_guest_is_accepted_evidence)
+`gui-proof-in-vm.sh` boots the SIGNED, NOTARIZED artifact this release will ... ok
+test_a_taken_skip_is_written_into_the_candidates_provenance (__main__.LocalTests.test_a_taken_skip_is_written_into_the_candidates_provenance)
+A skip recorded only in a log lives on this Mac. This one travels. ... ok
+test_a_wrong_sha_refuses_before_any_gate_runs (__main__.LocalTests.test_a_wrong_sha_refuses_before_any_gate_runs) ... ok
+test_an_exported_commit_identity_leaves_the_release_environment (__main__.LocalTests.test_an_exported_commit_identity_leaves_the_release_environment) ... ok
+test_an_unseen_milestone_is_reported_rather_than_folded_into_its_neighbor (__main__.LocalTests.test_an_unseen_milestone_is_reported_rather_than_folded_into_its_neighbor)
+A boundary nobody saw must not silently inflate the segment beside it. ... ok
+test_build_stops_before_publishing_and_records_the_run (__main__.LocalTests.test_build_stops_before_publishing_and_records_the_run) ... ok
+test_candidate_prints_without_touching_anything (__main__.LocalTests.test_candidate_prints_without_touching_anything) ... ok
+test_check_never_builds_or_publishes (__main__.LocalTests.test_check_never_builds_or_publishes) ... Source: source-sha
+Preflight passed. No release was triggered or published.
+
+phase timings for run manual:
+  fetch     :     0.0s
+  plan      :     0.0s
+  preflight :     0.0s
+  total     :     0.0s
+ok
+test_checkout_uses_remote_main_without_touching_developer_edits (__main__.LocalTests.test_checkout_uses_remote_main_without_touching_developer_edits) ... ok
+test_command_timeout_does_not_expose_signing_password (__main__.LocalTests.test_command_timeout_does_not_expose_signing_password) ... ok
+test_default_runs_every_gate_and_names_each_one_in_the_timings (__main__.LocalTests.test_default_runs_every_gate_and_names_each_one_in_the_timings) ... ok
+test_every_logged_line_carries_the_clock_and_a_child_needs_no_change (__main__.LocalTests.test_every_logged_line_carries_the_clock_and_a_child_needs_no_change)
+The log is stamped by handing children a pipe, not by asking them to cooperate. ... ok
+test_exported_signing_variables_leave_the_gate_environment (__main__.LocalTests.test_exported_signing_variables_leave_the_gate_environment) ... ok
+test_failed_gates_do_not_publish (__main__.LocalTests.test_failed_gates_do_not_publish) ... Source: source-sha
+Source: source-sha
+Source: source-sha
+ok
+test_fresh_plan_can_skip_after_checks (__main__.LocalTests.test_fresh_plan_can_skip_after_checks) ... Source: source-sha
+already published; nothing published.
+ok
+test_gates_receive_no_signing_credential_and_still_get_the_privacy_list (__main__.LocalTests.test_gates_receive_no_signing_credential_and_still_get_the_privacy_list) ... ok
+test_lock_rejects_concurrent_manual_commands_and_releases_after_failure (__main__.LocalTests.test_lock_rejects_concurrent_manual_commands_and_releases_after_failure) ... ok
+test_milestones_match_in_order_and_only_while_the_build_step_is_open (__main__.LocalTests.test_milestones_match_in_order_and_only_while_the_build_step_is_open)
+In order first; armed inside `build` as the second condition. ... ok
+test_notary_file_is_parsed_without_shell_execution (__main__.LocalTests.test_notary_file_is_parsed_without_shell_execution) ... ok
+test_notary_profile_is_supported (__main__.LocalTests.test_notary_profile_is_supported) ... ok
+test_one_declared_host_gap_reaches_the_runner_and_nothing_else (__main__.LocalTests.test_one_declared_host_gap_reaches_the_runner_and_nothing_else) ... ok
+test_only_release_reaches_publisher (__main__.LocalTests.test_only_release_reaches_publisher) ... Source: source-sha
+Building and publishing v1.2.0-nightly.20260916.1...
+Published https://github.com/WebDevBooster/richos/releases/tag/v1.2.0-nightly.20260916.1
+
+phase timings for run manual:
+  fetch          :     0.0s
+  plan           :     0.0s
+  preflight      :     0.0s
+  runtime-verify :     0.0s
+  plan-recheck   :     0.0s
+  build          :     0.0s
+  total          :     0.0s
+ok
+test_preflight_asks_the_publisher_whether_branches_are_still_banned (__main__.LocalTests.test_preflight_asks_the_publisher_whether_branches_are_still_banned)
+The check that used to REQUIRE a hole in the branch rule now forbids one. ... ok
+test_publish_and_candidate_require_a_recorded_run (__main__.LocalTests.test_publish_and_candidate_require_a_recorded_run) ... ok
+test_publish_and_candidate_require_a_run_id (__main__.LocalTests.test_publish_and_candidate_require_a_run_id) ... ok
+test_publish_calls_finish_without_signing_credentials (__main__.LocalTests.test_publish_calls_finish_without_signing_credentials) ... ok
+test_release_is_authored_with_the_checkouts_own_identity (__main__.LocalTests.test_release_is_authored_with_the_checkouts_own_identity) ... ok
+test_release_never_skips_a_suite_over_unchanged_inputs (__main__.LocalTests.test_release_never_skips_a_suite_over_unchanged_inputs)
+A proof file on this host may excuse a suite for a CANDIDATE. It may never ... ok
+test_the_flag_reaches_the_suite_runner_and_the_record_travels (__main__.LocalTests.test_the_flag_reaches_the_suite_runner_and_the_record_travels)
+`--no-host-screen` has to arrive at `run-tests.sh` AND be written into the plan. ... ok
+test_the_land_proven_gate_is_the_only_one_the_flag_drops (__main__.LocalTests.test_the_land_proven_gate_is_the_only_one_the_flag_drops)
+`--checks-done-at-land` may drop what a land ran and NOTHING else. ... ok
+test_unchanged_source_does_not_build (__main__.LocalTests.test_unchanged_source_does_not_build) ... Source: source-sha
+already published; nothing published.
+ok
+test_unsafe_credentials_refuse (__main__.LocalTests.test_unsafe_credentials_refuse) ... ok
+test_unset_identity_is_refused_before_any_other_preflight_check (__main__.LocalTests.test_unset_identity_is_refused_before_any_other_preflight_check) ... ok
+
+----------------------------------------------------------------------
+Ran 43 tests in 0.819s
+
+OK
+  PASS  manual-only releases, local credentials, worktree isolation and failure gates
+
+--- nightly.test.sh
+test_the_channel_is_a_release_tag_and_its_endpoint_is_a_release_asset (__main__.ChannelShapeTests.test_the_channel_is_a_release_tag_and_its_endpoint_is_a_release_asset)
+The CEO's rule, asserted rather than left to a comment. ... ok
+test_build_stops_before_any_app_upload_or_channel_move (__main__.GitTests.test_build_stops_before_any_app_upload_or_channel_move) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpmt3qyzyh/remote.git
+ * [new tag]         7f71e16360959a8959b960088bccea0cc59897ee -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpmt3qyzyh/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 7f71e16 Build v5.1.0-nightly.20260911.1
+ok
+test_dirty_and_released_sources_are_refused (__main__.GitTests.test_dirty_and_released_sources_are_refused) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpy22njtmq/remote.git
+ * [new tag]         HEAD -> v5.1.0
+ok
+test_failed_build_or_verification_never_moves_channel (__main__.GitTests.test_failed_build_or_verification_never_moves_channel) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp8l6j5cau/remote.git
+ * [new tag]         109d5e36138a745e2a2a5700916e39d9c43a3e78 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp8l6j5cau/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 109d5e3 Build v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp8l6j5cau/remote
+ * branch            main       -> FETCH_HEAD
+ok
+test_finish_publishes_an_untouched_candidate (__main__.GitTests.test_finish_publishes_an_untouched_candidate)
+Positive control for the test above: the same candidate, unmodified, publishes. ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpg_iref0k/remote.git
+ * [new tag]         6b38db98709a189c9e0b22fd41f7d1f972239d9b -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpg_iref0k/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 6b38db9 Build v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpg_iref0k/remote
+ * branch            main       -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpg_iref0k/remote.git
+ * [new tag]         736b445c10827d0c407fcbd0eb2c83f8a37cce15 -> nightly
+Published v5.1.0-nightly.20260911.1; refs/tags/nightly at 736b445c10827d0c407fcbd0eb2c83f8a37cce15, serving
+  https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpg_iref0k/remote
+ * branch            736b445c10827d0c407fcbd0eb2c83f8a37cce15 -> FETCH_HEAD
+ok
+test_finish_refuses_a_tampered_candidate (__main__.GitTests.test_finish_refuses_a_tampered_candidate) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9ip9yplx/remote.git
+ * [new tag]         eb6dc68e3dcc3bd32b34a3d87b5a8260ea6f63ee -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9ip9yplx/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at eb6dc68 Build v5.1.0-nightly.20260911.1
+ok
+test_finish_refuses_when_source_is_no_longer_an_ancestor_of_main (__main__.GitTests.test_finish_refuses_when_source_is_no_longer_an_ancestor_of_main) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpuuqv2nll/remote.git
+ * [new tag]         d97189112fa5050dce1d6d0b7b22c6ed93efdfc8 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpuuqv2nll/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at d971891 Build v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpuuqv2nll/remote
+ * branch            main       -> FETCH_HEAD
+ok
+test_finish_repairs_an_asset_the_channel_already_names (__main__.GitTests.test_finish_repairs_an_asset_the_channel_already_names)
+A crash between the lease and the upload must be re-runnable, not a rollback. ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0vywpc5m/remote.git
+ * [new tag]         8a61846f57b99f4eeb49e0cabdc9069bac3d3290 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0vywpc5m/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 8a61846 Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0vywpc5m/remote.git
+ * [new tag]         e5b83f44bf059f48d2197534401d154aea91f7f6 -> nightly
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0vywpc5m/remote
+ * branch            e5b83f44bf059f48d2197534401d154aea91f7f6 -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0vywpc5m/remote
+ * branch            e5b83f44bf059f48d2197534401d154aea91f7f6 -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0vywpc5m/remote
+ * branch            e5b83f44bf059f48d2197534401d154aea91f7f6 -> FETCH_HEAD
+ok
+test_plan_is_invalid_if_source_changes (__main__.GitTests.test_plan_is_invalid_if_source_changes) ... ok
+test_plan_rejects_divergent_source (__main__.GitTests.test_plan_rejects_divergent_source) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpaweur_el/remote.git
+ * [new tag]         681458d7a43dbfb6d2d63c3706bb545d1ddc453f -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpaweur_el/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 681458d Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpaweur_el/remote.git
+ * [new tag]         66963795840600b7754890c6f29a62aa3a18055e -> nightly
+Previous HEAD position was 681458d Build v5.1.0-nightly.20260911.1
+HEAD is now at 4ff5d1e source
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpaweur_el/remote
+ * branch            66963795840600b7754890c6f29a62aa3a18055e -> FETCH_HEAD
+ok
+test_promotion_compare_and_swap_rejects_race (__main__.GitTests.test_promotion_compare_and_swap_rejects_race) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpzt1uhzwi/remote.git
+ * [new tag]         22325b37a8e699e2cae8207f20034375d02b536a -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpzt1uhzwi/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 22325b3 Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpzt1uhzwi/remote.git
+ * [new tag]         5d16912eefadf39f74c58684c0153e00f4abe479 -> nightly
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpzt1uhzwi/remote.git
+ ! [rejected]        62c2a013903b67143e9779214001af275dee92e2 -> nightly (stale info)
+error: failed to push some refs to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpzt1uhzwi/remote.git'
+ok
+test_promotion_never_rolls_back (__main__.GitTests.test_promotion_never_rolls_back) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote.git
+ * [new tag]         8d860692127e55af47fb704e676f3a77dc2bf657 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 8d86069 Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote.git
+ * [new tag]         735ec273d1e5714844a79b9f4e6c6c08049340bc -> v5.1.0-nightly.20260911.2
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote
+ * [new tag]         v5.1.0-nightly.20260911.2 -> v5.1.0-nightly.20260911.2
+HEAD is now at 735ec27 Build v5.1.0-nightly.20260911.2
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote.git
+ * [new tag]         92572978c98cf06baea56a505f37051d81ab726c -> nightly
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote
+ * branch            92572978c98cf06baea56a505f37051d81ab726c -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmppx4suo_2/remote
+ * branch            92572978c98cf06baea56a505f37051d81ab726c -> FETCH_HEAD
+ok
+test_promotion_rejects_wrong_manifest (__main__.GitTests.test_promotion_rejects_wrong_manifest) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpya1hkcmg/remote.git
+ * [new tag]         199c0cedb02b1eeb963cd146e648d9170c88936c -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpya1hkcmg/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 199c0ce Build v5.1.0-nightly.20260911.1
+ok
+test_publish_order_and_channel_manifest (__main__.GitTests.test_publish_order_and_channel_manifest) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpgl2220uu/remote.git
+ * [new tag]         458165ff1a50a6bd29154992b0114ec6a8816f67 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpgl2220uu/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 458165f Build v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpgl2220uu/remote
+ * branch            main       -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpgl2220uu/remote.git
+ * [new tag]         2401399b38f7f15aed48753d0cb1950bc254ff5a -> nightly
+Published v5.1.0-nightly.20260911.1; refs/tags/nightly at 2401399b38f7f15aed48753d0cb1950bc254ff5a, serving
+  https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpgl2220uu/remote
+ * branch            2401399b38f7f15aed48753d0cb1950bc254ff5a -> FETCH_HEAD
+ok
+test_release_commits_carry_the_checkouts_configured_identity (__main__.GitTests.test_release_commits_carry_the_checkouts_configured_identity) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp5ics7q1j/remote.git
+ * [new tag]         515f29ea56441a97071127a5fef5bcfd9bdeab20 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp5ics7q1j/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 515f29e Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp5ics7q1j/remote.git
+ * [new tag]         f3f3f145e80c4edfdcc27e7696c97e9977579041 -> nightly
+ok
+test_release_equals_build_then_finish (__main__.GitTests.test_release_equals_build_then_finish)
+`release` (== `publish`) and an explicit `build` + `finish` reach the same state. ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote.git
+ * [new tag]         4d1cd653d1ff8b6a7049414cc9d921d94c368f21 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 4d1cd65 Build v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * branch            main       -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote.git
+ * [new tag]         e1abc8d3c61ce220b5c9fc2342c3923dc273e74b -> nightly
+Published v5.1.0-nightly.20260911.1; refs/tags/nightly at e1abc8d3c61ce220b5c9fc2342c3923dc273e74b, serving
+  https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * branch            e1abc8d3c61ce220b5c9fc2342c3923dc273e74b -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * branch            e1abc8d3c61ce220b5c9fc2342c3923dc273e74b -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote.git
+ * [new tag]         f7ab8853cd3a5c259083af061fed425fe73e75cc -> v5.1.0-nightly.20260911.2
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * [new tag]         v5.1.0-nightly.20260911.2 -> v5.1.0-nightly.20260911.2
+ * [new tag]         nightly                   -> nightly
+HEAD is now at f7ab885 Build v5.1.0-nightly.20260911.2
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * branch            main       -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * branch            e1abc8d3c61ce220b5c9fc2342c3923dc273e74b -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote.git
+ + e1abc8d...e65b8bc e65b8bcfb03b65200a2dab83767b7213045875b8 -> nightly (forced update)
+Published v5.1.0-nightly.20260911.2; refs/tags/nightly at e65b8bcfb03b65200a2dab83767b7213045875b8, serving
+  https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpk2dwoket/remote
+ * branch            e65b8bcfb03b65200a2dab83767b7213045875b8 -> FETCH_HEAD
+ok
+test_retired_hard_coded_identity_would_fail_that_check (__main__.GitTests.test_retired_hard_coded_identity_would_fail_that_check)
+Positive control for the test above. ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3k3pjmvj/remote.git
+ * [new tag]         27f4dddcf7fd608b21e135b47fc94d8a54ad4f9f -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3k3pjmvj/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 27f4ddd Build v5.1.0-nightly.20260911.1
+ok
+test_source_commit_is_complete_and_main_unchanged (__main__.GitTests.test_source_commit_is_complete_and_main_unchanged) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpfgyrq7_p/remote.git
+ * [new tag]         a909b55a51bde536f0a1f61647757300c4982fb4 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpfgyrq7_p/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at a909b55 Build v5.1.0-nightly.20260911.1
+ok
+test_successful_source_skipped_but_manual_force_allocates (__main__.GitTests.test_successful_source_skipped_but_manual_force_allocates) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp2j60pufs/remote.git
+ * [new tag]         18d1fe4d894adbe1d55ff1fd4ff3d8a31d8090ce -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp2j60pufs/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 18d1fe4 Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp2j60pufs/remote.git
+ * [new tag]         feb659f960e7d39c2860f59fc618ca43f22c1eb4 -> nightly
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp2j60pufs/remote
+ * branch            feb659f960e7d39c2860f59fc618ca43f22c1eb4 -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp2j60pufs/remote
+ * branch            feb659f960e7d39c2860f59fc618ca43f22c1eb4 -> FETCH_HEAD
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp2j60pufs/remote
+ * branch            feb659f960e7d39c2860f59fc618ca43f22c1eb4 -> FETCH_HEAD
+ok
+test_tag_created_during_allocation_cannot_be_overwritten (__main__.GitTests.test_tag_created_during_allocation_cannot_be_overwritten) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0g51a3ts/remote.git
+ * [new tag]         157ba6d5f9de8ebbfefdbc4153a583061d0469fc -> v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0g51a3ts/remote.git
+ ! [rejected]        7fbef2621b872f60cfa41a7f6ec656cce473cc28 -> v5.1.0-nightly.20260911.1 (already exists)
+error: failed to push some refs to '/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp0g51a3ts/remote.git'
+hint: Updates were rejected because the tag already exists in the remote.
+ok
+test_the_repair_arm_does_not_excuse_a_genuine_rollback (__main__.GitTests.test_the_repair_arm_does_not_excuse_a_genuine_rollback)
+Positive control for the test above: only the SAME candidate is repairable. ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9kgihfxr/remote.git
+ * [new tag]         a26329391a411a220bbe31384f7d1ea0a6bf15a7 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9kgihfxr/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at a263293 Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9kgihfxr/remote.git
+ * [new tag]         330f27c0e51b0d27313fe9c9854040e81dc19ba2 -> v5.1.0-nightly.20260911.2
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9kgihfxr/remote
+ * [new tag]         v5.1.0-nightly.20260911.2 -> v5.1.0-nightly.20260911.2
+HEAD is now at 330f27c Build v5.1.0-nightly.20260911.2
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9kgihfxr/remote.git
+ * [new tag]         675cb0421cd0dea690b25c5b44db7d08d560aff3 -> nightly
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp9kgihfxr/remote
+ * branch            675cb0421cd0dea690b25c5b44db7d08d560aff3 -> FETCH_HEAD
+ok
+test_the_rolling_channel_release_is_created_once_then_only_replaced (__main__.GitTests.test_the_rolling_channel_release_is_created_once_then_only_replaced)
+`--verify-tag` is why the create can only run after the tag has moved. ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote.git
+ * [new tag]         4bdbc523a204b8b827b14820523a01b6b14f70ee -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 4bdbc52 Build v5.1.0-nightly.20260911.1
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote.git
+ * [new tag]         713fd386a4818bcc2718cdacc22409880e7648da -> nightly
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote
+ * branch            713fd386a4818bcc2718cdacc22409880e7648da -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote.git
+ * [new tag]         11d575b20635710a579bd1cb5f159247b302ded3 -> v5.1.0-nightly.20260911.2
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote
+ * [new tag]         v5.1.0-nightly.20260911.2 -> v5.1.0-nightly.20260911.2
+ * [new tag]         nightly                   -> nightly
+HEAD is now at 11d575b Build v5.1.0-nightly.20260911.2
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote
+ * branch            713fd386a4818bcc2718cdacc22409880e7648da -> FETCH_HEAD
+To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp3jmdc1_q/remote.git
+ + 713fd38...323a52f 323a52f206beaf98849021419cff869a2e9976e3 -> nightly (forced update)
+ok
+test_two_plans_cannot_reuse_a_number (__main__.GitTests.test_two_plans_cannot_reuse_a_number) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpps6nkmuz/remote.git
+ * [new tag]         172b9607b5b5996d6e32eab0e2d4e787be8d8b1e -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmpps6nkmuz/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 172b960 Build v5.1.0-nightly.20260911.1
+ok
+test_unconfigured_identity_refuses_before_a_number_is_reserved (__main__.GitTests.test_unconfigured_identity_refuses_before_a_number_is_reserved) ... ok
+test_upload_failure_does_not_move_channel (__main__.GitTests.test_upload_failure_does_not_move_channel) ... To /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp95s8jrk9/remote.git
+ * [new tag]         9e8a7ff362dc3ea6b54be831f07e6520f60cba44 -> v5.1.0-nightly.20260911.1
+From /var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/tmp95s8jrk9/remote
+ * [new tag]         v5.1.0-nightly.20260911.1 -> v5.1.0-nightly.20260911.1
+HEAD is now at 9e8a7ff Build v5.1.0-nightly.20260911.1
+ok
+test_assets_verified_before_channel_exists (__main__.ReleaseScriptTests.test_assets_verified_before_channel_exists) ... ok
+test_changed_bytes_and_missing_assets_refuse (__main__.ReleaseScriptTests.test_changed_bytes_and_missing_assets_refuse) ... ok
+test_nightly_plan_requires_nightly_endpoint (__main__.ReleaseScriptTests.test_nightly_plan_requires_nightly_endpoint) ... ok
+test_the_channel_endpoint_is_a_different_url_from_the_releases_own_manifest (__main__.ReleaseScriptTests.test_the_channel_endpoint_is_a_different_url_from_the_releases_own_manifest)
+Positive control for the test above, and it stopped being free on 2026-09-17. ... ok
+test_the_compiled_endpoint_is_read_from_the_publisher_not_respelled (__main__.ReleaseScriptTests.test_the_compiled_endpoint_is_read_from_the_publisher_not_respelled)
+make-release.sh compiles the endpoint in; nightly.py publishes to it. ... ok
+test_wrong_version_and_signature_refuse (__main__.ReleaseScriptTests.test_wrong_version_and_signature_refuse) ... ok
+test_a_missing_or_duplicated_ruleset_refuses (__main__.RepositoryRuleTests.test_a_missing_or_duplicated_ruleset_refuses) ... ok
+test_a_ruleset_of_another_name_or_target_is_not_this_rule (__main__.RepositoryRuleTests.test_a_ruleset_of_another_name_or_target_is_not_this_rule) ... ok
+test_a_widened_exclusion_list_refuses_the_publish (__main__.RepositoryRuleTests.test_a_widened_exclusion_list_refuses_the_publish)
+THE positive control, and the exact shape of what happened on 2026-09-16. ... ok
+test_every_other_way_to_make_the_ban_a_no_op_also_refuses (__main__.RepositoryRuleTests.test_every_other_way_to_make_the_ban_a_no_op_also_refuses)
+An exclusion list that reads correctly is not on its own the rule. ... ok
+test_the_rule_as_the_ceo_set_it_passes (__main__.RepositoryRuleTests.test_the_rule_as_the_ceo_set_it_passes)
+Negative control: without this, every assertion below could pass vacuously. ... ok
+test_invalid_versions_and_dates (__main__.VersionTests.test_invalid_versions_and_dates) ... ok
+test_numeric_suffix_and_day_reset (__main__.VersionTests.test_numeric_suffix_and_day_reset) ... ok
+
+----------------------------------------------------------------------
+Ran 38 tests in 36.596s
+
+OK
+  PASS  nightly versions, real Git reservations, channel races and publication failures
+
+--- no-compile-time-paths.test.sh
+  PASS  P1 the checker's own self-test passes (16 cases)
+  PASS  P2 the real src-tauri source is clean
+  PASS  P3 the line that shipped on 2026-09-18 is refused, by file and line
+  PASS  P4 a hand-written home directory in a string literal is refused
+  PASS  P5 the same lines inside #[cfg(test)] are not refused (P3/P4 are the probes)
+  PASS  P6 OUT_DIR is allowed inside include!/include_bytes! and refused as a value
+  PASS  P7 placeholder homes are not findings — the same names no_host_paths.py allows
+  PASS  P8 a missing root is exit 2, never a clean pass over nothing
+  PASS  P9 build.rs's phone-app path (../../web/web-app) holds the app
+
+  9 passed, 0 failed
+
+--- package-app.test.sh
+
+=== A. arguments ===
+  PASS  A1 an unknown argument is refused
+  PASS  A2 --sign takes only the two modes
+  PASS  A3 --help shows the notarize form
+
+=== B. identity discovery ===
+  PASS  B1 [shim] no Developer ID identity -> refuse, and name the setup scripts
+  PASS  B2 a pinned identity the machine does not report -> refuse
+  PASS  B3 [shim] exactly one identity is DISCOVERED
+  PASS  B3b [shim] ...and the dry run says WHERE the identity came from
+  PASS  B4 [shim] two identities -> refuse rather than sort
+  PASS  B5 [shim] an identity on the machine does not make a plain run use it
+
+=== C. notary credentials ===
+  PASS  C1 [shim] notarize with no credentials -> refuse
+  PASS  C2 [shim] half an API key -> refuse, naming the missing halves
+  PASS  C3 [shim] a key path that does not exist -> refuse
+  PASS  C4 [shim] a notary key inside a git worktree -> refuse
+  PASS  C5 [shim] a world-readable notary key -> refuse
+  PASS  C6 [shim] a complete API key resolves
+  PASS  C7 [shim] a keychain profile resolves
+  PASS  C8 [shim] APPLE_ID/PASSWORD/TEAM_ID are NOT a credential path here
+
+=== D. verify_bundle, against a real signed bundle ===
+  PASS  D1 a real ad-hoc bundle verifies in adhoc mode
+  PASS  D2 ...and fails in developer-id mode on all EIGHT grounds, four of them on the requirement
+  PASS  D3 a bundle with no shipped icon fails
+  PASS  D4 a shipped icon this repository did not generate fails
+  PASS  D5 no NSMicrophoneUsageDescription fails
+  PASS  D6 a bundle whose signature was removed fails
+  PASS  D7 --expect-notarized runs the stapled-ticket check
+  PASS  D13 a correct bundle is owner-writable throughout (8/8) and still verifies — which is why the check is group/other, not owner
+  PASS  D14 a group-writable path inside Contents/ fails
+  PASS  D15 a world-writable directory inside Contents/ fails
+  PASS  D16 a shipped .jsonl is a state-in-bundle defect and fails at BUILD time
+  PASS  D17 a shipped config.json fails — his preferences must never ride inside the app
+  PASS  D8 a bundle with no CFBundleShortVersionString fails
+  PASS  D9 a bundle whose version is not the one this build intended fails
+  PASS  D10 a version with no release says so, declared --release, in the run that makes the bundle
+  PASS  D11 an explicit version overlay is the intended version, not a mismatch
+  PASS  D12 a version that IS a release says so, and names the commit
+
+=== F. version intent — release, nightly, and the development-build default ===
+  PASS  F1 a bare, undeclared version is refused unless --release says this bundle is one
+  PASS  F2 --release declares intent and the same bare version is accepted
+  PASS  F3 a nightly-suffixed version needs no declared intent — it was never 'bare'
+  PASS  F4 --nightly on that same version resolves
+  PASS  F5 --nightly does NOT excuse a bare version — only --release does
+  PASS  F6 --release and --nightly cannot both be declared
+  PASS  F7 --nightly with no value is refused
+  PASS  F8 a plain run with no declared intent is a development build, stamped {version}-dev.{commit}
+  PASS  F9 --release keeps the bare Cargo.toml version, unstamped
+  PASS  F10 --nightly refuses when Cargo.toml disagrees with the declared version
+  PASS  F11 --nightly with the version Cargo.toml already carries resolves
+  PASS  F12 a clean fixture tree's development stamp carries no .dirty suffix
+  PASS  F13 an uncommitted change appends .dirty to the development stamp
+  PASS  F14 a -dev. bundle is accepted with no declared intent, and says so
+
+=== E. the operator's environment cannot reach a case ===
+  PASS  E1 [shim] an exported API key does not satisfy 'no credentials'
+  PASS  E2 [shim] exported halves do not complete a half-supplied key
+  PASS  E3 [shim] an exported key does not outrank the case's profile
+  PASS  E4 [shim] an exported key does not excuse the Apple-ID refusal
+  PASS  E5 [shim] an exported RICHOS_SIGNING_IDENTITY does not reach discovery
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== package-app tests: all 54 passed ===
+
+--- rebuild-survival.test.sh
+
+=== G. the harness ===
+  PASS  G1 an unknown command is refused
+  PASS  G2 record without a label is refused
+  PASS  G3 a record directory inside a git worktree is refused
+  PASS  G4 a real ad-hoc bundle records its cdhash, signature kind and requirement
+  PASS  G5 comparing against a record that does not exist is refused
+  PASS  G6 two ad-hoc builds -> cannot pass, and the certificate is named as the fix
+  PASS  G7 the same bytes twice is INCONCLUSIVE, and says it is not a pass
+  PASS  G8 identical identifier-and-team requirements -> layer 1 passes
+  PASS  G9 ...and refuses to let layer 1 be read as the acceptance test
+  PASS  G10 requirements that differ -> FAIL
+  PASS  G11 a grant held by N and not by N+1 -> FAIL
+  PASS  G12 an unreadable TCC database -> INCOMPLETE, never a guessed pass
+  PASS  G13 layer 3 is always named as not machine-checkable
+  PASS  G14 SKIPPED-BY-FACT: this machine now HAS a Developer ID identity, so the no-certificate verdict is not reachable here
+  PASS  G15 a requirement printed WITHOUT the leading '# ' is read (the Developer ID form)
+  PASS  G16 a real signature records as 'developer-id', not as 'none'
+  PASS  G17 two unread requirements are INCOMPLETE, never a silent identical
+
+=== rebuild-survival tests: all 17 passed ===
+
+--- run-tests.test.sh
+
+=== H. the harness's host-gap allowance ===
+  PASS  H1 an undeclared gap is refused
+  PASS  H2 a declared gap with a reason is green, and the summary names it and its reason
+  PASS  H3 a declaration with no reason is refused
+  PASS  H4 a declaration whose suite answered is refused
+  PASS  H5 a real failure outranks a declared gap
+  PASS  H6 with no gap and no failure the original summary is unchanged
+  PASS  H8 a declared gap whose suite failed a case is a FAILURE, and the case is quoted
+  PASS  H9 a declared gap that failed nothing is still green
+  PASS  H7 an empty inventory is refused, never 'all 0 suites passed'
+
+=== P. the pool ===
+  PASS  P1 four suites finishing in reverse still print a,b,c,d, and every check is counted
+  PASS  P2 --jobs 2 ran at most 2 suites at any instant, and did fill both slots
+  PASS  P3 a failure inside a full pool still stops the run
+
+=== K. skip-when-unchanged ===
+  PASS  K0 the fixture repository commits and is clean — the K cases can reach a skip
+  PASS  K1a a suite with no recorded proof runs
+  PASS  K1b a proven suite is SKIPPED, naming the digest and the run that proved it
+  PASS  K2 a committed change to a declared input makes the suite run again
+  PASS  K3 an uncommitted edit to a declared input makes the suite run again
+  PASS  K4 a suite that declares no inputs is never skipped, however often it passes
+  PASS  K5 a suite that failed leaves no proof, so the next run still runs it and still fails
+
+=== S. --no-host-screen ===
+  PASS  S1 --no-host-screen holds back the suite that boots the app, and the run is still green
+  PASS  S2 without the flag nothing changes — both suites run, as they always did
+  PASS  S3 RICHOS_GUI_HOST with no runner REFUSES — never the host's screen, never a silent NOT RUN
+  PASS  S4 a host-screen suite that ran writes a proof naming its commit and its verdict
+  PASS  S5 --only with a name that matches nothing is refused
+  PASS  S6 every suite in the real inventory that could open a window is classified or declared inert
+  PASS  S7 the host-screen set is exactly [front-door.test.sh gui-boot.test.sh] — mentioning the library is not sourcing it
+
+=== E. this file's own footing ===
+  PASS  E1 every case survives the build's own environment exported hostile at it
+  PASS  E2 says() reads the payload, not the plumbing — on these 280948 bytes the retired 'printf | grep -Fq' idiom exited 1 for the same needle on the same bytes
+
+=== run-tests tests: all 28 passed ===
+
+--- signing-setup.test.sh
+
+=== E. make-signing-csr.sh ===
+  PASS  E1 a key directory inside a git worktree is refused
+  PASS  E2 RSA 2048, sha256WithRSAEncryption, key mode 600 in a 700 directory
+  PASS  E3 a second run refuses and leaves the existing key byte-identical
+  PASS  E4 --force does overwrite, so E3's refusal is a decision and not an inability
+  PASS  E5 a country code that is not two upper-case letters is refused
+  PASS  E6 --show on an empty directory says so rather than inventing a state
+  PASS  E7 --show reports the subject of the CSR that exists
+
+=== F. install-signing-cert.sh ===
+  PASS  F1 no argument -> refuse
+  PASS  F2 a .cer that does not exist -> refuse
+  PASS  F3 no private key -> refuse, and say why a .cer alone is useless
+  PASS  F4 a certificate issued against a different key -> refuse on the modulus
+  PASS  F5 a Developer ID INSTALLER certificate is refused, by name
+  PASS  F6 [shim] the matching, correctly-typed certificate reaches 'installed and usable'
+  PASS  F7 [shim] ...and the Team ID is read out of the identity string
+  PASS  F8 the passphrase-less PKCS#12 was removed after the import
+  PASS  F9 [shim] an import that reports success but yields NO identity is a FAILURE
+
+=== G. the defects of 2026-09-01 ===
+  PASS  G1 codesign accepts src-tauri/Entitlements.plist (plutil -lint would accept a broken one)
+  PASS  G1b ...and it is well-formed XML by a strict parser, which is the underlying property
+  PASS  G2 every 'security import' passes -P explicitly, so none of them can prompt
+  PASS  G3 an encrypted private key is refused, non-interactively, before any keychain call
+  PASS  G4 the openssl on PATH is never used; the pinned one is, and the run still succeeds
+  PASS  G5 an openssl that exits 0 and leaves a 0-byte file is caught at that step
+  PASS  G6 a 0-byte .cer is refused as unreadable, at the conversion
+  PASS  G7 an empty --keychain is a FAILURE even when login holds an identity
+  PASS  G8 [shim] --check lists the identity line itself under its own heading
+  PASS  G9 [shim] --check exits NON-ZERO when this machine cannot sign
+  PASS  G10 no PKCS#12 is built, so no passphrase has to travel anywhere
+
+=== Z. this suite touched nothing of the operator's ===
+  PASS  Z the real keychain's codesigning inventory is identical before and after
+
+=== signing-setup tests: all 28 passed ===
+
+--- updater-setup.test.sh
+
+=== A. the updater signing key, and the refusals ===
+  PASS  A1 --updater with no key refuses, and says there is no fallback
+  PASS  A2 a key path that does not exist refuses
+  PASS  A3 a key inside a git worktree refuses
+  PASS  A4 a world-readable key refuses
+  PASS  A5 a real key, outside a repo, mode 600, resolves
+  PASS  A6 ...and no manifest is written without RICHOS_UPDATE_BASE_URL
+  PASS  A7 ...and names the base URL when it is set
+
+=== B. the shipped configuration ===
+  PASS  B1 bundle.createUpdaterArtifacts is on — without it no update artifact is ever made
+  PASS  B2 the endpoint is the one GitHub Releases manifest URL, over https
+  PASS  B2b the endpoint is a real, resolvable shape — no .invalid, no {{templates}} a static host cannot fill
+  PASS  B3 the pubkey decodes to a minisign public key
+  PASS  B4 the webview holds NO updater permission, and the capability file says why
+  PASS  B5 the build always passes --no-sign, so the bundler never signs a tarball of an unsigned app
+  PASS  B6 tauri.conf.json carries no version, so src-tauri/Cargo.toml (1.2.0) is the only place it is written
+  PASS  B7 package-app.sh creates the staged frontend directory, so a fresh clone can be packaged
+
+=== C. the archive builder, against a real bundle skeleton ===
+  PASS  C1 every member is rooted at the one .app (the updater DROPS the first component)
+  PASS  C2 the executable bit survives (without it the installed app cannot launch)
+  PASS  C3 symlinks stay symlinks (a framework's Current/ is one, and copying it doubles the bundle)
+  PASS  C4 no AppleDouble members — bsdtar's xattr sidecars are not in here
+  PASS  C5 verify passes its own output
+
+=== D. the archive verifier refuses what it should ===
+  PASS  D1 two roots -> refused (the updater drops only the FIRST component)
+  PASS  D2 no Info.plist -> refused (it would extract into an empty bundle)
+  PASS  D3 an AppleDouble member -> refused
+  PASS  D4 nothing executable -> refused (the installed app cannot launch)
+
+=== E. the signature verifier — the check the signer's exit code does not make ===
+  PASS  E1 a good pair VERIFIES against the pubkey in the config
+  PASS  E2 a TAMPERED artifact is REFUSED
+  PASS  E3 a well-formed signature from ANOTHER key is REFUSED
+
+=== G. the update manifest, judged by the type that judges it on a customer's Mac ===
+  PASS  G1 a well-formed manifest VERIFIES against the plugin's own RemoteRelease
+  PASS  G2 no entry for this platform -> REFUSED
+  PASS  G3 the manifest's signature is not the .sig beside the archive -> REFUSED
+  PASS  G4 a manifest announcing the wrong URL -> REFUSED
+  PASS  G5 an http download URL -> REFUSED
+  PASS  G6 a version that is not strictly greater -> REFUSED
+
+=== updater-setup.test.sh: all 33 passed ===
+
+--- voice-component.test.sh
+  ok  the shell fetcher and the service read the SAME pin table, field for field
+  ok  service cost reader uses canonical defaults and preserves file injection
+  ok  compiled Rust readers agree with the JavaScript metadata consumers
+  ok  legacy JavaScript imports share canonical exports and object identity
+
+4 passed, 0 failed
+  ok  engine-only copy runs its own core suites from an unrelated directory
+  ok  copied service and HUD use the release-local voice component
+  ok  missing canonical pins cannot fall back to the original checkout or legacy JSON
+  ok  missing canonical costs fails in the actual service reader
+
+4 passed, 0 failed
+2 mutations over 2 checks
+Snapshot sha256: f3f152887f0a7cf552f51e963e2da19884ba4c1eea919238674c49270b3bdb7c
+1 red  break a
+1 red  break b
+2/2 audited checks observed RED
+  ok  mutation audit starts each case intact and leaves caller edits untouched
+2 mutations over 2 checks
+Snapshot sha256: f3f152887f0a7cf552f51e963e2da19884ba4c1eea919238674c49270b3bdb7c
+1 red  break b
+1/2 audited checks observed RED
+SURVIVED (no audited assertion failed): break a
+NEVER SEEN RED: a is intact
+2 mutations over 2 checks
+Snapshot sha256: f3f152887f0a7cf552f51e963e2da19884ba4c1eea919238674c49270b3bdb7c
+file:///private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/richos-voice-mutations-tohErm/trial/fixture/values.mjs:1
+export const a = ;;
+                 ^
+
+SyntaxError: Unexpected token ';'
+    at compileSourceTextModule (node:internal/modules/esm/utils:305:16)
+    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:110:18)
+    at #translate (node:internal/modules/esm/loader:467:20)
+    at afterLoad (node:internal/modules/esm/loader:523:29)
+    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:528:12)
+    at #getOrCreateModuleJobAfterResolve (node:internal/modules/esm/loader:571:36)
+    at afterResolve (node:internal/modules/esm/loader:619:52)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:625:12)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:160:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:245:17)
+
+Node.js v25.5.0
+
+1 red  break b
+1/2 audited checks observed RED
+CRASHED THE SUITE: break a
+NEVER SEEN RED: a is intact
+2 mutations over 2 checks
+Snapshot sha256: f3f152887f0a7cf552f51e963e2da19884ba4c1eea919238674c49270b3bdb7c
+1 red  break b
+1/2 audited checks observed RED
+DID NOT APPLY EXACTLY ONCE: break a
+NEVER SEEN RED: a is intact
+  ok  mutation audit refuses missing anchors, survivors and import crashes
+2 mutations over 2 checks
+Snapshot sha256: 91b5dcdd2e9d6bdad178e383139ff1b8ae6ecfac43f9e2c11c3b7a6a2dbb525b
+  ok  mutation audit refuses a failing intact positive control
+  ok  interrupted mutation audit cannot leave a mutation in the caller
+
+4 passed, 0 failed
+  PASS  Rust source build without tools embeds the same metadata
+  PASS  Rust rebuild refuses missing canonical model data
+
+per-suite wall clock (pool of 3, 223 s total):
+  front-door.test.sh                   -  (not run, no screen)
+  frontend-payload.test.sh             0s
+  gui-boot.test.sh                     -  (not run, no screen)
+  make-engine-asset.test.sh          202s
+  make-release.test.sh               222s
+  nightly-local.test.sh                1s
+  nightly.test.sh                     37s
+  no-compile-time-paths.test.sh        3s
+  package-app.test.sh                  7s
+  rebuild-survival.test.sh             1s
+  run-tests.test.sh                   23s
+  signing-setup.test.sh                3s
+  updater-setup.test.sh               55s
+  voice-component.test.sh             35s
+
+=== app/scripts: 12 of 14 suites passed — 203 checks — 2 NOT RUN (no screen): front-door.test.sh gui-boot.test.sh ===
+    front-door.test.sh: this suite drives the SHIPPED window — it needs a built RichOS.app, which THIS build has not produced yet at the gate stage, and a person's unlocked screen to put it on (its own P1/P2 refuse a sleeping or locked one). There is no app for it to drive on a build host, so it reports the gap and launches nothing. It is run by hand, or from a walk, against a published release: scripts/front-door.test.sh --release <release dir>. Measured on this Mac, 2026-09-18: a bare invocation exits 2 in nine lines and no process.
+    front-door.test.sh: no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset
+    gui-boot.test.sh: no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset
