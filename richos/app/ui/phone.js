@@ -358,10 +358,26 @@
       </div>
     </div>
 
+    <!-- THE AT-HOME ROUTE'S OWN SCREEN. It is what "At home only" leads to, and it was the one
+         screen in the flow with no way back — Urban's N3.
+
+         *"Pick a different way is on Screen 0, on Screens 2/3/7, on This Mac is ready and —
+         since G2 — on the pairing screen. It is absent from exactly one: the screen you land on
+         by answering the question. A user who picks At home only, reads the two sentences and
+         changes their mind has Close and nothing else."*
+
+         **THE FIFTH COPY IS A PLAIN ONE.** Nothing is serving on this screen — "Set my phone up"
+         has not been pressed, so there is no socket and no live code — which is why it shares the
+         handler with the three that only move between screens, and not the pairing screen's,
+         whose whole point is that it has something to put down.
+
+         (No backticks in here, and that is not a style note: this markup is a template literal,
+         so a backtick ends the string and takes the whole sheet with it. It cost one run.) -->
     <div id="phone-off" hidden>
       <p class="overlay-note" id="phone-off-message"></p>
       <div class="desk-card-actions">
         <button id="phone-start" class="desk-btn desk-btn--confirm" type="button">Set my phone up</button>
+        <button id="phone-off-back" class="desk-btn" type="button">Pick a different way</button>
       </div>
     </div>
 
@@ -1018,8 +1034,16 @@
       // so the two screens cannot word the same evidence differently.
       peerLine(field("phone-ts-peer"), tailnet);
     }
+    // **"THEN" REFERS BACKWARDS, AND ON THIS ROUTE THERE IS NOTHING BEHIND IT ANY MORE** —
+    // Urban's N4. G3 moved this heading to the TOP of the Tailscale screen and left the word
+    // pointing at a step that is now below it: *"the one thing on the finished screen that reads
+    // like a file that was edited rather than written."*
+    //
+    // The home route keeps its "2. Then", because there a "1." really is above it — the
+    // certificate step that makes the address in this one open at all. One node, two positions,
+    // two headings, and the numbering is the tell for which is which.
     field("phone-code-title").textContent = onTailscale
-      ? "Then point your phone's camera at this"
+      ? "Point your phone's camera at this"
       : "2. Then point it at this, to open Rich";
     field("phone-words-title").textContent = onTailscale
       ? "Check the six words match"
@@ -1170,6 +1194,25 @@
     await refresh();
     const first = sheet.querySelector("button:not([disabled])");
     if (first) first.focus();
+    // **AND THE SHEET OPENS WHERE THE SCREEN BEGINS, NOT WHERE HE LEFT IT** — Urban's N2.
+    //
+    // G12's "reset the scroll on open" was applied to the Settings panel and not to this sheet,
+    // so the reopen G1 is about — close the sheet mid-pairing, go and find your phone, come back
+    // — landed at the BOTTOM of a two-viewport screen, a page below the live code he came back
+    // for (his frames 05 and 06).
+    //
+    // **`hidden` DOES NOT FORGET A SCROLL OFFSET, MEASURED RATHER THAN ASSUMED.** Probed on this
+    // build in the WebKit Tauri ships: the panel came back at 708 of 708 at 1400x950 and at 928
+    // of 928 at 1024x700 — the app's own minimum and the size Urban walked — each exactly where
+    // it was left. A `display: none` box reports 0 while it is hidden, which is what makes this
+    // easy to talk yourself out of.
+    //
+    // Two branches, and the live one is the same helper `Show me another code` uses, so the two
+    // doors into this screen cannot land in different places. `scrollToCode` no-ops when the code
+    // block is hidden, so the order below is: top first, then the code if there is one.
+    const panel = sheet.querySelector(".overlay-panel");
+    if (panel) panel.scrollTop = 0;
+    scrollToCode();
   }
 
   /// **PUT THE CODE BACK IN FRONT OF HIM** — Urban's G4.
@@ -1197,6 +1240,20 @@
   /// `toCode` is TRUE only for "Show me another code", and false for the two controls that
   /// ENTER this screen (`Set my phone up`, on Screen 4 and on the off screen). Entering a screen
   /// scrolled past its own opening sentence would be the same defect pointing the other way.
+  ///
+  /// **AND THE ANSWER HE GAVE GOES WITH THE REQUEST** — Urban's N1. This call used to take no
+  /// argument, so the route chooser's two doors led to one place: `serving_plan` on the Mac
+  /// preferred the tailnet whenever a certificate would issue, and `At home only` — the option
+  /// whose own sentence says *"there is no account to make"* — produced the Tailscale screen,
+  /// with four steps beginning "Install Tailscale from the store" and the Mac's own account
+  /// named in step 2. *"A product that asks a question and ignores the answer has spent the
+  /// trust the rest of this flow earned."*
+  ///
+  /// **`route` IS NULL HERE IN EXACTLY ONE CASE, AND THAT CASE IS RIGHT.** `open()` forgets the
+  /// route on every open (Urban §1), so `Show me another code` pressed after a reopen sends
+  /// nothing — and the Mac wants nothing: its channel is already up, `start` returns early
+  /// without re-planning, and the path it came up on is what `servingVia` keeps reporting. The
+  /// route decides which channel is BUILT; it never re-decides one that is running.
   async function begin(toCode) {
     if (busy) return;
     busy = true;
@@ -1204,7 +1261,7 @@
     field("phone-start").disabled = true;
     field("phone-refresh").disabled = true;
     try {
-      render(await bridge.invoke("phone_begin_pairing"));
+      render(await bridge.invoke("phone_begin_pairing", { route }));
       field("phone-message").textContent = "";
       if (toCode) scrollToCode();
     } catch (error) {
@@ -1223,9 +1280,17 @@
   field("phone-refresh").addEventListener("click", () => begin(true));
   field("phone-close").addEventListener("click", close);
 
-  // THE ROUTE CONTROLS. "At home only" is the shipped flow with nothing changed — it does not even
-  // start pairing, because the shipped `#phone-off` block already has that button and its own
-  // explanation of what is about to happen.
+  // THE ROUTE CONTROLS. Each writes the answer into `route`, and `route` is what `begin()` sends
+  // to the Mac — that is the whole of Urban's N1 fix on this side of the bridge.
+  //
+  // **THE COMMENT THAT USED TO BE HERE WAS TRUE WHEN IT WAS WRITTEN AND IS THE REASON N1
+  // SHIPPED.** It read: *"'At home only' is the shipped flow with nothing changed — it does not
+  // even start pairing, because the shipped `#phone-off` block already has that button."* The
+  // second half is still true: this control moves to `#phone-off`, which carries `Set my phone
+  // up`. The FIRST half stopped being true the moment the Mac learned to prefer the tailnet, and
+  // nothing here noticed, because "with nothing changed" was a claim about a backend this file
+  // could not see. `servingVia` is now the only thing that answers which path is being served,
+  // and `route` is the only thing that decides it.
   field("phone-route-anywhere").addEventListener("click", async () => {
     route = "anywhere";
     identityUnderstood = false;
@@ -1248,7 +1313,10 @@
   field("phone-ts-open").addEventListener("click", () =>
     openExternal(field("phone-ts-open").dataset.target || "")
   );
-  for (const id of ["phone-ts-back", "phone-ts-ready-back", "phone-identity-back"]) {
+  // `phone-off-back` is Urban's N3 — the fifth copy, on the At-home route's own screen, and it
+  // belongs in this list rather than beside the pairing screen's: on that screen nothing has been
+  // started, so forgetting the route IS the whole of going back.
+  for (const id of ["phone-ts-back", "phone-ts-ready-back", "phone-identity-back", "phone-off-back"]) {
     field(id).addEventListener("click", async () => {
       route = null;
       await refresh();

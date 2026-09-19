@@ -1574,6 +1574,449 @@ async function openSheet(browser, theme, preset) {
     return "order " + JSON.stringify(screen.order.slice(0, 3)) + ", account in <strong>: " + JSON.stringify(screen.strong);
   });
 
+  // ---- N1: the chooser has two doors, and both of them now lead where they say ------------
+
+  await run.check(
+    "27  the answer he gives is the path the Mac serves: `At home only` on a Mac whose tailnet is ready",
+    async () => {
+      // URBAN'S N1 BLOCKER, signoff 2026-09-19 10.40, his frames 10 -> 11 -> 12. He pressed `At
+      // home only` — *"Your phone talks to this Mac directly, over your own home network …
+      // there is no account to make"* — then `Set my phone up`, and got the **Tailscale**
+      // screen: a `…ts.net` pairing URL, *"Install Tailscale from the store"*, and *"Sign in
+      // with Google as <his account>"*. *"A product that asks a question and ignores the answer
+      // has spent the trust the rest of this flow earned."*
+      //
+      // **THE MAC IN THIS CHECK IS HIS MAC**: `state: "ready"`, an account, a certificate that
+      // would issue. That is the only Mac the defect happens on, and it is the only Mac this
+      // ships against — a fixture with no tailnet would pass on the broken build.
+      //
+      // **BOTH THEMES**, because his acceptance says both.
+      //
+      // **AND BOTH DOORS IN ONE CHECK.** §61 keeps the Tailscale path and puts it first, so a
+      // fix that served the home path to everybody would satisfy the first half of this check
+      // and break the CEO's own priority. The two halves share a fixture and differ in one
+      // thing: which button was pressed.
+      const READY = {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      };
+      // What the user can actually READ: `innerText` and not `textContent`, because every
+      // Tailscale node is in the markup on both routes and hidden on one of them. The account
+      // being *in the DOM* is not the defect; the account being *on the screen* is.
+      const readScreen = () =>
+        (async () => {
+          const status = await window.RichBridge.invoke("phone_status");
+          const shown = (id) => {
+            const node = document.getElementById(id);
+            return !!node && node.offsetParent !== null;
+          };
+          return {
+            servingVia: status.servingVia,
+            pairUrl: (document.getElementById("phone-pair-url").textContent || "").trim(),
+            trustUrl: (document.getElementById("phone-trust-url").textContent || "").trim(),
+            steps: document.querySelectorAll("#phone-steps li").length,
+            tsSteps: shown("phone-ts-steps"),
+            warnings: shown("phone-home-warnings"),
+            visibleText: document
+              .getElementById("phone-sheet")
+              .innerText.replace(/\s+/g, " ")
+              .trim(),
+          };
+        })();
+
+      const out = [];
+      for (const theme of ["dark", "light"]) {
+        // ---- the door that was lying ----
+        const home = await openSheet(browser, theme, { phoneTailnet: READY });
+        await home.waitForSelector("#phone-route:not([hidden])");
+        await home.click("#phone-route-home");
+        await home.waitForSelector("#phone-off:not([hidden])");
+        await home.click("#phone-start");
+        await home.waitForSelector("#phone-pairing:not([hidden])");
+        const athome = await home.evaluate(readScreen);
+        await home.close();
+
+        assertEqual(
+          athome.servingVia,
+          "home",
+          "THE BLOCKER: he answered `At home only` and the Mac is serving over " +
+            athome.servingVia + " (" + theme + ")"
+        );
+        assert(
+          /^https:\/\/mm1\.local:8443\/#pair=/.test(athome.pairUrl),
+          "the pairing URL is not on the home name: " + JSON.stringify(athome.pairUrl)
+        );
+        assertEqual(athome.trustUrl, "http://mm1.local:8444/ca", "the trust code is not on the screen that needs it");
+        assert(athome.warnings, "the home path's two warnings are not on the home path");
+        assertEqual(athome.steps, 16, "the sixteen certificate taps are not on the screen");
+        assert(!athome.tsSteps, "THE BLOCKER'S OWN SENTENCE: the four Tailscale steps are on the At-home screen");
+        // **AND THE ACCOUNT IS NAMED NOWHERE**, which is his acceptance in his own words and the
+        // §61.1 half: this is the user who deliberately picked the route with no shared identity.
+        for (const forbidden of [
+          "someone@gmail.com",
+          "Google as",
+          "Install Tailscale from the store",
+          "Tailscale account",
+          "ts.net",
+        ]) {
+          assert(
+            !athome.visibleText.includes(forbidden),
+            "THE BLOCKER: " + JSON.stringify(forbidden) +
+              " is on screen after he chose `At home only` (" + theme + ")"
+          );
+        }
+
+        // ---- and the door that was already right ----
+        const tail = await takeTheTailscaleRoute(theme, READY);
+        await tail.waitForSelector("#phone-ts-ready:not([hidden])");
+        await tail.click("#phone-ts-start");
+        await tail.waitForSelector("#phone-pairing:not([hidden])");
+        const anywhere = await tail.evaluate(readScreen);
+        await tail.close();
+
+        assertEqual(anywhere.servingVia, "tailnet", "`Anywhere` stopped being served over the tailnet (" + theme + ")");
+        assert(
+          /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(anywhere.pairUrl),
+          "the Tailscale route's code no longer goes out under the tailnet name: " + JSON.stringify(anywhere.pairUrl)
+        );
+        assert(anywhere.tsSteps, "the four Tailscale steps are gone from the Tailscale route");
+        assert(!anywhere.warnings, "the certificate warnings are on the route that installs no certificate");
+        assert(
+          anywhere.visibleText.includes("someone@gmail.com"),
+          "the Tailscale route stopped naming the account, which is the whole of §61.1"
+        );
+
+        out.push(
+          theme + ": At home only -> " + athome.servingVia + " " + athome.pairUrl.split("/#")[0] +
+            ", 16 steps, 0 Tailscale steps, account absent; Anywhere -> " + anywhere.servingVia +
+            " " + anywhere.pairUrl.split("/#")[0]
+        );
+      }
+      return out.join("; ");
+    }
+  );
+
+  await run.check(
+    "28  reopening the sheet with a live code lands on the code, not at the bottom of the screen",
+    async () => {
+      // URBAN'S N2 (HIGH), his frame 05 versus 06. G12's "reset the scroll on open" was applied
+      // to the SETTINGS PANEL and not to the phone sheet, so the reopen that G1 was about — close
+      // the sheet mid-pairing, go and get your phone, come back — lands at the BOTTOM of a
+      // two-viewport screen, past the live code the user came back for. *"This is G3 and G4's own
+      // principle failing on the third door into the same screen."*
+      //
+      // **THE STATE IS PRODUCED THE WAY A PERSON PRODUCES IT**: scroll down, close, reopen. It is
+      // not injected by setting `scrollTop` after the open, which would test the assignment
+      // rather than the behavior.
+      const reopen = async (page) => {
+        await page.click("#phone-close");
+        // `state: "hidden"` rather than a `[hidden]` selector: the default wait is for a VISIBLE
+        // match, which a hidden sheet can never be, and the check would time out at 30 s green-
+        // looking-red rather than saying what it saw.
+        await page.waitForSelector("#phone-sheet", { state: "hidden" });
+        if (!(await page.isVisible("#set-phone-open"))) await page.click("#set-btn");
+        await page.waitForSelector("#set-phone-open");
+        await page.click("#set-phone-open");
+        await page.waitForSelector("#phone-sheet:not([hidden])");
+        // The open is `async` (it awaits `phone_status`), so the screen it draws — and the scroll
+        // it sets on the back of that draw — is one turn later than the click.
+        await page.waitForTimeout(250);
+      };
+      const where = (page) =>
+        page.evaluate(() => {
+          const panel = document.querySelector("#phone-sheet .overlay-panel");
+          const code = document.getElementById("phone-code-block");
+          const p = panel.getBoundingClientRect();
+          const c = code.getBoundingClientRect();
+          return {
+            scrollTop: Math.round(panel.scrollTop),
+            scrollable: Math.round(panel.scrollHeight - panel.clientHeight),
+            codeHidden: code.hidden,
+            codeTopInPanel: Math.round(c.top - p.top),
+            panelHeight: Math.round(p.height),
+          };
+        });
+
+      // **THE SCROLL SURVIVES THE HIDE, MEASURED BEFORE THIS CHECK WAS WRITTEN.** `sheet.hidden`
+      // makes the panel `display: none`, and it would have been reasonable to assume WebKit
+      // forgets a scroll offset it cannot render. It does not: probed on this build, the panel
+      // came back at **708 of 708** at 1400x950 and at **928 of 928** at 1024x700, both exactly
+      // where they were left. So the defect is reproducible here and this check can go red.
+      //
+      // **AND IT IS WALKED ON THE TAILSCALE ROUTE, WHICH IS URBAN'S OWN.** On the home route the
+      // code block sits low enough that the bottom of the scroll still has it in view (codeTop
+      // 344 of an 812px panel, measured) — so a check written there would have passed on the
+      // broken build, for a reason that is about G3's one-node-two-positions and nothing to do
+      // with N2. Both routes are walked; only the second could have caught this.
+      //
+      // The assertion is the same on both, and it is check 21's: the code is IN VIEW. It is not
+      // "at the top", because on the home route **the top is unreachable** — the code block sits
+      // inside the last viewport of that document, so the maximum scroll and `scrollToCode()`
+      // land in the same place, 344px into an 812px panel. That is the same number check 21
+      // reports for `Show me another code`, and it is why the home half of this check passes on
+      // the broken build: it is a non-regression, and the Tailscale half is the proof.
+      const out = [];
+      for (const route of ["home", "tailnet"]) {
+        const page =
+          route === "tailnet"
+            ? await takeTheTailscaleRoute("dark", {
+                state: "ready",
+                name: "mm1.tail9a3b2.ts.net",
+                origin: "https://mm1.tail9a3b2.ts.net:8443",
+                account: "Google as someone@gmail.com",
+              })
+            : await openSheet(browser, "dark", { phonePairing: true });
+        if (route === "tailnet") {
+          await page.waitForSelector("#phone-ts-ready:not([hidden])");
+          await page.click("#phone-ts-start");
+        }
+        await page.waitForSelector("#phone-pairing:not([hidden])");
+        await page.evaluate(() => {
+          const panel = document.querySelector("#phone-sheet .overlay-panel");
+          panel.scrollTop = panel.scrollHeight;
+        });
+        const before = await where(page);
+        await reopen(page);
+        const after = await where(page);
+        await page.close();
+
+        assert(before.scrollable > 40, route + ": the panel does not scroll in this window, so this check proves nothing");
+        assert(before.scrollTop > 40, route + ": the walk never reached the bottom, so the reopen has nothing to undo");
+        assert(!after.codeHidden, route + ": the code went away across the reopen, which is a different defect");
+        assert(
+          after.codeTopInPanel >= 0 && after.codeTopInPanel < after.panelHeight - 40,
+          "THE DEFECT (" + route + "): after reopening, the live code sits at " +
+            after.codeTopInPanel + "px in a " + after.panelHeight + "px panel — he came back for " +
+            "the code and the sheet gave him the place he left"
+        );
+        out.push(
+          route + ": left at " + before.scrollTop + "px of " + before.scrollable +
+            ", reopened with the code " + after.codeTopInPanel + "px from the top"
+        );
+      }
+
+      // ---- and with NO live code the other branch runs: the top of the screen, never the middle
+      // of a screen he has never seen. The expired screen is one viewport by design (Urban's G7),
+      // so this half is a guard on the branch rather than a geometry measurement, and it says so.
+      const expired = await openSheet(browser, "dark", { phonePairingExpired: true });
+      await expired.waitForSelector("#phone-expired:not([hidden])");
+      await expired.evaluate(() => {
+        const panel = document.querySelector("#phone-sheet .overlay-panel");
+        panel.scrollTop = panel.scrollHeight;
+      });
+      await reopen(expired);
+      const rest = await where(expired);
+      await expired.close();
+      assertEqual(rest.scrollTop, 0, "a reopen with no live code did not land at the top of the sheet");
+      out.push(
+        "no live code: reopened at scrollTop 0 (that screen scrolls " + rest.scrollable +
+          "px in this window)"
+      );
+      return out.join("; ");
+    }
+  );
+
+  await run.check(
+    "29  the At-home route's own screen has the way back, and it takes nothing down to give it",
+    async () => {
+      // URBAN'S N3 (MEDIUM), his frame 10: *"`Pick a different way` is on Screen 0, on Screens
+      // 2/3/7, on `This Mac is ready` and — since G2 — on the pairing screen. It is absent from
+      // exactly one: the screen you land on by answering the question. A user who picks `At home
+      // only`, reads the two sentences and changes their mind has Close and nothing else."*
+      //
+      // **AND IT MUST NOT BECOME A SIXTH VARIANT OF THE CONTROL.** The pairing screen's copy
+      // stops the socket because there is one; this screen has never started anything, so a
+      // back button that called `phone_stop_pairing` would be reaching for a thing that is not
+      // there. The check asserts the Mac is untouched across the press.
+      const page = await openSheet(browser, "dark", {
+        phoneTailnet: {
+          state: "ready",
+          name: "mm1.tail9a3b2.ts.net",
+          origin: "https://mm1.tail9a3b2.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        },
+      });
+      await page.waitForSelector("#phone-route:not([hidden])");
+      await page.click("#phone-route-home");
+      await page.waitForSelector("#phone-off:not([hidden])");
+
+      const before = await page.evaluate(async () => {
+        const back = document.getElementById("phone-off-back");
+        const status = await window.RichBridge.invoke("phone_status");
+        return {
+          present: !!back,
+          // `offsetParent` rather than a text search: four other copies of this label are in the
+          // markup on every screen, hidden with their blocks, so a check that looked for the
+          // string would pass on a button nobody can press. Check 19 makes the same distinction.
+          visible: !!back && back.offsetParent !== null,
+          label: back ? back.textContent.trim() : "",
+          listening: status.listening,
+          // EVERY COPY OF THE CONTROL, counted in the markup: five screens, five buttons.
+          copies: [...document.querySelectorAll("#phone-sheet button")]
+            .filter((b) => b.textContent.trim() === "Pick a different way")
+            .map((b) => b.id),
+        };
+      });
+      assert(before.present, "THE DEFECT: the At-home route's screen has no `Pick a different way`");
+      assert(before.visible, "the control is in the markup but not on the screen he is looking at");
+      assertEqual(before.label, "Pick a different way", "the control is not under the name the rest of the flow uses");
+      assertEqual(before.listening, false, "something was already serving on a screen that has started nothing");
+      assertEqual(
+        before.copies.sort(),
+        ["phone-identity-back", "phone-off-back", "phone-pairing-back", "phone-ts-back", "phone-ts-ready-back"],
+        "the five screens do not carry five copies of the way back"
+      );
+
+      await page.click("#phone-off-back");
+      await page.waitForSelector("#phone-route:not([hidden])");
+      const after = await page.evaluate(async () => {
+        const status = await window.RichBridge.invoke("phone_status");
+        return {
+          chooser: !document.getElementById("phone-route").hidden,
+          off: !document.getElementById("phone-off").hidden,
+          listening: status.listening,
+          pairUrl: status.pairUrl,
+        };
+      });
+      await page.close();
+      assert(after.chooser, "pressing it did not return to the route chooser");
+      assert(!after.off, "the At-home screen is still up after backing out of it");
+      // NOTHING WAS TAKEN DOWN, because nothing was up: the Mac is in exactly the state it was
+      // in before he answered the question.
+      assertEqual(after.listening, false, "the back button started or stopped something on a screen with nothing running");
+      assertEqual(after.pairUrl, null, "a pairing code exists after a screen that never asked for one");
+      return (
+        "5 copies " + JSON.stringify(before.copies) + "; At home only -> back to the chooser with " +
+        "listening " + before.listening + " -> " + after.listening
+      );
+    }
+  );
+
+  await run.check(
+    "30  the Tailscale code heading does not refer back to a step that is below it",
+    async () => {
+      // URBAN'S N4 (LOW), frames 03 and 15: G3 moved this heading to the top of the screen and
+      // *"Then"* stayed, pointing backwards at a step that is now underneath it. *"Three words,
+      // and it is the one thing on the finished screen that reads like a file that was edited
+      // rather than written."*
+      //
+      // **AND THE HOME ROUTE KEEPS ITS OWN "2. Then"**, which is the half that makes this a fix
+      // rather than a find-and-replace: there a numbered 1. really is above it.
+      const ts = await takeTheTailscaleRoute("dark", {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      });
+      await ts.click("#phone-ts-start");
+      await ts.waitForSelector("#phone-pairing:not([hidden])");
+      const tailnet = await ts.evaluate(() => ({
+        code: document.getElementById("phone-code-title").textContent.trim(),
+        // WHAT IS ACTUALLY ABOVE IT, so this is about position and not only about a word: on
+        // this route the code block is the first thing under the opening sentence (G3), which
+        // is what made "Then" wrong in the first place.
+        // 4 === DOCUMENT_POSITION_FOLLOWING.
+        codeFirst: !!(
+          document
+            .getElementById("phone-code-block")
+            .compareDocumentPosition(document.getElementById("phone-ts-steps")) & 4
+        ),
+      }));
+      await ts.close();
+
+      const home = await openSheet(browser, "dark", { phonePairing: true });
+      await home.waitForSelector("#phone-pairing:not([hidden])");
+      const homeHeadings = await home.evaluate(() => ({
+        trust: document.querySelector("#phone-home-warnings .phone-step-title").textContent.trim(),
+        code: document.getElementById("phone-code-title").textContent.trim(),
+      }));
+      await home.close();
+
+      assert(
+        !/^then\b/i.test(tailnet.code),
+        'THE DEFECT: the Tailscale code heading still begins with "Then" — ' + JSON.stringify(tailnet.code)
+      );
+      assertEqual(tailnet.code, "Point your phone's camera at this", "the Tailscale heading is not the sentence Urban asked for");
+      assert(tailnet.codeFirst, "the code no longer comes before the phone steps, which is what made 'Then' wrong");
+      // THE HOME ROUTE IS UNTOUCHED: "1." above, "2. Then" below, and the word is correct there.
+      assert(/^1\./.test(homeHeadings.trust), "the home route lost the step the word refers back to");
+      assertEqual(homeHeadings.code, "2. Then point it at this, to open Rich", "the home route's heading changed with the Tailscale one");
+      return "tailnet: " + JSON.stringify(tailnet.code) + "; home: " + JSON.stringify(homeHeadings.code) +
+        " under " + JSON.stringify(homeHeadings.trust.slice(0, 2));
+    }
+  );
+
+  await run.check(
+    "31  a reopened sheet asks for a fresh code with NO route, and stays on the path it was on",
+    async () => {
+      // THE ONE STRUCTURAL RISK IN N1's SHAPE, pinned before it can bite. `phone_begin_pairing`
+      // now carries the user's answer — and `open()` forgets that answer on every open by design
+      // (Urban §1), so `Show me another code` pressed after a reopen sends `route: null`.
+      //
+      // That is correct, and this check is what makes it more than a claim. The Mac consults the
+      // route when it BUILDS a channel; a channel that is already up returns early from `start`
+      // and keeps the path it came up on, which is what `servingVia` reports. If that were ever
+      // to stop being true, a returning user on the Tailscale route would press the one button on
+      // the screen and be handed a home-path code — Urban's N1 defect pointing the other way, and
+      // reachable from a screen he is already standing on.
+      const page = await takeTheTailscaleRoute("dark", {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      });
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
+      await page.click("#phone-ts-start");
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+      const started = await page.evaluate(() => window.RichBridge.invoke("phone_status"));
+
+      await page.click("#phone-close");
+      await page.waitForSelector("#phone-sheet", { state: "hidden" });
+      if (!(await page.isVisible("#set-phone-open"))) await page.click("#set-btn");
+      await page.click("#set-phone-open");
+      await page.waitForSelector("#phone-sheet:not([hidden])");
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+      // THE SHEET REALLY HAS FORGOTTEN THE ANSWER at this point, which is what makes the press
+      // below the interesting one rather than a repeat of check 27.
+      await page.click("#phone-refresh");
+      await page.waitForTimeout(250);
+
+      const after = await page.evaluate(async () => {
+        const status = await window.RichBridge.invoke("phone_status");
+        const shown = (id) => {
+          const node = document.getElementById(id);
+          return !!node && node.offsetParent !== null;
+        };
+        return {
+          servingVia: status.servingVia,
+          pairUrl: (document.getElementById("phone-pair-url").textContent || "").trim(),
+          tsSteps: shown("phone-ts-steps"),
+          warnings: shown("phone-home-warnings"),
+          heading: document.getElementById("phone-code-title").textContent.trim(),
+        };
+      });
+      await page.close();
+
+      assertEqual(started.servingVia, "tailnet", "the harness never served over the tailnet, so this proves nothing");
+      assertEqual(
+        after.servingVia,
+        "tailnet",
+        "THE DEFECT: a fresh code asked for after a reopen moved the Mac to the " + after.servingVia + " path"
+      );
+      assert(
+        /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(after.pairUrl),
+        "the fresh code went out under a different origin: " + JSON.stringify(after.pairUrl)
+      );
+      assert(after.tsSteps, "the Tailscale steps went away when the route was forgotten");
+      assert(!after.warnings, "the home path's certificate warnings appeared on the Tailscale route");
+      assertEqual(after.heading, "Point your phone's camera at this", "the screen fell back to the home route's heading");
+      return "reopened with no route, pressed `Show me another code`: servingVia " +
+        started.servingVia + " -> " + after.servingVia + ", " + after.pairUrl.split("/#")[0];
+    }
+  );
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;

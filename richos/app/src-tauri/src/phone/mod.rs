@@ -474,6 +474,59 @@ impl From<&tailnet::TailnetState> for TailnetView {
     }
 }
 
+/// **THE USER'S ANSWER TO "WHERE DO YOU WANT TO USE IT?", AS AN INPUT TO THE DECISION THAT USED
+/// TO MAKE IT ALONE** — Urban's N1 blocker
+/// (`docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-19_10.40.md`).
+///
+/// He chose `At home only` — the option whose own sentence says *"with no account and no third
+/// party"* — pressed `Set my phone up`, and got the **Tailscale** screen: a `…ts.net` pairing URL
+/// and four steps beginning *"Install Tailscale from the store"* and *"Sign in with Google as
+/// &lt;his account&gt;"*. His frames 11 and 12. **Not a copy bug and not a render bug:**
+/// `phone_begin_pairing` took no route argument, so the answer never crossed the bridge, and
+/// [`serving_plan`] took the tailnet whenever `tailscale cert` would issue one. On every Mac
+/// signed in to Tailscale — which is his, and the only Mac this ships against — one of the two
+/// answers to the question was discarded in silence. CEO §61 keeps **both** doors; §61.1 is why
+/// the wrong one is not a rough edge: *"I would ABSOLUTELY NEVER have both the phone and the
+/// desktop computer share the same identity."*
+///
+/// **IT IS CARRIED, NEVER KEPT.** [`TailnetView`]'s own note stands — Urban's §3 says the choice
+/// *"is held in the sheet for the life of one open, never persisted"*, and nothing here stores it:
+/// it is an argument to one command, consumed at the one moment the channel is built. What
+/// outlives the call is `routes::Channel::pairing_path`, which is the path actually being served
+/// rather than the answer that selected it — the same value `serving_via` reports and a redeeming
+/// phone's record is stamped from, and the same value that moves on its own when the tailnet
+/// addresses will not bind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Route {
+    /// `"Anywhere, including away from home"` — the tailnet path where this Mac can serve it, and
+    /// the home path where it cannot. Exactly what shipped before this type existed.
+    Anywhere,
+    /// `"At home only"` — the home path, **on a Mac with a valid tailnet certificate too**. That
+    /// is the whole of N1: a working certificate is no longer a reason to overrule him.
+    AtHome,
+    /// **No answer was given**, which is not the same as either answer and is not folded into one.
+    /// Two callers: [`PhoneRuntime::resume_if_paired`] at boot, where nobody is at the screen, and
+    /// `Show me another code` after a reopen, where the sheet has forgotten the route by design
+    /// (Urban §1) and the already-running channel holds the decision instead.
+    #[default]
+    Unstated,
+}
+
+impl Route {
+    /// **The two tokens the sheet sends, and nothing else.** `phone.js` writes exactly
+    /// `"anywhere"` and `"at-home"` into its own `route` variable, and `null` before a choice is
+    /// made; anything else — a missing argument, a typo, a spelling some later screen invents —
+    /// is `Unstated` rather than a deserialization failure the user would read as *"the phone
+    /// channel could not start"*. A refusal is the wrong answer to a question nobody asked.
+    pub fn from_token(token: Option<&str>) -> Route {
+        match token {
+            Some("anywhere") => Route::Anywhere,
+            Some("at-home") => Route::AtHome,
+            _ => Route::Unstated,
+        }
+    }
+}
+
 /// **What the channel will actually serve**, once detection and `tailscale cert` have had their
 /// say: which addresses to bind, which origin the pairing code goes out under, and whether there
 /// is a second certificate to present.
@@ -501,12 +554,25 @@ struct Serving {
 ///
 /// **A refusal is not fatal and is not silent.** The label goes to the log, never the output:
 /// `tailnet::Diagnostic` exists because that stderr can carry a `tskey-…`.
+///
+/// **AND THE FIRST INPUT IS NOT A DETECTION AT ALL — it is [`Route`], the answer the user gave.**
+/// Urban's N1: detection and the user were both consulted, detection won every time, and the
+/// screen that promised *"there is no account to make"* asked him to make one.
 fn serving_plan(
+    route: Route,
     state: &tailnet::TailnetState,
     cli: Option<&std::path::Path>,
     names: &names::LocalNames,
 ) -> Serving {
     let home = Serving { addresses: names.addresses.clone(), origin: names.origin(), tailnet: None };
+    // **HIS ANSWER, AHEAD OF ANYTHING THIS MAC HAPPENS TO HAVE.** It is deliberately the FIRST
+    // thing this function does: every line below is detection, and detection is what was
+    // overruling him. `tailscale cert` is therefore not even asked on this path, so choosing
+    // `At home only` on a signed-in Mac costs no subprocess and can log no tailnet diagnostic
+    // about a route the user has just declined.
+    if matches!(route, Route::AtHome) {
+        return home;
+    }
     let (Some(name), Some(origin)) = (state.name(), state.origin()) else { return home };
     let Some(cli) = cli else { return home };
     let cert = match tailnet::fetch_cert(cli, name, TAILNET_MIN_VALIDITY) {
@@ -654,8 +720,19 @@ impl PhoneRuntime {
     ///
     /// Called again while already running, it opens a fresh window without disturbing the socket —
     /// which is what makes "the code expired, show me another" cost him nothing.
-    pub fn begin_pairing(&self, app: tauri::AppHandle) -> Result<PhoneStatus, PhoneError> {
-        self.start(app, true)
+    ///
+    /// **`route` IS THE USER'S OWN ANSWER, AND IT DECIDES THE PATH THE CHANNEL IS BUILT FOR** —
+    /// Urban's N1; see [`Route`]. It is consulted exactly once, at the build, which is the only
+    /// moment it can decide anything: a channel that is already up keeps the path it came up on,
+    /// and that path is `pairing_path` / `serving_via` rather than anything remembered here. That
+    /// is why a `Show me another code` pressed after a reopen — where the sheet has forgotten the
+    /// route by design — can pass [`Route::Unstated`] and still get the same screens it left.
+    pub fn begin_pairing(
+        &self,
+        app: tauri::AppHandle,
+        route: Route,
+    ) -> Result<PhoneStatus, PhoneError> {
+        self.start(app, true, route)
     }
 
     /// **"Pick a different way", pressed on the screen that has a live code** — Urban's G2.
@@ -722,7 +799,15 @@ impl PhoneRuntime {
         if !should {
             return;
         }
-        if let Err(e) = self.start(app, false) {
+        // **[`Route::Unstated`], AND THAT IS A GAP RATHER THAN A DECISION.** Nobody is at the
+        // screen at boot, so there is no answer to carry — but the paired device's record holds
+        // one (`device.rs`'s `paired_via`, the field Ray's defect 3.2 put there), and a phone that
+        // paired at home is a user who answered `At home only`. Until that is wired, a resume on a
+        // Tailscale-signed-in Mac brings the channel back up on the tailnet origin whatever the
+        // phone paired over. It is not N1 — N1 is the screen that asks and ignores — and it is
+        // named here rather than quietly widened, because deciding it means deciding what
+        // `api_base` should tell a phone whose stored origin no longer matches.
+        if let Err(e) = self.start(app, false, Route::Unstated) {
             // Not fatal and not silent. The commonest cause is the port being in use — another
             // copy of RichOS, or something else on 8443 — and he can only act on it if it is said.
             eprintln!(
@@ -731,8 +816,20 @@ impl PhoneRuntime {
         }
     }
 
-    fn start(&self, app: tauri::AppHandle, open_window: bool) -> Result<PhoneStatus, PhoneError> {
+    fn start(
+        &self,
+        app: tauri::AppHandle,
+        open_window: bool,
+        route: Route,
+    ) -> Result<PhoneStatus, PhoneError> {
         let mut running = self.running.lock().unwrap();
+        // **A RUNNING CHANNEL IS NOT REBUILT FOR A LATER ANSWER, and `route` is ignored here on
+        // purpose.** Tearing a live socket down and re-binding it would take a paired phone
+        // offline to satisfy a question that phone was not asked. The two ways a user can get
+        // here with a different answer both go through `stop_pairing` first — `Pick a different
+        // way` stops serving when nothing is paired, which is what returns them to the chooser —
+        // so the route that built this channel is still the route on screen, and `serving_via`
+        // says which one it was.
         if let Some(existing) = running.as_ref() {
             if open_window {
                 existing.channel.devices.open_pairing()?;
@@ -764,7 +861,7 @@ impl PhoneRuntime {
         // **THE TAILSCALE PATH, ACTUALLY SERVED** (CEO §61) — see [`serving_plan`] for what that
         // decision is and why it is a function rather than four lines here.
         let Serving { addresses, mut origin, tailnet: tailnet_tls } =
-            serving_plan(&self.tailnet_now(), tailnet::find_cli().as_deref(), &names);
+            serving_plan(route, &self.tailnet_now(), tailnet::find_cli().as_deref(), &names);
 
         let devices = Arc::new(device::DeviceDesk::open(&self.data_dir)?);
         let bridge = Arc::new(bridge::PhoneBridge::new(app));
@@ -1150,7 +1247,7 @@ mod tests {
             phone: None,
         };
         let cli = fake_cli("ready", &a_bundle(), 0);
-        let plan = serving_plan(&state, Some(&cli), &home_names());
+        let plan = serving_plan(Route::Anywhere, &state, Some(&cli), &home_names());
         assert_eq!(plan.origin, "https://mm1.tail1a2b3c.ts.net:8443");
         // BOTH addresses: the house keeps working, which is the half a replacement would lose.
         assert_eq!(
@@ -1182,7 +1279,7 @@ mod tests {
         let mut names = home_names();
         names.addresses.push("100.68.9.4".parse().unwrap());
         let cli = fake_cli("dedup", &a_bundle(), 0);
-        let plan = serving_plan(&state, Some(&cli), &names);
+        let plan = serving_plan(Route::Anywhere, &state, Some(&cli), &names);
         assert_eq!(plan.addresses.len(), 2, "an address was bound twice: {:?}", plan.addresses);
         let _ = std::fs::remove_dir_all(cli.parent().unwrap());
     }
@@ -1203,7 +1300,7 @@ mod tests {
                 phone: None,
             },
         ] {
-            let plan = serving_plan(&state, Some(&cli), &home_names());
+            let plan = serving_plan(Route::Anywhere, &state, Some(&cli), &home_names());
             assert_eq!(plan.origin, "https://mm1.local:8443", "{} offered an origin", state.token());
             assert!(plan.tailnet.is_none(), "{} carried a certificate", state.token());
             assert_eq!(
@@ -1228,13 +1325,13 @@ mod tests {
             phone: None,
         };
         let refusing = fake_cli("refused", "", 1);
-        let plan = serving_plan(&state, Some(&refusing), &home_names());
+        let plan = serving_plan(Route::Anywhere, &state, Some(&refusing), &home_names());
         assert_eq!(plan.origin, "https://mm1.local:8443");
         assert!(plan.tailnet.is_none());
         assert_eq!(plan.addresses, home_names().addresses);
 
         // And no command line at all is the same answer rather than a panic.
-        let plan = serving_plan(&state, None, &home_names());
+        let plan = serving_plan(Route::Anywhere, &state, None, &home_names());
         assert_eq!(plan.origin, "https://mm1.local:8443");
         assert!(plan.tailnet.is_none());
         let _ = std::fs::remove_dir_all(refusing.parent().unwrap());
@@ -1245,5 +1342,86 @@ mod tests {
     #[test]
     fn the_recheck_interval_is_the_two_seconds_the_screens_were_specified_against() {
         assert_eq!(TAILNET_RECHECK_MS, 2_000);
+    }
+
+    /// **URBAN'S N1, AS THE ONE COMPARISON THAT CAN FAIL FOR NO OTHER REASON.**
+    ///
+    /// *"Choose `At home only`, press `Set my phone up`: the pairing URL host is `mm1.local`,
+    /// the trust QR and the sixteen steps are on screen, the four Tailscale steps are not, and
+    /// the account is named nowhere. Then choose `Anywhere` and get the tailnet screen,
+    /// unchanged."*
+    ///
+    /// Both routes are planned from **the same detected state and the same command line** —
+    /// a `ready` tailnet on a Mac whose `tailscale cert` hands back a usable bundle, which is his
+    /// Mac and the only Mac this ships against. So the two plans differ in exactly one input, and
+    /// a regression cannot hide behind a difference in the fixture. Before this, both columns
+    /// were the right-hand one.
+    #[test]
+    fn at_home_only_is_served_at_home_on_a_mac_whose_tailnet_would_certify_it() {
+        let state = tailnet::TailnetState::Ready {
+            name: "mm1.tail1a2b3c.ts.net".into(),
+            addresses: vec!["100.68.9.4".parse().unwrap()],
+            // Signed in, because that is the Mac the blocker happens on: an account exists, a
+            // certificate would issue, and he still said `At home only`.
+            account: Some(tailnet::Account {
+                login_name: "someone@gmail.com".into(),
+                provider: Some("Google"),
+            }),
+            phone: None,
+        };
+        let cli = fake_cli("route", &a_bundle(), 0);
+
+        let at_home = serving_plan(Route::AtHome, &state, Some(&cli), &home_names());
+        assert_eq!(
+            at_home.origin, "https://mm1.local:8443",
+            "THE BLOCKER: the answer was `At home only` and the code goes out under the tailnet"
+        );
+        assert!(
+            at_home.tailnet.is_none(),
+            "a tailnet certificate was carried on the route that promised no third party"
+        );
+        assert_eq!(
+            at_home.addresses,
+            home_names().addresses,
+            "the tailnet addresses were bound on the route that says `at home only`"
+        );
+
+        // AND THE OTHER DOOR IS UNTOUCHED, which is the other half of his acceptance: §61 keeps
+        // both paths and the Tailscale one is the one he asked for first.
+        let anywhere = serving_plan(Route::Anywhere, &state, Some(&cli), &home_names());
+        assert_eq!(anywhere.origin, "https://mm1.tail1a2b3c.ts.net:8443");
+        assert!(anywhere.tailnet.is_some(), "`Anywhere` stopped serving the tailnet");
+        assert_eq!(anywhere.addresses.len(), 2);
+
+        // AND WITH NO ANSWER AT ALL, NOTHING CHANGED. `Unstated` is the boot resume and the
+        // reopened sheet; making it behave like `AtHome` would take a paired phone off the
+        // tailnet at the next launch.
+        let unstated = serving_plan(Route::Unstated, &state, Some(&cli), &home_names());
+        assert_eq!(unstated.origin, anywhere.origin, "an unanswered route stopped behaving as it did");
+
+        let _ = std::fs::remove_dir_all(cli.parent().unwrap());
+    }
+
+    /// **The tokens are the sheet's own two strings, and everything else is "no answer".**
+    ///
+    /// `phone.js` sets `route` to exactly `"anywhere"` or `"at-home"` and leaves it `null` until
+    /// he chooses. A third spelling must not become a refusal the user reads as *"the phone
+    /// channel could not start"* — and it must not silently become `AtHome` either, which would
+    /// be the same class of defect as N1 with the sign flipped.
+    #[test]
+    fn only_the_sheets_own_two_tokens_decide_a_route() {
+        assert_eq!(Route::from_token(Some("anywhere")), Route::Anywhere);
+        assert_eq!(Route::from_token(Some("at-home")), Route::AtHome);
+        assert_eq!(Route::from_token(None), Route::Unstated);
+        for stray in ["", "home", "at_home", "AT-HOME", "athome", "tailnet", "anywhere "] {
+            assert_eq!(
+                Route::from_token(Some(stray)),
+                Route::Unstated,
+                "{stray:?} was read as an answer the sheet never sends"
+            );
+        }
+        // The default is the one that changes nothing, because it is what a caller with no answer
+        // gets — `#[derive(Default)]` on the wrong variant would be a silent route decision.
+        assert_eq!(Route::default(), Route::Unstated);
     }
 }
