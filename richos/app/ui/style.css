@@ -4352,6 +4352,55 @@ body.bp-narrow .tl-user-bubble {
   outline-offset: 1px;
 }
 
+/* A GOLD RING AROUND A GOLD BUTTON IS 1.00:1 — the offer's primary control, both themes.
+   =========================================================================================
+   `.desk-btn--confirm` FILLS ITSELF WITH `--accent`, and the rule above draws its focus ring
+   in `--accent` too. The note beside `.desk-btn--plain` quotes 6.36:1 dark and 3.83:1 light
+   for that ring, and both numbers are right — they are measured against the PANEL, which is
+   the correct ground for a plain button and the wrong one for a filled button, whose ring's
+   inner edge touches its own fill:
+
+       dark   #c2a35c ring on #c2a35c fill    1.00:1
+       light  #9c7c34 ring on #9c7c34 fill    1.00:1
+
+   Computed with the WCAG formula (`tests/lib/contrast.js`, the same arithmetic the suite
+   verifies against the published calculator), not eyeballed. The focused state of `Set it up`
+   — the one control on the one screen a customer cannot get past — differed from the
+   unfocused state by a 1px hairline of panel and three pixels of extra gold.
+
+   NO SINGLE COLOR CAN FIX IT, and that is arithmetic rather than taste. In dark, a ring must
+   clear 3:1 against the card (#182440, L=0.0175) AND against the gold fill (L=0.3793):
+
+       against the card   ->  L >= 3 x (0.0175 + 0.05) - 0.05 = 0.1525
+       against the gold   ->  L >= 3 x (0.3793 + 0.05) - 0.05 = 1.238   (impossible, max 1.0)
+                          or  L <= (0.3793 + 0.05) / 3 - 0.05 = 0.0931
+
+   0.1525 and 0.0931 do not overlap. So the ring is TWO rings, each answering the color it
+   touches, which is the standard two-tone construction and the only one the numbers allow:
+
+       inner 2px  --on-gold  #0c1322   vs the gold fill    7.68:1 dark   4.72:1 light
+       outer 2px  --accent            vs the panel        6.36:1 dark   3.83:1 light
+       inner vs outer                                     7.68:1 dark   4.72:1 light
+
+   All six clear the 3:1 floor a non-text indicator owes, in both themes. `--on-gold` is not a
+   new color: it is already "the ink on a gold chip" and is the fill's own foreground, so the
+   inner ring is the one paint on this control that is guaranteed to read against it.
+
+   THE BOX-SHADOW FILLS THE OFFSET GAP EXACTLY. `outline-offset: 2px` leaves a 2px ring of
+   whatever is behind the button between the border box and the outline; a `box-shadow` with
+   0 blur and 2px spread paints precisely that band. So the composite is 2px of ink then 2px
+   of gold, with no third color in between, and the control's own geometry moves by nothing —
+   both are painted outside the border box and take no layout.
+
+   `contrast.js` case 17 measures all of it in both themes, and its sweep refuses ANY focused
+   control whose ring is painted in its own fill's paint, so the next filled button is covered
+   the day it is written. */
+.desk-btn--confirm:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--on-gold);
+}
+
 .desk-suppressed-row {
   display: flex;
   align-items: center;

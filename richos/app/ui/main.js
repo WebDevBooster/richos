@@ -3940,9 +3940,26 @@ Bridge.listen("rich://voice-transcript", ({ payload }) => {
   scheduleRender();
 });
 
-Bridge.listen("rich://voice-error", ({ payload }) => {
-  if (!voiceMode) return;
-  richVoiceSays(payload.message);
+/// **VOICE STOPPED — and if the setting up is why, the offer comes back with the sentence.**
+///
+/// The backend's spoken arm now refuses a turn on a stale or missing engine with
+/// `setup_view::SETUP_INCOMPLETE_*`, whose own words are *"I've put the setting up back on
+/// your screen: press Set it up"*. This line is what makes that true rather than a claim —
+/// exactly as `send()` does it for the typed path, one layer down.
+///
+/// **THE DISK IS ASKED; THE SENTENCE IS NEVER MATCHED.** Reading the refusal's text to decide
+/// what it meant would be a second copy of a decision the backend already made, and the two
+/// would drift the first time a word changed. `setup_status` is the same question `init()`
+/// asks at boot, so there is one answer and one place it comes from.
+///
+/// **AND THE REOPEN IS NOT GATED ON `voiceMode`**, unlike the sentence above it. The panel can
+/// close between an utterance being submitted and its refusal arriving; a promise that the
+/// offer is back on screen must not depend on that race. The cost is one `setup_status` call
+/// on an error path, and only on an error path.
+Bridge.listen("rich://voice-error", async ({ payload }) => {
+  if (voiceMode) richVoiceSays(payload.message);
+  const setupNow = await refreshSetup();
+  if (setupNow && setupNow.ask && setupNow.ask.items.length) maybeAskAboutSetup();
 });
 
 /// Voice is WORKING, and something about how it is working is worth him knowing — today, that
@@ -7416,6 +7433,54 @@ function isOnScreen(node) {
   return true;
 }
 
+/// **PAINTED WHERE IT CLAIMS TO BE — the question `isOnScreen()` above cannot answer.**
+///
+/// `isOnScreen()` walks ancestors for `hidden`, `display` and `visibility`, and has no idea
+/// what is painted over what. A full-screen surface therefore leaves every popup under it
+/// enumerated as open and answerable by a key the CEO is pressing AT THE SURFACE. It has cost
+/// him the same thing three times: the opening curtain over the engine offer (`5bd7d4e5`,
+/// `setup.js` case 19), the home screen over the same offer (`617b4c9e`, `escape.js` B7), and
+/// both were closed where they happened rather than here.
+///
+/// **ASKED OF THE COMPOSITOR, NOT OF THE STACKING RULES.** What is painted at the middle of
+/// this popup's own box? `home.js`'s `popupPaintedOverThisScreen` settled on this derivation
+/// after the obvious one — "computed z-index greater than mine" — read `#set-menu` (no
+/// z-index of its own, painted at 300 by the `.settings` wrapper) as behind the picture and
+/// ate the Escape that closes the most-used menu in the product. `elementFromPoint` needs no
+/// rule about stacking contexts, transforms or inherited z-indexes: those are precisely what
+/// it is asking the browser to have already resolved. ONE sample, at the center, because that
+/// is the point a surface is least likely to be partly covered at.
+///
+/// **ITS BLIND SPOT, NAMED HERE RATHER THAN DISCOVERED LATER.** This is a HIT test, not a
+/// paint. A cover with `pointer-events: none` is invisible to it — and the opening curtain is
+/// exactly that (`.splash`, `splash.css:22`, opaque and click-through for its whole life). So
+/// this is a FLOOR under the two surface guards and not a replacement for either; `escape.js`
+/// B8 asserts the blind spot so that a later reader cannot delete `splash.js`'s guard on the
+/// belief that this line covers it.
+///
+/// **EVERY FAILURE ANSWERS `true`**, which is the behavior this file had before the test
+/// existed. A popup wedged shut by a guard that got its own arithmetic wrong is worse than the
+/// defect it closes.
+function isPainted(node) {
+  try {
+    const box = node.getBoundingClientRect();
+    // No box is not evidence of being covered — it is a different question, and `isOnScreen`
+    // is the one that answers it.
+    if (box.width <= 0 || box.height <= 0) return true;
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    // `elementFromPoint` answers null outside the viewport, which would read as covered. A
+    // popup scrolled or positioned off the edge is not this check's business.
+    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return true;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit) return true;
+    // Its own panel, its own scrim, its own buttons: a hit INSIDE the surface is the surface.
+    return hit === node || node.contains(hit);
+  } catch (e) {
+    return true;
+  }
+}
+
 /// The surface a match belongs to. A `role="dialog"` panel nested inside its own scrim wrapper
 /// (`#home-prefs`) must close the WRAPPER — hiding the panel alone would leave the dimmed
 /// sheet over the whole window with nothing on it.
@@ -7469,6 +7534,18 @@ function dismissTopmostPopup() {
   const open = openPopups();
   if (!open.length) return false;
   const top = open[0];
+  // A KEY PRESSED AT A PICTURE DOES NOT ANSWER WHAT IS BEHIND THE PICTURE, and this is where
+  // that holds for every covering surface rather than for the two that thought to say so. It
+  // returns TRUE — Escape has been ANSWERED, by being refused — for the same reason a
+  // `control:` surface with no control on screen does: the alternative is falling through to
+  // something else underneath, which is the defect one layer down.
+  //
+  // `openPopups()` is deliberately left alone. It answers "is something asking him a
+  // question", which stays true while a sheet is momentarily covered — `init()`'s focus
+  // condition at the foot of this file depends on that being true at boot, when the offer is
+  // open behind a curtain that has not lifted yet (`327cbc7a`). Only DISMISSAL cares what he
+  // is looking at.
+  if (!isPainted(top)) return true;
   const spec = top.getAttribute("data-dismiss") || "";
   if (spec.indexOf("control:") === 0) {
     for (const selector of spec.slice("control:".length).split(",")) {
@@ -7505,6 +7582,105 @@ window.RichDismiss = {
   open: openPopups,
   dismissTopmost: dismissTopmostPopup,
 };
+
+// ---------------------------------------------------------------------------------------
+// A QUESTION OWNS THE WINDOW UNTIL IT IS ANSWERED — Ray's candidate .16 audit, row B1b
+// ---------------------------------------------------------------------------------------
+//
+// HIS MEASUREMENT: *"With the sheet up, the whole app subtree is still in the AX tree, the
+// composer holds focus and accepts typed characters, and the top-right Settings control is
+// still clickable and takes focus away from the sheet."* Reproduced under WebKit at 1400x950
+// on `setup: "missing-engine"`, curtain gone: `#input`, `#rail-settings` and `#set-btn` each
+// took focus on `.focus()`, and a click on `#set-btn` opened `#set-menu` OVER the sheet
+// (`hidden=false`, `aria-expanded=true`) — so the half of his sentence that says the control
+// "does nothing" is kinder than what the window actually does.
+//
+// `aria-modal="true"` IS A PROMISE AND `inert` IS THE ONLY THING THAT KEEPS IT. The sheet has
+// carried that attribute since it was written; nothing in the window ever made it true.
+//
+// WHY THE TWO OBVIOUS FIXES ARE NOT THE FIX, and both were measured rather than argued:
+//
+//   * MOVING THE SHEET TO BODY LEVEL closes nothing. `.settings` is mounted against
+//     `document.body` (`settings-button.js:748`) at z-index 300 — §15's "on every screen" —
+//     and an `.overlay` is 60 wherever it lives. Measured stack at the button's own center
+//     with the offer up: `set-btn@auto` inside `settings@300`, above `setup-sheet@60`.
+//   * MARKING `#app` INERT cannot be done from inside `#app`: `#setup-sheet` is a child of it
+//     (`index.html:936` against `:100`), so the one attribute would inert the question too.
+//
+// SO WHAT IS MARKED IS THE COMPLEMENT OF THE QUESTION'S OWN ANCESTOR CHAIN: at every level
+// from the sheet up to `<html>`, every sibling that is not on the chain. That needs no opinion
+// about where a sheet lives — a sheet moved to `<body>` tomorrow is covered by the same walk —
+// and it reaches `.settings` precisely because `<body>` is on the chain.
+//
+// WHICH SHEETS, AND WHY NOT ALL SEVEN `aria-modal` OVERLAYS. The trigger is the declaration
+// already on the element: `aria-modal="true"` AND a `data-dismiss` that names a CONTROL rather
+// than `escape`. That pair is "a question with one named way out" — `#setup-sheet` and
+// `#memory-setup`, the two first-run questions, and the two whose backdrop deliberately does
+// not dismiss them (`704b4596`). The other five (`#search-overlay`, `#entity-picker`,
+// `#corrections-overlay`, `#feedback-overlay`, `#techy-scope`) are dismissed from OUTSIDE
+// themselves, so "the outside is unavailable" is not what they mean and enforcing it there is
+// a different change from this one. Their `aria-modal` promise is still unkept, and saying so
+// here is better than quietly widening a fix nobody measured.
+//
+// EVERY MARK IS SIGNED (`data-question-inert`) AND ONLY SIGNED MARKS ARE CLEARED, so a subtree
+// that is inert for its OWN reason — `home.js` holds `#app` inert while the opening screen is
+// up — is never un-inerted by this file on its way past.
+
+/// A modal question: it asks, and the only way out is the control it names.
+const QUESTION_SELECTOR = '.overlay[aria-modal="true"][data-dismiss^="control:"]';
+
+/// The question currently on screen, or null. Topmost is irrelevant here — `init()` asks these
+/// one at a time and holds the next one back, so two are never up together.
+function openQuestion() {
+  for (const node of document.querySelectorAll(QUESTION_SELECTOR)) {
+    if (!node.hidden && isOnScreen(node)) return node;
+  }
+  return null;
+}
+
+function syncQuestionInert() {
+  for (const marked of document.querySelectorAll("[data-question-inert]")) {
+    marked.removeAttribute("inert");
+    marked.removeAttribute("data-question-inert");
+  }
+  const question = openQuestion();
+  if (!question) return null;
+  // A QUESTION THAT IS NOT THE FRONT SURFACE DOES NOT OWN THE WINDOW, and this line is what
+  // stops the two guards in this file fighting each other. An `inert` subtree is removed from
+  // HIT TESTING in WebKit — measured: with a full-screen cover marked inert, `elementFromPoint`
+  // at the covered sheet's center answers the sheet — so inerting whatever is painted in front
+  // of a question would blind `isPainted()` and hand `escape.js` B8's defect straight back.
+  // While something is genuinely in front, nothing is marked; the observer runs again the
+  // moment that thing goes, and the window is claimed then. (The opening curtain is not one of
+  // these: `.splash` is `pointer-events: none`, so it never claims to be in front.)
+  if (!isPainted(question)) return null;
+  for (let node = question; node && node.parentElement; node = node.parentElement) {
+    for (const sibling of node.parentElement.children) {
+      if (sibling === node) continue;
+      // Nothing that is not painted, and nothing already held inert by its own owner.
+      if (sibling.tagName === "SCRIPT" || sibling.tagName === "STYLE" || sibling.tagName === "LINK") continue;
+      if (sibling.hasAttribute("inert")) continue;
+      sibling.setAttribute("inert", "");
+      sibling.setAttribute("data-question-inert", "");
+    }
+  }
+  return question.id;
+}
+
+/// DERIVED FROM THE DOM, NOT FROM CALL SITES. `openSetupSheet`, `closeSetupSheet` and the
+/// memory question's four entrances all move the same attribute, and a list of them is a list
+/// somebody's next sheet is missing from. `childList` as well as `hidden`, because `.settings`
+/// and the curtain are MOUNTED rather than un-hidden, and a control that arrives while a
+/// question is up must arrive inert.
+if (typeof MutationObserver === "function") {
+  new MutationObserver(syncQuestionInert).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["hidden"],
+    childList: true,
+    subtree: true,
+  });
+}
+syncQuestionInert();
 
 // ---------------------------------------------------------------------------------------
 // APPEARANCE AND IDENTITY (CEO ruling §15, and his correction to round 10.1)
