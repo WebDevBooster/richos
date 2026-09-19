@@ -309,11 +309,24 @@
          uses. -->
     <div id="phone-ts-ready" hidden>
       <h3 class="phone-step-title">This Mac is ready</h3>
-      <p class="phone-tailnet-name" id="phone-ts-name"></p>
       <!-- WHICH IDENTITY IT SIGNED IN WITH, READ OFF THE MAC (§61.1). "Use the same account" is
            advice nobody can follow, because the one thing the user does not know is which one they
-           used — that is the CEO's own account of the evening. This names it. -->
+           used — that is the CEO's own account of the evening. This names it.
+
+           **FIRST, AND IN BOLD** — Urban's G14. It was the third paragraph, under the machine
+           name, set in --ink-soft with the account given no weight at all, and visually identical
+           to the paragraphs either side of it (his frame 02). Two screens later the same account
+           IS set in <strong> (his frame 04). *"That asymmetry is backwards: the screen that names
+           the account first is the one that whispers it ... it is the thing that decides whether
+           this works, and the machine name is not."*
+
+           AND THE PARAGRAPH BELOW STILL READS RIGHT, which is why the account went ABOVE the
+           name rather than the name below it: "That is this Mac's name on your own Tailscale
+           network" points at the line before it, so the name has to stay immediately in front
+           of it. Heading, account, name, what the name is — each sentence next to the thing it
+           is about. -->
       <p class="overlay-note" id="phone-ts-account"></p>
+      <p class="phone-tailnet-name" id="phone-ts-name"></p>
       <p class="overlay-note">That is this Mac's name on your own Tailscale network. Only devices
         signed in to your Tailscale account can reach it, and no port on this Mac is open to the
         internet.</p>
@@ -906,8 +919,14 @@
       // its own paragraph rather than two newlines inside the machine name, because the name is
       // monospace and read character by character and a sentence is neither.
       field("phone-ts-name").textContent = tailnet.name || "";
-      field("phone-ts-account").textContent = tailnet.account
-        ? "You signed in with " + tailnet.account + ". Use exactly this on your phone."
+      // **`innerHTML` WITH `<strong>`, LIKE THE TWO SCREENS BELOW IT** — Urban's G14. This line
+      // used `textContent` while `#phone-ts-why` and `#phone-ts-step2` both give the same
+      // account weight, *"and one of the three is wrong and it is the first one"*. The account
+      // is another program's output, so it is escaped rather than trusted for being ours — the
+      // same `escapeText` the other two call, and the reason it exists.
+      field("phone-ts-account").innerHTML = tailnet.account
+        ? "You signed in with <strong>" + escapeText(tailnet.account) +
+          "</strong>. Use exactly this on your phone."
         : "I cannot tell which identity this Mac is signed in to. Whichever it is, sign in with exactly the same one on your phone.";
       peerLine(field("phone-ts-peer-ready"), tailnet);
       return;

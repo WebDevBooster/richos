@@ -1436,6 +1436,40 @@ async function openSheet(browser, theme, preset) {
     return out.join("; ");
   });
 
+  // ---- G14: the screen that names the account first stops whispering it ---------------------
+
+  await run.check("26  on `This Mac is ready` the account is bold and sits directly under the heading", async () => {
+    // Urban's G14: *"That asymmetry is backwards: the screen that names the account first is the
+    // one that whispers it ... it is the thing that decides whether this works, and the machine
+    // name is not."* `phone.js` used `textContent` here while the two screens below it use
+    // `innerHTML` with `<strong>` — *"one of the three is wrong and it is the first one."*
+    const page = await takeTheTailscaleRoute("dark", {
+      state: "ready", name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
+    });
+    await page.waitForSelector("#phone-ts-ready:not([hidden])");
+    const screen = await page.evaluate(() => {
+      const box = document.getElementById("phone-ts-ready");
+      const account = document.getElementById("phone-ts-account");
+      const strong = account.querySelector("strong");
+      return {
+        order: [...box.children].map((n) => n.id || n.tagName.toLowerCase()),
+        strong: strong ? strong.textContent.trim() : null,
+        text: account.textContent.replace(/\s+/g, " ").trim(),
+      };
+    });
+    await page.close();
+    // HEADING, ACCOUNT, NAME — in that order, and the sentence after the name still points at it.
+    assertEqual(
+      screen.order.slice(0, 3),
+      ["h3", "phone-ts-account", "phone-ts-name"],
+      "THE DEFECT: the account sentence is not directly under the heading, above the machine name"
+    );
+    assertEqual(screen.strong, "Google as someone@example.com", "the account is not given weight on the screen that names it first");
+    assert(/Use exactly this on your phone/.test(screen.text), "the sentence lost its instruction: " + screen.text);
+    return "order " + JSON.stringify(screen.order.slice(0, 3)) + ", account in <strong>: " + JSON.stringify(screen.strong);
+  });
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
