@@ -715,21 +715,20 @@ $('thread').addEventListener('scroll', () => {
 
 /// **A REPLY WITH NO QUESTION IN FRONT OF IT — the fallback, named as one.**
 ///
-/// A message the CEO types ON HIS MAC never reaches this phone live. There is no live event in
-/// this build that carries a CEO turn: `LiveEvent` is `TurnStatus`, `MessageStarted`,
-/// `MessageDelta`, `MessageCompleted`, `ActivityUpserted`, `WorkerUpserted` and
-/// `ThreadSummaryUpdated`, and not one of them carries his words
-/// (`app/crates/richos-core/src/live.rs:306-381`); `event_from_live` therefore translates
-/// `rich://message-*` and nothing else (`app/src-tauri/src/phone/rows.rs:115-173`). So while he
-/// watches the phone and types on the Mac, Rich answers a question the phone never saw.
+/// **THE CAUSE THIS WAS WRITTEN AROUND HAS BEEN FIXED, AND THIS STAYS AS THE FALLBACK.**
 ///
-/// **The fix at the cause is a CEO-turn live event in `richos-core`, and it is NOT built here.**
-/// This file cannot reach the spine, and the Mac-side emitter cannot read the projection mid-turn
-/// either: `PhoneBridge::snapshot` `try_lock`s the spine and, while a turn holds it, serves a
-/// cache from BEFORE that turn (`app/src-tauri/src/phone/bridge.rs:141-162`). What is built here
-/// is the honest fallback — when a reply settles and the phone is holding nothing of his in front
-/// of it, the phone asks the Mac for the rows before it, on the backfill route it already has and
-/// already signs.
+/// It used to say, correctly at the time, that *"there is no live event in this build that
+/// carries a CEO turn"* — so a message the CEO typed on his Mac never reached this phone live
+/// and Rich answered a question the phone never saw. `LiveEvent::CeoMessage` is that event and
+/// it landed in `2c95c27d`; `rows.rs` translates `rich://ceo-message` into a row of his, and
+/// `opens_a_row` counts it, so his words now arrive here the moment they are durable.
+///
+/// What is kept is the fallback, and it is worth keeping: a phone that was asleep, offline, or
+/// between streams when that event went out has no way to ask for it again. So when a reply
+/// settles and this phone is holding nothing of his in front of it, it asks the Mac for the rows
+/// before it, on the backfill route it already has and already signs. The Mac-side limit that
+/// made this necessary is real and unchanged — `PhoneBridge::snapshot` `try_lock`s the spine and,
+/// while a turn holds it, serves a cache from BEFORE that turn (`phone/bridge.rs`).
 ///
 /// Bounded on purpose: at most one request per reply (`reconciled`), and five rows — the question,
 /// its answer, and room for the turn before them.
