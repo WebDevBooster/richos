@@ -1079,6 +1079,27 @@ async function openThread(threadId, opts) {
   await loadTimeline();
   if (stale()) return;
   if (mainView !== "opening") return; // loadTimeline fell into the unbound state
+  // **HIS SENTENCE IS PUT BACK INTO THE MODEL THAT REPLACED THE ONE IT WAS IN** — Ray's
+  // candidate-.11 defect 2.2, and the reason it has to happen HERE.
+  //
+  // Measured on his walk (§2, frames 04 and 05): he typed into a brand-new thread, his message
+  // appeared at +0.28 s, and from **+6.3 s to +10.9 s the thread was replaced by the first-run
+  // greeting** — "I'm Rich — your chief of staff…" — with his message and the card gone.
+  //
+  // The cause is two lines of this file rather than anything in the renderer. `send()`'s
+  // `draftEntityId` branch puts a DISPOSABLE bubble in a throwaway model, then awaits
+  // `openThread`, which builds a fresh model above and whose `loadTimeline` clears `items` and
+  // `pendingUser` wholesale. From `showConversationView()` below until `send()` resumes after
+  // this function RETURNS, the model on screen is empty — and `flushRender`'s empty test then
+  // draws the greeting. The 4.6 s width is the awaits still ahead of that return
+  // (`renderFirstRunNotice` takes the spine's lock, which the pre-prime holds for a model turn).
+  //
+  // So the bubble is carried across the replacement instead of being re-added after it. One
+  // bubble, never two: `send()` adopts this id rather than adding its own.
+  if (opts.pendingUser) {
+    carriedPendingUserId = window.RichTimeline.addPendingUserMessage(
+      timelineModel, opts.pendingUser.text, opts.pendingUser.at);
+  }
   drafts.set(threadId, inputEl.value); // typing while opening belongs to this destination
   showConversationView();
   renderRail();
@@ -1340,7 +1361,22 @@ function flushRender() {
   markSelectedChip();
   if (turns.some((t) => t.stream.some((i) => i.kind === "rich_message"))) sessionAvatarShown = true;
 
-  if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0) renderFirstRun();
+  // **THE FIRST-RUN GREETING IS THE "NOTHING HAS EVER HAPPENED HERE" STATE, AND A MESSAGE IN
+  // FLIGHT MEANS SOMETHING HAS** — Ray's candidate-.11 defect 2.2.
+  //
+  // He sent into a brand-new thread and watched his message be replaced by "I'm Rich — your
+  // chief of staff…" for 4.6 s (§2, frames 04 and 05). `openThread`'s carry above is what keeps
+  // this model from being empty in that window; this is the floor under it, and it is the
+  // statement rather than the mechanism: while a send he made is still in flight for what is on
+  // screen, an empty timeline is a model being rebuilt, not a conversation that has never been
+  // used, and the one thing it must never do is tell him it is the latter.
+  //
+  // `visiblePendingSend()` is the app's own existing answer to "is a send in flight for what he
+  // is looking at" — the same predicate the wait band is drawn from — so there is no second
+  // idea of it here to drift from the first.
+  if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0 && !visiblePendingSend()) {
+    renderFirstRun();
+  }
 
   if (focusId) {
     const again = messagesEl.querySelector('[id="' + focusId.replace(/(["\\])/g, "\\$1") + '"]');
@@ -1555,6 +1591,15 @@ function restoreUnsentText(text, threadId) {
 /// dropped. See the note in `send()` below — audit-7 row 10.
 let sendHeldWhileOpening = null;
 
+/// **The bubble `openThread` carried across the model it replaced** — Ray's candidate-.11
+/// defect 2.2, and the handover between the two halves of that fix.
+///
+/// `openThread(threadId, { pendingUser })` adds his message to the FRESH model before the
+/// conversation is shown, so the screen is never empty and the greeting is never reachable.
+/// `send()` then adopts this id instead of adding a second bubble for the same sentence.
+/// Consumed exactly once, and cleared by whoever reads it.
+let carriedPendingUserId = null;
+
 /// Replay the send he already made, now that there is somewhere for it to go.
 ///
 /// THE HOLD IS DROPPED RATHER THAN GUESSED AT in all three cases where it would be a guess: a
@@ -1718,7 +1763,10 @@ async function send(explicitText) {
     pendingSends.get(optimisticId).threadId = newId;
     draftEntityId = null;
     await refreshNavigation();
-    await openThread(newId);
+    // AND HIS SENTENCE TRAVELS WITH THE OPEN. See `openThread`'s own note at the line that
+    // reads `opts.pendingUser` — the model this bubble lives in is about to be thrown away,
+    // and without this the screen holds the first-run greeting until this call returns.
+    await openThread(newId, { pendingUser: { text, at: Date.now() } });
     pendingSends.delete(optimisticId);
   }
 
@@ -1728,7 +1776,21 @@ async function send(explicitText) {
   // sentence is never drawn twice.
   const sentModel = timelineModel;
   const sentThreadId = activeThreadId;
-  const pendingId = window.RichTimeline.addPendingUserMessage(sentModel, text, Date.now());
+  // ADOPTED, NOT ADDED AGAIN. `openThread` has already put this sentence in this model when
+  // the send created the thread (defect 2.2); a second `addPendingUserMessage` here would draw
+  // the CEO's one sentence twice, which is the defect §25 names by name.
+  // The carried bubble is adopted only when it is THIS sentence, still pending, in THIS model,
+  // and a send that does not match LEAVES IT for the one that does. `replayHeldSend` can
+  // re-enter `send()` from inside `openThread` with a different sentence — the one he typed
+  // while the thread was opening — and both adopting it (his first sentence drawn twice, his
+  // second lost) and consuming it (the outer send adding a second bubble for a sentence already
+  // on screen) are wrong. Not matching is not the same as not being wanted.
+  const carriedItem = carriedPendingUserId !== null ? sentModel.items.get(carriedPendingUserId) : null;
+  const adopt = carriedItem && carriedItem.pending && carriedItem.text === text;
+  const pendingId = adopt
+    ? carriedPendingUserId
+    : window.RichTimeline.addPendingUserMessage(sentModel, text, Date.now());
+  if (adopt) carriedPendingUserId = null;
   const request = { model: sentModel, threadId: sentThreadId, turnId: null, startedAt: Date.now() };
   pendingSends.set(pendingId, request);
   startOrStopWaitTimer();
