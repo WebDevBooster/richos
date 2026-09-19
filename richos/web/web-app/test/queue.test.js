@@ -500,3 +500,48 @@ test('the whole chain, from the Mac\'s bytes: a 503 marked final blocks that ite
 	assert.strictEqual(urls.length, 2, 'a refusal that will never change was sent again');
 	assert.strictEqual(again.blocked, 1);
 });
+
+// ---------------------------------------------------------------------------------------------
+// THE WHOLE OF RAY'S FOURTH SEND, ACROSS BOTH HALVES OF THE FIX, over the real route module.
+//
+// A page load empties the Mac's live-challenge set (`phone/device.rs` `issue_challenge`, and
+// `sw.js` reloads a nineteen-entry shell on install), so the credential this phone is holding is
+// refused with a flat 404. On nightly `.7` that was REFUSED, REFUSED is not retryable, and the
+// message was BLOCKED: `Not sent.` beside it, and never delivered at all.
+// ---------------------------------------------------------------------------------------------
+
+test('a send refused because the Mac replaced the challenge is delivered on the same flush, not blocked', async () => {
+	const storage = memoryStorage();
+	const queue = createQueue({ storage, clock: () => 1_000_000 });
+	await queue.enqueue({ clientId: 'c-ray4', threadId: 't', kind: 'text', text: 'ray r3 pass three' });
+
+	let n = 0;
+	const state = { apiBase: 'https://mm1.tail9a3b2.ts.net:8443', challenge: 'evicted', deviceId: 'd' };
+	const api = createApi({
+		state,
+		origin: 'https://mm1.tail9a3b2.ts.net:8443',
+		signer: { deviceId: 'd', async sign() { return 'signature'; }, async sha256Hex() { return '0'.repeat(64); } },
+		fetchImpl: async () => {
+			n += 1;
+			// The Mac's flat refusal, with the fresh challenge every answer on that port carries.
+			if (n === 1) {
+				const r = jsonResponse(404, {});
+				r.headers = { get: (k) => (k === 'X-RichOS-Challenge' ? 'live' : null) };
+				return r;
+			}
+			const ok = jsonResponse(200, { message_id: 'intake_9', cursor: 12 });
+			ok.headers = { get: (k) => (k === 'X-RichOS-Challenge' ? 'newer' : null) };
+			return ok;
+		},
+		eventSourceImpl: null
+	});
+
+	const result = await queue.flush(api);
+	assert.strictEqual(result.sent, 1, 'the message was blocked instead of being re-signed and sent');
+	assert.strictEqual(result.blocked, 0);
+	assert.strictEqual(n, 2, 'the stale credential was not retried inside the one flush');
+	assert.deepStrictEqual(queue.all(), [], 'a delivered message is still on the phone');
+	assert.strictEqual(state.challenge, 'newer');
+	// And it did not cost a wait: nothing is left owed a try.
+	assert.strictEqual(queue.dueInMs(), null);
+});
