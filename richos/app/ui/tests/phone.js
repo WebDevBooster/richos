@@ -1067,6 +1067,84 @@ async function openSheet(browser, theme, preset) {
     return seen.join("; ");
   });
 
+  // ---- Urban's blocker: a reopen must land on the path the Mac is SERVING ---------------
+
+  for (const theme of ["dark", "light"]) {
+    for (const [what, preset] of [
+      ["live", { phonePairing: true }],
+      ["expired", { phonePairingExpired: true }],
+    ]) {
+      await run.check(
+        `17  reopening the sheet with a ${what} code on the Tailscale path shows the TAILSCALE screen (${theme})`,
+        async () => {
+          // URBAN'S SIGNOFF BLOCKER, `esc-20260919T041857Z-640acd39`, reproduced twice on the
+          // live candidate-.12 window: choose Anywhere, press Set my phone up, close the sheet,
+          // reopen it while the code is still live — and the HOME path's screen came back. Two
+          // unverified-certificate warnings, a live trust QR at `http://mm1.local:8444/ca` and
+          // the sixteen certificate taps, wrapped around the TAILNET pairing URL, on the one
+          // path that installs no certificate. The tripwire sentence written to catch exactly
+          // that was hidden by the same condition.
+          //
+          // **THIS PRESET IS THE REOPEN.** The sheet is opened with a code already live (or
+          // already expired) and `route === null`, which is precisely the state a reopen is in:
+          // `route` is reset on every open by design, and `choosing` requires `!pairing`. On
+          // `61568ee1` `onTailscale` came from `route`, so it was `false` here and every
+          // Tailscale-only node was hidden and every home-only node shown.
+          const page = await openSheet(browser, theme, Object.assign({ phoneTailnet: {
+          state: "ready",
+          name: "mm1.tail770f6e.ts.net",
+          origin: "https://mm1.tail770f6e.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        } }, preset));
+          await page.waitForSelector("#phone-pairing:not([hidden])");
+
+          const seen = await page.evaluate(() => {
+            const vis = (id) => {
+              const el = document.getElementById(id);
+              return !!el && !el.hidden && el.offsetParent !== null;
+            };
+            return {
+              tailscaleSteps: vis("phone-ts-steps"),
+              homeWarnings: vis("phone-home-warnings"),
+              trustQrUrl: (document.getElementById("phone-trust-url") || {}).textContent || "",
+              lead: (document.getElementById("phone-lead") || {}).textContent || "",
+              panel: (document.querySelector("#phone-sheet .overlay-panel") || {}).innerText || "",
+            };
+          });
+
+          assert(
+            !seen.homeWarnings,
+            "THE BLOCKER: the home path's certificate warnings are on a screen serving the " +
+              "tailnet, which installs no certificate"
+          );
+          assert(
+            !/8444\/ca/.test(seen.trustQrUrl),
+            `THE BLOCKER: the trust URL is on screen on the Tailscale path: ${JSON.stringify(seen.trustQrUrl)}`
+          );
+          assert(
+            !/sixteen|16 taps/i.test(seen.panel),
+            "THE BLOCKER: the sixteen certificate taps are on a path that installs no certificate"
+          );
+          assert(
+            /Tailscale/.test(seen.lead),
+            `the opening sentence still describes the path he did not choose: ${JSON.stringify(seen.lead)}`
+          );
+          if (preset.phonePairing) {
+            assert(seen.tailscaleSteps, "the four phone steps are not on the Tailscale screen");
+            assert(
+              /no certificate to install on this path|Nothing was installed/i.test(seen.panel),
+              "the no-certificate tripwire sentence is hidden — the one sentence written to " +
+                "catch this defect is hidden by the condition that causes it"
+            );
+          }
+          await page.close();
+          return `${what} code, ${theme}: tailnet steps ${seen.tailscaleSteps}, home warnings ` +
+            `${seen.homeWarnings}, trust URL ${JSON.stringify(seen.trustQrUrl)}`;
+        }
+      );
+    }
+  }
+
   // ---- defect B: the expired card carries no instruction about things that are gone -------
 
   await run.check("18  an expired code takes its own instructions with it", async () => {

@@ -724,7 +724,33 @@
     // is the screen", because it is, in both states.
     const pairing = live || expired;
     const tailnet = status.tailnet || { state: "absent" };
-    const onTailscale = route === "anywhere";
+    // **WHILE A WINDOW IS OPEN, THE MAC SAYS WHICH PATH IT IS SERVING. Never `route`.**
+    //
+    // Urban's blocker, `esc-20260919T041857Z-640acd39`, reproduced twice on candidate .12:
+    // choose Anywhere, press Set my phone up, close the sheet, reopen it while the code is still
+    // live — and the HOME path's screen came back. Two unverified-certificate warnings, the
+    // trust QR at `http://mm1.local:8444/ca` and the sixteen certificate taps, wrapped around
+    // the TAILNET pairing URL, on the one path that installs no certificate; and the sentence
+    // written to catch exactly that ("There is no certificate to install on this path") hidden
+    // by the same condition.
+    //
+    // The cause was two correct decisions meeting: `route` is reset to `null` on every open
+    // (Urban §1 — the choice is never remembered), and `choosing` requires `!pairing`, which a
+    // live OR an expired code makes true. So a reopen fell straight through to the pairing
+    // screen with `onTailscale === false` and `:838-841` then hid every Tailscale-only node and
+    // showed every home-only one. The comment two screens up stated the assumption that broke —
+    // "a listening, unpaired Mac is someone MID-FLOW on the home path" — which stopped being
+    // true the moment the Tailscale route also made the Mac listen.
+    //
+    // **The fix is `paired_via`'s ruling one state earlier: which path the OPEN window was
+    // started for is a fact the Mac holds.** `status.servingVia` is `Channel::pairing_path` —
+    // the same value a redeeming phone's record is stamped from, and the same value that moves
+    // when the Tailscale addresses fail to bind and the whole channel falls back home. Nothing
+    // is persisted and nothing is remembered here; `route` still answers only while he is
+    // CHOOSING, which is the one state in which it is the truth.
+    const onTailscale = pairing
+      ? status.servingVia === "tailnet"
+      : route === "anywhere";
 
     // **THE LEAD, FIRST, BECAUSE EVERY SCREEN BELOW CARRIES IT.** Once a phone is paired the
     // route is not a question any more and the record answers it — the same source the forget
@@ -736,7 +762,13 @@
         : status.pairedVia === "home"
           ? "at-home"
           : "none"
-      : route || "none";
+      : pairing
+        // **AND THE LEAD FOLLOWS THE SAME FACT WHILE A WINDOW IS OPEN.** It is the first thing
+        // on every screen below, so a reopen whose screens were right and whose opening
+        // sentence still described the path he did not choose would be the blocker again, one
+        // paragraph shorter.
+        ? (status.servingVia === "tailnet" ? "anywhere" : status.servingVia === "home" ? "at-home" : "none")
+        : route || "none";
     field("phone-lead").textContent = LEAD[leadKey];
 
     // Rows 1 and 9 of Urban's §3: unpaired with no route chosen is Screen 1.
