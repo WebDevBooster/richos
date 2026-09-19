@@ -349,7 +349,16 @@ trap 'cleanup; exit 130' INT TERM
 # Classification: which suites put a window on a screen.
 # ---------------------------------------------------------------------------------------
 is_host_screen() {  # $1 = full path to a suite
-  grep -q 'lib/gui-launch\.sh' "$1" && return 0
+  # IT MUST BE SOURCED, NOT MERELY MENTIONED, and the difference is not pedantry: the first
+  # version of this line matched the library's NAME anywhere in the file, and on the first
+  # full run it classified `run-tests.test.sh` as a suite that boots the app — because that
+  # file's own S1 case writes a FIXTURE containing the string `. "$DIR/lib/gui-launch.sh"`.
+  # The harness's own self-test was recorded NOT RUN (no screen), under a reason that reads
+  # perfectly legitimately, which is exactly the shape of "a suite stopped running and
+  # nobody found out" this file counts five instances of. Matching at COMMAND POSITION —
+  # `.` or `source` as the first word of a line — separates sourcing the library from
+  # writing its name inside a quoted string or a comment.
+  grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^[:space:]]*lib/gui-launch\.sh' "$1" && return 0
   grep -q '^# run-tests: host-screen' "$1" && return 0
   return 1
 }

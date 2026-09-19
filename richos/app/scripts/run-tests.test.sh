@@ -32,6 +32,19 @@
 #   H7  an empty inventory is still exit 2, never "all 0 suites passed"
 #   H8  a DECLARED gap whose suite failed a case is a FAILURE   <- the concealment case
 #   H9  ...and a declared gap that failed nothing is still green — H8 has not eaten H2
+#
+# THIS SUITE OPENS NO WINDOW, and it has to say so like every other file here — case S6
+# below scans this directory for anything that could put one on the operator's Mac, and it
+# scans ITSELF along with the rest. What it finds here is its OWN search pattern: the
+# literal `/Contents/MacOS/`, `$GUI_BINARY` and `richos-tauri` inside the `grep -qE` it uses
+# to do the scanning, plus the `. "$DIR/lib/gui-launch.sh"` that S1 writes into a FAKE suite
+# in a scratch directory. Every suite this file runs is one it wrote itself, under mktemp,
+# and not one of them is the app.
+#
+# That the scanner is caught by its own net is the mechanism working, not a flaw in it: a
+# scanner exempt from its own rule is a rule with a hole exactly where somebody clever would
+# put something.
+# run-tests: no-host-screen: its matches are its own S6 search pattern and the fake suites S1 writes under mktemp
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -480,7 +493,7 @@ for real in "$DIR"/*.test.sh; do
   grep -vE '^[[:space:]]*#' "$real" \
     | grep -qE '(^|[[:space:]]|\()(open|osascript)[[:space:]]|/Contents/MacOS/|\$GUI_BINARY|target/(debug|release)/richos-tauri' \
     || continue
-  grep -q 'lib/gui-launch\.sh' "$real" && continue
+  grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^[:space:]]*lib/gui-launch\.sh' "$real" && continue
   grep -q '^# run-tests: host-screen' "$real" && continue
   if ! grep -qE '^# run-tests: no-host-screen:[[:space:]]*[^[:space:]]' "$real"; then
     SCAN_MISSING="$SCAN_MISSING $(basename "$real")"
@@ -493,6 +506,46 @@ back by --no-host-screen) or carry '# run-tests: no-host-screen: <why its matche
 nothing>'. A bare marker declares nothing, and neither does silence."
 else
   ok "S6 every suite in the real inventory that could open a window is classified or declared inert"
+fi
+
+# S7 — THE OTHER DIRECTION, AND THE ONE THAT ACTUALLY BIT. S6 asks whether anything that
+# could open a window was missed. It cannot ask the opposite: whether something that opens
+# NOTHING was held back anyway. On the first full `--no-host-screen` run, 2026-09-19, this
+# file itself was recorded `NOT RUN (no screen)` — the classifier matched the library's NAME
+# anywhere in a file, and S1 above writes a fixture containing `. "$DIR/lib/gui-launch.sh"`.
+# The harness's own self-test stopped running, under a reason that reads entirely
+# legitimate, which is the exact shape of the defect this whole file exists for.
+#
+# So the classification of the REAL inventory is asserted as a set, both ways, by running
+# the harness over it and reading back which suites it held aside.
+CLASSIFIED=""
+for real in "$DIR"/*.test.sh; do
+  if grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^[:space:]]*lib/gui-launch\.sh' "$real" \
+     || grep -q '^# run-tests: host-screen' "$real"; then
+    CLASSIFIED="$CLASSIFIED $(basename "$real")"
+  fi
+done
+CLASSIFIED="${CLASSIFIED# }"
+S7_WHY=""
+case " $CLASSIFIED " in
+  *" gui-boot.test.sh "*)   ;;
+  *) S7_WHY="gui-boot.test.sh is NOT classified, and it is the suite that boots the app on the screen" ;;
+esac
+case " $CLASSIFIED " in
+  *" front-door.test.sh "*) ;;
+  *) S7_WHY="$S7_WHY; front-door.test.sh is NOT classified, and it drives the shipped window" ;;
+esac
+case " $CLASSIFIED " in
+  *" run-tests.test.sh "*)
+    S7_WHY="$S7_WHY; run-tests.test.sh IS classified, and it opens nothing — it only writes \
+the library's name into a fixture. A suite held back for a string in a quoted argument stops \
+running under a reason that reads legitimate, which is this file's whole subject." ;;
+esac
+if [ -n "$S7_WHY" ]; then
+  bad "S7 the real inventory's host-screen set is exactly the suites that source the library" \
+      "classified: [$CLASSIFIED] — ${S7_WHY#; }"
+else
+  ok "S7 the host-screen set is exactly [$CLASSIFIED] — mentioning the library is not sourcing it"
 fi
 
 echo ""
