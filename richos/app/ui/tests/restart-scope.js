@@ -507,6 +507,14 @@ async function main() {
           visibility: "ceo",
           worker: { agentId: "agt_x", workerName: "Sage", agentType: "architecture", observedState: "started", state: "running", eventsObserved: 2 },
         },
+        // `rich://ceo-message` — HIS OWN SENTENCE, and the single worst payload in this family
+        // to render across an entity boundary. It is also the newest, and this inventory found
+        // it the hour it landed: the handler was written, the check listed it as unmodelled,
+        // and the fence was proved rather than assumed.
+        onCeoMessage: {
+          turnId: "turn_a", messageId: "turn_a:user", text: "where are we on the proposal?",
+          source: "text", createdAt: 1787950000000,
+        },
       };
       const out = { handlers, unmodelled: [], results: {} };
       for (const h of handlers) {
@@ -714,9 +722,22 @@ async function main() {
       }, 16);
     });
     await c.evaluate((p) => window.__RICHOS_MOCK__.simulateMidTurnCrash("general", p), prompt);
-    // The replay's reply arrives on the live wire; the CEO bubble arrives with the
+    // **THIS WAIT USED TO BE FOR THE CEO BUBBLE, AND THE REASON IT COULD BE IS GONE.** It
+    // said: "the replay's reply arrives on the live wire; the CEO bubble arrives with the
     // reconciliation reload that `rich://turn-completed` triggers, so wait for the bubble
-    // rather than for the prose — reading between the two is reading a half-drawn turn.
+    // rather than for the prose". That was true while nothing live carried his words —
+    // and it is exactly the defect Ray measured on his phone at 5.68 s. `rich://ceo-message`
+    // now puts his sentence on screen the moment the turn is durable, so the bubble appears
+    // DURING the replay and this wait returned on a half-drawn turn: the duration row still
+    // read "Working" and the check failed on a screen that was about to be right.
+    //
+    // So it waits for what it actually needs — the replacement turn to have FINISHED — and
+    // the bubble is asserted afterwards rather than used as the clock.
+    await c.waitForFunction(
+      () => Array.from(document.querySelectorAll(".tl-duration-label")).some((n) => /^Worked for/.test(n.textContent.trim())),
+      null,
+      { timeout: 20000 }
+    );
     await c.waitForFunction(
       (p) => Array.from(document.querySelectorAll(".tl-user-text")).some((n) => n.textContent.includes(p)),
       prompt,

@@ -1030,6 +1030,67 @@
     }
   }
 
+  /// `rich://ceo-message` — **WHAT HE SAID, ON A SURFACE THAT DID NOT WATCH HIM SAY IT.**
+  ///
+  /// Every other event in this family is about Rich, and for good reason while the only
+  /// surface was a window that had drawn the CEO's sentence itself the moment he pressed
+  /// Send. His phone made that false. Ray's candidate .13, defect R3: he typed on his phone
+  /// and the Mac showed nothing for **5.68 s** — measured twice, 5.77 s and 5.68 s — and then
+  /// his words and Rich's finished answer appeared in the SAME FRAME, because the only thing
+  /// that ever put them on screen was `turn-completed`'s reload. The other direction takes
+  /// 0.096 s. At 2.99 s the sidebar's working dot had moved and the thread had not, which is
+  /// the proof the events were arriving and none of them carried his sentence.
+  ///
+  /// # It is an UPSERT on the projection's own id, never an insert
+  ///
+  /// `messageId` is `{turnId}:user` — the id `Timeline::project` derives — so for a message
+  /// he typed HERE this event arrives after `turn-status: queued` has already adopted the
+  /// optimistic bubble onto exactly that id, and there is nothing to do. One sentence stays
+  /// one row, live and after a reload, with no de-duplication rule anywhere.
+  ///
+  /// # When the text disagrees, THE LEDGER WINS, and that is a real repair
+  ///
+  /// The one way a row can exist here with different words is a mis-adoption:
+  /// `adoptPendingUserMessage` takes the OLDEST un-adopted bubble, so a `queued` for a turn
+  /// that started on the phone can consume a sentence he is part-way through sending from the
+  /// desk. That is a false attribution — his desk sentence rendered as the phone's turn — and
+  /// this event is the first thing that has ever been able to see it, because it carries what
+  /// the ledger actually stored. It is corrected here.
+  ///
+  /// **The residue, stated rather than buried:** the bubble that was wrongly consumed is not
+  /// put back by this; it returns with its own turn's reload. That window is narrow (both
+  /// mouths inside one turn boundary) and it is older than this event.
+  function onCeoMessage(model, p) {
+    if (!accepts(model, p)) return { structural: false, rejected: true };
+    if (!p.messageId) return { structural: false, rejected: true };
+    const existing = model.items.get(p.messageId);
+    if (existing && existing.kind === "user_message") {
+      if (existing.text === p.text) return { structural: false, rejected: false };
+      model.items.set(p.messageId, Object.assign({}, existing, { text: p.text, source: p.source || existing.source }));
+      return { structural: true, rejected: false };
+    }
+    const isNew = putItem(model, {
+      kind: "user_message",
+      id: p.messageId,
+      entityId: p.entityId,
+      threadId: p.threadId,
+      turnId: p.turnId,
+      // THE TURN'S OWN INSTANT, not `at`. `createdAt` is what `placeByTime` and the renderer
+      // sort on, and the projection uses the turn's `created_at`; taking the emit instant
+      // instead would sort the live row differently from the reloaded one.
+      createdAt: typeof p.createdAt === "number" ? p.createdAt : p.at,
+      slot: "opening",
+      sequence: null,
+      visibility: "ceo",
+      text: p.text,
+      source: p.source || "text",
+      pending: false,
+    });
+    // The turn's place in `turnOrder` is `putItem`'s to make, through `turnRecord`, exactly as
+    // it is for every other item — there is no second ordering rule here.
+    return { structural: isNew, rejected: false };
+  }
+
   /// WITHDRAW an optimistic bubble that will never become a turn.
   ///
   /// The counterpart to `adoptPendingUserMessage`, and it exists because `send()` can be
@@ -2848,6 +2909,7 @@
     markStopping,
     addLocalNotice,
     onTurnStatus,
+    onCeoMessage,
     onMessageStarted,
     onMessageDelta,
     onMessageCompleted,

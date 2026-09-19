@@ -2869,6 +2869,29 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
   scheduleRender();
 });
 
+// **WHAT HE SAID, WHEN HE DID NOT SAY IT HERE** — Ray's candidate .13 defect R3.
+//
+// This window has always drawn the CEO's own sentence itself, optimistically, the instant he
+// pressed Enter (`addPendingUserMessage`), so it never needed to be told. His phone is a second
+// mouth and made that assumption false: a message typed there took **5.68 s** to reach this
+// window — measured twice — and arrived in the same frame as Rich's finished answer, because
+// the only thing that put it on screen was `turn-completed`'s reload. Mac to phone is 0.096 s.
+//
+// The handler is an UPSERT on the projection's own `{turnId}:user`, so for a message typed HERE
+// it is a no-op: `turn-status: queued` has already adopted the optimistic bubble onto that exact
+// id. One sentence, one row, live and after a reload.
+Bridge.listen("rich://ceo-message", ({ payload }) => {
+  const r = window.RichTimeline.onCeoMessage(timelineModel, payload);
+  if (r.rejected) return;
+  // §18: a message that appeared on this screen without him typing it is a change a screen
+  // reader has no other way to learn about. His own optimistic bubble is not announced twice —
+  // that path returns `structural: false` and never reaches here.
+  if (r.structural) {
+    announce("You said: " + payload.text);
+    scheduleRender();
+  }
+});
+
 Bridge.listen("rich://message-started", ({ payload }) => {
   const r = window.RichTimeline.onMessageStarted(timelineModel, payload);
   if (r.rejected) return;
