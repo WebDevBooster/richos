@@ -4210,9 +4210,31 @@ body.bp-narrow .tl-user-bubble {
   gap: 8px;
 }
 
+/* THE BORDER IS THE AFFORDANCE, SO IT OWES 3:1 — Urban's G6, and it is the one contrast
+   failure his phone-flow audit found.
+
+   This border was `--line` for as long as `.desk-btn` has existed, and every audit that met it
+   filed it as inherited debt somebody else owned — including the note below this rule, which
+   declined to fix it on exactly those grounds. What retired that reasoning is WHERE it lands:
+   on the paired card (Ray's frame 22) every line is `--ink-soft` at one size and one weight, so
+   this border is the ONLY thing separating a button from a paragraph. At 1.24:1 in dark, the
+   card's two controls had no visible affordance at all.
+
+     `--line` (= --line-strong)   1.50:1 light rgb(207,208,211)   1.24:1 dark rgb(37,52,82)
+     `--line-control`             4.06:1 light rgb(118,124,141)   3.79:1 dark rgb(107,126,168)
+
+   All four computed with the WCAG formula against `--card` — rgb(253,252,248) light and
+   rgb(24,36,64) dark — which is the ground `.overlay-panel`, `.desk-card` and `.setmenu` all
+   declare. Floor for a non-text indicator is 3:1; the old value missed it by a factor of two in
+   both themes and the new one clears it in both.
+
+   NO NEW COLOR. `--line-control` is already in the product and already carries this exact job
+   on two other controls: `.phone-route > button`, where a border separates two decisions, and
+   `.set-switch`, whose off state was fixed the same way and for the same reason on 2026-08-31.
+   This makes the app's plain button agree with them instead of being the third answer. */
 .desk-btn {
   background: none;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-control);
   border-radius: 6px;
   padding: 6px 12px;
   font-family: inherit;
@@ -4244,14 +4266,22 @@ body.bp-narrow .tl-user-bubble {
 /* A DISCLOSURE, NOT A DECISION — audit-9 row 5. It opens the raw form of a request and does
    nothing else, so it does not look like the two buttons that answer the question.
 
-   THE BORDER IS DROPPED FOR A MEASURED REASON, not for a quiet one. `.desk-btn`'s border is
-   `var(--line)` = `--line-strong`, and against the panel it sits on (`--surface`, which is
-   `--card`) that computes to 1.24:1 in dark mode and 1.50:1 in light — both under the 3:1 floor
-   a non-text indicator has to clear. Every `.desk-btn` in the app carries that border today and
-   that is a row somebody owns; a control added now does not add another one. What identifies
-   this one is its own label — `--ink-soft` on `--surface`, 5.78:1 dark and 6.38:1 light — and
-   `.desk-btn:focus-visible` above, whose 2px `--accent` ring is 6.36:1 dark and 3.83:1 light
-   against the same panel. All five ratios computed with the WCAG formula, none eyeballed. */
+   THE BORDER IS DROPPED FOR A MEASURED REASON, not for a quiet one.
+
+   **AND THE REASON HAS CHANGED UNDER IT — read this before quoting the old one.** When this
+   note was written, `.desk-btn`'s border was `var(--line)` at 1.24:1 dark and 1.50:1 light, and
+   the argument here was that dropping a border which was already invisible cost nothing that
+   was not already lost. Urban's G6 fixed that border (`--line-control`, 3.79:1 dark and 4.06:1
+   light — see the rule above), so the premise is gone: this control now drops a border that is
+   VISIBLE on every other `.desk-btn` in the app.
+
+   It stays dropped, and the reason is the one this note opened with rather than the contrast
+   one: a disclosure is not a decision, and it must not look like the two buttons that answer
+   the question beside it. What identifies it is its own label — `--ink-soft` on `--surface`,
+   5.78:1 dark and 6.38:1 light — and `.desk-btn:focus-visible` above, whose 2px `--accent` ring
+   is 6.36:1 dark and 3.83:1 light against the same panel. Those four ratios are computed with
+   the WCAG formula and none is eyeballed; a non-text indicator that is DELIBERATELY absent owes
+   no ratio, and what owes one here is the label, which clears 4.5:1 in both themes. */
 .desk-btn--plain {
   border-color: transparent;
   padding-left: 0;

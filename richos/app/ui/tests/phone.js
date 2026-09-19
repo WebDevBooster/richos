@@ -1380,6 +1380,62 @@ async function openSheet(browser, theme, preset) {
     return "both routes: no #phone-bound, no \"answering on\", no address:port pair in the rendered panel";
   });
 
+  // ---- G6: the border that is the only affordance on the paired card ----------------------
+
+  await run.check("23  `.desk-btn`'s border clears 3:1 in BOTH themes — measured from the pixels", async () => {
+    // Urban's G6, and the one contrast failure in his audit: *"On the paired card that border is
+    // the only thing that makes a button a button. Every line on that card is `--ink-soft` at the
+    // same size and weight — labels and paragraphs alike ... So at 1.24:1 in dark, the card's two
+    // controls have no visible affordance at all."*
+    //
+    // MEASURED THE WAY HE MEASURED IT: a crop of the rendered pixels across the border, ground =
+    // the modal value on the crop's skirt, ink = the value furthest from it in luminance, and the
+    // ratio between them. `lib/contrast.js`'s own `measureIndicatorCrop`, which is the function
+    // the indicator subset of the walk uses — not a second implementation, and not a token table.
+    const { measureIndicatorCrop } = require("./lib/contrast");
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await openSheet(browser, theme, { phonePaired: true });
+      await page.waitForFunction(() => {
+        const n = document.getElementById("phone-device-name");
+        return n && n.textContent.trim().length > 0;
+      });
+      await page.waitForTimeout(300);
+      for (const sel of ["#phone-forget", "#phone-close"]) {
+        const box = await page.evaluate((s) => {
+          const el = document.querySelector(s);
+          el.scrollIntoView({ block: "center" });
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height };
+        }, sel);
+        await page.waitForTimeout(60);
+        // A 6px strip across the LEFT border, taken from the vertical middle so no glyph of the
+        // label is inside it: columns 0/1 are the panel outside the button and 4/5 the panel
+        // showing through it (`background: none`), so the skirt resolves to the panel and the
+        // two border columns are the only other thing in the crop.
+        const png = await page.screenshot({
+          clip: {
+            x: Math.round(box.x - 3),
+            y: Math.round(box.y + box.h * 0.35),
+            width: 6,
+            height: Math.max(6, Math.round(box.h * 0.3)),
+          },
+        });
+        const m = measureIndicatorCrop(png, 3);
+        assert(!m.unresolvable, sel + " in " + theme + ": " + m.unresolvable);
+        assert(
+          m.ratio >= 3,
+          "THE DEFECT: " + sel + "'s border is " + m.ratio + ":1 in " + theme + " (" + m.ink +
+            " on " + m.ground + ") against a 3:1 floor for a non-text indicator — and on this card " +
+            "it is the only thing that makes a button a button"
+        );
+        out.push(theme + " " + sel + " " + m.ratio + ":1 (" + m.ink + " on " + m.ground + ")");
+      }
+      await page.close();
+    }
+    return out.join("; ");
+  });
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
