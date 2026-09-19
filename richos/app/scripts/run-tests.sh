@@ -113,10 +113,14 @@
 #       through `security find-identity` and each has a case Z proving it left the real
 #       keychain untouched. Concurrent readers of a keychain are safe; there are no
 #       concurrent writers, because both suites shim `security` for every write.
-#   TCP ports — exactly one suite binds one: `make-release.test.sh`, port 8975, override
+#   TCP ports — exactly one suite binds one: `make-release.test.sh`, override
 #       `RICHOS_RELEASE_TEST_PORT`. No second suite listens on anything, so no two of the
-#       fourteen can collide. Two SIMULTANEOUS run-tests.sh runs on one host still would,
-#       and that was equally true when this ran serially.
+#       fourteen can collide. Two SIMULTANEOUS run-tests.sh runs on one host DID, for as
+#       long as that port was a fixed 8975 — and this Mac holds a worktree per engineer
+#       plus the nightly's own checkout, so two simultaneous runs is the normal state of
+#       the machine rather than an edge case. Since 2026-09-20 the port is derived from
+#       the checkout's path (`lib/worktree-resource.sh`): stable for one worktree,
+#       distinct between siblings. The proof store below is derived the same way.
 #   cargo target directories — `gui-boot.test.sh` and `updater-setup.test.sh` both build
 #       under `app/src-tauri/target`; `voice-component.test.sh` builds under `app/target`
 #       (a DETACHED nested workspace, app/Cargo.toml:5-8, so those are two different
@@ -178,8 +182,10 @@
 #   * a suite with no enumerated inputs is never skippable. Adding a heavy suite gets you
 #     a suite that runs every time, not a silent skip;
 #   * the proof is per-suite, in `$RUN_TESTS_STATE` (default
-#     `~/.richos-nightly/suite-proofs/`), and names the digest, the run id and the commit
-#     it was proven on. It is written only after the suite ran and was GREEN;
+#     `~/.richos-nightly/suite-proofs/<worktree-id>/`, one directory per checkout — see
+#     `lib/worktree-resource.sh` for why nothing here keeps a fixed name), and names the
+#     digest, the run id and the commit it was proven on. It is written only after the
+#     suite ran and was GREEN;
 #   * every skip is printed, named in the summary, and written into `--results-out`, from
 #     where `nightly-local.py` puts it in the candidate's `build-info.json`. A candidate
 #     can never quietly claim a suite it did not run.
@@ -367,9 +373,27 @@ is_host_screen() {  # $1 = full path to a suite
 # Skip-when-unchanged. The input sets are a deliberate SUPERSET; see the header.
 # ---------------------------------------------------------------------------------------
 SKIP_UNCHANGED="${RUN_TESTS_SKIP_UNCHANGED:-}"
-STATE="${RUN_TESTS_STATE:-$HOME/.richos-nightly/suite-proofs}"
 RUN_ID="${RICHOS_NIGHTLY_RUN_ID:-manual}"
 ROOT="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+# ONE DIRECTORY PER CHECKOUT, derived from the checkout's path — never one shared store.
+# A proof says "this suite was green over these inputs, in run <id>, at commit <sha>"; a
+# store shared by every worktree on this Mac hands one checkout's proof to another, and a
+# skip is the one outcome that must never rest on something this tree did not prove. The
+# derivation is `lib/worktree-resource.sh`, which is the only place any shared name in this
+# directory is derived. An explicit RUN_TESTS_STATE still wins outright.
+#
+# A MISSING LIBRARY REFUSES RATHER THAN FALLING BACK. The fallback would be a fixed path —
+# exactly the shared store this replaces — and it would be taken silently, on a machine
+# where nobody is looking. Every fixture that copies this harness copies the library with
+# it, for the same reason.
+if [ ! -f "$DIR/lib/worktree-resource.sh" ]; then
+  echo "run-tests.sh: $DIR/lib/worktree-resource.sh is missing, and every shared name this" >&2
+  echo "              harness uses is derived there, one per checkout. A fixed fallback" >&2
+  echo "              would put two checkouts back on one directory without saying so." >&2
+  exit 2
+fi
+. "$DIR/lib/worktree-resource.sh"
+STATE="${RUN_TESTS_STATE:-$(worktree_dir "$(worktree_root "$DIR")" "$HOME/.richos-nightly/suite-proofs")}"
 HEAD_SHA="$(git -C "$DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
 
 suite_inputs() {  # $1 = full path to a suite; prints repo-relative paths, or exits 1
@@ -577,7 +601,15 @@ print_result() {
       || echo "    run-tests.sh: could not write the gui proof to $PROOF_OUT"
     echo "    gui proof written to $PROOF_OUT"
   fi
-  if [ "$code" -eq 2 ] && printf '%s\n' "$out" | grep -q '^  FAIL  '; then
+  # A HERE-STRING, NEVER A PIPE INTO `grep -q`. This file runs under `pipefail`, and
+  # `grep -q` exits the instant it matches — so with a pipe, the writer on the left can be
+  # killed by SIGPIPE AFTER the match, the pipeline reports 141, and this test reads FALSE
+  # over output that DID contain a failed case. Measured on this Mac, 2026-09-20, on this
+  # exact idiom: 400 of 400 iterations reported "no match" for a 400 KB payload whose first
+  # line was the needle, and 14 of 200 for `gui-boot.test.sh` through the scanner in
+  # `run-tests.test.sh` case S6. Here that false reading would file a suite that FAILED a
+  # case as a tolerated host gap — the concealment this harness exists to refuse.
+  if [ "$code" -eq 2 ] && grep -q '^  FAIL  ' <<<"$out"; then
     # A GAP IS A CLAIM ABOUT THE HOST, AND THIS SUITE ALREADY FOUND SOMETHING WRONG.
     # See the header. Counted as a failure, which no declaration tolerates.
     echo "    run-tests.sh: $rel exited 2 (\"this host cannot answer\") after failing a case of its own."

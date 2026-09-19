@@ -50,6 +50,16 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS="$DIR/run-tests.sh"
 
+# A FIXTURE IS THE HARNESS AS IT SHIPS, not the harness minus its libraries. `run-tests.sh`
+# derives every shared name — the proof store today — through `lib/worktree-resource.sh`,
+# and refuses to run without it rather than falling back to a fixed path. So a scratch box
+# gets both files, exactly as the real directory holds both.
+install_harness() {  # install_harness <box directory>
+  mkdir -p "$1/lib"
+  cp "$HARNESS" "$1/run-tests.sh"
+  cp "$DIR/lib/worktree-resource.sh" "$1/lib/worktree-resource.sh"
+}
+
 TMP="$(mktemp -d -t run-tests-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -63,10 +73,92 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 3
 fi
 
+# =========================================================================================
+# TWO THINGS THAT MADE THIS FILE LIE, AND THE TWO HELPERS THAT END THEM
+# =========================================================================================
+#
+# 2026-09-19. This suite was GREEN run by hand and RED inside `nightly-local.py build
+# --no-host-screen` — the same commit, `62e5affd`, minutes apart, case H2, with the harness
+# output in the build byte-for-byte identical to the output of a run that passed. A suite
+# whose verdict depends on who started it is worth nothing, because the next disagreement
+# is read as "the build is broken" or "the suite is flaky" and neither is true.
+#
+# Both causes are here, and neither is about what the harness does.
+#
+# ONE — THE FIXTURE INHERITED THE CALLER'S ENVIRONMENT. Inside a build this file is a suite
+# run BY `run-tests.sh`, so the `run-tests.sh` copies it runs in its scratch box inherited
+# whatever the outer run exported. Measured 2026-09-20 on `62e5affd` with one variable
+# exported and nothing else changed: `RUN_TESTS_NO_HOST_SCREEN=1` — the documented env form
+# of the flag EVERY build now passes — turns S2 and S4 RED on a tree where nothing is
+# wrong. So the fixture gets `env -i` and an explicit list: PATH, HOME, TMPDIR, LC_ALL,
+# a private RUN_TESTS_STATE, plus exactly what the case sets. Nothing else reaches it, in
+# either direction: the fixture also stops writing proofs into the operator's real store.
+#
+# TWO — THE ASSERTION ITSELF COULD REPORT "NO MATCH" FOR TEXT THAT WAS THERE. Every check
+# here read `printf '%s' "$OUT" | grep -Fq NEEDLE`. This file runs under `pipefail` and
+# `grep -q` exits the instant it matches, so the writer on the left can die of SIGPIPE
+# AFTER the match was found; the pipeline then reports 141 and the `!` reads it as absence.
+# Measured on this Mac, 2026-09-20: 400 of 400 iterations reported "no match" for a 400 KB
+# payload whose FIRST line was the needle, and the same idiom inside case S6's scanner
+# dropped `gui-boot.test.sh` — the suite that opens a window on the operator's screen —
+# from the scan in 14 of 200 runs. A here-string has no second process and no pipe, so it
+# cannot do this. `says` also refuses to let a grep ERROR (exit 2 and up: a broken tool, a
+# full disk) be reported as "the harness did not print it", which is how a machine problem
+# arrives dressed as a product failure.
+#
+# Neither helper is a workaround for a flake. Each removes a way this file could be wrong
+# about a tree that is right, which is the only thing it is for.
+
+FIXTURE_HOME="$TMP/fixture-home"; mkdir -p "$FIXTURE_HOME"
+# /usr/bin and /bin only: everything the harness shells out to is there (git, sed, awk,
+# find, sort, date, shasum, basename), and an operator's PATH is exactly the kind of
+# ambient state this file must not depend on. K0 below proves the fixture can still commit,
+# so a machine where this is not enough SAYS so rather than passing while asserting nothing.
+FIXTURE_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+
+harness() {  # harness [VAR=VALUE]... -- <script> [args]   -> sets OUT and CODE
+  local assigns=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --) shift; break ;;
+      *)  assigns+=("$1"); shift ;;
+    esac
+  done
+  OUT="$(env -i \
+          PATH="$FIXTURE_PATH" \
+          HOME="$FIXTURE_HOME" \
+          TMPDIR="$TMP" \
+          LC_ALL=C \
+          RUN_TESTS_STATE="$TMP/fixture-state" \
+          ${assigns[@]+"${assigns[@]}"} \
+          bash "$@" 2>&1)"; CODE=$?
+  return 0
+}
+
+says() {    # says <substring>  — 0 when $OUT contains it, 1 when it does not
+  local rc
+  grep -Fq -- "$1" <<<"$OUT"; rc=$?
+  if [ "$rc" -gt 1 ]; then
+    bad "the assertion machinery itself" \
+        "grep exited $rc looking for '$1'. That is a TOOL failure and it must never be \
+read as 'the harness did not print it' — the whole reason this helper exists."
+  fi
+  return "$rc"
+}
+
+saysre() {  # saysre <extended regex> — the same contract, for the two regex checks
+  local rc
+  grep -Eq -- "$1" <<<"$OUT"; rc=$?
+  if [ "$rc" -gt 1 ]; then
+    bad "the assertion machinery itself" "grep exited $rc looking for /$1/"
+  fi
+  return "$rc"
+}
+
 # A scratch inventory. `run-tests.sh` discovers suites next to ITSELF, so the copy goes in
 # with them and the real directory is never read.
 BOX="$TMP/box"; mkdir -p "$BOX"
-cp "$HARNESS" "$BOX/run-tests.sh"
+install_harness "$BOX"
 printf '%s\n' 'echo "=== aaa tests: all 3 passed ==="' 'exit 0' > "$BOX/aaa.test.sh"
 printf '%s\n' 'echo "=== bbb tests: all 2 passed ==="' 'exit 0' > "$BOX/bbb.test.sh"
 printf '%s\n' 'echo "gap.test.sh: cannot answer on this host." >&2' 'exit 2' > "$BOX/gap.test.sh"
@@ -74,15 +166,14 @@ printf '%s\n' 'echo "=== broken tests: 1 FAILED, 0 passed ==="' 'exit 1' > "$BOX
 
 # run <declaration> -> sets CODE and OUT
 run() {
-  OUT="$(env "RUN_TESTS_DECLARED_GAPS=${1:-}" bash "$BOX/run-tests.sh" 2>&1)"; CODE=$?
-  return 0
+  harness "RUN_TESTS_DECLARED_GAPS=${1:-}" -- "$BOX/run-tests.sh"
 }
 # expect <name> <wanted-code> [substring]
 expect() {
   local name="$1" want="$2" needle="${3:-}"
   if [ "$CODE" != "$want" ]; then
     bad "$name" "exit $CODE, wanted $want. Output: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-200)"
-  elif [ -n "$needle" ] && ! printf '%s' "$OUT" | grep -Fq -- "$needle"; then
+  elif [ -n "$needle" ] && ! says "$needle"; then
     bad "$name" "exit $want as wanted, but the output never said '$needle'"
   else
     ok "$name"
@@ -101,13 +192,13 @@ expect "H1 an undeclared gap is refused" 2 "nobody declared them: gap.test.sh"
 run "gap.test.sh: no widget on this host"
 if [ "$CODE" != 0 ]; then
   bad "H2 a declared gap with a reason is green" "exit $CODE, wanted 0"
-elif printf '%s' "$OUT" | grep -Fq "all 3 suites passed"; then
+elif says "all 3 suites passed"; then
   bad "H2 a declared gap with a reason is green" \
       "the summary claimed all three suites passed while one of them did not run"
-elif ! printf '%s' "$OUT" | grep -Fq "2 of 3 suites passed"; then
+elif ! says "2 of 3 suites passed"; then
   bad "H2 a declared gap with a reason is green" \
       "the summary does not say how many ran: $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
-elif ! printf '%s' "$OUT" | grep -Fq "no widget on this host"; then
+elif ! says "no widget on this host"; then
   bad "H2 a declared gap with a reason is green" "the reason is not printed with the result"
 else
   ok "H2 a declared gap with a reason is green, and the summary names it and its reason"
@@ -160,10 +251,10 @@ if [ "$CODE" != 1 ]; then
   bad "H8 a declared gap whose suite failed a case is a failure" \
       "exit $CODE, wanted 1. A gap is a claim about the HOST; this suite found something wrong. \
 Output: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"
-elif ! printf '%s' "$OUT" | grep -Fq "FAILED: deadgap.test.sh"; then
+elif ! says "FAILED: deadgap.test.sh"; then
   bad "H8 a declared gap whose suite failed a case is a failure" \
       "exit 1 as wanted, but the summary does not name it as failed"
-elif ! printf '%s' "$OUT" | grep -Fq "C2 the fixture is intact"; then
+elif ! says "C2 the fixture is intact"; then
   bad "H8 a declared gap whose suite failed a case is a failure" \
       "the failed case is not quoted, so a reader has to reproduce the run to see what broke"
 else
@@ -187,8 +278,8 @@ printf '%s\n' 'echo "=== bbb tests: all 2 passed ==="' 'exit 0' > "$BOX/bbb.test
 
 # H7 — the pre-existing refusal that must survive all of the above.
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
-cp "$HARNESS" "$EMPTY/run-tests.sh"
-OUT="$(bash "$EMPTY/run-tests.sh" 2>&1)"; CODE=$?
+install_harness "$EMPTY"
+harness -- "$EMPTY/run-tests.sh"
 expect "H7 an empty inventory is refused, never 'all 0 suites passed'" 2 "refusing to report green over an empty inventory"
 
 # =========================================================================================
@@ -202,7 +293,7 @@ expect "H7 an empty inventory is refused, never 'all 0 suites passed'" 2 "refusi
 echo ""
 echo "=== P. the pool ==="
 PBOX="$TMP/pool"; mkdir -p "$PBOX"
-cp "$HARNESS" "$PBOX/run-tests.sh"
+install_harness "$PBOX"
 P2LOG="$TMP/concurrency.log"; export P2LOG
 
 mk_timed() {  # mk_timed <name> <seconds>
@@ -222,18 +313,17 @@ mk_timed d 0.1
 
 prun() {  # prun <jobs>
   : > "$P2LOG"
-  OUT="$(env RUN_TESTS_DECLARED_GAPS= P2LOG="$P2LOG" bash "$PBOX/run-tests.sh" --jobs "$1" 2>&1)"; CODE=$?
-  return 0
+  harness RUN_TESTS_DECLARED_GAPS= "P2LOG=$P2LOG" -- "$PBOX/run-tests.sh" --jobs "$1"
 }
 
 prun 4
-ORDER="$(printf '%s' "$OUT" | sed -n 's/^--- //p' | tr '\n' ' ')"
+ORDER="$(sed -n 's/^--- //p' <<<"$OUT" | tr '\n' ' ')"
 if [ "$CODE" != 0 ]; then
   bad "P1 concurrent output is printed in discovery order" "exit $CODE, wanted 0"
 elif [ "$ORDER" != "a.test.sh b.test.sh c.test.sh d.test.sh " ]; then
   bad "P1 concurrent output is printed in discovery order" \
       "printed '$ORDER' — four suites that finish in the opposite order must still read a,b,c,d"
-elif ! printf '%s' "$OUT" | grep -Fq "all 4 suites passed — 4 checks"; then
+elif ! says "all 4 suites passed — 4 checks"; then
   bad "P1 concurrent output is printed in discovery order" \
       "the summary lost a suite or a check: $(printf '%s' "$OUT" | tail -1)"
 else
@@ -292,7 +382,7 @@ git -C "$KREPO" config user.name "run-tests fixture"
 # machine's git configuration, so this one turns hooks off for itself and `kcommit` checks
 # that the commit actually happened instead of trusting that it did.
 git -C "$KREPO" config core.hooksPath "$KREPO/.nohooks"
-cp "$HARNESS" "$KREPO/scripts/run-tests.sh"
+install_harness "$KREPO/scripts"
 printf 'one\n' > "$KREPO/inputs/a.txt"
 printf '%s\n' \
   '# run-tests: inputs inputs' \
@@ -321,17 +411,15 @@ kcommit fixture && ok "K0 the fixture repository commits and is clean — the K 
 KSTATE="$TMP/kstate"
 
 krun() {  # krun <run-id>
-  OUT="$(env RUN_TESTS_DECLARED_GAPS= RUN_TESTS_SKIP_UNCHANGED=1 RUN_TESTS_STATE="$KSTATE" \
-             RICHOS_NIGHTLY_RUN_ID="$1" RICHOS_RUNTIME_DIR= \
-             bash "$KREPO/scripts/run-tests.sh" 2>&1)"; CODE=$?
-  return 0
+  harness RUN_TESTS_DECLARED_GAPS= RUN_TESTS_SKIP_UNCHANGED=1 "RUN_TESTS_STATE=$KSTATE" \
+          "RICHOS_NIGHTLY_RUN_ID=$1" RICHOS_RUNTIME_DIR= -- "$KREPO/scripts/run-tests.sh"
 }
 
 krun first
 if [ "$CODE" != 0 ]; then
   bad "K1a a suite with no recorded proof runs" \
       "exit $CODE, wanted 0: $(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
-elif printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+elif says "SKIPPED: heavy.test.sh"; then
   bad "K1a a suite with no recorded proof runs" \
       "it skipped a suite it had never seen pass — a skip must rest on a prior GREEN run"
 else
@@ -340,15 +428,15 @@ fi
 krun second
 if [ "$CODE" != 0 ]; then
   bad "K1b a proven suite is SKIPPED, naming its digest and its run" "exit $CODE, wanted 0"
-elif ! printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+elif ! says "SKIPPED: heavy.test.sh"; then
   bad "K1b a proven suite is SKIPPED, naming its digest and its run" "it ran again over identical inputs"
-elif ! printf '%s' "$OUT" | grep -Fq "since run first"; then
+elif ! says "since run first"; then
   bad "K1b a proven suite is SKIPPED, naming its digest and its run" \
-      "the skip does not name the run that proved it: $(printf '%s' "$OUT" | grep SKIPPED | head -1)"
-elif ! printf '%s' "$OUT" | grep -Eq 'sha256 [0-9a-f]{64}'; then
+      "the skip does not name the run that proved it: $(grep SKIPPED <<<"$OUT" | head -1)"
+elif ! saysre 'sha256 [0-9a-f]{64}'; then
   bad "K1b a proven suite is SKIPPED, naming its digest and its run" \
       "the skip does not name the digest it compared"
-elif ! printf '%s' "$OUT" | grep -Fq "1 of 2 suites passed"; then
+elif ! says "1 of 2 suites passed"; then
   bad "K1b a proven suite is SKIPPED, naming its digest and its run" \
       "the summary claims a suite that did not run: $(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
 else
@@ -358,7 +446,7 @@ fi
 printf 'two\n' > "$KREPO/inputs/a.txt"
 kcommit change
 krun third
-if printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+if says "SKIPPED: heavy.test.sh"; then
   bad "K2 a committed change to a declared input makes the suite run again" \
       "the input changed and the suite was skipped anyway"
 else
@@ -368,7 +456,7 @@ fi
 krun fourth   # re-prove at the new content
 printf 'three, and never committed\n' > "$KREPO/inputs/a.txt"
 krun fifth
-if printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+if says "SKIPPED: heavy.test.sh"; then
   bad "K3 an uncommitted edit to a declared input makes the suite run again" \
       "the working tree differs from the index and the suite was skipped over it. A digest \
 taken from HEAD alone cannot see an edit nobody committed, which is most edits."
@@ -377,7 +465,7 @@ else
 fi
 git -C "$KREPO" checkout -- inputs/a.txt >/dev/null 2>&1
 
-if printf '%s' "$OUT" | grep -Fq "SKIPPED: light.test.sh"; then
+if says "SKIPPED: light.test.sh"; then
   bad "K4 a suite that declares no inputs is never skipped" \
       "light.test.sh declares nothing and was skipped anyway — a silent skip is this file's subject"
 else
@@ -395,7 +483,7 @@ krun sixth
 krun seventh
 if [ "$CODE" != 1 ]; then
   bad "K5 a suite that failed leaves no proof" "exit $CODE, wanted 1 — a red suite must stay red"
-elif printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+elif says "SKIPPED: heavy.test.sh"; then
   bad "K5 a suite that failed leaves no proof" \
       "a suite that FAILED was skipped on the next run. A proof is written only over a GREEN \
 run, or a red suite goes green by being run twice."
@@ -414,7 +502,7 @@ fi
 echo ""
 echo "=== S. --no-host-screen ==="
 SBOX="$TMP/screen"; mkdir -p "$SBOX"
-cp "$HARNESS" "$SBOX/run-tests.sh"
+install_harness "$SBOX"
 printf '%s\n' 'echo "=== quiet tests: all 2 passed ==="' 'exit 0' > "$SBOX/quiet.test.sh"
 # Classified by the ONE library in this repository that boots the shipped binary — a
 # structural fact about what a suite calls, not a guess about what it might do.
@@ -424,18 +512,16 @@ printf '%s\n' \
   'exit 0' > "$SBOX/window.test.sh"
 
 srun() {  # srun <extra args> [gui host]
-  OUT="$(env RUN_TESTS_DECLARED_GAPS= RICHOS_GUI_HOST="${2:-}" \
-             bash "$SBOX/run-tests.sh" $1 2>&1)"; CODE=$?
-  return 0
+  harness RUN_TESTS_DECLARED_GAPS= "RICHOS_GUI_HOST=${2:-}" -- "$SBOX/run-tests.sh" $1
 }
 
 srun "--no-host-screen"
 if [ "$CODE" != 0 ]; then
   bad "S1 --no-host-screen holds back the suite that boots the app" "exit $CODE, wanted 0"
-elif ! printf '%s' "$OUT" | grep -Fq "NOT RUN (no screen): window.test.sh"; then
+elif ! says "NOT RUN (no screen): window.test.sh"; then
   bad "S1 --no-host-screen holds back the suite that boots the app" \
       "window.test.sh was not held back: $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
-elif printf '%s' "$OUT" | grep -Fq "all 2 suites passed"; then
+elif says "all 2 suites passed"; then
   bad "S1 --no-host-screen holds back the suite that boots the app" \
       "the summary claimed both suites passed while one of them never ran"
 else
@@ -443,7 +529,7 @@ else
 fi
 
 srun "" ""
-if [ "$CODE" != 0 ] || ! printf '%s' "$OUT" | grep -Fq "all 2 suites passed"; then
+if [ "$CODE" != 0 ] || ! says "all 2 suites passed"; then
   bad "S2 without the flag nothing changes" \
       "both suites must run as before; exit $CODE, $(printf '%s' "$OUT" | tail -1)"
 else
@@ -459,7 +545,7 @@ if [ "$CODE" != 2 ]; then
   bad "S3 a named guest with no runner is REFUSED" \
       "exit $CODE, wanted 2. It must neither fall back to this screen nor pretend the suite \
 was skipped on purpose."
-elif ! printf '%s' "$OUT" | grep -Fq "richos-test-1"; then
+elif ! says "richos-test-1"; then
   bad "S3 a named guest with no runner is REFUSED" "the refusal does not name the guest that was asked for"
 else
   ok "S3 RICHOS_GUI_HOST with no runner REFUSES — never the host's screen, never a silent NOT RUN"
@@ -481,7 +567,7 @@ else
 fi
 
 # S5 — a silent no-op here would be a green run of nothing, which is this file's subject.
-OUT="$(bash "$SBOX/run-tests.sh" --only nosuchsuite.test.sh 2>&1)"; CODE=$?
+harness -- "$SBOX/run-tests.sh" --only nosuchsuite.test.sh
 expect "S5 --only with a name that matches nothing is refused" 2 "names no suite under"
 
 # S6 — THE REAL INVENTORY, not a fixture. A fixture proving the classifier works says
@@ -490,8 +576,13 @@ expect "S5 --only with a name that matches nothing is refused" 2 "names no suite
 # against the real tree after L1-L8 have run against a synthetic one.
 SCAN_MISSING=""
 for real in "$DIR"/*.test.sh; do
-  grep -vE '^[[:space:]]*#' "$real" \
-    | grep -qE '(^|[[:space:]]|\()(open|osascript)[[:space:]]|/Contents/MacOS/|\$GUI_BINARY|target/(debug|release)/richos-tauri' \
+  # NOT `grep -v ... | grep -q ...`. That pipeline decides whether a file is scanned AT
+  # ALL, and under `pipefail` the left side dies of SIGPIPE when the right side matches
+  # early — measured 2026-09-20: 14 of 200 runs dropped `gui-boot.test.sh`, the one suite
+  # that puts the app on the operator's screen, out of the scan entirely. A file skipped
+  # by this loop is a file S6 silently declares clean.
+  UNCOMMENTED="$(grep -vE '^[[:space:]]*#' "$real")"
+  grep -qE '(^|[[:space:]]|\()(open|osascript)[[:space:]]|/Contents/MacOS/|\$GUI_BINARY|target/(debug|release)/richos-tauri' <<<"$UNCOMMENTED" \
     || continue
   grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^[:space:]]*lib/gui-launch\.sh' "$real" && continue
   grep -q '^# run-tests: host-screen' "$real" && continue
@@ -547,6 +638,80 @@ if [ -n "$S7_WHY" ]; then
 else
   ok "S7 the host-screen set is exactly [$CLASSIFIED] — mentioning the library is not sourcing it"
 fi
+
+# =========================================================================================
+# E. THIS FILE'S OWN FOOTING — the verdict must not depend on who started the run
+# =========================================================================================
+#
+# Everything above asks whether `run-tests.sh` behaves. These two ask whether THIS FILE is
+# capable of reporting that honestly, which is the question 2026-09-19 answered with "no":
+# green by hand, red inside the build, same commit, identical harness output.
+echo ""
+echo "=== E. this file's own footing ==="
+
+# E1 — THE WHOLE SUITE, RUN AGAIN INSIDE THE ENVIRONMENT A BUILD HANDS IT. Not a fixture:
+# this file, re-executed with every variable the build's gates phase exports or could
+# export, all hostile at once. On `62e5affd` this came back with S2 and S4 RED — from
+# `RUN_TESTS_NO_HOST_SCREEN=1` alone, the documented env form (run-tests.sh, the
+# `--no-host-screen` section) of the flag every build passes. Nothing was wrong with the
+# tree; the fixture had simply inherited the outer run's screen mode.
+#
+# The inner run is told not to recurse. It is the only case here that costs a second full
+# pass of this file, and the reason it is worth the seconds is that no smaller case can
+# state the property: EVERY case, under a caller's environment, unchanged.
+if [ -n "${RUN_TESTS_TEST_INNER:-}" ]; then
+  ok "E1 skipped in the inner run — this is that inner run, and it must not recurse"
+else
+  E1OUT="$(env RUN_TESTS_TEST_INNER=1 \
+               RUN_TESTS_NO_HOST_SCREEN=1 \
+               RICHOS_GUI_HOST=richos-test-e1 \
+               RUN_TESTS_JOBS=1 \
+               RUN_TESTS_SKIP_UNCHANGED=1 \
+               RUN_TESTS_STATE="$TMP/e1-store" \
+               RICHOS_NIGHTLY_RUN_ID=e1-hostile \
+               RICHOS_RUNTIME_DIR="$TMP/e1-runtime" \
+               "RUN_TESTS_DECLARED_GAPS=front-door.test.sh: whatever the build declares" \
+               bash "$DIR/run-tests.test.sh" 2>&1)"; E1CODE=$?
+  E1FAILS="$(grep -c '^  FAIL' <<<"$E1OUT")"
+  if [ "$E1CODE" != 0 ] || [ "$E1FAILS" != 0 ]; then
+    bad "E1 the suite's verdict does not change under the environment a build exports" \
+        "exit $E1CODE with $E1FAILS failed case(s) while RUN_TESTS_NO_HOST_SCREEN, \
+RICHOS_GUI_HOST, RUN_TESTS_JOBS, RUN_TESTS_SKIP_UNCHANGED, RUN_TESTS_STATE, \
+RICHOS_NIGHTLY_RUN_ID, RICHOS_RUNTIME_DIR and RUN_TESTS_DECLARED_GAPS were exported: \
+$(grep '^  FAIL' <<<"$E1OUT" | tr '\n' ' ' | cut -c1-240)"
+  elif ! grep -Fq "=== run-tests tests: all " <<<"$E1OUT"; then
+    bad "E1 the suite's verdict does not change under the environment a build exports" \
+        "exit 0 and no failed case, but no summary line — the inner run did not finish: \
+$(tail -2 <<<"$E1OUT" | tr '\n' ' ')"
+  else
+    ok "E1 every case survives the build's own environment exported hostile at it"
+  fi
+fi
+
+# E2 — THE ASSERTION'S OWN PLUMBING. `printf '%s' "$OUT" | grep -Fq NEEDLE` was every check
+# in this file until 2026-09-20. `set -o pipefail` is on and `grep -q` exits at the first
+# match, so the writer can be killed by SIGPIPE AFTER the match and the pipeline reports
+# 141 — "no match" for text that is there. It is a function of payload size and scheduling,
+# which is to say a function of the MACHINE, which is exactly how a suite comes back red
+# inside a build and green by hand.
+E2PAD="$(printf 'padding line that makes the payload large %s\n' $(seq 1 6000))"
+OUT="=== app/scripts: 2 of 3 suites passed — 5 checks ===
+$E2PAD"
+# stderr is discarded on this ONE line only: the retired idiom announces its own mechanism
+# ("printf: write error: Broken pipe") and that sentence, printed in the middle of a build
+# log by a case that is PASSING, reads like a failure. Its exit code is reported instead.
+if printf '%s' "$OUT" 2>/dev/null | grep -Fq "2 of 3 suites passed"; then E2OLD=0; else E2OLD=$?; fi
+if ! says "2 of 3 suites passed"; then
+  bad "E2 an assertion finds text that is in the output" \
+      "says() reported absence for a needle on the payload's FIRST line ($(wc -c <<<"$OUT" | tr -d ' ') bytes)"
+elif says "a line this payload does not contain"; then
+  bad "E2 an assertion finds text that is in the output" \
+      "says() reported a match for text that is not in the payload at all"
+else
+  ok "E2 says() reads the payload, not the plumbing — on these $(wc -c <<<"$OUT" | tr -d ' ') bytes \
+the retired 'printf | grep -Fq' idiom exited $E2OLD for the same needle on the same bytes"
+fi
+OUT=""
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

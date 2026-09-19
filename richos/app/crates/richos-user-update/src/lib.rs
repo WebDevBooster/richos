@@ -18,6 +18,7 @@ use std::{
         io::AsRawFd,
     },
     path::{Component, Path, PathBuf},
+    sync::RwLock,
 };
 
 const APP: &str = "RichOS.app";
@@ -36,6 +37,60 @@ fn refuse(message: impl Into<String>) -> io::Error {
 }
 fn uid() -> u32 {
     unsafe { libc::geteuid() }
+}
+/// THE WINDOW BETWEEN `fork` AND `exec`, HELD OPEN BY EXACTLY ONE SIDE OF THIS LOCK.
+///
+/// `flock` exclusion belongs to the OPEN FILE DESCRIPTION, and `fork` hands a child a
+/// reference to every description this process has open. `O_CLOEXEC` closes the child's
+/// copies -- but only when it EXECS. Between the two, a child forked by one thread holds
+/// another thread's `session.lock` open, so that thread's release does not release and the
+/// next acquisition reads "another RichOS session is running" over a session that ended.
+///
+/// Measured 2026-09-19/20 on the release Mac: two copies of this crate's test binary at
+/// once, 8 threads each, produced that error in one of the two, a different test each time;
+/// the same two processes with `--test-threads 1` were both green. It cost a nightly build
+/// and it is the reason this exists.
+///
+/// WHY NOT THE TWO OBVIOUS REPAIRS. Dropping the `pre_exec` closure in `probe()` so
+/// `Command` uses `posix_spawn` would end the window -- and throw away what that closure is
+/// for, which is marking EVERY inherited descriptor close-on-exec before handing control to
+/// a staged binary this process has not finished verifying. `posix_spawn` respects the
+/// flag; it cannot set it on a descriptor somebody else opened without it. And `fcntl`
+/// record locks would trade this bug for a worse one: `F_OFD_SETLK` locks live on the
+/// description, which is the very thing `fork` copies, so the bug would survive untouched;
+/// classic process-associated locks are not inherited by a child, but they also do not
+/// conflict with THEMSELVES inside one process, and two leases in one process is exactly
+/// how `stage_does_not_replace_live_bundle_and_shared_sessions_veto_activation` states the
+/// product's meaning.
+///
+/// So the window stays, and nothing may observe a lock while it is open. Every `flock` call
+/// in this file takes the shared side; the one place this crate forks takes the exclusive
+/// side and holds it until the child has EXECED -- which is precisely when `Command::spawn`
+/// returns, because it waits on the child's close-on-exec error pipe.
+///
+/// THE LIMIT, STATED: this closes the window for forks THIS crate performs. A fork
+/// elsewhere in the process can still inherit a lease for its own window, and the answer
+/// there is the same one `probe()` already applies -- every descriptor close-on-exec -- not
+/// a lock this crate cannot reach.
+static FORK_WINDOW: RwLock<()> = RwLock::new(());
+
+/// Run one lock observation -- an `flock`, and the `open` that precedes it -- with no fork
+/// window open. Never wrap anything that itself calls this: a recursive read lock can
+/// deadlock against a waiting writer.
+fn lock_step<T>(step: impl FnOnce() -> T) -> T {
+    let _held = FORK_WINDOW
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    step()
+}
+
+/// Fork and exec with no lock observation in flight. `spawn` returns after the child has
+/// execed or failed, so the exclusive side is held for exactly the dangerous window.
+fn spawn_past_lock_steps(command: &mut std::process::Command) -> io::Result<std::process::Child> {
+    let _held = FORK_WINDOW
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    command.spawn()
 }
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -188,21 +243,23 @@ impl Lock {
         Self::named(root, "lock")
     }
     fn named(root: &Path, name: &str) -> io::Result<Self> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(root.join(name))?;
-        let m = file.metadata()?;
-        if !m.is_file() || m.uid() != uid() || m.nlink() != 1 || m.mode() & 0o077 != 0 {
-            return Err(refuse("invalid update lock"));
-        }
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(Self(file))
+        lock_step(|| {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+                .open(root.join(name))?;
+            let m = file.metadata()?;
+            if !m.is_file() || m.uid() != uid() || m.nlink() != 1 || m.mode() & 0o077 != 0 {
+                return Err(refuse("invalid update lock"));
+            }
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Self(file))
+        })
     }
 }
 impl Drop for Lock {
@@ -233,19 +290,21 @@ impl StartupLease {
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(root.join("session.lock"))?;
         validate_lease_file(&file, &root)?;
-        let exclusive =
+        // EXCLUSIVE-then-SHARED is ONE observation: a fork window opening between the two
+        // would answer "somebody else is running" about a child that is about to exec.
+        let exclusive = lock_step(|| {
             if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                true
-            } else {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::WouldBlock {
-                    return Err(error);
-                }
-                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                false
-            };
+                return Ok(true);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::WouldBlock {
+                return Err(error);
+            }
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(false)
+        })?;
         Ok(Self {
             file,
             home: home.to_owned(),
@@ -277,9 +336,12 @@ impl StartupLease {
         let _publication = Lock::acquire_startup(&root)?;
         // Redirected children only retain SH. Never probe EX on an inherited SH
         // description: BSD conversion can drop protection while trying to upgrade.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
+        lock_step(|| {
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        })?;
         let exclusive = false;
         unsafe {
             libc::close(fd);
@@ -312,7 +374,8 @@ impl StartupLease {
         // competing startup from changing the bundle during the EX-to-SH transition.
         let _publication = Lock::acquire_startup(&root)?;
         self.exclusive = false;
-        if unsafe { libc::flock(self.session_fd(), libc::LOCK_SH | libc::LOCK_NB) } != 0 {
+        let fd = self.session_fd();
+        if lock_step(|| unsafe { libc::flock(fd, libc::LOCK_SH | libc::LOCK_NB) }) != 0 {
             self.valid = false;
             return Err(io::Error::last_os_error());
         }
@@ -819,7 +882,7 @@ fn probe(app: &Path, p: &Published) -> io::Result<()> {
             Ok(())
         });
     }
-    let mut child = command.spawn()?;
+    let mut child = spawn_past_lock_steps(&mut command)?;
     let output = child
         .stdout
         .take()
@@ -1863,6 +1926,117 @@ mod tests {
         .unwrap()
         .unwrap();
     }
+    // =====================================================================================
+    // THE RACE THAT COST A NIGHTLY BUILD, MADE DETERMINISTIC
+    // =====================================================================================
+    //
+    // It arrived as three different tests failing on three different runs, always under
+    // load, always `WouldBlock: "another RichOS session is running"` over a session that
+    // had ended. Two copies of this test binary at once, 8 threads each: one of the two
+    // red. The same two processes with `--test-threads 1`: both green. So it was never two
+    // checkouts colliding over something machine-wide -- every fixture home here is its own
+    // `tempdir` -- it was two THREADS, one of them forking.
+    //
+    // `flock` exclusion belongs to the open file description. `fork` gives the child a
+    // reference to every description the process holds, and `O_CLOEXEC` takes them back
+    // only at `exec`. In between, a probe forked by one thread holds another thread's
+    // `session.lock`, and that thread's release releases nothing.
+    //
+    // The load did not cause it; it only widened the window. So this test parks a child
+    // INSIDE that window on purpose and asks the question the product asks. The sleep is
+    // the defect being held still to be looked at -- not a wait for something to succeed:
+    // the test waits on the child's own byte through a pipe, never on a duration, and it
+    // asserts the property rather than the timing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_child_parked_between_fork_and_exec_cannot_hold_a_released_lease() {
+        use std::os::unix::process::CommandExt;
+        let t = home();
+        let h = canonical(&t);
+
+        let lease = StartupLease::acquire(&h).unwrap();
+        assert!(lease.can_activate(), "the first session owns the lease");
+
+        // The child reports that it has forked and is parked; this test waits on that fact.
+        let mut ends = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        let (reader, writer) = (ends[0], ends[1]);
+
+        let mut command = std::process::Command::new("/bin/sleep");
+        command
+            .arg("0")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        unsafe {
+            command.pre_exec(move || {
+                // In the CHILD, after fork and before exec: it holds a copy of every open
+                // description in the parent, including the lease acquired above.
+                let byte = b".";
+                libc::write(writer, byte.as_ptr().cast(), 1);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                Ok(())
+            });
+        }
+        let forker = std::thread::spawn(move || {
+            let mut child = spawn_past_lock_steps(&mut command).unwrap();
+            child.wait().unwrap()
+        });
+
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            unsafe { libc::read(reader, byte.as_mut_ptr().cast(), 1) },
+            1,
+            "the child never reached its parked state, so nothing was proven"
+        );
+
+        // The session ends while that child is still parked.
+        drop(lease);
+
+        // And the next session starts. Before this repair it read the parked child's
+        // inherited copy and refused itself: `can_activate()` false, which every caller
+        // reports as "another RichOS session is running".
+        // Both halves of the same defect: before the repair the parked child held the
+        // description EXCLUSIVE, so the next session could take neither EX nor SH and the
+        // acquisition itself failed WouldBlock. A softer variant would return a lease that
+        // merely cannot activate. Neither may happen, and neither may fail namelessly.
+        let next = StartupLease::acquire(&h).unwrap_or_else(|error| {
+            panic!(
+                "a released lease was still held by a child parked between fork and exec, \
+so the next session could not take it at all: {error}"
+            )
+        });
+        assert!(
+            next.can_activate(),
+            "a released lease was still held SHARED by a child parked between fork and \
+exec, so the next session refused to activate over a session that had ended"
+        );
+        drop(next);
+
+        assert!(forker.join().unwrap().success());
+        unsafe {
+            libc::close(reader);
+        }
+    }
+
+    // A REAL SECOND SESSION IS STILL REFUSED. The repair above is about a child that is
+    // not a session at all; it must not have bought quiet by weakening the exclusion this
+    // whole lease exists for.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_fork_window_repair_still_refuses_a_genuine_second_session() {
+        let t = home();
+        let h = canonical(&t);
+        let mut first = StartupLease::acquire(&h).unwrap();
+        assert!(first.can_activate());
+        first.begin_session().unwrap();
+        let second = StartupLease::acquire(&h).unwrap();
+        assert!(
+            !second.can_activate(),
+            "a session is running, so the next startup may not activate over it"
+        );
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn harmless_deny_acl_works_but_write_grant_refuses() {

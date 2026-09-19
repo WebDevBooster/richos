@@ -1,0 +1,4 @@
+binary: /Users/alex/ab/richos-wt/zach-opus-buildtime3/richos/app/crates/richos-user-update/target/debug/deps/richos_user_update-7c645d7310441d4a
+round 1: A rc=0 (test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.73s)  B rc=0 (test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.41s)
+round 2: A rc=0 (test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.54s)  B rc=0 (test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.39s)
+round 3: A rc=0 (test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.21s)  B rc=0 (test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.98s)
