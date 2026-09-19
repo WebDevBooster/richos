@@ -1894,6 +1894,60 @@ async function openSheet(browser, theme, preset) {
     }
   );
 
+  await run.check(
+    "30  the Tailscale code heading does not refer back to a step that is below it",
+    async () => {
+      // URBAN'S N4 (LOW), frames 03 and 15: G3 moved this heading to the top of the screen and
+      // *"Then"* stayed, pointing backwards at a step that is now underneath it. *"Three words,
+      // and it is the one thing on the finished screen that reads like a file that was edited
+      // rather than written."*
+      //
+      // **AND THE HOME ROUTE KEEPS ITS OWN "2. Then"**, which is the half that makes this a fix
+      // rather than a find-and-replace: there a numbered 1. really is above it.
+      const ts = await takeTheTailscaleRoute("dark", {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      });
+      await ts.click("#phone-ts-start");
+      await ts.waitForSelector("#phone-pairing:not([hidden])");
+      const tailnet = await ts.evaluate(() => ({
+        code: document.getElementById("phone-code-title").textContent.trim(),
+        // WHAT IS ACTUALLY ABOVE IT, so this is about position and not only about a word: on
+        // this route the code block is the first thing under the opening sentence (G3), which
+        // is what made "Then" wrong in the first place.
+        // 4 === DOCUMENT_POSITION_FOLLOWING.
+        codeFirst: !!(
+          document
+            .getElementById("phone-code-block")
+            .compareDocumentPosition(document.getElementById("phone-ts-steps")) & 4
+        ),
+      }));
+      await ts.close();
+
+      const home = await openSheet(browser, "dark", { phonePairing: true });
+      await home.waitForSelector("#phone-pairing:not([hidden])");
+      const homeHeadings = await home.evaluate(() => ({
+        trust: document.querySelector("#phone-home-warnings .phone-step-title").textContent.trim(),
+        code: document.getElementById("phone-code-title").textContent.trim(),
+      }));
+      await home.close();
+
+      assert(
+        !/^then\b/i.test(tailnet.code),
+        'THE DEFECT: the Tailscale code heading still begins with "Then" — ' + JSON.stringify(tailnet.code)
+      );
+      assertEqual(tailnet.code, "Point your phone's camera at this", "the Tailscale heading is not the sentence Urban asked for");
+      assert(tailnet.codeFirst, "the code no longer comes before the phone steps, which is what made 'Then' wrong");
+      // THE HOME ROUTE IS UNTOUCHED: "1." above, "2. Then" below, and the word is correct there.
+      assert(/^1\./.test(homeHeadings.trust), "the home route lost the step the word refers back to");
+      assertEqual(homeHeadings.code, "2. Then point it at this, to open Rich", "the home route's heading changed with the Tailscale one");
+      return "tailnet: " + JSON.stringify(tailnet.code) + "; home: " + JSON.stringify(homeHeadings.code) +
+        " under " + JSON.stringify(homeHeadings.trust.slice(0, 2));
+    }
+  );
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;

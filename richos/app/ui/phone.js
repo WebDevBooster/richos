@@ -1034,8 +1034,16 @@
       // so the two screens cannot word the same evidence differently.
       peerLine(field("phone-ts-peer"), tailnet);
     }
+    // **"THEN" REFERS BACKWARDS, AND ON THIS ROUTE THERE IS NOTHING BEHIND IT ANY MORE** —
+    // Urban's N4. G3 moved this heading to the TOP of the Tailscale screen and left the word
+    // pointing at a step that is now below it: *"the one thing on the finished screen that reads
+    // like a file that was edited rather than written."*
+    //
+    // The home route keeps its "2. Then", because there a "1." really is above it — the
+    // certificate step that makes the address in this one open at all. One node, two positions,
+    // two headings, and the numbering is the tell for which is which.
     field("phone-code-title").textContent = onTailscale
-      ? "Then point your phone's camera at this"
+      ? "Point your phone's camera at this"
       : "2. Then point it at this, to open Rich";
     field("phone-words-title").textContent = onTailscale
       ? "Check the six words match"

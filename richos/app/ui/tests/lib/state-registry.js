@@ -4531,10 +4531,10 @@ module.exports = [
     "why": "What Tailscale is and why this path uses somebody else's app, said once before the user installs it. Nothing to do in this sentence — the doing is in the note under it and in `#phone-ts-open` beside it, which is where the instruction lives."
   },
   {
-    "s": "Then point your phone's camera at this",
+    "s": "Point your phone's camera at this",
     "c": "ACTIONABLE",
     "control": "#phone-refresh",
-    "why": "The Tailscale route's code heading, unnumbered because that route has no trust code to be the first of. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
+    "why": "The Tailscale route's code heading, unnumbered because that route has no trust code to be the first of — and, since Urban's N4, not beginning with \"Then\" either: G3 moved this heading to the top of the screen and left the word pointing backwards at a step that is now below it. One of the phone-side steps on the Tailscale route (CEO §61 / §61.1). It is an instruction and therefore not INFORMATIONAL — but the thing the user acts on is their phone, not this window, so the control named is the one control the whole block is about: the button that issues a fresh code. Same reasoning, and the same control, as the sixteen home-path taps above. `ui/tests/phone.js` check 13 asserts this block opens with the why and names the account the Mac signed in with."
   },
   {
     "s": "Waiting for your phone to join…",
