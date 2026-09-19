@@ -46,11 +46,11 @@
   sheet.setAttribute("data-dismiss", "control:#phone-close");
   sheet.innerHTML = `<div class="overlay-panel">
     <h2 id="phone-title" class="overlay-title">Use Rich from your phone</h2>
-    <!-- THE LEAD FOLLOWS THE OPTION HE PICKED, and it used to be a fixed sentence describing
-         the home-network option. It stayed on screen unchanged after he chose "Anywhere",
-         which is not the home network and DOES involve making an account — so every screen of
-         the Tailscale path opened by telling him the opposite of the path he was on. Ray's
-         candidate .11 defect 3.1, screenshots 13, 14, 15 and 17. Filled from LEAD below. -->
+    <!-- ONE LEAD, TRUE OF THE ONE PATH. It was a fixed sentence describing the option he had
+         not chosen: it stayed on screen unchanged after he chose the other one, so every screen
+         opened by telling him the opposite of where he was (Ray's candidate .11 defect 3.1,
+         screenshots 13, 14, 15 and 17). The fix then was to key it off the route; CEO 61
+         removed the route, so the key went with it. Filled from LEAD below. -->
     <p class="overlay-note" id="phone-lead"></p>
 
     <!-- SCREEN 6 — THE PAIRED CARD, AND IT NOW HAS A TOP — Urban's G8.
