@@ -5,8 +5,10 @@
 // decoded sample actually differs. That left a smaller, harder problem, and this file is it: a
 // handful of surfaces are NOT the same picture twice, because the thing photographed is still
 // moving. Measured here on 2026-09-19 against `5f3a1a1e`, over five consecutive same-source
-// runs of every suite that writes shots: 7 of the 131 committed shots differ run to run, and
-// 104 of them differed only because the product had changed and nobody had regenerated them.
+// runs of every suite that writes shots, and again over two more from the regenerated tree at
+// `a1c65c3a`: 104 of the 131 committed shots differed only because the product had changed and
+// nobody had regenerated them, 7 differed from one run to the next, and 11 did so at least once
+// across the seven.
 //
 // THE 104 WERE THE REAL DAMAGE. `git checkout -- richos/app/ui/tests/shots-*` after a run was
 // the standing habit, and every one of those reverts threw away a legitimately updated
@@ -51,9 +53,10 @@ const TESTS_DIR = path.resolve(__dirname, "..");
 // THE DECLARATION
 // ---------------------------------------------------------------------------------------
 //
-// `measured` is what five consecutive same-source runs produced on 2026-09-19 at `5f3a1a1e`,
-// and it is the evidence for the bound beside it. `source` is the file:line that makes the
-// picture move, so the next reader can go and look rather than take this file's word for it.
+// `measured` is what seven consecutive same-source runs produced on 2026-09-19, and it is the
+// evidence for the bound beside it — every figure is a `shot changed`/`shot held` line from a
+// real run, not an estimate. `source` is the file:line that makes the picture move, so the next
+// reader can go and look rather than take this file's word for it.
 //
 // A bound is one or both of:
 //   maxChannelDelta   the largest per-channel difference any pixel may show
@@ -84,7 +87,7 @@ const DECLARED = [
     file: "shots-home/home-named.png",
     class: "the live field, running",
     source: "app/ui/home/field-engine.js:1031 (`frame()` off `performance.now()`)",
-    measured: "4 transitions: 22.51%, 22.76%, 22.99%, 23.04% of pixels, worst channel delta 247",
+    measured: "7 runs: 6.0829%, 22.4992%, 22.5146%, 22.7613%, 22.9008%, 22.9893%, 24.9046% of pixels, delta 234-253",
     bound: { maxPixelFraction: 0.35 },
     why:
       "A fifth of this frame is the field's own motion. 35% is above every measurement and " +
@@ -94,7 +97,7 @@ const DECLARED = [
     file: "shots-home/home-returned.png",
     class: "the live field, running",
     source: "app/ui/home/field-engine.js:1031 (`frame()` off `performance.now()`)",
-    measured: "4 transitions: 24.12%, 24.75%, 25.14%, 25.16% of pixels, worst channel delta 247",
+    measured: "7 runs: 14.0804%, 23.1111%, 24.0682%, 24.1225%, 24.3658%, 24.7527%, 25.1364% of pixels, delta 239-247",
     bound: { maxPixelFraction: 0.35 },
     why: "As `home-named`; this one is photographed just after `resume()`, so it moves slightly more.",
   },
@@ -102,7 +105,7 @@ const DECLARED = [
     file: "shots-home/home-anonymized.png",
     class: "the live field, running",
     source: "app/ui/home/field-engine.js:1031 (`frame()` off `performance.now()`)",
-    measured: "4 transitions: 7.42%, 17.52%, 17.67%, 18.20% of pixels, worst channel delta 248",
+    measured: "7 runs: 6.4448%, 7.4204%, 17.1735%, 17.4061%, 17.5236%, 17.6735%, 17.7684% of pixels, delta 205-248",
     bound: { maxPixelFraction: 0.35 },
     why: "As `home-named`. The spread is wide because the labels are masked, so what moves is the field alone.",
   },
@@ -125,7 +128,7 @@ const DECLARED = [
     file: "shots-splash/material-round-11-v1.png",
     class: "compositor dither over a gradient",
     source: "WebKit's compositor; the mat is a gradient in `app/ui/splash.js`'s material layer",
-    measured: "4 transitions: 0.09%, 0.16%, 0.29%, 0.59% of pixels, worst channel delta 2 in every one",
+    measured: "7 runs: 0.0717%, 0.0896%, 0.2281%, 0.2496%, 0.2553%, 0.4040%, 0.5862% of pixels, worst channel delta 2 in every one",
     bound: { maxChannelDelta: 2 },
     why:
       "2 of 255 on a gradient is the compositor's dither and cannot be a visible regression. " +
@@ -135,7 +138,7 @@ const DECLARED = [
     file: "shots-splash/material-round-11-v2.png",
     class: "compositor dither over a gradient",
     source: "WebKit's compositor; the mat is a gradient in `app/ui/splash.js`'s material layer",
-    measured: "4 transitions: 0.29%, 0.30%, 0.63%, 0.66% of pixels, worst channel delta 2 in every one",
+    measured: "7 runs: 0.1744%, 0.1983%, 0.2947%, 0.3440%, 0.5285%, 0.6331%, 0.7719% of pixels, worst channel delta 2 in every one",
     bound: { maxChannelDelta: 2 },
     why: "As `material-round-11-v1`.",
   },
@@ -143,7 +146,7 @@ const DECLARED = [
     file: "shots-contrast/inspector.png",
     class: "compositor dither over a gradient",
     source: "WebKit's compositor; the inspector pane's ground",
-    measured: "4 transitions: 0.00%, 0.52%, 0.52%, 0.69% of pixels, worst channel delta 2, 2 and 3",
+    measured: "7 runs: unchanged in three of them, then 0.5181%, 0.5208%, 0.5208%, 0.5224% of pixels, worst channel delta 2, 2, 2 and 3",
     bound: { maxChannelDelta: 3 },
     why:
       "Does not differ on every run, which is why `measured` says how often. The 2026-09-05 note " +
@@ -178,7 +181,7 @@ const DECLARED = [
     file: "shots-26/ms-04-run-ended-with-recovery-commentary.png",
     class: "one unanchored elapsed counter (the §26.12 replacement run)",
     source: "app/ui/main.js:1437 `updateTimers`, over a `startedAt` app/ui/mock.js stamps from the real clock",
-    measured: "2 transitions after the clock pin: 79 pixels (0.0057%) each, worst channel delta 135 — one digit",
+    measured: "3 transitions after the clock pin: 79 pixels (0.0057%) every time, worst channel delta 135 — one digit",
     bound: { maxPixelFraction: 0.0002 },
     why:
       "0.02% of this frame is 276 pixels, roughly two glyphs. A changed digit fits; a changed " +
@@ -188,7 +191,7 @@ const DECLARED = [
     file: "shots-26/ms-05-worker-detail-beside-thread.png",
     class: "one unanchored elapsed counter (the §26.12 replacement run)",
     source: "app/ui/main.js:1437 `updateTimers`, over a `startedAt` app/ui/mock.js stamps from the real clock",
-    measured: "2 transitions after the clock pin: 116 pixels (0.0084%) each, worst channel delta 135 — one digit",
+    measured: "3 transitions after the clock pin: 116 pixels (0.0084%) every time, worst channel delta 135 — one digit",
     bound: { maxPixelFraction: 0.0002 },
     why: "As `ms-04`; the same counter, with the inspector pane open beside it.",
   },
@@ -252,11 +255,16 @@ function heldBy(rule, existing, fresh) {
   return { held, measurement: m, bound: describeBound(rule.bound) };
 }
 
+/// The bound, in the words the run prints. PRECISION SCALES WITH THE BOUND, because the tightest
+/// entries in this file are the ones worth reading: `shots-26`'s 0.0002 printed as "at most 0.0%
+/// of pixels" at one decimal place, which reads as "at most nothing" and tells the next person
+/// neither what was allowed nor that it was deliberately the tightest claim here.
 function describeBound(bound) {
   const parts = [];
   if (bound.maxChannelDelta !== undefined) parts.push("worst channel delta <= " + bound.maxChannelDelta);
   if (bound.maxPixelFraction !== undefined) {
-    parts.push("at most " + (bound.maxPixelFraction * 100).toFixed(1) + "% of pixels");
+    const pct = bound.maxPixelFraction * 100;
+    parts.push("at most " + (pct < 1 ? pct.toFixed(4).replace(/0+$/, "").replace(/\.$/, "") : pct.toFixed(1)) + "% of pixels");
   }
   return parts.join(" and ");
 }
