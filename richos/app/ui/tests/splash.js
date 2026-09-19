@@ -27,7 +27,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { leaveHome, loadPlaywright, shot, captureSettled, publishShot, publishShotFile, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, captureSettled, publishShot, publishShotFile, createRun, assert, assertEqual, SEED_THEME, UI_DIR } = require("./lib/harness");
 const { contrastRatio, round2, hex } = require("./lib/contrast");
 
 const SOURCES = require("./lib/ui-sources");
@@ -1771,6 +1771,15 @@ async function main() {
     // the only other preference this product has, and the next launch is plain.
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await newPage(ctx);
+    // THIS CHECK'S TWO PHOTOGRAPHS ARE OF THE APP, NOT OF THE CURTAIN — `splash-03` is the
+    // settings menu with the switch in it and `splash-04` is a launch with no curtain at
+    // all — so since CEO §63 (2026-09-19) their palette is the PREFERENCE's, and the default
+    // preference is now `system`, which under this harness's light OS resolves light. Both
+    // references flipped palette in one run with the check still green, because nothing here
+    // is about lighting. Named rather than inherited. `SEED_THEME` merges into the store
+    // rather than replacing it, so the splash-off state this check writes a moment later
+    // survives the relaunch, which is the thing it actually asserts.
+    await page.addInitScript(SEED_THEME, "dark");
     await page.goto(APP);
     await page.waitForSelector(".nav-thread", { state: "attached" });
     // THE SWITCH THIS CHECK REACHES FOR MOVED, and it moved to the panel that is easier to

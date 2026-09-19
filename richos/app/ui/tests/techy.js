@@ -55,6 +55,7 @@ const { leaveHome,
   assert,
   assertEqual,
   rustSentenceAfter: rustSentence,
+  SEED_THEME,
   UI_DIR,
 } = require("./lib/harness");
 
@@ -102,6 +103,15 @@ async function openApp(browser, viewport, preset) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  // THIS SUITE STATES ITS LIGHTING (CEO §63, 2026-09-19). The shipped default preference
+  // used to be `dark`, so every walk in here rendered dark without anyone saying so, and the
+  // committed reference PNGs were taken that way. §63 makes the default `system`, which
+  // hands the palette to the host's `colorScheme` — light, in this harness — and flipped
+  // every one of them in a single run with every check still green, because nothing this
+  // suite asserts is about lighting. A reference shot is a picture a person LOOKS at, so the
+  // palette is named here rather than inherited from a default that is free to move again.
+  // `SEED_THEME` writes both the mirror and the store and says why; the store decides.
+  await page.addInitScript(SEED_THEME, "dark");
   if (preset) await page.addInitScript((v) => { window.__RICHOS_MOCK_PRESET__ = v; }, preset);
   await page.goto(APP);
   // The home screen is the landing surface now; this suite is about the app UI behind it.
