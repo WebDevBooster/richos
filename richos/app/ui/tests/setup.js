@@ -914,6 +914,13 @@ async function main() {
     await page.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
     await page.evaluate(() => window.RichSplash.yieldNow("acceptance-suite"));
     await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+    // The screen gets out of the way over its own 200 ms fade, so the measurement waits for
+    // the end state rather than for a clock. A screen that never leaves fails HERE, with the
+    // reason in the timeout, rather than being read as a paint that lost a race.
+    await page.waitForFunction(
+      () => { const h = document.getElementById("home"); return !h || h.hidden; },
+      { timeout: 5000 }
+    );
 
     // THE LAYERS ARE STATED, so a future restyle that merely renumbers them is visible here
     // rather than quietly making this check true for a different reason.

@@ -829,18 +829,94 @@ window.RichHome = (function () {
   // exactly like the door. Giving way also settles the focus half in the same move, with no
   // second exception list to keep.
   //
-  // DERIVED, NOT ENUMERATED. The trigger is "a `.overlay` that is a direct child of `<body>`
-  // stopped being hidden", which is what a DESK SHEET structurally is — the same argument
-  // `main.js`'s `POPUP_SELECTOR` makes for Escape. `#repositories-sheet`, `#permission-sheet`
-  // and `#quit-question` are the three today; one added next month is covered with nothing to
-  // remember here. `#home-prefs` is body-level too and is deliberately NOT an `.overlay`: it is
-  // this screen's own panel and floats above it.
+  // DERIVED, NOT ENUMERATED. The trigger is "a `.overlay` ON THE DESK stopped being hidden",
+  // which is what a DESK SHEET structurally is — the same argument `main.js`'s
+  // `POPUP_SELECTOR` makes for Escape. `#home-prefs` is deliberately NOT an `.overlay`: it is
+  // this screen's own panel and floats above it, and `tests/home.js` keeps that true.
+  //
+  // ## THE DERIVATION USED TO READ `body > .overlay`, AND IT COVERED FOUR OF ELEVEN
+  //
+  // **Ray's candidate .15, escalation `esc-20260919T152225Z-2e44d112`.** A Mac whose engine
+  // was installed from `3313945b26b7` by an earlier candidate, against a build pinning
+  // `adece4c069e4`, was never once offered the refresh — four live captures, nothing on
+  // screen — and every message he typed died with *"I lost my connection to the part of me
+  // that thinks"*. The back end was right throughout: his `app.log` says *"first-run setup:
+  // the RichOS engine is NOT installed"* and *"this build installs engine 1.2.0"*, `init()`
+  // read that answer and `maybeAskAboutSetup()` opened the sheet. `#setup-sheet.hidden` was
+  // `false` the whole time.
+  //
+  // It was behind THIS screen. Measured under WebKit, the eleven `.overlay` elements in the
+  // document split four/seven: `#phone-sheet`, `#repositories-sheet`, `#permission-sheet` and
+  // `#quit-question` are children of `<body>`; `#setup-sheet`, `#memory-setup`,
+  // `#entity-picker`, `#search-overlay`, `#corrections-overlay`, `#feedback-overlay` and
+  // `#techy-scope` are children of `#app`. The old selector saw the first four and not one of
+  // the second seven — and the second seven include ALL THREE of the questions `init()` asks a
+  // customer on his first launch, in the order it asks them: the engine, the corpus, the
+  // company. Every one of them opened at `z-index: 60` under this screen's `150`, inside an
+  // `#app` this screen marks `inert`, with focus pulled back to the door. `main.js`'s Escape
+  // machinery then counted the top one as on screen — `RichDismiss.open()` returned
+  // `["setup-sheet"]` — so one Escape pressed "Not now" on a question he had never been shown.
+  //
+  // **Which half of the note above was wrong is worth saying plainly.** The ARGUMENT was
+  // right — these sheets live on the desk, so a screen in front of one gets out of the way —
+  // and the structure it was derived from was wrong: "a desk sheet is body-level" was true of
+  // the three sheets in front of the author on 2026-09-05 and of no other. A derivation is
+  // only as good as the structural claim under it, so the claim is now the one that is
+  // actually true of a desk sheet: it is an `.overlay`, and it is not part of this screen.
+  function deskSheets() {
+    var all = document.querySelectorAll(".overlay");
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      // Anything this screen owns is not the desk. There are none today — the home screen
+      // builds no `.overlay` — and the test is here so that one added later is this file's
+      // business rather than a screen that dismisses itself.
+      if (!root || !root.contains(all[i])) out.push(all[i]);
+    }
+    return out;
+  }
+
+  /// Everything a person can put focus on, in the order the document offers it.
+  var FOCUSABLE =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
+    'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  /// **The control a sheet would have focused itself, had this screen let it.**
+  ///
+  /// `openSetupSheet` calls `.focus()` in the SAME TASK that un-hides the sheet, and at that
+  /// moment `#app` is still `inert` — which swallows the call and returns no error. The
+  /// give-way below runs from a `MutationObserver`, a microtask later, so nothing ever retries
+  /// it: the engine offer reached the screen painted, on top, and answerable only with a
+  /// mouse. That is this screen's doing and therefore this screen's to undo.
+  ///
+  /// First VISIBLE control, which is the same answer the sheets reach for themselves —
+  /// `openSetupSheet`'s own rule is `(canInstall ? "Set it up" : "Close").focus()`, and those
+  /// are exactly the first visible buttons in the two states, because the other actions are
+  /// `hidden`. A sheet that focuses something else after its own `await` still wins, because
+  /// it runs later; nothing here overrules a sheet that is awake.
+  function firstFocusable(sheet) {
+    var all = sheet.querySelectorAll(FOCUSABLE);
+    for (var i = 0; i < all.length; i++) {
+      // `offsetParent === null` is "no box" — `hidden`, `display: none`, or inside something
+      // that is. Every `.overlay` is positioned, so its children always have one when painted.
+      if (all[i].offsetParent !== null) return all[i];
+    }
+    return null;
+  }
+
   function giveWayToOpenDeskSheet() {
     if (!state.open) return false;
-    var sheets = document.querySelectorAll("body > .overlay");
+    var sheets = deskSheets();
     for (var i = 0; i < sheets.length; i++) {
       if (!sheets[i].hidden) {
         hide("desk-sheet");
+        var control = firstFocusable(sheets[i]);
+        if (control && control.focus) {
+          try {
+            control.focus();
+          } catch (e) {
+            /* a control that refuses focus is that sheet's business, not this file's */
+          }
+        }
         return true;
       }
     }
@@ -1168,6 +1244,12 @@ window.RichHome = (function () {
 
     // Focus follows the surface. The composer is where work happens in the app UI and is what
     // `main.js` itself focuses at boot, so it is where the CEO's next keystroke should land.
+    //
+    // A DESK SHEET THAT PUSHED THIS SCREEN OUT TAKES FOCUS BACK OFF THE COMPOSER a line
+    // later — see `giveWayToOpenDeskSheet`, which is the one caller that knows which sheet it
+    // was. The composer is still focused first, and deliberately: it is right for every other
+    // reason this screen leaves, and a sheet with nothing focusable must not leave focus on a
+    // screen that is no longer there.
     var composer = document.getElementById("input");
     if (composer && composer.focus) {
       try {
