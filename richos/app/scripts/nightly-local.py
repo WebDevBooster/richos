@@ -76,6 +76,33 @@ DECLARED_GAPS = (
 # provenance), so a candidate can never quietly claim a gate it did not run.
 LAND_PROVEN_GATE = "gates/core-tests"
 
+# WHAT `--no-host-screen` IS FOR, in the CEO's words, 2026-09-19:
+#
+#     "So, every engineer will keep opening the app making me unable to do anything here
+#      or WHAT???"
+#
+# `gui-boot.test.sh` boots the real app on the real screen for ~162 s of every build
+# (measured, run 20260919T180454Z-ac11d13e), and on a Mac somebody is working on that is
+# not a test, it is an interruption. `--no-host-screen` hands `run-tests.sh` the flag that
+# holds back every suite that boots the shipped binary, and the candidate is built,
+# notarized and walkable without one pixel reaching this machine.
+#
+# THE COST IS REAL AND IT IS NOT HIDDEN. Such a candidate carries no gui-boot result, so
+# `publish` REFUSES it until `--gui-proof <path>` names one taken against the same commit
+# (`scripts/gui-proof-in-vm.sh` produces that file from the candidate's own bundle, inside
+# a guest, with nothing on this screen). A mode that quietly published an unproven boot
+# would be worse than the interruption it saves.
+#
+# IT IS ACCEPTED FOR `build` AND NOT FOR `release`. `release` is build-and-publish in one
+# motion with no `publish` step to refuse anything, so the one command that can make a
+# build installable always runs the whole gate. The screenless path is build -> walk ->
+# publish --gui-proof, which is the documented flow anyway.
+NO_HOST_SCREEN_COMMANDS = ("build",)
+
+# `run-tests.sh` writes this beside the plan; its contents travel into the candidate's
+# `build-info.json`, so a candidate can never quietly claim a suite it did not run.
+SUITE_RESULTS = "script-suites.json"
+
 # The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
 # its children stream past TimestampedLog, so the split is readable without coupling this
 # script to a child's internals beyond these strings.
@@ -563,7 +590,7 @@ class Runner:
                      self.source / SCRIPTS / "runtime-sources.json")
         self.env["RICHOS_RUNTIME_DIR"] = str(path)
 
-    def gates(self, checks_done_at_land=None):
+    def gates(self, checks_done_at_land=None, no_host_screen=False, skip_unchanged=False):
         # Deliberately without `credentials=True`: a gate that can see the operator's
         # notary key answers questions the suites ask precisely because the answer
         # should be absent. See split_credentials() and package-app.test.sh section E.
@@ -579,12 +606,30 @@ class Runner:
         with self.phase("gates/updater-tests"):
             self.command("cargo", "test", "--locked", "--manifest-path",
                          "richos/app/crates/richos-user-update/Cargo.toml")
+        results = self.state / SUITE_RESULTS
         with self.phase("gates/script-suites"):
-            self.command("bash", self.source / SCRIPTS / "run-tests.sh",
-                         env_extra={"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS})
+            # Every one of these is written literally at this call site rather than taken
+            # from the operator's shell, for the same reason DECLARED_GAPS is: a stray
+            # export must not be able to hold back a suite or skip one.
+            extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS}
+            if skip_unchanged:
+                extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
+            args = ["bash", self.source / SCRIPTS / "run-tests.sh",
+                    "--results-out", results]
+            if no_host_screen:
+                args.append("--no-host-screen")
+            self.command(*args, env_extra=extra)
         with self.phase("gates/privacy-sweep"):
             self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree",
                          "--repo", self.source)
+        try:
+            return json.loads(results.read_text())
+        except (OSError, ValueError):
+            # The suites are what matter and they passed; a missing report is not a reason
+            # to throw away a green gate. It IS a reason for `publish` to refuse, which it
+            # does: a candidate with no recorded gui-boot result is treated exactly like
+            # one that recorded NOT RUN.
+            return None
 
     def run_pointer(self, run_id):
         if not run_id or "/" in run_id or run_id in (".", ".."):
@@ -632,6 +677,119 @@ class Runner:
         print("", flush=True)
         print(f"Publish only on a READY verdict:  nightly-local.py publish --run {info['run_id']}", flush=True)
 
+    @staticmethod
+    def gui_boot_state(info):
+        """What this candidate recorded for the suite that boots the app: `passed`, `gap`,
+        `not-run`, or None when the build recorded nothing either way.
+
+        NONE IS NOT THE SAME AS `not-run`, AND THE FIRST VERSION OF THIS TREATED THEM AS
+        ONE. "Silence is never read as a pass" is a fine-sounding rule and it would have
+        made every candidate already staged on this Mac unpublishable, because none of them
+        carries a field that did not exist when they were built — `nightly-local.test.py`'s
+        publish case said so within a minute of the change. Those builds DID run
+        gui-boot.test.sh; it was not skippable then. So silence is read for what it is:
+        a build from before the field, which ran the suite the only way there was.
+
+        The case that must never be waved through is a build that was TOLD not to use the
+        screen and then produced no report, and `no_host_screen` in the plan is what
+        distinguishes it — see `require_gui_proof`.
+        """
+        for suite in (info.get("script_suites") or {}).get("suites", []):
+            if suite.get("name") == "gui-boot.test.sh":
+                return suite.get("state")
+        return None
+
+    @staticmethod
+    def read_gui_proof(path):
+        """Parse a `--gui-proof` file into its fields, or refuse with a reason.
+
+        Hand-parsed rather than trusted: this file is the ONE thing standing between a
+        candidate whose boot was never exercised and a published release, so a malformed
+        one is refused loudly instead of being read past.
+        """
+        try:
+            text = Path(path).expanduser().read_text(errors="replace")
+        except OSError as error:
+            raise ValueError(f"--gui-proof {path} cannot be read: {error}") from None
+        head, _, _ = text.partition("\n--- output ---")
+        if not head.startswith("richos-gui-proof 1"):
+            raise ValueError(
+                f"{path} is not a gui-boot proof: it does not begin with `richos-gui-proof 1`. "
+                "`run-tests.sh --only gui-boot.test.sh --proof-out <path>` writes one, and "
+                "`scripts/gui-proof-in-vm.sh` writes one from a candidate's own bundle.")
+        fields = {}
+        for line in head.splitlines()[1:]:
+            name, sep, value = line.partition("=")
+            if sep:
+                fields[name.strip()] = value.strip()
+        return fields
+
+    def require_gui_proof(self, info, gui_proof):
+        """Refuse to publish a candidate whose boot nobody has seen.
+
+        `--no-host-screen` buys a build that never touches this Mac's screen by NOT running
+        `gui-boot.test.sh`. That is a trade, and this is the other half of it: the evidence
+        has to arrive before anything becomes installable, or the mode is just a way of
+        skipping a gate.
+        """
+        state = self.gui_boot_state(info)
+        if state is None and not info.get("no_host_screen"):
+            # A candidate from before this field existed. `build` had no way to hold the
+            # suite back, so it ran. See gui_boot_state.
+            if gui_proof:
+                raise ValueError(
+                    "this candidate predates the gui-boot record and was built with the suite "
+                    "running, so --gui-proof names evidence nothing is waiting for.")
+            return None
+        if state == "passed":
+            if gui_proof:
+                raise ValueError(
+                    "this candidate ran gui-boot.test.sh during its build and it passed, so "
+                    "--gui-proof names evidence nothing is waiting for. Publish without it.")
+            return None
+        if not gui_proof:
+            recorded = state or "nothing at all, from a build that was told --no-host-screen"
+            raise ValueError(
+                f"this candidate recorded `{recorded}` for gui-boot.test.sh, so no one has "
+                "seen the app it is about to publish actually boot.\n"
+                "  Take the proof against this exact commit and pass it back:\n"
+                f"    richos/app/scripts/gui-proof-in-vm.sh --run {info['run_id']}\n"
+                f"    nightly-local.py publish --run {info['run_id']} --gui-proof <the file it names>\n"
+                "  Nothing here opens a window on this Mac; the app boots inside a guest.")
+        fields = self.read_gui_proof(gui_proof)
+        # TWO KINDS OF EVIDENCE, AND THEY ARE NOT THE SAME CLAIM, so they are named
+        # differently and both are accepted for what each one is:
+        #
+        #   gui-boot.test.sh      the suite: a debug binary built from the checkout, held
+        #                         to B0-B8 and C1-C5 on a synthetic machine -- engine
+        #                         resolution, the plist's shape, the company registry.
+        #   shipped-bundle-boot   `gui-proof-in-vm.sh`: THE ARTIFACT THIS RELEASE WILL
+        #                         PUBLISH -- signed, notarized, stapled -- started on a
+        #                         clean guest with no developer environment, drawing a
+        #                         real window. Fewer assertions, truer artifact.
+        #
+        # A proof that borrowed the other's name would be the most useful lie in the
+        # release chain, so neither may.
+        accepted_suites = ("gui-boot.test.sh", "shipped-bundle-boot")
+        if fields.get("suite") not in accepted_suites:
+            raise ValueError(f"--gui-proof names a proof for {fields.get('suite')!r}. "
+                             f"Only {' or '.join(accepted_suites)} says whether the app boots.")
+        if fields.get("result") != "pass":
+            raise ValueError(f"--gui-proof records {fields.get('result')!r}, not a pass. "
+                             "A failed boot is not evidence of a working one.")
+        # THE SHA IS THE WHOLE POINT, exactly as --checks-done-at-land's is: a proof taken
+        # against a different tree proves something about that tree. `build_commit` is the
+        # commit the bundle was compiled from (it carries the version bump); `source_commit`
+        # is its parent. Either identifies THIS candidate and nothing else.
+        accepted = [s for s in (info.get("build_commit"), info.get("source_commit")) if s]
+        seen = fields.get("commit", "")
+        if not seen or not any(s == seen or s.startswith(seen) for s in accepted):
+            raise ValueError(
+                f"--gui-proof was taken against {seen or '<no commit>'}, and this candidate is "
+                f"{' / '.join(accepted)}. The proof is about a different tree, so it proves "
+                "nothing about this one; take it again against this candidate.")
+        return fields
+
     def accept_land_proof(self, sha, source):
         """Return the sha to record, or refuse. Never a bare boolean.
 
@@ -651,7 +809,7 @@ class Runner:
         return source
 
     def perform(self, command, force=False, runtime=None, run_id=None,
-                checks_done_at_land=None):
+                checks_done_at_land=None, no_host_screen=False, gui_proof=None):
         if command == "candidate":
             out, info = self.load_candidate(run_id)
             self.print_candidate(info, out)
@@ -661,6 +819,12 @@ class Runner:
             if not self.source.exists():
                 raise ValueError(f"{self.source} no longer exists; the dedicated worktree that "
                                  f"built run {run_id} is gone, so it cannot be published from here")
+            # BEFORE the network, the upload and the channel move: this is a refusal about
+            # what was never checked, and it costs nothing to make it first.
+            proof = self.require_gui_proof(info, gui_proof)
+            if proof:
+                print(f"gui-boot proof accepted: {proof.get('result')} at {proof.get('where')}, "
+                      f"commit {proof.get('commit')}, taken {proof.get('at')}", flush=True)
             print(f"Publishing {info['tag']} from run {run_id}...", flush=True)
             # finish() only uploads, verifies and promotes -- no signing identity or
             # notarization credential is needed here, unlike the build step below.
@@ -691,13 +855,31 @@ class Runner:
             raise ValueError("only build, release or publish may build or publish")
         with self.phase("runtime-verify"):
             self.runtime(runtime)
-        self.gates(checks_done_at_land)
+        # SKIPPING IS FOR CANDIDATES, NEVER FOR THE COMMAND THAT PUBLISHES. `release` runs
+        # every suite every time, whatever a proof file on this host remembers.
+        suites = self.gates(checks_done_at_land, no_host_screen=no_host_screen,
+                            skip_unchanged=(command == "build"))
         # Capture the UTC date at allocation, even if checks crossed midnight.
         with self.phase("plan-recheck"):
             plan_path, info = self.plan(force)
         if not info["build"]:
             print(info["reason"] + "; nothing published.", flush=True)
             return
+        if no_host_screen or isinstance(suites, dict):
+            # Into the plan for the same reason the land proof is: nightly.py copies the
+            # plan verbatim into build-info.json and the candidate's committed provenance,
+            # so which suites ran, which were skipped over unchanged inputs, and which were
+            # held back from the screen travel WITH the candidate instead of living in a
+            # log on this Mac.
+            #
+            # `no_host_screen` is recorded EVEN IF the suite report went missing, and that
+            # is the whole point of recording it separately: a screenless build with no
+            # report is the one shape `publish` must refuse, and it can only tell that
+            # shape from an old candidate's silence by this flag.
+            info = {**info, "no_host_screen": bool(no_host_screen)}
+            if isinstance(suites, dict):
+                info["script_suites"] = suites
+            plan_path.write_text(json.dumps(info, indent=2) + "\n")
         if checks_done_at_land:
             # Into the plan, because nightly.py copies the plan verbatim into the
             # candidate's `build-info.json` and its committed provenance. A skip recorded
@@ -721,8 +903,16 @@ class Runner:
         # command == "build": stop at the signed, notarized, engine-pinned candidate.
         self.announce(f"Building {info['tag']}...")
         with self.phase("build"):
+            # The engine asset's reproducibility re-build (~25 s, measured 2026-09-19) may
+            # be remembered for a CANDIDATE when the bytes and the build script are both
+            # byte-identical to a run that already proved them. Passed for `build` and
+            # never for `release`, exactly like skip-when-unchanged above: a proof file on
+            # this host may excuse work for a candidate, never for the command that makes
+            # a build installable. See make-engine-asset.sh's CHECK_PROOF_DIR note.
             self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "build",
-                         "--plan", plan_path, "--out", out, credentials=True)
+                         "--plan", plan_path, "--out", out, credentials=True,
+                         env_extra={"RICHOS_ENGINE_CHECK_PROOF_DIR":
+                                    str(self.state / "engine-repro-proofs")})
         candidate_info = json.loads((out / "candidate.json").read_text())["info"]
         self.record_run(self.env["RICHOS_NIGHTLY_RUN_ID"], out)
         self.summary()
@@ -742,11 +932,25 @@ def main():
                         help="skip the one gate a land already ran on this exact commit "
                              "(cargo test -p richos-core); refused unless SHA is the sha "
                              "this run fetches")
+    parser.add_argument("--no-host-screen", action="store_true",
+                        help="hold back every suite that boots the app on this Mac's screen; "
+                             "the candidate is still built and walkable, and publish will "
+                             "refuse it until --gui-proof names a boot taken elsewhere")
+    parser.add_argument("--gui-proof", metavar="PATH",
+                        help="a gui-boot proof taken against this candidate's commit, required "
+                             "to publish a candidate built with --no-host-screen")
     args = parser.parse_args()
     if args.command in ("publish", "candidate") and not args.run:
         parser.error(f"{args.command} requires --run <run-id> (see the output of a prior `build`)")
     if args.checks_done_at_land and args.command not in ("build", "release"):
         parser.error("--checks-done-at-land only means anything for build or release")
+    if args.no_host_screen and args.command not in NO_HOST_SCREEN_COMMANDS:
+        parser.error("--no-host-screen is for `build`. `release` publishes in one motion with "
+                     "no publish step to refuse an unproven boot, so it always runs the whole "
+                     "gate; the screenless path is build -> walk -> publish --gui-proof.")
+    if args.gui_proof and args.command != "publish":
+        parser.error("--gui-proof is evidence `publish` demands; it means nothing to any other "
+                     "command")
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("local nightly releases currently require an Apple Silicon Mac")
     os.umask(0o077)
@@ -760,7 +964,7 @@ def main():
         with TimestampedLog(log_path, BUILD_MILESTONES) as log:
             Runner(args.repo.resolve(), state, env, log, credentials).perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None,
-                args.run, args.checks_done_at_land)
+                args.run, args.checks_done_at_land, args.no_host_screen, args.gui_proof)
 
 
 if __name__ == "__main__":

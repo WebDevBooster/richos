@@ -1,0 +1,772 @@
+19:38:38Z empty
+19:38:38Z empty
+19:38:39Z empty
+19:38:39Z empty
+19:38:40Z empty
+19:38:40Z empty
+19:38:41Z empty
+19:38:42Z empty
+19:38:42Z empty
+19:38:43Z FIXTURE pid=60297 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpckv9Fr/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60302 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp3SQp8X/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60330 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpQSj2pw/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60334 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmprPfxw2/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60345 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmphsDmi7/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60360 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpNlCWoU/Applications/.richos-updater/87e9484f7f206be09f347f4714c9b81eee42773d14765364e63f8a07612c1a3b/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60563 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpToUlz7/Applications/.richos-updater/2129d8a8b486568732a26c2f23eb875383cc7754a98bb0043f86ac8b6701e365/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60564 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpAwxpgu/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:43Z FIXTURE pid=60568 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp3SQp8X/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60588 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpmxL1zM/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60589 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpwerKnh/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60592 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmprPfxw2/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60598 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmphsDmi7/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60604 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpNlCWoU/Applications/.richos-updater/6ce7c77cd11e2a330f4c6c0a466f08231f7f16db57cf5b0e0012103c9fb81674/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60607 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpToUlz7/Applications/.richos-updater/24424e21b31f2bb0a9bd4dc63ca1662816e0c2749b0e3097728d6c626fe9ad0c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60636 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpRoji4R/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60643 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp3SQp8X/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60646 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp8DpJVq/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60653 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpUGDU55/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:44Z FIXTURE pid=60655 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmprPfxw2/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:45Z FIXTURE pid=60693 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpWNR323/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:45Z FIXTURE pid=60695 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpoCt6DT/Applications/.richos-updater/59a2af267b1284617a077e14741d6226cc348edce6c6649bb6ff6a4c36d68d4d/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:45Z FIXTURE pid=60699 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpgMJMWN/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:45Z FIXTURE pid=60709 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpRoji4R/Applications/.richos-updater/acb3090bfffec5a6405b4ced1c8d5f1cfa6c3e3028b9475ef6d59174f0ceef5f/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:45Z FIXTURE pid=60717 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpcSgS2Q/Applications/.richos-updater/e3f7b5c92e7a15391c1888ba814ec61b1d954edc7625f4b7dd75d22265b4cad9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:45Z FIXTURE pid=60721 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmprPfxw2/Applications/.richos-updater/24424e21b31f2bb0a9bd4dc63ca1662816e0c2749b0e3097728d6c626fe9ad0c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60737 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpIczpHA/Applications/.richos-updater/96852f5d4003b78378e3bf55f614af9ddd9d22e406539e2ac3c26f7b2b5318f0/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60752 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpWNR323/Applications/.richos-updater/acb3090bfffec5a6405b4ced1c8d5f1cfa6c3e3028b9475ef6d59174f0ceef5f/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60756 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmptVvOe4/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60760 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpoCt6DT/Applications/.richos-updater/8c8db8b9d25ebe6389c2d63a0360cd2dc1c926408b494879bb020f86636be83f/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60761 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpKC345J/Applications/.richos-updater/1637817123a599d35a22a525675a2d1a9297b5bc17b897aa6b16d760130218aa/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60762 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmphCviNL/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60763 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpCpphe9/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60782 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpdTHOqR/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:46Z FIXTURE pid=60784 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpWVJ9uQ/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:47Z FIXTURE pid=60880 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmphCviNL/Applications/.richos-updater/6f68daad3fcc9e36ef7b81d0197e6089856db5194418cac1891c504e03bde1d6/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:47Z FIXTURE pid=60880 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmphCviNL/Applications/.richos-updater/6f68daad3fcc9e36ef7b81d0197e6089856db5194418cac1891c504e03bde1d6/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:48Z FIXTURE pid=60880 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmphCviNL/Applications/.richos-updater/6f68daad3fcc9e36ef7b81d0197e6089856db5194418cac1891c504e03bde1d6/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:38:48Z empty
+19:38:49Z empty
+19:38:49Z empty
+19:38:50Z empty
+19:38:50Z empty
+19:38:51Z empty
+19:38:51Z empty
+19:38:52Z empty
+19:38:52Z empty
+19:38:53Z empty
+19:38:53Z empty
+19:38:54Z empty
+19:38:55Z empty
+19:38:55Z empty
+19:38:56Z empty
+19:38:56Z empty
+19:38:57Z empty
+19:38:57Z empty
+19:38:58Z empty
+19:38:58Z empty
+19:38:59Z empty
+19:38:59Z empty
+19:39:00Z empty
+19:39:00Z empty
+19:39:01Z empty
+19:39:01Z empty
+19:39:02Z empty
+19:39:02Z empty
+19:39:03Z empty
+19:39:03Z empty
+19:39:04Z empty
+19:39:05Z empty
+19:39:05Z empty
+19:39:06Z empty
+19:39:06Z empty
+19:39:07Z empty
+19:39:07Z empty
+19:39:08Z empty
+19:39:08Z empty
+19:39:09Z empty
+19:39:09Z empty
+19:39:10Z empty
+19:39:10Z empty
+19:39:11Z empty
+19:39:11Z empty
+19:39:12Z empty
+19:39:12Z empty
+19:39:13Z empty
+19:39:13Z empty
+19:39:14Z empty
+19:39:14Z empty
+19:39:15Z empty
+19:39:16Z empty
+19:39:16Z empty
+19:39:17Z empty
+19:39:17Z empty
+19:39:18Z empty
+19:39:18Z empty
+19:39:19Z empty
+19:39:19Z empty
+19:39:20Z empty
+19:39:20Z empty
+19:39:21Z empty
+19:39:21Z empty
+19:39:22Z empty
+19:39:22Z empty
+19:39:23Z empty
+19:39:23Z empty
+19:39:24Z empty
+19:39:25Z empty
+19:39:25Z empty
+19:39:26Z empty
+19:39:26Z empty
+19:39:27Z empty
+19:39:27Z empty
+19:39:28Z empty
+19:39:29Z empty
+19:39:29Z empty
+19:39:30Z empty
+19:39:30Z empty
+19:39:31Z empty
+19:39:31Z empty
+19:39:32Z empty
+19:39:32Z empty
+19:39:33Z empty
+19:39:33Z empty
+19:39:34Z empty
+19:39:35Z empty
+19:39:35Z empty
+19:39:36Z empty
+19:39:36Z empty
+19:39:37Z empty
+19:39:38Z empty
+19:39:38Z empty
+19:39:39Z empty
+19:39:39Z empty
+19:39:40Z empty
+19:39:40Z empty
+19:39:41Z empty
+19:39:41Z empty
+19:39:42Z empty
+19:39:42Z empty
+19:39:43Z empty
+19:39:44Z empty
+19:39:44Z empty
+19:39:45Z empty
+19:39:45Z empty
+19:39:46Z empty
+19:39:47Z empty
+19:39:47Z empty
+19:39:48Z empty
+19:39:48Z empty
+19:39:49Z empty
+19:39:49Z empty
+19:39:50Z empty
+19:39:50Z empty
+19:39:51Z empty
+19:39:52Z empty
+19:39:52Z empty
+19:39:53Z empty
+19:39:53Z empty
+19:39:54Z empty
+19:39:54Z empty
+19:39:55Z empty
+19:39:55Z empty
+19:39:57Z empty
+19:39:57Z empty
+19:39:58Z empty
+19:39:59Z empty
+19:39:59Z empty
+19:40:00Z empty
+19:40:00Z empty
+19:40:01Z empty
+19:40:02Z empty
+19:40:02Z empty
+19:40:03Z empty
+19:40:03Z empty
+19:40:04Z empty
+19:40:05Z empty
+19:40:05Z empty
+19:40:06Z empty
+19:40:06Z empty
+19:40:07Z empty
+19:40:08Z empty
+19:40:08Z empty
+19:40:09Z empty
+19:40:10Z empty
+19:40:11Z empty
+19:40:11Z empty
+19:40:12Z empty
+19:40:13Z empty
+19:40:13Z empty
+19:40:14Z empty
+19:40:14Z empty
+19:40:15Z empty
+19:40:16Z empty
+19:40:16Z empty
+19:40:17Z empty
+19:40:18Z empty
+19:40:19Z empty
+19:40:19Z empty
+19:40:20Z empty
+19:40:20Z empty
+19:40:21Z empty
+19:40:21Z empty
+19:40:22Z empty
+19:40:22Z empty
+19:40:23Z empty
+19:40:23Z empty
+19:40:25Z empty
+19:40:25Z empty
+19:40:26Z empty
+19:40:27Z empty
+19:40:27Z empty
+19:40:28Z empty
+19:40:29Z empty
+19:40:29Z empty
+19:40:30Z empty
+19:40:30Z empty
+19:40:31Z empty
+19:40:32Z empty
+19:40:32Z empty
+19:40:33Z empty
+19:40:33Z empty
+19:40:34Z empty
+19:40:34Z empty
+19:40:35Z empty
+19:40:35Z empty
+19:40:36Z empty
+19:40:36Z empty
+19:40:37Z empty
+19:40:38Z empty
+19:40:38Z empty
+19:40:39Z empty
+19:40:39Z empty
+19:40:40Z empty
+19:40:40Z empty
+19:40:41Z empty
+19:40:41Z empty
+19:40:42Z empty
+19:40:43Z empty
+19:40:43Z empty
+19:40:44Z empty
+19:40:44Z empty
+19:40:45Z empty
+19:40:45Z empty
+19:40:46Z empty
+19:40:46Z empty
+19:40:47Z empty
+19:40:48Z empty
+19:40:48Z empty
+19:40:49Z empty
+19:40:49Z empty
+19:40:50Z empty
+19:40:50Z empty
+19:40:51Z empty
+19:40:51Z empty
+19:40:52Z empty
+19:40:52Z empty
+19:40:53Z empty
+19:40:54Z empty
+19:40:54Z empty
+19:40:55Z empty
+19:40:55Z empty
+19:40:56Z empty
+19:40:56Z empty
+19:40:57Z empty
+19:40:57Z empty
+19:40:58Z empty
+19:40:58Z empty
+19:40:59Z empty
+19:40:59Z empty
+19:41:00Z empty
+19:41:01Z empty
+19:41:02Z empty
+19:41:02Z empty
+19:41:03Z empty
+19:41:03Z empty
+19:41:04Z empty
+19:41:04Z empty
+19:41:05Z empty
+19:41:06Z empty
+19:41:06Z empty
+19:41:07Z empty
+19:41:07Z empty
+19:41:08Z empty
+19:41:08Z empty
+19:41:09Z empty
+19:41:09Z empty
+19:41:10Z empty
+19:41:10Z empty
+19:41:11Z empty
+19:41:11Z empty
+19:41:12Z empty
+19:41:12Z empty
+19:41:13Z empty
+19:41:14Z empty
+19:41:14Z empty
+19:41:15Z empty
+19:41:15Z empty
+19:41:16Z empty
+19:41:16Z empty
+19:41:17Z empty
+19:41:17Z empty
+19:41:18Z empty
+19:41:18Z empty
+19:41:19Z empty
+19:41:19Z empty
+19:41:20Z empty
+19:41:20Z empty
+19:41:21Z empty
+19:41:22Z empty
+19:41:22Z empty
+19:41:23Z empty
+19:41:23Z empty
+19:41:24Z empty
+19:41:24Z empty
+19:41:25Z empty
+19:41:25Z empty
+19:41:26Z empty
+19:41:26Z empty
+19:41:27Z empty
+19:41:27Z empty
+19:41:28Z empty
+19:41:28Z empty
+19:41:29Z empty
+19:41:29Z empty
+19:41:30Z empty
+19:41:30Z empty
+19:41:31Z empty
+19:41:31Z empty
+19:41:32Z empty
+19:41:33Z empty
+19:41:33Z empty
+19:41:34Z empty
+19:41:34Z empty
+19:41:35Z empty
+19:41:35Z empty
+19:41:36Z empty
+19:41:36Z empty
+19:41:37Z empty
+19:41:37Z empty
+19:41:38Z empty
+19:41:38Z empty
+19:41:39Z empty
+19:41:39Z empty
+19:41:40Z empty
+19:41:40Z empty
+19:41:41Z empty
+19:41:41Z empty
+19:41:42Z empty
+19:41:42Z empty
+19:41:43Z empty
+19:41:44Z empty
+19:41:44Z empty
+19:41:45Z empty
+19:41:45Z empty
+19:41:46Z empty
+19:41:46Z empty
+19:41:47Z empty
+19:41:47Z empty
+19:41:48Z empty
+19:41:48Z empty
+19:41:49Z empty
+19:41:49Z empty
+19:41:50Z empty
+19:41:50Z empty
+19:41:51Z empty
+19:41:51Z empty
+19:41:52Z empty
+19:41:52Z empty
+19:41:53Z empty
+19:41:54Z empty
+19:41:54Z empty
+19:41:55Z empty
+19:41:55Z empty
+19:41:56Z empty
+19:41:56Z empty
+19:41:57Z empty
+19:41:57Z empty
+19:41:58Z empty
+19:41:58Z empty
+19:41:59Z empty
+19:41:59Z empty
+19:42:00Z empty
+19:42:00Z empty
+19:42:01Z empty
+19:42:01Z empty
+19:42:02Z empty
+19:42:02Z empty
+19:42:03Z empty
+19:42:03Z empty
+19:42:04Z empty
+19:42:05Z empty
+19:42:05Z empty
+19:42:06Z empty
+19:42:06Z empty
+19:42:07Z empty
+19:42:07Z empty
+19:42:08Z empty
+19:42:08Z empty
+19:42:09Z empty
+19:42:09Z empty
+19:42:10Z empty
+19:42:10Z empty
+19:42:11Z empty
+19:42:11Z empty
+19:42:12Z empty
+19:42:12Z empty
+19:42:13Z empty
+19:42:13Z empty
+19:42:14Z empty
+19:42:14Z empty
+19:42:15Z empty
+19:42:16Z empty
+19:42:16Z empty
+19:42:17Z empty
+19:42:17Z empty
+19:42:18Z FIXTURE pid=99157 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpVDx3VQ/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99158 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpyhb2VB/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99159 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp1CD29T/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99160 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpTRpHob/Applications/.richos-updater/87e9484f7f206be09f347f4714c9b81eee42773d14765364e63f8a07612c1a3b/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99167 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpe6PxVw/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99169 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpeRx5BI/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99189 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpLwewpU/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99192 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmprh2onf/Applications/.richos-updater/2129d8a8b486568732a26c2f23eb875383cc7754a98bb0043f86ac8b6701e365/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99194 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpVDx3VQ/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99195 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpGBT4YR/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:18Z FIXTURE pid=99197 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp1CD29T/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99220 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpTRpHob/Applications/.richos-updater/6ce7c77cd11e2a330f4c6c0a466f08231f7f16db57cf5b0e0012103c9fb81674/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99222 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpeRx5BI/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99225 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp7xxLJs/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99227 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmprh2onf/Applications/.richos-updater/24424e21b31f2bb0a9bd4dc63ca1662816e0c2749b0e3097728d6c626fe9ad0c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99231 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpyAgUJq/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99233 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpLFitLm/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99233 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpLFitLm/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99251 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp1CD29T/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99253 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp78mBtV/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99257 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpgHwfY1/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:19Z FIXTURE pid=99259 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmplVzpRf/Applications/.richos-updater/59a2af267b1284617a077e14741d6226cc348edce6c6649bb6ff6a4c36d68d4d/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99399 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpwDd5PQ/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99604 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpBrwS2q/Applications/.richos-updater/ede20a060ac797907d2e33fc81713a9c130ee04e3608e1bbc56f23582ed844b5/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99608 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp1CD29T/Applications/.richos-updater/24424e21b31f2bb0a9bd4dc63ca1662816e0c2749b0e3097728d6c626fe9ad0c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99623 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpkoibFo/Applications/.richos-updater/96852f5d4003b78378e3bf55f614af9ddd9d22e406539e2ac3c26f7b2b5318f0/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99624 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpgHwfY1/Applications/.richos-updater/acb3090bfffec5a6405b4ced1c8d5f1cfa6c3e3028b9475ef6d59174f0ceef5f/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99625 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp1zii7K/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99656 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmplVzpRf/Applications/.richos-updater/8c8db8b9d25ebe6389c2d63a0360cd2dc1c926408b494879bb020f86636be83f/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99657 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpufCkbQ/Applications/.richos-updater/1637817123a599d35a22a525675a2d1a9297b5bc17b897aa6b16d760130218aa/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99658 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp939NVz/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99659 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmph6W39Y/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99660 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpeXsbw8/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:20Z FIXTURE pid=99661 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpOdmBFS/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:21Z FIXTURE pid=99659 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmph6W39Y/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:21Z FIXTURE pid=99660 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpeXsbw8/Applications/.richos-updater/ceba1365384e82ee5c116576ca11bfaeadb0a5e43ff0b7172fad516b673e99e2/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:21Z FIXTURE pid=99661 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmpOdmBFS/Applications/.richos-updater/3f1ed1ff78ba533bca0e3fdcfceade05107ffc3cf2e34531f1e6e3f45bd508b9/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:21Z FIXTURE pid=99684 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmplVzpRf/Applications/.richos-updater/c0f9e1ba7eec9b12c0b518dc7959d53c0b24d45631119e38b0f7ea855be8d827/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:21Z FIXTURE pid=99703 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp939NVz/Applications/.richos-updater/6f68daad3fcc9e36ef7b81d0197e6089856db5194418cac1891c504e03bde1d6/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:21Z FIXTURE pid=99705 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmph6W39Y/Applications/.richos-updater/33d47f1efd1481495486a8d9baa4c5d3dab2a18e3d81399169f7786be0aa1a7c/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:22Z FIXTURE pid=99703 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp939NVz/Applications/.richos-updater/6f68daad3fcc9e36ef7b81d0197e6089856db5194418cac1891c504e03bde1d6/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:23Z FIXTURE pid=99703 /private/var/folders/mx/w46p9btx1t17wv9tbsq885qw0000gn/T/.tmp939NVz/Applications/.richos-updater/6f68daad3fcc9e36ef7b81d0197e6089856db5194418cac1891c504e03bde1d6/incoming.app/Contents/MacOS/richos-tauri --richos-internal-update-identity
+19:42:23Z empty
+19:42:24Z empty
+19:42:24Z empty
+19:42:25Z empty
+19:42:25Z empty
+19:42:26Z empty
+19:42:26Z empty
+19:42:27Z empty
+19:42:27Z empty
+19:42:28Z empty
+19:42:28Z empty
+19:42:29Z empty
+19:42:29Z empty
+19:42:30Z empty
+19:42:30Z empty
+19:42:31Z empty
+19:42:32Z empty
+19:42:32Z empty
+19:42:33Z empty
+19:42:33Z empty
+19:42:34Z empty
+19:42:34Z empty
+19:42:35Z empty
+19:42:35Z empty
+19:42:36Z empty
+19:42:36Z empty
+19:42:37Z empty
+19:42:37Z empty
+19:42:38Z empty
+19:42:38Z empty
+19:42:39Z empty
+19:42:40Z empty
+19:42:40Z empty
+19:42:41Z empty
+19:42:41Z empty
+19:42:42Z empty
+19:42:42Z empty
+19:42:43Z empty
+19:42:43Z empty
+19:42:44Z empty
+19:42:44Z empty
+19:42:45Z empty
+19:42:45Z empty
+19:42:46Z empty
+19:42:47Z empty
+19:42:47Z empty
+19:42:48Z empty
+19:42:48Z empty
+19:42:49Z empty
+19:42:49Z empty
+19:42:50Z empty
+19:42:50Z empty
+19:42:51Z empty
+19:42:51Z empty
+19:42:52Z empty
+19:42:52Z empty
+19:42:53Z empty
+19:42:53Z empty
+19:42:54Z empty
+19:42:55Z empty
+19:42:55Z empty
+19:42:56Z empty
+19:42:56Z empty
+19:42:57Z empty
+19:42:57Z empty
+19:42:58Z empty
+19:42:58Z empty
+19:42:59Z empty
+19:42:59Z empty
+19:43:00Z empty
+19:43:01Z empty
+19:43:01Z empty
+19:43:02Z empty
+19:43:02Z empty
+19:43:03Z empty
+19:43:03Z empty
+19:43:04Z empty
+19:43:04Z empty
+19:43:05Z empty
+19:43:05Z empty
+19:43:06Z empty
+19:43:07Z empty
+19:43:07Z empty
+19:43:08Z empty
+19:43:08Z empty
+19:43:09Z empty
+19:43:09Z empty
+19:43:10Z empty
+19:43:11Z empty
+19:43:11Z empty
+19:43:12Z empty
+19:43:12Z empty
+19:43:13Z empty
+19:43:13Z empty
+19:43:14Z empty
+19:43:14Z empty
+19:43:15Z empty
+19:43:16Z empty
+19:43:16Z empty
+19:43:17Z empty
+19:43:17Z empty
+19:43:18Z empty
+19:43:18Z empty
+19:43:19Z empty
+19:43:19Z empty
+19:43:20Z empty
+19:43:20Z empty
+19:43:21Z empty
+19:43:21Z empty
+19:43:22Z empty
+19:43:23Z empty
+19:43:23Z empty
+19:43:24Z empty
+19:43:24Z empty
+19:43:25Z empty
+19:43:25Z empty
+19:43:26Z empty
+19:43:26Z empty
+19:43:27Z empty
+19:43:27Z empty
+19:43:28Z empty
+19:43:28Z empty
+19:43:29Z empty
+19:43:30Z empty
+19:43:30Z empty
+19:43:31Z empty
+19:43:31Z empty
+19:43:32Z empty
+19:43:32Z empty
+19:43:33Z empty
+19:43:33Z empty
+19:43:34Z empty
+19:43:34Z empty
+19:43:35Z empty
+19:43:36Z empty
+19:43:36Z empty
+19:43:37Z empty
+19:43:37Z empty
+19:43:38Z empty
+19:43:38Z empty
+19:43:39Z empty
+19:43:39Z empty
+19:43:40Z empty
+19:43:40Z empty
+19:43:41Z empty
+19:43:41Z empty
+19:43:42Z empty
+19:43:42Z empty
+19:43:43Z empty
+19:43:43Z empty
+19:43:44Z empty
+19:43:45Z empty
+19:43:45Z empty
+19:43:46Z empty
+19:43:46Z empty
+19:43:47Z empty
+19:43:47Z empty
+19:43:48Z empty
+19:43:48Z empty
+19:43:49Z empty
+19:43:49Z empty
+19:43:50Z empty
+19:43:50Z empty
+19:43:51Z empty
+19:43:51Z empty
+19:43:52Z empty
+19:43:52Z empty
+19:43:53Z empty
+19:43:54Z empty
+19:43:54Z empty
+19:43:55Z empty
+19:43:55Z empty
+19:43:56Z empty
+19:43:56Z empty
+19:43:57Z empty
+19:43:57Z empty
+19:43:58Z empty
+19:43:58Z empty
+19:43:59Z empty
+19:43:59Z empty
+19:44:00Z empty
+19:44:01Z empty
+19:44:01Z empty
+19:44:02Z empty
+19:44:02Z empty
+19:44:03Z empty
+19:44:03Z empty
+19:44:04Z empty
+19:44:04Z empty
+19:44:05Z empty
+19:44:05Z empty
+19:44:06Z empty
+19:44:06Z empty
+19:44:07Z empty
+19:44:07Z empty
+19:44:08Z empty
+19:44:08Z empty
+19:44:09Z empty
+19:44:09Z empty
+19:44:10Z empty
+19:44:11Z empty
+19:44:11Z empty
+19:44:12Z empty
+19:44:12Z empty
+19:44:13Z empty
+19:44:13Z empty
+19:44:14Z empty
+19:44:14Z empty
+19:44:15Z empty
+19:44:15Z empty
+19:44:16Z empty
+19:44:16Z empty
+19:44:17Z empty
+19:44:17Z empty
+19:44:18Z empty
+19:44:18Z empty
+19:44:19Z empty
+19:44:20Z empty
+19:44:20Z empty
+19:44:21Z empty
+19:44:21Z empty
+19:44:22Z empty
+19:44:22Z empty
+19:44:23Z empty
+19:44:23Z empty
+19:44:24Z empty
+19:44:24Z empty
+19:44:25Z empty
+19:44:26Z empty
+19:44:26Z empty
+19:44:27Z empty
+19:44:27Z empty
+19:44:28Z empty
+19:44:28Z empty
+19:44:29Z empty
+19:44:29Z empty
+19:44:30Z empty
+19:44:30Z empty
+19:44:31Z empty
+19:44:31Z empty
+19:44:32Z empty
+19:44:33Z empty
+19:44:33Z empty
+19:44:34Z empty
+19:44:34Z empty
+19:44:35Z empty
+19:44:35Z empty
+19:44:36Z empty
+19:44:36Z empty
+19:44:37Z empty
+19:44:37Z empty
+19:44:38Z empty
+19:44:39Z empty
+19:44:39Z empty
+19:44:40Z empty
+19:44:40Z empty
+19:44:41Z empty
+19:44:41Z empty
+19:44:42Z empty
+19:44:42Z empty
+19:44:43Z empty
+19:44:43Z empty
+19:44:44Z empty
+19:44:44Z empty
+19:44:45Z empty
+19:44:46Z empty
+19:44:46Z empty
+19:44:47Z empty
+19:44:47Z empty
+19:44:48Z empty
+19:44:48Z empty
+19:44:49Z empty
+19:44:49Z empty
+19:44:50Z empty
+19:44:50Z empty
+19:44:51Z empty
+19:44:52Z empty
+19:44:52Z empty
+19:44:53Z empty
+19:44:53Z empty
+19:44:54Z empty
+19:44:54Z empty
+19:44:55Z empty
+19:44:55Z empty
+19:44:56Z empty
+19:44:56Z empty
+19:44:57Z empty
+19:44:57Z empty
+19:44:58Z empty
+19:44:59Z empty
+19:44:59Z empty
+19:45:00Z empty
+19:45:00Z empty
+19:45:01Z empty
+19:45:01Z empty
+19:45:02Z empty
+19:45:02Z empty
+19:45:03Z empty
+19:45:03Z empty
+19:45:04Z empty
+19:45:04Z empty
+19:45:05Z empty
+19:45:06Z empty
+19:45:06Z empty
+19:45:07Z empty

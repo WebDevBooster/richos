@@ -32,6 +32,19 @@
 #   H7  an empty inventory is still exit 2, never "all 0 suites passed"
 #   H8  a DECLARED gap whose suite failed a case is a FAILURE   <- the concealment case
 #   H9  ...and a declared gap that failed nothing is still green — H8 has not eaten H2
+#
+# THIS SUITE OPENS NO WINDOW, and it has to say so like every other file here — case S6
+# below scans this directory for anything that could put one on the operator's Mac, and it
+# scans ITSELF along with the rest. What it finds here is its OWN search pattern: the
+# literal `/Contents/MacOS/`, `$GUI_BINARY` and `richos-tauri` inside the `grep -qE` it uses
+# to do the scanning, plus the `. "$DIR/lib/gui-launch.sh"` that S1 writes into a FAKE suite
+# in a scratch directory. Every suite this file runs is one it wrote itself, under mktemp,
+# and not one of them is the app.
+#
+# That the scanner is caught by its own net is the mechanism working, not a flaw in it: a
+# scanner exempt from its own rule is a rule with a hole exactly where somebody clever would
+# put something.
+# run-tests: no-host-screen: its matches are its own S6 search pattern and the fake suites S1 writes under mktemp
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -177,6 +190,363 @@ EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
 cp "$HARNESS" "$EMPTY/run-tests.sh"
 OUT="$(bash "$EMPTY/run-tests.sh" 2>&1)"; CODE=$?
 expect "H7 an empty inventory is refused, never 'all 0 suites passed'" 2 "refusing to report green over an empty inventory"
+
+# =========================================================================================
+# P. THE POOL — concurrency that cannot reorder, overrun or swallow anything
+# =========================================================================================
+#
+# The harness runs its suites concurrently now. Three things about that are load-bearing
+# and none of them is visible from a green summary, so each one is a case: the OUTPUT ORDER
+# a reader depends on, the BOUND that keeps fourteen suites from thrashing one Mac, and the
+# FAILURE that still has to stop the run when it happens in the middle of a pool.
+echo ""
+echo "=== P. the pool ==="
+PBOX="$TMP/pool"; mkdir -p "$PBOX"
+cp "$HARNESS" "$PBOX/run-tests.sh"
+P2LOG="$TMP/concurrency.log"; export P2LOG
+
+mk_timed() {  # mk_timed <name> <seconds>
+  printf '%s\n' \
+    'echo start >> "$P2LOG"' \
+    "sleep $2" \
+    'echo end >> "$P2LOG"' \
+    "echo \"=== $1 tests: all 1 passed ===\"" \
+    'exit 0' > "$PBOX/$1.test.sh"
+}
+# Deliberately DESCENDING durations against ASCENDING names: if anything printed in
+# completion order instead of discovery order, P1 would read d,c,b,a.
+mk_timed a 1.2
+mk_timed b 0.9
+mk_timed c 0.6
+mk_timed d 0.1
+
+prun() {  # prun <jobs>
+  : > "$P2LOG"
+  OUT="$(env RUN_TESTS_DECLARED_GAPS= P2LOG="$P2LOG" bash "$PBOX/run-tests.sh" --jobs "$1" 2>&1)"; CODE=$?
+  return 0
+}
+
+prun 4
+ORDER="$(printf '%s' "$OUT" | sed -n 's/^--- //p' | tr '\n' ' ')"
+if [ "$CODE" != 0 ]; then
+  bad "P1 concurrent output is printed in discovery order" "exit $CODE, wanted 0"
+elif [ "$ORDER" != "a.test.sh b.test.sh c.test.sh d.test.sh " ]; then
+  bad "P1 concurrent output is printed in discovery order" \
+      "printed '$ORDER' — four suites that finish in the opposite order must still read a,b,c,d"
+elif ! printf '%s' "$OUT" | grep -Fq "all 4 suites passed — 4 checks"; then
+  bad "P1 concurrent output is printed in discovery order" \
+      "the summary lost a suite or a check: $(printf '%s' "$OUT" | tail -1)"
+else
+  ok "P1 four suites finishing in reverse still print a,b,c,d, and every check is counted"
+fi
+
+# P2 — THE BOUND. Without it, fourteen suites — three of which fan out to every core —
+# start at once on a 10-core Mac. MEASURED 2026-09-19 on this machine, same tree, same
+# twelve suites: pool 1 = 341 s, pool 2 = 223 s, pool 3 = 167 s, pool 4 = 183 s,
+# pool 6 = 228 s, pool 10 = 236 s. MORE CONCURRENCY IS SLOWER PAST THREE, because two
+# suites dominate the run and contend with each other, so a bound that is not enforced is
+# not a faster run — it is a slower one.
+prun 2
+MAX="$(awk '/^start$/{n++; if (n>m) m=n} /^end$/{n--} END{print m+0}' "$P2LOG")"
+if [ "$CODE" != 0 ]; then
+  bad "P2 the pool bound is enforced" "exit $CODE, wanted 0"
+elif [ "$MAX" -gt 2 ]; then
+  bad "P2 the pool bound is enforced" \
+      "--jobs 2 and $MAX suites ran at once. An unenforced bound is how a build thrashes."
+elif [ "$MAX" -lt 2 ]; then
+  bad "P2 the pool bound is enforced" \
+      "--jobs 2 and never more than $MAX ran at once — the pool is not filling, so nothing is concurrent"
+else
+  ok "P2 --jobs 2 ran at most 2 suites at any instant, and did fill both slots"
+fi
+
+# P3 — a failure in the MIDDLE of a pool. The serial harness could not lose one; a pool can,
+# by printing a summary before a straggler has been collected.
+printf '%s\n' 'echo "  FAIL  c1 something is wrong"' 'echo "=== c tests: 1 FAILED, 0 passed ==="' 'exit 1' > "$PBOX/c.test.sh"
+prun 4
+expect "P3 a failure inside a full pool still stops the run" 1 "FAILED: c.test.sh"
+
+# =========================================================================================
+# K. SKIP-WHEN-UNCHANGED — an allowance keyed on content, never on a calendar
+# =========================================================================================
+#
+# `make-release.test.sh` and `make-engine-asset.test.sh` are 286 s of every build (measured
+# 2026-09-19, run 20260919T180454Z-ac11d13e) and neither reads anything an app-only commit
+# touches. They may be skipped when nothing they read has changed since a run that proved
+# them green.
+#
+# THIS IS THE ALLOWANCE THIS FILE'S SUBJECT IS MOST AFRAID OF — a suite that stops running
+# and nobody finds out. Every case below is a way that could happen.
+echo ""
+echo "=== K. skip-when-unchanged ==="
+KREPO="$TMP/krepo"
+mkdir -p "$KREPO/scripts" "$KREPO/inputs" "$KREPO/.nohooks"
+git -C "$KREPO" init -q >/dev/null 2>&1
+git -C "$KREPO" config user.email nobody@example.invalid
+git -C "$KREPO" config user.name "run-tests fixture"
+# THIS MACHINE HAS A GLOBAL core.hooksPath, so a fixture repository inherits the operator's
+# commit-identity guard and every `git commit` below is REFUSED — silently, since they were
+# written with `>/dev/null 2>&1`. Measured 2026-09-19: the fixture never committed, so every
+# input stayed staged-as-added, `suite_input_digest` correctly refused to skip a dirty tree,
+# and K2-K5 all reported PASS while asserting nothing. A fixture must not depend on the
+# machine's git configuration, so this one turns hooks off for itself and `kcommit` checks
+# that the commit actually happened instead of trusting that it did.
+git -C "$KREPO" config core.hooksPath "$KREPO/.nohooks"
+cp "$HARNESS" "$KREPO/scripts/run-tests.sh"
+printf 'one\n' > "$KREPO/inputs/a.txt"
+printf '%s\n' \
+  '# run-tests: inputs inputs' \
+  'echo "=== heavy tests: all 7 passed ==="' \
+  'exit 0' > "$KREPO/scripts/heavy.test.sh"
+printf '%s\n' 'echo "=== light tests: all 1 passed ==="' 'exit 0' > "$KREPO/scripts/light.test.sh"
+
+KFIXTURE_OK=1
+kcommit() {  # commit everything, and REFUSE to continue quietly if it did not happen
+  git -C "$KREPO" add -A >/dev/null 2>&1
+  if ! git -C "$KREPO" commit -qm "$1" >"$TMP/kcommit.log" 2>&1; then
+    KFIXTURE_OK=""
+    bad "K0 the fixture repository can commit" \
+        "git commit failed, so every K case below would assert nothing: $(head -3 "$TMP/kcommit.log" | tr '\n' ' ')"
+    return 1
+  fi
+  if [ -n "$(git -C "$KREPO" status --porcelain --untracked-files=all)" ]; then
+    KFIXTURE_OK=""
+    bad "K0 the fixture repository is clean after committing" \
+        "something is still uncommitted, so a skip could never be reached: $(git -C "$KREPO" status --porcelain | tr '\n' ' ')"
+    return 1
+  fi
+  return 0
+}
+kcommit fixture && ok "K0 the fixture repository commits and is clean — the K cases can reach a skip"
+KSTATE="$TMP/kstate"
+
+krun() {  # krun <run-id>
+  OUT="$(env RUN_TESTS_DECLARED_GAPS= RUN_TESTS_SKIP_UNCHANGED=1 RUN_TESTS_STATE="$KSTATE" \
+             RICHOS_NIGHTLY_RUN_ID="$1" RICHOS_RUNTIME_DIR= \
+             bash "$KREPO/scripts/run-tests.sh" 2>&1)"; CODE=$?
+  return 0
+}
+
+krun first
+if [ "$CODE" != 0 ]; then
+  bad "K1a a suite with no recorded proof runs" \
+      "exit $CODE, wanted 0: $(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
+elif printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+  bad "K1a a suite with no recorded proof runs" \
+      "it skipped a suite it had never seen pass — a skip must rest on a prior GREEN run"
+else
+  ok "K1a a suite with no recorded proof runs"
+fi
+krun second
+if [ "$CODE" != 0 ]; then
+  bad "K1b a proven suite is SKIPPED, naming its digest and its run" "exit $CODE, wanted 0"
+elif ! printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+  bad "K1b a proven suite is SKIPPED, naming its digest and its run" "it ran again over identical inputs"
+elif ! printf '%s' "$OUT" | grep -Fq "since run first"; then
+  bad "K1b a proven suite is SKIPPED, naming its digest and its run" \
+      "the skip does not name the run that proved it: $(printf '%s' "$OUT" | grep SKIPPED | head -1)"
+elif ! printf '%s' "$OUT" | grep -Eq 'sha256 [0-9a-f]{64}'; then
+  bad "K1b a proven suite is SKIPPED, naming its digest and its run" \
+      "the skip does not name the digest it compared"
+elif ! printf '%s' "$OUT" | grep -Fq "1 of 2 suites passed"; then
+  bad "K1b a proven suite is SKIPPED, naming its digest and its run" \
+      "the summary claims a suite that did not run: $(printf '%s' "$OUT" | tail -3 | tr '\n' ' ')"
+else
+  ok "K1b a proven suite is SKIPPED, naming the digest and the run that proved it"
+fi
+
+printf 'two\n' > "$KREPO/inputs/a.txt"
+kcommit change
+krun third
+if printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+  bad "K2 a committed change to a declared input makes the suite run again" \
+      "the input changed and the suite was skipped anyway"
+else
+  ok "K2 a committed change to a declared input makes the suite run again"
+fi
+
+krun fourth   # re-prove at the new content
+printf 'three, and never committed\n' > "$KREPO/inputs/a.txt"
+krun fifth
+if printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+  bad "K3 an uncommitted edit to a declared input makes the suite run again" \
+      "the working tree differs from the index and the suite was skipped over it. A digest \
+taken from HEAD alone cannot see an edit nobody committed, which is most edits."
+else
+  ok "K3 an uncommitted edit to a declared input makes the suite run again"
+fi
+git -C "$KREPO" checkout -- inputs/a.txt >/dev/null 2>&1
+
+if printf '%s' "$OUT" | grep -Fq "SKIPPED: light.test.sh"; then
+  bad "K4 a suite that declares no inputs is never skipped" \
+      "light.test.sh declares nothing and was skipped anyway — a silent skip is this file's subject"
+else
+  ok "K4 a suite that declares no inputs is never skipped, however often it passes"
+fi
+
+printf '%s\n' \
+  '# run-tests: inputs inputs' \
+  'echo "  FAIL  h1 the heavy suite found something"' \
+  'echo "=== heavy tests: 1 FAILED, 0 passed ==="' \
+  'exit 1' > "$KREPO/scripts/heavy.test.sh"
+kcommit red
+rm -f "$KSTATE/heavy.test.sh.proof"
+krun sixth
+krun seventh
+if [ "$CODE" != 1 ]; then
+  bad "K5 a suite that failed leaves no proof" "exit $CODE, wanted 1 — a red suite must stay red"
+elif printf '%s' "$OUT" | grep -Fq "SKIPPED: heavy.test.sh"; then
+  bad "K5 a suite that failed leaves no proof" \
+      "a suite that FAILED was skipped on the next run. A proof is written only over a GREEN \
+run, or a red suite goes green by being run twice."
+else
+  ok "K5 a suite that failed leaves no proof, so the next run still runs it and still fails"
+fi
+
+# =========================================================================================
+# S. `--no-host-screen` — the promise that nothing reaches the operator's screen
+# =========================================================================================
+#
+# The CEO, 2026-09-19: *"So, every engineer will keep opening the app making me unable to do
+# anything here or WHAT???"*. `gui-boot.test.sh` boots the real app on the real screen for
+# ~162 s of every build. The mode that stops it has to be ENFORCED rather than documented,
+# and the enforcement has three separate ways to fail silently.
+echo ""
+echo "=== S. --no-host-screen ==="
+SBOX="$TMP/screen"; mkdir -p "$SBOX"
+cp "$HARNESS" "$SBOX/run-tests.sh"
+printf '%s\n' 'echo "=== quiet tests: all 2 passed ==="' 'exit 0' > "$SBOX/quiet.test.sh"
+# Classified by the ONE library in this repository that boots the shipped binary — a
+# structural fact about what a suite calls, not a guess about what it might do.
+printf '%s\n' \
+  '. "$DIR/lib/gui-launch.sh"' \
+  'echo "=== window tests: all 5 passed ==="' \
+  'exit 0' > "$SBOX/window.test.sh"
+
+srun() {  # srun <extra args> [gui host]
+  OUT="$(env RUN_TESTS_DECLARED_GAPS= RICHOS_GUI_HOST="${2:-}" \
+             bash "$SBOX/run-tests.sh" $1 2>&1)"; CODE=$?
+  return 0
+}
+
+srun "--no-host-screen"
+if [ "$CODE" != 0 ]; then
+  bad "S1 --no-host-screen holds back the suite that boots the app" "exit $CODE, wanted 0"
+elif ! printf '%s' "$OUT" | grep -Fq "NOT RUN (no screen): window.test.sh"; then
+  bad "S1 --no-host-screen holds back the suite that boots the app" \
+      "window.test.sh was not held back: $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
+elif printf '%s' "$OUT" | grep -Fq "all 2 suites passed"; then
+  bad "S1 --no-host-screen holds back the suite that boots the app" \
+      "the summary claimed both suites passed while one of them never ran"
+else
+  ok "S1 --no-host-screen holds back the suite that boots the app, and the run is still green"
+fi
+
+srun "" ""
+if [ "$CODE" != 0 ] || ! printf '%s' "$OUT" | grep -Fq "all 2 suites passed"; then
+  bad "S2 without the flag nothing changes" \
+      "both suites must run as before; exit $CODE, $(printf '%s' "$OUT" | tail -1)"
+else
+  ok "S2 without the flag nothing changes — both suites run, as they always did"
+fi
+
+# S3 — A NAMED GUEST IS NOT A SUGGESTION. The dangerous version of this feature falls back
+# to the host's screen when the VM is missing, which is the exact interruption the mode
+# exists to prevent; the second most dangerous records NOT RUN and lets a caller who asked
+# for a proof believe they asked for nothing.
+srun "--no-host-screen" "richos-test-1"
+if [ "$CODE" != 2 ]; then
+  bad "S3 a named guest with no runner is REFUSED" \
+      "exit $CODE, wanted 2. It must neither fall back to this screen nor pretend the suite \
+was skipped on purpose."
+elif ! printf '%s' "$OUT" | grep -Fq "richos-test-1"; then
+  bad "S3 a named guest with no runner is REFUSED" "the refusal does not name the guest that was asked for"
+else
+  ok "S3 RICHOS_GUI_HOST with no runner REFUSES — never the host's screen, never a silent NOT RUN"
+fi
+
+# S4 — the proof file `nightly-local.py publish` will demand of a screenless candidate.
+PROOF="$TMP/gui.proof"
+srun "--proof-out $PROOF"
+if [ ! -f "$PROOF" ]; then
+  bad "S4 a host-screen suite that RAN writes a proof" "no file at $PROOF"
+elif ! grep -q '^commit=' "$PROOF"; then
+  bad "S4 a host-screen suite that RAN writes a proof" \
+      "the proof names no commit, so nothing can tell which tree it was taken against"
+elif ! grep -q '^result=pass$' "$PROOF"; then
+  bad "S4 a host-screen suite that RAN writes a proof" \
+      "the proof does not record the verdict: $(tr '\n' ' ' < "$PROOF" | cut -c1-160)"
+else
+  ok "S4 a host-screen suite that ran writes a proof naming its commit and its verdict"
+fi
+
+# S5 — a silent no-op here would be a green run of nothing, which is this file's subject.
+OUT="$(bash "$SBOX/run-tests.sh" --only nosuchsuite.test.sh 2>&1)"; CODE=$?
+expect "S5 --only with a name that matches nothing is refused" 2 "names no suite under"
+
+# S6 — THE REAL INVENTORY, not a fixture. A fixture proving the classifier works says
+# nothing about whether THIS directory is classified correctly, and the cost of being wrong
+# is a window on the operator's Mac. The same reason make-engine-asset.test.sh's L9-L18 run
+# against the real tree after L1-L8 have run against a synthetic one.
+SCAN_MISSING=""
+for real in "$DIR"/*.test.sh; do
+  grep -vE '^[[:space:]]*#' "$real" \
+    | grep -qE '(^|[[:space:]]|\()(open|osascript)[[:space:]]|/Contents/MacOS/|\$GUI_BINARY|target/(debug|release)/richos-tauri' \
+    || continue
+  grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^[:space:]]*lib/gui-launch\.sh' "$real" && continue
+  grep -q '^# run-tests: host-screen' "$real" && continue
+  if ! grep -qE '^# run-tests: no-host-screen:[[:space:]]*[^[:space:]]' "$real"; then
+    SCAN_MISSING="$SCAN_MISSING $(basename "$real")"
+  fi
+done
+if [ -n "$SCAN_MISSING" ]; then
+  bad "S6 every real suite that could open a window is classified or declares itself inert" \
+      "undeclared:$SCAN_MISSING — each must either source lib/gui-launch.sh (and so be held \
+back by --no-host-screen) or carry '# run-tests: no-host-screen: <why its matches open \
+nothing>'. A bare marker declares nothing, and neither does silence."
+else
+  ok "S6 every suite in the real inventory that could open a window is classified or declared inert"
+fi
+
+# S7 — THE OTHER DIRECTION, AND THE ONE THAT ACTUALLY BIT. S6 asks whether anything that
+# could open a window was missed. It cannot ask the opposite: whether something that opens
+# NOTHING was held back anyway. On the first full `--no-host-screen` run, 2026-09-19, this
+# file itself was recorded `NOT RUN (no screen)` — the classifier matched the library's NAME
+# anywhere in a file, and S1 above writes a fixture containing `. "$DIR/lib/gui-launch.sh"`.
+# The harness's own self-test stopped running, under a reason that reads entirely
+# legitimate, which is the exact shape of the defect this whole file exists for.
+#
+# So the classification of the REAL inventory is asserted as a set, both ways, by running
+# the harness over it and reading back which suites it held aside.
+CLASSIFIED=""
+for real in "$DIR"/*.test.sh; do
+  if grep -qE '^[[:space:]]*(\.|source)[[:space:]]+[^[:space:]]*lib/gui-launch\.sh' "$real" \
+     || grep -q '^# run-tests: host-screen' "$real"; then
+    CLASSIFIED="$CLASSIFIED $(basename "$real")"
+  fi
+done
+CLASSIFIED="${CLASSIFIED# }"
+S7_WHY=""
+case " $CLASSIFIED " in
+  *" gui-boot.test.sh "*)   ;;
+  *) S7_WHY="gui-boot.test.sh is NOT classified, and it is the suite that boots the app on the screen" ;;
+esac
+case " $CLASSIFIED " in
+  *" front-door.test.sh "*) ;;
+  *) S7_WHY="$S7_WHY; front-door.test.sh is NOT classified, and it drives the shipped window" ;;
+esac
+case " $CLASSIFIED " in
+  *" run-tests.test.sh "*)
+    S7_WHY="$S7_WHY; run-tests.test.sh IS classified, and it opens nothing — it only writes \
+the library's name into a fixture. A suite held back for a string in a quoted argument stops \
+running under a reason that reads legitimate, which is this file's whole subject." ;;
+esac
+if [ -n "$S7_WHY" ]; then
+  bad "S7 the real inventory's host-screen set is exactly the suites that source the library" \
+      "classified: [$CLASSIFIED] — ${S7_WHY#; }"
+else
+  ok "S7 the host-screen set is exactly [$CLASSIFIED] — mentioning the library is not sourcing it"
+fi
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

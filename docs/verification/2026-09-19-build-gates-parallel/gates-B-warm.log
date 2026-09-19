@@ -1,0 +1,12 @@
+Run log: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/bt2/stateB2/logs/20260919T194217Z-gatesonly.log
+Running core, updater and packaging checks...
+SKIPPED gates/core-tests: the land already ran `cargo test -p richos-core` on 4c0433987be2751656e6ca91442798745c214fff, which is the commit this run fetched
+
+phase timings for run 20260919T194217Z-gatesonly:
+  gates/core-tests    : -       (the land already ran `cargo test -p richos-core` on 4c0433987be2751656e6ca91442798745c214fff, which is the commit this run fetched)
+  gates/updater-tests :    12.6s
+  gates/script-suites :    57.0s
+  gates/privacy-sweep :    24.1s
+  total               :    93.7s
+
+suite report: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/bt2/stateB2/report.json

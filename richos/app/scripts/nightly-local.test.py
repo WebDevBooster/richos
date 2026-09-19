@@ -119,7 +119,11 @@ class LocalTests(unittest.TestCase):
                     if env.get("RUN_TESTS_DECLARED_GAPS") != base["RUN_TESTS_DECLARED_GAPS"]]
         self.assertEqual(len(declared), 1)
         args, value = declared[0]
-        self.assertTrue(args[-1].endswith("run-tests.sh"), args)
+        # The declaration reaches the SUITE RUNNER and nothing else. Matched anywhere in
+        # argv rather than at its end: the runner grew `--results-out` (and may grow
+        # `--no-host-screen`), and an assertion about an argument's POSITION would fail on
+        # a change that has nothing to do with what this case is about.
+        self.assertTrue([a for a in args if str(a).endswith("run-tests.sh")], args)
         lines = [line for line in value.splitlines() if line.strip()]
         self.assertEqual(len(lines), 1, lines)
         suite, _, reason = lines[0].partition(":")
@@ -412,7 +416,7 @@ class LocalTests(unittest.TestCase):
         joined = [" ".join(argv) for argv in seen]
         self.assertFalse([c for c in joined if "-p richos-core" in c], joined)
         self.assertTrue([c for c in joined if "richos-user-update" in c], joined)
-        self.assertTrue([c for c in joined if c.endswith("run-tests.sh")], joined)
+        self.assertTrue([c for c in joined if "run-tests.sh" in c], joined)
         self.assertTrue([c for c in joined if "named-persons.sh" in c], joined)
         self.assertIn(m.LAND_PROVEN_GATE, r.skipped)
         self.assertIn("a" * 40, r.skipped[m.LAND_PROVEN_GATE])
@@ -456,7 +460,13 @@ class LocalTests(unittest.TestCase):
         self.assertEqual(recorded["checks_done_at_land"],
                          "4f2d57c9f9519409427b86c7502b9a7588216bf1")
         self.assertEqual(recorded["checks_skipped"], [m.LAND_PROVEN_GATE])
-        r.gates.assert_called_once_with("4f2d57c9f9519409427b86c7502b9a7588216bf1")
+        # The land proof reaches gates() as the FIRST positional, which is what this case
+        # is about. The keywords beside it (`--no-host-screen`, skip-when-unchanged) are a
+        # different question with its own cases; asserting the exact call signature here
+        # would make every future gate option fail a case about the land proof.
+        self.assertEqual(r.gates.call_count, 1)
+        self.assertEqual(r.gates.call_args.args[0],
+                         "4f2d57c9f9519409427b86c7502b9a7588216bf1")
 
     def test_a_wrong_sha_refuses_before_any_gate_runs(self):
         r = self.runner()
@@ -528,6 +538,201 @@ class LocalTests(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             r.summary()
         self.assertIn("not observed", buf.getvalue())
+
+    # =====================================================================================
+    # `--no-host-screen`, and the evidence `publish` demands in exchange for it
+    # =====================================================================================
+    #
+    # The CEO, 2026-09-19: *"So, every engineer will keep opening the app making me unable
+    # to do anything here or WHAT???"*. `gui-boot.test.sh` boots the real app on the real
+    # screen for ~162 s of every build, and `--no-host-screen` holds it back.
+    #
+    # THAT IS A TRADE, NOT A FREE WIN, and every case below is one way the second half of
+    # the trade could quietly not happen — which would leave the mode as nothing but a way
+    # of skipping a gate on the road to a published release.
+
+    def gui_candidate(self, gui_state=None, no_host_screen=None, build_commit=None):
+        """A staged candidate whose build-info records `gui_state` for gui-boot."""
+        info = dict(self.CANDIDATE_INFO)
+        if build_commit:
+            info["build_commit"] = build_commit
+        if no_host_screen is not None:
+            info["no_host_screen"] = no_host_screen
+        if gui_state is not None:
+            info["script_suites"] = {"jobs": 3, "suites": [
+                {"name": "make-release.test.sh", "state": "passed"},
+                {"name": "gui-boot.test.sh", "state": gui_state,
+                 "reason": "no screen this run may use"}]}
+        r = self.runner()
+        (self.root / "state" / "source").mkdir(parents=True, exist_ok=True)
+        out = self.root / "state" / "releases" / info["tag"]
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "candidate.json").write_text(json.dumps({"info": info, "files": {}}))
+        r.record_run(info["run_id"], out)
+        r.command = Mock()
+        return r, info
+
+    def proof(self, name="gui.proof", suite="gui-boot.test.sh", result="pass",
+              commit="deadbeefcafe0123456789", where="vm:richos-test-1"):
+        path = self.root / name
+        path.write_text(f"richos-gui-proof 1\nsuite={suite}\ncommit={commit}\n"
+                        f"where={where}\nresult={result}\nat=2026-09-19T20:00:00Z\n"
+                        "--- output ---\n  PASS  B1 the app booted\n")
+        return path
+
+    def test_a_candidate_whose_gui_boot_did_not_run_is_refused_without_a_proof(self):
+        """THE CASE THE WHOLE MODE TURNS ON.
+
+        A screenless build is only honest if the boot it did not watch has to be watched
+        before anything becomes installable. Without this refusal, `--no-host-screen` is a
+        way to publish an app nobody ever saw start.
+        """
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with self.assertRaises(ValueError) as caught:
+            with contextlib.redirect_stdout(io.StringIO()):
+                r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"])
+        self.assertIn("gui-boot", str(caught.exception))
+        self.assertIn("gui-proof-in-vm.sh", str(caught.exception))
+        # AND NOTHING WAS PUBLISHED. A refusal that still called `finish` would be a
+        # warning wearing an exception's clothes.
+        r.command.assert_not_called()
+
+    def test_a_screenless_build_that_lost_its_report_is_refused_too(self):
+        """Silence from a build that was TOLD not to use the screen is not a pass.
+
+        The report could go missing for an innocent reason; what cannot happen is that the
+        innocent reason and "the suite never ran" become indistinguishable. `no_host_screen`
+        is recorded separately from the report for exactly this case.
+        """
+        r, _ = self.gui_candidate(gui_state=None, no_host_screen=True)
+        with self.assertRaises(ValueError):
+            with contextlib.redirect_stdout(io.StringIO()):
+                r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"])
+        r.command.assert_not_called()
+
+    def test_a_candidate_from_before_the_field_still_publishes(self):
+        """...and the mirror image, which the first version of this got WRONG.
+
+        "Silence is never read as a pass" sounds right and would have made every candidate
+        already staged on this Mac unpublishable, because none of them carries a field that
+        did not exist when it was built. Those builds ran gui-boot; it was not skippable
+        then. This case is what stops that rule being rediscovered.
+        """
+        r, _ = self.gui_candidate(gui_state=None, no_host_screen=None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"])
+        self.assertEqual(r.command.call_args.args[2], "finish")
+
+    def test_a_proof_against_this_candidate_lets_it_publish(self):
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                      gui_proof=str(self.proof()))
+        self.assertEqual(r.command.call_args.args[2], "finish")
+
+    def test_a_proof_taken_against_another_tree_is_refused(self):
+        """The sha is the whole point, exactly as it is for --checks-done-at-land.
+
+        A proof that is not required to name THIS commit is a proof that can be taken once
+        and reused forever, which is worse than no proof: it reads as diligence.
+        """
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with self.assertRaises(ValueError) as caught:
+            with contextlib.redirect_stdout(io.StringIO()):
+                r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                          gui_proof=str(self.proof(commit="0123456789abcdef")))
+        self.assertIn("different tree", str(caught.exception))
+        r.command.assert_not_called()
+
+    def test_a_proof_naming_the_build_commit_is_accepted(self):
+        """The bundle is compiled from `build_commit` -- the version-bump commit whose
+        parent is `source_commit`. A proof taken against the thing that was actually built
+        must not be refused for naming it."""
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True,
+                                  build_commit="abc123def456")
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                      gui_proof=str(self.proof(commit="abc123def456")))
+        self.assertEqual(r.command.call_args.args[2], "finish")
+
+    def test_a_proof_that_records_a_failure_is_refused(self):
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with self.assertRaises(ValueError) as caught:
+            with contextlib.redirect_stdout(io.StringIO()):
+                r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                          gui_proof=str(self.proof(result="fail:1")))
+        self.assertIn("not a pass", str(caught.exception))
+        r.command.assert_not_called()
+
+    def test_a_proof_for_a_different_suite_is_refused(self):
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with self.assertRaises(ValueError):
+            with contextlib.redirect_stdout(io.StringIO()):
+                r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                          gui_proof=str(self.proof(suite="front-door.test.sh")))
+
+    def test_a_shipped_bundle_boot_in_a_guest_is_accepted_evidence(self):
+        """`gui-proof-in-vm.sh` boots the SIGNED, NOTARIZED artifact this release will
+        publish, on a clean guest with no developer environment -- fewer assertions than
+        gui-boot.test.sh, and a truer artifact. It is accepted, under its OWN name: a proof
+        that borrowed the suite's name would be the most useful lie in the release chain."""
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                      gui_proof=str(self.proof(suite="shipped-bundle-boot")))
+        self.assertEqual(r.command.call_args.args[2], "finish")
+
+    def test_a_file_that_is_not_a_proof_is_refused_by_name(self):
+        """A malformed proof is refused loudly rather than read past: this file is the one
+        thing standing between an unexercised boot and a published release."""
+        path = self.root / "not-a-proof"
+        path.write_text("looks official enough\ncommit=deadbeefcafe0123456789\nresult=pass\n")
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with self.assertRaises(ValueError) as caught:
+            with contextlib.redirect_stdout(io.StringIO()):
+                r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"], gui_proof=str(path))
+        self.assertIn("richos-gui-proof 1", str(caught.exception))
+
+    def test_the_flag_reaches_the_suite_runner_and_the_record_travels(self):
+        """`--no-host-screen` has to arrive at `run-tests.sh` AND be written into the plan.
+
+        Either half alone is a defect: a flag that does not reach the runner opens a window
+        while claiming not to, and a run that does not record what it held back leaves
+        `publish` unable to tell a screenless build from an old one.
+        """
+        # A real Runner: self.runner() mocks `gates` itself, which is the method under test.
+        r = m.Runner(self.root, self.root / "state", {}, io.StringIO())
+        r.state.mkdir(parents=True, exist_ok=True)
+        (r.state / m.SUITE_RESULTS).write_text(json.dumps(
+            {"jobs": 3, "suites": [{"name": "gui-boot.test.sh", "state": "not-run"}]}))
+        r.command = Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = r.gates(no_host_screen=True, skip_unchanged=True)
+        argvs = [" ".join(str(a) for a in call.args) for call in r.command.call_args_list]
+        runner_calls = [c for c in argvs if "run-tests.sh" in c]
+        self.assertEqual(len(runner_calls), 1, argvs)
+        self.assertIn("--no-host-screen", runner_calls[0])
+        self.assertEqual(report["suites"][0]["state"], "not-run")
+        # ...and skip-when-unchanged is stated at the call site, never inherited.
+        env = [c.kwargs["env_extra"] for c in r.command.call_args_list
+               if "env_extra" in c.kwargs][0]
+        self.assertEqual(env["RUN_TESTS_SKIP_UNCHANGED"], "1")
+
+    def test_release_never_skips_a_suite_over_unchanged_inputs(self):
+        """A proof file on this host may excuse a suite for a CANDIDATE. It may never
+        excuse one for the command that makes a build installable in one motion."""
+        r = self.runner()
+        r.gates = Mock(return_value=None)
+        r.plan = Mock(return_value=(self.root / "plan.json",
+                                    {"build": True, **self.CANDIDATE_INFO}))
+        (self.root / "plan.json").write_text("{}")
+        r.checkout = Mock(return_value="deadbeefcafe0123456789")
+        r.preflight = Mock()
+        r.runtime = Mock()
+        r.command = Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("release")
+        self.assertIs(r.gates.call_args.kwargs["skip_unchanged"], False)
 
 
 if __name__ == "__main__":

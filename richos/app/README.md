@@ -713,9 +713,32 @@ richos/app/
                               from a suite means THIS HOST CANNOT ANSWER, and it is tolerated
                               only where the caller declared that suite by name with a reason
                               — an undeclared gap, a bare name, and a declaration whose suite
-                              has started answering are all red
-    run-tests.test.sh        the harness's own allowance, held to account: seven cases against
-                              a copy of it and fake suites with known exit codes
+                              has started answering are all red.
+                              CONCURRENT since 2026-09-19, output still printed in discovery
+                              order: 341 s -> 167 s on this Mac, measured at pool sizes
+                              1/2/3/4/6/10 = 341/223/167/183/228/236 s. More concurrency is
+                              SLOWER past three — two suites dominate and contend — so the
+                              default is cores/3 floored at 2, not cores. --jobs N overrides.
+                              --no-host-screen holds back every suite that boots the app
+                              (those that source lib/gui-launch.sh), recording NOT RUN or
+                              running it in a guest named by RICHOS_GUI_HOST; a named guest
+                              with no runner REFUSES rather than using this screen.
+                              RUN_TESTS_SKIP_UNCHANGED=1 skips a suite whose declared
+                              `# run-tests: inputs` paths are byte-identical to a run that
+                              proved it green, with any uncommitted edit counting as a change.
+                              --results-out writes what ran, what was skipped and what was
+                              held back, for build-info.json
+    run-tests.test.sh        the harness's own allowances, held to account: 25 cases against
+                              a copy of it and fake suites with known exit codes — H for the
+                              host-gap declaration, P for the pool (discovery order, the
+                              bound, a failure mid-pool), K for skip-when-unchanged, S for
+                              --no-host-screen, whose S6 scans the REAL inventory for any
+                              suite that could open a window and is neither classified nor
+                              declared inert
+    gui-proof-in-vm.sh       boots a candidate's OWN signed bundle in a testvm guest and
+                              writes the proof `publish` demands of a --no-host-screen
+                              candidate. `suite=shipped-bundle-boot`, never gui-boot.test.sh:
+                              fewer assertions than that suite, and the true artifact
     *.test.sh                fourteen at this commit, counted with `ls scripts/*.test.sh |
                               wc -l` rather than by reading this line — which said "nine"
                               until 2026-09-18, when it was three behind before the tenth
