@@ -1347,6 +1347,31 @@
       else pauseNow();
       return;
     }
+    // ESCAPE TAKES THE CURTAIN DOWN AND NOTHING ELSE, and this is the third instance of one
+    // defect rather than a new rule.
+    //
+    // MEASURED AT dcebed09, WebKit, on a Mac missing its engine: `init()` opens the engine
+    // offer while this curtain is still up (z-index 200 over `.overlay`'s 60), so it is on
+    // screen in the DOM and behind a full-screen picture to a person. `main.js`'s Escape
+    // machinery asks `isOnScreen()`, which tests `hidden`, `display` and `visibility` and has
+    // no idea what is painted over what — so one Escape here took the curtain down AND pressed
+    // "Not now" on a question he had never seen. Result, measured: `#setup-sheet.hidden` true,
+    // the offer gone for the session, and an app that looks perfectly normal and cannot answer
+    // anything. That is Ray's candidate .15 (`esc-20260919T152225Z-2e44d112`), reached by the
+    // key a person presses to get a curtain out of the way.
+    //
+    // WHY ONLY ESCAPE, and not every first input. His first LETTER must still reach the
+    // composer — §5.5 forbids anything delaying on this surface, and swallowing the "h" of the
+    // first thing he ever types would be a worse instrument than the one this fixes. Escape is
+    // not content. On this surface it means exactly one thing, the curtain is already going,
+    // and a dismissal that also dismisses something it is covering is one keystroke doing two
+    // jobs — the same argument §62 makes two branches above for the space bar.
+    if (e.type === "keydown" && e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      yieldNow("first-input");
+      return;
+    }
     yieldNow("first-input");
   }
 

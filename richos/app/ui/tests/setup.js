@@ -980,6 +980,80 @@ async function main() {
     return `home z-index ${painted.homeZ}, sheet z-index ${painted.sheetZ}; the offer is painted on top and holds focus (${painted.focusId}); Escape is not a way to answer it unseen`;
   });
 
+  // =======================================================================================
+  // 19 — THE SAME DEFECT, ONE SURFACE HIGHER: THE OPENING CURTAIN
+  //
+  // `init()` opens the offer while the curtain is still up, and the curtain is `z-index: 200`
+  // over `.overlay`'s `60`. `main.js`'s Escape machinery asks `isOnScreen()`, which tests
+  // `hidden`, `display` and `visibility` and knows nothing about what is painted over what —
+  // so at dcebed09 ONE Escape, pressed before anything else had happened, took the curtain
+  // down AND pressed "Not now" on a question that had never been on screen. Measured:
+  // `#setup-sheet.hidden` true, the offer gone for the session, and an app that looks
+  // perfectly normal and cannot answer anything.
+  //
+  // THAT KEY IS THE ONE A PERSON PRESSES TO GET A CURTAIN OUT OF THE WAY, and candidate .15
+  // is the first build with a curtain he can get STUCK behind (§62's space-bar hold), so it
+  // is also the first build where pressing it is the obvious thing to do.
+  //
+  // The space bar is here as the negative control in the other direction: §62 says it HOLDS
+  // this screen, so it must not reach the sheet either — and it must not dismiss the curtain.
+  // =======================================================================================
+
+  await run.check("19  a key pressed at the opening curtain cannot answer the offer behind it", async () => {
+    const open = async () => {
+      const p = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      await p.addInitScript((v) => {
+        window.__RICHOS_MOCK_PRESET__ = v;
+      }, { setup: "missing-engine" });
+      await p.goto(APP);
+      await p.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+      // The curtain is UP and the offer is already behind it — the window this is about. If
+      // either half is not true the check is measuring nothing, so both are asserted.
+      await p.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+      assert(
+        await p.evaluate(() => !!document.querySelector(".splash")),
+        "the curtain was already down, so this check is not in the window it is about"
+      );
+      return p;
+    };
+
+    const escaped = await open();
+    await escaped.keyboard.press("Escape");
+    await escaped.waitForTimeout(2500);
+    const afterEscape = await escaped.evaluate(() => ({
+      curtain: !!document.querySelector(".splash"),
+      sheetHidden: document.getElementById("setup-sheet").hidden,
+      top: (function () {
+        const e = document.elementFromPoint(700, 475);
+        return e ? e.id || e.className : null;
+      })(),
+    }));
+    await escaped.close();
+    assert(
+      !afterEscape.sheetHidden,
+      "Escape at the opening curtain answered the engine offer behind it — he declined a question he was never shown, and the app looks normal and can answer nothing"
+    );
+    assert(!afterEscape.curtain, "Escape must still take the curtain down — §5.5, his hand is never delayed here");
+    assertEqual(afterEscape.top, "setup-sheet", "the offer is not what is painted after the curtain leaves");
+
+    // §62's hold, from the other side: the space bar belongs to the curtain and reaches
+    // nothing behind it.
+    const held = await open();
+    await held.keyboard.press("Space");
+    await held.waitForTimeout(600);
+    const afterSpace = await held.evaluate(() => ({
+      curtain: !!document.querySelector(".splash"),
+      sheetHidden: document.getElementById("setup-sheet").hidden,
+      composer: document.getElementById("input").value,
+    }));
+    await held.close();
+    assert(afterSpace.curtain, "the space bar must HOLD the opening screen, not dismiss it (§62)");
+    assert(!afterSpace.sheetHidden, "the space bar reached the sheet behind the curtain");
+    assertEqual(afterSpace.composer, "", "the space bar typed into the composer behind the curtain");
+    bump(6);
+    return "Escape takes the curtain and nothing else; space holds it and reaches nothing behind it";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
