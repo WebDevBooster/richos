@@ -76,10 +76,14 @@
 # ===========================================================================
 # THE TEST: TWO CONJUNCTS, AND A THIRD THAT LETS THE RECORD THROUGH
 # ===========================================================================
-#   (a) PHONE SURFACE — document-level. Does this text (or the file path) name
-#       the phone at all: phone, mobile, PWA, pairing, pair=, phone.js, a path
-#       under phone/ or web-app/. Cheap, broad, and deliberately so: it is a
-#       jurisdiction question, not the finding.
+#   (a) PHONE SURFACE — document-level. Does this text name the phone at all:
+#       phone, mobile, PWA, pairing, pair=. Or does the file PATH put it on
+#       that surface: a phone/ or web-app/ segment, or a phone*.<ext> file.
+#       Cheap, broad, and deliberately so: it is a jurisdiction question, not
+#       the finding. The path test is by SEGMENT and is NOT the word-level
+#       pattern pointed at a path — that version made every file in the tree a
+#       phone file whenever an ancestor directory had "phone" in its name, and
+#       case E1 caught it by living in a temp directory named after this guard.
 #
 #   (b) A HOME PATH — block-level, and this is the finding. Ten STRONG terms
 #       (home network, at-home, "at home <path-noun>", AtHome, home plan, a
@@ -121,14 +125,29 @@
 #      Scored as one block, the option this whole ruling is about ships under
 #      the exemption of the option above it.
 #
-#   3. QUOTED MATTER IS SOMEBODY ELSE'S. Curly pairs and the record's *"..."*
-#      emphasis-quote idiom are stripped everywhere, across lines — the
-#      provenance apparatus quotes with curly pairs and TRUNCATES, which cut
-#      one onepath1 block off before its "leave the product" and produced the
-#      one false positive of the first measured pass. Bare "..." is stripped in
-#      PROSE ONLY. In code a double-quoted span is a string literal and is
-#      exactly the copy at issue — `<button>At home only</button>` and
-#      `route = "at-home"` must both be reachable.
+#   3. QUOTED MATTER IS SOMEBODY ELSE'S — and ONE of the four strippers is
+#      proven by real text, which is stated here rather than implied.
+#
+#      Bare "..." IS. Stripped in PROSE ONLY, and removing it turns three
+#      cases red: the whole removal brief is refused, and so is a sentence
+#      quoting the refused sentence. In CODE it is deliberately NOT stripped,
+#      because there a double-quoted span is a string literal and is exactly
+#      the copy at issue — `route = "at-home"` must stay reachable.
+#
+#      The CURLY pair, the record's *"..."* emphasis-quote idiom and inline
+#      code spans are DEFENSE IN DEPTH. Disabling any of them changes no
+#      verdict on any of the 269 documents or on any real fixture, because the
+#      provenance apparatus that emits curly quotes also annotates every one
+#      with "nothing in scope sources it" or "this run is NOT in that file" —
+#      a negation, in the same block. They are kept because the *"..."* form is
+#      how this record quotes the CEO and a future ruling need not come
+#      wrapped in a negation, and their cases in the suite are marked
+#      CONSTRUCTED so nobody later mistakes them for measured ones.
+#
+#      An earlier draft of this header said curly-stripping fixed the one
+#      false positive of the first measured pass. It did not; BLOCK SCOPE did.
+#      The claim was plausible, was written from memory of the fix rather than
+#      from a measurement of it, and survived until a mutant could not kill it.
 #
 # ===========================================================================
 # MEASURED, ON REAL TEXT, BEFORE IT WAS WIRED
@@ -429,11 +448,19 @@ else:
     prose = (ext in PROSE_EXT) or (ext == "" and base != "")
 
 # ---- (a) THE PHONE SURFACE, document level --------------------------------
+# TWO PATTERNS, AND THE SECOND IS NOT THE FIRST APPLIED TO A PATH. A word-level
+# test run over an absolute path makes every file in the tree a phone file the
+# moment any ANCESTOR DIRECTORY has "phone" in its name — caught by case E1,
+# whose sandbox lives in a temp directory named after this very guard, and
+# which was refused for a brief written about a browser. The path establishes
+# the SURFACE and nothing else, so it is matched on path SEGMENTS.
 PHONE_RE = re.compile(
-    r"\b(?:phones?|mobile|PWA)\b|\bpair(?:ing|ed)\b|\bpair=|phone\.js"
-    r"|\bphone/|\bweb-app/",
+    r"\b(?:phones?|mobile|PWA)\b|\bpair(?:ing|ed)\b|\bpair=",
     re.IGNORECASE)
-if not (PHONE_RE.search(blob) or PHONE_RE.search(path)):
+PHONE_PATH_RE = re.compile(
+    r"(?:^|/)phone/|(?:^|/)web-app/|(?:^|/)phone[a-z0-9_-]*\.[a-z]+$",
+    re.IGNORECASE)
+if not (PHONE_RE.search(blob) or PHONE_PATH_RE.search(path)):
     print("CLEAN"); sys.exit(0)
 
 # ---- the hatch ------------------------------------------------------------

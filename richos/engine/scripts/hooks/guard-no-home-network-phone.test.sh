@@ -113,10 +113,38 @@ read -r -d '' PHONEJS <<'FIX' || true
 FIX
 
 # Somebody else's repository, somebody else's home network, no phone anywhere.
+#
+# DELIBERATELY CARRYING NO NEGATION CUE. A fixture that said "a home network is
+# never part of the path" would pass through conjunct (c) and prove nothing
+# about conjunct (a) — the shape this project calls a negative test that passes
+# for the wrong reason. Case E1b is its positive probe: the SAME sentences with
+# the word "phone" in them must be refused.
 read -r -d '' UNRELATED <<'FIX' || true
-The coach's browser reaches the Convex deployment over the public internet; a
-home network is never part of the path, and the self-signed certificate used by
-the local dev server is not trusted in production.
+The coach's browser reaches the Convex deployment over the public internet.
+A home network sits between the laptop and the router, and the self-signed
+certificate on the local dev server is trusted only there.
+FIX
+
+# The spawn prompt for the removal brief, lines 46-48 — the orchestrator's
+# PROVENANCE apparatus quoting the brief back at the engineer with CURLY pairs,
+# and truncating mid-sentence. This exact block was the ONE false positive of
+# the first measured pass: the truncation cut the item off before "leave the
+# product", so what survives is a bare "The At-home path's screens" with no
+# statement about it at all. It is quoted matter, and it must pass.
+read -r -d '' PROVENANCE <<'FIX' || true
+**Presented as a quotation, and NOT found in the file named:**
+
+- “option, no `Pick a different way` back to a chooser (the control's other job — leaving the pairing screen and stopping serving — stays, and returns to `This Mac is ready`).
+2. **The At-home path's screens, copy and machi”
+  (presented as from docs/verification/ui-ux-signoffs/URBAN_SIGNOFF_2026-09-19_05.14.md; this run is NOT in that file)
+FIX
+
+# richos-hq/docs/briefs/echo-brief-tailscale-path-2026-09-19.md, the brief that
+# STARTED the Tailscale path. It describes today's pairing, and "sixteen" is
+# the only home-shaped word in it. A number word is not a home path.
+read -r -d '' SIXTEEN_ALONE <<'FIX' || true
+Pairing today: QR, then the user installs the Mac's CA profile on the phone
+(sixteen taps), then six words.
 FIX
 
 # ===========================================================================
@@ -218,12 +246,38 @@ expect_silent "D2  the removal brief as a markdown Write PASSES" "$(payload Writ
 # It quotes route1's refused sentence. Quoting a mistake is how it gets recorded.
 expect_silent "D3  quoting the refused sentence in prose PASSES" \
               "$(payload Write "$SB/x.md" 'The phone brief said: "Do not remove the At-home option … §61 keeps both", and that ruling does not exist.')"
+expect_silent "D4  a TRUNCATED curly-quoted provenance block PASSES" \
+              "$(payload Agent "" "$PROVENANCE")"
+# D5 and D6 are CONSTRUCTED, and say so. No document in the 269 measured
+# isolates either stripper: every curly quotation the provenance apparatus
+# emits is annotated on the next line with "nothing in scope sources it" or
+# "this run is NOT in that file", which is a negation in the same block, so the
+# block-scope rule carries those cases on its own. These two remove that help.
+expect_silent "D5  CONSTRUCTED: a curly quotation with no negation near it PASSES" \
+              "$(payload Agent "" "Phone pairing round two.
+
+- “the At-home path stays”")"
+# D6 is MULTI-LINE on purpose: a single-line *"..."* is already covered by the
+# bare-quote stripper, so only a quotation that WRAPS isolates this one, and
+# the record wraps its CEO quotations at ~95 columns.
+expect_silent "D6  CONSTRUCTED: a WRAPPED *\"...\"* quotation, no negation near it, PASSES" \
+              "$(payload Agent "" "Phone pairing round two.
+
+He said *\"the At-home path
+stays\"* here.")"
 
 # --- (e) conjunct (a) keeps it out of everybody else's repository ----------
 expect_silent "E1  a home network with no phone signal anywhere PASSES" \
               "$(payload Write "$SB/src/lib/client.js" "$UNRELATED")"
+expect_rc     "E1b ... and the POSITIVE PROBE: the same text with a phone in it is REFUSED" 2 \
+              "$(payload Write "$SB/src/lib/client.js" "The phone reaches it too.
+$UNRELATED")"
 expect_silent "E2  a phone brief with no home path PASSES" \
               "$(payload Agent "" 'Brief: the phone pairs over Tailscale from anywhere. Ship the PWA.')"
+expect_silent "E3  'sixteen taps' alone, in a phone brief, PASSES (a weak signal needs a second)" \
+              "$(payload Write "$SB/docs/briefs/z.md" "$SIXTEEN_ALONE")"
+expect_rc     "E4  ... and TWO weak signals in one block are REFUSED" 2 \
+              "$(payload Write "$SB/docs/briefs/z.md" "Pairing today: the phone installs the self-signed CA profile, sixteen taps.")"
 
 # --- (f) the hatch is a citation -------------------------------------------
 ACKLOG="$ENTITY/.claude/state/home-network-acks.log"
