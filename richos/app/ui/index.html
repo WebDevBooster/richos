@@ -303,44 +303,42 @@
           <label class="popover-option"><input type="radio" name="raw-retention" value="forever" /> Forever</label>
           <p class="popover-hint" id="retention-hint"></p>
 
-          <!-- THE SPLASH SCREEN'S OFF SWITCH, shipped in the same commit as the screen it
-               turns off, and put where a CEO would look for it: behind the same gear as the
-               only other preference this product has.
+          <!-- THE SPLASH SCREEN'S OFF SWITCH IS NOT HERE ANY MORE, AND THAT IS THE POINT.
 
-               It is not a courtesy. The splash's failure mode is silent - nobody writes in
-               to say a splash screen was beneath them, they switch it off - so this control
-               is the only honest instrument we will ever have for knowing whether the
-               surface is wanted (`richos-splash-micro-game-2026-08-30.md` §7, richos-hq).
-               A splash without a switch cannot be measured and must not ship.
+               It lives in exactly one panel now: the universal settings menu
+               (`settings-button.js`'s `buildSplashRow`, `#set-splash`). Ray's candidate .11
+               walk, defect 3.4: "Splash screen appears in BOTH panels, which is how you can
+               tell the split is not deliberate."
 
-               THIS TITLE READ "Opening screen" UNTIL 2026-09-18, AND THAT NAME COST TWO
-               AUDITS — audit-10 row 1.
+               HE READ THE DUPLICATION CORRECTLY AND THE HISTORY BEHIND IT SAID OTHERWISE,
+               which is why this note is long. The two copies were deliberate — one state,
+               two doors, the same shape Techy Mode has — and `tests/appearance.js` check 11b
+               was written as a guard-rail over exactly that, after the CEO restated on
+               2026-08-31 that turning the splash off FROM SETTINGS is a requirement. So the
+               question was never "was it deliberate", it was "does a person meet one control
+               or two". He met two, could not tell which was authoritative, and concluded the
+               product did not know either.
 
-               There are two surfaces at launch and they are different things: the CURTAIN
-               (`splash.js` - the mark, the line, a loading bar, three seconds, click-through)
-               and the HOME SCREEN (`home.js` - the picture, the counters, "Talk to Rich").
-               This switch has only ever governed the curtain. The home screen has never had
-               one, by the CEO's own ruling of 2026-09-01: the home screen "must be shown in
-               the app after the splash screen".
+               THE CEO'S REQUIREMENT IS UNTOUCHED BY THE REMOVAL, and that is what makes this
+               safe rather than a trade. His word is "from settings", and §15 makes the
+               universal menu the thing "settings" means — "that little settings button is
+               ALWAYS EVERYWHERE ON EVERY PAGE". The switch is now on the panel that is on
+               every screen, including the ones this popover does not exist on, so it is
+               reachable from strictly MORE places than before.
 
-               "Opening screen" is neither of their names, and it is the phrase a person maps
-               onto the first thing they see - which is the home screen. Ray read it that way
-               on candidate .9, `home.js:1548` recorded the correction IN A CODE COMMENT, and
-               he read it the same way again on candidate .10 and filed it as a FAIL with the
-               switch photographed OFF beside a home screen that was on. It was not ignored.
-               It was never that screen's switch, and re-derived in WebKit across five
-               launch shapes the curtain obeys it every time: durable OFF draws no curtain
-               node at all, and the home screen opens in all five.
+               WHAT THE POPOVER KEEPS is what it alone owns: his name, how much Rich should
+               interrupt him, the technical view and how long its output is kept. Technical
+               view / Techy Mode is still one state behind two doors and is deliberately left
+               that way — the rail's switch opens the three-way scope sheet from inside a
+               conversation, which the menu's plain toggle cannot do, so they are two
+               different controls over one state rather than one control drawn twice.
 
-               So the name is the defect, and a comment no walker reads was never going to
-               fix it. It is the CEO's own word for this surface, from the same sentence:
-               "the splash screen". `tests/splash.js` check 11b is where that is now pinned,
-               with the home screen as the negative control. -->
-          <hr class="popover-rule" />
-          <p class="popover-title">Splash screen</p>
-          <label class="popover-option"
-            ><input type="checkbox" id="splash-enabled" /> Show it when RichOS starts</label
-          >
+               MEASURED SIDE EFFECT, and it is the reason the other half of defect 3.4 is not
+               in this commit: the popover was 617px of content in 628px of room at the
+               1024x700 window (tauri.conf.json's own minimum) — eleven pixels of headroom.
+               This removal gives it back about fifty. It is still not enough for the "All
+               settings" door that was built, measured at 676px and 782px, and reverted; see
+               the commit and esc-20260919T013156Z-c0af478b. -->
 
 
         </div>

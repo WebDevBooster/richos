@@ -2586,28 +2586,35 @@ async function main() {
       await page.waitForSelector("#assertiveness-popover:not([hidden])");
       await awaitSettled(page);
 
-      // ONE CHECKED AND ONE UNCHECKED BOX, IN THE SAME PANEL IN THE SAME FRAME — which is
-      // exactly the comparison Ray made by eye, and it needs no clicking at all: the splash
-      // switch ships ON and the technical view ships OFF, so opening the popover puts both
-      // states side by side. Nothing is toggled here deliberately: checking `#techy-default`
-      // opens the three-way scope sheet OVER this panel, and measuring a control through a
-      // modal is measuring the modal.
-      const boxes = await page.evaluate(() =>
-        ["splash-enabled", "techy-default"].map((id) => {
-          const node = document.getElementById(id);
-          const r = node.getBoundingClientRect();
-          return { id: id, checked: node.checked, x: r.x, y: r.y, w: r.width, h: r.height };
-        })
-      );
-      assert(
-        boxes.length === 2 && boxes[0].checked && !boxes[1].checked,
-        "the panel is not showing one checked and one unchecked box: " + JSON.stringify(boxes)
-      );
-
+      // ONE CONTROL, BOTH OF ITS STATES, and it is measured by setting `.checked` in the
+      // DOM rather than by clicking. Two reasons, and neither is convenience.
+      //
+      //   1. THIS CHECK IS ABOUT PAINT, not about conduct. `.checked = true` fires no
+      //      `change` listener, so the three-way technical-view scope sheet does not open
+      //      over the panel — and measuring a control through a modal measures the modal.
+      //   2. ONE CONTROL RATHER THAN TWO removes the last way a fill comparison can lie: the
+      //      two crops are the same element, at the same size, on the same ground, one frame
+      //      apart. Nothing but the state differs.
+      //
+      // It used to read `#splash-enabled` for the unchecked half. That control is gone from
+      // this popover — Ray's candidate .11 defect 3.4, one state, one door — and this shape
+      // does not need a second control at all.
+      //
+      // THE STATE IS SET AND THE CROP IS TAKEN IN THE SAME TURN OF THIS LOOP. The first
+      // draft set both states first and screenshotted afterwards, so both crops were of the
+      // CHECKED control and the fill test compared 188 samples with 188. It failed, which is
+      // the fill test doing its job on its own author.
       const measured = [];
-      for (const b of boxes) {
-        // The same three-pixel skirt check 16 uses, so the ground is READ off the panel rather
-        // than assumed, and the two checks are the same instrument.
+      for (const want of [false, true]) {
+        const b = await page.evaluate((state) => {
+          const node = document.getElementById("techy-default");
+          node.checked = state;
+          const r = node.getBoundingClientRect();
+          return { id: "techy-default", checked: node.checked, x: r.x, y: r.y, w: r.width, h: r.height };
+        }, want);
+        assertEqual(b.checked, want, "the checkbox would not take the state to be measured");
+        // The same three-pixel skirt check 16 uses, so the ground is READ off the panel
+        // rather than assumed, and the two checks are the same instrument.
         const buf = await page.screenshot({
           clip: {
             x: Math.floor(b.x - 3),
@@ -2616,9 +2623,13 @@ async function main() {
             height: Math.ceil(b.h + 6),
           },
         });
-        crops[theme + ":" + b.id] = buf.toString("base64");
+        crops[theme + ":techy-default:" + b.checked] = buf.toString("base64");
         measured.push(Object.assign({ theme: theme }, C.measureIndicatorCrop(buf), { id: b.id, checked: b.checked }));
       }
+      assert(
+        measured.length === 2 && !measured[0].checked && measured[1].checked,
+        "the two states were not both measured: " + JSON.stringify(measured)
+      );
 
       for (const m of measured) {
         assert(
@@ -2644,14 +2655,17 @@ async function main() {
       await page.close();
     }
 
-    // 3. THE THEMES DIFFER. Ray's own evidence that the control was unstyled was that its
-    // pixels were the same in both. A theme-aware control cannot be.
-    for (const id of ["techy-default", "splash-enabled"]) {
+    // 3. THE THEMES DIFFER, in BOTH states. Ray's own evidence that the control was
+    // unstyled was that its pixels were the same in light and dark. A theme-aware control
+    // cannot be, and asserting it of the checked state as well as the unchecked one is what
+    // stops a half-themed control passing.
+    for (const state of ["false", "true"]) {
       assert(
-        crops["light:" + id] !== crops["dark:" + id],
-        "the " + id + " checkbox paints byte-identical pixels in light and dark. That is not a " +
-          "ratio failure, it is the proof that nothing in this app is painting the control — " +
-          "which is how defect 3.6 shipped past a green contrast run."
+        crops["light:techy-default:" + state] !== crops["dark:techy-default:" + state],
+        "the " + (state === "true" ? "checked" : "unchecked") + " checkbox paints " +
+          "byte-identical pixels in light and dark. That is not a ratio failure, it is the " +
+          "proof that nothing in this app is painting the control — which is how defect 3.6 " +
+          "shipped past a green contrast run."
       );
     }
 

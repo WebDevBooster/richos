@@ -5403,6 +5403,23 @@ body.bp-narrow .tl-user-bubble {
   outline-offset: 2px;
 }
 
+/* THE PANEL'S OWN NAME — Ray's candidate .11 defect 3.4. It is the only heading in this
+   menu, so it takes the shell's strongest ink rather than a hint tier, and it takes the
+   same 16px the rows below it use: a panel title a person has to lean in for is the defect
+   wearing a smaller font.
+
+   COMPUTED, both themes, against the ground `.setmenu` declares — `--surface`, which is
+   `--card` in both themes:
+     --ink on --card    12.06:1 dark   18.07:1 light   (floor 4.5)
+   Both far over. No new token, no new color. */
+.setmenu-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
 /* Row 2 of the reference: a full-row tappable ACTION, not a toggle. */
 .bugbtn {
   width: 100%;

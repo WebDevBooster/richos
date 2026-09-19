@@ -4051,8 +4051,14 @@ document.addEventListener("click", (e) => {
 //
 // The keys are read off `window.RichSplash` rather than retyped, so there is one place the
 // strings live.
+//
+// THE RAIL POPOVER'S OWN COPY OF THIS SWITCH IS GONE (Ray's candidate .11 defect 3.4): there
+// is one control for one state now, and it is the universal settings menu's. The element
+// lookup and the listener that went with it are removed rather than left null-guarded —
+// guarded code over an element that can never exist again is dead code that looks
+// load-bearing, and a reader cannot tell from the source which it is. `index.html` carries
+// the whole argument where the markup used to be.
 // ---------------------------------------------------------------------------------------
-const splashToggle = el("splash-enabled");
 function splashKey(name) {
   return window.RichSplash ? window.RichSplash[name] : null;
 }
@@ -4065,19 +4071,20 @@ function writeSplashEnabled(on) {
   const key = splashKey("KEY_ENABLED");
   if (key) window.localStorage.setItem(key, on ? "true" : "false");
 }
-/// Both entrances to the splash's off switch, moved through one function.
+/// The splash's off switch, and it is ONE control now.
 ///
 /// The CEO restated on 2026-08-31 that turning the opening screen off FROM SETTINGS is a
-/// requirement. It already existed behind the rail's gear and it still does — nothing was
-/// moved — but "settings" now also means the button on every screen, so that carries the
-/// same switch. Two doors, one state, and this is the only place that writes it.
+/// requirement. It used to be behind the rail's gear AND in the universal settings menu —
+/// one state, two doors — and a person meeting both could not tell which was authoritative
+/// (Ray's candidate .11 defect 3.4). §15 makes the universal menu the thing "settings"
+/// means, and it is on every screen, so the surviving door reaches his requirement from
+/// strictly more places than the pair did. This is still the only place that writes it.
 ///
 /// It writes the local mirror FIRST and the durable store second, deliberately: splash.js
 /// reads the mirror synchronously before the app has a bridge, so the mirror is what decides
 /// the next launch. A failed durable write costs the preference at reinstall, not tonight.
 function setSplashEnabled(on) {
   writeSplashEnabled(on);
-  if (splashToggle) splashToggle.checked = on;
   window.RichSettings.paint();
   return Bridge.invoke("set_splash_enabled", { enabled: on }).catch(() => {
     // Unwired (the mock harness) or a genuine write failure. The local mirror already
@@ -4091,18 +4098,15 @@ window.RichSettings.registerSplash({
   write: (on) => setSplashEnabled(on),
 });
 
-if (splashToggle) {
-  splashToggle.checked = readSplashEnabled();
-  splashToggle.addEventListener("change", () => {
-    const on = splashToggle.checked;
-    setSplashEnabled(on);
-  });
-}
 async function syncSplashFromBackend() {
   try {
     const backendValue = (await Bridge.invoke("splash_enabled")) !== false;
     writeSplashEnabled(backendValue);
-    if (splashToggle) splashToggle.checked = backendValue;
+    // The one control that shows this state is the settings menu's, and it reads through
+    // `registerSplash` above on every paint — so reconciling the mirror IS reconciling the
+    // control. `paint()` rather than a second element lookup, for the reason
+    // `settings-button.js` gives: one path, so a broken subscription is visible.
+    window.RichSettings.paint();
   } catch (_e) {
     // Unwired (the mock harness): the localStorage-only value already painted correctly.
   }
