@@ -61,10 +61,34 @@ use std::sync::Mutex;
 /// captured request is worthless by the time anyone looks at it.
 pub const CHALLENGE_LIFETIME_MS: u64 = 600_000;
 
-/// How many challenges are live at once. The phone holds one and uses it until a response gives
-/// it a newer one, so a handful covers every in-flight request; the bound exists so the set
-/// cannot grow without limit under a caller that only ever asks for challenges.
-const LIVE_CHALLENGES: usize = 16;
+/// How many challenges are live at once.
+///
+/// **THIS WAS 16, AND 16 IS SMALLER THAN ONE PAGE LOAD** — Ray's nightly `.7` walk, defect 1, and
+/// the half of it that lives on this side.
+///
+/// The old comment said "the phone holds one and uses it until a response gives it a newer one, so
+/// a handful covers every in-flight request". Both halves are true of requests the phone MAKES,
+/// and neither is true of the responses this Mac GIVES. [`super::listen::render`] mints a
+/// challenge for every single one of them, and the phone app is served over this same port: a
+/// static asset GET carries no credential, tells the phone nothing it can read — `EventSource` and
+/// a browser's own subresource loads cannot see a response header — and still pushes one entry out
+/// of this set.
+///
+/// The arithmetic, counted rather than estimated: `web/web-app/sw.js`'s `SHELL` array is **19**
+/// entries and its `install` handler fetches every one of them with `cache: 'reload'`, so one
+/// service-worker install is 19 responses in a single burst. **19 > 16**, so the challenge the
+/// phone was holding was pushed out without the phone making a request at all, and the next signed
+/// send was refused `UnknownChallenge` → a flat 404 → `Not sent.` on his screen.
+/// `challenges_survive_the_phone_app_being_served_twice_over` holds this number against the app's
+/// own file count so it cannot quietly go under it again.
+///
+/// **256, and the bound is still doing its original job.** It is the same size as
+/// [`CLIENT_ID_MEMORY`] and costs about 14 KB; it is more than ten times the widest legitimate
+/// burst; and it still stops the set growing without limit under a caller that only ever asks for
+/// challenges. What it does NOT do is lengthen any challenge's life — that is
+/// [`CHALLENGE_LIFETIME_MS`]'s job alone, and `issue_challenge` now drops expired entries on the
+/// way past so age is what retires a challenge rather than a queue depth.
+const LIVE_CHALLENGES: usize = 256;
 
 /// How many recent idempotency keys are remembered. The phone retries a send; it does not send
 /// hundreds.
@@ -361,10 +385,25 @@ impl DeviceDesk {
 
     /// Mint a challenge and remember it. Called for every response, so the phone always leaves
     /// a request holding a newer one than it arrived with.
+    ///
+    /// **AGE RETIRES A CHALLENGE; THE COUNT ONLY STOPS THE SET GROWING.** The two lines below are
+    /// in that order deliberately. [`verify`](Self::verify) already refuses anything older than
+    /// [`CHALLENGE_LIFETIME_MS`], so dropping expired entries here changes no answer — it just
+    /// means the count bound is reached by live challenges only, and never by ten-minute-old ones
+    /// holding a slot in front of them. Getting that backwards is how a bound meant to cap memory
+    /// became the thing that expired the phone's credential (see [`LIVE_CHALLENGES`]).
     pub fn issue_challenge(&self) -> Result<String, PhoneError> {
         let challenge = super::b64url(&super::random_bytes(24)?);
         let now = super::now_millis();
         let mut state = self.state.lock().unwrap();
+        while state
+            .challenges
+            .front()
+            .map(|(_, at)| now.saturating_sub(*at) > CHALLENGE_LIFETIME_MS)
+            .unwrap_or(false)
+        {
+            state.challenges.pop_front();
+        }
         state.challenges.push_back((challenge.clone(), now));
         while state.challenges.len() > LIVE_CHALLENGES {
             state.challenges.pop_front();
@@ -1189,6 +1228,70 @@ pub(crate) mod tests {
         }
         let p = present(&phone, &device.id, &first, "GET", "/api/events", b"");
         assert_eq!(desk.verify(&p), Err(Refusal::UnknownChallenge));
+    }
+
+    /// **THE DEFECT THIS SIZE EXISTS FOR** — Ray's nightly `.7` walk, defect 1.
+    ///
+    /// A static asset GET carries no credential and tells the phone nothing it can read: a
+    /// browser's own subresource loads and its `EventSource` cannot see a response header. But
+    /// [`super::super::listen::render`] mints a challenge for every response this port gives, so
+    /// until this commit each one of them pushed an entry out of a set of 16 — and
+    /// `web/web-app/sw.js`'s `install` fetches its whole 19-entry shell with `cache: 'reload'`.
+    /// One service-worker install therefore emptied the set of everything older than itself,
+    /// including the challenge the phone was holding, and the next send was refused as a flat 404.
+    ///
+    /// The number is taken from the app this build actually embedded rather than typed in, so
+    /// growing the phone app cannot silently walk back under the bound.
+    #[test]
+    fn challenges_survive_the_phone_app_being_served_twice_over() {
+        let (_dir, desk, phone, device, held) = paired("shell");
+
+        // Every file in the embedded app, twice: an install that reloads the shell and a page
+        // load behind it. That is the widest burst of credential-free responses this Mac can
+        // give between the phone reading a challenge and presenting it.
+        let app = super::super::assets::PhoneApp::embedded();
+        let burst = app.len() * 2;
+        assert!(burst > 0, "this build embedded no phone app to count");
+        for _ in 0..burst {
+            desk.issue_challenge().unwrap();
+        }
+
+        let p = present(&phone, &device.id, &held, "GET", "/api/messages", b"");
+        assert_eq!(
+            desk.verify(&p),
+            Ok(device.clone()),
+            "serving the phone app {burst} times evicted the credential the phone is holding \
+             ({} embedded files against LIVE_CHALLENGES = {LIVE_CHALLENGES})",
+            app.len()
+        );
+    }
+
+    #[test]
+    fn an_expired_challenge_gives_its_slot_back_rather_than_holding_it_in_front_of_a_live_one() {
+        // Age is what retires a challenge; the count only stops the set growing. So a set full of
+        // ten-minute-old entries must not be what pushes out the one the phone is using.
+        let (_dir, desk, phone, device, _first) = paired("aged");
+        for _ in 0..LIVE_CHALLENGES {
+            desk.issue_challenge().unwrap();
+        }
+        {
+            let mut state = desk.state.lock().unwrap();
+            assert_eq!(state.challenges.len(), LIVE_CHALLENGES);
+            for entry in state.challenges.iter_mut() {
+                entry.1 = super::super::now_millis() - CHALLENGE_LIFETIME_MS - 1;
+            }
+        }
+        // The phone gets a live one, and then the Mac answers a handful of asset requests.
+        let held = desk.issue_challenge().unwrap();
+        for _ in 0..8 {
+            desk.issue_challenge().unwrap();
+        }
+        assert!(
+            desk.state.lock().unwrap().challenges.len() <= 9,
+            "the expired entries were carried rather than dropped"
+        );
+        let p = present(&phone, &device.id, &held, "GET", "/api/messages", b"");
+        assert_eq!(desk.verify(&p), Ok(device));
     }
 
     #[test]
