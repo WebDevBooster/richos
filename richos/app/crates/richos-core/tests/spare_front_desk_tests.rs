@@ -480,3 +480,228 @@ fn a_spare_primed_with_the_company_material_is_not_re_primed_when_his_thread_ado
     let _ = std::fs::remove_dir_all(central);
     let _ = std::fs::remove_file(path);
 }
+
+// =========================================================================================
+// THE SIX SECONDS: A SPARE'S SPAWN AND PRIMING TURN MUST NOT HOLD THE SPINE
+// =========================================================================================
+//
+// **The measurement these three tests exist for.** Ray's candidate-.12 re-walk put "On it!" on
+// the real window at 14.24 s with the turn's own header reading "Working for 8s", so ~6 s went
+// somewhere before the turn's clock started
+// (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260919.1-mac-and-android-rewalk-audit.md`
+// §2). The cause is in that walk's own committed log, in the ORDER of four lines: the spare
+// primed for 5378 ms, and only AFTER it did `the front desk is ready before he types: 0 ms`
+// appear — the timeline read that opens his new thread had been queued behind it.
+// `create_thread_in` asks for the next spare microseconds before the window issues eight more
+// bridge calls, and every one of them takes the same mutex the priming turn was holding.
+//
+// Re-measured on the real window on 2026-09-19 with per-hop instrumentation, on a debug build
+// whose spare costs 18.3 s rather than 5.4 s:
+//
+//     [richos] a front desk is primed and waiting for the next new thread in sixsec-co: 18318 ms
+//     [richos] a window command waited 18314 ms for the spine at src/main.rs:3964
+//     [richos] a window command waited 18028 ms for the spine at src/main.rs:746
+//     [richos] the front desk is ready before he types: 0 ms
+//
+// and the turn's own header first read "Working for 1s" at t = 19.61 s after the keystroke.
+//
+// These tests are the headless, deterministic form of that, and the first of them is the
+// POSITIVE PROBE: it asserts the old road really does hold the mutex, so a green result from
+// the second one is evidence rather than a test that cannot fail.
+
+/// A gate two threads can hand a moment through.
+struct Gate {
+    open: std::sync::Mutex<bool>,
+    cv: std::sync::Condvar,
+}
+
+impl Gate {
+    fn new() -> Self {
+        Gate { open: std::sync::Mutex::new(false), cv: std::sync::Condvar::new() }
+    }
+    fn open(&self) {
+        *self.open.lock().unwrap() = true;
+        self.cv.notify_all();
+    }
+    /// Waits, and fails the test rather than hanging the suite for ever.
+    fn wait(&self, what: &str) {
+        let guard = self.open.lock().unwrap();
+        let (guard, timeout) = self
+            .cv
+            .wait_timeout_while(guard, std::time::Duration::from_secs(10), |open| !*open)
+            .unwrap();
+        assert!(!timeout.timed_out(), "timed out waiting for {what}");
+        drop(guard);
+    }
+}
+
+/// A desk whose priming turn takes exactly as long as the test wants, and says when it started.
+struct SlowDesk {
+    session: String,
+    started: std::sync::Arc<Gate>,
+    release: std::sync::Arc<Gate>,
+}
+
+impl richos_core::Cognition for SlowDesk {
+    fn session_id(&self) -> &str {
+        &self.session
+    }
+    fn reprime(
+        &mut self,
+        _priming_text: &str,
+        _on_item: &mut dyn FnMut(richos_core::cognition::TurnItem),
+    ) -> Result<(), richos_core::cognition::CognitionError> {
+        self.started.open();
+        self.release.wait("the test to release the priming turn");
+        Ok(())
+    }
+    fn prompt(
+        &mut self,
+        _text: &str,
+        _on_item: &mut dyn FnMut(richos_core::cognition::TurnItem),
+    ) -> Result<String, richos_core::cognition::CognitionError> {
+        Ok("end_turn".to_string())
+    }
+}
+
+/// A factory that CAN hand out a second handle, which is what the unlocked road needs.
+#[derive(Clone)]
+struct SlowFactory {
+    started: std::sync::Arc<Gate>,
+    release: std::sync::Arc<Gate>,
+    spawns: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl richos_core::cognition::LeaseFactory for SlowFactory {
+    fn spawn(&self) -> Result<Box<dyn richos_core::Cognition>, richos_core::cognition::CognitionError> {
+        let n = self.spawns.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Box::new(SlowDesk {
+            session: format!("slow-{n}"),
+            started: self.started.clone(),
+            release: self.release.clone(),
+        }))
+    }
+    fn duplicate(&self) -> Option<Box<dyn richos_core::cognition::LeaseFactory>> {
+        Some(Box::new(self.clone()))
+    }
+}
+
+fn a_slow_spine(tag: &str) -> (std::path::PathBuf, std::sync::Arc<std::sync::Mutex<richos_core::spine::Spine>>, SlowFactory) {
+    let (path, ledger) = tmp_ledger(tag);
+    let mut spine = support::spine(ledger);
+    let factory = SlowFactory {
+        started: std::sync::Arc::new(Gate::new()),
+        release: std::sync::Arc::new(Gate::new()),
+        spawns: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    spine.set_lease_factory(Box::new(factory.clone()));
+    (path, std::sync::Arc::new(std::sync::Mutex::new(spine)), factory)
+}
+
+/// **THE POSITIVE PROBE.** The old road holds the spine for the whole priming turn.
+///
+/// Without this, the test below would pass just as happily against a spare that never primed
+/// at all, or against a `try_lock` that always succeeds for some unrelated reason. This is the
+/// half that proves the instrument is alive on this run — the discipline
+/// `feedback_negative_tests_pass_for_wrong_reason` names, and the one `gui-boot.test.sh`'s
+/// B3-B8 exist for.
+#[test]
+fn the_locked_road_holds_the_spine_across_the_priming_turn_which_is_what_he_waited_for() {
+    let (path, spine, factory) = a_slow_spine("locked-road-holds");
+    let priming = std::thread::spawn({
+        let spine = std::sync::Arc::clone(&spine);
+        move || spine.lock().unwrap().ready_a_spare_front_desk(&femcboost())
+    });
+    factory.started.wait("the priming turn to start");
+    assert!(
+        spine.try_lock().is_err(),
+        "the &mut self road is supposed to hold the mutex for the whole of the priming turn — \
+         if it does not, the measurement below proves nothing"
+    );
+    factory.release.open();
+    match priming.join().unwrap() {
+        SpareReady::Ready { .. } => {}
+        other => panic!("the spare was not made ready: {other:?}"),
+    }
+    let _ = std::fs::remove_file(path);
+}
+
+/// **AND THE ROAD THE APP TAKES DOES NOT.** His window is served in microseconds while a model
+/// turn runs on a child he has never seen.
+#[test]
+fn the_window_is_served_while_the_spare_is_spawning_and_priming() {
+    let (path, spine, factory) = a_slow_spine("window-is-served");
+    let priming = std::thread::spawn({
+        let spine = std::sync::Arc::clone(&spine);
+        move || richos_core::spine::ready_a_spare_front_desk_without_the_spine(&spine, &femcboost())
+    });
+    factory.started.wait("the priming turn to start");
+
+    // THE CLAIM, in the form the window makes it: a bridge command arriving in the middle of a
+    // spare's priming turn takes the spine and answers. `switch_thread`, `get_timeline`,
+    // `navigation_tree`, `onboarding_view` are all this call.
+    {
+        let served = spine.try_lock();
+        assert!(
+            served.is_ok(),
+            "a window command would have queued behind the spare's priming turn — that is the \
+             six seconds Ray measured on candidate .12"
+        );
+        // And it is a working spine, not merely an unlocked one.
+        assert_eq!(served.unwrap().threads().len(), 0);
+    }
+
+    factory.release.open();
+    match priming.join().unwrap() {
+        SpareReady::Ready { .. } => {}
+        other => panic!("the spare was not made ready: {other:?}"),
+    }
+    assert!(
+        spine.lock().unwrap().spare_front_desk_is_ready_for(&femcboost()),
+        "the spare has to be standing, primed, when the unlocked road returns Ready"
+    );
+    assert_eq!(factory.spawns.load(std::sync::atomic::Ordering::SeqCst), 1, "exactly one child");
+    let _ = std::fs::remove_file(path);
+}
+
+/// **AND WHAT THE OPEN WINDOW COSTS: the app may stop believing in the material while the
+/// priming turn is still running, and the finished desk must not be handed over as primed.**
+///
+/// `unprime_every_front_desk` reaches every desk it can see. A spare mid-prime is in no field
+/// it can see — that is the whole point of the unlocked road — so the generation is what
+/// catches it. Without the generation this test installs a `primed: true` desk carrying
+/// material the app discarded, silently, which is the defect that method's own documentation
+/// exists to prevent.
+#[test]
+fn a_spare_primed_against_a_world_that_moved_is_kept_but_never_called_primed() {
+    let (path, spine, factory) = a_slow_spine("world-moved");
+    let priming = std::thread::spawn({
+        let spine = std::sync::Arc::clone(&spine);
+        move || richos_core::spine::ready_a_spare_front_desk_without_the_spine(&spine, &femcboost())
+    });
+    factory.started.wait("the priming turn to start");
+
+    // The central folder moving is one of the things that un-primes every desk, and it is a
+    // command the window can issue at any moment — including this one.
+    spine.lock().unwrap().set_central_root(std::env::temp_dir().join("richos-spare-world-moved"));
+
+    factory.release.open();
+    match priming.join().unwrap() {
+        SpareReady::NotReady(why) => assert!(
+            why.contains("un-primed"),
+            "the verdict has to say what happened rather than looking like a spawn failure: {why}"
+        ),
+        other => panic!("a spare primed against discarded material must not report Ready: {other:?}"),
+    }
+    let spine = spine.lock().unwrap();
+    assert!(
+        !spine.spare_front_desk_is_ready_for(&femcboost()),
+        "it must not be offered as primed"
+    );
+    assert!(
+        spine.spare_front_desk_reserved_thread().is_some(),
+        "and it must be KEPT rather than killed — the child is alive and correctly scoped, and \
+         his first message primes it the way every thread did before spares existed"
+    );
+    let _ = std::fs::remove_file(path);
+}

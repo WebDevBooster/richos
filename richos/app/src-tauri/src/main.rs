@@ -312,6 +312,26 @@ impl LeaseFactory for EngineLeaseFactory {
         self.spawn_chat(Some(control), None)
     }
 
+    /// **A second handle onto the same configuration**, so the spare front desk can be spawned
+    /// and primed WITHOUT the spine's mutex (`spine.rs`'s
+    /// `ready_a_spare_front_desk_without_the_spine`, and the CEO's §55).
+    ///
+    /// **Every field is shared, not copied, and that is what makes it the same factory.** The
+    /// three that can change at runtime — `claude_bin` and `engine_dir`, which `run_setup`
+    /// rewrites, and the permission desk — are `Arc`s, so a duplicate handed out before an
+    /// install spawns with what the install wrote, exactly as the original would. `data_dir`
+    /// and `explicit_engine` are fixed for the life of the process (see their own notes), so
+    /// copying them cannot diverge from anything.
+    fn duplicate(&self) -> Option<Box<dyn LeaseFactory>> {
+        Some(Box::new(EngineLeaseFactory {
+            permissions: self.permissions.clone(),
+            claude_bin: self.claude_bin.clone(),
+            engine_dir: self.engine_dir.clone(),
+            data_dir: self.data_dir.clone(),
+            explicit_engine: self.explicit_engine,
+        }))
+    }
+
     /// **The second lease** — the background-work spec §2.1's work lease, in this same
     /// process, owned by the work host.
     ///
@@ -899,7 +919,17 @@ fn ready_a_spare_front_desk(app: &AppHandle, entity: richos_core::EntityId) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Some(state) = app.try_state::<AppState>() else { return };
-        let verdict = take_the_spine(&state.spine).ready_a_spare_front_desk(&entity);
+        // **WITHOUT THE SPINE, and that is the whole of the CEO's six seconds.** This used to
+        // be `take_the_spine(&state.spine).ready_a_spare_front_desk(&entity)`, which held the
+        // mutex across a process spawn AND a model turn. `create_thread_in` calls this
+        // microseconds before the window issues eight more bridge calls, so every one of them
+        // queued behind it: measured on the real window on 2026-09-19, `a window command waited
+        // 18314 ms for the spine` on a debug build with the turn's own header starting its
+        // clock 18.6 s after the keystroke, and on the shipped candidate the same shape is
+        // Ray's 5378 ms spare and ~6 s of pre-turn overhead. The five steps are unchanged; the
+        // mutex is now taken only for the three that are microseconds long
+        // (`spine.rs`'s `ready_a_spare_front_desk_without_the_spine`).
+        let verdict = richos_core::spine::ready_a_spare_front_desk_without_the_spine(&state.spine, &entity);
         match verdict {
             richos_core::spine::SpareReady::Ready { millis } => eprintln!(
                 "[richos] a front desk is primed and waiting for the next new thread in {entity}:                  {millis} ms — that is what his first message into it used to wait through (CEO §55)"
