@@ -17,23 +17,29 @@ After this, no test opens a window on his Mac.
 
 ---
 
-## The four commands
+## The commands
 
 ```sh
 cd <repo>/richos/app/scripts/testvm
 
-./run.sh  --bundle <RichOS.app.zip> --home <fixture-home-dir> [--vm <name>]
-./shot.sh <vm> <out.png> [--ocr]
-./ax.sh   <vm> '<applescript>' | --focused | --windows | --key <code>
-./stop.sh <vm>
+./run.sh     --bundle <RichOS.app.zip> --home <fixture-home-dir> [--vm <name>] [--no-tailnet]
+./shot.sh    <vm> <out.png> [--ocr]
+./ax.sh      <vm> '<applescript>' | --focused | --windows | --key <code>
+./stop.sh    <vm>
+./tailnet.sh join|name|logout|nodes|doctor [<vm>]
+./test/run-tests.sh
 ```
 
-`run.sh` prints one line the caller can parse — this one is real output from the first
+`run.sh` prints lines the caller can parse — this one is real output from the first
 end-to-end run, on candidate `.5`:
 
 ```
 vm=richos-test-1 ip=192.168.64.4 pid=717 ssh=admin@192.168.64.4 windows=1 elapsed=100s
+tailnet=richos-test-1.tail770f6e.ts.net
 ```
+
+The `tailnet=` line is either the guest's own name on the tailnet or `not-joined`, and
+it is what makes the **phone path** testable in here — see *The phone path in a VM*.
 
 **Measured, 2026-09-19.** First VM: `run.sh` to a window on screen in **100 s**
 (guest boot 11 s, bundle copy 7 s, 1.8 GB fixture home 58 s, launch 3 s). Second VM
@@ -103,12 +109,166 @@ Disk left afterwards on this Mac: 175 GiB of 460 GiB.
 
 | # | Action | Why it cannot be automated |
 |---|---|---|
-| 1 | **Tailscale sign-in in the guest.** `ssh admin@<guest-ip> 'tailscale up'` prints a URL; open it once and approve the node. | It needs the CEO's Tailscale account. No agent may hold or borrow those credentials. |
+| 1 | **Save one Tailscale auth key.** Five minutes, once, and every future guest joins the tailnet by itself — full steps in *The phone path in a VM* below. | It needs the CEO's Tailscale account. No agent may hold or borrow those credentials. |
 | 2 | **`claude` sign-in in the guest**, only if model turns are wanted there. `ssh admin@<guest-ip> 'claude /login'`. | The `claude` session lives in the **login keychain**, which macOS resolves through `HOME`. It cannot be copied from the host, and copying a credential is not something an agent does. See "Model turns" below. |
+
+Action 1 replaces what used to be here — *"`tailscale up` prints a URL; open it once"*.
+A URL sign-in authorizes **one** guest, and a guest is deleted at the end of every run,
+so that was a human errand per proof. An auth key is the same five minutes spent once.
 
 Nothing else needs a person. In particular **no host permission is required** — the
 harness grants Screen Recording and Accessibility *inside the guest*, never on the host,
 and the host never renders a VM window.
+
+---
+
+## The phone path in a VM
+
+**The problem this solves.** The app refuses to hand out a pairing code unless it can
+actually serve one: `begin_pairing` returns `PhoneError::TailnetNotReady` when
+`serving_plan` is `None` (`src-tauri/src/phone/mod.rs:858`), and `serving_plan` (`:563`)
+needs three things — a tailnet name, an origin derived from it, and a certificate
+`tailscale cert` will issue. CEO §61 deleted the LAN fallback deliberately: *"any mobile
+app or PWA is utterly useless within the home network"*. So there is one path, a
+signed-out guest is not on it, and until this existed every phone proof was a window on
+his Mac.
+
+### His one action
+
+Once. Nothing else about the phone path needs a person again.
+
+1. Open <https://login.tailscale.com/admin/settings/keys> → **Generate auth key**.
+2. Set it up like this, and the three switches all matter:
+   * **Reusable — ON.** Every run is a new guest. A single-use key works once and then
+     every later run refuses.
+   * **Ephemeral — ON.** The node removes itself when it stops talking to the control
+     plane, so a guest that dies without cleanup does not leave a node behind (CEO §54).
+   * **Pre-approved — ON.** Otherwise each new guest waits in the admin console for a
+     human to approve it, which is the errand being removed.
+   * **Expiry:** 90 days is the usual maximum. Put a reminder somewhere; an expired key
+     refuses with the exact sentence that says so.
+   * **Tags:** none needed. Add them only if the tailnet's ACLs require it.
+3. Save the key — and nothing else, no quotes, no trailing note — into the file:
+
+   ```sh
+   install -m 600 /dev/null ~/.richos-testvm/tailscale.authkey
+   printf '%s' 'tskey-auth-...' > ~/.richos-testvm/tailscale.authkey
+   ```
+
+   The file lives **outside every repository**, mode `0600`. The harness reads it, never
+   prints it, never logs it, and never puts it in a command line.
+
+4. One switch, tailnet-wide, if it is not on already:
+   <https://login.tailscale.com/admin/dns> → **HTTPS Certificates: Enable**. Without it
+   the control plane will not certify any node and the app shows "not set up yet" with
+   no code. Measured on this Mac 2026-09-19: it is **already on** — `tailscale status
+   --json` reports `CertDomains: ["mm1.tail770f6e.ts.net"]`.
+
+### What `run.sh` does with it
+
+Nothing, until there is a guest — then, before the app launches:
+
+```
+tailnet.sh join <vm>   →   tailnet=richos-test-a.tail770f6e.ts.net
+```
+
+* The key is staged **as a file inside the guest** and passed as `--auth-key file:…`.
+  Read off `tailscale up --help` in the guest (1.102.4) rather than assumed: *"if it
+  begins with `file:`, then it's a path to a file containing the authkey"*. A key given
+  as a command argument is readable by every process in the guest and lands in every log
+  that records a command line. It is deleted the moment `up` returns, either way.
+* `--hostname richos-test-<vm>`, so two guests are two named nodes instead of two
+  machines both calling themselves `Manageds-Virtual-Machine` (the image's default,
+  measured) and colliding into `…-1` names nothing can predict.
+* `--operator <guest user>`, because **the app runs as the console user, not as root**,
+  and `tailscale cert` is a mutating call. Without this the app's own certificate fetch
+  is a permission error it renders as "not set up yet".
+* Then the name is **read back** from `tailscale status --json` — never constructed. A
+  name still held by a node that has not aged out becomes `<name>-1`, and every URL built
+  from the requested name would point at somebody else's machine. `run.sh` prints what
+  the daemon said.
+* Finally `tailscale cert` is warmed **as the user the app runs as, with the app's own
+  arguments**, so a refusal appears here, with a sentence, rather than inside a pairing
+  sheet.
+
+**There is no certificate file to install.** `fetch_cert` (`phone/tailnet.rs:722`) runs
+`tailscale cert --cert-file - --key-file -` and parses the PEM blocks off **stdout** —
+deliberately, so the private key never touches a disk. What the guest needs is a
+`tailscale` binary at one of the four paths the app looks at (`phone/tailnet.rs:82`) and
+a daemon that answers the app's user. Measured in a guest: the Homebrew install is
+`/opt/homebrew/bin/tailscale`, which is candidate 3 and a symlink `is_file()` follows.
+
+### Reaching it
+
+```sh
+curl -sk https://richos-test-a.tail770f6e.ts.net:8443/     # from this Mac
+```
+
+Inside the guest, the pairing URL opens in Safari and resolves through MagicDNS — which
+is why `--accept-dns=true` is part of the join rather than inherited from a default.
+
+### The certificate cache, and why one exists
+
+Every clone is a fresh node with an empty certificate store, so every run would ask the
+control plane to issue a **new** certificate for the same name. Public CAs rate-limit
+exactly that — the duplicate-certificate limit for one name is single digits per week —
+and the failure would land days later, on somebody else's run, looking like a broken
+harness.
+
+So a certificate that was issued is kept on the host under `~/.richos-testvm/certs/<dns
+name>/`, mode `0600`, and offered back to the next clone between `up` and the first
+`cert` call: the only window where the name is known and nothing has been issued yet. It
+is re-used only if openssl says it is for that exact name and outlives the app's own
+`TAILNET_MIN_VALIDITY` of 720h. `reap.sh` deletes entries that fail either test — a
+private key with no use is garbage with a key in it.
+
+That is a private key at rest, taken deliberately: it belongs to a throwaway node
+reachable only from inside the CEO's own tailnet, and it buys back the ability to run the
+phone proof more than a handful of times a week.
+
+### Cleaning up — §54 at the tailnet
+
+`stop.sh` signs the node out **before** the guest is destroyed, then checks that it is
+signed out. If the guest dies without ever reaching `stop.sh`, the node is ephemeral and
+disappears on the control plane's own clock; `reap.sh` reports any `richos-test-*` node
+the tailnet still lists, because that is the one piece of garbage nothing here can delete
+(removing a node needs an API key with tailnet-admin rights, which no agent holds).
+
+```sh
+./tailnet.sh nodes            # what the tailnet still shows
+./tailnet.sh doctor <vm>      # every reason the phone path is or is not available
+```
+
+### What is verified, and what is not
+
+| Claim | State |
+|---|---|
+| Refusal with no key: one action named, the guest untouched, the VM still usable | **Verified** on a live guest, 2026-09-19. A full `run.sh` with the join refusing reached a window in **43 s** (`windows=1`, capture 64.2% non-black), and printed `tailnet=not-joined` |
+| Two clones at once, each refusing on its own, neither disturbing the other | **Verified** 2026-09-19 — `richos-test-a` ready in **72 s**, `richos-test-b` in **66 s**, both with a window, both stopped clean |
+| `tailnet.sh doctor` against a live guest | **Verified** — reports `NeedsLogin`, and names the CLI it found (`/opt/homebrew/bin/tailscale -> ../Cellar/tailscale/1.102.4/…`) |
+| Every flag, the key-by-file handling, the name read-back, the refusal classifications | **Verified** by `test/run-tests.sh` (41 tests) against a stub guest |
+| The certificate cache's accept/refuse rules | **Verified** with openssl against generated certificates |
+| A real tailnet accepting a real key; two guests as two **nodes**; the pairing sheet in a VM | **NOT RUN** — needs the CEO's key, which no agent can produce. `tailnet.sh doctor <vm>` settles the first two in one command once the key is in place; the third is a QA walk |
+
+---
+
+## Tests
+
+```sh
+./test/run-tests.sh            # ~1 second, no VM booted
+./test/run-tests.sh 'cert'     # only the tests whose names match
+```
+
+41 tests, against a **stub guest**: `tailnet.sh` reaches its VM through one indirection,
+so pointing that at a script exercises every decision in the join without booting
+anything. They assert the things a screenshot cannot show — that the key never appears in
+a command line or in output, that a missing key refuses exactly one step without touching
+the guest, that the name is read back from the daemon, that `stop.sh`'s sign-out actually
+signs out.
+
+They found four real defects on their first run, including a certificate cache that
+could never hit (written under the daemon's FQDN, read under the short name) whose only
+symptom would have been a rate-limit refusal weeks later on somebody else's run.
 
 ---
 
@@ -128,7 +288,7 @@ All verified on 2026-09-19 against candidate `.5` unless marked otherwise.
 | WebGL splash / Metal rendering | Untested in this pass — the fixture home boots straight past the splash into the home screen. See "Graphics" |
 | **Model turns (`claude`)** | **No, not without a one-time human sign-in** — see below |
 | Audio | Out of scope. CEO §53 stands: the Mac's speakers cannot stand in for a person, and a VM's virtual audio device does not change that. Do not test barge-in here. |
-| Tailscale as its own node | Installed and running, **left signed out** (action 1 above) |
+| Tailscale as its own node | **Yes, with the auth key** — the guest joins as `richos-test-<vm>`, which is what makes the phone path reachable in here. Without the key it stays signed out and only the phone path is unavailable. See *The phone path in a VM* |
 
 **One observation worth passing on, not a harness fault:** the app derived a
 **1024x700** window in the guest — its stated minimum — on a 1680x1050 screen, where on
@@ -173,7 +333,12 @@ Everything is under **one** directory:
   log/                VM console logs
   MANIFEST            what was installed, when, from which digest
   IMAGE_DIGEST        the digest actually pulled
+  tailscale.authkey   the CEO's auth key, 0600 — his to create, once
+  certs/<dnsname>/    a certificate already issued for a test node, 0600
 ```
+
+Two of those hold secrets and neither is in any repository. `rm -rf ~/.richos-testvm`
+takes them with everything else.
 
 Disk: **62 GB** for the base image. Clones are **copy-on-write** on APFS — cloning the
 base took **1 second** and near-zero disk until the guest diverges, which is what makes a
@@ -273,6 +438,13 @@ pid, verifies that pid is frontmost, and refuses to send otherwise.
 | ssh | `BatchMode=yes` | without it, failed key auth falls back to a password prompt: a hang, or an askpass **window** on his screen |
 | `caffeinate` | `-is`, never `-dimsu` | `-d`/`-u` would keep his display lit and unlocked for the length of every test |
 | Guest staging dir | `$HOME`, not `/tmp` | Homebrew's tesseract cannot read the guest's `/tmp` |
+| `tailscale up --auth-key` | `file:<path>`, never the key inline | an inline key is in the guest's process table and in every log that records a command line |
+| `tailscale up --timeout` | **90s** | the flag's own default is `0s`, documented as *"blocks forever"* — a hang with no terminal to notice it |
+| `tailscale up --operator` | the guest's console user | the app is not root, and `tailscale cert` is a mutating call it makes itself |
+| `tailscale up --reset` | on | `up` refuses when an unspecified setting would change; a clone starts from a known state, not an inherited one |
+| `tailscale up --accept-dns` | **true** (the vendor default, stated) | the pairing URL is opened in Safari *inside the guest*; only MagicDNS resolves the name there |
+| `tailscale up --shields-up` | **false** (stated) | shields-up blocks inbound connections, which is exactly what a phone makes |
+| `tailscale up --ssh` / `--advertise-*` | off | the guest is reached over the LAN already; a throwaway node advertises nothing |
 
 ---
 
@@ -306,3 +478,8 @@ ssh -i ~/.richos-testvm/id_testvm admin@$IP 'bash /tmp/gui-boot.test.sh'
 | VM never reports an IP | `cat ~/.richos-testvm/log/<vm>.log`. |
 | *"tart cannot be opened because of a problem"* | The pin was bypassed. Run `preflight-binary.py` against the binary and read what it names. |
 | Disk filling up | `./reap.sh` — clones that outlived their agent. |
+| `run.sh` says **tailnet: NOT JOINED** | Read the line after it: it names the one thing to do. Usually the auth key is missing, expired, or the file has more than the key in it. Everything except the phone path still works. |
+| The app says **"not set up yet"** with a joined guest | `./tailnet.sh doctor <vm>`. If `certificates: no`, the tailnet's HTTPS switch is off — <https://login.tailscale.com/admin/dns>. If `backend state` is not `Running`, the join did not take. |
+| A pairing code appears but the phone cannot reach the Mac | Check the node is online from the host: `./tailnet.sh nodes`, then `curl -sk https://<name>:8443/`. A phone signed in to a *different* Tailscale account is in a different tailnet and sees nothing. |
+| `tailscale cert` refuses with a rate-limit message | The certificate cache did not hit, and the name has been issued too many times this week. `ls ~/.richos-testvm/certs/` — an entry is only re-used if it is for that exact name and outlives 720h. |
+| A `richos-test-*` node is still listed with no VM behind it | Expected briefly: ephemeral nodes age out after the control plane stops hearing from them. If one persists, remove it in the admin console — nothing here holds the rights to. |

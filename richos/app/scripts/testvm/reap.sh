@@ -76,7 +76,30 @@ if [ -d "$TESTVM_RUN" ]; then
   done
 fi
 
-TOTAL=$(( ${#VICTIMS[@]} + ${#ORPHAN_STATE[@]} ))
+# Certificate-cache entries that are no longer usable. A private key for a name
+# whose certificate has expired is garbage with a key in it, so it goes.
+STALE_CERTS=()
+if [ -d "$TESTVM_CERTCACHE" ]; then
+  for d in "$TESTVM_CERTCACHE"/*; do
+    [ -d "$d" ] || continue
+    cert_cache_usable "$(basename "$d")" 2>/dev/null || STALE_CERTS+=("$d")
+  done
+fi
+
+# Tailnet nodes this harness made that the control plane still lists. REPORTED,
+# NEVER DELETED: removing a node needs an API key with tailnet-admin rights,
+# which no agent holds and none should. The nodes are ephemeral, so one that
+# outlives its guest ages out on the control plane's own clock — this row
+# exists so that "it should have gone" is something somebody can CHECK rather
+# than assume. An OFFLINE one is the ordinary state of a node on its way out;
+# an ONLINE one with no VM behind it is the thing worth a second look.
+LEFTOVER_NODES=()
+while read -r row; do
+  [ -n "$row" ] || continue
+  LEFTOVER_NODES+=("$row")
+done < <("$HERE/tailnet.sh" nodes 2>/dev/null | awk -F'\t' '{print $1" ("$3")"}')
+
+TOTAL=$(( ${#VICTIMS[@]} + ${#ORPHAN_STATE[@]} + ${#STALE_CERTS[@]} ))
 
 # macOS ships bash 3.2, where expanding an EMPTY array under `set -u` is an
 # "unbound variable" error rather than an empty list. The clean-machine case —
@@ -84,8 +107,16 @@ TOTAL=$(( ${#VICTIMS[@]} + ${#ORPHAN_STATE[@]} ))
 # this script fail exactly when it has good news. ${arr[@]+"${arr[@]}"} expands
 # to nothing when the array is empty and to the quoted elements otherwise.
 if [ "$NOTICE" -eq 1 ]; then
-  [ "$TOTAL" -eq 0 ] && exit 0
-  echo "testvm: $TOTAL leftover item(s) — ${VICTIMS[*]+${VICTIMS[*]}} ${ORPHAN_STATE[*]+${ORPHAN_STATE[*]}} — run richos/app/scripts/testvm/reap.sh --apply"
+  # A leftover NODE is worth a notice even when there is nothing to delete: it
+  # is the one piece of garbage this script cannot clean, so somebody has to be
+  # told it is there.
+  if [ "$TOTAL" -eq 0 ] && [ "${#LEFTOVER_NODES[@]}" -eq 0 ]; then exit 0; fi
+  if [ "$TOTAL" -gt 0 ]; then
+    echo "testvm: $TOTAL leftover item(s) — ${VICTIMS[*]+${VICTIMS[*]}} ${ORPHAN_STATE[*]+${ORPHAN_STATE[*]}} ${STALE_CERTS[*]+${STALE_CERTS[*]}} — run richos/app/scripts/testvm/reap.sh --apply"
+  fi
+  if [ "${#LEFTOVER_NODES[@]}" -gt 0 ]; then
+    echo "testvm: tailnet still lists ${#LEFTOVER_NODES[@]} test node(s) — ${LEFTOVER_NODES[*]} (ephemeral: they age out; nothing here can delete them)"
+  fi
   exit 0
 fi
 
@@ -94,6 +125,8 @@ echo "  root: $TESTVM_ROOT"
 for k in ${KEPT[@]+"${KEPT[@]}"};   do echo "  KEEP   $k"; done
 for v in ${VICTIMS[@]+"${VICTIMS[@]}"}; do echo "  DELETE VM $v (stopped clone)"; done
 for o in ${ORPHAN_STATE[@]+"${ORPHAN_STATE[@]}"}; do echo "  DELETE state $o (no such VM)"; done
+for c in ${STALE_CERTS[@]+"${STALE_CERTS[@]}"}; do echo "  DELETE cert  $c (expired or wrong name — a private key with no use)"; done
+for n in ${LEFTOVER_NODES[@]+"${LEFTOVER_NODES[@]}"}; do echo "  REPORT node  $n — still on the tailnet; ephemeral nodes age out, nothing here can delete one"; done
 [ "$TOTAL" -eq 0 ] && { echo "  nothing to reclaim."; exit 0; }
 
 if [ "$APPLY" -eq 0 ]; then
@@ -109,6 +142,10 @@ done
 for o in ${ORPHAN_STATE[@]+"${ORPHAN_STATE[@]}"}; do
   rm -rf "$o" 2>/dev/null
   [ -e "$o" ] && FAILED+=("state $o")
+done
+for c in ${STALE_CERTS[@]+"${STALE_CERTS[@]}"}; do
+  rm -rf "$c" 2>/dev/null
+  [ -e "$c" ] && FAILED+=("cert cache $c")
 done
 
 if [ ${#FAILED[@]} -eq 0 ]; then
