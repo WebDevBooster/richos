@@ -93,6 +93,28 @@ window.RichSettings = (function () {
     ["line", { x1: "12", x2: "12", y1: "17", y2: "21" }],
   ];
   var ICON_MOON = [["path", { d: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" }]];
+  /// **A CHEVRON, AND IT IS THE ANSWER TO URBAN'S G10** — *"Four action rows in the Settings
+  /// panel are visually identical to its two headings ... `.bugbtn` and `.setmenu-title` are
+  /// both `1rem/600/--ink`; the action rows need the icon `.bugbtn` was built for, or a
+  /// chevron — pick one and say why."*
+  ///
+  /// **The two headings are "Settings" and "Updates"** (his frame 10, read off the frame rather
+  /// than off the class list: `.setmenu-title` and `.update-title`, the latter taking its weight
+  /// and its ink from `.set-name`). Under them sat Connected repositories, Account connection,
+  /// Memory folder and Use Rich from your phone, at the same size, the same 600 and the same
+  /// `--ink`, with nothing to say which of the six could be pressed.
+  ///
+  /// **A CHEVRON RATHER THAN FOUR ICONS, and the reason is that there is one fact to state.**
+  /// All four rows do the same thing — each opens a modal sheet — and a chevron says exactly
+  /// that, once, in a shape every operating system already uses for it. Four invented glyphs
+  /// would make four new visual claims (which drawing means "account connection"?), would each
+  /// have to be learned, and would still leave every row's LABEL starting at the same x as the
+  /// two headings. `Bust a bug!` keeps its own icon and no chevron, which is now a distinction
+  /// that carries information: it is the one row here that is not a disclosure.
+  ///
+  /// Trailing rather than leading, so the labels stay aligned with the other rows in the panel
+  /// and the change adds nothing to the left edge.
+  var ICON_CHEVRON = [["path", { d: "m9 18 6-6-6-6" }]];
   var ICON_BUG = [
     ["path", { d: "m8 2 1.88 1.88" }],
     ["path", { d: "M14.12 3.88 16 2" }],
@@ -352,6 +374,27 @@ window.RichSettings = (function () {
     return b;
   }
 
+  /** **A ROW THAT OPENS A SHEET** — one builder for all four, which is Urban's G10 fix.
+   *
+   *  Four rows were written out four times, inline, and drifted: they had carried the class
+   *  `set-bug`, which no rule in the whole stylesheet matches, for long enough to ship as
+   *  unstyled native buttons (N2 in the 2026-09-17 dev-walk audit). One builder is why the
+   *  chevron cannot be added to three of them.
+   *
+   *  The chevron is `aria-hidden` like every other icon here — it is drawn evidence that this
+   *  row opens something, and the row's own label is what a screen reader needs.
+   */
+  function buildDisclosureRow(id, label, onOpen) {
+    var b = elem("button", "bugbtn bugbtn--disclosure", { type: "button", role: "menuitem", id: id });
+    b.appendChild(document.createTextNode(label));
+    b.appendChild(icon(ICON_CHEVRON));
+    b.addEventListener("click", function () {
+      close();
+      onOpen();
+    });
+    return b;
+  }
+
   /** Build (or rebuild) the menu for the CURRENT capabilities.
    *
    *  The theme row is OMITTED, not disabled, when the theme is forced (§15's always-dark
@@ -409,17 +452,20 @@ window.RichSettings = (function () {
     // reference: a full-row tappable ACTION, not a toggle"), which is exactly what a
     // menuitem button with no label/control split needs — so they take that class rather
     // than a new one.
+    //
+    // AND THEY TAKE THE CHEVRON — Urban's G10. `.bugbtn` alone is `1rem/600/--ink`, which is
+    // also exactly what `.setmenu-title` ("Settings") and `.update-title` ("Updates") are, so
+    // four rows a person can press looked like two headings they cannot. See `ICON_CHEVRON`
+    // for why a chevron and not four icons.
     if (repositories) {
-      var repositoryButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-repositories-open"});
-      repositoryButton.textContent = "Connected repositories";
-      repositoryButton.addEventListener("click", function () { close(); repositories.open(); });
-      menu.appendChild(repositoryButton);
+      menu.appendChild(buildDisclosureRow("set-repositories-open", "Connected repositories", function () {
+        repositories.open();
+      }));
     }
     if (account) {
-      var accountButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-account-open"});
-      accountButton.textContent = "Account connection";
-      accountButton.addEventListener("click", function () { close(); account.open(); });
-      menu.appendChild(accountButton);
+      menu.appendChild(buildDisclosureRow("set-account-open", "Account connection", function () {
+        account.open();
+      }));
     }
     // WHERE HIS MEMORY IS KEPT — audit-7 row 13. The sheet that asks this used to be the only
     // way to reach it, and it asked at EVERY launch on a machine with no memory folder, which
@@ -427,19 +473,17 @@ window.RichSettings = (function () {
     // that is not a question: this row. The app's own word for the thing, taken from the
     // sheet's own finished heading ("Your memory folder.") rather than invented here.
     if (memory) {
-      var memoryButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-memory-open"});
-      memoryButton.textContent = "Memory folder";
-      memoryButton.addEventListener("click", function () { close(); memory.open(); });
-      menu.appendChild(memoryButton);
+      menu.appendChild(buildDisclosureRow("set-memory-open", "Memory folder", function () {
+        memory.open();
+      }));
     }
     if (phonePairing) {
       // BELOW the memory row and ABOVE the version row, which is where a thing he does ONCE
       // belongs: it is not a preference and it is not chrome, so it sits with the other
       // one-off arrangements rather than among the switches.
-      var phoneButton = elem("button", "bugbtn", {type: "button", role: "menuitem", id: "set-phone-open"});
-      phoneButton.textContent = "Use Rich from your phone";
-      phoneButton.addEventListener("click", function () { close(); phonePairing.open(); });
-      menu.appendChild(phoneButton);
+      menu.appendChild(buildDisclosureRow("set-phone-open", "Use Rich from your phone", function () {
+        phonePairing.open();
+      }));
     }
     if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
@@ -517,6 +561,16 @@ window.RichSettings = (function () {
   function open() {
     if (!menuEl || !menuEl.hidden) return;
     menuEl.hidden = false;
+    // **IT OPENS AT ITS TOP, EVERY TIME** — Urban's G12, and he found it by being bitten by it:
+    // the panel reopened at the scroll position it was closed at, his click landed a row off,
+    // and he turned the splash screen on by accident. The panel is `max-height` +
+    // `overflow-y: auto` (see `.setmenu`), so on a 1024x700 window — the app's own minimum —
+    // it genuinely scrolls, and a popover that remembers a scroll offset it never showed the
+    // user is a popover whose rows are not where they were the last time they looked.
+    //
+    // AFTER `hidden = false` AND NOT BEFORE: `.setmenu[hidden]` is `display: none !important`,
+    // and an element with no box has no scroll to set — the assignment is silently dropped.
+    menuEl.scrollTop = 0;
     wrap.classList.add("open");
     btnEl.setAttribute("aria-expanded", "true");
     // A claim about an update must not be stale on the screen that makes it: the automatic

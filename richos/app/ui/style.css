@@ -5483,6 +5483,26 @@ body.bp-narrow .tl-user-bubble {
   flex: none;
   color: var(--ink-faint);
 }
+/* A ROW THAT OPENS A SHEET — Urban's G10. Four rows in this panel were `1rem/600/--ink`, the
+   same as `.setmenu-title` ("Settings") and `.update-title` ("Updates"), so four things a
+   person can press were indistinguishable from two headings they cannot. The chevron is the
+   whole difference and it goes at the trailing edge, which is why this is a modifier on
+   `.bugbtn` rather than a rule of its own: everything else about these rows — the flex row, the
+   36px target, the hover tint, the focus ring — is already right and is not duplicated here.
+
+   `margin-left: auto` pushes it to the end of the flex row without a spacer element and without
+   `justify-content`, which would move the label as well.
+
+   CONTRAST, and it is a NON-TEXT INDICATOR owing 3:1. It inherits `.bugbtn svg`'s
+   `--ink-faint`, exactly as `Bust a bug!`'s own icon does, so it introduces no new color.
+   `--ink-faint` is an ALPHA (0.62 dark, 0.63 light), so the ratio cannot be read off the token
+   and was measured from the composited pixels in the rendered panel, both themes:
+     chevron  #939bab on #182440  5.51:1 dark      #656970 on #fdfcf8  5.37:1 light
+   The same crop over `#bug-btn`'s existing icon returns the same two values, which is the
+   control: this adds a glyph, not a color. Floor 3:1; both clear it with margin. */
+.bugbtn--disclosure svg {
+  margin-left: auto;
+}
 .bugbtn:hover svg {
   color: currentColor;
 }

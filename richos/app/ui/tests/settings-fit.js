@@ -182,6 +182,104 @@ async function main() {
     return `at 1024x520: panel clamped to ${m.height}px, bottom ${m.bottom} of ${m.vh}, Bust a bug ends at ${after.bugBottom}`;
   });
 
+  // ---- G12: it opens where it was left, and it must not ----------------------------------
+
+  await run.check("G12  the panel opens at its top, whatever scroll it was closed at", async () => {
+    // Urban found this by being bitten by it rather than by looking for it: *"I toggled `Splash
+    // screen` on by accident — the Settings panel reopens at its previous scroll position (G12)
+    // and my click landed a row off."* A popover that remembers a scroll offset it never showed
+    // the user is a popover whose rows are not where they were the last time they looked, and
+    // this one genuinely scrolls at 1024x700 — the app's own minimum.
+    const p = await openMenu(browser, WINDOW);
+    // Grow it so it certainly scrolls in this window, scroll it to the end the way a person
+    // would to reach `Bust a bug!`, then close and reopen from the same control he uses.
+    await measure(p, { grow: AUDIT_PANEL_HEIGHT });
+    const scrolledTo = await p.evaluate(() => {
+      const m = document.getElementById("set-menu");
+      m.scrollTop = m.scrollHeight;
+      return Math.round(m.scrollTop);
+    });
+    await p.click("#set-btn");
+    await p.waitForSelector("#set-menu", { state: "hidden" });
+    await p.click("#set-btn");
+    await p.waitForSelector("#set-menu", { state: "visible" });
+    const reopened = await p.evaluate(async () => {
+      const m = document.getElementById("set-menu");
+      await Promise.all(m.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+      const title = document.querySelector("#set-menu .setmenu-title");
+      const r = m.getBoundingClientRect();
+      const t = title.getBoundingClientRect();
+      return { scrollTop: Math.round(m.scrollTop), titleOffset: Math.round(t.top - r.top) };
+    });
+    const errs = p.__errors;
+    await p.close();
+    assert(scrolledTo > 40, `the panel only scrolled ${scrolledTo}px, so reopening proves nothing`);
+    assertEqual(reopened.scrollTop, 0, "THE DEFECT: the panel reopened at the scroll position it was closed at");
+    // AND THE FIRST ROW IS ACTUALLY AT THE TOP, not merely `scrollTop === 0` over a panel whose
+    // content moved: "Settings" is the first thing in it and it has to be within its padding.
+    assert(
+      reopened.titleOffset >= 0 && reopened.titleOffset < 24,
+      `"Settings" is ${reopened.titleOffset}px from the panel's top edge on reopen`
+    );
+    assertEqual(errs, [], "the reopen reported page errors");
+    return `closed at scrollTop ${scrolledTo}, reopened at ${reopened.scrollTop} with "Settings" ${reopened.titleOffset}px in`;
+  });
+
+  // ---- G10: a row you can press does not look like a heading -------------------------------
+
+  await run.check("G10  the rows that open a sheet are told apart from the panel's two headings", async () => {
+    // Urban's G10, his frame 10: `Connected repositories`, `Account connection`, `Memory folder`
+    // and `Use Rich from your phone` were `1rem/600/--ink` — which is exactly what `Settings`
+    // (`.setmenu-title`) and `Updates` (`.update-title`, taking its weight and ink from
+    // `.set-name`) are. Four things a person can press, indistinguishable from two they cannot.
+    //
+    // The two headings are read off the panel rather than assumed, so a third heading added
+    // later is covered by the same check instead of slipping past a hard-coded pair.
+    const p = await openMenu(browser, WINDOW);
+    const panel = await p.evaluate(() => {
+      const menu = document.getElementById("set-menu");
+      const headings = [...menu.querySelectorAll(".setmenu-title, .update-title")].map((h) => ({
+        text: h.textContent.trim(),
+        chevron: !!h.querySelector("svg"),
+      }));
+      const rows = [...menu.querySelectorAll("button.bugbtn")].map((b) => ({
+        id: b.id,
+        text: b.textContent.trim(),
+        disclosure: b.classList.contains("bugbtn--disclosure"),
+        icons: b.querySelectorAll("svg").length,
+        // `aria-hidden` on the glyph: the row's own label is what a screen reader needs, and a
+        // chevron announced as "chevron" is noise in a menu.
+        hiddenFromReaders: [...b.querySelectorAll("svg")].every((s) => s.getAttribute("aria-hidden") === "true"),
+      }));
+      return { headings, rows };
+    });
+    const errs = p.__errors;
+    await p.close();
+
+    assert(panel.headings.length >= 2, "the panel no longer has the two headings this check is about: " +
+      JSON.stringify(panel.headings));
+    for (const h of panel.headings) {
+      assert(!h.chevron, `the heading ${JSON.stringify(h.text)} carries a chevron, which makes it look pressable`);
+    }
+    const disclosures = panel.rows.filter((r) => r.disclosure);
+    assertEqual(
+      disclosures.map((r) => r.id).sort(),
+      ["set-account-open", "set-memory-open", "set-phone-open", "set-repositories-open"],
+      "THE DEFECT: the rows that open a sheet are not marked as disclosures"
+    );
+    for (const r of disclosures) {
+      assert(r.icons === 1, `${r.id} carries ${r.icons} glyphs; a disclosure has exactly one chevron`);
+      assert(r.hiddenFromReaders, `${r.id}'s chevron is not aria-hidden`);
+    }
+    // AND `Bust a bug!` KEEPS ITS OWN ICON AND NO CHEVRON, which is now a distinction that
+    // carries information: it is the one row here that is not a disclosure.
+    const bug = panel.rows.find((r) => r.id === "bug-btn");
+    assert(bug && !bug.disclosure && bug.icons === 1, "the bug row changed shape: " + JSON.stringify(bug));
+    assertEqual(errs, [], "the panel reported page errors");
+    return `${disclosures.length} disclosure rows with a chevron each, ${panel.headings.length} headings with none ` +
+      `(${panel.headings.map((h) => JSON.stringify(h.text)).join(", ")}); "Bust a bug!" keeps its own icon`;
+  });
+
   await run.check("no page errors", async () => {
     assertEqual(page.__errors, [], "the page reported errors");
     return "0 errors";
