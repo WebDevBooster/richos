@@ -1139,6 +1139,28 @@ function startNewThreadFlow() {
   openEntityPicker((entityId) => showEntityView(entityId, "new"));
 }
 
+/// **A QUESTION WITH ONE ANSWER IS NOT A QUESTION** — Ray's candidate-.11 defect 3.5:
+/// *"the dialog is shown when there is exactly one choice."*
+///
+/// **This is narrower than it looks, and the narrowness is the point.** §21's rule is "Never
+/// default to the LAST entity", and the comment on [`startNewThreadFlow`] reads *"one keystroke
+/// is a cheap price for never filing the CEO's first sentence somewhere he did not choose."*
+/// Both are about CHOOSING between companies he has. With exactly one company on the install
+/// there is nothing to choose between: filing the thread there is not a default, a guess or a
+/// memory of what he did last — it is the only place the thread can go, and the picker's own
+/// list has one row whose only effect is to close the dialog.
+///
+/// **It applies to the THREAD question only.** The first-run question — *"Which company is this
+/// copy of Rich for?"* — keeps its dialog at one company, because that screen is not only a
+/// list: it carries the add-a-company form ("Not one of these? Add it here."), the account note
+/// and the "Not now" deferral, and it is the answer to a question he is being asked once and
+/// remembered by. `forCompany` is the flag that already decides all three of those, so it
+/// decides this too and the four cannot come apart.
+function theOnlyCompany() {
+  const groups = (navTree && navTree.groups) || [];
+  return groups.length === 1 ? groups[0].entity.id : null;
+}
+
 /// §3.3 step 4: a provisional title from the first message, replaced later by a concise
 /// outcome title when Rich supplies one (no such backend signal exists yet — when one
 /// lands, it replaces this, and the ledger title is the thing it should replace).
@@ -4251,7 +4273,12 @@ let entityPickerResolve = null;
 /// for. `COMPANY` is the launch-time question that had no surface at all until this pass —
 /// which company is this COPY of Rich for — and it is the one a double-clicked bundle is
 /// always in, because a Finder launch has working directory `/`, which owns no entity.
-const PICKER_TITLE_THREAD = "Which entity is this work in?";
+/// **"company", never "entity"** — Ray's candidate-.11 defect 3.5. `entity` is this codebase's
+/// own schema word (`EntityId`, `entities.json`, `ThreadBinding::entity_id`) and every other
+/// string the CEO reads says *company*: the picker's own other title, the settings row, the
+/// add-a-company form, the rail. One dialog spoke the schema's language, to a non-technical
+/// CEO, about the one decision this flow exists to ask him.
+const PICKER_TITLE_THREAD = "Which company is this work in?";
 const PICKER_TITLE_COMPANY = "Which company is this copy of Rich for?";
 const PICKER_NOTE_COMPANY =
   "I'll keep everything you tell me under the company you pick, and I'll remember it — " +
@@ -4314,6 +4341,15 @@ const FIRST_RUN_ORDER = ["engine", "corpus", "company"];
 
 function openEntityPicker(onPick, opts) {
   const forCompany = !!(opts && opts.forCompany);
+  // ASKED ONLY WHEN THERE IS SOMETHING TO ASK. See `theOnlyCompany` for why this is the thread
+  // question and not the first-run one, and why it does not contradict §21.
+  if (!forCompany) {
+    const only = theOnlyCompany();
+    if (only) {
+      onPick(only);
+      return;
+    }
+  }
   entityPickerResolve = onPick;
   entityPickerTitleEl.textContent = forCompany ? PICKER_TITLE_COMPANY : PICKER_TITLE_THREAD;
   entityPickerNoteEl.textContent = forCompany ? PICKER_NOTE_COMPANY : "";
