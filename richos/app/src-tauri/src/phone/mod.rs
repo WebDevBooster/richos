@@ -453,6 +453,14 @@ pub struct PhoneStatus {
     /// Whether that phone can be pushed to yet — it cannot until he has installed the app to the
     /// Home Screen and allowed notifications, which happens after pairing.
     pub push_ready: bool,
+    /// **HAS THE PERSON TOLD THIS MAC THE SIX WORDS MATCHED?** `false` while a phone is paired
+    /// and has not come back with an answer, and `false` when nothing is paired at all.
+    ///
+    /// The paired card's first sentence is keyed off this, so the Mac stops asserting the thing
+    /// the phone is on screen asking about (Ray's nightly `.7`, defect 2). It is the Mac's own
+    /// record ([`device::Device::fingerprint_confirmed`]) and never anything the sheet remembers
+    /// — the same ruling as `paired_via`, one state earlier.
+    pub fingerprint_confirmed: bool,
     /// The QR code, with the one-shot code in it. Present only while the window is open.
     ///
     /// **THERE WAS A FIRST ONE, AND IT IS GONE** — CEO §61. It carried the trust endpoint, which
@@ -698,6 +706,7 @@ impl PhoneRuntime {
                 serving_via: None,
                 platform: None,
                 push_ready: false,
+                fingerprint_confirmed: false,
                 pair_url: None,
                 fingerprint_words: Vec::new(),
                 fingerprint_hex: None,
@@ -727,6 +736,10 @@ impl PhoneRuntime {
             serving_via: Some(serving_via),
             platform: device.as_ref().map(|d| d.platform.clone()),
             push_ready: device.as_ref().map(|d| d.push.is_some()).unwrap_or(false),
+            fingerprint_confirmed: device
+                .as_ref()
+                .map(|d| d.fingerprint_confirmed)
+                .unwrap_or(false),
             pair_url: window
                 .as_ref()
                 .map(|w| format!("{}/#pair={}", running.origin, w.code)),

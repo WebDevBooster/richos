@@ -600,6 +600,34 @@ test('an UNCREDENTIALED 404 is never retried: there is no credential to have gon
 	assert.strictEqual(calls.length, 1);
 });
 
+test('the answer to the six words goes back to the Mac, signed, on the route that already exists', async () => {
+	// Ray's nightly `.7`, defect 2. There was no such message: this app acted on his press
+	// locally and the Mac's sheet went on saying `It is paired` while this screen was still
+	// asking the question. It rides on `/api/pair` rather than a fifth route, which is what
+	// keeps §2.5's ceiling of four.
+	const yes = makeApi(() => response(200, { ok: true }, { 'X-RichOS-Challenge': 'challenge-two' }));
+	await yes.api.confirmFingerprint(true);
+	assert.strictEqual(new URL(yes.calls[0].url).pathname, '/api/pair');
+	assert.strictEqual(yes.calls[0].init.method, 'POST');
+	assert.ok(yes.calls[0].init.headers.Authorization.startsWith('RichOS-Device device-1.'), 'the answer went unsigned');
+	assert.deepStrictEqual(JSON.parse(yes.calls[0].init.body), {
+		device_id: 'device-1',
+		fingerprint_confirmed: true
+	});
+
+	// `They do not match` is the same message with the other answer, and it is a BOOLEAN both
+	// ways — the Mac reads nothing else, so this side must never send anything else.
+	const no = makeApi(() => response(200, { ok: true }, { 'X-RichOS-Challenge': 'challenge-two' }));
+	await no.api.confirmFingerprint(false);
+	assert.strictEqual(JSON.parse(no.calls[0].init.body).fingerprint_confirmed, false);
+
+	// Anything that is not the boolean true is a rejection rather than a confirmation: the one
+	// direction in which a wrong reading is safe.
+	const sloppy = makeApi(() => response(200, { ok: true }, { 'X-RichOS-Challenge': 'challenge-two' }));
+	await sloppy.api.confirmFingerprint('yes');
+	assert.strictEqual(JSON.parse(sloppy.calls[0].init.body).fingerprint_confirmed, false);
+});
+
 test('the backfill recovers from a stale credential too — the retry lives in `request`, not in one route', async () => {
 	const back = makeApi((url, init, n) =>
 		n === 1

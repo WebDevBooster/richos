@@ -156,6 +156,33 @@ pub struct Device {
     /// not know which phone it is talking about cannot say either without guessing.
     #[serde(default)]
     pub platform: String,
+
+    /// **HAS THE PERSON TOLD THIS MAC THAT THE SIX WORDS MATCHED?** — Ray's nightly `.7` walk,
+    /// defect 2.
+    ///
+    /// The Mac's sheet read `Phone — It is paired. Open Rich on it and keep talking.` while the
+    /// phone, on screen beside it, was still asking `They match — pair this phone` /
+    /// `They do not match` (his frame 13). The six words exist so a person can detect that
+    /// something other than his Mac answered; a Mac that settles the question before he has
+    /// answered it teaches him the check is ceremonial.
+    ///
+    /// **There was no way for the Mac to know, and that was the finding rather than the
+    /// wording.** `pair-confirm` in `web/web-app/app.js` wrote to the phone's own storage and
+    /// started the conversation, and told this Mac nothing; `pair-reject` threw the phone's key
+    /// away and ALSO told this Mac nothing, so a phone the person had just declared suspect was
+    /// left paired here. Both now come back over `POST /api/pair`.
+    ///
+    /// **`true` for a record written before this field existed**, and that is not a shortcut: a
+    /// phone paired by an older build is a phone that is already working, and demoting it to
+    /// "waiting" on the first launch of this one would be the Mac asserting something it does
+    /// not know in the other direction. A record written by THIS build always carries the value
+    /// outright, `false` at pairing, so the default is only ever reached by a record from before.
+    #[serde(default = "confirmed_by_default")]
+    pub fingerprint_confirmed: bool,
+}
+
+fn confirmed_by_default() -> bool {
+    true
 }
 
 fn web_push() -> String {
@@ -504,6 +531,10 @@ impl DeviceDesk {
             push_transport: web_push(),
             paired_via: via.to_string(),
             platform: platform.to_string(),
+            // The person has not been shown the six words yet — the phone computes them from
+            // the fingerprint in the answer to THIS request. So the Mac does not know, and it
+            // says so until the phone comes back (Ray's defect 2).
+            fingerprint_confirmed: false,
         };
         state.device = Some(device.clone());
         self.write(&state)?;
@@ -592,6 +623,28 @@ impl DeviceDesk {
     }
 
     // --- the small memories -------------------------------------------------------------
+
+    /// **THE PERSON SAID THE SIX WORDS MATCHED** — the answer to the question the Mac's sheet
+    /// used to settle for him (Ray's nightly `.7`, defect 2).
+    ///
+    /// Idempotent: a phone that sends it twice, or sends it again after a relaunch, gets the
+    /// same `Ok`. Refused when nothing is paired, which is the only state in which it is
+    /// meaningless.
+    pub fn confirm_fingerprint(&self) -> Result<(), PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        let Some(device) = state.device.as_mut() else { return Err(PhoneError::NotPaired) };
+        if device.fingerprint_confirmed {
+            return Ok(());
+        }
+        device.fingerprint_confirmed = true;
+        self.write(&state)
+    }
+
+    /// Has the person confirmed the six words for the phone that is paired right now?
+    /// `false` when nothing is paired at all — there is no phone to have confirmed anything.
+    pub fn fingerprint_confirmed(&self) -> bool {
+        self.state.lock().unwrap().device.as_ref().map(|d| d.fingerprint_confirmed).unwrap_or(false)
+    }
 
     /// Has this `client_id` already been answered? The phone's idempotency key.
     pub fn already_answered(&self, client_id: &str) -> Option<String> {

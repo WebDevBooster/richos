@@ -552,6 +552,24 @@
 					push_transport: 'web-push',
 					push: subscription
 				});
+			},
+
+			/// **THE ANSWER TO THE SIX WORDS, SENT BACK TO THE MAC** — Ray's nightly `.7`, defect 2.
+			///
+			/// There was no such message. The person pressed `They match — pair this phone` or
+			/// `They do not match`, this app acted on it locally, and the Mac was told nothing
+			/// either way — so its sheet read `It is paired` while this screen was still asking
+			/// the question, and a phone he had just declared suspect stayed paired over there.
+			///
+			/// It is the same route as the device record, told apart by the field, which is what
+			/// keeps §2.5's ceiling of four routes. `false` is not a flag the Mac files away: it
+			/// FORGETS this phone, which is the same thing `pair-reject` does to the key on this
+			/// side, so the two ends finish in one state.
+			async confirmFingerprint(matched) {
+				return json('POST', '/api/pair', {
+					device_id: state.deviceId,
+					fingerprint_confirmed: matched === true
+				});
 			}
 		};
 	}

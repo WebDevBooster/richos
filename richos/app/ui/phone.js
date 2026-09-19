@@ -72,7 +72,21 @@
          reader to go and do something, is the one that takes --ink. -->
     <div id="phone-paired" hidden>
       <h3 class="phone-step-title" id="phone-device-name"></h3>
-      <p class="overlay-note">It is paired. Open Rich on it and keep talking.</p>
+      <!-- THE MAC DOES NOT SETTLE A QUESTION THE PERSON HAS NOT ANSWERED YET. This line was the
+           fixed string "It is paired. Open Rich on it and keep talking." and it was on screen
+           while the phone, beside it, was still asking `They match — pair this phone` /
+           `They do not match` (Ray's nightly .7, defect 2, his frame 13). The six words exist so
+           a person can detect that something other than his Mac answered; a Mac that announces
+           the answer first teaches him the check is ceremonial. It is filled from
+           status.fingerprintConfirmed — the Mac's own record, never anything this sheet
+           remembers. -->
+      <p class="overlay-note" id="phone-paired-state"></p>
+      <!-- AND THE WORDS THEMSELVES, WHILE HE IS BEING ASKED ABOUT THEM. The pairing screen that
+           carries them is hidden the instant `paired` flips, which is the same instant the phone
+           starts asking him to compare — so the Mac took its half of the comparison off the
+           screen at exactly the moment he needed it. They go away once he has answered: a
+           fingerprint nobody is checking is chrome. -->
+      <p class="phone-words" id="phone-paired-words" hidden></p>
       <!-- THE ONE LINE ON THIS CARD WITH AN ERRAND IN IT. Either it says the phone can reach him
            — which is the finish — or it names the thing on the phone that has not been done yet,
            in that phone's own menu names. Both are the point of the card, and both were set in
@@ -530,6 +544,22 @@
     "You can use this anywhere your phone has a signal. Both devices have to be signed in to " +
     "Tailscale for it to connect, wherever you are.";
 
+  /// **THE TWO SENTENCES FOR THE PAIRED CARD'S FIRST LINE, AND THE ORDER THEY HAPPEN IN** —
+  /// Ray's nightly `.7` walk, defect 2.
+  ///
+  /// The card said `It is paired. Open Rich on it and keep talking.` from the moment the phone
+  /// redeemed the code — which is BEFORE the person has been shown the six words, let alone
+  /// answered them. Both screens were up together in his frame 13: the Mac announcing the
+  /// answer, the phone still asking the question.
+  ///
+  /// So the first of these is what is true at that moment, and it says what he is being asked
+  /// to do rather than leaving him to infer it. The second is the finish, and it is reached
+  /// only when the phone comes back over `POST /api/pair` with `fingerprint_confirmed: true`.
+  const PAIRED_AWAITING_WORDS =
+    "It has reached this Mac. Check that the six words on it are the six words below, then " +
+    "answer on the phone.";
+  const PAIRED_CONFIRMED = "It is paired. Open Rich on it and keep talking.";
+
   /// Which of the two the record selects. `via` is the token `device.rs` writes; anything that
   /// is not this build's own path — including an empty string from a record written before the
   /// field existed — gets the migration sentence rather than being folded into the answer that
@@ -787,6 +817,15 @@
 
     if (status.paired) {
       field("phone-device-name").textContent = status.deviceName || "Your phone";
+      // Ray's defect 2. `It is paired` is a claim about something only the person can settle,
+      // so it waits for him to settle it. What is true before that is that the phone reached
+      // this Mac and is asking him the question — so that is what the line says, and it names
+      // the thing he is being asked to do rather than leaving him to work it out.
+      field("phone-paired-state").textContent = status.fingerprintConfirmed
+        ? PAIRED_CONFIRMED
+        : PAIRED_AWAITING_WORDS;
+      field("phone-paired-words").textContent = (status.fingerprintWords || []).join("  ");
+      field("phone-paired-words").hidden = status.fingerprintConfirmed;
       field("phone-push-state").textContent = status.pushReady
         ? "It can reach you with a notification when Rich has something for you."
         : pushNotReadyFor(status.platform);
