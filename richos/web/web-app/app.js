@@ -66,6 +66,13 @@ let notificationsDeclined = false;
 let loadingOlder = false;
 let renderQueued = false;
 let pendingPairCode = null;
+/// **IS HE READING THE NEWEST MESSAGE?** Remembered, never re-measured at the moment it matters —
+/// see `atBottom`, `stickToBottom` and the observer under `Rendering`. It starts true because an
+/// empty thread is at its own bottom.
+let pinnedToBottom = true;
+/// Where the thread was the last time it reported a position. The scroll handler needs the
+/// DIRECTION of a move, not just the new number — see the comment there.
+let lastScrollTop = 0;
 
 // The recorder, and the one flag the whole permission design hangs on.
 let micStream = null;
@@ -431,9 +438,49 @@ function atBottom() {
 	return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
 }
 
+/// **THE VIEW FOLLOWS THE CONVERSATION WHEN THE COLUMN AROUND IT MOVES** — Ray's candidate .13
+/// defect R2, and the mechanism is not the one the report guessed at.
+///
+/// # What was measured, on this app, in a real browser at 360 px
+///
+/// The app reopens with a warm cache — which is what his phone does every time after the first.
+/// `startConversation` merges the cached rows and pins the view with `render(true)`, correctly
+/// and while nothing has taken any height yet. THEN `refreshPushOffer()` resolves and un-hides
+/// the notification offer ABOVE the thread, and the thread's own viewport shrinks by the offer's
+/// height. At 360x740, against a stub advertising what the shipped Mac advertises:
+///
+///     the pin      thread 598px tall, so the bottom is scrollTop 1377 of 1975
+///     settled      thread 505px tall (a 93px offer), scrollTop still 1377   ->  93px short
+///
+/// **Shrinking a scroller does not move its `scrollTop`.** The position is measured from the TOP,
+/// so the top edge of the visible region stays exactly where it was and the BOTTOM edge climbs by
+/// however much the viewport lost. Nothing is clamped, no `scroll` event fires, and the newest
+/// bubble is now 93 px below the fold. `render()`'s own `wasAtBottom` check is then false forever
+/// after (93 > its 80 px tolerance), so every message that arrives afterwards lands unseen — Ray
+/// filmed 30 frames over 15 s of a message that was in the DOM the whole time.
+///
+/// The same arithmetic applies to anything else that takes height from this column after the pin:
+/// the waiting banner, the thread picker arriving with a second conversation, the hold control
+/// when a Mac advertises voice (a further 106 px, measured), the on-screen keyboard. The harness
+/// measures 224 px of it on `a2cef8ee` with several of them at once.
+///
+/// So the fix is not "re-pin after the offer" — it is that the app REMEMBERS whether he is at the
+/// bottom and puts him back there whenever the layout moves underneath him.
+function stickToBottom() {
+	const el = $('thread');
+	// THE TARGET IS COMPUTED, NOT WRITTEN PAST THE END. `scrollTop = scrollHeight` is clamped to
+	// the scroll extent the browser has already laid out, which in the middle of a resize is the
+	// extent from BEFORE it; reading `clientHeight` here forces the layout the browser was
+	// deferring, so the number assigned is the real bottom.
+	el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+	pinnedToBottom = true;
+}
+
 function render(forceBottom) {
 	const list = $('messages');
-	const wasAtBottom = forceBottom || atBottom();
+	// `pinnedToBottom` first and `atBottom()` only as a backstop: by the time a resize has
+	// stranded the view, `atBottom()` already answers "no" — which is the whole defect.
+	const wasAtBottom = forceBottom || pinnedToBottom || atBottom();
 	const rows = thread.view(queue ? queue.all() : []);
 
 	// "Delivered." belongs on the LAST thing he sent and nowhere else. Repeating it under every
@@ -483,7 +530,28 @@ function render(forceBottom) {
 		list.appendChild(empty);
 	}
 
-	if (wasAtBottom) $('thread').scrollTop = $('thread').scrollHeight;
+	if (wasAtBottom) stickToBottom();
+}
+
+// **THE LAYOUT MOVED UNDER HIM.** One observer, on the two boxes whose size decides where the
+// bottom is: the scroller itself (the offer, the banner, the picker, the keyboard — anything that
+// takes height from the column) and the list inside it (a message that re-wraps as a font loads,
+// a reply growing as it streams). Neither is a `scroll`, so nothing else in this file hears them.
+//
+// It re-pins ONLY when he was already at the bottom. Scrolled up to read something, he stays
+// where he is — which is also what keeps `loadOlder`'s "keep his place" adjustment intact, since
+// that path only runs with the thread scrolled to its top.
+//
+// **THE REFERENCE IS HELD AT MODULE SCOPE, AND THAT IS NOT TIDINESS.** An observer whose only
+// reference is a `const` inside this block is collectable the moment the block ends, and a
+// collected observer simply stops delivering — silently, and not immediately. Measured exactly
+// that way while this was being built: the first resize of the session was answered and the one
+// that mattered, seconds later, was not, which reads as "the fix works sometimes".
+let threadWatcher = null;
+if (typeof ResizeObserver !== 'undefined') {
+	threadWatcher = new ResizeObserver(() => { if (pinnedToBottom) stickToBottom(); });
+	threadWatcher.observe($('thread'));
+	threadWatcher.observe($('messages'));
 }
 
 function renderRow(row, isLastDelivered) {
@@ -616,7 +684,30 @@ $('thread-picker').addEventListener('change', async (event) => {
 // ---------------------------------------------------------------------------------------------
 
 $('thread').addEventListener('scroll', () => {
-	if ($('thread').scrollTop > 120 || loadingOlder || !thread || thread.atTheBeginning()) return;
+	// **ONLY HIS THUMB LETS GO OF THE BOTTOM, AND BOTH HALVES OF THAT WERE MEASURED WRONG FIRST.**
+	//
+	// The obvious form is `pinnedToBottom = atBottom()`. Written that way, it failed on the very
+	// case it exists for: `stickToBottom()` queues ONE scroll event, dispatched in a later frame's
+	// "run the scroll steps", by which time the notification offer has already taken 93 px out of
+	// the column — so that late event reported a view short of the bottom and cleared the flag
+	// before the resize observer could act on it. Measured `pinned:false, gap:199` at 360 px: the
+	// defect intact with the fix in.
+	//
+	// The second form, `if (top < lastScrollTop - 1) unpin`, failed the OTHER direction. A band
+	// DISAPPEARING — he turns notifications on, the waiting banner clears, the keyboard closes —
+	// grows the viewport, and the browser then clamps `scrollTop` DOWN to the new, smaller
+	// maximum. That is a scroll upwards by every measure this handler has, and it unpinned a
+	// reader who had not moved at all: measured `RO clientHeight 365, pinned false`, with the
+	// next band to arrive going unanswered.
+	//
+	// So the question asked first is WHERE, and only then WHICH WAY: a view that is at the bottom
+	// is following the conversation however it got there, and only a move upwards that actually
+	// leaves the bottom is him going to read something.
+	const top = $('thread').scrollTop;
+	if (atBottom()) pinnedToBottom = true;
+	else if (top < lastScrollTop - 1) pinnedToBottom = false;
+	lastScrollTop = top;
+	if (top > 120 || loadingOlder || !thread || thread.atTheBeginning()) return;
 	const oldest = thread.oldestCursor();
 	if (oldest === null) return;
 	loadOlder(oldest);
@@ -1354,6 +1445,9 @@ globalThis.__richosPhone = {
 	get api() { return api; },
 	get state() { return apiState; },
 	get link() { return link; },
+	/// Whether the app believes he is reading the newest message. The harness asserts the
+	/// PIXELS either way; this is here so a failure can say which half went wrong.
+	get pinnedToBottom() { return pinnedToBottom; },
 	render, flushQueue, connectStream, applyCapabilities
 };
 

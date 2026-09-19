@@ -410,6 +410,173 @@ async function runEngine(playwright, engine) {
 		check('NO PAGINATION — no page number, no pagination control, anywhere', pagination === false);
 
 		// ---------------------------------------------------------------------------------------
+		section(`${engine}: the thread opens at its newest message, and follows it (audit R2, 360px)`);
+		// ---------------------------------------------------------------------------------------
+		//
+		// Ray's candidate .13, defect R2: he paired, the newest bubble sat below the fold, and a
+		// message sent from the Mac was filmed for 15 s across 30 frames without ever appearing —
+		// it was in the DOM the whole time. After one manual scroll to the bottom the next message
+		// was on screen in 0.096 s and stayed pinned. So delivery was never the problem and the
+		// RESTING POSITION was.
+		//
+		// MEASURED HERE, at his HONOR X6b's width, on this app in this browser:
+		//
+		//   before  reopen -> thread clientHeight 399, scrollTop 1377, scrollHeight 1975, gap 199
+		//   after   reopen -> thread clientHeight 399, scrollTop 1576, scrollHeight 1975, gap   0
+		//
+		// The mechanism is check 2 below and it is worth stating because it is not the one the
+		// report guessed at: `startConversation` pins the view with `render(true)` while the
+		// column is still 505 px tall, and the notification offer then un-hides ABOVE the thread.
+		// `scrollTop` is measured from the TOP, so shrinking the scroller leaves it untouched and
+		// moves the visible BOTTOM up by the offer's height. Nothing is clamped and no `scroll`
+		// event fires, so the app never learned it had been moved off the newest message.
+		//
+		// Check 2 is therefore the one that fails on `a2cef8ee` without depending on a
+		// notification permission: it takes the app's own offer element and un-hides it while the
+		// view is at the bottom, which is exactly what `refreshPushOffer()` does a moment after
+		// the app opens.
+		//
+		// THE NEGATIVE CONTROL WAS RUN, not reasoned about: with `a2cef8ee`'s `app.js` put back
+		// and everything else unchanged, all five checks here fail —
+		//
+		//     opens 224px short of the newest message
+		//     the offer takes 127px and the view does not move at all (gap 127 = the band itself)
+		//     the arriving message never comes into view in 4s (Ray filmed 15s of the same thing)
+		//
+		// Checks 4 and 5 are GUARDS rather than the defect: they hold the fix to not over-reaching
+		// — a message must not yank him out of what he is reading — and on `a2cef8ee` they fail
+		// only because the app has no such state to report at all.
+
+		await page.setViewportSize({ width: 360, height: 740 });
+		await page.reload();
+		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
+		await page.waitForFunction(() => document.querySelectorAll('#messages li').length > 3, null, { timeout: 15000 });
+		await sleep(1200);
+
+		// Every number this section asserts, in one read.
+		const threadView = () => page.evaluate(() => {
+			const t = document.getElementById('thread');
+			const last = document.querySelector('#messages li:last-child');
+			const tr = t.getBoundingClientRect();
+			const lr = last ? last.getBoundingClientRect() : null;
+			return {
+				clientHeight: t.clientHeight,
+				scrollHeight: t.scrollHeight,
+				scrollTop: Math.round(t.scrollTop),
+				gap: Math.round(t.scrollHeight - t.scrollTop - t.clientHeight),
+				newestFullyVisible: lr ? lr.bottom <= tr.bottom + 1 : null,
+				pinned: window.__richosPhone.pinnedToBottom
+			};
+		});
+
+		const opened = await threadView();
+		check(`${engine}: 360px — the app opens on the newest message, not one bubble short of it`,
+			opened.gap <= 1 && opened.newestFullyVisible === true,
+			`thread ${opened.clientHeight}px of ${opened.scrollHeight}px, scrollTop ${opened.scrollTop}, gap ${opened.gap}px`);
+
+		// --- 2. a band appearing above the thread does not strand the view ---
+		const banded = await page.evaluate(() => {
+			const frames = (n) => new Promise((resolve) => {
+				const tick = () => (--n <= 0 ? resolve() : requestAnimationFrame(tick));
+				requestAnimationFrame(tick);
+			});
+			const t = document.getElementById('thread');
+			const offer = document.getElementById('push-offer');
+			return (async () => {
+				// From a KNOWN state, whatever the notification permission of the browser running
+				// this happens to be: no band, view at the bottom.
+				offer.hidden = true;
+				await frames(2);
+				t.scrollTop = t.scrollHeight;
+				await frames(2);
+				// The sentence and the button are set BEFORE the un-hide, because that is the
+				// order `refreshPushOffer()` uses — it writes what the band says and then shows
+				// it, in one task, so the band has ONE layout. Writing them afterwards gives it
+				// two (93 px, then 127 px), which is a transition the product never makes and
+				// which this check has no business inventing.
+				document.getElementById('push-offer-text').textContent =
+					'Notifications are off, so Rich cannot reach you when this app is closed.';
+				document.getElementById('push-on').hidden = false;
+				const before = { clientHeight: t.clientHeight, scrollTop: Math.round(t.scrollTop) };
+				// What `refreshPushOffer()` does a moment after the app opens, in the state the
+				// CEO's own phone is in.
+				offer.hidden = false;
+				// Two frames: one for the layout the un-hide causes, one for the observer that
+				// answers it. A single frame would be measuring the race rather than the fix.
+				await frames(2);
+				const last = document.querySelector('#messages li:last-child');
+				const lr = last ? last.getBoundingClientRect() : null;
+				const tr = t.getBoundingClientRect();
+				return {
+					before,
+					bandHeight: Math.round(offer.getBoundingClientRect().height),
+					shrankBy: before.clientHeight - t.clientHeight,
+					scrollTop: Math.round(t.scrollTop),
+					gap: Math.round(t.scrollHeight - t.scrollTop - t.clientHeight),
+					newestFullyVisible: lr ? lr.bottom <= tr.bottom + 1 : null
+				};
+			})();
+		});
+		check(`${engine}: 360px — the notification offer takes height from the column and the view follows it down`,
+			banded.shrankBy >= 40 && banded.gap <= 1 && banded.newestFullyVisible === true,
+			`the offer is ${banded.bandHeight}px tall, the thread lost ${banded.shrankBy}px of viewport ` +
+			`(${banded.before.clientHeight} -> ${banded.before.clientHeight - banded.shrankBy}), scrollTop ` +
+			`${banded.before.scrollTop} -> ${banded.scrollTop}, and the view is ${banded.gap}px from the bottom ` +
+			`(on a2cef8ee this gap is the band's own height)`);
+
+		// --- 3. a message that arrives while he is at the bottom comes with the view ---
+		mac.state.ledger.push({
+			id: 'r2-arrives', thread_id: mac.threadId, cursor: mac.state.nextCursor++, role: 'rich', kind: 'text',
+			text: 'the-message-that-arrives-while-he-is-looking', created_at: new Date().toISOString(),
+			complete: true, has_audio: false
+		});
+		await page.evaluate(() => window.__richosPhone.connectStream());
+		const arrival = Date.now();
+		let onScreenIn = null;
+		for (let i = 0; i < 40 && onScreenIn === null; i++) {
+			await sleep(100);
+			const seen = await page.evaluate(() => {
+				const t = document.getElementById('thread');
+				const el = Array.from(document.querySelectorAll('#messages li'))
+					.find((li) => li.innerText.includes('the-message-that-arrives-while-he-is-looking'));
+				if (!el) return false;
+				const r = el.getBoundingClientRect(), tr = t.getBoundingClientRect();
+				return r.bottom <= tr.bottom + 1 && r.top >= tr.top - 1;
+			});
+			if (seen) onScreenIn = Date.now() - arrival;
+		}
+		check(`${engine}: a message that arrives while he is at the bottom is ON SCREEN, not merely in the DOM`,
+			onScreenIn !== null, onScreenIn === null ? 'never came into view in 4 s' : `fully visible ${onScreenIn} ms after the stream reopened`);
+
+		// --- 4. and it does NOT move him when he is reading something further up ---
+		await page.evaluate(() => { document.getElementById('thread').scrollTop -= 400; });
+		await sleep(200);
+		const readingUp = await threadView();
+		mac.state.ledger.push({
+			id: 'r2-arrives-2', thread_id: mac.threadId, cursor: mac.state.nextCursor++, role: 'rich', kind: 'text',
+			text: 'the-message-that-must-not-yank-him', created_at: new Date().toISOString(),
+			complete: true, has_audio: false
+		});
+		await page.evaluate(() => window.__richosPhone.connectStream());
+		await page.waitForFunction(() => Array.from(document.querySelectorAll('#messages li'))
+			.some((li) => li.innerText.includes('the-message-that-must-not-yank-him')), null, { timeout: 15000 });
+		await sleep(400);
+		const stillReading = await threadView();
+		check(`${engine}: reading further up, a message that arrives does not yank him to the bottom`,
+			readingUp.pinned === false && Math.abs(stillReading.scrollTop - readingUp.scrollTop) <= 1,
+			`scrollTop ${readingUp.scrollTop} -> ${stillReading.scrollTop} (pinned ${readingUp.pinned})`);
+
+		// --- 5. back at the bottom, he is following again ---
+		await page.evaluate(() => { const t = document.getElementById('thread'); t.scrollTop = t.scrollHeight; });
+		await sleep(200);
+		const backDown = await threadView();
+		check(`${engine}: scrolling back to the bottom picks the conversation up again`,
+			backDown.pinned === true && backDown.gap <= 1,
+			`gap ${backDown.gap}px, pinned ${backDown.pinned}`);
+
+		await page.setViewportSize(HIS_PHONE);
+
+		// ---------------------------------------------------------------------------------------
 		section(`${engine}: the controls this Mac can actually stand behind`);
 		// ---------------------------------------------------------------------------------------
 		//
