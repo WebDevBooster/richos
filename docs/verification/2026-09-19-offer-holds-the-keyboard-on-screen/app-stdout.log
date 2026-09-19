@@ -1,0 +1,40 @@
+[richos] activation: regular — RICHOS_ACTIVATION=regular asked for the front. Without it this boot would have been judged on its own facts.
+[richos] window: restored 1024x700 pt at (438,92), min 1024x700 — where it was left, still inside Monitor #30942 work area 1920x1005 pt at (0,25), scale 1
+[richos] launch: fresh (start 25, 1 window(s))
+[richos] company registry: 1 company from /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 1 compan(ies), /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/com.richos.app/entities.json (file)
+[richos] central folder: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/myrichos (NOT THERE — no company has anything on file)
+[richos] company: qa-test-co (via the saved choice)
+[richos] onboarding qa-test-co: nothing on file and no declination — Rich will offer the interview
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] this app: built from d27c67e1
+[richos] engine directory: NOT FOUND — this build boots engine 1.2.0, and none of the 5 place(s) tried carries it
+[richos]   looked in /Users/alex/ab/richos-wt/echo-opus-offer2/richos/app/src-tauri/target/Resources/engine (app bundle resources)
+[richos]   looked in /Users/alex/ab/richos-wt/echo-opus-offer2/richos/app/src-tauri/target/release (repo layout above the executable)
+[richos]   looked in /Users/alex/ab/femcboost/.claude/worktrees/agent-a3661f802205dc81e (repo layout above the working directory)
+[richos]   looked in /Users/alex/.claude/richos-engine (engine install pointer)
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine (application support)
+[richos]   passed over /Users/alex/ab/richos-wt/echo-opus-offer2/richos/engine (repo layout above the executable) — the engine there has no record of what installed it, so its contents are unknown, and this build pins adece4c069e4
+[richos]   passed over /Users/alex/ab/richos-wt/echo-opus-offer2/richos/engine (repo layout above the executable) — the engine there has no record of what installed it, so its contents are unknown, and this build pins adece4c069e4
+[richos]   passed over /Users/alex/.claude/richos-engine (engine install pointer) — the engine there has no record of what installed it, so its contents are unknown, and this build pins adece4c069e4
+[richos]   passed over /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine (application support) — the engine there carries the right version and different contents — installed from 3313945b26b7, and this build pins adece4c069e4
+[richos] compute connection: starts with the first cancellable request over /Users/alex/.local/bin/claude
+[richos] recovery: this launch has no verified Git runtime, so an assignment's repository is recorded as unread rather than as unchanged.
+[richos] recovery: 0 assignment(s) unknown until re-witnessed, 0 left as recorded
+[richos] first-run setup: the RichOS engine is NOT installed — 3 place(s) looked:
+[richos]   looked in /Users/alex/ab/richos-wt/echo-opus-offer2/richos/app/src-tauri/target/Resources/engine — nothing that looks like the engine is there
+[richos]   looked in /Users/alex/.claude/richos-engine — the engine there has no record of what installed it, so its contents are unknown, and this build pins adece4c069e4
+[richos]   looked in /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine — the engine there carries the right version and different contents — installed from 3313945b26b7, and this build pins adece4c069e4
+[richos] first-run setup: this build installs engine 1.2.0.
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+[richos] no spare front desk was made ready for qa-test-co: NotReady("cognition io: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine: the engine there carries the right version and different contents — installed from 3313945b26b7, and this build pins adece4c069e4")
+[richos] voice: ready on this machine (ready) — whisper.cpp 1.9.1 bin:7dc20e3106d7 [BLAS/MTL/CPU] model:small.en@c6138d6d58ec | model:small.en (hw-resolved top rung, 0.707s/utt <= 1.000s) mem:4978655232B/25769803776B pressure:normal
+[richos] the front desk could not be made ready before he types (cognition io: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine: the engine there carries the right version and different contents — installed from 3313945b26b7, and this build pins adece4c069e4); his first message will prime it the way it did before, which is the only cost
+[richos] the front desk was not made ready before he types: NotReady("cognition io: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine: the engine there carries the right version and different contents — installed from 3313945b26b7, and this build pins adece4c069e4")
+[richos] no spare front desk was made ready for qa-test-co: NotReady("cognition io: /private/tmp/claude-501/-Users-alex-ab-femcboost/f5aeaea1-80fa-4210-b51f-720f89942a80/scratchpad/offer2-home/Library/Application Support/RichOS/engine: the engine there carries the right version and different contents — installed from 3313945b26b7, and this build pins adece4c069e4")
