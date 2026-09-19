@@ -257,6 +257,12 @@ function deviceName() {
 
 $('pair-confirm').addEventListener('click', async () => {
 	$('pair-confirm').disabled = true;
+	// TELL THE MAC HE ANSWERED, BEFORE ANYTHING ELSE ON THIS PRESS. Until this existed the Mac's
+	// own sheet read `It is paired` while this screen was still asking the question (Ray's
+	// nightly `.7`, defect 2) — it had nothing else to go on. A failure here is not worth
+	// stopping the pairing he has just approved: his phone works either way, and the Mac's card
+	// stays on the sentence that is still true until the next time this phone reaches it.
+	try { await api.confirmFingerprint(true); } catch { /* the Mac's card waits; his phone does not */ }
 	await settings.set('threads', threads);
 	await settings.set('threadId', currentThreadId);
 	await settings.set('vapidPublicKey', vapidPublicKey);
@@ -273,6 +279,12 @@ $('pair-confirm').addEventListener('click', async () => {
 $('pair-reject').addEventListener('click', async () => {
 	// He said the words do not match. That is the one outcome where continuing would be worse than
 	// stopping: the credential is thrown away rather than kept "just in case".
+	//
+	// AND THE MAC IS TOLD, WHICH IT WAS NOT. This side threw its key away and the Mac went on
+	// holding a device record for a phone the person had just said may not be his Mac's phone at
+	// all. The Mac forgets it on this message. Sent FIRST, while the credential that signs it
+	// still exists — `keyStore.clear()` below is what makes it unsendable.
+	try { await api.confirmFingerprint(false); } catch { /* said locally either way, below */ }
 	await keyStore.clear();
 	await settings.set('deviceId', null);
 	apiState.deviceId = null;
@@ -903,6 +915,36 @@ function newClientId() {
 
 let flushing = false;
 
+// **ONE TIMER, AND IT BELONGS TO THE OUTBOX** — T3 Code's connection runtime,
+// `docs/internals/connection-runtime.md:5-7`: *"Keeping retries and session lifetime here
+// prevents competing reconnect loops when several views need the same environment."*
+//
+// The send path had no retry owner at all, so it borrowed the STREAM's: a message that failed
+// sat still until `lib/link.js` happened to reconnect, on a backoff capped at 30 s. That is
+// the 30.67 s, 54.47 s and 48.79 s Ray measured on nightly `.7`. `lib/queue.js` owns the
+// policy now and answers `dueInMs()`; this is the single timer that honors it. Exactly one
+// exists at a time, it is always cleared before it is replaced, and it is never set at all
+// while the phone knows it is offline — T3's *"offline states ... wait for a wakeup instead
+// of spending attempts on unchanged conditions"*.
+let outboxTimer = null;
+
+function scheduleOutboxDrain() {
+	if (outboxTimer !== null) { clearTimeout(outboxTimer); outboxTimer = null; }
+	if (!queue) return;
+	const owed = queue.dueInMs();
+	if (owed === null) return;                       // nothing is waiting on a clock
+	// THE WAKEUP, NOT AN ATTEMPT. `online` below is what moves this, and the browser fires
+	// it the moment the platform says the network is back — which is a better signal than
+	// any number this app could pick.
+	if (typeof navigator === 'object' && navigator && navigator.onLine === false) return;
+	outboxTimer = setTimeout(() => { outboxTimer = null; flushQueue(); }, owed);
+}
+
+// Back on the network. A wakeup fires what is already owed rather than adding an attempt.
+if (typeof window !== 'undefined' && window.addEventListener) {
+	window.addEventListener('online', () => { if (link) link.wake(); flushQueue(); });
+}
+
 async function flushQueue() {
 	if (flushing || !queue || !api) return;
 	flushing = true;
@@ -917,6 +959,9 @@ async function flushQueue() {
 		handleApiError(err);
 	} finally {
 		flushing = false;
+		// The outbox decides when it is owed another try; this is the only place that acts
+		// on the answer, so there is one timer however many things called `flushQueue`.
+		scheduleOutboxDrain();
 		updateQueueBanner();
 		scheduleRender();
 	}
@@ -948,8 +993,10 @@ function updateQueueBanner() {
 }
 
 $('queue-retry').addEventListener('click', () => {
-	// He asked, so anything blocked gets one more chance rather than staying stuck forever.
-	queue.blocked().forEach((item) => { item.state = 'waiting'; });
+	// He asked, so anything blocked gets one more chance rather than staying stuck forever —
+	// and it goes NOW. This used to set `item.state` from out here, which left the outbox's
+	// own `notBefore` where it was, so his tap would have been answered with a wait.
+	queue.retryEverythingNow();
 	flushQueue();
 });
 

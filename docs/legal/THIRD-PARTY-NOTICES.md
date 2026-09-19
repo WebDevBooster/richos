@@ -304,6 +304,32 @@ Nothing above blocks publishing the **source**. The AGPL obligations attach to
 what this repository contains, and every bundled work in it is named here with
 its terms.
 
+## Designs adopted from third-party source — no code bundled
+
+Nothing in this section is redistributed. It is recorded because a design read
+off somebody else's source and built to deliberately is a provenance fact, and
+a reader of ours should be able to find the original rather than assume the
+reasoning was ours.
+
+| What we took | Upstream | Revision | License | Copyright | Where it landed |
+|---|---|---|---|---|---|
+| The phone outbox's retry policy and its compare-and-set write revisions, and the rule that the send path owns its own retry clock rather than borrowing the transport's | `pingdotgg/t3code` | `8ebb6112377a110afb956ac01fb44fee68f5709c` | MIT | T3 Tools Inc. | `richos/web/web-app/lib/queue.js`, `richos/web/web-app/app.js` |
+
+**What was and was not taken, precisely.** The two numbers — double from one
+second, cap at sixteen — and the reasoning, from
+`apps/mobile/src/state/thread-outbox-model.ts:163-165`,
+`apps/mobile/src/state/thread-outbox-manager.ts:51-57, 164-177` and
+`docs/internals/connection-runtime.md:5-22`. **No file, function or line of
+theirs is copied**: our outbox is plain ES5-era JavaScript with a storage port,
+theirs is React with Jotai atoms and Effect schemas, and the two share no
+shape. Each adopting site names the upstream file it was read from, in the
+comment beside the code. MIT would permit copying with attribution; we did not
+need to.
+
+Read for RichOS by Reed on 2026-09-18 and 2026-09-19 —
+`richos-hq/docs/research/t3code-mobile-vs-richos-phone-2026-09-18.md` §1 item 6
+and `richos-hq/docs/research/t3code-tooling-what-to-adopt-2026-09-19.md` §2.6.
+
 ## Adding something new
 
 Vendoring anything means three things in the same commit:
