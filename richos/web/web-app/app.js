@@ -358,6 +358,28 @@ function makeLink() {
 				// What this Mac can actually be asked for, before anything else in this handler:
 				// the screen should never be one frame ahead of what the Mac has said it can do.
 				applyCapabilities();
+				// **BOTH SIDES OF THE CONVERSATION, AND THIS IS WHERE ONE OF THEM WENT.**
+				//
+				// The Mac puts the whole gated projection in every `hello` — *"The rows
+				// themselves ride along, so the first paint needs no second request"*
+				// (`app/src-tauri/src/phone/routes.rs:492-494`) — and it puts BOTH roles in it:
+				// `rows_from_payload` keeps `user_message` and `rich_message` and drops only
+				// machinery (`phone/rows.rs:49-109`, proved by its own
+				// `only_the_conversation_reaches_the_phone_and_no_machinery_does`). This handler
+				// read `vapid_public_key` and `threads` out of that frame and dropped
+				// `data.messages` on the floor.
+				//
+				// What that looked like on his phone, on 2026-09-18: a list of answers with no
+				// questions. The live stream can only ever open a `role: "rich"` row
+				// (`phone/rows.rs:115-173`), so Rich's replies arrived and nothing he wrote ever
+				// did — not from this phone, not from the Mac. It is the one frame that carries
+				// his own words, and it is merged before anything else in this handler touches
+				// the screen.
+				if (Array.isArray(data.messages) && data.messages.length) {
+					thread.merge(data.messages);
+					messageCache.put(data.messages).catch(() => {});
+					scheduleRender();
+				}
 				if (data.vapid_public_key) {
 					vapidPublicKey = data.vapid_public_key;
 					settings.set('vapidPublicKey', vapidPublicKey).catch(() => {});
@@ -373,6 +395,7 @@ function makeLink() {
 				thread.merge(row);
 				messageCache.put(row).catch(() => {});
 				scheduleRender();
+				if (row && row.role === 'rich' && row.complete) askForTheQuestion(row);
 			},
 			delta(data) { thread.applyDelta(data); scheduleRender(); },
 			state(data) { thread.applyState(data); scheduleRender(); }
@@ -576,6 +599,54 @@ $('thread').addEventListener('scroll', () => {
 	loadOlder(oldest);
 });
 
+/// **A REPLY WITH NO QUESTION IN FRONT OF IT — the fallback, named as one.**
+///
+/// A message the CEO types ON HIS MAC never reaches this phone live. There is no live event in
+/// this build that carries a CEO turn: `LiveEvent` is `TurnStatus`, `MessageStarted`,
+/// `MessageDelta`, `MessageCompleted`, `ActivityUpserted`, `WorkerUpserted` and
+/// `ThreadSummaryUpdated`, and not one of them carries his words
+/// (`app/crates/richos-core/src/live.rs:306-381`); `event_from_live` therefore translates
+/// `rich://message-*` and nothing else (`app/src-tauri/src/phone/rows.rs:115-173`). So while he
+/// watches the phone and types on the Mac, Rich answers a question the phone never saw.
+///
+/// **The fix at the cause is a CEO-turn live event in `richos-core`, and it is NOT built here.**
+/// This file cannot reach the spine, and the Mac-side emitter cannot read the projection mid-turn
+/// either: `PhoneBridge::snapshot` `try_lock`s the spine and, while a turn holds it, serves a
+/// cache from BEFORE that turn (`app/src-tauri/src/phone/bridge.rs:141-162`). What is built here
+/// is the honest fallback — when a reply settles and the phone is holding nothing of his in front
+/// of it, the phone asks the Mac for the rows before it, on the backfill route it already has and
+/// already signs.
+///
+/// Bounded on purpose: at most one request per reply (`reconciled`), and five rows — the question,
+/// its answer, and room for the turn before them.
+const reconciled = new Set();
+
+async function askForTheQuestion(row) {
+	if (!api || !currentThreadId || !row || !row.id) return;
+	if (reconciled.has(row.id)) return;
+	const shown = thread.view([]);
+	const at = shown.findIndex((seen) => seen.id === row.id);
+	if (at > 0 && shown[at - 1].role === 'ceo') return;
+	reconciled.add(row.id);
+	// The Mac's own numbering is the only ordering, and the LIVE sequence can sit behind it: the
+	// hub takes one cursor per streamed reply and the projection counts one per message, so a turn
+	// he starts on the Mac moves the projection by two and the hub by one. Asking from one past the
+	// highest cursor either side knows is what makes the answer include his row rather than stop
+	// just short of it.
+	const from = Math.max(row.cursor || 0, thread.latestCursor() || 0) + 1;
+	try {
+		const page = await api.backfill(currentThreadId, from, 5);
+		thread.prependOlder(page);
+		messageCache.put(page.messages || []).catch(() => {});
+		scheduleRender();
+	} catch (err) {
+		// Never a screen of its own: the reply he is reading is real and already on screen, and the
+		// row in front of it arrives with the next `hello` whatever happens here.
+		reconciled.delete(row.id);
+		handleApiError(err);
+	}
+}
+
 async function loadOlder(beforeCursor) {
 	loadingOlder = true;
 	render(false);
@@ -656,6 +727,8 @@ async function flushQueue() {
 	flushing = true;
 	try {
 		const result = await queue.flush(api);
+		// His own message, where he put it, from the Mac's own answer. See `thread.confirm`.
+		(result.accepted || []).forEach(({ item, answer }) => thread.confirm(item, answer));
 		if (result.reason === 'revoked') { await goRevoked(); return; }
 		if (result.sent > 0 && result.waiting === 0 && result.blocked === 0) setLinkState('connected');
 		if (result.reason === 'unreachable') setLinkState('away');

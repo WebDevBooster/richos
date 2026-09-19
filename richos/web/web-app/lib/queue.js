@@ -128,7 +128,14 @@
 			async flush(sender) {
 				if (flushing) return flushing;
 				flushing = (async () => {
-					const result = { sent: 0, waiting: 0, blocked: 0, reason: null, duplicates: 0 };
+					// `accepted` carries the Mac's OWN answer for each item it took — `message_id`,
+					// `cursor`, `accepted_at`. Without it the answer died here, and with it died
+					// the only thing on the phone that knew where his message had gone: the item
+					// is dropped on success (rule 3), no live frame in this build carries a CEO
+					// turn (`phone/rows.rs:115-173`), and the projected row waits for the next
+					// `hello`. So the caller hands each one to `thread.confirm` and his message
+					// stays on the screen it was typed on.
+					const result = { sent: 0, waiting: 0, blocked: 0, reason: null, duplicates: 0, accepted: [] };
 					for (const item of sorted()) {
 						if (item.state === BLOCKED) { result.blocked++; continue; }
 
@@ -143,6 +150,7 @@
 							items = items.filter((i) => i.clientId !== item.clientId);
 							await storage.remove(item.clientId);
 							result.sent++;
+							if (response) result.accepted.push({ item, answer: response });
 							changed();
 						} catch (err) {
 							const retryable = err && err.retryable;
