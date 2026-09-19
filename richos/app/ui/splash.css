@@ -276,6 +276,64 @@
   width: var(--splash-rule-width);
 }
 
+/* HELD — the space key, and the CEO's own amendment to §62 the same day it was given:
+ * *"if the animation on the splash screen can be easily paused without adding too much
+ * complexity, then sure the animation should pause when hitting the space key."*
+ *
+ * It can, and this is the whole of it for the composition: every moving thing in this file
+ * is a CSS animation, so one declaration stops all six of them (four `splash-rise` stages,
+ * the strike and the rule) exactly where they stand — mid-rise, half-struck, a rule drawn
+ * part of the way across — and `animation-play-state: running` puts them back on the frame
+ * they were stopped at rather than at the beginning. The descendant selector is deliberately
+ * `*`: a stage added to this composition later is held by this rule without anyone
+ * remembering to add it, which is the opposite of a list that goes stale.
+ *
+ * The other two kinds of motion are held where THEY live, because this property cannot reach
+ * either: the loading bar is painted from `splash.js`'s own `requestAnimationFrame` tick and
+ * stops because its clock stops, and the bar track's fade is a Web-Animations animation,
+ * which `animation-play-state` has no authority over — `splash.js` holds that one through
+ * the handle `buildBar` keeps on it.
+ *
+ * NOT `animation: none`. That is what `splash--settled` does, and it means something else:
+ * settled CANCELS the ceremony and pins every element to where it was going. Held keeps the
+ * unfinished frame on the glass, which is the point of looking at it. */
+.splash--paused,
+.splash--paused * {
+  animation-play-state: paused;
+}
+
+/* THE SETTINGS BUTTON IS NOT ON THIS SCREEN — except while he is holding it (CEO §62).
+ *
+ * *"The splash screen is one of those rare cases where the screen should NOT have a settings
+ * button (because it's only there for 3 seconds by default and 5 seconds in some cases in
+ * the future) ... while the splash screen is 'paused', THAT'S when the settings button should
+ * show up on the splash screen. Because that's the only time it would make sense."*
+ *
+ * THE ONE DECLARED EXCEPTION TO §15's "always everywhere on every page", and it is his. It
+ * is written here, and not in `style.css` where the button lives, for the reason this file's
+ * off-switch chrome is written here: the feature brings its own furniture and takes it away
+ * with it. Nothing in `settings-button.js` or `style.css` is touched, and nothing in them
+ * has to know this screen exists.
+ *
+ * WHY A SIBLING SELECTOR AND NOT A CLASS ON `<body>`. The button's absence is keyed on the
+ * curtain's OWN PRESENCE — `settings-button.js` mounts `.settings` against `document.body`
+ * and `splash.js` inserts `#splash` as that body's FIRST child, so the button is always a
+ * following sibling. A class on `<body>` would be bookkeeping that can be left behind by a
+ * throw, a crash mid-ceremony, or a yield that never ran; this cannot be, because the moment
+ * the node is gone the selector has nothing to match and the button is simply there. A
+ * surface that can hide global chrome needs to be incapable of hiding it permanently.
+ *
+ * `:not(.splash--yielding)` is the handover: the button arrives as the curtain STARTS to
+ * fade rather than 220 ms later when the node is removed, which is the same instant, and the
+ * same reasoning, as `splash.js` dropping the always-dark clamp "as the curtain goes, not
+ * after it has gone" — the control crosses over with the fade, in the app's own theme.
+ *
+ * `display: none` and not `opacity: 0`: a control that is invisible but hit-testable is the
+ * defect this is preventing, not the thing it is doing. */
+#splash:not(.splash--paused):not(.splash--yielding) ~ .settings {
+  display: none;
+}
+
 /* §18's stance, and the studies' own: no motion for anyone who has asked for none. The
  * composition is drawn settled, immediately. */
 @media (prefers-reduced-motion: reduce) {
