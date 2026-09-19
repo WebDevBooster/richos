@@ -786,8 +786,22 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # build dispatches onto a ledger surface. Suite:
 # guard-reference-ledger.test.sh (38 cases); harness:
 # reference-ledger.mutation.sh.
+# guard-public-record-repo.sh, ADDED 2026-09-20 — BLOCKING, on TWO surfaces:
+# PreToolUse[Agent] in hooks.json and the Bash chain's manifest. It refuses a
+# dispatch whose deliverable is a research read, a brief or a plan into a
+# repository carrying a publication declaration, and a commit that ADDS a file
+# under docs/research/, docs/briefs/ or docs/plans/ there. The CEO, 2026-09-20:
+# "how many more times will the wrong shit be put into the Git history in the
+# public repo????" — a read was dispatched with --repo richos and its ledger
+# entered published history, which a later move does not undo. Its sibling
+# publication guards scan what a file SAYS; this one is about CLASS, and
+# docs/verification/ is deliberately out of scope. Measured over 302 real
+# prompts and briefs: ONE refused, and it is the dispatch that caused the
+# incident. Suite: guard-public-record-repo.test.sh (25 cases); harness:
+# public-record-repo.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-host-display-power.sh
+guard-public-record-repo.sh
 guard-reference-ledger.sh
 guard-no-home-network-phone.sh
 notice-disk-alert.sh

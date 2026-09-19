@@ -37,6 +37,7 @@ Bash|guard-vendoring-commits.sh
 Bash|guard-hook-registration-commits.sh
 Bash|guard-ci-red-lands.sh
 Bash|guard-host-display-power.sh
+Bash|guard-public-record-repo.sh
 
 Write|guard-main-checkout-writes.sh
 Write|scan-secrets.sh
