@@ -116,7 +116,7 @@ function makePhone(overrides) {
 	const clock = makeClock();
 	const mac = makeMac();
 	const signer = makeSigner();
-	const state = { apiBase: 'https://mm1.local:8443', challenge: 'challenge-one', deviceId: 'device-1' };
+	const state = { apiBase: 'https://mm1.tail9a3b2.ts.net:8443', challenge: 'challenge-one', deviceId: 'device-1' };
 	const api = createApi({ state, signer, fetchImpl: mac.fetchImpl, eventSourceImpl: Stub });
 	const states = [];
 	const frames = [];

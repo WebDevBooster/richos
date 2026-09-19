@@ -351,7 +351,7 @@ test('the whole chain, from the Mac\'s bytes: a 503 marked final blocks that ite
 
 	const urls = [];
 	const api = createApi({
-		state: { apiBase: 'https://mm1.local:8443', challenge: 'ch', deviceId: 'd' },
+		state: { apiBase: 'https://mm1.tail9a3b2.ts.net:8443', challenge: 'ch', deviceId: 'd' },
 		signer: {
 			deviceId: 'd',
 			async sign() { return 'signature'; },
