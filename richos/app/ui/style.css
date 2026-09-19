@@ -3830,14 +3830,19 @@ body.bp-narrow .tl-user-bubble {
    right edge, and air. Any pane that reaches the top-right edge adds it, and nothing else has
    to know the settings button exists.
 
-   IT IS 66 AND THE INSET IS NOW 15, WHICH IS DELIBERATE AND IS NOT A STALE NUMBER. The
-   derivation was 40 + 18 + 8 = 66; the CEO's 2026-09-19 centering took the inset to 15px, so
-   the minimum this lane has to reserve is 40 + 15 + 8 = 63. It is left at 66, which now reads
-   40 + 15 + 11 — the same box, three more pixels of air. A lane is a FLOOR: 66 still clears
-   the button by more than the 8px the original derivation asked for, while shrinking it to 63
-   would slide `#techy-chip` and `button#inspector-close` three pixels right, in every committed
-   screenshot that carries them, to buy nothing the ruling asked for. If the button's inset ever
-   grows past 18px this number has to be re-derived; below it, it cannot be wrong. */
+   IT IS 66 AND THE INSET IS NOW TWO NUMBERS, AND 66 IS CORRECT FOR BOTH. Since 2026-09-19 the
+   button sits at `right: 15px` on the regular screens and at `right: 18px` on the home screen
+   and the held opening screen (`--settings-right`; see `.settings`). The derivation at each:
+
+       18px inset   40 + 18 + 8 = 66     exactly this number
+       15px inset   40 + 15 + 8 = 63     this number, with three more pixels of air
+
+   A lane is a FLOOR, so the one that has to be cleared is the LARGER inset's 66, and it is
+   cleared exactly. Shrinking it to 63 for the regular screens would slide `#techy-chip` and
+   `button#inspector-close` three pixels right, in every committed screenshot that carries them,
+   to buy nothing either ruling asked for — and it is the surfaces with a 52px header that carry
+   those two, which are the 15px ones. If the button's inset ever grows past 18px this number
+   has to be re-derived; below it, it cannot be wrong. */
 :root {
   --chrome-lane: 66px;
 }
@@ -5062,9 +5067,11 @@ body.bp-narrow .tl-user-bubble {
    of "it is on every page" and none of its point.
    ========================================================================================= */
 
-/* WHERE IT SITS — CEO, 2026-09-19, on the nightly he watched the evening before: *"the
-   settings button needs to be properly centered vertically and the right padding for that
-   button needs to be reduced to 15px."*
+/* WHERE IT SITS — TWO POSITIONS, ONE CONTROL, AND THE CEO RULED ON BOTH OF THEM.
+
+   THE REGULAR SCREENS — CEO, 2026-09-19, on the nightly he watched the evening before:
+   *"the settings button needs to be properly centered vertically and the right padding for
+   that button needs to be reduced to 15px."*
 
    BOTH NUMBERS, AND ONE OF THEM IS DERIVED RATHER THAN CHOSEN.
 
@@ -5082,19 +5089,66 @@ body.bp-narrow .tl-user-bubble {
    the header's center and six pixels through the header's bottom border, at 1024x700 and at
    1400x950 alike. That overhang is the thing his arrow points at.
 
-   WHAT THIS COSTS ON THE SCREENS WITH NO HEADER, said plainly rather than discovered later:
-   the wrapper is `position: fixed` and §15 puts it on EVERY screen, so the opening screen and
-   the home screen get the same 12px rise. They have no 52px bar for it to be centered in, so
-   there is nothing to be off-center against — it is simply nearer the top-right corner, in
-   the corner it already owned. `home.js`'s overlap checks measure that corner and are green.
+   THE HOME SCREEN AND THE HELD OPENING SCREEN GO BACK TO 18/18 — CEO, 2026-09-19, the same
+   day, with a before-and-after pair of his own screenshots
+   (`docs/briefs/assets/ceo-2026-09-18-home-settings-button-before.png` and
+   `ceo-2026-09-19-home-settings-button-after.png` in `richos-hq`):
 
-   TWO THINGS DOWNSTREAM READ THESE NUMBERS AND BOTH ARE UPDATED WITH THEM: `.setmenu`'s
-   `max-height`, which is derived from this `top` (see its own note), and `#bug-toast`, which
-   hangs under this button. `--chrome-lane` is deliberately NOT changed — see its note. */
+     *"Obviously changes to the settings button position on regular screens must have messed
+      up that button's position on the home screen (and probably also on the splash screen
+      when paused). The before position of the settings button on the home screen was good
+      and correct. The current position is messed up and wrong."*
+
+   THE COST WAS NAMED HERE WHEN IT WAS INCURRED, AND THIS IS THE ANSWER TO IT. The note this
+   paragraph replaces said, of the screens with no header: *"the opening screen and the home
+   screen get the same 12px rise ... it is simply nearer the top-right corner, in the corner
+   it already owned."* That was the right thing to write down and the wrong thing to ship: a
+   number derived from a 52px bar was applied to two surfaces that have no bar, and on a
+   composition whose whole top-right corner is negative space it reads as a control jammed
+   into the edge. His two screenshots are the measurement — the button's top edge sits at 18
+   in the before and at 6 in the after, in a 1024px-wide content area.
+
+   18/18 IS NOT A NEW NUMBER. It is the inset this file carried until `dcfb87c9`, and it is
+   independently readable off three committed pictures that predate that commit: the settings
+   button's top edge measures y=18 in `shots-home/home-named.png`, `home-anonymized.png` and
+   `home-returned.png` (1440x900), which is the same "before" his screenshot shows.
+
+   HOW THE TWO POSITIONS ARE SELECTED. The button is ONE fixed element mounted against
+   `document.body` by `settings-button.js` (§15: it is on every screen), so the surface in
+   front of it, not the button, is what says where it goes. `--settings-top` / `--settings-right`
+   are declared at the root with the regular-screen pair and overridden by whatever is in
+   front:
+
+     * `body.home-open` — `home.js` puts that class on the body for exactly as long as the
+       home screen is the surface in front, and takes it off at the START of the leaving fade,
+       so the button is back in its regular place at the same instant the app behind it starts
+       to appear. Inherited, so the two derived positions below follow it without a second
+       selector.
+     * the held opening screen — in `splash.css`, keyed on the curtain's OWN PRESENCE with the
+       sibling selector that file already uses for this button, and for the reason its note
+       gives: a class on `<body>` is bookkeeping a throw can leave behind, and a node cannot be.
+
+   THE @media (max-width: 520px) FORM BELOW STILL DECLARES `top`/`right` DIRECTLY, and that is
+   deliberate rather than an oversight: it wins over both surfaces at a width the app cannot
+   open at (`window_geometry.rs`'s `PREFERRED_MIN_WIDTH` is 1024), and leaving it alone is what
+   makes this change provably nothing-else-moves at every width.
+
+   TWO THINGS DOWNSTREAM READ THESE NUMBERS AND BOTH FOLLOW WHICHEVER IS LIVE: `.setmenu`'s
+   `max-height`, derived from `--settings-top` (see its own note), and `#bug-toast`, which
+   hangs under this button. `--chrome-lane` is deliberately NOT changed — see its note, which
+   now has two insets to clear and clears both. */
+:root {
+  --settings-top: 6px;
+  --settings-right: 15px;
+}
+body.home-open {
+  --settings-top: 18px;
+  --settings-right: 18px;
+}
 .settings {
   position: fixed;
-  top: 6px;
-  right: 15px;
+  top: var(--settings-top);
+  right: var(--settings-right);
   z-index: 300;
   font-family: var(--font);
   /* A ROW, so the update cue can sit beside the button rather than under it — see
@@ -5206,20 +5260,36 @@ body.bp-narrow .tl-user-bubble {
      reason and the server address. Any future row moves it again. So this is a bound, not a
      number chosen to fit today's content.
 
-     72px, DERIVED AND THEN MEASURED. `.settings` is `position: fixed; top: 6px`, `.setbtn` is
-     40px tall and this menu hangs 8px below it: 6 + 40 + 8 = 54px. The panel's own
-     `getBoundingClientRect().top` reads **54** at 1024x700 and at 1400x950 alike, so the anchor
-     is viewport-fixed and the same arithmetic holds at every window size. The remaining 18px is
-     a bottom gutter, so the panel stops where every other floating surface stops rather than
-     touching the edge. 54 + 18 = 72.
+     DERIVED FROM THE BUTTON'S OWN INSET, WHICH IS NOW TWO NUMBERS. `.settings` is
+     `position: fixed; top: var(--settings-top)`, `.setbtn` is 40px tall and this menu hangs 8px
+     below it, so the anchor is `--settings-top` + 48 and the remaining 18px is a bottom gutter,
+     so the panel stops where every other floating surface stops rather than touching the edge.
+     `--settings-top` + 48 + 18 = `--settings-top` + 66, which is the calc below:
 
-     IT WAS 84, FROM AN ANCHOR OF 66, until the CEO's 2026-09-19 centering moved the button from
-     `top: 18px` to `top: 6px` (see `.settings`). The bottom gutter used to be described as
-     mirroring the wrapper's top inset; it is now stated as the 18px it is, because mirroring a
-     6px inset would have taken the panel to within 6px of the window's bottom edge — which is
-     a change to how a floating surface stops, and the centering did not ask for one. The panel
-     is 12px freer than it was, never tighter, so the fit this bound exists for is unaffected:
-     `settings-fit.js` re-measures all of it at 1024x700, 1024x520 and the audited 738px.
+         regular screens    6 + 40 + 8 = 54 anchor      bound 100vh - 72
+         home / held splash 18 + 40 + 8 = 66 anchor     bound 100vh - 84
+
+     BOTH ARE MEASURED, NOT ONLY DERIVED. The panel's own `getBoundingClientRect().top` reads
+     **54** on a thread at 1024x700 and at 1400x950 alike (`chrome-align.js` check 7) and **66**
+     on the home screen at both (`settings-fit.js`, which opens this panel without leaving the
+     home screen, and `chrome-align.js`'s home checks) — so the anchor is viewport-fixed and the
+     same arithmetic holds at every window size on both surfaces.
+
+     THE BOUND WAS A FLAT 84 UNTIL 2026-09-19, WHEN IT BECAME A FLAT 72, AND NEITHER WAS RIGHT
+     FOR BOTH SURFACES. The CEO's centering moved the button to `top: 6px` everywhere, this
+     number followed it to 72, and then his home-screen ruling put 18px back on two of the three
+     surfaces — at which point a flat 72 would have bounded a panel hanging from 66 as though it
+     hung from 54, i.e. 12px of gutter the panel never had. Deriving it is what stops the next
+     move of the button leaving this line behind. The gutter is stated as the 18px it is:
+     mirroring a 6px inset would have taken the panel to within 6px of the window's bottom edge,
+     which is a change to how a floating surface stops and no ruling asked for one.
+
+     AT `max-width: 520px` `.settings` declares `top: 5px` directly and this calc does not see
+     it, so on the home screen at that width the bound is 84 against an anchor of 53 — 12px
+     tighter than it needs to be, never looser, on a width the app cannot open at
+     (`PREFERRED_MIN_WIDTH` is 1024). It is the same relationship this line had before
+     `dcfb87c9`. `settings-fit.js` re-measures all of it at 1024x700, 1024x520 and the audited
+     738px.
 
      IT COSTS NOTHING WHEN THE PANEL FITS, which is the common case: `overflow-y: auto` shows no
      scrollbar and changes no geometry until the content is taller than the box. At 1024x700 the
@@ -5230,7 +5300,7 @@ body.bp-narrow .tl-user-bubble {
      it. Nothing in the shipped UI adds that class (grepped: zero uses in `ui/*.js` and
      `ui/*.html`), so there is no second case to get right today; whoever revives it owns this
      line with it. */
-  max-height: calc(100vh - 72px);
+  max-height: calc(100vh - (var(--settings-top) + 66px));
   overflow-y: auto;
   /* A flick that reaches the end of this panel must not then scroll the thread behind it. */
   overscroll-behavior: contain;
@@ -5637,15 +5707,25 @@ body.bp-narrow .tl-user-bubble {
    only part of "what Bust a bug opens" this round specifies — the report flow itself is
    explicitly not designed yet.
 
-   IT HANGS UNDER THE BUTTON THAT RAISED IT, so it moves with it: the button is now `top: 6px;
-   right: 15px` (CEO, 2026-09-19 — see `.settings`), its box ends at y=46, and this keeps the
-   same 12px of air below it that 70 kept below the old 58. 46 + 12 = 58. Left where it was,
-   the toast would have opened 24px below a button that had moved 12px up and 3px right, which
-   is a toast that has come loose from what it is about. */
+   IT HANGS UNDER THE BUTTON THAT RAISED IT, so it moves with it — and since the button has
+   two positions (CEO, 2026-09-19, twice in one day: centered on the regular screens, back at
+   18/18 on the home screen and the held opening screen — see `.settings`), so does this. The
+   air below the button is 12px on both, which is what the derivation says rather than a number
+   typed twice:
+
+       top = --settings-top + 40 (the button) + 12 (the air)   ->  58 regular, 70 home/splash
+       right = --settings-right                                ->  15 regular, 18 home/splash
+
+   A flat 58/15 would have opened this toast 24px below a button that had moved 12px down and
+   3px left, which is a toast that has come loose from what it is about — and that is exactly
+   what a flat 70/18 did for the eight hours between `dcfb87c9` and this commit, in the other
+   direction. `#bug-toast` is a SIBLING of `.settings`, not a child, so on the held opening
+   screen `splash.css` sets these two variables on both of them; on the home screen the class
+   is on `<body>` and one declaration reaches both. */
 #bug-toast {
   position: fixed;
-  top: 58px;
-  right: 15px;
+  top: calc(var(--settings-top) + 52px);
+  right: var(--settings-right);
   z-index: 301;
   max-width: 320px;
   background: var(--surface);

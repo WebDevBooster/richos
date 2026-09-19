@@ -334,6 +334,45 @@
   display: none;
 }
 
+/* AND WHERE IT SITS WHILE IT IS THERE — CEO, 2026-09-19, the same day he centered it on the
+ * regular screens, with a before-and-after pair of his own screenshots of the HOME screen
+ * (`docs/briefs/assets/ceo-2026-09-18-home-settings-button-before.png` and
+ * `ceo-2026-09-19-home-settings-button-after.png` in `richos-hq`):
+ *
+ *   *"Obviously changes to the settings button position on regular screens must have messed up
+ *    that button's position on the home screen (and probably also on the splash screen when
+ *    paused). The before position of the settings button on the home screen was good and
+ *    correct. The current position is messed up and wrong."*
+ *
+ * HE SAID "PROBABLY", AND IT WAS MEASURED RATHER THAN ASSUMED: on `529dd6ec`, with the curtain
+ * held by the space key, `#set-btn` read `top 6, right 15` at 1024x700 and 1400x950 in both
+ * themes — the same 12px rise the home screen got, on a surface that likewise has no 52px
+ * header for it to be centered in. So it is the same defect and it takes the same fix.
+ *
+ * `top: 6px` IS DERIVED FROM `#stage-header`, WHICH IS NOT ON THIS SCREEN. That is the whole
+ * of the reasoning: (52 - 40) / 2 = 6 centers the button in the app's header bar, and this
+ * surface is a full-bleed composition with no bar, so the number it hands this screen is
+ * arithmetic about something that is not here.
+ *
+ * WHY THIS IS TWO SELECTORS AND NOT A CLASS ON `<body>` — the same reason the rule above it is
+ * a sibling selector, quoted from its own note: *"A class on `<body>` would be bookkeeping that
+ * can be left behind by a throw, a crash mid-ceremony, or a yield that never ran; this cannot
+ * be, because the moment the node is gone the selector has nothing to match."* A button stuck
+ * at the wrong inset because a class outlived its screen is the smaller cousin of a button
+ * hidden forever, and it is prevented the same way. `#bug-toast` is named beside `.settings`
+ * rather than inheriting from it because `settings-button.js` appends it to `<body>`, so it is
+ * this button's SIBLING; both are appended after `splash.js` inserts `#splash` as the body's
+ * first child, which is what makes `~` reach both.
+ *
+ * `.setmenu` is inside `.settings` and inherits, so the menu's `max-height` — which `style.css`
+ * derives from `--settings-top` — follows onto this screen without a third selector. Measured
+ * held: anchor 66, bound `100vh - 84`. */
+#splash.splash--paused ~ .settings,
+#splash.splash--paused ~ #bug-toast {
+  --settings-top: 18px;
+  --settings-right: 18px;
+}
+
 /* §18's stance, and the studies' own: no motion for anyone who has asked for none. The
  * composition is drawn settled, immediately. */
 @media (prefers-reduced-motion: reduce) {

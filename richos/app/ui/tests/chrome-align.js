@@ -1,5 +1,33 @@
-// **THE SETTINGS BUTTON IS CENTERED WITH 15px OF RIGHT PADDING, AND THE TWO COMPOSER BUTTONS
-// MATCH THE TEXT INPUT** — CEO, 2026-09-19, on the nightly he watched at 8pm the evening
+// **WHERE THE TOP-RIGHT CHROME SITS, ON EVERY SURFACE, AND WHERE THE COMPOSER'S TWO BUTTONS
+// SIT** — two CEO rulings from 2026-09-19, and the second one is a correction to the first.
+//
+// ## THE TWO RULINGS, IN THE ORDER HE GAVE THEM
+//
+// **1. The regular screens, the morning of 2026-09-19** — the settings button is centered in
+// the thread header with 15px of right padding, and the two composer buttons match the text
+// input. Checks 1 through 8 below, and the header that follows this one.
+//
+// **2. The home screen and the paused splash, the afternoon of the same day** — those two go
+// back to where they were. Checks 2b through 2e. His words, with a before-and-after pair of his
+// own screenshots (`docs/briefs/assets/ceo-2026-09-18-home-settings-button-before.png` and
+// `ceo-2026-09-19-home-settings-button-after.png` in `richos-hq`):
+//
+//   *"Obviously changes to the settings button position on regular screens must have messed up
+//    that button's position on the home screen (and probably also on the splash screen when
+//    paused). The before position of the settings button on the home screen was good and
+//    correct. The current position is messed up and wrong."*
+//
+// **THE SHAPE OF THE MISTAKE IS THE THING TO KEEP.** Ruling 1 was answered by moving the ONE
+// fixed element `settings-button.js` mounts against `document.body` — and §15 puts that element
+// on every screen, so an instruction about a 52px header reached two surfaces that have no
+// header. A suite that only ever opened a thread could not see it, and this one did not. That
+// is why `SURFACES` below is a table rather than three checks: the next instruction about this
+// button will be about one surface too, and the table is what makes the other two answer for
+// themselves.
+//
+// ## RULING 1, AS IT WAS WRITTEN
+//
+// CEO, 2026-09-19, on the nightly he watched at 8pm the evening
 // before. His screenshot is `docs/briefs/assets/ceo-2026-09-18-composer-and-settings-button.png`
 // in `richos-hq`; his three arrows mark the three spots this suite measures.
 //
@@ -38,11 +66,37 @@
 // the textarea inside it is 44px. Both are reported by every check, so a reading can never be
 // ambiguous about which one it matched.
 //
-// ## THE NEGATIVE CONTROL IS FIRST, AND IT IS NOT A DESCRIPTION
+// ## RULING 2, AND WHAT WAS MEASURED BEFORE IT WAS ANSWERED
+//
+// On `529dd6ec`, through this same WebKit, at 1024x700 and 1400x950 in both themes — twelve
+// readings, all identical:
+//
+//     #set-btn on a thread                 top 6, right 15
+//     #set-btn on the home screen          top 6, right 15
+//     #set-btn on the held opening screen  top 6, right 15
+//
+// One element, one inset, three surfaces. So his parenthesis — *"and probably also on the splash
+// screen when paused"* — is a confirmation rather than a guess, and the splash is checked here
+// on the same footing as the home screen rather than as an afterthought.
+//
+// AFTER, same harness, same twelve readings: the thread is untouched at 6/15, and the two
+// surfaces with no header of their own are back at 18/18, which is where `style.css` had them
+// until `dcfb87c9` and where three committed home-screen shots that predate that commit still
+// show them (`shots-home/home-named.png`, `home-anonymized.png`, `home-returned.png`, decoded
+// at 1440x900: the button's top edge measures y=18 in each).
+//
+// ## THE NEGATIVE CONTROLS ARE FIRST IN EACH HALF, AND THEY ARE NOT DESCRIPTIONS
 //
 // Check 1 puts the three pre-fix declarations back through the CSSOM and requires the defect to
 // measure EXACTLY as it measured on `f918f185` — 12px low, 18px of padding, 6px short and 3px
 // low. If that check ever comes back clean, the four after it are proving nothing and say so.
+//
+// Check 2b does the same for ruling 2, on both corner surfaces: it forces the regular-screen
+// pair onto the wrapper's own inline style — which outranks every selector in both stylesheets
+// — and requires the button to measure the 6/15 the CEO photographed and called "messed up and
+// wrong". Run against `529dd6ec`'s stylesheets, 2b and the nine checks after it are all red and
+// the eighteen that were here before are all green; that is the split this file was extended to
+// produce.
 //
 // Run: node chrome-align.js   (or `npm test` for every suite in this directory)
 
@@ -57,6 +111,7 @@ const {
   assert,
   assertEqual,
   SEED_THEME,
+  HOLD_CURTAIN,
   UI_DIR,
 } = require("./lib/harness");
 
@@ -76,6 +131,33 @@ const RIGHT_PADDING = 15;
 /// What `f918f185` shipped, so the negative control reproduces a geometry rather than asserting
 /// one. `style.css`'s own comments carry the same three numbers.
 const BEFORE = { settingsTop: 18, settingsRight: 18, controlHeight: 40 };
+
+/// **THE HOME SCREEN AND THE HELD OPENING SCREEN SIT AT 18/18** — CEO, 2026-09-19, later the
+/// same day as the centering above, with a before-and-after pair of his own screenshots
+/// (`docs/briefs/assets/ceo-2026-09-18-home-settings-button-before.png` and
+/// `ceo-2026-09-19-home-settings-button-after.png` in `richos-hq`):
+///
+///   *"Obviously changes to the settings button position on regular screens must have messed
+///    up that button's position on the home screen (and probably also on the splash screen when
+///    paused). The before position of the settings button on the home screen was good and
+///    correct. The current position is messed up and wrong."*
+///
+/// IT IS THE SAME PAIR AS `BEFORE` ABOVE AND IT IS DELIBERATELY A SEPARATE CONSTANT, because
+/// the two mean different things and a shared name would make the next reader think one of them
+/// is a copy of the other. `BEFORE` is a defect being reproduced; this is a LIVE position that
+/// two surfaces are required to be at. `style.css` derives both from `--settings-top` /
+/// `--settings-right`, which is the single place the numbers live.
+const CORNER = { top: 18, right: 18 };
+
+/// The regular-screen pair, as a pair, for the negative control on the corner surfaces: it is
+/// what the CEO photographed and called "messed up and wrong" when it reached them.
+const CENTERED = { top: 6, right: RIGHT_PADDING };
+
+/// The two numbers `style.css` derives from whichever inset is live, so a surface check can
+/// assert the JOIN rather than only the button. Anchor = inset + the 40px button + 8px of hang;
+/// toast = inset + the 40px button + 12px of air.
+const anchorFor = (top) => top + 48;
+const toastTopFor = (top) => top + 52;
 
 // ---------------------------------------------------------------------------------------
 // The page
@@ -117,7 +199,14 @@ const BRIDGE_OVERRIDES = () => {
   });
 };
 
-async function openApp(browser, viewport, theme, scale) {
+/// Everything the three surfaces below share: a page that is the shipping shell, with its
+/// console watched, the bridge wrapper installed, the text scale and the lighting seeded — up to
+/// and including `goto`. What comes AFTER `goto` is what makes a surface a surface, and that is
+/// the openers' business, not this one's.
+///
+/// `extraInit` is how the held-splash opener gets `HOLD_CURTAIN` in before the page runs; it is
+/// applied last, after the seeds, because it wraps `RichSplash` rather than storage.
+async function preparedPage(browser, viewport, theme, scale, extraInit) {
   const page = await browser.newPage({ viewport, colorScheme: theme === "light" ? "light" : "dark" });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -159,11 +248,114 @@ async function openApp(browser, viewport, theme, scale) {
   // the geometry below depends on the palette, and a check that has never been run in a stated
   // lighting cannot say that; this is how it gets to.
   await page.addInitScript(SEED_THEME, theme || "dark");
+  if (extraInit) await page.addInitScript(extraInit);
   await page.goto(APP);
+  return page;
+}
+
+/// THE REGULAR SCREENS — a thread, with `#stage-header` in front. Unchanged in what it does from
+/// what this file has always done; it is now one of three openers rather than the only one.
+async function openApp(browser, viewport, theme, scale) {
+  const page = await preparedPage(browser, viewport, theme, scale);
   await leaveHome(page);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
   await bootSettled(page);
   return page;
+}
+
+/// THE HOME SCREEN — and the difference from `openApp` is one line that is NOT there:
+/// `leaveHome`. The app boots with this surface in front, so the whole of the work here is
+/// sending the curtain away (a separate feature with its own suite) and then waiting for the
+/// home screen's own two facts rather than for a timer.
+///
+/// `body.home-open` IS ASSERTED AND NOT ASSUMED, because it is the selector `style.css` keys the
+/// 18/18 inset on. A page that had reached the home screen without that class would measure the
+/// regular-screen inset and the check below would blame the CSS for it.
+async function openHome(browser, viewport, theme) {
+  const page = await preparedPage(browser, viewport, theme);
+  await page.waitForFunction("typeof window.RichHome === 'object'", null, { timeout: 15000 });
+  await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("chrome-align"));
+  await page.waitForFunction(() => !document.getElementById("splash"), { timeout: 10000 });
+  await page.waitForFunction(
+    () => window.RichHome.isOpen() && document.body.classList.contains("home-open"),
+    null,
+    { timeout: 10000 }
+  );
+  // Two frames, so nothing below reads a box the class change has not been laid out into.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  return page;
+}
+
+/// THE OPENING SCREEN, HELD — CEO §62's one state in which this button is on that surface at
+/// all. `HOLD_CURTAIN` is the harness's own helper: it mutes the exported `yieldNow` and takes
+/// the single timer `start()` arms, which is the ceiling, so the curtain stays up for as long as
+/// the check needs rather than for the 3s it ships with. The space key is then the product's own
+/// path into `splash--paused`, pressed exactly once.
+///
+/// WHY THE PAUSED CLASS IS ASSERTED HERE: `splash.css` keys BOTH the button's presence and its
+/// inset on `#splash.splash--paused ~ .settings`. A page that was not actually held would have
+/// no button to measure and the failure would read as a missing element rather than as a hold
+/// that did not take.
+async function openHeldSplash(browser, viewport, theme) {
+  const page = await preparedPage(browser, viewport, theme, null, HOLD_CURTAIN);
+  await page.waitForSelector("#splash", { timeout: 15000 });
+  await page.keyboard.press("Space");
+  await page.waitForFunction(
+    () => {
+      const n = document.getElementById("splash");
+      return !!n && n.classList.contains("splash--paused");
+    },
+    null,
+    { timeout: 10000 }
+  );
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  return page;
+}
+
+/// The three surfaces, in one table, so every check below runs on all of them by construction
+/// rather than by three copies of itself. `header` says whether there is a 52px bar in FRONT of
+/// the app for the button to be centered in — the home screen and the held curtain are drawn
+/// over it, so `#stage-header` is in the DOM on all three and is the surface's own bar on only
+/// one.
+const SURFACES = [
+  { name: "a thread", open: openApp, inset: CENTERED, header: true },
+  { name: "the home screen", open: openHome, inset: CORNER, header: false },
+  { name: "the held opening screen", open: openHeldSplash, inset: CORNER, header: false },
+];
+
+/// The two derived boxes, read after their own entry animations have landed rather than during
+/// them. Both are real animations and both were caught mid-flight while this was being written:
+/// `.setmenu` carries `setrise 0.2s` and `#bug-toast` carries `setrise 0.3s`, and a toast
+/// sampled on arrival reads `top 72` on a thread where the declaration is 58.
+async function measureDerived(page) {
+  await page.click("#set-btn");
+  await page.waitForSelector("#set-menu", { state: "visible" });
+  await page.evaluate(async () => {
+    const m = document.getElementById("set-menu");
+    if (m) await Promise.all(m.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+  });
+  const menu = await page.evaluate(() => {
+    const b = document.getElementById("set-btn").getBoundingClientRect();
+    const m = document.getElementById("set-menu").getBoundingClientRect();
+    return {
+      btnBottom: Math.round(b.bottom),
+      menuTop: Math.round(m.top),
+      menuBottom: Math.round(m.bottom),
+      maxHeight: Math.round(parseFloat(getComputedStyle(document.getElementById("set-menu")).maxHeight)),
+      vh: window.innerHeight,
+    };
+  });
+  await page.click("#bug-btn");
+  await page.waitForSelector("#bug-toast", { state: "visible" });
+  await page.evaluate(async () => {
+    const t = document.getElementById("bug-toast");
+    await Promise.all(t.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+  });
+  const toast = await page.evaluate(() => {
+    const t = document.getElementById("bug-toast").getBoundingClientRect();
+    return { top: Math.round(t.top), right: Math.round(window.innerWidth - t.right) };
+  });
+  return Object.assign(menu, { toastTop: toast.top, toastRight: toast.right });
 }
 
 // ---------------------------------------------------------------------------------------
@@ -344,6 +536,223 @@ async function main() {
       }
     );
   }
+
+  // ---- 2b. NEGATIVE CONTROL for the two corner surfaces -----------------------------------
+  //
+  // **THE SECOND HALF OF THE CEO'S 2026-09-19, AND IT IS A CORRECTION TO THE FIRST HALF.**
+  // `dcfb87c9` centered this button for the thread header — correctly, and check 2 above is
+  // that — by moving the ONE fixed element `settings-button.js` mounts against `document.body`.
+  // §15 puts that element on every screen, so two surfaces that have no header moved with it.
+  // He photographed the result:
+  //
+  //   *"Obviously changes to the settings button position on regular screens must have messed
+  //    up that button's position on the home screen (and probably also on the splash screen
+  //    when paused). The before position of the settings button on the home screen was good and
+  //    correct. The current position is messed up and wrong."*
+  //
+  // MEASURED ON `529dd6ec` BEFORE ANY OF THIS WAS WRITTEN, at both window sizes in both themes,
+  // twelve readings identical: `#set-btn` `top 6 right 15` on a thread, on the home screen AND
+  // on the held opening screen. His "probably" is therefore a confirmation, not a guess — one
+  // element, one inset, three surfaces.
+  //
+  // This check puts that inset back through the wrapper's own inline style, which outranks every
+  // selector in both stylesheets, and requires the defect to measure EXACTLY as he photographed
+  // it. If it ever comes back at 18/18 the two checks after it are proving nothing and say so.
+  for (const surface of SURFACES.filter((s) => s.inset === CORNER)) {
+    await run.check(
+      `NEGATIVE CONTROL: with the regular-screen inset forced onto ${surface.name}, the button measures the 6/15 the CEO called wrong`,
+      async () => {
+        const page = await surface.open(browser, SMALL, "dark");
+        const before = await measure(page);
+        assertEqual(before.setbtn.top, CORNER.top, `${surface.name} is not at the restored inset to begin with`);
+        await page.evaluate((c) => {
+          const w = document.querySelector(".settings");
+          w.style.setProperty("--settings-top", c.top + "px");
+          w.style.setProperty("--settings-right", c.right + "px");
+        }, CENTERED);
+        const m = await measure(page);
+        assertEqual(m.setbtn.top, CENTERED.top, `the forced inset did not take on ${surface.name}`);
+        assertEqual(
+          m.settingsRightPadding,
+          CENTERED.right,
+          `the forced right padding did not take on ${surface.name}`
+        );
+        assert(
+          m.setbtn.top !== CORNER.top,
+          `${surface.name} measures the restored inset even with the regular-screen pair forced on it — ` +
+            "the positive checks below cannot be distinguishing the two"
+        );
+        assertEqual(page.__errors, [], "the page reported errors");
+        await page.close();
+        return (
+          `${surface.name}: button ${before.setbtn.top}/${before.settingsRightPadding} restored, ` +
+          `${m.setbtn.top}/${m.settingsRightPadding} with the regular-screen pair forced on — ` +
+          "which is the geometry of his 'after' screenshot"
+        );
+      }
+    );
+  }
+
+  // ---- 2c. each surface sits at its own inset, both window sizes, both themes ---------------
+  //
+  // THE TABLE IS THE CHECK. One loop over `SURFACES` is what makes "two positions, one control"
+  // a measurement instead of three hand-written copies that can drift apart — and it is what
+  // would catch a fourth surface being given the wrong one, because adding it to the table is
+  // all anybody has to remember.
+  //
+  // BOTH THEMES, AND NEITHER IS A RE-RUN OF THE OTHER EVEN THOUGH NO GEOMETRY HERE IS A COLOR.
+  // The home screen and the opening screen are clamped dark by §15 while the thread follows the
+  // CEO's own preference, so "the same two numbers in both lightings" is the claim that the
+  // clamp moves no boxes — which is exactly the kind of thing nothing else in this file asks.
+  for (const surface of SURFACES) {
+    for (const vp of [SMALL, LARGE]) {
+      await run.check(
+        `on ${surface.name} the settings button sits at top ${surface.inset.top}, right ${surface.inset.right}, at ${vp.width}x${vp.height} in both themes`,
+        async () => {
+          const seen = [];
+          for (const theme of ["dark", "light"]) {
+            const page = await surface.open(browser, vp, theme);
+            const m = await measure(page);
+            assertEqual(m.vw, vp.width, "the viewport is not the asked-for window");
+            assertEqual(
+              m.setbtn.top,
+              surface.inset.top,
+              `${surface.name} in ${theme}: the button's top edge is ${m.setbtn.top} and this surface's inset is ${surface.inset.top}`
+            );
+            assertEqual(
+              m.settingsRightPadding,
+              surface.inset.right,
+              `${surface.name} in ${theme}: the right padding is ${m.settingsRightPadding}px against this surface's ${surface.inset.right}px`
+            );
+            assertEqual(m.setbtn.h, 40, "the button is not the 40px box every derivation here assumes");
+            if (surface.header) {
+              // The only surface with a bar of its own in front. Check 2 above owns the
+              // centering; this repeats the containment so the table's own row is complete.
+              assert(
+                m.setbtn.top >= m.header.top && m.setbtn.bottom <= m.header.bottom,
+                `the button's box (${m.setbtn.top}..${m.setbtn.bottom}) hangs out of the header's (${m.header.top}..${m.header.bottom})`
+              );
+            } else {
+              // `#stage-header` IS in the DOM here — the shell is behind this surface, inert —
+              // and it is NOT this surface's bar. Said out loud because a reader who greps for
+              // `#stage-header` in this file would otherwise conclude the corner surfaces are
+              // being measured against a header they do not have.
+              assert(
+                m.setbtn.bottom > m.header.bottom,
+                `${surface.name} put the button inside the shell's header box, which is behind this surface, ` +
+                  "not on it — the 18px inset is not a centering and must not measure as one"
+              );
+            }
+            assertEqual(page.__errors, [], "the page reported errors");
+            seen.push(`${theme} ${m.setbtn.top}..${m.setbtn.bottom}/${m.settingsRightPadding} of ${m.vw}`);
+            await page.close();
+          }
+          return `${surface.name}: ` + seen.join("; ");
+        }
+      );
+    }
+  }
+
+  // ---- 2d. the two derived boxes follow whichever inset is live ----------------------------
+  //
+  // A SURFACE-DEPENDENT POSITION MAKES EVERY NUMBER DERIVED FROM IT SURFACE-DEPENDENT TOO, and
+  // a flat value is the failure mode: `.setmenu`'s bound and `#bug-toast`'s corner were both
+  // literal pixels until this commit, right on one surface and quietly stale on the other two.
+  // So the arithmetic is asserted here rather than the pixels — `anchorFor` and `toastTopFor`
+  // take the surface's inset and nothing else.
+  //
+  // THE BOUND IS CHECKED AS `100vh - (inset + 66)` and the 66 is 40 + 8 + 18: the button, the
+  // 8px this panel hangs below it, and the 18px bottom gutter that keeps it off the window edge.
+  for (const surface of SURFACES) {
+    for (const vp of [SMALL, LARGE]) {
+      await run.check(
+        `on ${surface.name} the settings panel and the bug toast follow the button's own inset, at ${vp.width}x${vp.height}`,
+        async () => {
+          const page = await surface.open(browser, vp, "dark");
+          const d = await measureDerived(page);
+          assertEqual(d.vh, vp.height, "the viewport is not the asked-for window");
+          assertEqual(
+            d.menuTop,
+            anchorFor(surface.inset.top),
+            `the panel's anchor is ${d.menuTop}; ${surface.name}'s button is at ${surface.inset.top} and the panel hangs 8px below its 40px box`
+          );
+          assertEqual(d.menuTop - d.btnBottom, 8, "the panel no longer hangs 8px below the button");
+          assertEqual(
+            d.maxHeight,
+            vp.height - (surface.inset.top + 66),
+            `the panel's bound is ${d.maxHeight}px; from an anchor of ${anchorFor(surface.inset.top)} with an 18px gutter it is ${vp.height - (surface.inset.top + 66)}px`
+          );
+          assert(d.menuBottom <= d.vh, `the panel ends at ${d.menuBottom} in a ${d.vh}px window`);
+          assertEqual(
+            d.toastTop,
+            toastTopFor(surface.inset.top),
+            `the toast opens at ${d.toastTop}; it keeps 12px of air under a 40px button at ${surface.inset.top}`
+          );
+          assertEqual(
+            d.toastRight,
+            surface.inset.right,
+            `the toast's right inset is ${d.toastRight} against the button's ${surface.inset.right}`
+          );
+          assertEqual(page.__errors, [], "the page reported errors");
+          await page.close();
+          return (
+            `${surface.name}: button ends ${d.btnBottom}; panel top ${d.menuTop} (8px below), ` +
+            `max-height ${d.maxHeight}px of ${d.vh}, bottom ${d.menuBottom}; toast ${d.toastTop}/${d.toastRight}`
+          );
+        }
+      );
+    }
+  }
+
+  // ---- 2e. the handover, in both directions -------------------------------------------------
+  //
+  // **THE POSITION IS KEYED ON A CLASS, SO THE CLASS COMING OFF IS PART OF THE FEATURE.** A
+  // surface-dependent inset has one failure this file can actually prevent: bookkeeping left
+  // behind. If `body.home-open` outlived the home screen, every thread in that session would
+  // carry an un-centered button and check 2 would still be green, because check 2 opens its own
+  // page and never goes back.
+  //
+  // DRIVEN THROUGH `RichHome`'s OWN DOOR AND BACK — `hide()` then `show()` — rather than by
+  // toggling the class, because the class is the thing under test.
+  //
+  // THE INSTANT IS THE START OF THE FADE, NOT THE END OF IT, and that is the same handover
+  // `splash.css` chose for this button with `:not(.splash--yielding)`: `home.js` drops
+  // `home-open` before it starts the leaving fade, so the button is back in its regular place in
+  // the same instant the app behind it begins to appear.
+  await run.check(
+    "leaving the home screen puts the button back at 6/15, and coming back puts it at 18/18",
+    async () => {
+      const page = await openHome(browser, SMALL, "dark");
+      const onHome = await measure(page);
+      assertEqual(onHome.setbtn.top, CORNER.top, "the home screen did not start at its own inset");
+
+      await page.evaluate(() => window.RichHome.hide("chrome-align"));
+      await page.waitForFunction(() => !document.body.classList.contains("home-open"));
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const left = await measure(page);
+      assertEqual(left.setbtn.top, CENTERED.top, "the button did not return to the centered inset when the home screen left");
+      assertEqual(left.settingsRightPadding, CENTERED.right, "the right padding did not return when the home screen left");
+      assert(
+        Math.abs(left.settingsCenterDelta) <= 1,
+        `back on a thread the button's center is ${left.settingsCenterDelta}px from the header's — ` +
+          "the home screen took the centering with it when it left"
+      );
+
+      await page.evaluate(() => window.RichHome.show("chrome-align"));
+      await page.waitForFunction(() => document.body.classList.contains("home-open"));
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const back = await measure(page);
+      assertEqual(back.setbtn.top, CORNER.top, "coming back to the home screen did not restore its inset");
+      assertEqual(back.settingsRightPadding, CORNER.right, "coming back to the home screen did not restore its right padding");
+      assertEqual(page.__errors, [], "the page reported errors");
+      await page.close();
+      return (
+        `home ${onHome.setbtn.top}/${onHome.settingsRightPadding} -> ` +
+        `thread ${left.setbtn.top}/${left.settingsRightPadding} (${left.settingsCenterDelta}px off the header's center) -> ` +
+        `home again ${back.setbtn.top}/${back.settingsRightPadding}`
+      );
+    }
+  );
 
   // ---- 3. the composer, in every state, at both window sizes -----------------------------
   for (const vp of [SMALL, LARGE]) {
