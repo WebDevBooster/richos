@@ -61,11 +61,34 @@ const APP = "file://" + path.join(UI_DIR, "index.html");
 /// The window the app restores itself to, and its own minimum. Every check runs here.
 const WINDOW = { width: 1024, height: 700 };
 
+/// The roomy window `appearance.js` and the phone suite open. The live-code checks run at BOTH,
+/// because a sheet that fits only the big one is the exact defect this file was created for.
+const ROOMY = { width: 1400, height: 950 };
+
+/// A Mac that is signed in to Tailscale, certified and named — the only Mac the shipped pairing
+/// flow opens a window on. Copied from `phone.js`'s own fixture rather than invented, so the two
+/// suites cannot be looking at different Macs.
+const READY_TAILNET = {
+  state: "ready",
+  name: "mm1.tail9a3b2.ts.net",
+  origin: "https://mm1.tail9a3b2.ts.net:8443",
+  account: "Google as someone@gmail.com",
+};
+
+/// The pairing window pinned, so the sheet is in the LIVE-CODE state deterministically and the
+/// countdown does not run out mid-check. 245 s = "4 more minutes" through `remaining()`.
+const SECONDS_LEFT = 245;
+
 /// The panel height Ray measured on the shipped candidate, in CSS pixels.
 const AUDIT_PANEL_HEIGHT = 738;
 
 /// Open the app, dismiss the curtain, and open the settings panel.
-async function openMenu(browser, viewport) {
+///
+/// `preset` and `theme` are optional and exist for the live-code checks below: the mock's state
+/// has to be in place BEFORE any of the page's own scripts run, and the theme has to be seeded in
+/// both the mirror and the store because `syncAppearanceFromBackend` reconciles them and the
+/// backend wins — the same two reasons `phone.js` and `contrast.js` give at length.
+async function openMenu(browser, viewport, preset, theme) {
   const page = await browser.newPage({ viewport });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -73,6 +96,21 @@ async function openMenu(browser, viewport) {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
   page.__errors = errors;
+  if (preset) await page.addInitScript((v) => { window.__RICHOS_MOCK_PRESET__ = v; }, preset);
+  if (theme) {
+    await page.addInitScript((t) => {
+      try {
+        window.localStorage.setItem("richos-theme", t);
+        window.localStorage.setItem("richos-font-scale", "100");
+        window.localStorage.setItem(
+          "richos-mock-config",
+          JSON.stringify({ theme: t, font_scale: 100, user_name: null })
+        );
+      } catch (e) {
+        /* storage unavailable: theme-boot falls back to the shipped default, which is dark */
+      }
+    }, theme);
+  }
   await page.goto(APP);
   await page.waitForSelector("#set-btn", { timeout: 15000 });
   await page.evaluate(() => window.RichSplash && window.RichSplash.yieldNow("settings-fit"));
@@ -325,6 +363,202 @@ async function main() {
       `(${panel.headings.map((h) => JSON.stringify(h.text)).join(", ")}); "Bust a bug!" keeps its own icon`;
   });
 
+  // ---- THE LIVE-CODE SHEET: the same defect one surface further in ------------------------
+  //
+  // Ray's candidate-.16 audit, "New defect: the live-code sheet's controls are below the fold,
+  // and Tab cannot reach them"
+  // (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260919.5-stale-engine-and-phone-audit.md`):
+  //
+  //     "At 1024x700 — this build's stated minimum window size — the pairing sheet shows the QR,
+  //      the URL, the countdown and the six words, and no buttons at all. AX puts them at
+  //      y=1175–1364 absolute, against a window whose bottom edge is y=792. `Show me another
+  //      code`, `Stop and go back` and `Close` are all off-screen. The sheet's own copy meanwhile
+  //      instructs the user to 'press Close and tell me' … On a sheet reopened while a code is
+  //      live, focus starts on a bare container and three Tab presses never leave it."
+  //
+  // REPRODUCED HERE BEFORE IT WAS FIXED, at the same size, in this WebKit: panel clamped to 592px
+  // in a 700px window with 1196px of content, and on a REOPENED sheet the three controls at window
+  // y 1040..1116 with `document.activeElement` still BODY, outside the sheet. Same shape, same
+  // magnitude, same two halves.
+  //
+  // THIS BELONGS IN THIS FILE AND NOT IN `phone.js` FOR THE REASON THE HEADER GIVES: the phone
+  // suite opens every page at 1400x950, and a suite that only ever opens a roomy window cannot
+  // see any defect of this class. Both sizes are checked below, and the roomy one is the control
+  // — if the sheet fitted 1400x950 and nothing else, the small window's check would be the only
+  // thing standing between this and the next audit.
+
+  const LIVE_CODE = { phonePairing: true, phoneTailnet: READY_TAILNET, phonePairingSecondsLeft: SECONDS_LEFT };
+
+  /// Drive the settings row into the pairing sheet, and hand back the page with it open.
+  async function openPairingSheet(browser, viewport, theme) {
+    const p = await openMenu(browser, viewport, LIVE_CODE, theme);
+    await p.waitForSelector("#set-phone-open");
+    await p.click("#set-phone-open");
+    await p.waitForSelector("#phone-sheet", { state: "visible" });
+    // The panel rises over 0.16s (`overlay-in`); measuring mid-animation reads a translated box.
+    await p.evaluate(async () => {
+      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      if (panel) await Promise.all(panel.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => {})));
+    });
+    return p;
+  }
+
+  /// Every control on the sheet, and whether it is inside the window — plus what the panel is
+  /// doing, so a failure says WHY rather than only that something is off screen.
+  const SHEET = `() => {
+    // TWO BOXES SINCE THE FIX, AND THEY ANSWER DIFFERENT QUESTIONS. The PANEL is the sheet's
+    // outline — what "inside the window" is measured against. The SCROLL BOX is what actually
+    // moves, and it is where contentHeight, clientHeight and scrollTop come from. Before Ray's
+    // candidate-.16 defect they were one element; a check that kept reading the panel for both
+    // would silently stop measuring the overflow.
+    const panel = document.querySelector("#phone-sheet .overlay-panel");
+    const scroller = document.getElementById("phone-scroll") || panel;
+    const r = panel.getBoundingClientRect();
+    const box = (id) => {
+      const b = document.getElementById(id);
+      const br = b.getBoundingClientRect();
+      return {
+        id,
+        shown: b.offsetParent !== null,
+        top: Math.round(br.top),
+        bottom: Math.round(br.bottom),
+        inWindow: br.top >= 0 && br.bottom <= window.innerHeight,
+      };
+    };
+    const a = document.activeElement;
+    return {
+      vh: window.innerHeight,
+      panelTop: Math.round(r.top),
+      panelBottom: Math.round(r.bottom),
+      contentHeight: scroller.scrollHeight,
+      clientHeight: scroller.clientHeight,
+      scrollTop: Math.round(scroller.scrollTop),
+      codeOnScreen: ["phone-qr-pair", "phone-pair-url", "phone-countdown", "phone-words"].every((id) => {
+        const br = document.getElementById(id).getBoundingClientRect();
+        return br.top >= 0 && br.bottom <= window.innerHeight && br.height > 0;
+      }),
+      controls: ["phone-refresh", "phone-pairing-back", "phone-close"].map(box),
+      focus: a ? { tag: a.tagName, id: a.id, inSheet: !!(a.closest && a.closest("#phone-sheet")) } : null,
+    };
+  }`;
+
+  const readSheet = (p) => p.evaluate((fn) => eval("(" + fn + ")")(), SHEET);
+
+  for (const [label, viewport] of [["1024x700", WINDOW], ["1400x950", ROOMY]]) {
+    for (const theme of ["dark", "light"]) {
+      await run.check(
+        `LIVE CODE  at ${label}, ${theme}: the code is on screen and so are all three controls`,
+        async () => {
+          const p = await openPairingSheet(browser, viewport, theme);
+          const m = await readSheet(p);
+          assertEqual(m.vh, viewport.height, "the viewport is not the window under test");
+          // **TWO POSITIONS, AND THE SECOND ONE IS RAY'S FRAME.** The sheet scrolls itself to the
+          // code on open (`scrollToCode`, Urban's G4), so reading it only where it happens to
+          // land measures one scroll offset rather than the screen. `atTop` is the sheet at the
+          // top of its own content — the QR, the address, the countdown and the six words, which
+          // is exactly what Ray photographed with no buttons under it. The controls must be in
+          // the window in BOTH.
+          const atTop = await p.evaluate((fn) => {
+            // The fallback is not defensive noise: it is what lets this check be run against the
+            // SHIPPED tree, where the panel itself was the scroll box, and come back red with
+            // Ray's own geometry instead of a TypeError.
+            (document.getElementById("phone-scroll") ||
+              document.querySelector("#phone-sheet .overlay-panel")).scrollTop = 0;
+            return eval("(" + fn + ")")();
+          }, SHEET);
+          // THE PANEL GENUINELY OVERFLOWS, or this check is measuring a sheet that never had the
+          // problem. At 1400x950 it still does — the how-to alone is 469px.
+          assert(
+            m.contentHeight > m.clientHeight + 1,
+            `the sheet's content (${m.contentHeight}px) fits its ${m.clientHeight}px scrollport, so ` +
+              `a pinned footer proves nothing at this size`
+          );
+          // THE CONTROLS FIRST, because they are the defect. Asserting the code's visibility
+          // ahead of them made the pre-fix run fail on the wrong line — the shipped sheet
+          // scrolls itself to the code and pushes the six words half out, which is a real but
+          // much smaller thing, and it hid the three buttons sitting 340px below the window.
+          for (const [where, s] of [["as it opens", m], ["at the top of the sheet", atTop]]) {
+            for (const c of s.controls) {
+              assert(c.shown, `${c.id} is not rendered on the pairing screen at all`);
+              assert(
+                c.inWindow,
+                `THE DEFECT: ${where}, ${c.id} is at y ${c.top}..${c.bottom} in a ${s.vh}px window ` +
+                  `(panel ${s.panelTop}..${s.panelBottom}, ${s.contentHeight}px of content, scrolled ${s.scrollTop})`
+              );
+            }
+          }
+          // Ray's own list of what he COULD see, kept as the thing that must not be traded away:
+          // the code is the reason a person is on this screen, and a footer that won its space by
+          // pushing the QR off the top would be this defect solved in the wrong direction. Read
+          // at the top of the sheet, which is where the code lives in the markup's order.
+          assert(atTop.codeOnScreen, "at the top of the sheet the QR, the address, the countdown or the six words is outside the window");
+          const errs = p.__errors;
+          await p.close();
+          assertEqual(errs, [], "the sheet reported page errors");
+          return (
+            `panel ${m.panelTop}..${m.panelBottom} of ${m.vh} with ${m.contentHeight}px of content; ` +
+            `at the top of the sheet the code is on screen and the controls are at y ` +
+            atTop.controls.map((c) => `${c.id} ${c.top}..${c.bottom}`).join(", ") +
+            ` (opened at scrollTop ${m.scrollTop})`
+          );
+        }
+      );
+    }
+  }
+
+  await run.check(
+    "LIVE CODE  a sheet REOPENED while a code is live opens with focus on its primary control",
+    async () => {
+      // The sharper half of the defect. Ray: "On a sheet reopened while a code is live, focus
+      // starts on a bare container and three Tab presses never leave it. Page Down does nothing
+      // either." So a keyboard-only user cannot cancel a live pairing code.
+      //
+      // THE CAUSE IS ONE SELECTOR: `open()` focused `sheet.querySelector("button:not([disabled])")`,
+      // which answers a question about DOM ORDER. `#phone-forget` is the first button in the
+      // markup, it lives inside `#phone-paired`, that block is hidden on every screen but the
+      // paired card — and `.focus()` on a hidden element does nothing at all, silently. Focus
+      // stayed on `document.body`, which is also why Page Down did nothing: the body is not the
+      // box that scrolls.
+      //
+      // ASSERTED ON FOCUS, NOT ON TAB. WebKit does not move Tab focus to buttons unless full
+      // keyboard access is on, so a Tab-traversal assertion here would measure the harness's
+      // preferences rather than the app. Where focus LANDS is the app's own decision and is
+      // deterministic; the Tab walk is checked on the real app on screen.
+      const p = await openPairingSheet(browser, WINDOW, "dark");
+      const fresh = await readSheet(p);
+      assert(fresh.focus && fresh.focus.inSheet, `a FRESHLY opened sheet put focus on ${JSON.stringify(fresh.focus)}`);
+
+      await p.click("#phone-close");
+      await p.waitForSelector("#phone-sheet", { state: "hidden" });
+      await p.click("#set-btn");
+      await p.waitForSelector("#set-phone-open");
+      await p.click("#set-phone-open");
+      await p.waitForSelector("#phone-sheet", { state: "visible" });
+      await p.waitForTimeout(250);
+      const m = await readSheet(p);
+      const errs = p.__errors;
+      await p.close();
+
+      assert(
+        m.focus && m.focus.inSheet,
+        `THE DEFECT: the reopened sheet put focus on ${JSON.stringify(m.focus)} — outside the sheet, ` +
+          `so no key press reaches it`
+      );
+      assertEqual(m.focus.tag, "BUTTON", "focus landed on something that is not a control");
+      // The PRIMARY control, which on this screen is "Show me another code". Close would be
+      // reachable too, but the first thing a keyboard lands on should be the thing the screen
+      // is for.
+      assertEqual(m.focus.id, "phone-refresh", "focus did not land on the screen's primary control");
+      for (const c of m.controls) {
+        assert(c.inWindow, `on the reopened sheet ${c.id} is at y ${c.top}..${c.bottom} of ${m.vh}`);
+      }
+      assertEqual(errs, [], "the reopen reported page errors");
+      return (
+        `fresh open focused ${fresh.focus.id || fresh.focus.tag}; reopened with a live code focused ` +
+        `${m.focus.id}, all three controls inside the ${m.vh}px window`
+      );
+    }
+  );
   await run.check("no page errors", async () => {
     assertEqual(page.__errors, [], "the page reported errors");
     return "0 errors";

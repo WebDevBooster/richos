@@ -6252,10 +6252,10 @@ body.home-open {
    also narrows the panel to 420px, which is too narrow for sixteen steps and two codes. So the
    padding is added here instead, and the panel keeps its 620px. Found by LOOKING at the rendered
    screenshot the suite takes: every line of prose was flush against the panel's left edge, which
-   no contrast check can see and no node count can count. */
-#phone-sheet .overlay-panel {
-  padding: 20px 22px 18px;
-}
+   no contrast check can see and no node count can count.
+   IT MOVED INSIDE on 2026-09-19: the panel is a flex column of a scroll box and a footer now, and
+   a padding on the panel would keep the footer's ground and its divider off the panel's edges.
+   Same numbers, split between `.phone-scroll` and `.phone-actions` below. */
 
 .phone-step-title {
   margin: 20px 0 8px;
@@ -6307,6 +6307,59 @@ body.home-open {
   letter-spacing: 0.01em;
   color: var(--ink);
   overflow-wrap: anywhere;
+}
+/* **THE WAY OUT DOES NOT LEAVE THE WINDOW** — Ray's candidate-.16 new defect.
+
+   Measured at 1024x700 (the app's own minimum and the size it restores itself to), dark, with a
+   code live: `.overlay-panel` is clamped to 592px by `max-height: calc(88vh - 24px)` and its
+   content is 1196px, so at the top of the sheet `Show me another code`, `Stop and go back` and
+   `Close` sat at window y 1187..1263 — 487px past the bottom edge, under sixteen steps of
+   Tailscale how-to, while `#phone-words-note` read "press Close and tell me". Ray read the same
+   geometry off AX on the real app: y=1175..1364 against a window bottom of y=792.
+
+   THE PANEL IS NOW A FLEX COLUMN OF TWO: `.phone-scroll`, which scrolls, and this row, which does
+   not. The sheet cannot simply be made to fit — at 1024x700 the pairing screen is 1161px of
+   content in a 590px scrollport even with the whole how-to removed (692px without it), so
+   something has to scroll and the way out has to be outside whatever does.
+
+   **A STICKY FOOTER OVER ONE SCROLLPORT WAS TRIED FIRST AND IS THE REASON THIS SPLIT EXISTS.**
+   It pins correctly and it costs a node: `tests/contrast.js` check 11 — "nothing disappears into
+   `obscured` without being measured somewhere else" — found `div#phone-ts-steps > p.overlay-note
+   > strong` ("There is no pairing step in Tailscale.") filed obscured on the only surface that
+   reaches it and measured on none, because the opaque sticky row sat over it at the scroll
+   position the sheet opens at. The walk does not scroll, and it is right not to: a sentence you
+   can only read by moving something is a sentence the gate cannot vouch for. A footer that
+   RESERVES its space covers nothing at any scroll position, which is also the better screen.
+
+   THE RULE ABOVE IT, COMPUTED — WCAG formula, against `--card`:
+     `--line-control`   4.06:1 light rgb(118,124,141) on rgb(253,252,248)
+                        3.79:1 dark  rgb(107,126,168) on rgb(24,36,64)
+   Both clear the 3:1 non-text floor in both themes, so nothing here is exempt and nothing is
+   claimed to be. It is the same value `.desk-btn`'s own border carries — the one Urban's G6
+   raised `--line` to — so the divider and the affordances under it agree. */
+#phone-sheet .overlay-panel {
+  display: flex;
+  flex-direction: column;
+  /* The panel keeps its `max-height` from `.overlay-panel`; what changes is WHICH box scrolls.
+     `overflow-y: hidden` overrides the `auto` above so there is exactly one scrollport on this
+     sheet and `scrollToCode` cannot be aimed at the wrong one. */
+  overflow-y: hidden;
+  /* The padding moves inside, so the divider and the footer's ground reach the panel's edges. */
+  padding: 0;
+}
+.phone-scroll {
+  flex: 1 1 auto;
+  /* Without this a flex child refuses to shrink below its content and the panel grows past its
+     own `max-height` — the defect wearing a different hat. */
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 22px 16px;
+}
+.phone-actions {
+  flex: 0 0 auto;
+  padding: 12px 22px 18px;
+  background: var(--surface);
+  border-top: 1px solid var(--line-control);
 }
 .phone-steps {
   margin: 0 0 8px;
