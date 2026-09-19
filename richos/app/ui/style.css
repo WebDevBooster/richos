@@ -4398,7 +4398,32 @@ body.bp-narrow .tl-user-bubble {
 
 /* A control that cannot be pressed yet is DISABLED and looks it, rather than being hidden:
    "show me what you'd say" with nothing chosen would refuse in the backend, and a button
-   that appears and then refuses teaches him the surface is unreliable. */
+   that appears and then refuses teaches him the surface is unreliable.
+
+   DECLARED CONTRAST EXEMPTION — WCAG 2.2 §1.4.3 and §1.4.11 both exempt INACTIVE
+   COMPONENTS, and this rule is the one place in this file that relies on that. It is
+   declared here, where a reviewer reading the rule sees it, rather than left to be
+   rediscovered by the next audit.
+
+   WHAT IT MEASURES, derived from the tokens and confirmed against a photograph. Ray's
+   candidate .11 walk measured the disabled "Set it up" label during the engine install at
+   1.45:1, rgb(165,162,154) on rgb(209,194,160), and declared it himself rather than passing
+   over it. Re-derived here: 0.45 opacity over `--card` puts `--accent` at exactly
+   rgb(209,194,160) in light, which is his ground to the byte, and `--on-gold` at
+   rgb(145,147,152) — a DECLARED 1.75:1 light and 2.59:1 dark. His 1.45:1 is the painted
+   glyph rather than the declared color, the same antialiasing gap `contrast.js` check 17
+   records for thin type. All four numbers are far under 4.5:1 and none of them is a defect,
+   because the control is inactive.
+
+   AND THE INFORMATION IS NOT CARRIED BY THIS LABEL WHILE IT IS FADED, which is the
+   condition the exemption is worth anything under. The live status line beside it says what
+   is happening — "Getting my instructions." — at 6.33:1, and the heading above it at
+   18.07:1. The moment the button becomes pressable again it is `--on-gold` on `--accent`:
+   4.72:1 light, 7.68:1 dark, both over the floor.
+
+   IF THAT STOPS BEING TRUE — if a disabled control ever becomes the only thing on screen
+   saying what the app is doing — this rule is a failure and not an exemption, and the fix
+   is roughly three times the contrast rather than a longer comment. */
 .desk-btn:disabled {
   opacity: 0.45;
   cursor: default;

@@ -4894,9 +4894,14 @@ async function runSetup() {
   // "That's everything. I'm ready." — two sentences contradicting each other on screen at the
   // same time (ray-opus-a1, finding 7, 2026-09-04). It is set from the same `next.complete`
   // the note is, so the two cannot come apart again.
+  // AMERICAN ENGLISH (§13), and this is the one place in the sheet that was not.
+  // "That's the setting up done" and "finish the setting up" are British idiom — the noun in
+  // American English is "setup", and the product's own audience is non-technical CEOs in the
+  // US. Ray's candidate .11 walk listed it at 17. The heading is the CEO's first sentence
+  // after an install that takes minutes, so it is not a place to sound like somebody else.
   setupTitleEl.textContent = next && next.complete
-    ? "That's the setting up done."
-    : "I couldn't finish the setting up.";
+    ? "Setup is done."
+    : "I couldn't finish the setup.";
   setupNoteEl.textContent = next && next.complete
     ? "The software is installed."
     : "That's everything I could do — something is still missing. That part is for whoever set RichOS up to look at.";

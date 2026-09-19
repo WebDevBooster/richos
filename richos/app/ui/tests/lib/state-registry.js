@@ -1566,7 +1566,7 @@ module.exports = [
       "second sentence.",
   },
   {
-    s: "I couldn't finish the setting up.",
+    s: "I couldn't finish the setup.",
     c: "NEEDS-SOMEONE-ELSE",
     explainedBy:
       "the note directly beneath it — \"That's everything I could do — something is still " +
@@ -1595,7 +1595,7 @@ module.exports = [
       "nobody has said whether the CEO can act on.",
   },
   {
-    s: "That's the setting up done.",
+    s: "Setup is done.",
     c: "INFORMATIONAL",
     fixture: "setup-finished",
     why:
