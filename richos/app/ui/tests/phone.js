@@ -484,10 +484,17 @@ async function openSheet(browser, theme, preset) {
     // app says it at the moment it becomes true rather than putting it in a README.
     const page = await openSheet(browser, "dark", { phonePaired: true });
     const text = (await page.textContent("#phone-paired")).replace(/\s+/g, " ");
+    const heading = (await page.textContent("#phone-device-name")).trim();
     const forget = await page.isVisible("#phone-forget");
     await page.close();
     assert(forget, "there is no way to forget the phone");
-    assert(/iPhone is paired/.test(text), "the paired phone is not named: " + text);
+    // THE PHONE IS NAMED, AND SINCE URBAN'S G8 IT IS NAMED IN THE HEADING. This read
+    // `/iPhone is paired/` over the card's flat text, which is the same property expressed as
+    // one sentence — the name and the state ran together in a single paragraph because the card
+    // had no heading at all. It does now, so the two halves are asserted where they each live:
+    // weakening this to a search over the flat text would have passed on a card with no heading.
+    assertEqual(heading, "iPhone", "the paired phone is not named in the card's heading: " + text);
+    assert(/is paired/.test(text), "the card does not say the phone is paired: " + text);
     assert(
       /does .{0,4}not.{0,4} remove the certificate from your phone/i.test(text),
       "the screen does not say that forgetting here leaves the profile on his phone: " + text
@@ -734,11 +741,11 @@ async function openSheet(browser, theme, preset) {
               (n) => visible(n) && /signed in to Tailscale/.test(n.textContent || "")
             );
             return {
-              heading: document
-                .getElementById("phone-paired")
-                .textContent.replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 40),
+              // SINCE URBAN'S G8 THIS CARD HAS A REAL HEADING, so the name is read off it
+              // rather than off the first 40 characters of the card's flat text. The old slice
+              // was a stand-in for a heading that did not exist; now that one does, a slice
+              // would pass on a card whose name had moved anywhere in the first line.
+              heading: document.getElementById("phone-device-name").textContent.trim(),
               notes: notes,
               limitShown: limit.length > 0,
             };
@@ -787,8 +794,9 @@ async function openSheet(browser, theme, preset) {
         // The name comes last of the three, deliberately: it is the one assertion that
         // depends on the harness modeling the right phone, and a failure there would mask the
         // copy failures above, which are the defect.
-        assert(
-          first.heading.startsWith(combination.name + " is paired"),
+        assertEqual(
+          first.heading,
+          combination.name,
           "the card does not name the phone it is talking about (" + where + "): " + first.heading
         );
         assertEqual(
@@ -1184,6 +1192,386 @@ async function openSheet(browser, theme, preset) {
       `the sentence names a control this sheet does not have: ${JSON.stringify(onLive.text)}`
     );
     return `live: ${JSON.stringify(onLive.text.slice(0, 60))}…; expired: the sentence is gone and the words are ${JSON.stringify(onExpired.words)}`;
+  });
+
+  // ---- G2: the pairing screen has a way back, and it stops serving ------------------------
+
+  await run.check("19  `Pick a different way` is on the pairing screen too, and it stops serving", async () => {
+    // Urban's G2, seen live and unreachable afterwards: *"Once `Set my phone up` is pressed, the
+    // route chooser is unreachable for the life of the app process — `expired` also sets
+    // `pairing`, so waiting does not restore it either. I hit this live: after the walk, the
+    // route chooser and `This Mac is ready` could not be reached again in dark at all."*
+    //
+    // BOTH THEMES, because both halves of that sentence are about dark: the screens he could not
+    // re-reach were the dark ones, and a fix proved only in light would not answer him.
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await takeTheTailscaleRoute(theme, {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      });
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
+      await page.click("#phone-ts-start");
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+
+      // THE CONTROL IS ON THE SCREEN AND IT IS CLICKABLE, not merely in the markup: the four
+      // other copies of this label live in blocks that are hidden on this screen, so a check
+      // that only looked for the text would pass on a button nobody can press.
+      const before = await page.evaluate(() => {
+        const back = document.getElementById("phone-pairing-back");
+        return {
+          present: !!back,
+          visible: !!back && back.offsetParent !== null,
+          label: back ? back.textContent.trim() : "",
+          listening: null,
+        };
+      });
+      before.listening = (await page.evaluate(() => window.RichBridge.invoke("phone_status"))).listening;
+      assert(before.present, "THE DEFECT: the pairing screen has no `Pick a different way`");
+      assert(before.visible, "`Pick a different way` is in the markup but not on the screen");
+      assertEqual(before.label, "Pick a different way", "the control is not under the name the rest of the flow uses");
+      assert(before.listening === true, "the harness never started serving, so stopping proves nothing");
+
+      await page.click("#phone-pairing-back");
+      await page.waitForSelector("#phone-route:not([hidden])");
+      const after = await page.evaluate(async () => {
+        const status = await window.RichBridge.invoke("phone_status");
+        return {
+          route: !document.getElementById("phone-route").hidden,
+          pairing: !document.getElementById("phone-pairing").hidden,
+          listening: status.listening,
+          pairUrl: status.pairUrl,
+        };
+      });
+      await page.close();
+
+      assert(after.route, "pressing it did not return to the route chooser");
+      assert(!after.pairing, "the pairing screen is still up after backing out of it");
+      // **AND IT STOPPED SERVING**, which is the half that is not a button. `choosing` requires
+      // `!status.listening`, so a Mac still answering would redraw the pairing screen on the
+      // next poll and this control would read as one that does nothing.
+      assert(after.listening === false, "THE DEFECT'S SECOND HALF: the Mac is still serving after `Pick a different way`");
+      assert(after.pairUrl === null, "the code he backed out of is still live");
+      out.push(theme + ": listening " + before.listening + " -> " + after.listening + ", route chooser back");
+    }
+    return out.join("; ");
+  });
+
+  // ---- G3/G4/G5: what the screen puts first, where it puts him back, and what it stopped -----
+
+  await run.check("20  the code is ABOVE the phone steps on the Tailscale route, and the home route keeps 1-2-3", async () => {
+    // Urban's G3, measured on his own frames 04 and 05: at 1024x700 — the app's own minimum and
+    // the size it restores itself to — the pairing screen is about three viewport heights tall,
+    // and the code was about 1.5 screens down. *"The four phone steps are preparation for a
+    // person who has not started; the code is what a person who is standing there with their
+    // phone needs. Order the screen for the second person."*
+    //
+    // AND THE HOME ROUTE IS THE OTHER HALF OF THE SAME CHECK. Its three headings are numbered
+    // and the numbers are a real sequence — the certificate at step 1 is what makes step 2's
+    // address open at all — so a fix that moved the code on BOTH routes would put step 2 above
+    // step 1. Reading order is asserted on each route, in opposite directions.
+    const order = async (page, a, b) =>
+      page.evaluate((s) => {
+        const first = document.querySelector(s.a);
+        const second = document.querySelector(s.b);
+        if (!first || !second) return "missing";
+        // 4 === DOCUMENT_POSITION_FOLLOWING: `b` comes after `a` in the document.
+        return first.compareDocumentPosition(second) & 4 ? "a-then-b" : "b-then-a";
+      }, { a, b });
+
+    const ts = await takeTheTailscaleRoute("dark", {
+      state: "ready", name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
+    });
+    await ts.click("#phone-ts-start");
+    await ts.waitForSelector("#phone-pairing:not([hidden])");
+    const onTailnet = await order(ts, "#phone-code-block", "#phone-ts-steps");
+    const codeVisible = await ts.evaluate(() => !document.getElementById("phone-code-block").hidden);
+    await ts.close();
+
+    const home = await openSheet(browser, "dark", { phonePairing: true });
+    await home.waitForSelector("#phone-pairing:not([hidden])");
+    const onHome = await order(home, "#phone-home-warnings", "#phone-code-block");
+    const headings = await home.evaluate(() => ({
+      trust: document.querySelector("#phone-home-warnings .phone-step-title").textContent.trim(),
+      code: document.getElementById("phone-code-title").textContent.trim(),
+      words: document.getElementById("phone-words-title").textContent.trim(),
+    }));
+    await home.close();
+
+    assert(codeVisible, "the code block is hidden on a screen with a live code");
+    assertEqual(onTailnet, "a-then-b", "THE DEFECT: on the Tailscale route the four phone steps still come before the code");
+    assertEqual(onHome, "a-then-b", "the home route's certificate step no longer comes before the code it makes readable");
+    assert(/^1\./.test(headings.trust) && /^2\./.test(headings.code) && /^3\./.test(headings.words),
+      "the home route's numbering is out of step with its order: " + JSON.stringify(headings));
+    return "tailnet: code then steps; home: " + JSON.stringify([headings.trust.slice(0, 2), headings.code.slice(0, 2), headings.words.slice(0, 2)]);
+  });
+
+  await run.check("21  `Show me another code` puts the code back on screen, not the top of the sheet", async () => {
+    // Urban's G4, frames 08 and 09: the button issued the code AND returned the panel to the
+    // top, *"so the user must scroll the whole way down again to reach the thing they just
+    // asked for"*. Walked on the HOME route, where the code sits in the middle of the screen
+    // and so the two outcomes — "scrolled to the top" and "the code is in view" — are different
+    // answers. On the Tailscale route G3 already puts the code at the top and they coincide.
+    const page = await openSheet(browser, "dark", { phonePairing: true });
+    await page.waitForSelector("#phone-pairing:not([hidden])");
+    // Where he is when he presses it: at the bottom, on the button.
+    await page.evaluate(() => {
+      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      panel.scrollTop = panel.scrollHeight;
+    });
+    await page.click("#phone-refresh");
+    await page.waitForTimeout(250);
+    const where = await page.evaluate(() => {
+      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      const code = document.getElementById("phone-code-block");
+      const p = panel.getBoundingClientRect();
+      const c = code.getBoundingClientRect();
+      return {
+        scrollTop: Math.round(panel.scrollTop),
+        scrollable: Math.round(panel.scrollHeight - panel.clientHeight),
+        codeTopInPanel: Math.round(c.top - p.top),
+        panelHeight: Math.round(p.height),
+      };
+    });
+    await page.close();
+    assert(where.scrollable > 40, "the panel does not scroll in this window, so this check proves nothing");
+    // THE CODE IS IN VIEW. Stated as geometry rather than as a scroll number, because the
+    // requirement is about what he can see and not about where the scrollbar ended up.
+    assert(
+      where.codeTopInPanel >= 0 && where.codeTopInPanel < where.panelHeight - 40,
+      "THE DEFECT: after `Show me another code` the code is at " + where.codeTopInPanel +
+        "px in a " + where.panelHeight + "px panel — off the screen he is looking at"
+    );
+    return "panel scrolls " + where.scrollable + "px; after the fresh code the block sits " +
+      where.codeTopInPanel + "px into a " + where.panelHeight + "px panel (scrollTop " + where.scrollTop + ")";
+  });
+
+  await run.check("22  no raw socket dump on the pairing screen, on either route", async () => {
+    // Urban's G5, his frame 06: eight address:port pairs over four lines, drawn whenever a code
+    // was live, on both routes, for every user, and not behind the technical view. *"It tells
+    // the reader nothing they can act on, and it is the one thing on this flow that looks like a
+    // debug log that shipped."* He was given a choice of Techy Mode or nowhere and said nowhere.
+    const found = [];
+    const home = await openSheet(browser, "dark", { phonePairing: true });
+    await home.waitForSelector("#phone-pairing:not([hidden])");
+    found.push(await home.evaluate(() => ({
+      route: "home",
+      node: !!document.getElementById("phone-bound"),
+      text: document.querySelector("#phone-sheet .overlay-panel").innerText,
+    })));
+    await home.close();
+
+    const ts = await takeTheTailscaleRoute("dark", {
+      state: "ready", name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
+    });
+    await ts.click("#phone-ts-start");
+    await ts.waitForSelector("#phone-pairing:not([hidden])");
+    found.push(await ts.evaluate(() => ({
+      route: "tailnet",
+      node: !!document.getElementById("phone-bound"),
+      text: document.querySelector("#phone-sheet .overlay-panel").innerText,
+    })));
+    await ts.close();
+
+    for (const f of found) {
+      assert(!f.node, "THE DEFECT: the bound-address node is still in the sheet on the " + f.route + " route");
+      assert(!/answering on/i.test(f.text), "the sheet still says what it is answering on (" + f.route + ")");
+      // The pattern the dump is made of, and the one the pairing URL is NOT: an address with a
+      // port. `https://mm1.local:8443/#pair=…` is a name and a port and does not match.
+      const dump = f.text.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/g);
+      assertEqual(dump, null, "an address:port pair is still on the " + f.route + " screen");
+    }
+    return "both routes: no #phone-bound, no \"answering on\", no address:port pair in the rendered panel";
+  });
+
+  // ---- G6: the border that is the only affordance on the paired card ----------------------
+
+  await run.check("23  `.desk-btn`'s border clears 3:1 in BOTH themes — measured from the pixels", async () => {
+    // Urban's G6, and the one contrast failure in his audit: *"On the paired card that border is
+    // the only thing that makes a button a button. Every line on that card is `--ink-soft` at the
+    // same size and weight — labels and paragraphs alike ... So at 1.24:1 in dark, the card's two
+    // controls have no visible affordance at all."*
+    //
+    // MEASURED THE WAY HE MEASURED IT: a crop of the rendered pixels across the border, ground =
+    // the modal value on the crop's skirt, ink = the value furthest from it in luminance, and the
+    // ratio between them. `lib/contrast.js`'s own `measureIndicatorCrop`, which is the function
+    // the indicator subset of the walk uses — not a second implementation, and not a token table.
+    const { measureIndicatorCrop } = require("./lib/contrast");
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await openSheet(browser, theme, { phonePaired: true });
+      await page.waitForFunction(() => {
+        const n = document.getElementById("phone-device-name");
+        return n && n.textContent.trim().length > 0;
+      });
+      await page.waitForTimeout(300);
+      for (const sel of ["#phone-forget", "#phone-close"]) {
+        const box = await page.evaluate((s) => {
+          const el = document.querySelector(s);
+          el.scrollIntoView({ block: "center" });
+          const r = el.getBoundingClientRect();
+          return { x: r.x, y: r.y, w: r.width, h: r.height };
+        }, sel);
+        await page.waitForTimeout(60);
+        // A 6px strip across the LEFT border, taken from the vertical middle so no glyph of the
+        // label is inside it: columns 0/1 are the panel outside the button and 4/5 the panel
+        // showing through it (`background: none`), so the skirt resolves to the panel and the
+        // two border columns are the only other thing in the crop.
+        const png = await page.screenshot({
+          clip: {
+            x: Math.round(box.x - 3),
+            y: Math.round(box.y + box.h * 0.35),
+            width: 6,
+            height: Math.max(6, Math.round(box.h * 0.3)),
+          },
+        });
+        const m = measureIndicatorCrop(png, 3);
+        assert(!m.unresolvable, sel + " in " + theme + ": " + m.unresolvable);
+        assert(
+          m.ratio >= 3,
+          "THE DEFECT: " + sel + "'s border is " + m.ratio + ":1 in " + theme + " (" + m.ink +
+            " on " + m.ground + ") against a 3:1 floor for a non-text indicator — and on this card " +
+            "it is the only thing that makes a button a button"
+        );
+        out.push(theme + " " + sel + " " + m.ratio + ":1 (" + m.ink + " on " + m.ground + ")");
+      }
+      await page.close();
+    }
+    return out.join("; ");
+  });
+
+  // ---- G8: the paired card has a top, and its one errand is not housekeeping ---------------
+
+  await run.check("24  the paired card is headed by the phone's name, and the push line is the strongest line on it", async () => {
+    // Urban's G8: *"Paired card has no heading and one text color for all five paragraphs — the
+    // actionable line reads like housekeeping."* Ray's frames 21 and 22.
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await openSheet(browser, theme, { phonePaired: true, phonePlatform: "android" });
+      await page.waitForFunction(() => {
+        const n = document.getElementById("phone-device-name");
+        return n && n.textContent.trim().length > 0;
+      });
+      const card = await page.evaluate(() => {
+        const heading = document.getElementById("phone-device-name");
+        const push = document.getElementById("phone-push-state");
+        const note = document.getElementById("phone-forget-note");
+        const styleOf = (el) => {
+          const s = getComputedStyle(el);
+          return { color: s.color, size: s.fontSize, weight: s.fontWeight, tag: el.tagName };
+        };
+        return {
+          heading: Object.assign(styleOf(heading), { text: heading.textContent.trim(), cls: heading.className }),
+          push: Object.assign(styleOf(push), { text: push.textContent.trim() }),
+          note: styleOf(note),
+          first: document.getElementById("phone-paired").firstElementChild.id,
+        };
+      });
+      await page.close();
+      // THE HEADING: the device name, as a heading, and it is the first thing on the card.
+      assertEqual(card.heading.tag, "H3", "the device name is not a heading — Urban's G8");
+      assert(/phone-step-title/.test(card.heading.cls), "the heading is not a `.phone-step-title`: " + card.heading.cls);
+      assertEqual(card.first, "phone-device-name", "something comes before the heading on the paired card");
+      assert(card.heading.text.length > 0, "the heading is empty");
+      // THE PUSH LINE: --ink rather than --ink-soft, so the one line with an errand in it is no
+      // longer the same ink as the sentence about removing a certificate.
+      assert(
+        card.push.color !== card.note.color,
+        "THE DEFECT: the push line is the same ink as the paragraphs around it (" + card.push.color + ")"
+      );
+      out.push(theme + ": heading " + JSON.stringify(card.heading.text) + ", push " + card.push.color +
+        " vs prose " + card.note.color);
+    }
+    return out.join("; ");
+  });
+
+  // ---- G13: a countdown that never overpromises --------------------------------------------
+
+  await run.check("25  the countdown never claims more time than the code has", async () => {
+    // Urban's G13, filmed at 30-second intervals: *"Countdown says '2 more minutes' at 61 s
+    // remaining (`Math.ceil`), then jumps to '59 more seconds'."*
+    //
+    // Asserted as the PROPERTY and not as one string: at every second measured, the number of
+    // whole minutes the label claims must be time the code actually has. 61 is the value the
+    // defect lives at; 120, 60 and 59 are the values on either side of it, which keep the fix
+    // from being a hard-coded answer to one number.
+    // AND THE CHECK PROVES IT SAW THE SECOND IT ASKED FOR. The first version of this did not:
+    // the harness started the window's clock in the past and the clock kept running, so by the
+    // time anything read the screen it was at 60 or below, where `ceil` and `floor` agree. Run
+    // against `2c95c27d` — which still had `Math.ceil` — it printed `61s -> "1 more minute."`,
+    // the fixed tree's answer from the broken tree. So the status is read at the same moment as
+    // the label and asserted to still BE the number requested; a harness that drifts now fails
+    // here instead of passing everywhere.
+    const seen = [];
+    for (const secondsLeft of [300, 120, 61, 60, 59, 1]) {
+      const page = await openSheet(browser, "dark", { phonePairing: true, phonePairingSecondsLeft: secondsLeft });
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+      const reading = await page.evaluate(async () => ({
+        label: document.getElementById("phone-countdown").textContent.trim(),
+        reported: (await window.RichBridge.invoke("phone_status")).pairingSecondsLeft,
+      }));
+      const label = reading.label;
+      await page.close();
+      assertEqual(
+        reading.reported,
+        secondsLeft,
+        "the harness did not hold the window at " + secondsLeft + "s, so this reading is of some " +
+          "other second and the check proves nothing"
+      );
+      seen.push(secondsLeft + "s -> " + JSON.stringify(label));
+      const minutes = label.match(/(\d+) more minutes?/);
+      if (minutes) {
+        const claimed = Number(minutes[1]) * 60;
+        assert(
+          claimed <= secondsLeft,
+          "THE DEFECT: with " + secondsLeft + "s left the screen says " + JSON.stringify(label) +
+            " — " + (claimed - secondsLeft) + "s more than the code has"
+        );
+      } else {
+        const secs = label.match(/(\d+) more seconds?/);
+        assert(secs, "the countdown said neither minutes nor seconds: " + JSON.stringify(label));
+        assert(Number(secs[1]) <= secondsLeft, "the seconds label overpromises: " + JSON.stringify(label));
+      }
+    }
+    return seen.join("; ");
+  });
+
+  // ---- G14: the screen that names the account first stops whispering it ---------------------
+
+  await run.check("26  on `This Mac is ready` the account is bold and sits directly under the heading", async () => {
+    // Urban's G14: *"That asymmetry is backwards: the screen that names the account first is the
+    // one that whispers it ... it is the thing that decides whether this works, and the machine
+    // name is not."* `phone.js` used `textContent` here while the two screens below it use
+    // `innerHTML` with `<strong>` — *"one of the three is wrong and it is the first one."*
+    const page = await takeTheTailscaleRoute("dark", {
+      state: "ready", name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
+    });
+    await page.waitForSelector("#phone-ts-ready:not([hidden])");
+    const screen = await page.evaluate(() => {
+      const box = document.getElementById("phone-ts-ready");
+      const account = document.getElementById("phone-ts-account");
+      const strong = account.querySelector("strong");
+      return {
+        order: [...box.children].map((n) => n.id || n.tagName.toLowerCase()),
+        strong: strong ? strong.textContent.trim() : null,
+        text: account.textContent.replace(/\s+/g, " ").trim(),
+      };
+    });
+    await page.close();
+    // HEADING, ACCOUNT, NAME — in that order, and the sentence after the name still points at it.
+    assertEqual(
+      screen.order.slice(0, 3),
+      ["h3", "phone-ts-account", "phone-ts-name"],
+      "THE DEFECT: the account sentence is not directly under the heading, above the machine name"
+    );
+    assertEqual(screen.strong, "Google as someone@example.com", "the account is not given weight on the screen that names it first");
+    assert(/Use exactly this on your phone/.test(screen.text), "the sentence lost its instruction: " + screen.text);
+    return "order " + JSON.stringify(screen.order.slice(0, 3)) + ", account in <strong>: " + JSON.stringify(screen.strong);
   });
 
   await run.check("10  nothing on the sheet threw, in either theme", async () => {

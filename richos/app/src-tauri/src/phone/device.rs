@@ -393,6 +393,29 @@ impl DeviceDesk {
         state.pairing.clone().filter(|w| w.is_open(super::now_millis()))
     }
 
+    /// **Close the pairing window because he asked to leave, not because it ran out.**
+    ///
+    /// Urban's G2: `Pick a different way` exists on every screen of this flow except the one
+    /// that has a live code, so *"once `Set my phone up` is pressed, the route chooser is
+    /// unreachable for the life of the app process"* — and `expired` sets `pairing` too, so
+    /// waiting does not give it back either. The control he needs has to undo what the last
+    /// one did, and what the last one did was open this window and bind a socket.
+    ///
+    /// **It is a separate verb from [`DeviceDesk::forget`] and must stay one.** `forget` is
+    /// about a phone that is PAIRED: it deletes the device record and the keys. Nothing is
+    /// paired here — the user is backing out of a choice — so there is nothing to delete, and
+    /// a "back" button that reached for `forget` would be a back button that erases a phone.
+    ///
+    /// **The window is dropped rather than left to time out, and that is what makes the socket
+    /// go.** [`DeviceDesk::listener_should_run`] answers "yes" while a window is open, so a
+    /// caller that stopped the listener without clearing this would be told, correctly, that the
+    /// listener should still be running — and the live code would stay redeemable by anything
+    /// that reached the socket during the minutes it had left. A code he backed out of is a code
+    /// that is gone.
+    pub fn close_pairing(&self) {
+        self.state.lock().unwrap().pairing = None;
+    }
+
     /// Is there any reason for the listener to exist right now? A paired device, or an open
     /// window. Plan §2.5 item 1 plus the qualification the contract adds: the phone gets the
     /// app FROM the Mac, so the socket must be up during pairing.
@@ -998,6 +1021,50 @@ pub(crate) mod tests {
         assert!(desk.listener_should_run());
         desk.forget().unwrap();
         assert!(!desk.listener_should_run(), "the socket outlived the last paired phone");
+    }
+
+    /// **URBAN'S G2, at the layer that decides whether the socket lives.** *"`Pick a different
+    /// way` must be on the pairing screen too, and it must stop serving."*
+    ///
+    /// The half that is easy to get wrong is the second assertion, not the first: backing out of
+    /// a pairing window on a Mac that ALREADY HAS A PHONE must not take that phone offline. One
+    /// desk answers both, which is the point — `listener_should_run` is the single expression of
+    /// "should the socket exist", so a back button wired to it cannot disagree with the boot path
+    /// or with `forget`.
+    #[test]
+    fn backing_out_of_a_pairing_window_takes_the_socket_down_unless_a_phone_is_paired() {
+        let dir = TempDir::new("close-pairing");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+
+        // He pressed `Set my phone up`, then `Pick a different way`. Nothing is paired, so
+        // there is no longer any reason for the socket to exist.
+        let w = desk.open_pairing().unwrap();
+        assert!(desk.listener_should_run());
+        assert!(desk.pairing_window().is_some(), "the window was not open to begin with");
+        desk.close_pairing();
+        assert!(
+            desk.pairing_window().is_none(),
+            "the code he backed out of is still redeemable"
+        );
+        assert!(
+            !desk.listener_should_run(),
+            "the listener outlived the pairing window the user closed — Urban's G2, \
+             `Pick a different way` that does not stop serving"
+        );
+
+        // AND THE SAME CALL ON A MAC WITH A PHONE ON IT LEAVES THE PHONE CONNECTED. Reached the
+        // way a person reaches it: open a window, pair through it, then close.
+        let w2 = desk.open_pairing().unwrap();
+        let phone = Phone::new();
+        desk.complete_pairing(&w2.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::TAILNET, Platform::IOS)
+            .unwrap();
+        assert!(desk.listener_should_run());
+        desk.close_pairing();
+        assert!(
+            desk.listener_should_run(),
+            "closing a pairing window unplugged a phone that was already paired"
+        );
+        let _ = w;
     }
 
     // --- the credential -----------------------------------------------------------------------

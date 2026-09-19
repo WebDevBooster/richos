@@ -658,6 +658,51 @@ impl PhoneRuntime {
         self.start(app, true)
     }
 
+    /// **"Pick a different way", pressed on the screen that has a live code** — Urban's G2.
+    ///
+    /// *"`#phone-pairing` carries only `Show me another code` and the global `Close`. It has no
+    /// `Pick a different way`. Once `Set my phone up` is pressed, the route chooser is
+    /// unreachable for the life of the app process … `Pick a different way` must be on the
+    /// pairing screen too, and it must stop serving."*
+    ///
+    /// **"It must stop serving" is the whole verb, and it is not `forget`.** `forget` is for a
+    /// phone that is PAIRED and deletes the device record and the Keychain keys with it; nothing
+    /// is paired here, so there is nothing to delete and a back button that reached for it would
+    /// be a back button that unpairs a phone. What has to go is the thing `Set my phone up` made:
+    /// an open window with a live code in it, and the socket that window required.
+    ///
+    /// **The order is: close the window, THEN ask whether the listener still has a reason to
+    /// exist.** [`device::DeviceDesk::listener_should_run`] is the one expression of that
+    /// question in this module — the boot path and `forget` both defer to it — so this cannot
+    /// drift from them. On a Mac with a phone already paired the answer is still "yes" and the
+    /// listener is left exactly where it was: the user backing out of a second pairing must not
+    /// take his first phone offline.
+    ///
+    /// Stopping is [`listen::Listener::stop`], which joins the serving thread, so the ports are
+    /// free when this returns rather than shortly afterwards — the same reason `forget` joins.
+    /// Nothing on disk is touched: the certificate authority, the leaf and the VAPID key all
+    /// survive, so pressing `Set my phone up` again costs a bind and not a minute of key
+    /// generation.
+    pub fn stop_pairing(&self) -> PhoneStatus {
+        {
+            // The borrow ends with the closure, so `take()` below can have the mutable one.
+            let mut running = self.running.lock().unwrap();
+            let still_needed = running.as_ref().map(|active| {
+                active.channel.devices.close_pairing();
+                active.channel.devices.listener_should_run()
+            });
+            if still_needed == Some(false) {
+                if let Some(mut was) = running.take() {
+                    was.listener.stop();
+                }
+                // Nothing is answering any more, so nothing may be told that a phone is live.
+                // The same line `forget` runs, for the same reason.
+                self.hub.set_live(false);
+            }
+        }
+        self.status()
+    }
+
     /// **Bring the channel back up at boot for a phone that is already paired.**
     ///
     /// Without this the channel would only exist after he next opened Settings — so a relaunch

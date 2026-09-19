@@ -91,7 +91,22 @@
   }
   function phoneStatusOf() {
     const elapsed = now() - mockPhone.openedAt;
-    const secondsLeft = Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
+    // **`phonePairingSecondsLeft` PINS THE ANSWER; IT DOES NOT START THE CLOCK IN THE PAST.**
+    //
+    // Urban's G13 lives at 61 seconds and at no other value, and the first version of this knob
+    // set `openedAt` backwards so the running clock would arrive there. It never did: `openedAt`
+    // is fixed when this file loads, the sheet is not opened until several seconds later, and by
+    // the time anything read the status the window had drifted to 60 or below — where `ceil` and
+    // `floor` give the same answer. The proof is on the record: the check ran against `2c95c27d`,
+    // which still had `Math.ceil`, and printed `61s -> "This code lasts 1 more minute."` — the
+    // FIXED tree's output, from the broken tree. A green that cannot go red.
+    //
+    // Pinned, the value does not move between polls, so what the screen says is what the number
+    // asked for. The clock still runs for every other preset, including the expired one.
+    const pinned = window.__RICHOS_MOCK_PRESET__?.phonePairingSecondsLeft;
+    const secondsLeft = Number.isFinite(pinned)
+      ? Math.max(0, pinned)
+      : Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
     const open = mockPhone.pairing && !mockPhone.paired && secondsLeft > 0;
     return {
       listening: mockPhone.paired || mockPhone.pairing,
@@ -2071,6 +2086,15 @@
         case "phone_begin_pairing":
           mockPhone.pairing = true;
           mockPhone.openedAt = now();
+          return phoneStatusOf();
+        // **"PICK A DIFFERENT WAY" ON THE PAIRING SCREEN** — Urban's G2, and it stops serving.
+        // The Mac's own rule, `PhoneRuntime::stop_pairing`: close the window, then take the
+        // socket down only if nothing is paired. `listening` is derived from `paired ||
+        // pairing` here exactly as the Mac derives it from `listener_should_run`, so clearing
+        // `pairing` is the harness's whole half of it — and a paired phone keeps `listening`
+        // true through the same expression rather than through a second rule that agrees.
+        case "phone_stop_pairing":
+          mockPhone.pairing = false;
           return phoneStatusOf();
         // THE HOW-TO SCREENS' LINKS (§61.1). Recorded rather than only answered: what a test needs
         // to know is WHICH address the control asked for, and `opener.rs` is where the allowlist

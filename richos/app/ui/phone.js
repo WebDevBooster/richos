@@ -44,10 +44,24 @@
          candidate .11 defect 3.1, screenshots 13, 14, 15 and 17. Filled from LEAD below. -->
     <p class="overlay-note" id="phone-lead"></p>
 
+    <!-- SCREEN 6 — THE PAIRED CARD, AND IT NOW HAS A TOP — Urban's G8.
+         *"Paired card has no heading and one text color for all five paragraphs — the actionable
+         line reads like housekeeping."* Every line on it was --ink-soft at one size and one
+         weight, labels and paragraphs alike: he measured "Forget this phone" and "Close" at
+         5.78:1, identical to the four paragraphs above them (Ray's frames 21 and 22). A card
+         where nothing is the top and nothing is the point.
+
+         So the phone's own name is the heading — it is what the card is ABOUT, and it is the one
+         string on it that changes — and the push line, which is the only line that asks the
+         reader to go and do something, is the one that takes --ink. -->
     <div id="phone-paired" hidden>
-      <p class="overlay-note"><strong id="phone-device-name"></strong> is paired. Open Rich on it and
-        keep talking.</p>
-      <p class="overlay-note" id="phone-push-state"></p>
+      <h3 class="phone-step-title" id="phone-device-name"></h3>
+      <p class="overlay-note">It is paired. Open Rich on it and keep talking.</p>
+      <!-- THE ONE LINE ON THIS CARD WITH AN ERRAND IN IT. Either it says the phone can reach him
+           — which is the finish — or it names the thing on the phone that has not been done yet,
+           in that phone's own menu names. Both are the point of the card, and both were set in
+           the same ink as the sentence about removing a certificate. -->
+      <p class="overlay-note phone-push-line" id="phone-push-state"></p>
       <!-- SCREEN 6's LIMIT, on the one screen where they live with it. Said on Screen 1 where they
            commit, and here — and on none of the four screens in between, because a limitation
            repeated on every screen is nagging. -->
@@ -133,6 +147,28 @@
       <ol id="phone-steps" class="phone-steps"></ol>
       </div>
 
+      <!-- THE CODE IS ONE BLOCK, SO IT CAN BE PUT WHERE THE READER IS — Urban's G3 and G4.
+           At 1024x700, the app's own minimum and the size it restores itself to, the Tailscale
+           pairing screen is about three viewport heights tall and pressing "Set my phone up"
+           landed on a wall of instruction with the QR, the six words, the countdown and the only
+           Close all out of sight; the code was about 1.5 screens down (his frames 04 and 05).
+           *"The four phone steps are preparation for a person who has not started; the code is
+           what a person who is standing there with their phone needs. Order the screen for the
+           second person."*
+
+           WHICH IS WHY THIS IS A WRAPPER AND NOT A REORDERED MARKUP BLOCK. On the HOME path the
+           three headings are numbered 1, 2, 3 and the order is a real sequence: the certificate
+           at step 1 is what makes the address at step 2 open at all, so putting the code first
+           there would be putting step 2 above step 1. On the Tailscale path there is no
+           certificate, no numbering and no such dependency — which is the path Urban walked and
+           the path his frames are of. So render() moves this one node, and the home path keeps
+           the order its own steps require. See the note beside the move in render().
+
+           IT IS ALSO HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was
+           already emptied on expiry (defect 3.3, and Ray's defect B for the last of them); with
+           the block at the top of the screen an empty wrapper is a gap where the thing he came
+           for used to be, so the container goes with its contents. -->
+      <div id="phone-code-block">
       <h3 class="phone-step-title" id="phone-code-title">2. Then point it at this, to open Rich</h3>
       <div class="phone-qr-row">
         <canvas id="phone-qr-pair" class="phone-qr" width="1" height="1" role="img"></canvas>
@@ -155,6 +191,7 @@
         be these six, in this order. If they are not, something other than this Mac answered —
         press Close and tell me.</p>
       <p class="phone-words" id="phone-words"></p>
+      </div>
 
       <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure
            mode is that the name simply stops resolving; from the phone that looks like "cannot
@@ -163,7 +200,16 @@
       <p class="overlay-note" id="phone-ts-failure" hidden>If the code opens to a page that cannot
         connect, your phone is signed in to a different Tailscale account than this Mac.</p>
 
-      <p class="overlay-note" id="phone-bound"></p>
+      <!-- THE SOCKET DUMP THAT USED TO BE HERE IS GONE — Urban's G5, and his own preference
+           between the two options he gave. Eight address:port pairs over four lines, drawn
+           whenever a code was live, on both routes, for every user, and not behind the technical
+           view: *"It tells the reader nothing they can act on, and it is the one thing on this
+           flow that looks like a debug log that shipped ... deletion is the change I want most on
+           this screen — it costs nothing and it takes 90 px out of the very overflow problem in
+           finding 2."* His frame 06. The addresses are still logged by the Mac at every start
+           (mod.rs prints the whole bind list beside the origin and the trust page), so nothing
+           that could diagnose anything was lost — it moved off a consumer screen and stayed in
+           the place a diagnosis is actually read from. -->
       <p class="overlay-note" id="phone-message" role="status"></p>
       <!-- WHAT HAPPENS WHEN THE CODE RUNS OUT, ON THE SCREEN IT RAN OUT ON. It used to happen
            in silence: the Mac dropped the window, the next poll returned no code, and the
@@ -174,8 +220,21 @@
         <h3 class="phone-step-title">That code ran out</h3>
         <p class="overlay-note" id="phone-expired-note" role="status"></p>
       </div>
+      <!-- THE WAY BACK OUT, ON THE ONE SCREEN THAT DID NOT HAVE ONE — Urban's G2.
+           "Pick a different way" is on Screen 0, on Screens 2/3/7 and on Screen 4, and it was
+           absent from exactly the screen a person is most likely to want it on: the one they
+           reached by pressing a button. Urban, live: *"once Set my phone up is pressed, the
+           route chooser is unreachable for the life of the app process"* — the expired state
+           sets "pairing" as well, so waiting does not give it back either, and he could not
+           re-reach the route chooser or "This Mac is ready" in dark at all after his walk.
+
+           AND IT STOPS SERVING, which is the half that is not a button. The other four copies
+           of this control move between screens with nothing running behind them; this one undoes
+           a socket and a live code, so it calls phone_stop_pairing rather than only setting
+           route = null. See PhoneRuntime::stop_pairing for why that is not phone_forget. -->
       <div class="desk-card-actions">
         <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button">Show me another code</button>
+        <button id="phone-pairing-back" class="desk-btn" type="button">Pick a different way</button>
       </div>
     </div>
 
@@ -264,11 +323,24 @@
          uses. -->
     <div id="phone-ts-ready" hidden>
       <h3 class="phone-step-title">This Mac is ready</h3>
-      <p class="phone-tailnet-name" id="phone-ts-name"></p>
       <!-- WHICH IDENTITY IT SIGNED IN WITH, READ OFF THE MAC (§61.1). "Use the same account" is
            advice nobody can follow, because the one thing the user does not know is which one they
-           used — that is the CEO's own account of the evening. This names it. -->
+           used — that is the CEO's own account of the evening. This names it.
+
+           **FIRST, AND IN BOLD** — Urban's G14. It was the third paragraph, under the machine
+           name, set in --ink-soft with the account given no weight at all, and visually identical
+           to the paragraphs either side of it (his frame 02). Two screens later the same account
+           IS set in <strong> (his frame 04). *"That asymmetry is backwards: the screen that names
+           the account first is the one that whispers it ... it is the thing that decides whether
+           this works, and the machine name is not."*
+
+           AND THE PARAGRAPH BELOW STILL READS RIGHT, which is why the account went ABOVE the
+           name rather than the name below it: "That is this Mac's name on your own Tailscale
+           network" points at the line before it, so the name has to stay immediately in front
+           of it. Heading, account, name, what the name is — each sentence next to the thing it
+           is about. -->
       <p class="overlay-note" id="phone-ts-account"></p>
+      <p class="phone-tailnet-name" id="phone-ts-name"></p>
       <p class="overlay-note">That is this Mac's name on your own Tailscale network. Only devices
         signed in to your Tailscale account can reach it, and no port on this Mac is open to the
         internet.</p>
@@ -861,8 +933,14 @@
       // its own paragraph rather than two newlines inside the machine name, because the name is
       // monospace and read character by character and a sentence is neither.
       field("phone-ts-name").textContent = tailnet.name || "";
-      field("phone-ts-account").textContent = tailnet.account
-        ? "You signed in with " + tailnet.account + ". Use exactly this on your phone."
+      // **`innerHTML` WITH `<strong>`, LIKE THE TWO SCREENS BELOW IT** — Urban's G14. This line
+      // used `textContent` while `#phone-ts-why` and `#phone-ts-step2` both give the same
+      // account weight, *"and one of the three is wrong and it is the first one"*. The account
+      // is another program's output, so it is escaped rather than trusted for being ours — the
+      // same `escapeText` the other two call, and the reason it exists.
+      field("phone-ts-account").innerHTML = tailnet.account
+        ? "You signed in with <strong>" + escapeText(tailnet.account) +
+          "</strong>. Use exactly this on your phone."
         : "I cannot tell which identity this Mac is signed in to. Whichever it is, sign in with exactly the same one on your phone.";
       peerLine(field("phone-ts-peer-ready"), tailnet);
       return;
@@ -889,6 +967,24 @@
     field("phone-ts-steps").hidden = !onTailscale || expired;
     field("phone-home-warnings").hidden = onTailscale || expired;
     field("phone-ts-failure").hidden = !onTailscale || expired;
+
+    // **THE CODE GOES ABOVE THE INSTRUCTIONS ON THE PATH THAT HAS NO SEQUENCE** — Urban's G3.
+    //
+    // On the Tailscale route the four phone steps are preparation — install the app, sign in,
+    // allow the VPN, watch the switch say Connected — and none of them is a precondition of the
+    // code being readable. On the HOME route the three headings are numbered and the numbers are
+    // load-bearing: step 1 installs the certificate that makes step 2's https address open at
+    // all, so the code cannot go above it without the screen contradicting itself.
+    //
+    // One node moves, and the anchor is the element it must sit in front of, so this is
+    // idempotent: a render that finds it already in place does nothing, which matters because
+    // the Tailscale screens poll every two seconds and re-inserting a subtree with focus inside
+    // it would take the focus out on every tick.
+    const codeBlock = field("phone-code-block");
+    const codeAnchor = onTailscale ? field("phone-ts-steps") : field("phone-ts-failure");
+    if (codeBlock.nextElementSibling !== codeAnchor) {
+      field("phone-pairing").insertBefore(codeBlock, codeAnchor);
+    }
     field("phone-ts-store").textContent = onTailscale && !expired
       ? "iPhone: " + LINKS.phone + "      Android: " + LINKS.android
       : "";
@@ -937,10 +1033,6 @@
     field("phone-trust-url").textContent = live && !onTailscale ? status.trustUrl || "" : "";
     field("phone-pair-url").textContent = live ? status.pairUrl || "" : "";
     field("phone-words").textContent = live ? (status.fingerprintWords || []).join("  ") : "";
-    field("phone-bound").textContent =
-      live && status.bound && status.bound.length
-        ? "This Mac is answering on " + status.bound.join(", ") + "."
-        : "";
     // The headings above those blocks go with them: a numbered step over an empty space is a
     // screen telling him to do something that is not there.
     field("phone-code-title").hidden = !live;
@@ -948,6 +1040,9 @@
     // AND THE SENTENCE UNDER THAT HEADING, which is the half defect B found: it survived the
     // expiry telling him to check "these six" with nothing to check them against.
     field("phone-words-note").hidden = !live;
+    // AND THE CONTAINER, which is now the first thing on the screen on the Tailscale route: an
+    // empty box at the top of the panel is worse than the same emptiness at the bottom was.
+    codeBlock.hidden = !live;
     field("phone-expired").hidden = !expired;
     if (expired) {
       field("phone-expired-note").textContent = EXPIRED_NOTE;
@@ -964,11 +1059,23 @@
   /// seconds." is a number nobody converts. Minutes while there are minutes, seconds under one
   /// minute — and the last minute is where the seconds start to matter, which is the only place
   /// they are shown.
+  ///
+  /// **`floor`, NEVER `ceil`** — Urban's G13, filmed at 30-second intervals: *"Countdown says
+  /// '2 more minutes' at 61 s remaining, then jumps to '59 more seconds' … a countdown must
+  /// never overpromise."*
+  ///
+  /// The arithmetic, at the four values that decide it. `ceil`: 120 -> 2, 61 -> **2**, 60 -> 1,
+  /// 59 -> "59 more seconds". So the label said two minutes when 61 seconds were left — 59
+  /// seconds more than it had — and then fell 61 seconds in one step. `floor`: 120 -> 2,
+  /// 61 -> 1, 60 -> 1, 59 -> "59 more seconds", which never states a number the code cannot
+  /// meet and never falls by more than the minute it just finished. The cost of `floor` is that
+  /// the label reads "1 more minute" for the whole of the second minute; the cost of `ceil` is a
+  /// person walking to their phone on a promise the Mac has already broken.
   function remaining(seconds) {
     if (seconds < 60) {
       return seconds + (seconds === 1 ? " more second" : " more seconds");
     }
-    const minutes = Math.ceil(seconds / 60);
+    const minutes = Math.floor(seconds / 60);
     return minutes + (minutes === 1 ? " more minute" : " more minutes");
   }
 
@@ -1065,7 +1172,32 @@
     if (first) first.focus();
   }
 
-  async function begin() {
+  /// **PUT THE CODE BACK IN FRONT OF HIM** — Urban's G4.
+  ///
+  /// *"`Show me another code` issues the code AND returns the panel to the top (frame 08), so
+  /// the user must scroll the whole way down again to reach the thing they just asked for
+  /// (frame 09)."*
+  ///
+  /// The panel is what scrolls, not the window: `.overlay-panel` is `max-height` + `overflow-y:
+  /// auto` (style.css, the note about a first-run sheet losing its own way out below the fold),
+  /// and `.overlay` itself is `position: fixed` and does not scroll at all. So the measurement
+  /// is taken between those two boxes rather than from `offsetTop`, whose `offsetParent` here is
+  /// the fixed `.overlay` and not the box that moves.
+  ///
+  /// 12px of air above the heading rather than 0, so the code reads as the top of a screen and
+  /// not as a block cut off by the panel's edge.
+  function scrollToCode() {
+    const panel = sheet.querySelector(".overlay-panel");
+    const code = field("phone-code-block");
+    if (!panel || !code || code.hidden) return;
+    const delta = code.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12;
+    panel.scrollTop = Math.max(0, panel.scrollTop + delta);
+  }
+
+  /// `toCode` is TRUE only for "Show me another code", and false for the two controls that
+  /// ENTER this screen (`Set my phone up`, on Screen 4 and on the off screen). Entering a screen
+  /// scrolled past its own opening sentence would be the same defect pointing the other way.
+  async function begin(toCode) {
     if (busy) return;
     busy = true;
     field("phone-message").textContent = "Making a certificate for your phone…";
@@ -1074,6 +1206,7 @@
     try {
       render(await bridge.invoke("phone_begin_pairing"));
       field("phone-message").textContent = "";
+      if (toCode) scrollToCode();
     } catch (error) {
       field("phone-message").textContent = String(error);
     } finally {
@@ -1083,8 +1216,11 @@
     }
   }
 
-  field("phone-start").addEventListener("click", begin);
-  field("phone-refresh").addEventListener("click", begin);
+  // `() => begin(false)` rather than the bare function, because a DOM listener is called with
+  // the EVENT as its first argument — `begin(event)` would be truthy and every one of these
+  // would scroll.
+  field("phone-start").addEventListener("click", () => begin(false));
+  field("phone-refresh").addEventListener("click", () => begin(true));
   field("phone-close").addEventListener("click", close);
 
   // THE ROUTE CONTROLS. "At home only" is the shipped flow with nothing changed — it does not even
@@ -1099,8 +1235,7 @@
     route = "at-home";
     await refresh();
   });
-  // "Pick a different way" — the only user-driven move backward, and it never tears down a live
-  // pairing window, because it is not offered on the screen that has one.
+  // "Pick a different way" — the only user-driven move backward.
   // SCREEN 0's two controls. "I understand" is not a preference and is not remembered: it lasts
   // as long as this open, exactly like the route.
   field("phone-identity-ok").addEventListener("click", async () => {
@@ -1119,10 +1254,35 @@
       await refresh();
     });
   }
+  // **THE FIFTH COPY, AND THE ONLY ONE WITH SOMETHING TO PUT DOWN** — Urban's G2.
+  //
+  // The four above move between screens that are waiting on the user; this one is pressed on a
+  // screen with a live code and an open socket behind it, so forgetting `route` is not enough:
+  // `choosing` requires `!status.listening`, so a back button that only cleared `route` would
+  // redraw the same pairing screen and read as a control that does nothing. The Mac has to be
+  // asked to stop first, and the render that follows uses the status that call returns rather
+  // than a second round trip — one answer, no window in which the two disagree.
+  field("phone-pairing-back").addEventListener("click", async () => {
+    if (busy) return;
+    busy = true;
+    field("phone-message").textContent = "";
+    // The ticker is stopped before the call rather than after the render: it fires once a
+    // second and calls `refresh()` at zero, and a countdown for a window that is being closed
+    // is the one thing on this screen that must not outlive it.
+    stopTicking();
+    route = null;
+    try {
+      render(await bridge.invoke("phone_stop_pairing"));
+    } catch (error) {
+      field("phone-message").textContent = String(error);
+    } finally {
+      busy = false;
+    }
+  });
   // `Check again` — the button for the impatient and for the failure. The poll is invisible, and a
   // detection path with no manual retry is a dead end the moment detection is wrong once.
   field("phone-ts-recheck").addEventListener("click", refresh);
-  field("phone-ts-start").addEventListener("click", begin);
+  field("phone-ts-start").addEventListener("click", () => begin(false));
   field("phone-forget").addEventListener("click", async () => {
     if (busy) return;
     busy = true;

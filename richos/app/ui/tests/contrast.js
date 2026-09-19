@@ -357,10 +357,16 @@ const SURFACES = [
   {
     // THE TWO SCREENS CEO §61.1 ADDED, and they are their own surfaces for the same reason the
     // pairing and paired states are two: they share almost no words with either. The route screen
-    // is the only place in the app where a control's BORDER is the thing separating two decisions
-    // — `.desk-btn`'s `--line` computes 1.24:1 dark and 1.50:1 light on this panel, which is why
-    // `.phone-route > button` takes `--line-control` instead. Walking the pairing screen and
-    // calling the phone sheet covered would leave that unmeasured.
+    // is the only place in the app where a control's BORDER is the thing separating two decisions,
+    // which is why `.phone-route > button` names `--line-control` explicitly. Walking the pairing
+    // screen and calling the phone sheet covered would leave that unmeasured.
+    //
+    // THAT SENTENCE USED TO END "`.desk-btn`'s `--line` computes 1.24:1 dark and 1.50:1 light on
+    // this panel, which is why". It no longer does: Urban's G6 moved `.desk-btn`'s own border to
+    // `--line-control` (3.79:1 dark, 4.06:1 light — measured from the rendered pixels in both
+    // themes), because on the PAIRED card that border is the only thing making a button a button.
+    // So `.phone-route > button` and the plain button now say the same thing, and this note is
+    // kept rather than deleted so nobody re-derives the old numbers from a stale comment.
     name: "phone-identity",
     what: "the route choice and the identity warning that precedes any Tailscale account",
     preset: {phoneTailnet: {state: "absent"}},

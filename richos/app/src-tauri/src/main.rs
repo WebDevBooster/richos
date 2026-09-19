@@ -715,6 +715,17 @@ fn phone_begin_pairing(
     })
 }
 
+/// **"Pick a different way", pressed while a code is live** — Urban's G2.
+///
+/// Closes the open pairing window and, unless a phone is already paired, stops serving. It
+/// cannot fail in a way he can act on — there is no key to mint and no port to bind, only
+/// things to put down — so it returns the status rather than a `Result`, and the screen it
+/// returns to is the route chooser.
+#[tauri::command(async)]
+fn phone_stop_pairing(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::PhoneStatus {
+    runtime.stop_pairing()
+}
+
 /// **Open one of the addresses the how-to screens print** (CEO §61.1).
 ///
 /// `target` is the address exactly as the screen prints it, and it is a KEY rather than a URL:
@@ -2975,6 +2986,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             phone_status,
             phone_begin_pairing,
+            phone_stop_pairing,
             phone_forget,
             list_threads,
             active_thread,
