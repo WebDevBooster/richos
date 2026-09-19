@@ -13,6 +13,7 @@ processes, two overlapping launchd ticks would each read the file before the
 other wrote it, and the CEO would be notified twice for one event.
 """
 
+import calendar
 import json
 import os
 import subprocess
@@ -203,6 +204,62 @@ def read_state(path):
         return {}
 
 
+def _age_of(stamp, now):
+    """Seconds since an ISO-Z stamp, or None if it cannot be read.
+
+    None IS NOT ZERO AND IS NOT INFINITY. A stamp this cannot parse means the
+    age is unknown, and the caller says "at an unknown time" rather than
+    picking one of the two answers that would be a claim.
+    """
+    if not stamp:
+        return None
+    try:
+        return now - calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def _short_age(seconds):
+    if seconds is None:
+        return "an unknown time"
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return "%d s" % seconds
+    if seconds < 5400:
+        return "%d min" % (seconds // 60)
+    if seconds < 172800:
+        return "%d h" % (seconds // 3600)
+    return "%d d" % (seconds // 86400)
+
+
+def run_reaper(cmd):
+    """The sweeper's CURRENT verdict, or None if it could not be produced.
+
+    ONLY `--status` CALLS THIS, and the header on its call site says why. It is
+    the sweeper's own `--json`, which deletes nothing: the plan and the verdict,
+    measured now. A failure returns None so the caller falls back to the
+    published file WITH ITS DATE ON IT — an old number that says how old it is
+    beats no number, and both beat an old number presented as current.
+    """
+    if not cmd or not os.path.isfile(cmd):
+        return None
+    try:
+        r = subprocess.run(["bash", cmd, "--json"], capture_output=True,
+                           text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    # EXIT 3 (something undecidable) AND 4 (a deletion failed) ARE ANSWERS, not
+    # failures to read. Only 2 — a missing declaration or a missing liveness
+    # primitive — means there is no verdict at all.
+    if r.returncode not in (0, 3, 4):
+        return None
+    try:
+        obj = json.loads(r.stdout or "")
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
 def write_state(path, obj):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -377,13 +434,105 @@ def main():
     reaper_state = read_state(expand(env(
         "SCRATCH_REAPER_STATE",
         os.path.join(sbase, "scratch-reaper-state.json"))))
+    # --- AND THE NUMBER MUST BE FROM A RUN, NOT FROM A MEMORY ---------------
+    #
+    # CEO, 2026-09-19, reading the status line: "11.4 GB in 2 place(s)
+    # UNDECIDABLE — no run will clear it". He had deleted both of those piles by
+    # hand an hour earlier and the live sweep said ONE place at 2,176 bytes. The
+    # figure came from the state file the 12:10Z scheduled pass wrote, and
+    # nothing on the line said it was six hours old.
+    #
+    # A CACHED NUMBER PRESENTED AS A PRESENT-TENSE FACT IS THE STALE-ARTIFACT
+    # FAILURE, and this file's own header insists the job must "observe, never
+    # invoke" the sweeper — which is right for the 15-minute launchd reading and
+    # is what produced this. The two are reconciled by mode:
+    #
+    #   --status  A PERSON IS WAITING FOR AN ANSWER. The sweeper is RUN and the
+    #             answer is this second's. It costs about nine seconds, once,
+    #             when somebody asked.
+    #   --alert / --check  still read the file, never run anything, and every
+    #             number they print CARRIES THE TIME IT WAS MEASURED and the
+    #             command that re-derives it. Past a declared age the figure is
+    #             reported as stale instead of quoted as fact.
+    reaper_cmd = env("SCRATCH_REAPER_CMD", os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "scratch-reaper.sh"))
+    measured_live = False
+    if mode == "status":
+        live = run_reaper(reaper_cmd)
+        if live is not None:
+            reaper_state = live
+            measured_live = True
+    max_age_h = env_num("SCRATCH_REAPER_STATE_MAX_AGE_HOURS", 12)
+    measured_at = str(reaper_state.get("last_apply") or "")
+    measured_epoch = reaper_state.get("last_apply_epoch")
+    if measured_live:
+        state_age = 0.0
+    elif isinstance(measured_epoch, (int, float)) and measured_epoch > 0:
+        state_age = now - measured_epoch
+    else:
+        state_age = _age_of(measured_at, now)
+    state_stale = (not measured_live) and (
+        state_age is None or state_age > max_age_h * 3600)
+    if measured_live:
+        measured_when = "just now, by this command"
+    elif state_age is None:
+        measured_when = "at an unknown time"
+    else:
+        measured_when = "%s (%s ago)" % (measured_at or "?",
+                                         _short_age(state_age))
+
     skipped_n = int(reaper_state.get("skipped") or 0)
     skipped_b = int(reaper_state.get("skipped_bytes") or 0)
     undec_n = int(reaper_state.get("undecidable") or 0)
     undec_b = int(reaper_state.get("undecidable_bytes") or 0)
+    split = reaper_state.get("skipped_split")
+    if not isinstance(split, dict):
+        split = {}
+    by_hand = split.get("by_hand") if isinstance(split.get("by_hand"), dict) else {}
+    foreign = split.get("foreign") if isinstance(split.get("foreign"), dict) else {}
+    # A SWEEPER THAT PREDATES THE SPLIT still publishes the total. Attributing
+    # all of it to the foreign class would be a guess; leaving the split empty
+    # and printing the total under its old heading is the honest degrade.
+    by_hand_n = int(by_hand.get("count") or 0)
+    by_hand_b = int(by_hand.get("bytes") or 0)
+    foreign_n = int(foreign.get("count") or (skipped_n if not split else 0))
+    foreign_b = int(foreign.get("bytes") or (skipped_b if not split else 0))
     skipped_floor = env_num("SCRATCH_SKIPPED_NOTICE_BYTES", 1024 ** 3)
     undec_floor = env_num("SCRATCH_UNDECIDABLE_NOTICE_BYTES", 64 * 1024 ** 2)
-    garbage_alarm = (skipped_b >= skipped_floor) or (undec_b >= undec_floor)
+    # --- THREE PILES, THREE ANSWERS, AND ONLY ONE OF THEM IS AN ALARM -------
+    #
+    # CEO, 2026-09-19, on one line that ran all three together: "And what is
+    # this all about: MASSIVE ALERT — DISK: 218 path(s) could not be deleted
+    # (delete BY HAND) | 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT |
+    # 11.4 GB in 2 place(s) UNDECIDABLE — no run will clear it".
+    #
+    # Under one MASSIVE ALERT heading sat: 200 paths a defect in the sweeper
+    # could not delete, 18 the kernel owns, 12.8 GB of our own campaign roots a
+    # person removes with a printed command, 1.15 GB of Visual Studio Code's and
+    # Codex's temporary files, and one stale figure. Four different responses —
+    # fix it, ignore it, run this command, and nothing — presented as one alarm.
+    # An alarm whose items do not share a response is one nobody can act on, and
+    # this file's own suite ranks firing wrongly as worse than not firing.
+    #
+    #   (a) OUR garbage that FAILED to delete, and test instances that would not
+    #       close: §54's "the clean-up failed" branch. MASSIVE ALERT, exit 1,
+    #       because a person must go and delete it by hand.
+    #   (b) OURS, never deleted automatically by design — a campaign root past
+    #       its retention, a running throwaway container. A person acts, but
+    #       nothing is broken and nothing is at risk. Its own heading, with the
+    #       exact command, and no alarm.
+    #   (c) ANOTHER PROGRAM'S or the operating system's temp. Counted so it is
+    #       visible; never ours to touch. One quiet line. No alarm, ever.
+    #   (d) UNDECIDABLE — ours, refused by a wall. One line with the size and
+    #       what would settle it. No alarm: it is a thing to read, not to do.
+    garbage_report = (by_hand_b >= undec_floor or by_hand_n > 0
+                      or foreign_b >= skipped_floor
+                      or undec_b >= undec_floor)
+    # RETAINED UNDER ITS OLD NAME because the state file publishes it and a
+    # reader comparing two days of records should see the same key. It is no
+    # longer part of `condition`: it reports, it does not alarm.
+    garbage_alarm = garbage_report
 
     # --- test instances that would not close (§54 addendum 4) ---------------
     # CEO: "Test app windows must always close/quit when testing is finished.
@@ -402,7 +551,16 @@ def main():
     n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
 
     alerting = [v for v in volumes if v["below_rich"] or v["drop_alert"]]
-    condition = bool(alerting) or n_fail > 0 or n_inst > 0 or garbage_alarm
+    # `condition` IS THE MASSIVE ALERT AND NOTHING ELSE NOW. Three things can
+    # raise it and every one of them means a person must act on something
+    # broken: the disk is low or falling, our own clean-up failed, or a test app
+    # window would not close. The garbage report below is printed alongside it
+    # and never raises it — see the three-piles note above.
+    condition = bool(alerting) or n_fail > 0 or n_inst > 0
+    # Anything at all worth printing, alarm or not. `--alert` prints when this
+    # is true so the quiet lines still reach a reader; the EXIT CODE follows
+    # `condition`.
+    anything = condition or garbage_report
 
     # --- attribution and classification, ONLY when something is wrong -------
     consumers, classification, garbage = [], "", 0
@@ -463,8 +621,18 @@ def main():
     # --- Rich's alert block -------------------------------------------------
     lines = []
     if condition:
+        # THE BANNER NAMES WHAT IS ACTUALLY WRONG. It said "DISK SPACE" while
+        # firing on 218 undeletable paths with 198 GB free, so the first line a
+        # reader saw was about a thing that was not happening.
+        headline = []
+        if alerting:
+            headline.append("DISK SPACE")
+        if n_fail > 0:
+            headline.append("CLEAN-UP FAILED")
+        if n_inst > 0:
+            headline.append("A TEST APP WINDOW WOULD NOT CLOSE")
         lines.append("=" * 72)
-        lines.append("  MASSIVE ALERT — DISK SPACE")
+        lines.append("  MASSIVE ALERT — %s" % " + ".join(headline))
         lines.append("=" * 72)
         for v in alerting:
             why = []
@@ -521,19 +689,6 @@ def main():
                 lines.append("      first seen %s, %s attempt(s), %s"
                              % (row.get("first", "?"), row.get("attempts", "?"),
                                 str(row.get("why", "?"))[:90]))
-        if garbage_alarm:
-            lines.append("")
-            lines.append("  GARBAGE NOTHING WILL EVER COLLECT ON ITS OWN:")
-            if skipped_b >= skipped_floor:
-                lines.append("    %s in %d place(s) SKIPPED — another program's temp"
-                             % (human(skipped_b), skipped_n))
-                lines.append("      directory, another user's, a symlink, or not reached")
-                lines.append("      within a budgeted run. The sweeper will never take it.")
-            if undec_b >= undec_floor:
-                lines.append("    %s in %d place(s) UNDECIDABLE — a wall tripped, and"
-                             % (human(undec_b), undec_n))
-                lines.append("      no scheduled run will ever clear that on its own.")
-            lines.append("      scripts/scratch-reaper.sh --verbose  says which, and why")
         if consumers:
             lines.append("")
             lines.append("  BIGGEST MEASURED CONSUMERS:")
@@ -556,6 +711,54 @@ def main():
         if n_fail > 0:
             lines.append("    then delete the paths above BY HAND")
         lines.append("=" * 72)
+
+    # --- THE GARBAGE REPORT — read, not an alarm ----------------------------
+    # OUTSIDE the `if condition:` block, deliberately, and this is the whole
+    # shape of the fix. It prints when there is something to say and it never
+    # raises the exit code, so the sentence a person reads is "here is what is
+    # sitting on the disk" and not "MASSIVE ALERT". Every figure here carries
+    # the time it was measured and the command that re-derives it, so nothing on
+    # these lines can ever again be quoted as present tense when it is six hours
+    # old — that is what produced the 11.4 GB the CEO asked about.
+    if garbage_report:
+        lines.append("-" * 72)
+        lines.append("  GARBAGE REPORT (not an alert) — measured %s"
+                     % measured_when)
+        lines.append("-" * 72)
+        if state_stale:
+            lines.append("  THESE FIGURES ARE OUT OF DATE. The scheduled sweep last")
+            lines.append("  published %s and the declared window is %d h, so read them"
+                         % (measured_when, int(max_age_h)))
+            lines.append("  as a record and not as the state of the disk right now:")
+            lines.append("    %s --verbose" % reaper_cmd)
+        if by_hand_n > 0:
+            lines.append("  %s in %d place(s) IS OURS AND IS NEVER DELETED"
+                         % (human(by_hand_b), by_hand_n))
+            lines.append("  AUTOMATICALLY — a campaign root past its retention, or a")
+            lines.append("  running container on a throwaway image. Each prints its own")
+            lines.append("  command; a person runs it and the space comes back:")
+            for row in (by_hand.get("paths") or [])[:5]:
+                if not isinstance(row, dict):
+                    continue
+                lines.append("    %-10s %s" % (human(int(row.get("bytes") or 0)),
+                                               row.get("path", "?")))
+                why = str(row.get("why") or "")
+                cmd = why.rsplit(":", 1)[-1].strip()
+                if cmd:
+                    lines.append("      %s" % cmd[:100])
+        if foreign_b >= skipped_floor:
+            lines.append("  %s in %d place(s) BELONGS TO OTHER PROGRAMS — Visual"
+                         % (human(foreign_b), foreign_n))
+            lines.append("  Studio Code's updater, Codex, WebKit, and the directories")
+            lines.append("  macOS makes for its own agents. NOT OURS, NOT AN ALERT, and")
+            lines.append("  never deleted by us. Counted only so it is not invisible.")
+        if undec_b >= undec_floor:
+            lines.append("  %s in %d place(s) COULD NOT BE DECIDED — ours, and a wall"
+                         % (human(undec_b), undec_n))
+            lines.append("  refused it (a checkout inside it, a registered workspace).")
+            lines.append("  No scheduled run will settle that; this says which and why:")
+            lines.append("    %s --verbose" % reaper_cmd)
+        lines.append("-" * 72)
 
     # --- THE WATCHMAN'S OWN ABSENCE, which is an alert of its own ------------
     # A watchdog that was never scheduled, or whose timer somebody removed,
@@ -612,10 +815,23 @@ def main():
         "sweep_failures": n_fail,
         "test_instance_failures": n_inst,
         "garbage_alarm": garbage_alarm,
+        "garbage_report": garbage_report,
         "skipped": skipped_n,
         "skipped_bytes": skipped_b,
+        "skipped_by_hand": by_hand_n,
+        "skipped_by_hand_bytes": by_hand_b,
+        "skipped_foreign": foreign_n,
+        "skipped_foreign_bytes": foreign_b,
         "undecidable": undec_n,
         "undecidable_bytes": undec_b,
+        # WHEN THE SWEEPER'S NUMBERS ABOVE WERE MEASURED, and whether that is
+        # recent enough to be read as the present. A consumer of this record has
+        # exactly the same right to know that as a person reading the alert.
+        "sweeper_measured_at": measured_at,
+        "sweeper_measured_live": measured_live,
+        "sweeper_state_age_seconds": (None if state_age is None
+                                      else int(state_age)),
+        "sweeper_state_stale": state_stale,
         "notified": notified,
         "timer_installed": installed,
         "reading_gap_seconds": int(gap),
@@ -634,6 +850,7 @@ def main():
             "interval_minutes": env_num("DISK_WATCHDOG_MINUTES", 15),
             "skipped_notice_bytes": skipped_floor,
             "undecidable_notice_bytes": undec_floor,
+            "reaper_state_max_age_hours": max_age_h,
         },
     }
 
@@ -665,10 +882,28 @@ def main():
         if n_fail:
             sys.stdout.write("ALERT  %d garbage path(s) could not be deleted\n"
                              % n_fail)
-        if garbage_alarm:
-            sys.stdout.write("ALERT  %s skipped + %s undecidable — garbage no "
-                             "scheduled run will take\n"
-                             % (human(skipped_b), human(undec_b)))
+        if n_inst:
+            sys.stdout.write("ALERT  %d test app instance(s) would not close\n"
+                             % n_inst)
+        # THREE LINES, EACH SAYING WHOSE IT IS, AND NONE OF THEM AN ALERT.
+        # It was one: "ALERT  13.9 GB skipped + 11.4 GB undecidable". The 13.9
+        # was mostly our own campaign roots with a printed command, the rest was
+        # Visual Studio Code's temp, and the 11.4 had been deleted by hand an
+        # hour before the line was printed. A reader could act on none of it.
+        sys.stdout.write("%s  the sweeper's figures below were measured %s\n"
+                         % ("STALE " if state_stale else "ok    ", measured_when))
+        if by_hand_n:
+            sys.stdout.write("to do   %s in %d place(s) is OURS and is never deleted "
+                             "automatically — each prints its own command\n"
+                             % (human(by_hand_b), by_hand_n))
+        if foreign_b >= skipped_floor:
+            sys.stdout.write("fyi     %s in %d place(s) belongs to other programs — "
+                             "counted, never ours to delete\n"
+                             % (human(foreign_b), foreign_n))
+        if undec_b >= undec_floor:
+            sys.stdout.write("to read %s in %d place(s) could not be decided — a wall "
+                             "refused it; %s --verbose says which\n"
+                             % (human(undec_b), undec_n, reaper_cmd))
         if not installed:
             sys.stdout.write("ALERT  the launchd timer is NOT installed\n")
     elif mode == "check":
@@ -683,6 +918,13 @@ def main():
     # version returned 0 from --status while printing
     # "ALERT the launchd timer is NOT installed", which is the shape of failure
     # that teaches a caller to ignore exit codes.
+    #
+    # THE GARBAGE REPORT IS PRINTED AND DOES NOT RAISE IT, and that is the
+    # point of separating the two. `ALERT` means a person must act on something
+    # broken; other programs' temporary files are not that, and neither is a
+    # campaign root sitting where it was left. Exit 1 on those trained the
+    # reader to ignore every exit code this program has — the same way an
+    # unclearable failure list trains a reader to skip the failure list.
     if condition or stale:
         return 1
     if not installed and mode in ("alert", "status"):
