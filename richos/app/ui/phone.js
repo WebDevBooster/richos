@@ -133,6 +133,28 @@
       <ol id="phone-steps" class="phone-steps"></ol>
       </div>
 
+      <!-- THE CODE IS ONE BLOCK, SO IT CAN BE PUT WHERE THE READER IS — Urban's G3 and G4.
+           At 1024x700, the app's own minimum and the size it restores itself to, the Tailscale
+           pairing screen is about three viewport heights tall and pressing "Set my phone up"
+           landed on a wall of instruction with the QR, the six words, the countdown and the only
+           Close all out of sight; the code was about 1.5 screens down (his frames 04 and 05).
+           *"The four phone steps are preparation for a person who has not started; the code is
+           what a person who is standing there with their phone needs. Order the screen for the
+           second person."*
+
+           WHICH IS WHY THIS IS A WRAPPER AND NOT A REORDERED MARKUP BLOCK. On the HOME path the
+           three headings are numbered 1, 2, 3 and the order is a real sequence: the certificate
+           at step 1 is what makes the address at step 2 open at all, so putting the code first
+           there would be putting step 2 above step 1. On the Tailscale path there is no
+           certificate, no numbering and no such dependency — which is the path Urban walked and
+           the path his frames are of. So render() moves this one node, and the home path keeps
+           the order its own steps require. See the note beside the move in render().
+
+           IT IS ALSO HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was
+           already emptied on expiry (defect 3.3, and Ray's defect B for the last of them); with
+           the block at the top of the screen an empty wrapper is a gap where the thing he came
+           for used to be, so the container goes with its contents. -->
+      <div id="phone-code-block">
       <h3 class="phone-step-title" id="phone-code-title">2. Then point it at this, to open Rich</h3>
       <div class="phone-qr-row">
         <canvas id="phone-qr-pair" class="phone-qr" width="1" height="1" role="img"></canvas>
@@ -155,6 +177,7 @@
         be these six, in this order. If they are not, something other than this Mac answered —
         press Close and tell me.</p>
       <p class="phone-words" id="phone-words"></p>
+      </div>
 
       <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure
            mode is that the name simply stops resolving; from the phone that looks like "cannot
@@ -902,6 +925,24 @@
     field("phone-ts-steps").hidden = !onTailscale || expired;
     field("phone-home-warnings").hidden = onTailscale || expired;
     field("phone-ts-failure").hidden = !onTailscale || expired;
+
+    // **THE CODE GOES ABOVE THE INSTRUCTIONS ON THE PATH THAT HAS NO SEQUENCE** — Urban's G3.
+    //
+    // On the Tailscale route the four phone steps are preparation — install the app, sign in,
+    // allow the VPN, watch the switch say Connected — and none of them is a precondition of the
+    // code being readable. On the HOME route the three headings are numbered and the numbers are
+    // load-bearing: step 1 installs the certificate that makes step 2's https address open at
+    // all, so the code cannot go above it without the screen contradicting itself.
+    //
+    // One node moves, and the anchor is the element it must sit in front of, so this is
+    // idempotent: a render that finds it already in place does nothing, which matters because
+    // the Tailscale screens poll every two seconds and re-inserting a subtree with focus inside
+    // it would take the focus out on every tick.
+    const codeBlock = field("phone-code-block");
+    const codeAnchor = onTailscale ? field("phone-ts-steps") : field("phone-ts-failure");
+    if (codeBlock.nextElementSibling !== codeAnchor) {
+      field("phone-pairing").insertBefore(codeBlock, codeAnchor);
+    }
     field("phone-ts-store").textContent = onTailscale && !expired
       ? "iPhone: " + LINKS.phone + "      Android: " + LINKS.android
       : "";
@@ -961,6 +1002,9 @@
     // AND THE SENTENCE UNDER THAT HEADING, which is the half defect B found: it survived the
     // expiry telling him to check "these six" with nothing to check them against.
     field("phone-words-note").hidden = !live;
+    // AND THE CONTAINER, which is now the first thing on the screen on the Tailscale route: an
+    // empty box at the top of the panel is worse than the same emptiness at the bottom was.
+    codeBlock.hidden = !live;
     field("phone-expired").hidden = !expired;
     if (expired) {
       field("phone-expired-note").textContent = EXPIRED_NOTE;
@@ -1078,7 +1122,32 @@
     if (first) first.focus();
   }
 
-  async function begin() {
+  /// **PUT THE CODE BACK IN FRONT OF HIM** — Urban's G4.
+  ///
+  /// *"`Show me another code` issues the code AND returns the panel to the top (frame 08), so
+  /// the user must scroll the whole way down again to reach the thing they just asked for
+  /// (frame 09)."*
+  ///
+  /// The panel is what scrolls, not the window: `.overlay-panel` is `max-height` + `overflow-y:
+  /// auto` (style.css, the note about a first-run sheet losing its own way out below the fold),
+  /// and `.overlay` itself is `position: fixed` and does not scroll at all. So the measurement
+  /// is taken between those two boxes rather than from `offsetTop`, whose `offsetParent` here is
+  /// the fixed `.overlay` and not the box that moves.
+  ///
+  /// 12px of air above the heading rather than 0, so the code reads as the top of a screen and
+  /// not as a block cut off by the panel's edge.
+  function scrollToCode() {
+    const panel = sheet.querySelector(".overlay-panel");
+    const code = field("phone-code-block");
+    if (!panel || !code || code.hidden) return;
+    const delta = code.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12;
+    panel.scrollTop = Math.max(0, panel.scrollTop + delta);
+  }
+
+  /// `toCode` is TRUE only for "Show me another code", and false for the two controls that
+  /// ENTER this screen (`Set my phone up`, on Screen 4 and on the off screen). Entering a screen
+  /// scrolled past its own opening sentence would be the same defect pointing the other way.
+  async function begin(toCode) {
     if (busy) return;
     busy = true;
     field("phone-message").textContent = "Making a certificate for your phone…";
@@ -1087,6 +1156,7 @@
     try {
       render(await bridge.invoke("phone_begin_pairing"));
       field("phone-message").textContent = "";
+      if (toCode) scrollToCode();
     } catch (error) {
       field("phone-message").textContent = String(error);
     } finally {
@@ -1096,8 +1166,11 @@
     }
   }
 
-  field("phone-start").addEventListener("click", begin);
-  field("phone-refresh").addEventListener("click", begin);
+  // `() => begin(false)` rather than the bare function, because a DOM listener is called with
+  // the EVENT as its first argument — `begin(event)` would be truthy and every one of these
+  // would scroll.
+  field("phone-start").addEventListener("click", () => begin(false));
+  field("phone-refresh").addEventListener("click", () => begin(true));
   field("phone-close").addEventListener("click", close);
 
   // THE ROUTE CONTROLS. "At home only" is the shipped flow with nothing changed — it does not even

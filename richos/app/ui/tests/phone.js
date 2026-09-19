@@ -1251,6 +1251,96 @@ async function openSheet(browser, theme, preset) {
     return out.join("; ");
   });
 
+  // ---- G3/G4/G5: what the screen puts first, where it puts him back, and what it stopped -----
+
+  await run.check("20  the code is ABOVE the phone steps on the Tailscale route, and the home route keeps 1-2-3", async () => {
+    // Urban's G3, measured on his own frames 04 and 05: at 1024x700 — the app's own minimum and
+    // the size it restores itself to — the pairing screen is about three viewport heights tall,
+    // and the code was about 1.5 screens down. *"The four phone steps are preparation for a
+    // person who has not started; the code is what a person who is standing there with their
+    // phone needs. Order the screen for the second person."*
+    //
+    // AND THE HOME ROUTE IS THE OTHER HALF OF THE SAME CHECK. Its three headings are numbered
+    // and the numbers are a real sequence — the certificate at step 1 is what makes step 2's
+    // address open at all — so a fix that moved the code on BOTH routes would put step 2 above
+    // step 1. Reading order is asserted on each route, in opposite directions.
+    const order = async (page, a, b) =>
+      page.evaluate((s) => {
+        const first = document.querySelector(s.a);
+        const second = document.querySelector(s.b);
+        if (!first || !second) return "missing";
+        // 4 === DOCUMENT_POSITION_FOLLOWING: `b` comes after `a` in the document.
+        return first.compareDocumentPosition(second) & 4 ? "a-then-b" : "b-then-a";
+      }, { a, b });
+
+    const ts = await takeTheTailscaleRoute("dark", {
+      state: "ready", name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443", account: "Google as someone@example.com",
+    });
+    await ts.click("#phone-ts-start");
+    await ts.waitForSelector("#phone-pairing:not([hidden])");
+    const onTailnet = await order(ts, "#phone-code-block", "#phone-ts-steps");
+    const codeVisible = await ts.evaluate(() => !document.getElementById("phone-code-block").hidden);
+    await ts.close();
+
+    const home = await openSheet(browser, "dark", { phonePairing: true });
+    await home.waitForSelector("#phone-pairing:not([hidden])");
+    const onHome = await order(home, "#phone-home-warnings", "#phone-code-block");
+    const headings = await home.evaluate(() => ({
+      trust: document.querySelector("#phone-home-warnings .phone-step-title").textContent.trim(),
+      code: document.getElementById("phone-code-title").textContent.trim(),
+      words: document.getElementById("phone-words-title").textContent.trim(),
+    }));
+    await home.close();
+
+    assert(codeVisible, "the code block is hidden on a screen with a live code");
+    assertEqual(onTailnet, "a-then-b", "THE DEFECT: on the Tailscale route the four phone steps still come before the code");
+    assertEqual(onHome, "a-then-b", "the home route's certificate step no longer comes before the code it makes readable");
+    assert(/^1\./.test(headings.trust) && /^2\./.test(headings.code) && /^3\./.test(headings.words),
+      "the home route's numbering is out of step with its order: " + JSON.stringify(headings));
+    return "tailnet: code then steps; home: " + JSON.stringify([headings.trust.slice(0, 2), headings.code.slice(0, 2), headings.words.slice(0, 2)]);
+  });
+
+  await run.check("21  `Show me another code` puts the code back on screen, not the top of the sheet", async () => {
+    // Urban's G4, frames 08 and 09: the button issued the code AND returned the panel to the
+    // top, *"so the user must scroll the whole way down again to reach the thing they just
+    // asked for"*. Walked on the HOME route, where the code sits in the middle of the screen
+    // and so the two outcomes — "scrolled to the top" and "the code is in view" — are different
+    // answers. On the Tailscale route G3 already puts the code at the top and they coincide.
+    const page = await openSheet(browser, "dark", { phonePairing: true });
+    await page.waitForSelector("#phone-pairing:not([hidden])");
+    // Where he is when he presses it: at the bottom, on the button.
+    await page.evaluate(() => {
+      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      panel.scrollTop = panel.scrollHeight;
+    });
+    await page.click("#phone-refresh");
+    await page.waitForTimeout(250);
+    const where = await page.evaluate(() => {
+      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      const code = document.getElementById("phone-code-block");
+      const p = panel.getBoundingClientRect();
+      const c = code.getBoundingClientRect();
+      return {
+        scrollTop: Math.round(panel.scrollTop),
+        scrollable: Math.round(panel.scrollHeight - panel.clientHeight),
+        codeTopInPanel: Math.round(c.top - p.top),
+        panelHeight: Math.round(p.height),
+      };
+    });
+    await page.close();
+    assert(where.scrollable > 40, "the panel does not scroll in this window, so this check proves nothing");
+    // THE CODE IS IN VIEW. Stated as geometry rather than as a scroll number, because the
+    // requirement is about what he can see and not about where the scrollbar ended up.
+    assert(
+      where.codeTopInPanel >= 0 && where.codeTopInPanel < where.panelHeight - 40,
+      "THE DEFECT: after `Show me another code` the code is at " + where.codeTopInPanel +
+        "px in a " + where.panelHeight + "px panel — off the screen he is looking at"
+    );
+    return "panel scrolls " + where.scrollable + "px; after the fresh code the block sits " +
+      where.codeTopInPanel + "px into a " + where.panelHeight + "px panel (scrollTop " + where.scrollTop + ")";
+  });
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
