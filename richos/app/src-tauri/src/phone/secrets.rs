@@ -21,6 +21,15 @@
 //! CEO's screen or a process hung forever. (This repository's own interactive-prompt guard
 //! refuses the argument-less form for exactly that reason.)
 //!
+//! **AND THE SECOND THING THE TOOL CAN DO, which this doc did not say until a walk found it.**
+//! `security` is GUI-capable. It can put a **`SecurityAgent`** window on his screen — *"Keychain
+//! Not Found"*, or the ordinary *"security wants to use the 'login' keychain"* — and then wait
+//! for it, for as long as nobody answers. `Command::output()` waits with it, so an unanswered
+//! dialog used to be a pairing sheet frozen on `Getting this Mac ready...` with no bound and no
+//! sentence (Ray's nightly `.7` walk, defect 3). Every call in this file now goes through
+//! [`run_security`], which has a deadline, kills what outlasts it, and hands back
+//! [`PhoneError::ToolTimedOut`] so the screen can say what happened.
+//!
 //! **What that exposure is actually worth: nothing.** Reading another process's arguments on
 //! macOS requires being the same user, and a process running as that user can simply run
 //! `security find-generic-password -w` and read the key out of the Keychain directly. The
@@ -142,12 +151,94 @@ impl Keychain {
 /// The exit status `security` uses for "the item does not exist".
 const ITEM_NOT_FOUND: i32 = 44;
 
+/// **HOW LONG THIS APP WILL WAIT FOR `/usr/bin/security`, AND WHY THERE IS A BOUND AT ALL** —
+/// Ray's nightly `.7` walk, defect 3.
+///
+/// `security` is a GUI-capable tool. Pressing `Set my phone up` raised a **`SecurityAgent`**
+/// window — *"Keychain Not Found — A keychain cannot be found to store
+/// 'certificate-authority-key.'"* — and the sheet behind it sat on `Getting this Mac ready...`
+/// with no bound of its own. `Command::output()` waits forever, so a dialog nobody answers is a
+/// pairing that never finishes and never says why. The module doc above owned up to the `-w`
+/// argument being visible in the process table; it did not say the tool can draw a window, and
+/// that is the property that actually stopped a walk.
+///
+/// **Two minutes, and the number is a trade rather than a round figure.** The *other* dialog on
+/// this path is legitimate and he is meant to answer it: frame 10 of the same walk is
+/// `security wants to use the "login" keychain`, and a bound short enough to kill that is a bound
+/// that breaks the working case. So it has to outlast a person noticing a window, reading it and
+/// typing a password — call it well under a minute, doubled. And it has to be short enough that a
+/// dialog nobody is going to answer ends in a sentence rather than a sheet that never moves. An
+/// ordinary call on an unlocked keychain returns in milliseconds, so this bound is never reached
+/// on the path that works.
+const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// How often the wait looks. 25 ms costs at most 25 ms on a call that takes one, and at most
+/// 4,800 wake-ups across the whole bound.
+const TOOL_POLL: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// Run `/usr/bin/security` with a deadline, and kill it if it outlasts one.
+///
+/// **`stdin` is `null` by construction**, which is the other half of the module doc's argument
+/// about `-w`: a tool with no terminal to read from cannot quietly become an interactive prompt
+/// in this process's place. What it CAN still do is ask the window server, and that is what the
+/// deadline is for.
+///
+/// The output is read after the child has exited rather than while it runs. That is safe here and
+/// not in general: every value this module passes through `security` is one base64 line — a
+/// P-256 PKCS#8 key is 138 bytes, so about 184 base64 characters — against a 64 KB pipe buffer,
+/// so the child cannot block on a full pipe waiting for a reader that is not there yet.
+fn run_security(args: &[&str]) -> Result<std::process::Output, PhoneError> {
+    run_bounded("/usr/bin/security", args, TOOL_TIMEOUT, TOOL_POLL)
+}
+
+/// The deadline itself, with the program and the two durations passed in so a test can prove the
+/// bound in a second rather than in two minutes — and so the property under test is the WAIT
+/// rather than anything about the Keychain. Nothing but [`run_security`] calls it in the app.
+fn run_bounded(
+    program: &str,
+    args: &[&str],
+    timeout: std::time::Duration,
+    poll: std::time::Duration,
+) -> Result<std::process::Output, PhoneError> {
+    // The tool's own name, for the log line and for the sentence he reads.
+    let tool = || {
+        std::path::Path::new(program)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| program.to_string())
+    };
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| PhoneError::Tool { tool: tool(), detail: e.to_string() })?;
+
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {}
+            Err(e) => return Err(PhoneError::Tool { tool: tool(), detail: e.to_string() }),
+        }
+        if started.elapsed() >= timeout {
+            // It is still there and it is not coming back on its own. The process goes with the
+            // wait rather than being left behind holding a window — CEO §54: whatever this app
+            // starts, this app ends.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(PhoneError::ToolTimedOut { tool: tool(), seconds: timeout.as_secs() });
+        }
+        std::thread::sleep(poll);
+    }
+
+    child.wait_with_output().map_err(|e| PhoneError::Tool { tool: tool(), detail: e.to_string() })
+}
+
 impl SecretStore for Keychain {
     fn get(&self, account: &str) -> Result<Option<Vec<u8>>, PhoneError> {
-        let out = Command::new("/usr/bin/security")
-            .args(["find-generic-password", "-a", account, "-s", &self.service, "-w"])
-            .output()
-            .map_err(|e| PhoneError::Tool { tool: "security".into(), detail: e.to_string() })?;
+        let out = run_security(&["find-generic-password", "-a", account, "-s", &self.service, "-w"])?;
         if !out.status.success() {
             // "The item does not exist" on a first run is the ordinary case and not a
             // failure. Anything else is a real problem and is reported as one rather than
@@ -178,23 +269,20 @@ impl SecretStore for Keychain {
         // Base64 because a key file is multi-line and a Keychain generic password is one
         // value. This is an encoding, not an encryption, and it is not pretending to be one.
         let encoded = b64std(secret);
-        let out = Command::new("/usr/bin/security")
-            .args([
-                "add-generic-password",
-                "-a",
-                account,
-                "-s",
-                &self.service,
-                "-D",
-                "RichOS phone channel key",
-                // `-U` updates in place. Without it a second launch is a duplicate item and
-                // `find-generic-password` then returns whichever the Keychain feels like.
-                "-U",
-                "-w",
-                &encoded,
-            ])
-            .output()
-            .map_err(|e| PhoneError::Tool { tool: "security".into(), detail: e.to_string() })?;
+        let out = run_security(&[
+            "add-generic-password",
+            "-a",
+            account,
+            "-s",
+            &self.service,
+            "-D",
+            "RichOS phone channel key",
+            // `-U` updates in place. Without it a second launch is a duplicate item and
+            // `find-generic-password` then returns whichever the Keychain feels like.
+            "-U",
+            "-w",
+            &encoded,
+        ])?;
         if !out.status.success() {
             return Err(PhoneError::Tool {
                 tool: "security".into(),
@@ -209,10 +297,7 @@ impl SecretStore for Keychain {
     }
 
     fn delete(&self, account: &str) -> Result<(), PhoneError> {
-        let out = Command::new("/usr/bin/security")
-            .args(["delete-generic-password", "-a", account, "-s", &self.service])
-            .output()
-            .map_err(|e| PhoneError::Tool { tool: "security".into(), detail: e.to_string() })?;
+        let out = run_security(&["delete-generic-password", "-a", account, "-s", &self.service])?;
         // Deleting something that is not there is success. "Forget this phone" must end with
         // the key gone, and it is gone either way.
         if !out.status.success() && out.status.code() != Some(ITEM_NOT_FOUND) {
@@ -298,6 +383,71 @@ mod tests {
         for account in [CA_KEY, LEAF_KEY, VAPID_KEY] {
             assert!(store.get(account).unwrap().is_none(), "{account} survived forget_all");
         }
+    }
+
+    /// **A SHELL-OUT THAT NEVER ANSWERS ENDS IN A SENTENCE, NOT IN A FROZEN SHEET** — Ray's
+    /// nightly `.7` walk, defect 3.
+    ///
+    /// The real trigger is a `SecurityAgent` window, which cannot be raised in a test and must
+    /// not be raised on this machine in any case. What is provable without one is the property
+    /// that was missing: a child that does not exit is bounded, killed, and reported as a
+    /// timeout rather than waited on forever. `/bin/sleep` stands in for the blocked tool, and
+    /// the deadline is passed in so the test costs a second rather than two minutes.
+    #[test]
+    fn a_shell_out_that_never_answers_is_killed_and_reported_rather_than_waited_on() {
+        use std::time::{Duration, Instant};
+
+        let started = Instant::now();
+        let outcome = run_bounded(
+            "/bin/sleep",
+            &["30"],
+            Duration::from_millis(300),
+            Duration::from_millis(10),
+        );
+        let waited = started.elapsed();
+
+        match outcome {
+            Err(PhoneError::ToolTimedOut { ref tool, seconds }) => {
+                assert_eq!(tool, "sleep");
+                assert_eq!(seconds, 0, "sub-second bounds round down; the sentence uses the constant");
+            }
+            other => panic!("a child that never exits was not reported as a timeout: {other:?}"),
+        }
+        assert!(
+            waited < Duration::from_secs(5),
+            "the bound did not bound anything: waited {waited:?} for a 300 ms deadline"
+        );
+    }
+
+    #[test]
+    fn a_shell_out_that_answers_inside_the_bound_is_not_disturbed_by_it() {
+        // The positive control the test above needs: the same path, on a child that exits.
+        // Without it, "it timed out" and "it never ran" look identical.
+        use std::time::Duration;
+        let out = run_bounded(
+            "/bin/echo",
+            &["richos"],
+            Duration::from_secs(10),
+            Duration::from_millis(5),
+        )
+        .expect("a child that exits at once was reported as a failure");
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "richos");
+    }
+
+    #[test]
+    fn the_bound_outlasts_a_person_answering_a_legitimate_keychain_prompt() {
+        // Frame 10 of the same walk is `security wants to use the "login" keychain`, and he is
+        // MEANT to answer that one. A bound short enough to kill it would break the path that
+        // works, so the number is pinned against that use rather than left to taste.
+        assert!(
+            TOOL_TIMEOUT >= std::time::Duration::from_secs(60),
+            "the bound is too short for a person to notice a keychain window and type a password"
+        );
+        assert!(
+            TOOL_TIMEOUT <= std::time::Duration::from_secs(300),
+            "a dialog nobody will answer must end in a sentence, not in a sheet that never moves"
+        );
     }
 
     /// **TWO `HOME`S, TWO SERVICE NAMES** — Ray's nightly `.7` walk, defect 4.

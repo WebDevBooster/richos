@@ -143,6 +143,14 @@ pub enum PhoneError {
     /// A shelled-out tool (`/usr/bin/openssl`, `/usr/bin/security`, `/usr/sbin/scutil`)
     /// exited non-zero or could not be run. Carries what it said.
     Tool { tool: String, detail: String },
+    /// **A shelled-out tool was still running when this app's own bound ran out, and was
+    /// killed** — Ray's nightly `.7` walk, defect 3.
+    ///
+    /// Separate from [`PhoneError::Tool`] because it is a different event and he needs a
+    /// different sentence: `Tool` is the tool answering and saying no, this is the tool not
+    /// answering at all. In practice it is `/usr/bin/security` sitting behind a
+    /// `SecurityAgent` window nobody has answered, which is a thing he can go and look for.
+    ToolTimedOut { tool: String, seconds: u64 },
     /// The macOS Keychain holds no such item. Not an error on a first run.
     NoSecret(String),
     /// Something on disk or in the Keychain is not the shape this build writes.
@@ -165,6 +173,9 @@ impl fmt::Display for PhoneError {
         match self {
             PhoneError::Io(e) => write!(f, "phone channel io: {e}"),
             PhoneError::Tool { tool, detail } => write!(f, "{tool}: {detail}"),
+            PhoneError::ToolTimedOut { tool, seconds } => {
+                write!(f, "{tool}: still running after {seconds}s, killed")
+            }
             PhoneError::NoSecret(a) => write!(f, "no keychain item for {a}"),
             PhoneError::Malformed(d) => write!(f, "malformed: {d}"),
             PhoneError::Crypto(d) => write!(f, "crypto: {d}"),
@@ -201,6 +212,19 @@ impl PhoneError {
             }
             PhoneError::Tool { tool, .. } if tool == "security" => {
                 "Your Mac's keychain would not let me keep the key your phone needs. Nothing was                  changed, and I have not stored anything."
+            }
+            // **THE TOOL NEVER ANSWERED**, which on this Mac means a keychain window is open
+            // somewhere he cannot see, and is therefore a thing he can go and do something
+            // about. So the sentence names the window, names where to look, and names the
+            // control on this same screen that starts it again.
+            PhoneError::ToolTimedOut { tool, .. } if tool == "security" => {
+                "Your Mac's keychain did not answer, so I stopped waiting and nothing was stored. \
+macOS may be holding a keychain window open behind this one — look for it, answer it, then \
+press Set my phone up again."
+            }
+            PhoneError::ToolTimedOut { .. } => {
+                "A tool this Mac needs to set your phone up did not answer, so I stopped waiting. \
+Nothing was changed. Ask me to set your phone up again."
             }
             PhoneError::Tool { .. } => {
                 "I could not find the name this Mac publishes on your network, so there is no                  address your phone could use."
