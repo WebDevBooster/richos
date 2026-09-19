@@ -496,14 +496,49 @@ async function main() {
       "and the stored preference is still light";
   });
 
-  await run.check("5  the settings button is ON the opening screen, with NO theme switch", async () => {
+  await run.check("5  NO settings button on the opening screen until the space key holds it — and then no theme switch", async () => {
+    // CEO §62, 2026-09-19, and it is the ONE declared exception to §15's "always everywhere on
+    // every page": *"The splash screen is one of those rare cases where the screen should NOT
+    // have a settings button (because it's only there for 3 seconds by default ...). However
+    // ... while the splash screen is 'paused', THAT'S when the settings button should show up
+    // on the splash screen. Because that's the only time it would make sense."*
+    //
+    // THIS CHECK USED TO ASSERT THE OPPOSITE — "the button is there, it is on every screen, no
+    // exception" — and it was right to, until he ruled. Both halves are asserted now, in the
+    // order he gave them: absent while the screen runs, present the moment it is held. The
+    // rest of the walk is unchanged, because the rest of the ruling is unchanged: no theme
+    // switch reaches the start screen, and Bust a bug is still the floor.
     const page = track(
       await openApp(browser, {
         stored: { theme: "light", font_scale: 100, user_name: null },
         holdSplash: true,
       })
     );
-    assert(await page.locator("#set-btn").isVisible(), "the button is there — it is on every screen, no exception");
+    assert(
+      await page.evaluate(() => !!document.querySelector(".settings") && !!document.getElementById("set-btn")),
+      "settings-button.js did not mount at all — 'no button' would be true here for the wrong reason"
+    );
+    assert(
+      !(await page.locator("#set-btn").isVisible()),
+      "§62: the RUNNING opening screen must not carry a settings button"
+    );
+    // THE SHUTTER WAITS FOR THE BAR TO STOP BEFORE THE HOLD GOES ON, and that is about the
+    // committed picture rather than about the ruling. The space key freezes the composition
+    // where it stands, so a photograph taken of a screen held mid-ceremony is a photograph of
+    // whenever this machine happened to get its turn — and the bar is the part that moves for
+    // three seconds. Measured 2026-09-19: pausing mid-run moved 7,069 pixels of this file, all
+    // of them inside the bar's own 349x70 box. `state.barStopped` is the product saying the one
+    // pass is over (`splash.js`), after which nothing on this surface moves, so the picture is
+    // the settled composition plus the one control §62 adds — and it differs from the file it
+    // replaces by exactly that control's 40x40 box. `HOLD_CURTAIN` has disarmed the ceiling, so
+    // there is no clock under this wait.
+    await page.waitForFunction(() => window.RichSplash.state.barStopped === true, { timeout: 20000 });
+    await page.keyboard.press("Space");
+    assert(
+      await page.evaluate(() => window.RichSplash.state.paused === true),
+      "space did not hold the opening screen, so §62's state was never reached"
+    );
+    assert(await page.locator("#set-btn").isVisible(), "§62: the button shows up while the screen is held");
     await openMenu(page);
     const opts = await page.evaluate(() => document.querySelectorAll(".theme-opt").length);
     assertEqual(opts, 0, "no switch reaches the start screen — and it is OMITTED, not disabled");
@@ -513,15 +548,25 @@ async function main() {
     );
     const s = await shot(page, SHOTS + "/10-1-start-screen-always-dark", { fullPage: false });
     await page.close();
-    return "button present, 0 theme options, Bust a bug reachable — " + path.basename(s.file);
+    return "absent while it ran, present once space held it, 0 theme options, Bust a bug reachable — " +
+      path.basename(s.file);
   });
 
-  await run.check("6  reporting a bug from the opening screen does not leave the opening screen", async () => {
+  await run.check("6  reporting a bug from the HELD opening screen does not leave the opening screen", async () => {
     // The ruling's reason, not just its letter: "reporting a bug must never require
     // navigating away from the screen the bug is on", and the screen a first-run user is
     // most likely to be stuck on is the one the curtain is covering. splash.js dismisses on
     // first input, so touching the settings button had to stop counting as first input.
+    //
+    // SINCE CEO §62 THE BUTTON IS ONLY THERE WHILE THE SCREEN IS HELD, so the walk begins with
+    // the space key — which is also the only thing that changed here. Everything after it is
+    // the same claim it always was, including the last line: an ordinary click still dismisses.
     const page = track(await openApp(browser, { holdSplash: true }));
+    await page.keyboard.press("Space");
+    assert(
+      await page.evaluate(() => window.RichSplash.state.paused === true),
+      "space did not hold the opening screen, so the settings button is not on it to press"
+    );
     await openMenu(page);
     assert(await page.evaluate(() => !!document.getElementById("splash")), "opening the menu did not lift the curtain");
     await page.click("#bug-btn");
@@ -553,7 +598,8 @@ async function main() {
       "the first-input dismissal is otherwise UNCHANGED — the exception is exactly one control wide"
     );
     await page.close();
-    return "the curtain survives the settings button and Bust a bug, and still yields to any other input";
+    return "held by the space key, the curtain survives the settings button and Bust a bug, and still yields to " +
+      "any other input";
   });
 
   // ---- 7. the button is everywhere, above everything ------------------------------------
@@ -596,6 +642,13 @@ async function main() {
     // under it. The hit test would pass over a settings button that was invisible — which
     // is the single most important place for it not to be, since §15's floor exists for
     // exactly the screen a first-run user is stuck on.
+    //
+    // CEO §62 NARROWED WHEN THAT BUTTON IS THERE AND NOT WHERE IT SITS WHEN IT IS: it is on
+    // the opening screen only while the space key is holding the screen, and in that state it
+    // still has to be above the curtain or it is not reachable at all. So this half of the
+    // check is unchanged and is if anything load-bearing now — `tests/splash.js` check 25d
+    // drives the live hit test in the held state, and this is the structural statement behind
+    // it.
     //
     // So this half is structural: `.settings` must out-rank EVERY other z-index the app
     // ships, computed from the stylesheets rather than compared against a number typed
