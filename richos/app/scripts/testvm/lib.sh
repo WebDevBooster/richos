@@ -83,7 +83,13 @@ TESTVM_SSH_KEY="${TESTVM_SSH_KEY:-$TESTVM_ROOT/id_testvm}"
 # ssh options: no host-key prompt or pollution — a guest is disposable and its
 # key changes every clone, so StrictHostKeyChecking=no plus a THROWAWAY known
 # hosts file keeps the CEO's ~/.ssh/known_hosts untouched.
+# BatchMode=yes is not optional: without it, an ssh whose key auth fails falls
+# back to asking for a password. An agent has no terminal, so that either hangs
+# the harness until somebody notices, or macOS draws an askpass WINDOW — on the
+# CEO's screen, which is the one outcome this entire harness exists to prevent.
+# Failing fast with an error is always the right answer here.
 TESTVM_SSH_OPTS=(
+  -o BatchMode=yes
   -o StrictHostKeyChecking=no
   -o UserKnownHostsFile=/dev/null
   -o LogLevel=ERROR

@@ -61,7 +61,13 @@ case "${1:-}" in
       set p to first process whose unix id is $PID
       set out to \"\"
       repeat with w in windows of p
-        set out to out & (name of w) & \" \" & (size of w as string) & \" at \" & (position of w as string) & linefeed
+        -- AppleScript renders a list as a string by CONCATENATING it, so
+        -- {1024, 700} becomes \"1024700\" and a 1024x700 window is
+        -- indistinguishable from a 102x4700 one. The items are pulled out and
+        -- punctuated by hand for that reason.
+        set sz to size of w
+        set ps to position of w
+        set out to out & (name of w) & \" \" & (item 1 of sz) & \"x\" & (item 2 of sz) & \" at (\" & (item 1 of ps) & \",\" & (item 2 of ps) & \")\" & linefeed
       end repeat
       return out
     end tell"

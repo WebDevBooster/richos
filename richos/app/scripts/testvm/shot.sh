@@ -23,7 +23,13 @@ for a in "$@"; do [ "$a" = "--ocr" ] && WANT_OCR=1; done
 preflight_tart
 require_vm_running "$VM"
 
-GUEST_PATH="/tmp/testvm-shot-$$.png"
+# Staged under $HOME, deliberately NOT /tmp. Homebrew's tesseract cannot read a
+# file in the guest's /tmp: leptonica's fopenReadStream fails, tesseract then
+# falls back to treating the image's own bytes as a list of filenames, and the
+# error it prints ("image file not found") names a path that plainly exists.
+# Measured in the guest: the identical file OCRs fine from $HOME and fails from
+# /tmp. Everything staged guest-side therefore lives under $HOME.
+GUEST_PATH="testvm-shot-$$.png"
 
 # -x silences the camera shutter sound. Not cosmetic: the guest's audio is
 # mixed into the host's output device, so without it every screenshot makes a
@@ -75,6 +81,7 @@ fi
 log "captured ${W}x${H}, ${NB}% non-black -> $OUT"
 
 if [ "$WANT_OCR" -eq 1 ]; then
-  guest_ssh "$VM" "screencapture -x -t png /tmp/ocr-$$.png && \
-      /opt/homebrew/bin/tesseract /tmp/ocr-$$.png - 2>/dev/null; rm -f /tmp/ocr-$$.png"
+  # cd to $HOME and use a bare filename — see the GUEST_PATH comment above.
+  guest_ssh "$VM" "cd \$HOME && screencapture -x -t png ocr-$$.png && \
+      /opt/homebrew/bin/tesseract ocr-$$.png - 2>/dev/null; rm -f \$HOME/ocr-$$.png"
 fi
