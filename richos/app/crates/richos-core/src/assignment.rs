@@ -1048,31 +1048,52 @@ pub fn open(state: &Path) -> Result<Vec<Assignment>, AssignmentError> {
 ///
 /// **American English, spoken-safe, comparative rather than absolute, no identifiers.**
 pub mod says {
-    /// **Join a title to the clause that always continues after it.**
+    /// **THE TITLE IS NEVER THE SUBJECT OF THE SENTENCE. It closes, and the verdict is its own
+    /// sentence about "It".**
     ///
-    /// Every sentence in this module is `{title}` followed by a verb phrase about it, and
-    /// [`super::sanitize_title`] leaves exactly one title shape that breaks that: a truncated
-    /// one, which keeps the `…` its truncation needs. Ray's candidate-.8 row 8 is what that
-    /// collision looks like on his timeline — see the comment above `sanitize_title` for the
-    /// verbatim sentence and the reasoning it disproved.
+    /// # Ray's candidate-.11 defect 1.1, which is what made this the rule for every title
     ///
-    /// **So a truncated title CLOSES, and the verdict becomes its own sentence about "It".**
-    /// An ellipsis followed by a capital is ordinary typography for precisely this: the
-    /// truncation stays marked, and what follows is unmistakably a new sentence rather than
-    /// the tail of a broken one. Spoken, it is a pause and a fresh clause instead of a stutter.
+    /// The outcome card on his walk
+    /// (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md`
+    /// §1.1, screenshot 08), verbatim:
     ///
-    /// An untruncated title is joined exactly as it was, so this changes nothing for every
-    /// title short enough to survive the 160-character cap — which is almost all of them.
+    /// > "Add a line to notes.txt in the QA fixture repository saying the candidate eleven walk
+    /// > happened, **and land it is finished.** It landed on main in qa-fixture-repo. …"
     ///
-    /// **It is not a second period, and that distinction is the one `25b933f2` got right.**
-    /// Nothing is appended to the `…`; a word is inserted after it. So the double-mark defect
-    /// of candidate .7's row 8 (*"… and land it.. It's running now"*) cannot come back through
-    /// this door.
+    /// His note: *"A person stumbles on 'and land it is finished'. The rest of the sentence is
+    /// good, which makes the stumble worse."*
+    ///
+    /// **The cause is grammatical and it is not fixable by editing the clause.** A title is in
+    /// HIS OWN TERMS — the register asks for *"one plain sentence you would be happy to read
+    /// back to him"* — and his terms are almost always an imperative: *"add a line … and land
+    /// it"*, *"land the pricing branch"*. An imperative clause cannot be the subject of
+    /// *"{title} is finished"*, so the join produced a sentence that does not parse, and it
+    /// would do so again for *"stopped before it finished"*, *"did not start"*, *"was stopped"*
+    /// and the other four the moment any of them reported on a job he had described that way.
+    ///
+    /// **So the title gets its own sentence and the verdict talks about "It".** This is not a
+    /// new shape: it is exactly what the truncated branch has done since Ray's candidate-.8 row
+    /// 8, extended to every title instead of the one shape that forced it. The result reads and
+    /// speaks the same way — *"Add a line to notes.txt … and land it. It is finished. It landed
+    /// on main in qa-fixture-repo."*
+    ///
+    /// **What this costs, stated rather than left to be discovered.** A title that IS a noun
+    /// phrase — *"the pricing review"* — used to read *"the pricing review is finished"* and now
+    /// reads *"The pricing review. It is finished."* That is a little blunter, and it is the
+    /// price of a rule that cannot produce a sentence which fails to parse. The alternative was
+    /// detecting an imperative, which is a guess about English made on the model's wording, and
+    /// a wrong guess puts the broken sentence back on his card.
+    ///
+    /// **It is never a second mark, and that distinction is the one `25b933f2` got right.** A
+    /// title already ending in terminal punctuation — the truncation's `…` is the only shape
+    /// [`super::sanitize_title`] leaves — has nothing appended to it; a word is inserted after
+    /// it. So the double-period defect of candidate .7's row 8 (*"… and land it.. It's running
+    /// now"*) cannot come back through this door.
     fn continues(title: &str, clause: &str) -> String {
-        if title.ends_with('…') {
+        if title.ends_with(['…', '.', '!', '?']) {
             format!("{title} It {clause}")
         } else {
-            format!("{title} {clause}")
+            format!("{title}. It {clause}")
         }
     }
 
@@ -1373,26 +1394,55 @@ mod tests {
             format!("{title} It stopped before it finished. Choose a company before saving interview answers.")
         );
 
-        // ---- AND NOTHING CHANGES FOR A TITLE SHORT ENOUGH TO SURVIVE THE CAP -------------
-        // Which is almost every title. `continues` inserts a word only after an ellipsis.
+        // ---- AND AN UNTRUNCATED TITLE CLOSES TOO, WHICH IS RAY'S CANDIDATE-.11 §1.1 -------
+        //
+        // **THIS BLOCK USED TO ASSERT THE OPPOSITE, and it was a stale assertion rather than a
+        // defect.** It read *"AND NOTHING CHANGES FOR A TITLE SHORT ENOUGH TO SURVIVE THE CAP …
+        // `continues` inserts a word only after an ellipsis"*, which was true and was the
+        // narrower rule. It survived one more walk: candidate .11's outcome card read
+        // *"Add a line to notes.txt in the QA fixture repository saying the candidate eleven walk
+        // happened, and land it is finished."* — an untruncated title, straight into the verdict,
+        // and not a sentence. See [`says::continues`] for why a title in HIS terms cannot be the
+        // subject of one.
         let short = sanitize_title("landing the three branches").unwrap();
         assert_eq!(short, "landing the three branches");
         assert_eq!(
             says::failed(&short, "The land lock timed out."),
-            "landing the three branches stopped before it finished. The land lock timed out."
+            "landing the three branches. It stopped before it finished. The land lock timed out."
         );
         assert_eq!(
             says::interrupted(&short),
-            "landing the three branches was stopped. Everything it had done is kept, and nothing was landed."
+            "landing the three branches. It was stopped. Everything it had done is kept, and nothing was landed."
+        );
+        // **THE ONE HE ACTUALLY SAW, in full, both before and after.** His title is an
+        // imperative, which is what the register asks for ("in HIS OWN TERMS"), and an
+        // imperative clause cannot be a subject.
+        let his = sanitize_title(
+            "Add a line to notes.txt in the QA fixture repository saying the candidate eleven \
+             walk happened, and land it",
+        )
+        .unwrap();
+        assert_eq!(
+            says::settled(&his, "It landed on main in qa-fixture-repo."),
+            "Add a line to notes.txt in the QA fixture repository saying the candidate eleven \
+             walk happened, and land it. It is finished. It landed on main in qa-fixture-repo. \
+             Everything it produced is with your saved work."
+        );
+        assert!(
+            !says::settled(&his, "").contains("and land it is finished"),
+            "the sentence a person stumbles on is back: {}",
+            says::settled(&his, "")
         );
         // Asserted at the JOIN and not over the whole card: an outcome of his own may perfectly
-        // well contain "It" ("It landed on cc/pricing."), and a test that banned the word
-        // anywhere would fail for a reason that has nothing to do with the title.
+        // well contain "It" ("It landed on cc/pricing."), and a test that demanded or banned the
+        // word anywhere would pass or fail for reasons that have nothing to do with the title.
         for card in cards(&short) {
-            let after = card.strip_prefix(&format!("{short} ")).expect(&card);
+            let after = card.strip_prefix(&format!("{short}. ")).unwrap_or_else(|| {
+                panic!("the title no longer closes its own sentence: {card}")
+            });
             assert!(
-                !after.starts_with("It "),
-                "a word was inserted after an untruncated title: {card}"
+                after.starts_with("It "),
+                "the verdict is not its own sentence about the job: {card}"
             );
         }
     }

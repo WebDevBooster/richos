@@ -161,7 +161,10 @@ async function main() {
       // §52 (`assignment::says::settled`): he hears the OUTCOME. A fixture quoting the old
       // "is ready for you to approve" would have been a notice this product can no longer
       // raise, which is a worse thing for a survival test to be carrying than a short one.
-      [first, "Landing the three branches is finished. It landed on cc/echo-1 in project."]
+      // Re-quoted 2026-09-19 for Ray's candidate-.11 §1.1: the title now CLOSES and the
+      // verdict is its own sentence about "It", because a title in his own terms is usually
+      // an imperative and cannot be the subject of one ("and land it is finished").
+      [first, "Landing the three branches. It is finished. It landed on cc/echo-1 in project."]
     );
     await page.evaluate(() => window.__renderOnly());
     assertEqual(await page.locator(".tl-notice").count(), 1, "the result did not render at all");
