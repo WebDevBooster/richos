@@ -5659,6 +5659,43 @@ body.home-open {
 .bugbtn--disclosure svg {
   margin-left: auto;
 }
+
+/* **A DISCLOSURE ROW THAT SAYS WHAT IS BEHIND IT** — Ray's candidate-.16 defect D2: with a
+   pairing code live and port 8443 open, `Use Rich from your phone >` was byte-for-byte the row
+   it is with nothing happening at all, and the row while a phone is PAIRED was the same again.
+
+   TWO LINES RATHER THAN A SUFFIX. The panel is 267px wide; the label already fills it, so a
+   state beside the label would truncate one of them. The column holds label over state and the
+   chevron keeps the row's right edge — `margin-left: auto` on the glyph still works, because the
+   column is the only other child and it does not grow.
+
+   SIZE: IT KEEPS THE ROW'S 1rem. CEO §15 puts 14px at "skippable", and whether this Mac is
+   answering on its Tailscale name right now is the opposite of skippable. The line differs from
+   the label it sits under in WEIGHT and INK, and in nothing else.
+
+   COMPUTED, WCAG formula, against `--card` — rgb(24,36,64) dark, rgb(253,252,248) light, the
+   ground `.setmenu` declares:
+     `--ink-soft` composited   5.78:1 dark rgb(151,159,175)   6.38:1 light rgb(89,94,102)
+   Floor for 16px/400 text is 4.5:1; both clear it. Nothing here is exempt and nothing is claimed
+   to be.
+
+   ON HOVER IT TAKES THE ROW'S OWN INK (`inherit`), rather than keeping `--ink-soft` over
+   `--tint-gold` — which would be a third pair to prove. Hovered, this line and the label are the
+   same color, which `tests/contrast.js` already walks as one. */
+.set-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.set-row-state {
+  font-weight: 400;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+.bugbtn:hover .set-row-state {
+  color: inherit;
+}
 .bugbtn:hover svg {
   color: currentColor;
 }

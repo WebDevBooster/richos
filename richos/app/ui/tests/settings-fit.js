@@ -559,6 +559,96 @@ async function main() {
       );
     }
   );
+
+  // ---- D2: the row says whether a code is live, or a phone is paired ----------------------
+
+  await run.check("D2  the phone row says a code is live, and for how long, in both themes", async () => {
+    // Ray: "With port 8443 open and code 56WS37AH live, the Settings panel reads `Use Rich from
+    // your phone >`. Nothing else. Byte-for-byte the same row as with no code at all, and the
+    // same again while a phone is paired."
+    const seen = [];
+    for (const theme of ["dark", "light"]) {
+      const p = await openMenu(browser, WINDOW, LIVE_CODE, theme);
+      await p.waitForSelector("#set-phone-open");
+      await p.waitForFunction(
+        () => {
+          const n = document.getElementById("set-phone-state");
+          return n && n.textContent.trim().length > 0;
+        },
+        null,
+        { timeout: 4000 }
+      ).catch(() => {});
+      const m = await p.evaluate(() => {
+        const n = document.getElementById("set-phone-state");
+        const row = document.getElementById("set-phone-open");
+        const cs = n ? getComputedStyle(n) : null;
+        return {
+          line: n ? n.textContent.trim() : null,
+          px: cs ? Math.round(parseFloat(cs.fontSize)) : null,
+          theme: document.documentElement.getAttribute("data-theme") || document.body.getAttribute("data-theme"),
+          rowInWindow: (() => {
+            const r = row.getBoundingClientRect();
+            return r.top >= 0 && r.bottom <= window.innerHeight;
+          })(),
+        };
+      });
+      const errs = p.__errors;
+      await p.close();
+      assert(m.line, `THE DEFECT: with a code live the row still says nothing (${theme})`);
+      // The minutes, not just "something is happening": a user who walked away needs to know
+      // whether the code he left is still worth going back to.
+      assert(
+        /\b4 more minutes\b/.test(m.line),
+        `the row does not say how long is left (${theme}): ${JSON.stringify(m.line)}`
+      );
+      // §15's floor for text meant to be read. 14px is the "skippable" tier and this is not that.
+      assert(m.px >= 16, `the state line is ${m.px}px in ${theme}; §15's floor for readable text is 16px`);
+      assert(m.rowInWindow, `the phone row itself left the window in ${theme}`);
+      assertEqual(errs, [], `the menu reported page errors (${theme})`);
+      seen.push(`${theme}: ${JSON.stringify(m.line)} at ${m.px}px`);
+    }
+    return seen.join("; ");
+  });
+
+  await run.check("D2  the phone row names the paired phone, and says nothing when there is nothing to say", async () => {
+    // The other two states, and the third is the control: a row that ALWAYS carries a line would
+    // pass the check above while telling a user with no phone and no code that something is going
+    // on. "Not pairing" is not a state worth a line.
+    const p1 = await openMenu(browser, WINDOW, { phonePaired: true, phoneTailnet: READY_TAILNET }, "dark");
+    await p1.waitForSelector("#set-phone-open");
+    await p1.waitForFunction(
+      () => {
+        const n = document.getElementById("set-phone-state");
+        return n && n.textContent.trim().length > 0;
+      },
+      null,
+      { timeout: 4000 }
+    ).catch(() => {});
+    const paired = await p1.evaluate(() => {
+      const n = document.getElementById("set-phone-state");
+      return n ? n.textContent.trim() : null;
+    });
+    const e1 = p1.__errors;
+    await p1.close();
+
+    const p2 = await openMenu(browser, WINDOW, { phoneTailnet: READY_TAILNET }, "dark");
+    await p2.waitForSelector("#set-phone-open");
+    await p2.waitForTimeout(500);
+    const quiet = await p2.evaluate(() => {
+      const n = document.getElementById("set-phone-state");
+      return { text: n ? n.textContent.trim() : null, hidden: n ? n.hidden : null };
+    });
+    const e2 = p2.__errors;
+    await p2.close();
+
+    assert(paired && /iPhone/.test(paired), `THE DEFECT: the row does not name the paired phone: ${JSON.stringify(paired)}`);
+    assertEqual(quiet.text, "", "the row invents a state when nothing is paired and no code is live");
+    assertEqual(quiet.hidden, true, "the empty state line is still in the accessible name of the row");
+    assertEqual(e1, [], "the paired menu reported page errors");
+    assertEqual(e2, [], "the quiet menu reported page errors");
+    return `paired: ${JSON.stringify(paired)}; nothing paired and no code: the line is absent`;
+  });
+
   await run.check("no page errors", async () => {
     assertEqual(page.__errors, [], "the page reported errors");
     return "0 errors";

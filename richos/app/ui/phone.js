@@ -1229,5 +1229,46 @@
     }
   });
 
-  window.RichSettings.registerPhone({ open });
+  /// **WHAT THE SETTINGS ROW SAYS WHEN THE SHEET IS SHUT** — Ray's candidate-.16 defect D2.
+  ///
+  /// *"With port 8443 open and code 56WS37AH live, the Settings panel reads `Use Rich from your
+  /// phone >`. Nothing else. Byte-for-byte the same row as with no code at all, and the same
+  /// again while a phone is paired."*
+  ///
+  /// Three states, two of which have something to say:
+  ///
+  ///   * paired    -> the phone's own name, which is the one fact that identifies it
+  ///   * code live -> that it is live AND how long is left, in `remaining()`'s units — the same
+  ///                  sentence the countdown on the sheet is built from, so the row and the sheet
+  ///                  cannot state different amounts of time
+  ///   * anything else -> nothing, and the row reads exactly as it always did. "Not pairing" is
+  ///                  not a state worth a line; a live code and a paired phone are.
+  ///
+  /// SPEAKABLE, because this app is read out loud (CEO, 2026-09-04): "Paired with Pixel 8" and
+  /// "A code is live for 4 more minutes" mean the same thing spoken as written, with no glyph,
+  /// no abbreviation and no number whose unit has to be inferred.
+  ///
+  /// **The expired state deliberately says nothing.** The socket stays up after a window closes
+  /// (see `listening` in `render`), so a Mac that is merely still serving is not a Mac with
+  /// anything live on it, and a row that said so would be telling him about a code that no
+  /// longer works.
+  function settingsLine(status) {
+    if (status.paired) return "Paired with " + (status.deviceName || "your phone");
+    const left = status.pairingSecondsLeft;
+    if (Number.isFinite(left) && left > 0) return "A code is live for " + remaining(left);
+    return "";
+  }
+
+  /// Read once, on the explicit click that opens the menu — never on a timer. See the call site
+  /// in `settings-button.js`'s `open()`. A failure leaves the row bare rather than putting an
+  /// error into a settings menu: the sheet behind the row is where a phone error is read.
+  async function describeForSettings() {
+    try {
+      window.RichSettings.setPhoneState(settingsLine(await bridge.invoke("phone_status")));
+    } catch (error) {
+      window.RichSettings.setPhoneState("");
+    }
+  }
+
+  window.RichSettings.registerPhone({ open, onOpen: describeForSettings });
 })();
