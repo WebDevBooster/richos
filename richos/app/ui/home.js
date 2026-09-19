@@ -790,9 +790,94 @@ window.RichHome = (function () {
   /// click somewhere else. The menu's own Enter is still its own: while `#set-menu` is on
   /// screen the keystroke belongs to whatever row has focus. What is gone is the refusal that
   /// outlived the menu.
+  /// **Is anything open that a person can actually SEE over this screen?**
+  ///
+  /// The enumeration is `RichDismiss.open()` — the same query `main.js`'s Escape rule
+  /// dismisses from and `escape.js` tests against — so a popup written next month is answered
+  /// here the day it is written, with nothing for its author to remember.
+  ///
+  /// THE TEST IS THE PAINT, NOT THE STACKING, and that is not a stylistic preference: it is
+  /// the one this file got wrong first. The obvious derivation is "computed z-index greater
+  /// than mine", which `openPopups()` itself sorts by. Measured under WebKit with the settings
+  /// menu open at this screen, it is wrong:
+  ///
+  ///     set-menu@auto  <  settings@300  <  body@auto      #home@150
+  ///
+  /// `#set-menu` carries NO z-index of its own; it is painted at 300 by the `.settings`
+  /// wrapper §15 floats over every screen. A node-level comparison read it as 0, called the
+  /// most-used menu in the product "behind the picture", and ate the Escape that closes it —
+  /// caught by `affordances.js` PART 6, which drives that exact sequence.
+  ///
+  /// So the question is asked of the compositor instead: what is painted at the middle of this
+  /// popup's own box? It is the same instrument `setup.js` case 18 uses for the same kind of
+  /// claim ("the offer is not painted at the middle of its own panel"), and it needs no rule
+  /// about stacking contexts, transforms or inherited z-indexes — those are precisely what it
+  /// is asking the browser to have already resolved. ONE sample, at the center, because that
+  /// is the point a surface is least likely to be partly covered at and a survey of a popup's
+  /// edges is a different question from the one being asked.
+  ///
+  /// EVERY FAILURE ANSWERS **true**, and the direction is deliberate: true means "let the key
+  /// through", which is exactly what this file did before the guard below existed. A missing
+  /// `main.js` means there is no Escape machinery to protect anything from, and a guard that
+  /// could wedge a popup shut would be worse than the defect it closes.
+  function popupPaintedOverThisScreen() {
+    try {
+      if (!root || !window.RichDismiss || typeof window.RichDismiss.open !== "function") return true;
+      var open = window.RichDismiss.open();
+      for (var i = 0; i < open.length; i++) {
+        var popup = open[i];
+        // This screen's own surfaces answer for themselves, wherever they sit.
+        if (root.contains(popup)) return true;
+        var box = popup.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0) continue; // no box is nothing to see
+        var hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        if (hit && (hit === popup || popup.contains(hit))) return true;
+      }
+      return false;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /// **ESCAPE AT THIS SCREEN TAKES ONLY THIS SCREEN'S BUSINESS — the third instance of one
+  /// defect, one surface below the curtain.**
+  ///
+  /// `splash.js` carries the first two: `main.js`'s Escape machinery asks `isOnScreen()`, which
+  /// tests `hidden`, `display` and `visibility` and — its own words — "has no idea what is
+  /// painted over what". A full-screen picture over a `.overlay` therefore leaves that overlay
+  /// answerable by a key the CEO is pressing at the picture. The curtain closed its instance by
+  /// consuming the key; this screen is the same shape (`#home`, z-index 150, over `.overlay`'s
+  /// 60) and had no such guard.
+  ///
+  /// **WHAT IT IS AND IS NOT A FIX FOR, stated plainly rather than implied.** Measured on
+  /// `4f2d57c9`: no product path reaches a state where this screen holds the keyboard with a
+  /// sheet behind it. Every dialog in the window is an `.overlay`, `giveWayToOpenDeskSheet`
+  /// hands the screen over to any one of them that opens, and `show()` gives way again in the
+  /// SAME task when the logo is pressed with one already up (`state.open` false, this listener
+  /// unbound, measured: home hidden again at +0 ms and the fade done by +550 ms). So this is a
+  /// FLOOR under that give-way, not the fix for what Ray saw at entry on candidate .16 — that
+  /// was `main.js`'s boot focus, and it is fixed where it happened.
+  ///
+  /// **AND IT REFUSES ALMOST NOTHING.** Anything painted above this screen keeps the key:
+  /// `#home-prefs`, `#set-menu` (painted at 300 by the `.settings` wrapper §15 floats everywhere),
+  /// and any surface this screen itself owns. What is left is a key pressed at a picture,
+  /// reaching a question behind it — and that is the whole of what is consumed.
+  function onHomeEscape(e) {
+    var t = e.target;
+    if (t && t.closest) {
+      if (t.closest(".home-prefs")) return;
+      if (t.closest(".settings")) return;
+    }
+    if (popupPaintedOverThisScreen()) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   function onHomeKey(e) {
-    if (!state.open || !e || e.key !== "Enter") return;
-    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (!state.open || !e) return;
+    if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "Escape") return onHomeEscape(e);
+    if (e.key !== "Enter" || e.shiftKey) return;
     var t = e.target;
     if (t && t.closest) {
       if (t.closest(".home-prefs")) return;

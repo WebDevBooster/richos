@@ -7718,7 +7718,24 @@ async function init() {
   // The memory dialog is in this condition for exactly the reason the picker is: it is a
   // question, and taking focus off a question to put it on a composer behind that question
   // is the measured defect this line already carries the scar of.
-  if (entityPickerEl.hidden && memorySetupEl.hidden) inputEl.focus();
+  //
+  // ...AND IT WAS A LIST OF TWO, WHICH IS WHY IT HAPPENED A THIRD TIME. The condition named
+  // `#entity-picker` and `#memory-setup` and not `#setup-sheet`, so the ENGINE OFFER — the
+  // one question a customer's Mac is asked before it can do anything at all — was the third
+  // dialog this line took focus off. Ray, candidate .16, `esc-20260919T171553Z-e42d1166`:
+  // the sheet on screen and `AXFocusedUIElement` reading `text area Message to Rich`.
+  //
+  // MEASURED HERE, under WebKit, with the bridge costing a task per command the way a real
+  // IPC round trip does: `home.js`'s give-way hands focus to `#setup-go` at t=252 ms and
+  // this line takes it to `#input` at t=304 ms — 52 ms later, and last, so it wins.
+  //
+  // SO THE CONDITION IS DERIVED AND NOT LISTED, from the same enumeration the Escape rule
+  // uses (`openPopups`, and `escape.js` refuses a structurally-a-popup element that declares
+  // no dismissal). "Something is asking him a question" IS "a popup is on screen" — there is
+  // no third thing — and a dialog written next month is in this condition the day it is
+  // written, with nothing for its author to remember. Measured empty at boot on the ordinary
+  // launch, so the composer is still focused for every CEO who is not being asked anything.
+  if (!openPopups().length) inputEl.focus();
   // THE OPENING SCREEN GETS OUT OF THE WAY, HERE AND NOWHERE ELSE.
   //
   // This is the line below which the CEO can work: the rail is drawn, the thread is open,

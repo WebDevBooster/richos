@@ -896,6 +896,48 @@ async function main() {
   //
   // So this check does what he does: it opens the app and presses the door. Nothing else in
   // this file would have caught it, because nothing else in this file ever saw the home screen.
+  //
+  // ---------------------------------------------------------------------------------------
+  // AND THEN IT WENT GREEN OVER A DEFECT THAT WAS STILL THERE — candidate .16, Ray again
+  // (`esc-20260919T171553Z-e42d1166`): the offer on screen and `AXFocusedUIElement` reading
+  // `text area Message to Rich`. This check asserted focus and passed. TWO REASONS, and in
+  // both of them the harness boots in an order the app never boots in:
+  //
+  //  1. THE MOCK BRIDGE COSTS NOTHING. `mock.js`'s `invoke` is an `async` function over data
+  //     already in memory, so `init()`'s whole await chain drains on already-resolved promises
+  //     and FINISHES BEFORE THE PARSER DOES. `home.js` installs its give-way in `afterShell`,
+  //     at `DOMContentLoaded`. Measured under WebKit with a focus-tracing shim, mock timings:
+  //
+  //       t=151ms  main.js:7655  openSetupSheet -> focus #setup-go   (swallowed)
+  //       t=168ms  main.js:7721  init tail      -> focus #input      (swallowed)
+  //       t=177ms  home.js:1727  afterShell     -> DOMContentLoaded
+  //       t=179ms  home.js:915   give-way       -> focus #setup-go   LANDED, and LAST
+  //
+  //     With the bridge costing one task per command — which is what a Tauri IPC round trip
+  //     is, and the floor under every real one — the same four lines arrive in the opposite
+  //     order and the last one is the one that wins:
+  //
+  //       t=145ms  DOMContentLoaded
+  //       t=244ms  main.js:7655  openSetupSheet -> focus #setup-go   (swallowed, #app inert)
+  //       t=252ms  home.js:915   give-way       -> focus #setup-go   LANDED
+  //       t=304ms  main.js:7721  init tail      -> focus #input      LANDED, and LAST
+  //
+  //     So the shim below is not a slower harness; it is the ONLY one of the two orders the
+  //     product can actually boot in. A suite that boots in the other one measures a build
+  //     nobody runs.
+  //
+  //  2. IT MEASURED BEFORE THE BOOT HAD FINISHED. Waiting for `#home` to go hidden is waiting
+  //     for the give-way, which happens 52 ms BEFORE `init()`'s last focus call. The wait is
+  //     now `RichSplash.state.reason === "app-ready"` — `main.js` yields the curtain two lines
+  //     below that focus call, so the marker is the product's own word that `init()` is past
+  //     it. The curtain is left to the app for the same reason: a person does not call
+  //     `yieldNow`, and hand-yielding it threw away the app's own end-of-boot signal.
+  //
+  // AND THE ESCAPE HALF OF THIS CHECK COULD NOT FAIL AT ALL. It asserted
+  // `!homeOpen || !sheetHidden` three lines after waiting for `#home` to be hidden, so
+  // `homeOpen` was false by construction and the disjunction was true whatever Escape did —
+  // a check shaped like a check. What it should have held is below.
+  // ---------------------------------------------------------------------------------------
   // =======================================================================================
 
   await run.check("18  the offer reaches the SCREEN, not just the DOM, on the way a person arrives", async () => {
@@ -908,18 +950,59 @@ async function main() {
     await page.addInitScript((v) => {
       window.__RICHOS_MOCK_PRESET__ = v;
     }, { setup: "missing-engine" });
+    // EVERY COMMAND COSTS A TASK, because every command is an IPC round trip. See the long
+    // note above: without this the parser finishes AFTER `init()` does, which is an ordering
+    // no shipped build has. Installed by intercepting the assignment `mock.js` makes, so the
+    // mock itself is untouched and the renderer under test is the shipped one.
+    await page.addInitScript(() => {
+      let real = null;
+      Object.defineProperty(window, "RichBridge", {
+        configurable: true,
+        get() {
+          return real;
+        },
+        set(v) {
+          real = v;
+          if (v && typeof v.invoke === "function" && !v.__ipcCost) {
+            const inner = v.invoke.bind(v);
+            v.invoke = (...a) =>
+              new Promise((resolve, reject) =>
+                setTimeout(() => {
+                  try {
+                    inner(...a).then(resolve, reject);
+                  } catch (e) {
+                    reject(e);
+                  }
+                }, 4)
+              );
+            v.__ipcCost = true;
+          }
+        },
+      });
+    });
     await page.goto(APP);
-    // The curtain, and ONLY the curtain — §5.5 says his first input takes it down, so a person
-    // has this much for free. The home screen underneath is his to leave, and is not left here.
-    await page.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
-    await page.evaluate(() => window.RichSplash.yieldNow("acceptance-suite"));
-    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 15000 });
     // The screen gets out of the way over its own 200 ms fade, so the measurement waits for
     // the end state rather than for a clock. A screen that never leaves fails HERE, with the
     // reason in the timeout, rather than being read as a paint that lost a race.
     await page.waitForFunction(
       () => { const h = document.getElementById("home"); return !h || h.hidden; },
       { timeout: 5000 }
+    );
+    // ...AND THE BOOT IS FINISHED, said by the product rather than by a clock in this file.
+    // `main.js` yields the curtain with `app-ready` two lines below its last focus call, so
+    // the curtain LEAVING is that call having been made. The give-way's own signal is not
+    // enough: it fires 52 ms too early, which is the whole of reason 2 above.
+    //
+    // THE REASON IS ASSERTED, because `app-ready` inside §62's three-second minimum is
+    // deferred and comes back as `held` — and `ceiling` is the OTHER automatic caller, the
+    // failsafe for a boot that hung. A curtain that left on `ceiling` means `init()` never
+    // reached its end, and this check would then be measuring a boot that did not happen.
+    await page.waitForSelector(".splash", { state: "detached", timeout: 15000 });
+    const yielded = await page.evaluate(() => window.RichSplash.state.reason);
+    assert(
+      yielded === "held" || yielded === "app-ready",
+      `the curtain left on "${yielded}" — the boot did not reach its own end, so nothing below is a measurement of it`
     );
 
     // THE LAYERS ARE STATED, so a future restyle that merely renumbers them is visible here
@@ -960,24 +1043,53 @@ async function main() {
       "the sheet on screen is not the engine offer"
     );
 
-    // AND ESCAPE CANNOT ANSWER IT UNSEEN. Case 14 already pins Escape's equivalence to the
-    // named button; what it could not see is that the button was invisible. A person meeting
-    // the home screen has no idea there is a question behind it, and one Escape — the key he
-    // presses to get a curtain or a menu out of the way — spent his only offer.
+    // AND ESCAPE IS THE BUTTON HE CAN SEE, PRESSED BY A HAND THAT IS ON IT.
+    //
+    // The assertion this replaces was `!homeOpen || !sheetHidden`, written three lines under a
+    // wait for `#home` to be hidden — `homeOpen` was false by construction, so it held whatever
+    // Escape did. It pinned nothing, and it is why the defect above shipped with this check
+    // green beside it.
+    //
+    // WHAT ACTUALLY HAS TO BE TRUE is one clause, and it is the clause the assertions above
+    // have just established: the CEO's keyboard is ON the offer, so Escape means the sheet's
+    // own named way out — `#setup-later`, "Not now", the button under his eyes — and not a key
+    // that answered a question standing behind his hand. That is `setup.js` case 14's
+    // equivalence, and what case 14 could not see is WHERE the hand was. So this measures the
+    // click rather than the disappearance: a sheet that went away for some other reason is not
+    // the same event as the named button being pressed, and only one of the two is consent.
+    const escape = await page.evaluate(() => {
+      window.__escapeClicked = null;
+      for (const id of ["setup-later", "setup-close", "setup-go"]) {
+        const control = document.getElementById(id);
+        if (control) control.addEventListener("click", () => { window.__escapeClicked = id; });
+      }
+      return {
+        focusInSheet: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest("#setup-sheet")),
+      };
+    });
+    assert(
+      escape.focusInSheet,
+      "the hand is not on the offer, so Escape is about to answer a question it is not pointed at"
+    );
     await page.keyboard.press("Escape");
     await page.waitForTimeout(250);
     const afterEscape = await page.evaluate(() => ({
+      clicked: window.__escapeClicked,
       sheetHidden: document.getElementById("setup-sheet").hidden,
-      homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
     }));
-    assert(
-      !afterEscape.homeOpen || !afterEscape.sheetHidden,
-      "one Escape answered the engine offer while the home screen was still covering it — he never saw the question he just declined"
+    assertEqual(
+      afterEscape.clicked,
+      "setup-later",
+      "Escape did not press the named way out the CEO can see — a second, quieter way out of the one step that puts an engine on this Mac"
     );
-    bump(5);
+    assert(
+      afterEscape.sheetHidden,
+      "the named button was pressed and the sheet is still up"
+    );
+    bump(7);
     assert(errors.length === 0, "the shell logged errors: " + errors.join(" | "));
     await page.close();
-    return `home z-index ${painted.homeZ}, sheet z-index ${painted.sheetZ}; the offer is painted on top and holds focus (${painted.focusId}); Escape is not a way to answer it unseen`;
+    return `home z-index ${painted.homeZ}, sheet z-index ${painted.sheetZ}; the offer is painted on top and still holds focus (${painted.focusId}) when the boot has finished; Escape presses the named Not now`;
   });
 
   // =======================================================================================

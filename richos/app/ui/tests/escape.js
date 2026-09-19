@@ -41,6 +41,7 @@
 //   B4  topmost first, measured against the stacking rather than a chosen order
 //   B5  a permission request is DECLINED by Escape from anywhere on screen
 //   B6  the home screen's own dialog, on a copy with no companies
+//   B7  Escape at the home screen cannot answer a surface painted BEHIND it   [derived]
 //   C1  Escape with nothing open moves nothing and steals no key
 //   C2  this suite actually checked something
 //
@@ -365,6 +366,145 @@ async function main() {
     bump(2);
     await page.close();
     return "closed, scrim and all, on the copy where its own listener could never fire";
+  });
+
+  // =======================================================================================
+  // B7 — A KEY PRESSED AT A PICTURE DOES NOT ANSWER WHAT IS BEHIND THE PICTURE
+  //
+  // `isOnScreen()` tests `hidden`, `display` and `visibility` and — `splash.js`'s own words —
+  // "has no idea what is painted over what". Any full-screen surface therefore leaves a popup
+  // underneath it answerable by a key the CEO is pressing AT THE SURFACE. The curtain is the
+  // instance that shipped (`setup.js` case 19, `5bd7d4e5`): one Escape took it down AND pressed
+  // "Not now" on an engine offer that had never been on screen.
+  //
+  // THE HOME SCREEN IS THE SAME SHAPE — `#home`, z-index 150, over `.overlay`'s 60 — and had
+  // no such guard. `home.js` now consumes Escape while it holds the keyboard, unless what is
+  // open is painted ABOVE it.
+  //
+  // WHAT THIS IS AND IS NOT A FIX FOR, so the record does not overclaim. Measured on
+  // `4f2d57c9`: no product path reaches home-up-with-a-sheet-behind-it. Every dialog in the
+  // window is an `.overlay`, `giveWayToOpenDeskSheet` hands the screen over to any one that
+  // opens, and `show()` gives way again in the SAME task when the logo is pressed with one
+  // already up. So this is a FLOOR under that give-way, not the fix for what Ray saw at entry
+  // on candidate .16 — that was `main.js`'s boot focus and is fixed at `main.js:7721`.
+  //
+  // WHICH IS EXACTLY WHY IT IS PLANTED. A2 already established planting as this suite's way of
+  // proving a rule that today's surfaces do not happen to exercise; a floor nothing steps on
+  // is still a floor, and the alternative is a guard with no check on it at all. The negative
+  // control is the other half and is the more important one: a popup painted ABOVE the home
+  // screen still answers Escape, so this consumes a key at a picture and nothing else.
+  // =======================================================================================
+
+  await run.check("B7  Escape at the home screen cannot answer a surface painted behind it", async () => {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (m) => {
+      if (m.type() === "error") errors.push("console: " + m.text());
+    });
+    await page.goto(APP);
+    // The curtain only — its own Escape guard is case 19's and would mask this one. The home
+    // screen stays, because the home screen IS the surface under test.
+    await page.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+    await page.evaluate(() => window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForSelector(".splash", { state: "detached", timeout: 10000 });
+    await page.waitForFunction("typeof window.RichDismiss === 'object'", { timeout: 10000 });
+
+    // NOT `.overlay`, DELIBERATELY: that class is what `home.js`'s give-way watches, so an
+    // `.overlay` would take the screen away and there would be nothing painted over anything.
+    // These are popups by the same structure `POPUP_SELECTOR` recognizes — `role="dialog"`
+    // with a declaration — sitting at `.overlay`'s own 60 and at `#home-prefs`'s own 340.
+    const planted = await page.evaluate(() => {
+      const make = (id, z) => {
+        const n = document.createElement("div");
+        n.id = id;
+        n.setAttribute("role", "dialog");
+        n.setAttribute("data-dismiss", "escape");
+        n.style.cssText = `position:fixed;inset:0;z-index:${z}`;
+        document.body.appendChild(n);
+        return n;
+      };
+      make("planted-behind", 60);
+      make("planted-above", 400);
+      return {
+        homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
+        homeZ: getComputedStyle(document.getElementById("home")).zIndex,
+        open: window.RichDismiss.open().map((n) => n.id + "@" + getComputedStyle(n).zIndex),
+        focus: (document.activeElement && document.activeElement.id) || null,
+      };
+    });
+    // Both halves of the premise, asserted rather than assumed: the screen is up, and both
+    // planted surfaces are in the enumeration the shipped handler dismisses from.
+    assert(planted.homeOpen, "the home screen is not up, so this check is not in the window it is about");
+    assertEqual(planted.homeZ, "150", "the home screen no longer sits at the z-index this check reasons about");
+    assert(
+      planted.open.indexOf("planted-above@400") === 0 && planted.open.indexOf("planted-behind@60") > 0,
+      "the two planted surfaces are not enumerated topmost-first as expected: " + planted.open.join(", ")
+    );
+
+    // ONE Escape, with the topmost being the one painted ABOVE the screen. It must go — the
+    // CEO's rule has no exception for "while the home screen is up", and this is the half that
+    // keeps the guard a floor instead of a wall.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    assert(
+      await page.isHidden("#planted-above"),
+      "a popup painted ABOVE the home screen stopped answering Escape — the guard is a wall, not a floor"
+    );
+    assert(
+      await page.evaluate(() => !!(window.RichHome && window.RichHome.isOpen())),
+      "Escape took the home screen down on its way past"
+    );
+
+    // ...and now the only thing left is BEHIND the picture. This is the key a person presses at
+    // a full-screen composition, and it must not answer a question he has never seen.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    assert(
+      await page.isVisible("#planted-behind"),
+      "one Escape at the home screen answered a surface painted behind it — he declined a question he was never shown"
+    );
+    assert(
+      await page.evaluate(() => !!(window.RichHome && window.RichHome.isOpen())),
+      "Escape took the home screen down instead"
+    );
+
+    // THE REAL SURFACE THE FIRST DERIVATION BROKE, by its real path. `#set-menu` carries NO
+    // z-index of its own — measured `set-menu@auto` inside `settings@300` — so the obvious
+    // "computed z-index greater than the screen's 150" read the most-used menu in the product
+    // as behind the picture and ate the Escape that closes it. `affordances.js` PART 6 caught
+    // it; it is pinned HERE too, because that is the file a future author of this guard reads.
+    await page.evaluate(() => window.RichSettings.openMenu());
+    await page.waitForSelector("#set-menu:not([hidden])");
+    const menuStacking = await page.evaluate(() => ({
+      menuZ: getComputedStyle(document.getElementById("set-menu")).zIndex,
+      wrapperZ: getComputedStyle(document.querySelector(".settings")).zIndex,
+    }));
+    assertEqual(
+      menuStacking.menuZ,
+      "auto",
+      "#set-menu now carries its own z-index, so this check no longer covers the case it was written for"
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    assert(
+      await page.isHidden("#set-menu"),
+      `the settings menu stopped answering Escape at the home screen — it is painted at ${menuStacking.wrapperZ} by its wrapper and carries ${menuStacking.menuZ} itself, which is the trap`
+    );
+
+    // AND THE GUARD IS SCOPED TO THIS SCREEN. Once the screen is gone the surface behind it
+    // was never behind anything, and Escape is Escape again.
+    await leaveHome(page);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    assert(
+      await page.isHidden("#planted-behind"),
+      "the guard outlived the screen it belongs to — a surface that is covered by nothing is still refusing Escape"
+    );
+    bump(9);
+    assert(errors.length === 0, "the shell logged errors: " + errors.join(" | "));
+    await page.close();
+    return "above the screen it closes (planted, and the real #set-menu at z-index auto), behind the screen it is untouched, and the guard leaves with the screen";
   });
 
   // =======================================================================================
