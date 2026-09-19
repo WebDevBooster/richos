@@ -29,15 +29,19 @@
      =================================================================================== -->
 
 <header class="topbar">
-	<div class="topbar-row">
-		<h1 class="title" id="thread-title">Rich</h1>
-		<!-- A thread picker ONLY if he has more than one thread, and it lists what exists rather
-		     than creating anything (plan §3.4). Hidden until `app.js` has more than one to show. -->
-		<label class="picker" id="thread-picker-label" hidden>
-			<span class="picker-caption">Conversation</span>
-			<select id="thread-picker"></select>
-		</label>
-	</div>
+	<!-- THE TITLE HAS THE ROW TO ITSELF. It used to share one with the picker, and at 360 px the
+	     flex row squeezed it to about 67 px while `overflow-wrap: anywhere` let it break wherever
+	     it liked — which on the CEO's Android rendered the thread name "Runni / ng". The picker is
+	     below it now and the title wraps at word boundaries; see styles.css for the arithmetic. -->
+	<h1 class="title" id="thread-title">Rich</h1>
+	<!-- A thread picker ONLY if he has more than one thread, and it lists what exists rather
+	     than creating anything (plan §3.4). Hidden until `app.js` has more than one to show.
+	     Its caption is for a screen reader only: with the title directly above it, the visible
+	     word "Conversation" was the third thing on that row saying what the row was about. -->
+	<label class="picker" id="thread-picker-label" hidden>
+		<span class="picker-caption visually-hidden">Conversation</span>
+		<select id="thread-picker"></select>
+	</label>
 	<!-- The honest state of the connection, in a sentence. Never an icon on its own: a red dot is
 	     something he has to have been taught, and a sentence is something he can read. -->
 	<p class="link-state" id="link-state" role="status" aria-live="polite">Opening&hellip;</p>

@@ -146,30 +146,46 @@ body {
 	background: var(--surface-raised);
 }
 
-.topbar-row {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 12px;
-	min-width: 0;
-}
-
+/* THE TITLE OWNS ITS ROW, AND THAT IS THE FIX RATHER THAN A PREFERENCE.
+ *
+ * It used to be a flex child beside the picker, and on the CEO's Android the thread name rendered
+ * as "Runni / ng" (Ray, candidate .11, §4.3).
+ *
+ * MEASURED IN CHROMIUM ON THE OLD RULES, at 360 px, with two threads so the picker is on screen
+ * (`test/desktop-verify.js`, the run that was kept as this fix's negative control):
+ *
+ *   the title's box            80.6 px
+ *   "Running" needs            82.4 px
+ *   → `Running` occupied 2 line boxes. At 320 px the box was 70.4 px and it broke there too.
+ *
+ * TWO RULES MADE THOSE 80.6 px, AND BOTH HAD TO GO.
+ *   • `.topbar-row` was `display: flex` and the title carried `min-width: 0`, so the flex
+ *     algorithm was allowed to shrink it below its own longest word in order to fit a picker whose
+ *     select alone claimed `58vw` = 208.8 px of the 328 px content box.
+ *   • `overflow-wrap: anywhere` is the value that ALSO counts soft-wrap opportunities in the
+ *     min-content size, so once the element was that narrow the word was allowed to break inside
+ *     itself. `break-word` is not, which is why the two are different rules and not two names for
+ *     one.
+ *
+ * So: the title is a block with the whole 328 px at 360 px wide, and it breaks at spaces. A word
+ * only breaks inside itself now if it alone exceeds the line — a URL or a hash — and breaking one
+ * of those is the no-horizontal-scroll rule doing its job.
+ */
 .title {
 	margin: 0;
 	font-size: 22px;
 	line-height: 1.2;
 	font-weight: 650;
 	letter-spacing: -0.01em;
-	min-width: 0;
-	overflow-wrap: anywhere;
+	overflow-wrap: break-word;
 }
 
-.picker { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.picker { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; min-width: 0; }
 .picker-caption { font-size: 16px; color: var(--ink-soft); }
 .picker[hidden] { display: none; }
 
 select {
-	max-width: 58vw;
+	max-width: 100%;
 	min-width: 0;
 	padding: 8px 10px;
 	border: 1px solid var(--line-control);

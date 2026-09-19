@@ -121,7 +121,7 @@ const TEXT_PAIRS = [
 	{ fg: 'ink', bg: 'surface-raised', floor: 4.5, where: '.title, 22px 650 — under the large-text bar, so 4.5 applies' },
 	{ fg: 'ink-soft', bg: 'surface-raised', floor: 4.5, where: '.link-state, 16px' },
 	{ fg: 'attention', bg: 'surface-raised', floor: 4.5, where: '.link-state.away, 16px — the sentence that says his Mac cannot be reached' },
-	{ fg: 'ink-soft', bg: 'surface-raised', floor: 4.5, where: '.picker-caption, 16px' },
+	{ fg: 'ink-soft', bg: 'surface-raised', floor: 4.5, where: '.picker-caption, 16px — screen-reader only since the title took its own row (audit §4.3); kept, because the pair is what the rule still sets and un-hiding it must not be a contrast decision' },
 	{ fg: 'ink', bg: 'surface-sunk', floor: 4.5, where: 'select, 16px' },
 
 	// --- the offers ---
