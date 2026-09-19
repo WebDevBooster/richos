@@ -140,7 +140,7 @@
 //! the wire is what survived, not what was intended.
 
 use crate::entity::{EntityId, ThreadBinding};
-use crate::ledger::AttentionTier;
+use crate::ledger::{AttentionTier, Source};
 use crate::machinery::MachineryRecord;
 use crate::timeline::{self, ActivityType, RichMessagePhase, TimelineItem, Visibility, WorkerActivityItem};
 use crate::worker_events::WorkerEventRow;
@@ -155,6 +155,10 @@ pub const EVENT_MESSAGE_COMPLETED: &str = "rich://message-completed";
 pub const EVENT_ACTIVITY_UPSERTED: &str = "rich://activity-upserted";
 pub const EVENT_WORKER_UPSERTED: &str = "rich://worker-upserted";
 pub const EVENT_THREAD_SUMMARY_UPDATED: &str = "rich://thread-summary-updated";
+/// **The CEO's own message, live** — added 2026-09-19 for `esc-20260919T003541Z-6885f74b`.
+/// See [`LiveEvent::CeoMessage`] for why this family had no event for the one thing the CEO
+/// himself puts on the timeline.
+pub const EVENT_CEO_MESSAGE: &str = "rich://ceo-message";
 
 /// The phase of every STREAMED Rich message. See the module doc: the stream carries no
 /// signal that separates commentary (§5.2) from the final response (§5.4), so this is
@@ -369,6 +373,45 @@ pub enum LiveEvent {
     /// machinery id, which is stable across re-projection, so repeated ids are idempotent.
     /// [`WorkerActivityItem`] rides inside it verbatim.
     WorkerUpserted { fence: EventFence, item: TimelineItem, at: u64 },
+    /// **`rich://ceo-message` — what the CEO himself just said, at the instant it is durable.**
+    ///
+    /// # Why this family had no event for it until 2026-09-19
+    ///
+    /// Every other event here is about RICH: his prose, his machinery, his workers, the state
+    /// of the turn answering him. The CEO's own message reached a surface only by being
+    /// PROJECTED — `TimelineItem::UserMessage`, read on a reload — because the one surface that
+    /// existed was a webview that had drawn his sentence itself the moment he pressed Send.
+    ///
+    /// A second surface makes that assumption false. `echo-opus-phonepage1` raised it from the
+    /// phone page (`esc-20260919T003541Z-6885f74b`): the phone subscribes to this family and
+    /// therefore learned nothing, live, about a message typed on the Mac — it had to ask the
+    /// Mac for the rows again after a reply settled, and a turn that never produced a reply
+    /// left his own sentence off the phone until the next reload.
+    ///
+    /// # The identity is the PROJECTION'S, deliberately
+    ///
+    /// `message_id` is `{turn_id}:user` and `created_at` is the turn's own `created_at` — the
+    /// exact values `timeline.rs` derives for [`TimelineItem::UserMessage`]. So a consumer that
+    /// merges on `id` sees the live row and the projected row as ONE row, and a phone that
+    /// backfills after receiving this does not grow a duplicate. An id minted here would have
+    /// been a second identity for one message, which is this event's own defect wearing a
+    /// different hat.
+    ///
+    /// `Visibility::Ceo` is unconditional and is not a decision made here: the projection gates
+    /// this item at `Visibility::Ceo` too, and an INTERNAL turn (a re-prime, a rotation) never
+    /// reaches the emit site at all — `spine.rs` skips the whole family for one.
+    CeoMessage {
+        fence: EventFence,
+        /// `{turn_id}:user` — the timeline item's own id, never a fresh one.
+        message_id: String,
+        text: String,
+        /// How the input arrived. `Text` and `Jam` are the two a CEO turn can carry; the phone
+        /// draws its microphone marker from this, exactly as `rows_from_payload` does.
+        source: Source,
+        /// The TURN's `created_at`, so the live row and the projected row sort identically.
+        created_at: u64,
+        at: u64,
+    },
     /// §13 `rich://thread-summary-updated` — sidebar title, recency and operational status.
     ThreadSummaryUpdated {
         fence: EventFence,
@@ -389,6 +432,7 @@ impl LiveEvent {
             LiveEvent::MessageCompleted { .. } => EVENT_MESSAGE_COMPLETED,
             LiveEvent::ActivityUpserted { .. } => EVENT_ACTIVITY_UPSERTED,
             LiveEvent::WorkerUpserted { .. } => EVENT_WORKER_UPSERTED,
+            LiveEvent::CeoMessage { .. } => EVENT_CEO_MESSAGE,
             LiveEvent::ThreadSummaryUpdated { .. } => EVENT_THREAD_SUMMARY_UPDATED,
         }
     }
@@ -401,6 +445,7 @@ impl LiveEvent {
             | LiveEvent::MessageCompleted { fence, .. }
             | LiveEvent::ActivityUpserted { fence, .. }
             | LiveEvent::WorkerUpserted { fence, .. }
+            | LiveEvent::CeoMessage { fence, .. }
             | LiveEvent::ThreadSummaryUpdated { fence, .. } => fence,
         }
     }
@@ -413,7 +458,12 @@ impl LiveEvent {
             // A turn's existence, its state and its sidebar row are CEO-facing facts.
             // An INTERNAL turn never reaches these constructors at all: `spine.rs` skips
             // the whole family for a turn the CEO must not see.
-            LiveEvent::TurnStatus { .. } | LiveEvent::ThreadSummaryUpdated { .. } => Visibility::Ceo,
+            // And his OWN message, for the same reason and with no second rule: the projection
+            // gates `TimelineItem::UserMessage` at `Visibility::Ceo`, and an internal turn never
+            // reaches the emit site.
+            LiveEvent::TurnStatus { .. }
+            | LiveEvent::CeoMessage { .. }
+            | LiveEvent::ThreadSummaryUpdated { .. } => Visibility::Ceo,
             LiveEvent::MessageStarted { visibility, .. } | LiveEvent::MessageCompleted { visibility, .. } => {
                 *visibility
             }
@@ -485,6 +535,15 @@ impl LiveEvent {
                         map.insert(k, v);
                     }
                 }
+                map.insert("at".into(), json!(at));
+            }
+            LiveEvent::CeoMessage { message_id, text, source, created_at, at, .. } => {
+                map.insert("messageId".into(), json!(message_id));
+                map.insert("text".into(), json!(text));
+                // The SAME spelling the projection serializes (`snake_case` on `Source`), so a
+                // consumer reads one vocabulary off the wire and off a reload.
+                map.insert("source".into(), serde_json::to_value(source).unwrap_or(Value::Null));
+                map.insert("createdAt".into(), json!(created_at));
                 map.insert("at".into(), json!(at));
             }
             LiveEvent::ThreadSummaryUpdated { title, message_count, last_activity, status, at, .. } => {

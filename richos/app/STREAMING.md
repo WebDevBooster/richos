@@ -233,9 +233,18 @@ not as an empty or "unknown" version, because for those the arrival of the event
 itself be the claim. §22: *"If the source signal does not exist, build the signal first or
 show unknown."*
 
+**An eighth is emitted and is not one of §13's**: `rich://ceo-message`, added 2026-09-19.
+Every event §13 names is about RICH; the CEO's own message reached a surface only by being
+projected, which was enough while the one surface was a webview that had drawn his sentence
+itself the moment he pressed Send. A second surface makes that false — the phone page
+subscribes to this family and learned nothing, live, about a message typed on the Mac
+(`esc-20260919T003541Z-6885f74b`). It is listed with the seven rather than in a section of
+its own, because it is the same family, the same fence and the same gate.
+
 | Event | Status | Payload / why not |
 |---|---|---|
 | `rich://turn-status` | **LIVE** | `{…fence, status, startedAt, activeDurationMs, supersedesTurnId?, visibility, at}` |
+| `rich://ceo-message` | **LIVE** (2026-09-19) | `{…fence, messageId, text, source, createdAt, visibility, at}`. Not a §13 event — see above. `messageId` is `{turnId}:user` and `createdAt` is the turn's own instant: both are exactly what `timeline.rs` derives for `TimelineItem::UserMessage`, so a consumer that merges on `id` sees the live row and a reloaded row as ONE row. `source` is `text` or `jam`, the same spelling the projection uses. Emitted once per CEO turn, at the instant his message is durable — before the turn starts. A proactive turn has no CEO text and emits none. |
 | `rich://message-started` | **LIVE** | `{…fence, messageId, phase, seq, visibility, at}` |
 | `rich://message-delta` | **LIVE** | `{…fence, messageId, seq, textDelta, visibility, at}` |
 | `rich://message-completed` | **LIVE** | `{…fence, messageId, phase, text, visibility, at}` |

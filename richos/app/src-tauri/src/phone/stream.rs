@@ -517,6 +517,61 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    /// **A MESSAGE TYPED ON THE MAC REACHES THE PHONE'S STREAM, LIVE** —
+    /// `esc-20260919T003541Z-6885f74b`, raised by `echo-opus-phonepage1` as the half of Ray's
+    /// candidate-.11 defect 4.1 that could not be fixed on the page.
+    ///
+    /// The page could merge the rows it is GIVEN, and it now does; what it could not do is learn
+    /// about his own sentence without asking for the rows again, because no event in the §13
+    /// family was about the CEO. A turn that produced no reply left his own message off the
+    /// phone until the next reload.
+    ///
+    /// Three things are asserted and each is a different way for this to be wrong:
+    ///
+    ///   1. a `message` frame with `role: "ceo"` and his words, BEFORE Rich's row;
+    ///   2. its `id` is `{turn}:user` — the projection's own id for that message — so a phone
+    ///      that backfills the same message merges it rather than drawing it twice;
+    ///   3. it CONSUMED a cursor, so Rich's row sits at the next position rather than at his.
+    #[test]
+    fn a_message_typed_on_the_mac_reaches_the_phone_as_a_live_event() {
+        let hub = live_hub();
+        let mut rx = hub.subscribe();
+        let (path, mut spine, _thread) = spine_for("ceo-typed", "On it!");
+        spine.set_live_observer(Box::new(PhoneLiveEmitter::new(Arc::clone(&hub))));
+        let turn = spine.submit_prompt("add a line to notes.txt and land it", Source::Text).unwrap();
+
+        let mut rows: Vec<(u64, String, String, String)> = Vec::new(); // cursor, role, text, id
+        while let Ok(frame) = rx.try_recv() {
+            if frame.kind != "message" {
+                continue;
+            }
+            let v: serde_json::Value = serde_json::from_str(&frame.data).unwrap();
+            rows.push((
+                v["cursor"].as_u64().unwrap(),
+                v["role"].as_str().unwrap_or("").to_string(),
+                v["text"].as_str().unwrap_or("").to_string(),
+                v["id"].as_str().unwrap_or("").to_string(),
+            ));
+        }
+
+        let his = rows
+            .iter()
+            .find(|(_, role, _, _)| role == "ceo")
+            .unwrap_or_else(|| panic!("his own message never reached the phone: {rows:?}"));
+        assert_eq!(his.2, "add a line to notes.txt and land it", "his row lost his words: {rows:?}");
+        assert_eq!(his.3, format!("{turn}:user"), "the live row's id is not the projection's: {rows:?}");
+        assert_eq!(his.0, 1, "his message is the thread's first row: {rows:?}");
+
+        // AND RICH'S REPLY IS AFTER IT, at its own cursor. A CEO row that did not consume one
+        // would put every reply a position ahead of where a reload puts it.
+        let reply = rows
+            .iter()
+            .find(|(_, role, _, _)| role == "rich")
+            .unwrap_or_else(|| panic!("the reply never reached the phone: {rows:?}"));
+        assert!(reply.0 > his.0, "the reply took his row's cursor: {rows:?}");
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn every_frame_of_one_reply_carries_one_cursor() {
         // The phone merges a reply by cursor, so its opening, its deltas and its completion must
@@ -527,15 +582,29 @@ mod tests {
         spine.set_live_observer(Box::new(PhoneLiveEmitter::new(Arc::clone(&hub))));
         spine.submit_prompt("say something", Source::Text).unwrap();
 
-        let mut cursors: Vec<u64> = Vec::new();
+        // **THE REPLY'S FRAMES, WHICH IS NOT THE SAME SET AS "EVERY FRAME" ANY MORE.** This
+        // assertion read `cursors.iter().all(|c| *c == cursors[0])` over every frame of the
+        // turn, and that was correct while the only rows a turn produced were Rich's. Since
+        // `esc-20260919T003541Z-6885f74b` his OWN message is a row too, at its own cursor — a
+        // stale assertion, not a defect, and the invariant this test is named for is unchanged:
+        // one reply, one cursor.
+        let mut his: Vec<u64> = Vec::new();
+        let mut reply: Vec<u64> = Vec::new();
         while let Ok(frame) = rx.try_recv() {
-            cursors.push(frame.cursor);
+            let v: serde_json::Value = serde_json::from_str(&frame.data).unwrap_or_default();
+            if frame.kind == "message" && v["role"] == "ceo" {
+                his.push(frame.cursor);
+            } else {
+                reply.push(frame.cursor);
+            }
         }
-        assert!(!cursors.is_empty(), "nothing was published");
+        assert_eq!(his.len(), 1, "his message is one row: {his:?}");
+        assert!(!reply.is_empty(), "nothing of the reply was published");
         assert!(
-            cursors.iter().all(|c| *c == cursors[0]),
-            "one reply was spread over several cursors: {cursors:?}"
+            reply.iter().all(|c| *c == reply[0]),
+            "one reply was spread over several cursors: {reply:?}"
         );
+        assert!(reply[0] > his[0], "the reply did not take the row after his: {his:?} then {reply:?}");
         let _ = std::fs::remove_file(path);
     }
 }
