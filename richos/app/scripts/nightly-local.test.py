@@ -671,6 +671,17 @@ class LocalTests(unittest.TestCase):
                 r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
                           gui_proof=str(self.proof(suite="front-door.test.sh")))
 
+    def test_a_shipped_bundle_boot_in_a_guest_is_accepted_evidence(self):
+        """`gui-proof-in-vm.sh` boots the SIGNED, NOTARIZED artifact this release will
+        publish, on a clean guest with no developer environment -- fewer assertions than
+        gui-boot.test.sh, and a truer artifact. It is accepted, under its OWN name: a proof
+        that borrowed the suite's name would be the most useful lie in the release chain."""
+        r, _ = self.gui_candidate(gui_state="not-run", no_host_screen=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("publish", run_id=self.CANDIDATE_INFO["run_id"],
+                      gui_proof=str(self.proof(suite="shipped-bundle-boot")))
+        self.assertEqual(r.command.call_args.args[2], "finish")
+
     def test_a_file_that_is_not_a_proof_is_refused_by_name(self):
         """A malformed proof is refused loudly rather than read past: this file is the one
         thing standing between an unexercised boot and a published release."""

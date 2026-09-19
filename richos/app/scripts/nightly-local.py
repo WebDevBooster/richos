@@ -757,9 +757,23 @@ class Runner:
                 f"    nightly-local.py publish --run {info['run_id']} --gui-proof <the file it names>\n"
                 "  Nothing here opens a window on this Mac; the app boots inside a guest.")
         fields = self.read_gui_proof(gui_proof)
-        if fields.get("suite") != "gui-boot.test.sh":
-            raise ValueError(f"--gui-proof names a proof for {fields.get('suite')!r}, not "
-                             "gui-boot.test.sh; it says nothing about whether the app boots")
+        # TWO KINDS OF EVIDENCE, AND THEY ARE NOT THE SAME CLAIM, so they are named
+        # differently and both are accepted for what each one is:
+        #
+        #   gui-boot.test.sh      the suite: a debug binary built from the checkout, held
+        #                         to B0-B8 and C1-C5 on a synthetic machine -- engine
+        #                         resolution, the plist's shape, the company registry.
+        #   shipped-bundle-boot   `gui-proof-in-vm.sh`: THE ARTIFACT THIS RELEASE WILL
+        #                         PUBLISH -- signed, notarized, stapled -- started on a
+        #                         clean guest with no developer environment, drawing a
+        #                         real window. Fewer assertions, truer artifact.
+        #
+        # A proof that borrowed the other's name would be the most useful lie in the
+        # release chain, so neither may.
+        accepted_suites = ("gui-boot.test.sh", "shipped-bundle-boot")
+        if fields.get("suite") not in accepted_suites:
+            raise ValueError(f"--gui-proof names a proof for {fields.get('suite')!r}. "
+                             f"Only {' or '.join(accepted_suites)} says whether the app boots.")
         if fields.get("result") != "pass":
             raise ValueError(f"--gui-proof records {fields.get('result')!r}, not a pass. "
                              "A failed boot is not evidence of a working one.")
