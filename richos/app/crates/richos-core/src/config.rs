@@ -138,14 +138,29 @@ impl Assertiveness {
     }
 }
 
-/// Which lighting the app opens in. CEO ruling §15: "Dark is the default. A newly
-/// installed app opens dark. The user may switch to light at any time."
+/// Which lighting the app opens in.
 ///
-/// `System` is a THIRD option the CEO can pick, never the thing he gets without picking —
-/// which is why `Default` is `Dark` and not `System`. The ported settings segment offers
-/// all three (deeply's structure, kept), and the resolution of `System` to an actual
-/// palette happens in the UI, where the OS preference is observable; this store only ever
-/// holds the CHOICE.
+/// **CEO ruling §63 (2026-09-19) supersedes §15's default for the normal screens:** *"the
+/// app should detect the user's system preference for dark or light theme and system
+/// should be the default for a freshly installed app. Only if the user switches the theme
+/// to some other option, only then should the app remember that and from now on that would
+/// become their default."*
+///
+/// So `Default` is [`Theme::System`], and it is the ONLY value this store ever holds
+/// without the user having chosen it. `Dark` and `Light` in here are always his word —
+/// which is the whole of §63's second sentence, expressed as a type: there is no code path
+/// that writes a lighting on his behalf, so "remembered" and "he switched" are the same
+/// event.
+///
+/// §15's "a newly installed app opens dark" is NOT gone; it moved. It still governs the
+/// splash and the home screen, which are clamped dark unconditionally and which no switch
+/// reaches — `RichTheme.forceDark` in `theme-boot.js`, a FORCE flag rather than a write,
+/// precisely so the clamp never becomes a stored preference.
+///
+/// The resolution of `System` to an actual palette happens in the UI, where the OS
+/// preference is observable and where it must also be observed CONTINUOUSLY: the
+/// `prefers-color-scheme` media query's change event repaints while the preference is
+/// `System`, so an OS that flips while the app is open takes the app with it.
 ///
 /// Values match `data-th` in the settings menu and the strings `theme-boot.js` mirrors,
 /// verbatim, so the wire string never needs translating on either side.
@@ -166,8 +181,10 @@ pub enum Theme {
 }
 
 impl Default for Theme {
+    /// §63: an unchosen lighting is `System`, never a lighting. See the enum's doc for why
+    /// this is the one value the store can hold that is not the user's own word.
     fn default() -> Self {
-        Theme::Dark
+        Theme::System
     }
 }
 
@@ -178,9 +195,11 @@ impl Theme {
             Theme::Light => "light",
             Theme::System => "system",
             // See `Assertiveness::as_str`: the DEFAULT's wire string, so a hypothetical
-            // future caller gets a palette the UI has rather than a `data-th` value it does
-            // not. The store never lets this be reached, and `persist` never writes it.
-            Theme::Unknown => Theme::Dark.as_str(),
+            // future caller gets a value the UI has rather than a `data-th` it does not.
+            // Written as `Theme::System` and not as a literal because the sentence above is
+            // "the default", and §63 moved which variant that is; the store never lets this
+            // be reached, and `persist` never writes it.
+            Theme::Unknown => Theme::System.as_str(),
         }
     }
 
@@ -332,9 +351,11 @@ struct StoredConfig {
     /// unknown key is simply never consulted.
     #[serde(default)]
     techy_entities: BTreeMap<String, bool>,
-    /// §15: which lighting the app opens in. An ABSENT key is an absent opinion, and the
-    /// product's opinion is dark — `Theme::default()`, so every config file written before
-    /// theming existed reads as dark, which is also what a fresh install gets.
+    /// §63: which lighting the app opens in. An ABSENT key is an absent opinion, and under
+    /// §63 an absent opinion is the OPERATING SYSTEM's — `Theme::default()`, which is
+    /// `System`. A config file written before theming existed therefore reads as `System`
+    /// too, and that is correct rather than incidental: its owner never switched the theme,
+    /// so there is nothing for the app to remember on his behalf.
     #[serde(default)]
     theme: Theme,
     /// §15: the font-size control's position, as a percentage of the 16px root. Absent
@@ -814,10 +835,11 @@ impl ConfigStore {
 
     // ---- appearance: the two lightings and the type knob (§15) ---------------------
 
-    /// Which lighting he chose. `Theme::Dark` on a fresh install, by ruling.
-    /// Which lighting the app opens in. A value on disk this build has no name for answers
-    /// with the DEFAULT (dark) — see [`ConfigStore::assertiveness`] for the rule, and
-    /// [`ConfigStore::persist`] for what keeps his actual choice alive on disk meanwhile.
+    /// Which lighting he chose, or `Theme::System` if he has not chosen one — §63, and
+    /// that is what a fresh install answers. A value on disk this build has no name for
+    /// answers with the DEFAULT (`System`) — see [`ConfigStore::assertiveness`] for the
+    /// rule, and [`ConfigStore::persist`] for what keeps his actual choice alive on disk
+    /// meanwhile.
     pub fn theme(&self) -> Theme {
         match self.config.theme {
             Theme::Unknown => Theme::default(),
@@ -1876,15 +1898,16 @@ mod tests {
     // ---- §15: the two lightings, the type knob, and the person -----------------------
 
     #[test]
-    fn a_fresh_install_opens_dark_and_at_100_percent() {
-        // The ruling is "dark is the default. A newly installed app opens dark." This is
-        // that sentence, as an assertion. `System` is a choice he can make, never the one
-        // he is given — a `Default` of `System` would make the opening palette depend on a
-        // macOS setting nobody in this ruling mentioned.
+    fn a_fresh_install_follows_the_system_and_sits_at_100_percent() {
+        // §63, as an assertion: *"system should be the default for a freshly installed
+        // app."* This test asserted `Theme::Dark` until 2026-09-19, and the sentence it
+        // quoted (§15, "a newly installed app opens dark") is still true of the splash and
+        // the home screen — which are clamped in the UI and are not this store's business.
+        // A `Default` of `Dark` is what would hand a light-OS user a dark app.
         let path = tmp_path("appearance-fresh");
         let _ = std::fs::remove_file(&path);
         let store = ConfigStore::open(&path).unwrap();
-        assert_eq!(store.theme(), Theme::Dark);
+        assert_eq!(store.theme(), Theme::System);
         assert_eq!(store.font_scale(), 100);
         assert_eq!(store.user_name(), None);
         assert_eq!(store.user_initials(), None);
@@ -1892,18 +1915,68 @@ mod tests {
     }
 
     #[test]
-    fn a_config_written_before_theming_existed_reads_as_dark() {
-        // The `splash_enabled` lesson, applied: an ABSENT key is an absent OPINION, and the
-        // product's opinion is dark. A file from before this field existed must not read as
-        // "the CEO chose light" — nor as `System`, which would silently hand the decision
-        // to the OS.
+    fn a_config_written_before_theming_existed_reads_as_system() {
+        // The `splash_enabled` lesson, applied, with §63's answer rather than §15's: an
+        // ABSENT key is an absent OPINION, and an absent opinion about lighting belongs to
+        // the operating system. A file from before this field existed must not read as "the
+        // CEO chose light" NOR as "the CEO chose dark" — nobody chose, and §63 is what an
+        // app does when nobody has chosen.
         let path = tmp_path("appearance-legacy");
         let _ = std::fs::remove_file(&path);
         std::fs::write(&path, r#"{"company_name":"FemcBoost","assertiveness":"quiet"}"#).unwrap();
         let store = ConfigStore::open(&path).unwrap();
-        assert_eq!(store.theme(), Theme::Dark);
+        assert_eq!(store.theme(), Theme::System);
         assert_eq!(store.font_scale(), FONT_SCALE_DEFAULT);
         assert_eq!(store.company_name(), Some("FemcBoost"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn only_an_explicit_switch_is_remembered_and_system_is_reachable_again() {
+        // §63's SECOND sentence, which is the half a default alone does not deliver:
+        // *"Only if the user switches the theme to some other option, only then should the
+        // app remember that and from now on that would become their default."*
+        //
+        // Three launches in one test ON PURPOSE, because the claim is about what survives
+        // between them. The middle one is the one that would catch a build treating
+        // `System` as "no preference" and refusing to store it — picking System after Dark
+        // would then silently leave him on Dark forever, which is the one-way door this
+        // test exists to keep open.
+        let path = tmp_path("appearance-63-explicit-only");
+        let _ = std::fs::remove_file(&path);
+
+        // Launch 1: nothing chosen. Nothing is written on his behalf.
+        {
+            let store = ConfigStore::open(&path).unwrap();
+            assert_eq!(store.theme(), Theme::System, "an unchosen lighting is the system's");
+        }
+        // Launch 2: he switches to Dark. That IS the remembering.
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_theme(Theme::Dark).unwrap();
+        }
+        {
+            let store = ConfigStore::open(&path).unwrap();
+            assert_eq!(store.theme(), Theme::Dark, "his switch is his default from now on");
+        }
+        // Launch 3: he picks System again, and it takes.
+        {
+            let mut store = ConfigStore::open(&path).unwrap();
+            store.set_theme(Theme::System).unwrap();
+        }
+        {
+            let store = ConfigStore::open(&path).unwrap();
+            assert_eq!(store.theme(), Theme::System, "System is a choice he can return to");
+        }
+        // And it is on DISK as the wire string the UI mirrors, not merely in memory. The
+        // needle is built from `Theme::as_str` rather than typed, so a rename on the wire
+        // reaches this test as a failure instead of as a literal nobody updated.
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        let needle = format!("\"theme\":\"{}\"", Theme::System.as_str());
+        assert!(
+            on_disk.replace(' ', "").contains(&needle),
+            "the durable file must name the choice in the form `theme-boot.js` mirrors; it held: {on_disk}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1937,7 +2010,7 @@ mod tests {
         }
         let store = ConfigStore::open(&path).unwrap();
         assert_eq!(store.font_scale(), 135);
-        assert_eq!(store.theme(), Theme::Dark, "and the untouched preference is untouched");
+        assert_eq!(store.theme(), Theme::System, "and the untouched preference is untouched");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -2170,7 +2243,7 @@ mod tests {
 
         let store = ConfigStore::open(&path).unwrap();
         assert!(store.readable(), "the document PARSES — one unknown value is not a broken file");
-        assert_eq!(store.theme(), Theme::Dark, "the one field it cannot name degrades to the default");
+        assert_eq!(store.theme(), Theme::System, "the one field it cannot name degrades to the default");
         assert_eq!(
             store.company_name(),
             Some("Booster Labs"),
@@ -2295,7 +2368,7 @@ mod tests {
         let mut store = ConfigStore::open(&path).unwrap();
         assert!(!store.readable(), "the file exists and this build cannot read it");
         assert!(store.unreadable_reason().is_some(), "and it can say so");
-        assert_eq!(store.theme(), Theme::Dark, "the boot is served from defaults");
+        assert_eq!(store.theme(), Theme::System, "the boot is served from defaults");
         assert_eq!(store.company_name(), None);
         assert_eq!(
             store.raw_retention(),
