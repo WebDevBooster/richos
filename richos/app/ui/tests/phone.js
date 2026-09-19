@@ -1499,12 +1499,29 @@ async function openSheet(browser, theme, preset) {
     // whole minutes the label claims must be time the code actually has. 61 is the value the
     // defect lives at; 120, 60 and 59 are the values on either side of it, which keep the fix
     // from being a hard-coded answer to one number.
+    // AND THE CHECK PROVES IT SAW THE SECOND IT ASKED FOR. The first version of this did not:
+    // the harness started the window's clock in the past and the clock kept running, so by the
+    // time anything read the screen it was at 60 or below, where `ceil` and `floor` agree. Run
+    // against `2c95c27d` — which still had `Math.ceil` — it printed `61s -> "1 more minute."`,
+    // the fixed tree's answer from the broken tree. So the status is read at the same moment as
+    // the label and asserted to still BE the number requested; a harness that drifts now fails
+    // here instead of passing everywhere.
     const seen = [];
     for (const secondsLeft of [300, 120, 61, 60, 59, 1]) {
       const page = await openSheet(browser, "dark", { phonePairing: true, phonePairingSecondsLeft: secondsLeft });
       await page.waitForSelector("#phone-pairing:not([hidden])");
-      const label = (await page.evaluate(() => document.getElementById("phone-countdown").textContent)).trim();
+      const reading = await page.evaluate(async () => ({
+        label: document.getElementById("phone-countdown").textContent.trim(),
+        reported: (await window.RichBridge.invoke("phone_status")).pairingSecondsLeft,
+      }));
+      const label = reading.label;
       await page.close();
+      assertEqual(
+        reading.reported,
+        secondsLeft,
+        "the harness did not hold the window at " + secondsLeft + "s, so this reading is of some " +
+          "other second and the check proves nothing"
+      );
       seen.push(secondsLeft + "s -> " + JSON.stringify(label));
       const minutes = label.match(/(\d+) more minutes?/);
       if (minutes) {

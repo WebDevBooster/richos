@@ -48,16 +48,10 @@
     // A FOURTH STATE, and it is the one a real person meets most often: he opened the screen,
     // went to find his phone, and came back after the sixty seconds were up. Reaching it by
     // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
-    // `phonePairingSecondsLeft` puts the window at an EXACT point inside itself, which is what
-    // Urban's G13 needs: the countdown's defect is at 61 seconds and nowhere else, and reaching
-    // 61 seconds by waiting four minutes is not a test anybody runs. Same device as the expired
-    // preset above — the clock is started in the past — rather than a second code path.
     openedAt:
       window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true
         ? now() - (PAIRING_WINDOW_MS + 1000)
-        : Number.isFinite(window.__RICHOS_MOCK_PRESET__?.phonePairingSecondsLeft)
-          ? now() - (PAIRING_WINDOW_MS - window.__RICHOS_MOCK_PRESET__.phonePairingSecondsLeft * 1000)
-          : now(),
+        : now(),
     // THE RECORDED PATH AND PLATFORM (`device.rs`: `paired_via`, `platform`). The default is
     // the home path on an iPhone, which is what this harness has always modeled; the presets
     // are how the other three combinations — and the legacy record that recorded neither — are
@@ -97,7 +91,22 @@
   }
   function phoneStatusOf() {
     const elapsed = now() - mockPhone.openedAt;
-    const secondsLeft = Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
+    // **`phonePairingSecondsLeft` PINS THE ANSWER; IT DOES NOT START THE CLOCK IN THE PAST.**
+    //
+    // Urban's G13 lives at 61 seconds and at no other value, and the first version of this knob
+    // set `openedAt` backwards so the running clock would arrive there. It never did: `openedAt`
+    // is fixed when this file loads, the sheet is not opened until several seconds later, and by
+    // the time anything read the status the window had drifted to 60 or below — where `ceil` and
+    // `floor` give the same answer. The proof is on the record: the check ran against `2c95c27d`,
+    // which still had `Math.ceil`, and printed `61s -> "This code lasts 1 more minute."` — the
+    // FIXED tree's output, from the broken tree. A green that cannot go red.
+    //
+    // Pinned, the value does not move between polls, so what the screen says is what the number
+    // asked for. The clock still runs for every other preset, including the expired one.
+    const pinned = window.__RICHOS_MOCK_PRESET__?.phonePairingSecondsLeft;
+    const secondsLeft = Number.isFinite(pinned)
+      ? Math.max(0, pinned)
+      : Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
     const open = mockPhone.pairing && !mockPhone.paired && secondsLeft > 0;
     return {
       listening: mockPhone.paired || mockPhone.pairing,
