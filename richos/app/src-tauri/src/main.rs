@@ -723,12 +723,12 @@ fn phone_forget(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<(
 
 #[tauri::command(async)]
 fn list_threads(state: State<AppState>) -> Vec<ThreadSummary> {
-    state.spine.lock().unwrap().threads()
+    take_the_spine(&state.spine).threads()
 }
 
 #[tauri::command(async)]
 fn active_thread(state: State<AppState>) -> Option<String> {
-    state.spine.lock().unwrap().active_thread().map(|s| s.to_string())
+    take_the_spine(&state.spine).active_thread().map(|s| s.to_string())
 }
 
 #[tauri::command(async)]
@@ -738,12 +738,12 @@ fn create_thread(state: State<AppState>, title: String) -> Result<String, String
     // picker lands (slice 4) the entity comes from deterministic root resolution, and an
     // unresolved root refuses rather than guessing.
     let entity = state.entity.lock().unwrap().clone().ok_or_else(|| ENTITY_UNRESOLVED_MESSAGE.to_string())?;
-    state.spine.lock().unwrap().create_thread(&title, &entity).map_err(|e| e.to_string())
+    take_the_spine(&state.spine).create_thread(&title, &entity).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
 fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String> {
-    state.spine.lock().unwrap().switch_thread(&thread_id).map_err(|e| e.to_string())
+    take_the_spine(&state.spine).switch_thread(&thread_id).map_err(|e| e.to_string())
 }
 
 /// Scoped read. Now fallible: a thread written before entity scoping existed has no
@@ -751,7 +751,7 @@ fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String
 /// "I will not serve this" and "there is nothing here" are different statements.
 #[tauri::command(async)]
 fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message>, String> {
-    state.spine.lock().unwrap().messages(&thread_id).map_err(|e| e.to_string())
+    take_the_spine(&state.spine).messages(&thread_id).map_err(|e| e.to_string())
 }
 
 /// One thread's TYPED TIMELINE (UX §12), gated to the CEO view (§5.3).
@@ -772,7 +772,7 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 /// Fails closed on an unbound thread, exactly like `get_messages`.
 #[tauri::command(async)]
 fn get_timeline(app: AppHandle, state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let payload = timeline_payload(&state.spine.lock().unwrap(), &thread_id);
+    let payload = timeline_payload(&take_the_spine(&state.spine), &thread_id);
     // **HIS FRONT DESK IS MADE READY HERE, AFTER THE SNAPSHOT AND NEVER BEFORE IT** — the CEO's
     // §55. See [`ready_the_front_desk`] for why this command is the hook.
     ready_the_front_desk(&app, &thread_id);
@@ -830,7 +830,7 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
     let thread_id = thread_id.to_string();
     std::thread::spawn(move || {
         let Some(state) = app.try_state::<AppState>() else { return };
-        let verdict = state.spine.lock().unwrap().prime_front_desk(&thread_id);
+        let verdict = take_the_spine(&state.spine).prime_front_desk(&thread_id);
         match verdict {
             richos_core::spine::FrontDeskReady::Ready { millis, spawned } => eprintln!(
                 "[richos] the front desk is ready before he types: {millis} ms{} — that is what his \
@@ -853,7 +853,7 @@ fn ready_the_front_desk(app: &AppHandle, thread_id: &str) {
         // It runs after the prime above rather than beside it, on this same thread, because
         // both take the spine's mutex for a model turn and two of those racing would hold the
         // lock for the sum of them with his own Send arriving in the middle.
-        let entity = state.spine.lock().unwrap().ledger().thread_binding(&thread_id).map(|b| b.entity_id().clone());
+        let entity = take_the_spine(&state.spine).ledger().thread_binding(&thread_id).map(|b| b.entity_id().clone());
         if let Ok(entity) = entity {
             ready_a_spare_front_desk(&app, entity);
         }
@@ -899,7 +899,7 @@ fn ready_a_spare_front_desk(app: &AppHandle, entity: richos_core::EntityId) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Some(state) = app.try_state::<AppState>() else { return };
-        let verdict = state.spine.lock().unwrap().ready_a_spare_front_desk(&entity);
+        let verdict = take_the_spine(&state.spine).ready_a_spare_front_desk(&entity);
         match verdict {
             richos_core::spine::SpareReady::Ready { millis } => eprintln!(
                 "[richos] a front desk is primed and waiting for the next new thread in {entity}:                  {millis} ms — that is what his first message into it used to wait through (CEO §55)"
@@ -910,22 +910,143 @@ fn ready_a_spare_front_desk(app: &AppHandle, entity: richos_core::EntityId) {
     });
 }
 
-/// **The line [`send_message`] writes when his Send had to wait for the desk** — `None` when
-/// it did not, which is every ordinary send.
+// =========================================================================================
+// EVERY HOP BETWEEN HIS KEYSTROKE AND THE TURN'S CLOCK — the CEO's §55, measured at the LOCK
+// =========================================================================================
+//
+// **What was here before, and what its narrowness cost.** This was `send_wait_notice`, and it
+// measured exactly one lock take: [`send_message`]'s. Ray's candidate-.12 re-walk then found
+// "On it!" on the real window at **14.24 s** with the turn's own header reading **"Working for
+// 8s"** (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260919.1-mac-and-android-rewalk-audit.md`
+// §2), so about six seconds were spent BEFORE the turn's clock started — and this log line
+// never printed, because by the time `send_message` asked for the mutex it was free. The wait
+// had been paid in full by the bridge calls the window makes IN FRONT of the Send
+// (`ui/main.js`'s `send()` on a brand-new thread: `create_thread_in`, `navigation_tree`,
+// `switch_thread`, `active_context`, `techy_mode`, `get_timeline`, `onboarding_view`,
+// `take_work_notices`), not one of which measured anything at all.
+//
+// So the measurement moved from ONE call site to the LOCK — the only thing all of them have in
+// common — and the site is named by `#[track_caller]` rather than typed, so a hop added later
+// is measured without anybody remembering to measure it. That is the hand-maintained-inventory
+// drift `scripts/run-tests.sh` warns about in its own words, refused by construction.
+
+/// **The line any window command writes when it had to WAIT for the spine** — `None` when it
+/// did not, which is every uncontended take.
 ///
-/// A pure function of the measured wait so the rule is a unit test rather than something only
+/// A pure function of the measured wait, so the rule is a unit test rather than something only
 /// a contended mutex on a real machine can show, exactly as `native::tool_residency_env` and
 /// `native::child_args` are. The caller measures; this decides what, if anything, is true
-/// enough to say.
-fn send_wait_notice(waited: std::time::Duration) -> Option<String> {
+/// enough to say. **Silent by ARITHMETIC and not by a chosen threshold**: an uncontended
+/// `Mutex::lock` returns in well under a millisecond and rounds to 0.
+fn spine_wait_notice(site: &str, waited: std::time::Duration) -> Option<String> {
     let millis = waited.as_millis();
     (millis > 0).then(|| format!(
-        "[richos] his Send waited {millis} ms for the front desk before the turn could start — \
-         that is time on screen as \"Sending your message / Waiting for Rich to accept it\", and \
-         it is his (CEO §55). The pre-prime is no longer a cause of it — a Send into a thread \
-         being primed is taken off this lock entirely — so whatever held it is something else, \
-         and this line is the only thing that will say so."
+        "[richos] a window command waited {millis} ms for the spine at {site} — that wait is \
+         HIS, it is spent in front of the turn's clock, and it is charged to \u{a7}55. While it \
+         runs the screen reads \"Sending your message / Waiting for Rich to accept it\" or \
+         \"Opening conversation\", depending which hop this is."
     ))
+}
+
+/// Milliseconds since this process first reached for the spine — the hop trace's clock.
+/// Lazily anchored, which on every real launch is the boot's own first read.
+fn since_the_launch() -> u128 {
+    static ANCHOR: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    ANCHOR.get_or_init(std::time::Instant::now).elapsed().as_millis()
+}
+
+/// `RICHOS_HOP_TRACE=1` — every take and every release of the spine, timestamped.
+///
+/// **Off by default, and it stays off**, because the line above is the one that is true for
+/// HIM: he cares that he waited, not that a lock changed hands. The trace is what an engineer
+/// needs in order to say where six seconds went, it is read once per measurement, and a
+/// `gui-boot` log carrying a line per lock take would be accounting noise. So it is a switch
+/// rather than a level.
+fn hop_trace_is_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RICHOS_HOP_TRACE").is_ok_and(|v| v == "1"))
+}
+
+/// `src/main.rs:1234` — the caller's site, without this machine's checkout path in it.
+fn spine_site(site: &std::panic::Location<'static>) -> String {
+    let file = site.file();
+    let short = file.rfind("src/").map(|at| &file[at..]).unwrap_or(file);
+    format!("{short}:{}", site.line())
+}
+
+/// The spine, held — and a measurement of what it cost to get it and what it cost to keep it.
+///
+/// `Deref`/`DerefMut` to [`Spine`], so every call site reads exactly as it did when this was a
+/// bare `MutexGuard` and `&*hold` still coerces where a `&Spine` is wanted.
+struct SpineHold<'a> {
+    guard: std::sync::MutexGuard<'a, Spine>,
+    site: String,
+    taken: std::time::Instant,
+}
+
+impl std::ops::Deref for SpineHold<'_> {
+    type Target = Spine;
+    fn deref(&self) -> &Spine { &self.guard }
+}
+
+impl std::ops::DerefMut for SpineHold<'_> {
+    fn deref_mut(&mut self) -> &mut Spine { &mut self.guard }
+}
+
+impl Drop for SpineHold<'_> {
+    fn drop(&mut self) {
+        if hop_trace_is_on() {
+            eprintln!(
+                "[richos] hop-trace +{} ms  spine RELEASED at {} after holding {} ms",
+                since_the_launch(), self.site, self.taken.elapsed().as_millis()
+            );
+        }
+    }
+}
+
+/// **Take the spine, and say so when he waited for it.**
+///
+/// The one way this file reaches `AppState::spine`. `#[track_caller]` puts the CALLER's
+/// `file:line` into the line, which is why there is no name argument that could get out of
+/// step with the site it names.
+#[track_caller]
+fn take_the_spine(spine: &std::sync::Mutex<Spine>) -> SpineHold<'_> {
+    let site = spine_site(std::panic::Location::caller());
+    let asked = std::time::Instant::now();
+    let guard = spine.lock().unwrap();
+    hold_the_spine(guard, site, asked)
+}
+
+/// **The same door for the one hop that must not `unwrap`** — the spoken-submit callback,
+/// which runs on the voice thread and walks away from a poisoned spine rather than panicking
+/// inside it. His spoken sentence is a hop on the same clock as his typed one, so it is
+/// measured by the same function; only the failure is different.
+#[track_caller]
+fn take_the_spine_or_give_up(spine: &std::sync::Mutex<Spine>) -> Option<SpineHold<'_>> {
+    let site = spine_site(std::panic::Location::caller());
+    let asked = std::time::Instant::now();
+    let guard = spine.lock().ok()?;
+    Some(hold_the_spine(guard, site, asked))
+}
+
+/// Where the wait is written down. Both doors end here, so there is one place that decides
+/// what a wait is worth saying and one place a reader has to check.
+fn hold_the_spine<'a>(
+    guard: std::sync::MutexGuard<'a, Spine>,
+    site: String,
+    asked: std::time::Instant,
+) -> SpineHold<'a> {
+    let waited = asked.elapsed();
+    if let Some(line) = spine_wait_notice(&site, waited) {
+        eprintln!("{line}");
+    }
+    if hop_trace_is_on() {
+        eprintln!(
+            "[richos] hop-trace +{} ms  spine TAKEN at {site} after waiting {} ms",
+            since_the_launch(), waited.as_millis()
+        );
+    }
+    SpineHold { guard, site, taken: std::time::Instant::now() }
 }
 
 /// The "talk to Rich" loop. Persists the prompt (crash-safe) + runs the turn. While the
@@ -1008,11 +1129,10 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
              desk the way it did before, which is the only cost"
         ),
     }
-    let asked_at = std::time::Instant::now();
-    let mut spine = state.spine.lock().unwrap();
-    if let Some(line) = send_wait_notice(asked_at.elapsed()) {
-        eprintln!("{line}");
-    }
+    // `take_the_spine` is what writes the wait down now, for THIS site and for every other
+    // one — see the block above it. The measurement did not move; it stopped being unique
+    // to this line, which is what let six seconds go unattributed on candidate .12.
+    let mut spine = take_the_spine(&state.spine);
     // A configured factory connects inside the tracked turn. This covers first launch,
     // a later sign-in and replacement of a session retired by Stop.
     if !spine.has_lease() && !spine.has_lease_factory() {
@@ -3296,7 +3416,7 @@ fn raise_proactive_message(
     text: String,
 ) -> Result<String, String> {
     let parsed_tier = AttentionTier::parse(&tier).ok_or_else(|| format!("unknown attention tier: {tier}"))?;
-    let mut spine = state.spine.lock().unwrap();
+    let mut spine = take_the_spine(&state.spine);
     spine
         .raise_proactive(thread_id.as_deref(), parsed_tier, &text)
         .map_err(|e| e.to_string())
@@ -3506,10 +3626,7 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     let submit: Arc<dyn Fn(String, bool) + Send + Sync> =
         Arc::new(move |text: String, rich_audible: bool| {
             let state = submit_app.state::<AppState>();
-            let mut spine = match state.spine.lock() {
-                Ok(s) => s,
-                Err(_) => return,
-            };
+            let Some(mut spine) = take_the_spine_or_give_up(&state.spine) else { return };
             // THE LIVE LEASE, for the reason `send_message` reads it live — a spoken sentence
             // must not be refused by a boot-time snapshot that a completed first-run setup has
             // already made false. Same question, same moment, one answer.
@@ -3844,7 +3961,7 @@ fn active_binding_view(spine: &Spine) -> Option<ActiveContext> {
 /// quarantine list, and the authoritative active scope.
 #[tauri::command(async)]
 fn navigation_tree(state: State<AppState>) -> NavigationTree {
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     let nav = state.nav.lock().unwrap();
     build_navigation_tree(&spine, nav.state())
 }
@@ -3921,7 +4038,7 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
 /// gets to phrase a claim about a customer's history.
 #[tauri::command(async)]
 fn history_health(state: State<AppState>) -> richos_core::ledger::HistoryHealth {
-    state.spine.lock().unwrap().ledger().history_health()
+    take_the_spine(&state.spine).ledger().history_health()
 }
 
 // ---------------------------------------------------------------------------------------
@@ -3995,7 +4112,7 @@ const ONBOARDING_UNUSABLE_MESSAGE: &str =
      will need to look at that.";
 
 fn onboarding_view_of(state: &State<AppState>) -> OnboardingView {
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     let Some(binding) = spine.active_binding() else {
         return OnboardingView {
             state: "no-central-folder".to_string(),
@@ -4053,7 +4170,7 @@ fn decline_onboarding(state: State<AppState>, entity_id: String) -> Result<Onboa
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let outcome = {
-        let mut spine = state.spine.lock().unwrap();
+        let mut spine = take_the_spine(&state.spine);
         if spine.active_binding().map(|b| b.entity_id().to_string()).as_deref() != Some(entity_id.as_str()) {
             return Err("The company changed. Please use the offer for the company now open.".into());
         }
@@ -4089,14 +4206,14 @@ const ONBOARDING_DECLINE_REFUSED: &str =
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".
 #[tauri::command(async)]
 fn active_context(state: State<AppState>) -> Option<ActiveContext> {
-    active_binding_view(&state.spine.lock().unwrap())
+    active_binding_view(&take_the_spine(&state.spine))
 }
 
 /// One thread's durable scope. Fallible on purpose: an unbound thread returns the core's
 /// own `UnboundThread` message, which is what the UI renders in the binding-failure state.
 #[tauri::command(async)]
 fn thread_scope(state: State<AppState>, thread_id: String) -> Result<ActiveContext, String> {
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     spine
         .ledger()
         .thread_binding(&thread_id)
@@ -4123,7 +4240,7 @@ fn create_thread_in(app: AppHandle, state: State<AppState>, entity_id: String, t
     let entity = EntityId::parse(entity_id.trim()).map_err(|e| e.to_string())?;
     let title = if title.trim().is_empty() { "New thread".to_string() } else { title.trim().to_string() };
     {
-        let mut spine = state.spine.lock().unwrap();
+        let mut spine = take_the_spine(&state.spine);
         // **AND THIS IS WHERE A SPARE FRONT DESK IS SPENT** — `Spine::create_thread` gives the
         // thread the id the spare was already scoped to and files the spare as its desk, primed.
         // `get_timeline` -> `ready_the_front_desk` then finds nothing left to do, which is the
@@ -4221,7 +4338,7 @@ fn unknown_company_message(id: &str) -> String {
 fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
     // Lock order, everywhere in this file: config, then entity, then spine.
     let chosen = state.entity.lock().unwrap().clone();
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     let registry = spine.entity_registry();
     let summaries = spine.threads();
     let options = registry
@@ -4359,7 +4476,7 @@ fn provision_memory(
 
     // RE-WIRE, through the same function the boot ran. Lock order everywhere in this file is
     // config, then entity, then spine — nothing above holds any of them.
-    let mut spine = state.spine.lock().unwrap();
+    let mut spine = take_the_spine(&state.spine);
     // BOTH HALVES, from one resolution, exactly as the boot does it. `wire_company_memory`
     // installs the reader into the spine and hands back the writer; the writer becomes the
     // desk through the same `install_correction_desk` the boot calls.
@@ -4667,7 +4784,7 @@ fn choose_entity(state: State<AppState>, entity_id: String) -> Result<EntityChoi
     *state.entity.lock().unwrap() = Some(id.clone());
     *state.entity_source.lock().unwrap() = Some(EntitySource::SavedChoice);
 
-    apply_company_choice(&mut state.spine.lock().unwrap(), &id)?;
+    apply_company_choice(&mut take_the_spine(&state.spine), &id)?;
     Ok(entity_choice_view(&state))
 }
 
@@ -4892,7 +5009,7 @@ fn register_entity(
             .map_err(|e| format!("I added the company but couldn't remember that it's the one in force: {e}"))?;
         *state.entity.lock().unwrap() = Some(id.clone());
         *state.entity_source.lock().unwrap() = Some(EntitySource::SavedChoice);
-        apply_company_choice(&mut state.spine.lock().unwrap(), &id)?;
+        apply_company_choice(&mut take_the_spine(&state.spine), &id)?;
     }
 
     eprintln!(
@@ -4970,7 +5087,7 @@ fn excerpt_at(original: &[char], at: usize, needle_len: usize) -> String {
 /// without having to work out which entity a result came from.
 #[tauri::command(async)]
 fn search_nav(state: State<AppState>, query: String, limit: Option<usize>) -> Vec<SearchHit> {
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     let nav = state.nav.lock().unwrap();
     run_search(&spine, nav.state(), &query, limit.unwrap_or(SEARCH_DEFAULT_LIMIT))
 }
@@ -5125,7 +5242,7 @@ fn rename_thread(state: State<AppState>, thread_id: String, title: String) -> Re
 #[cfg(test)]
 mod send_wait_tests {
     //! **The boundary that nothing wrote down, and what it cost.** See
-    //! [`super::send_wait_notice`] and the block at the top of [`super::send_message`].
+    //! [`super::spine_wait_notice`] and the block above it.
     //!
     //! NOT IN A CI GATE, for the reason `lease_gate_tests` below gives: the Tauri shell is a
     //! deliberately detached workspace. Run it with
@@ -5134,24 +5251,64 @@ mod send_wait_tests {
     use std::time::Duration;
 
     #[test]
-    fn an_ordinary_send_says_nothing_and_a_send_that_waited_says_how_long() {
+    fn an_ordinary_hop_says_nothing_and_a_hop_that_waited_says_how_long_and_where() {
         // The silent case, and it is silent by ARITHMETIC rather than by a chosen threshold:
         // an uncontended `Mutex::lock` is sub-microsecond and rounds to 0 ms.
-        assert_eq!(super::send_wait_notice(Duration::ZERO), None);
-        assert_eq!(super::send_wait_notice(Duration::from_micros(999)), None);
+        assert_eq!(super::spine_wait_notice("src/main.rs:1", Duration::ZERO), None);
+        assert_eq!(super::spine_wait_notice("src/main.rs:1", Duration::from_micros(999)), None);
 
         // The case this exists for. 4412 ms is candidate .10's own measured pre-prime, so
         // the number in the test is the number off the machine and not an invented one.
-        let line = super::send_wait_notice(Duration::from_millis(4412))
+        let line = super::spine_wait_notice("src/main.rs:1780", Duration::from_millis(4412))
             .expect("a four-second wait is his, and it has to be written down");
         assert!(line.contains("4412 ms"), "{line}");
         assert!(line.contains("§55"), "the ruling it is measured against: {line}");
+        // WHICH HOP PAID IT. This is the half candidate .12 did not have: the wait was real
+        // and the line that would have named it was wired to one call site out of nine.
+        assert!(line.contains("src/main.rs:1780"), "the site has to be in it: {line}");
         // The exact sentence the UI shows him while this is happening, so whoever reads the
         // log can join it to the screen without guessing (`ui/main.js`).
         assert!(line.contains("Waiting for Rich to accept it"), "{line}");
 
         // The smallest wait that is still a wait — the boundary itself, stated.
-        assert!(super::send_wait_notice(Duration::from_millis(1)).is_some());
+        assert!(super::spine_wait_notice("src/main.rs:1", Duration::from_millis(1)).is_some());
+    }
+
+    /// INVARIANT: every window hop that takes the spine is measured, because there is exactly
+    /// ONE way to take it.
+    ///
+    /// **A scrape, deliberately**, and for the same reason the deferred-road ordering below is
+    /// one: a hop added tomorrow that writes `state.spine.lock()` by hand would compile, work,
+    /// and be invisible in the log — which is precisely the condition that left six seconds
+    /// unattributed on candidate .12. The needles are assembled so they do not match
+    /// themselves, exactly as `the_lease_gate_is_never_a_cached_boolean` assembles its own.
+    #[test]
+    fn there_is_one_door_to_the_spine_and_it_measures_the_wait() {
+        let source = include_str!("main.rs");
+        let by_hand = concat!("state.spine.", "lock()");
+        // CODE ONLY. The phrase is quoted in three doc comments that explain why the door
+        // exists, and a scrape that counted prose would forbid the explanation of its own rule.
+        let in_code = source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .filter(|line| line.contains(by_hand))
+            .count();
+        assert_eq!(
+            in_code, 0,
+            "a hop that takes the spine by hand is a hop whose wait nobody can attribute — \
+             use take_the_spine(&state.spine), which names the site with #[track_caller]"
+        );
+        // And the door itself still measures, rather than having quietly become a wrapper.
+        let door = source
+            .split_once(concat!("fn hold_the_", "spine<'a>("))
+            .expect("hold_the_spine must exist").1;
+        let body = &door[..door.find("\n}\n").expect("a body")];
+        assert!(body.contains("spine_wait_notice"), "the door must write the wait down");
+        // Both entrances name the caller's site rather than a typed label. The needle is
+        // assembled so it does not match itself — `SOURCE` is this file.
+        let caller = concat!("Location::", "caller()");
+        assert_eq!(source.matches(caller).count(), 2,
+            "take_the_spine and take_the_spine_or_give_up each name their own caller");
     }
 
     /// INVARIANT: `send_message` asks for the deferred road BEFORE it takes the spine's
@@ -5175,7 +5332,10 @@ mod send_wait_tests {
         let body = &SOURCE[start..end];
 
         let defer = concat!("state.control.defer_", "send(");
-        let lock = concat!("state.spine.", "lock()");
+        // The one door to the spine since 2026-09-19 (`take_the_spine`) — the needle follows
+        // the spelling, because the ORDER is the property and a needle that stopped matching
+        // would pass this test over a send that had started blocking first.
+        let lock = concat!("take_the_", "spine(&state.spine)");
         let defer_at = body.find(defer).expect("send_message must offer the deferred road at all");
         let lock_at = body.find(lock).expect("send_message still takes the spine on the ordinary path");
         assert!(
@@ -5415,8 +5575,15 @@ mod lease_gate_tests {
         let setup_start = SOURCE.find(concat!("fn run_", "setup(")).unwrap();
         let setup_end = SOURCE[setup_start..].find(concat!("fn entity_", "choice(")).unwrap() + setup_start;
         let setup = &SOURCE[setup_start..setup_end];
-        assert!(!setup.contains("start_with_onboarding") && !setup.contains("spine.lock()"),
-            "setup must leave connection to the next tracked cancellable request");
+        // `take_the_spine(` is named here as well as `spine.lock()`: the one door replaced the
+        // other on 2026-09-19, and a needle that still only knew the old spelling would have
+        // gone on passing over a `run_setup` that had started BLOCKING on the spine.
+        assert!(
+            !setup.contains("start_with_onboarding")
+                && !setup.contains("spine.lock()")
+                && !setup.contains(concat!("take_the_", "spine(")),
+            "setup must leave connection to the next tracked cancellable request, and must \
+             never take the spine blocking — it uses try_lock so a running turn refuses it");
         assert!(setup.contains("resolve_claude_bin()") && setup.contains("state.claude_bin.lock()"),
             "setup must refresh the factory with the newly installed executable");
         // And the sentence they refuse with is still the one the CEO was written for.
@@ -6383,7 +6550,7 @@ fn spoken_confirm_correction(state: State<AppState>, key: String) -> Result<Lear
         let outcome = desk.confirm(&key).map_err(|e| e.to_string())?;
         (outcome, pair.0, pair.1)
     };
-    let _ = state.spine.lock().unwrap().record_ceo_action(
+    let _ = take_the_spine(&state.spine).record_ceo_action(
         "vocabulary_learn",
         &format!("learned \"{canonical}\" (heard as \"{mangled}\")"),
     );
@@ -6724,7 +6891,7 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
 /// decides whether to ask.
 #[tauri::command(async)]
 fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let mut spine = state.spine.lock().unwrap();
+    let mut spine = take_the_spine(&state.spine);
     // PUMP, THEN READ (techy-mode §1.5). Between-turn traffic is parked by the reader
     // thread and lands in the journal only when the spine drains it. The turn boundaries do
     // that, but opening the technical view is the other moment somebody actually wants to
@@ -6757,7 +6924,7 @@ fn get_machinery_raw(
     thread_id: String,
     machinery_id: String,
 ) -> Result<serde_json::Value, String> {
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     let Some(journal) = spine.machinery_journal() else {
         return Ok(not_retained());
     };
@@ -7450,7 +7617,7 @@ struct HomeEntityView {
 fn home_entity_row(state: State<AppState>) -> Vec<HomeEntityView> {
     // Lock order, everywhere in this file: config, then entity, then spine.
     let config = state.config.lock().unwrap();
-    let spine = state.spine.lock().unwrap();
+    let spine = take_the_spine(&state.spine);
     spine
         .entity_registry()
         .entities()
