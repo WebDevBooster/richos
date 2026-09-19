@@ -556,6 +556,54 @@ function assertEqual(actual, expected, msg) {
 /// composition renders exactly as it ships, the always-dark clamp is the product's own, and
 /// `splash.js`'s suite — which is where the ceiling is a subject rather than a confound — does
 /// not use this and still watches it fire.
+/// SEED A THEME PREFERENCE INTO A PAGE — BOTH SIDES OF IT — BEFORE ANY OF ITS SCRIPTS RUN.
+///
+/// Use as `await page.addInitScript(SEED_THEME, "dark")`.
+///
+/// WHY EVERY SHOT-TAKING SUITE SUDDENLY NEEDS THIS. Until 2026-09-19 the shipped default
+/// preference was `dark` (§15), so a walk that said nothing about theming rendered dark
+/// deterministically, and the committed reference PNGs in `shots-*` were all taken that way
+/// without a single suite having to mention it. CEO §63 makes the default `system`, which is
+/// correct for the product and changes what "said nothing" MEANS in here: the palette is now
+/// decided by the `colorScheme` of whatever browser context the page was made in, and
+/// Playwright's default for that is light. Thirty-odd reference shots flipped palette in one
+/// run, every suite still exiting 0, because nothing they assert is about lighting.
+///
+/// That is not a failure to suppress — it is a question each suite now has to answer out
+/// loud. A reference shot is a picture a person looks at, and a picture whose palette
+/// changed because of a default nobody was thinking about is a change to the record that
+/// nobody decided. So a suite that PHOTOGRAPHS a surface, or asserts a color, states its
+/// lighting; a suite that does neither can follow the host and lose nothing.
+///
+/// BOTH THE MIRROR AND THE STORE, AND THE SECOND IS THE ONE THAT DECIDES. The mirror
+/// (`richos-theme`) is what `theme-boot.js` reads before first paint; the store
+/// (`richos-mock-config`, mock.js's stand-in for config.rs) is what
+/// `syncAppearanceFromBackend` reconciles against a few hundred milliseconds later, and the
+/// BACKEND WINS. Seeding the mirror alone is overwritten by the store's answer mid-walk, and
+/// the walk then measures the store's theme while claiming the seed's — the product behaving
+/// exactly as designed. `contrast.js` found that out the hard way and its note says so.
+///
+/// The store is MERGED, never replaced: several suites drive `richos-mock-config` for their
+/// own reasons, and a seed that flattened `user_name` or `font_scale` on the way past would
+/// be a second, silent change of state wearing a theme's clothes.
+const SEED_THEME = (theme) => {
+  try {
+    window.localStorage.setItem("richos-theme", theme);
+    let prev = {};
+    try {
+      prev = JSON.parse(window.localStorage.getItem("richos-mock-config")) || {};
+    } catch (e) {
+      prev = {};
+    }
+    prev.theme = theme;
+    if (prev.font_scale === undefined) prev.font_scale = 100;
+    if (prev.user_name === undefined) prev.user_name = null;
+    window.localStorage.setItem("richos-mock-config", JSON.stringify(prev));
+  } catch (e) {
+    /* storage unavailable: the §63 default applies, and the shot will say so honestly */
+  }
+};
+
 const HOLD_CURTAIN = () => {
   let real;
   // `armedAt` is the page's own clock at the instant the ceiling would have been armed, which
@@ -1014,6 +1062,7 @@ module.exports = {
   settleOnThread,
   assertOnThread,
   SLOW_BRIDGE,
+  SEED_THEME,
   HOLD_CURTAIN,
   assertCurtainHeld,
   skipSuite,
