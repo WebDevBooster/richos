@@ -25,6 +25,13 @@
   // namespace, and never the mirror's keys: this is the STORE, not the cache of it.
   // THE PHONE CHANNEL'S HARNESS STATE. Six words from the same list the Mac and the phone both
   // use, so a browser walk shows what he would actually read rather than lorem.
+  // **THE PAIRING WINDOW, AND IT IS THE MAC'S NUMBER.** `src-tauri/src/phone/mod.rs`'s
+  // `PAIRING_WINDOW_MS`. It was sixty seconds and it is five minutes: Ray's candidate .11 defect
+  // 3.3 measured the errand this screen asks for — read it, walk to the phone, unlock it, open
+  // the camera — against sixty seconds and the code was gone. A harness that modeled a different
+  // window would draw a countdown the product never shows, so `ui/tests/phone.js` check 8c reads
+  // the constant out of the Rust and asserts this line matches it.
+  const PAIRING_WINDOW_MS = 300000;
   const mockPhone = {
     paired: window.__RICHOS_MOCK_PRESET__?.phonePaired === true,
     pairing:
@@ -33,7 +40,10 @@
     // A FOURTH STATE, and it is the one a real person meets most often: he opened the screen,
     // went to find his phone, and came back after the sixty seconds were up. Reaching it by
     // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
-    openedAt: window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true ? now() - 61000 : now(),
+    openedAt:
+      window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true
+        ? now() - (PAIRING_WINDOW_MS + 1000)
+        : now(),
     // THE RECORDED PATH AND PLATFORM (`device.rs`: `paired_via`, `platform`). The default is
     // the home path on an iPhone, which is what this harness has always modeled; the presets
     // are how the other three combinations — and the legacy record that recorded neither — are
@@ -73,7 +83,7 @@
   }
   function phoneStatusOf() {
     const elapsed = now() - mockPhone.openedAt;
-    const secondsLeft = Math.max(0, Math.ceil((60000 - elapsed) / 1000));
+    const secondsLeft = Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
     const open = mockPhone.pairing && !mockPhone.paired && secondsLeft > 0;
     return {
       listening: mockPhone.paired || mockPhone.pairing,

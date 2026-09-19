@@ -152,6 +152,15 @@
 
       <p class="overlay-note" id="phone-bound"></p>
       <p class="overlay-note" id="phone-message" role="status"></p>
+      <!-- WHAT HAPPENS WHEN THE CODE RUNS OUT, ON THE SCREEN IT RAN OUT ON. It used to happen
+           in silence: the Mac dropped the window, the next poll returned no code, and the
+           dialog fell back to an earlier screen with the QR, the code and the six words simply
+           gone. Ray's candidate .11 defect 3.3 — "he comes back to a screen that looks like he
+           imagined the whole thing". The screen stays; the code is replaced by this. -->
+      <div id="phone-expired" hidden>
+        <h3 class="phone-step-title">That code ran out</h3>
+        <p class="overlay-note" id="phone-expired-note" role="status"></p>
+      </div>
       <div class="desk-card-actions">
         <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button">Show me another code</button>
       </div>
@@ -418,6 +427,13 @@
     "cannot tell you whether it has a certificate on it to remove. Pair it again and I will be " +
     "able to.";
 
+  /// **WHAT AN EXPIRED CODE SAYS**, on the screen it expired on. It names what happened, says
+  /// the codes are meant to run out, and points at the button beside it — so the one thing he
+  /// does next is the one control on the screen. Before this he was shown nothing at all.
+  const EXPIRED_NOTE =
+    "Pairing codes run out on purpose, so one left on a screen cannot be used later. Nothing " +
+    "is wrong and nothing was lost. Press Show me another code and a fresh one appears here.";
+
   /// **The one line that is true only of the Tailscale path.** Same source as the note above,
   /// for the same reason: it was keyed off `route` and vanished on a reopen.
   const PAIRED_TAILNET_LIMIT =
@@ -601,7 +617,26 @@
   WAITING["other-user"] = WAITING["needs-sign-in"];
 
   function render(status) {
-    const pairing = !!status.pairUrl;
+    const live = !!status.pairUrl;
+    // **A CODE THAT RAN OUT IS A STATE OF THIS SCREEN, NOT A REASON TO LEAVE IT.**
+    //
+    // Ray's candidate .11 defect 3.3: the Mac dropped the window, the next poll came back with
+    // no `pairUrl`, and the dialog fell back to an earlier screen with the QR, the code and the
+    // six words gone and nothing said. *"He reads the screen, walks to get his phone, unlocks
+    // it, opens the camera — and comes back to a screen that looks like he imagined the whole
+    // thing."*
+    //
+    // **`listening` IS THE EVIDENCE, and it is the Mac's rather than this sheet's.** The socket
+    // comes up only inside `phone_begin_pairing` for an unpaired Mac (`mod.rs`'s `start`, and
+    // `resume_if_paired` returns early unless something is paired), and it stays up after the
+    // window closes. So a Mac that is serving, has nothing paired and has no live code is a Mac
+    // whose code ran out — no matter how long ago, and no matter how many times this sheet has
+    // been closed and reopened since. A flag in this file would have forgotten it on the open,
+    // which is the same mistake defect 3.2 was.
+    const expired = !live && !status.paired && !!status.listening;
+    // Everything downstream that used to mean "a window is open" now means "the pairing screen
+    // is the screen", because it is, in both states.
+    const pairing = live || expired;
     const tailnet = status.tailnet || { state: "absent" };
     const onTailscale = route === "anywhere";
 
@@ -703,22 +738,31 @@
     }
 
     if (!pairing) {
-      field("phone-off-message").textContent = status.listening
-        ? "Nearly there. Ask for a code and point your phone's camera at it."
-        : "I will make a certificate for your phone, then show you two codes to scan. It takes a few minutes, once, ever.";
+      // ONE MESSAGE, BECAUSE THERE IS NOW ONE STATE HERE. This used to branch on
+      // `status.listening` and say "Nearly there. Ask for a code…" for a serving Mac with no
+      // live code — which is precisely the expired state, and it is now drawn above with the
+      // reason and the button rather than as a sentence on a screen he was thrown back to.
+      // `pairing` is true whenever `listening && !paired`, so that branch is unreachable from
+      // here: this block is a Mac that has never been asked for a code.
+      field("phone-off-message").textContent =
+        "I will make a certificate for your phone, then show you two codes to scan. It takes a few minutes, once, ever.";
       return;
     }
 
     // SCREEN 5 versus the shipped home flow. The trust code, the two warnings and the sixteen
     // steps belong to the home path and are absent here rather than hidden behind a smaller font.
-    field("phone-ts-steps").hidden = !onTailscale;
-    field("phone-home-warnings").hidden = onTailscale;
-    field("phone-ts-failure").hidden = !onTailscale;
-    field("phone-ts-store").textContent = onTailscale
+    // **AN EXPIRED SCREEN IS THE EXPIRY AND THE WAY OUT, AND NOTHING ELSE.** The instructions
+    // belong with a live code: warnings about a red word he is not about to meet, and steps
+    // pointing at a QR that is not on the screen, are a screen asking him to do a thing that is
+    // not there. They all come back with the next code.
+    field("phone-ts-steps").hidden = !onTailscale || expired;
+    field("phone-home-warnings").hidden = onTailscale || expired;
+    field("phone-ts-failure").hidden = !onTailscale || expired;
+    field("phone-ts-store").textContent = onTailscale && !expired
       ? "iPhone: " + LINKS.phone + "      Android: " + LINKS.android
       : "";
 
-    if (onTailscale) {
+    if (onTailscale && !expired) {
       // THE WHY COMES BEFORE THE STEPS, AND IT NAMES THE ACCOUNT (§61.1 (c)). The reason is given
       // before the instruction because it is asking the user to break a habit: *"I would normally
       // absolutely NEVER use the same identity on the Mac and on the phone."* A person who
@@ -754,15 +798,44 @@
       ? "Check the six words match"
       : "3. Check the six words match";
 
-    paint(field("phone-qr-trust"), onTailscale ? "" : status.trustUrl);
-    paint(field("phone-qr-pair"), status.pairUrl);
-    field("phone-trust-url").textContent = onTailscale ? "" : status.trustUrl || "";
-    field("phone-pair-url").textContent = status.pairUrl || "";
-    field("phone-words").textContent = (status.fingerprintWords || []).join("  ");
-    field("phone-bound").textContent = status.bound && status.bound.length
-      ? "This Mac is answering on " + status.bound.join(", ") + "."
-      : "";
-    tick(status.pairingSecondsLeft);
+    // **THE CODE, OR THE FACT THAT IT RAN OUT — never neither, and never a screen that just
+    // went blank.** Defect 3.3. Everything that IS the code is drawn only while there is one;
+    // when it has run out the same screen carries the reason and the button that replaces it.
+    paint(field("phone-qr-trust"), live && !onTailscale ? status.trustUrl : "");
+    paint(field("phone-qr-pair"), live ? status.pairUrl : "");
+    field("phone-trust-url").textContent = live && !onTailscale ? status.trustUrl || "" : "";
+    field("phone-pair-url").textContent = live ? status.pairUrl || "" : "";
+    field("phone-words").textContent = live ? (status.fingerprintWords || []).join("  ") : "";
+    field("phone-bound").textContent =
+      live && status.bound && status.bound.length
+        ? "This Mac is answering on " + status.bound.join(", ") + "."
+        : "";
+    // The headings above those blocks go with them: a numbered step over an empty space is a
+    // screen telling him to do something that is not there.
+    field("phone-code-title").hidden = !live;
+    field("phone-words-title").hidden = !live;
+    field("phone-expired").hidden = !expired;
+    if (expired) {
+      field("phone-expired-note").textContent = EXPIRED_NOTE;
+      // One label, in both states, because it is the same act: ask the Mac for a code. It reads
+      // "Show me another code" and that is true of a first code after an expiry too.
+      field("phone-countdown").textContent = "";
+    }
+    tick(live ? status.pairingSecondsLeft : null);
+  }
+
+  /// **How long is left, in the units a person would say it in.**
+  ///
+  /// The window is five minutes now (`PAIRING_WINDOW_MS`), and "This code lasts 287 more
+  /// seconds." is a number nobody converts. Minutes while there are minutes, seconds under one
+  /// minute — and the last minute is where the seconds start to matter, which is the only place
+  /// they are shown.
+  function remaining(seconds) {
+    if (seconds < 60) {
+      return seconds + (seconds === 1 ? " more second" : " more seconds");
+    }
+    const minutes = Math.ceil(seconds / 60);
+    return minutes + (minutes === 1 ? " more minute" : " more minutes");
   }
 
   /// The countdown, which is the one thing on this screen that has to be honest by the second: a
@@ -776,10 +849,11 @@
     const paintCountdown = () => {
       const label = field("phone-countdown");
       if (left > 0) {
-        label.textContent =
-          "This code lasts " + left + (left === 1 ? " more second." : " more seconds.");
+        label.textContent = "This code lasts " + remaining(left) + ".";
       } else {
-        label.textContent = "That code has expired. Ask for another one.";
+        // The last second of the countdown, and then the expiry block below takes over on the
+        // next poll. Both say it; neither leaves the screen.
+        label.textContent = "That code has run out. Ask for another one.";
         if (ticker) {
           window.clearInterval(ticker);
           ticker = null;
@@ -791,6 +865,13 @@
       ticker = window.setInterval(() => {
         left -= 1;
         paintCountdown();
+        // **AND THE SCREEN REDRAWS ITSELF AT ZERO, ON EVERY PATH.** The poll only runs on the
+        // Tailscale route, so on the home route nothing would ever have asked the Mac again and
+        // the expiry block would never have appeared — the countdown would have hit zero and
+        // the screen would have sat there. One refresh, from inside the interval that has just
+        // been cleared, so it cannot recur: the render that follows calls `tick(null)`, which
+        // starts no interval.
+        if (left <= 0) refresh();
       }, 1000);
     }
   }

@@ -69,8 +69,40 @@ pub const TRUST_PORT: u16 = 8444;
 /// argument for it.
 pub const MAX_BODY_BYTES: usize = 65536;
 
-/// How long a pairing window stays open. Plan §4.1: *"a 60-second one-shot pairing code"*.
-pub const PAIRING_WINDOW_MS: u64 = 60_000;
+/// **How long a pairing window stays open. FIVE MINUTES, and it was sixty seconds.**
+///
+/// Plan §4.1 said *"a 60-second one-shot pairing code"*, and sixty seconds is not enough time
+/// for the errand this screen asks for. Ray's candidate .11 walk, defect 3.3: he read the
+/// screen, went to get his phone, unlocked it, opened the camera, and came back to a dialog
+/// that had dropped back to "This Mac is ready" with the code, the QR and the six words gone
+/// and nothing said. *"Sixty seconds is not enough time for the task the screen is asking him
+/// to do."*
+///
+/// **THE SECURITY COST OF THE LONGER WINDOW, COMPUTED RATHER THAN WAVED AT.**
+///
+/// The code is `device::CODE_LENGTH` = 8 characters from a 30-character alphabet:
+/// `30^8 = 656,100,000,000` codes.
+///
+/// **A guess costs the attacker the window.** `DeviceDesk::complete_pairing` does
+/// `state.pairing.take()` BEFORE it compares, so a wrong code closes the window — one guess per
+/// window, and the window is only ever opened by the user pressing a button on this Mac. So the
+/// chance of an unpaired caller on the network pairing itself is `1 / 6.561e11` per window he
+/// opens, which is `1.5e-12`, and it is the SAME number at sixty seconds and at five minutes:
+/// the duration does not appear in it. That is what makes this change cheap, and it is a
+/// property of the one-shot window rather than of the length.
+///
+/// What the extra 240 seconds does buy an attacker is exposure: four more minutes in which
+/// `/api/pair` will answer an unauthenticated POST at all, and four more minutes of a QR on a
+/// screen. Both are bounded by the rate limit (`device::RATE_LIMIT`, 60 requests a minute) and
+/// by the single-guess property above.
+///
+/// **AND IT MOVES ONE OTHER PIECE OF FRAME MATH, named because it was written down.**
+/// `ui/phone.js`'s `PHONE_JOIN_GRACE_MS` is 60 s and its comment records that the phone step's
+/// mismatch sentence *"could never be reached at all"* — the grace fell due exactly as the
+/// window expired. At 300 s the grace now falls due 240 s INSIDE the window, so that sentence
+/// becomes reachable on the pairing screen as well as on the ready screen. That is an
+/// improvement, and it is a change to a stated invariant rather than a side effect nobody saw.
+pub const PAIRING_WINDOW_MS: u64 = 300_000;
 
 /// **How much life a tailnet certificate must have left before this Mac asks for a new one.**
 ///

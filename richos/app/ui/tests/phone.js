@@ -27,6 +27,7 @@
 
 "use strict";
 
+const fs = require("fs");
 const path = require("path");
 const {
   bootSettled,
@@ -359,31 +360,104 @@ async function openSheet(browser, theme, preset) {
     const pairVisible = await live.isVisible("#phone-qr-pair");
     await live.close();
     assert(
-      /lasts \d+ more seconds?\./.test(countdown),
+      // Minutes while there are minutes, seconds in the last one — the window is 300 s now and
+      // "This code lasts 287 more seconds." is a number nobody converts.
+      /lasts \d+ more (seconds?|minutes?)\./.test(countdown),
       "a live code does not say how long is left: " + JSON.stringify(countdown)
     );
     assert(pairVisible, "a live code is not on screen");
 
+    // **DEFECT 3.3 — AN EXPIRED CODE IS ANNOUNCED WHERE IT EXPIRED, NEVER A SILENT RESET.**
+    //
+    // What Ray met: the code, the QR and the six words vanished with no message at all and the
+    // dialog dropped back to "This Mac is ready". *"He comes back to a screen that looks like
+    // he imagined the whole thing."*
     const expired = await openSheet(browser, "dark", { phonePairingExpired: true });
-    const shown = await expired.evaluate(() => ({
-      pairingVisible: !document.getElementById("phone-pairing").hidden,
-      offVisible: !document.getElementById("phone-off").hidden,
-      offMessage: document.getElementById("phone-off-message").textContent.trim(),
-      canAskAgain: !document.getElementById("phone-start").disabled,
-    }));
+    const shown = await expired.evaluate(() => {
+      const visible = (id) => {
+        const node = document.getElementById(id);
+        return !!node && node.offsetParent !== null;
+      };
+      return {
+        pairingScreen: visible("phone-pairing"),
+        expiredBlock: visible("phone-expired"),
+        expiredHeading: (document.querySelector("#phone-expired h3") || {}).textContent || "",
+        expiredNote: (document.getElementById("phone-expired-note") || {}).textContent || "",
+        qrShown: visible("phone-qr-pair"),
+        codeShown: (document.getElementById("phone-pair-url").textContent || "").trim(),
+        wordsShown: (document.getElementById("phone-words").textContent || "").trim(),
+        // The one control the screen is about, and it must be pressable where he is standing.
+        newCode: visible("phone-refresh") && !document.getElementById("phone-refresh").disabled,
+        newCodeLabel: document.getElementById("phone-refresh").textContent.trim(),
+        // The screens he must NOT have been thrown back to.
+        readyScreen: visible("phone-ts-ready"),
+        routeScreen: visible("phone-route"),
+        offScreen: visible("phone-off"),
+      };
+    });
     await expired.close();
     assert(
-      !shown.pairingVisible,
-      "an expired window still shows a code, so he scans one that cannot work"
+      !shown.qrShown && !shown.codeShown && !shown.wordsShown,
+      "an expired window still shows a code, so he scans one that cannot work: " + JSON.stringify(shown)
     );
-    assert(shown.offVisible && shown.canAskAgain, JSON.stringify(shown));
     assert(
-      /ask for a code/i.test(shown.offMessage),
-      "he is not told how to get another code: " + JSON.stringify(shown.offMessage)
+      shown.pairingScreen && shown.expiredBlock,
+      "the expiry is not announced on the screen it happened on — this is the silent reset: " +
+        JSON.stringify(shown)
+    );
+    assert(
+      !shown.readyScreen && !shown.routeScreen && !shown.offScreen,
+      "an expired code threw him back to an earlier screen: " + JSON.stringify(shown)
+    );
+    assert(
+      /ran out/i.test(shown.expiredHeading) && /Show me another code/.test(shown.expiredNote),
+      "the expiry does not say what happened and point at the way on: " +
+        JSON.stringify(shown.expiredHeading + " / " + shown.expiredNote)
+    );
+    assert(
+      shown.newCode && /another code/i.test(shown.newCodeLabel),
+      "a new code is not offered in its place: " + JSON.stringify(shown)
     );
     return (
-      "a live code says " + JSON.stringify(countdown) + "; an expired one shows no code at all and " +
-      "says " + JSON.stringify(shown.offMessage)
+      "a live code says " + JSON.stringify(countdown) + "; an expired one stays on the same " +
+      "screen, shows no code, says " + JSON.stringify(shown.expiredHeading.trim()) + " and " +
+      "offers " + JSON.stringify(shown.newCodeLabel)
+    );
+  });
+
+  // ---- 8c. the harness's window is the Mac's window -----------------------------------------
+
+  await run.check("8c  the window the harness models is the window the Mac serves", async () => {
+    // `PAIRING_WINDOW_MS` went from 60 s to 300 s for defect 3.3. The mock models the countdown
+    // itself, so a mock left at 60 s would draw a countdown the product never shows and every
+    // check above it would be measuring a screen that does not ship. This is one grep against
+    // the Rust rather than a second copy of the number.
+    const modRs = fs.readFileSync(
+      path.resolve(UI_DIR, "..", "src-tauri", "src", "phone", "mod.rs"),
+      "utf8"
+    );
+    const rust = /pub const PAIRING_WINDOW_MS: u64 = ([\d_]+);/.exec(modRs);
+    assert(rust, "PAIRING_WINDOW_MS is not declared in src-tauri/src/phone/mod.rs any more");
+    const mockJs = fs.readFileSync(path.join(UI_DIR, "mock.js"), "utf8");
+    const mock = /const PAIRING_WINDOW_MS = (\d+);/.exec(mockJs);
+    assert(mock, "ui/mock.js no longer declares the window it models");
+    const rustMs = Number(rust[1].replace(/_/g, ""));
+    assertEqual(
+      Number(mock[1]),
+      rustMs,
+      "the harness models a different pairing window than the Mac serves"
+    );
+    assert(
+      rustMs >= 180000,
+      "the window is " + rustMs / 1000 + " s. Defect 3.3 is that sixty seconds is not enough " +
+        "time to read the screen, walk to the phone, unlock it and open the camera — a window " +
+        "under three minutes puts that defect back"
+    );
+    return (
+      "PAIRING_WINDOW_MS is " + rustMs / 1000 + " s in phone/mod.rs and " + Number(mock[1]) / 1000 +
+      " s in ui/mock.js. One guess per window (complete_pairing takes the window before it " +
+      "compares), 30^8 = 656,100,000,000 codes, so the chance per window is 1.5e-12 at either " +
+      "length — the duration is not in that number."
     );
   });
 
