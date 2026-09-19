@@ -54,21 +54,23 @@ pub struct LocalNames {
 }
 
 impl LocalNames {
-    /// The certificate's display name, and the name he will see in
-    /// Settings → General → VPN & Device Management: **"RichOS on MM1"** (plan §2.1).
+    /// The certificate's display name: **"RichOS on MM1"** (plan §2.1). It used to be the
+    /// name he read off his phone after installing a profile; nothing installs one now
+    /// (CEO §61), so it is what a person sees if they ever inspect the certificate itself.
     pub fn display_name(&self) -> String {
         format!("RichOS on {}", self.host)
     }
 
-    /// The origin, whole, as the phone will hold it: `https://mm1.local:8443`.
-    pub fn origin(&self) -> String {
-        format!("https://{}:{}", self.bonjour, super::HTTPS_PORT)
-    }
-
-    /// The trust endpoint the first QR code points at: `http://mm1.local:8444/ca`.
-    pub fn trust_url(&self) -> String {
-        format!("http://{}:{}/ca", self.bonjour, super::TRUST_PORT)
-    }
+    // THE LOCAL-NETWORK ORIGIN IS GONE — CEO §61, 2026-09-19. `origin()` built
+    // `https://<bonjour>:8443`, the address the pairing code went out under before the Tailscale
+    // path existed and the fallback `start` swapped in when the tailnet addresses would not
+    // bind. The origin the phone holds is `tailnet::TailnetState::origin` and nothing else, so
+    // this had no caller left but its own test — and a helper kept alive by its own test is the
+    // shape a removed path comes back through.
+    //
+    // The name it was built from is still here, because the LEAF is: `bonjour` is the DNS name
+    // in `san_list`, and that certificate is what this listener presents to anything that
+    // reaches a bound socket without asking for the tailnet name.
 
     /// Everything the leaf certificate must cover, in the order the extension file wants
     /// them: the DNS name first, then each address.
@@ -209,8 +211,6 @@ awdl0: flags=8822<BROADCAST,SMART,SIMPLEX,MULTICAST> mtu 1500
             bonjour: "mm1.local".into(),
             addresses: vec![IpAddr::V4(Ipv4Addr::new(192, 168, 1, 249))],
         };
-        assert_eq!(names.origin(), "https://mm1.local:8443");
-        assert_eq!(names.trust_url(), "http://mm1.local:8444/ca");
         assert_eq!(names.display_name(), "RichOS on MM1");
         assert_eq!(names.san_list(), vec!["DNS:mm1.local", "IP:192.168.1.249"]);
     }

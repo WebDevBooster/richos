@@ -10,16 +10,21 @@
 //! > subscription and the cache — and no push can fix that, because the push is *delivered to*
 //! > the origin it is trying to replace."*
 //!
-//! So: the origin is `https://<name>.local:8443` forever, and the **API base** is one stored
-//! value the phone reads before every request. It arrives in the pair response, in every
+//! So: the origin is fixed for the life of an installed phone app, and the **API base** is one
+//! stored value the phone reads before every request. It arrives in the pair response, in every
 //! snapshot, in an `api-base` event when it changes, and in every push payload.
 //!
-//! # One provider in this slice, and that is the point
+//! # One provider, and that is the point
 //!
 //! *"v1 should not ship without it **even if it only ever has one provider** — it is what keeps
-//! the phone app from being rewritten twice."* The one provider here is [`Home`], which offers
-//! the origin itself. A router door (§10.2), an IPv6 address (§10.3) or a `ts.net` name (§2.4
-//! option 2) are each a new entry in the ranked list and change nothing on the phone.
+//! the phone app from being rewritten twice."* The one provider here is [`Tailnet`], which
+//! offers the origin the channel came up on. A router door (§10.2) or an IPv6 address (§10.3)
+//! would each be a new entry in the ranked list and change nothing on the phone.
+//!
+//! **It was [`Tailnet`] until CEO §61, 2026-09-19**, and the rename is the seam doing exactly what
+//! it was built for: the provider changed and neither the phone nor any caller of `current()`
+//! noticed. What the phone is told is the origin; the name beside it is for a person reading a
+//! log.
 //!
 //! # The degraded mode is honest for free
 //!
@@ -55,25 +60,25 @@ pub trait AddressProvider: Send + Sync {
 #[serde(rename_all = "camelCase")]
 pub struct Offer {
     pub api_base: String,
-    /// The provider's name — `"home"` in this slice.
+    /// The provider's name — `"tailnet"` today.
     pub reason: &'static str,
 }
 
 /// The home network: the origin itself. Always available while the listener is up, because it
 /// **is** the listener.
-pub struct Home {
+pub struct Tailnet {
     origin: String,
 }
 
-impl Home {
+impl Tailnet {
     pub fn new(origin: impl Into<String>) -> Self {
-        Home { origin: origin.into() }
+        Tailnet { origin: origin.into() }
     }
 }
 
-impl AddressProvider for Home {
+impl AddressProvider for Tailnet {
     fn name(&self) -> &'static str {
-        "home"
+        "tailnet"
     }
     fn offer(&self) -> Option<String> {
         Some(self.origin.clone())
@@ -126,7 +131,7 @@ pub struct ApiBaseDesk {
 }
 
 impl ApiBaseDesk {
-    /// The general constructor. This slice calls `home_only`; slice D's router door is the first
+    /// The general constructor. This slice calls `only`; slice D's router door is the first
     /// caller with a list — see the note on [`AddressProvider`] for why it is built now.
     #[allow(dead_code)]
     pub fn new(providers: Vec<Box<dyn AddressProvider>>) -> Self {
@@ -134,8 +139,8 @@ impl ApiBaseDesk {
     }
 
     /// The one provider used in this slice.
-    pub fn home_only(origin: impl Into<String>) -> Self {
-        ApiBaseDesk::new(vec![Box::new(Home::new(origin))])
+    pub fn only(origin: impl Into<String>) -> Self {
+        ApiBaseDesk::new(vec![Box::new(Tailnet::new(origin))])
     }
 
     /// The best address the Mac can currently offer, or `None`.
@@ -187,12 +192,12 @@ mod tests {
 
     #[test]
     fn the_one_provider_in_this_slice_offers_the_origin_itself() {
-        let desk = ApiBaseDesk::home_only("https://mm1.local:8443");
+        let desk = ApiBaseDesk::only("https://mm1.tail9a3b2.ts.net:8443");
         assert_eq!(
             desk.current(),
-            Some(Offer { api_base: "https://mm1.local:8443".into(), reason: "home" })
+            Some(Offer { api_base: "https://mm1.tail9a3b2.ts.net:8443".into(), reason: "tailnet" })
         );
-        assert_eq!(desk.ranking(), vec!["home"]);
+        assert_eq!(desk.ranking(), vec!["tailnet"]);
     }
 
     #[test]
@@ -201,14 +206,14 @@ mod tests {
         // somewhere else, the two could disagree.
         let desk = ApiBaseDesk::new(vec![
             Box::new(Unreachable::new("ipv6")),
-            Box::new(Home::new("https://mm1.local:8443")),
+            Box::new(Tailnet::new("https://mm1.tail9a3b2.ts.net:8443")),
         ]);
-        assert_eq!(desk.ranking(), vec!["ipv6", "home"]);
-        assert_eq!(desk.current().unwrap().reason, "home");
+        assert_eq!(desk.ranking(), vec!["ipv6", "tailnet"]);
+        assert_eq!(desk.current().unwrap().reason, "tailnet");
 
         let better = ApiBaseDesk::new(vec![
-            Box::new(Home::new("https://first.example")),
-            Box::new(Home::new("https://second.example")),
+            Box::new(Tailnet::new("https://first.example")),
+            Box::new(Tailnet::new("https://second.example")),
         ]);
         assert_eq!(better.current().unwrap().api_base, "https://first.example");
     }
@@ -227,7 +232,7 @@ mod tests {
         // above is about the providers and not about the desk being inert.
         let with_home = ApiBaseDesk::new(vec![
             Box::new(Unreachable::new("door")),
-            Box::new(Home::new("https://mm1.local:8443")),
+            Box::new(Tailnet::new("https://mm1.tail9a3b2.ts.net:8443")),
         ]);
         assert!(with_home.current().is_some());
     }
@@ -236,10 +241,10 @@ mod tests {
     fn a_change_is_reported_once_and_an_unchanged_answer_is_reported_never() {
         // This is what keeps the `api-base` event off a timer, which plan §6 forbids: the
         // event fires on a change and on nothing else.
-        let desk = ApiBaseDesk::home_only("https://mm1.local:8443");
+        let desk = ApiBaseDesk::only("https://mm1.tail9a3b2.ts.net:8443");
         assert_eq!(
             desk.take_change(),
-            ApiBaseChange::Moved(Offer { api_base: "https://mm1.local:8443".into(), reason: "home" })
+            ApiBaseChange::Moved(Offer { api_base: "https://mm1.tail9a3b2.ts.net:8443".into(), reason: "tailnet" })
         );
         assert_eq!(desk.take_change(), ApiBaseChange::Unchanged, "an unchanged answer was reported");
         assert_eq!(desk.take_change(), ApiBaseChange::Unchanged);
@@ -250,8 +255,8 @@ mod tests {
         // THE REASON `take_change` RETURNS THREE THINGS. Going from reachable to unreachable
         // has to reach the phone, or it keeps posting into nothing instead of showing its
         // queued state. An `Option` return could not say this at all.
-        let gone = ApiBaseDesk::new(vec![Box::new(Unreachable::new("home"))]);
-        gone.mark_told(Some(Offer { api_base: "https://mm1.local:8443".into(), reason: "home" }));
+        let gone = ApiBaseDesk::new(vec![Box::new(Unreachable::new("gone"))]);
+        gone.mark_told(Some(Offer { api_base: "https://mm1.tail9a3b2.ts.net:8443".into(), reason: "tailnet" }));
         assert_eq!(gone.take_change(), ApiBaseChange::Lost);
         // And it is reported once, not on every poll.
         assert_eq!(gone.take_change(), ApiBaseChange::Unchanged);
@@ -261,7 +266,7 @@ mod tests {
     fn what_the_phone_was_told_can_be_recorded_without_being_a_change() {
         // The value rides on the pair response and on every snapshot, so recording it there
         // must not make the next `take_change` fire for something the phone already has.
-        let desk = ApiBaseDesk::home_only("https://mm1.local:8443");
+        let desk = ApiBaseDesk::only("https://mm1.tail9a3b2.ts.net:8443");
         desk.mark_told(desk.current());
         assert_eq!(desk.take_change(), ApiBaseChange::Unchanged);
     }
@@ -269,12 +274,12 @@ mod tests {
     #[test]
     fn the_offer_serializes_as_the_two_fields_the_contract_names() {
         let json = serde_json::to_value(Offer {
-            api_base: "https://mm1.local:8443".into(),
-            reason: "home",
+            api_base: "https://mm1.tail9a3b2.ts.net:8443".into(),
+            reason: "tailnet",
         })
         .unwrap();
-        assert_eq!(json["apiBase"], "https://mm1.local:8443");
-        assert_eq!(json["reason"], "home");
+        assert_eq!(json["apiBase"], "https://mm1.tail9a3b2.ts.net:8443");
+        assert_eq!(json["reason"], "tailnet");
         assert_eq!(json.as_object().unwrap().len(), 2);
     }
 }

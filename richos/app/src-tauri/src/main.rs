@@ -703,24 +703,21 @@ fn phone_status(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::P
 /// binds the socket — which is why it can fail in ways he needs to read, and why the error is a
 /// sentence rather than a code.
 ///
-/// **`route` IS THE USER'S ANSWER TO "WHERE DO YOU WANT TO USE IT?", AND THIS COMMAND USED TO
-/// TAKE NO ARGUMENT AT ALL** — Urban's N1 blocker, signoff 2026-09-19 10.40. The sheet asked the
-/// question, the answer never crossed this bridge, and `serving_plan` then preferred the tailnet
-/// on every Mac that had one: pressing `Set my phone up` under `At home only` produced the
-/// Tailscale screen, an account to make and a `…ts.net` URL. See [`phone::Route`].
+/// **IT TAKES NO ARGUMENT, AND THAT IS A RETURN RATHER THAN A REGRESSION** (CEO §61,
+/// 2026-09-18). For one day it carried `route`, the user's answer to *"Where do you want to use
+/// it?"* — Urban's N1 blocker, signoff 2026-09-19 10.40, where the sheet asked the question and
+/// the answer never crossed this bridge. §61 removes the question: *"any mobile app or PWA is
+/// utterly useless within the home network … The Tailscale setup is where we start now."*
 ///
-/// It is `Option<String>` rather than a deserialized enum because the sheet legitimately has no
-/// answer to send in two states — before a choice, and after a reopen, where the route is
-/// forgotten by design and the running channel already holds the decision. `Route::from_token`
-/// turns anything that is not one of the two tokens into `Unstated`, so a spelling mistake in the
-/// webview can never become a refusal the user reads as "the phone channel could not start".
+/// **What CAN fail here is new.** A Mac that Tailscale will not certify used to be served the
+/// other path silently; there is no other path, so `phone::PhoneError::TailnetNotReady` comes
+/// back and the sentence below is what he reads.
 #[tauri::command(async)]
 fn phone_begin_pairing(
     app: AppHandle,
-    route: Option<String>,
     runtime: State<std::sync::Arc<phone::PhoneRuntime>>,
 ) -> Result<phone::PhoneStatus, String> {
-    runtime.begin_pairing(app, phone::Route::from_token(route.as_deref())).map_err(|e| {
+    runtime.begin_pairing(app).map_err(|e| {
         // THE DETAIL GOES TO THE LOG AND THE SENTENCE GOES TO HIM. `Display` says what failed
         // and is the right thing for whoever can act on it; `ceo_sentence` is what he reads.
         eprintln!("[richos] the phone channel could not start: {e}");
@@ -728,12 +725,13 @@ fn phone_begin_pairing(
     })
 }
 
-/// **"Pick a different way", pressed while a code is live** — Urban's G2.
+/// **"Stop and go back", pressed while a code is live** — Urban's G2, under the name it took
+/// when CEO §61 removed the chooser it used to point at.
 ///
 /// Closes the open pairing window and, unless a phone is already paired, stops serving. It
 /// cannot fail in a way he can act on — there is no key to mint and no port to bind, only
 /// things to put down — so it returns the status rather than a `Result`, and the screen it
-/// returns to is the route chooser.
+/// returns to is `This Mac is ready`.
 #[tauri::command(async)]
 fn phone_stop_pairing(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::PhoneStatus {
     runtime.stop_pairing()
