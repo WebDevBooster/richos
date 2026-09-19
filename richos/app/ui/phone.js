@@ -74,15 +74,17 @@
       <h3 class="phone-step-title" id="phone-device-name"></h3>
       <!-- THE MAC DOES NOT SETTLE A QUESTION THE PERSON HAS NOT ANSWERED YET. This line was the
            fixed string "It is paired. Open Rich on it and keep talking." and it was on screen
-           while the phone, beside it, was still asking `They match — pair this phone` /
-           `They do not match` (Ray's nightly .7, defect 2, his frame 13). The six words exist so
+           while the phone, beside it, was still asking "They match — pair this phone" /
+           "They do not match" (Ray's nightly .7, defect 2, his frame 13). The six words exist so
            a person can detect that something other than his Mac answered; a Mac that announces
            the answer first teaches him the check is ceremonial. It is filled from
            status.fingerprintConfirmed — the Mac's own record, never anything this sheet
-           remembers. -->
+           remembers.
+           NO BACKTICK IN THIS FILE'S MARKUP, EVER: it is one template literal, so a backtick in
+           a comment ends the string and takes the whole sheet with it. -->
       <p class="overlay-note" id="phone-paired-state"></p>
       <!-- AND THE WORDS THEMSELVES, WHILE HE IS BEING ASKED ABOUT THEM. The pairing screen that
-           carries them is hidden the instant `paired` flips, which is the same instant the phone
+           carries them is hidden the instant "paired" flips, which is the same instant the phone
            starts asking him to compare — so the Mac took its half of the comparison off the
            screen at exactly the moment he needed it. They go away once he has answered: a
            fingerprint nobody is checking is chrome. -->
