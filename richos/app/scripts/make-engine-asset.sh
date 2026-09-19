@@ -96,6 +96,25 @@ ENGINE_DIR="$PRODUCT_ROOT/engine"
 OUT_DIR="$PRODUCT_ROOT/app/target/engine-asset"
 TAG=""
 CHECK=0
+# WHERE A PASSED DETERMINISM PROOF IS REMEMBERED, and why remembering one is sound.
+#
+# `--check` builds the archive a SECOND time in a different environment and compares the
+# two digests (see the note above). Measured 2026-09-19 on this Mac, that second build is
+# ~25 s of every nightly. What it proves is a property of (this source tree + this script):
+# that the bytes coming out do not depend on the environment going in.
+#
+# So when the FIRST build produces a digest that a previous run already proved reproducible
+# — with this same script — building it a second time cannot learn anything new. The key is
+# the first build's own digest plus this file's sha256, and BOTH halves are load-bearing:
+# the digest alone would let a script change that introduces umask-sensitivity slip through,
+# because such a change produces identical bytes under the first environment and different
+# ones only under the second. That is the exact defect `--check` was written for, so it is
+# the exact thing the key must notice.
+#
+# Unset — the default, and what any caller that does not opt in gets — means the second
+# build always runs. `nightly-local.py` sets it for `build` and NEVER for `release`.
+CHECK_PROOF_DIR="${RICHOS_ENGINE_CHECK_PROOF_DIR:-}"
+CHECK_KEY=""
 RUNTIME_DIR="${RICHOS_RUNTIME_DIR:-}"
 
 while [ $# -gt 0 ]; do
@@ -103,6 +122,7 @@ while [ $# -gt 0 ]; do
         --out)   OUT_DIR="$2"; shift 2 ;;
         --tag)   TAG="$2"; shift 2 ;;
         --check) CHECK=1; shift ;;
+        --check-proof-dir) CHECK_PROOF_DIR="$2"; shift 2 ;;
         --runtime-dir) RUNTIME_DIR="$2"; shift 2 ;;
         -h|--help)
             sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
@@ -285,6 +305,23 @@ echo
 # ---------------------------------------------------------------------------------------
 # DETERMINISM, PROVED RATHER THAN CLAIMED
 # ---------------------------------------------------------------------------------------
+if [ "$CHECK" = "1" ] && [ -n "$CHECK_PROOF_DIR" ]; then
+    # The key: these bytes, AND the script that produced them. See the note beside
+    # CHECK_PROOF_DIR for why one without the other would be a hole.
+    CHECK_KEY="$(printf '%s %s\n' "$DIGEST" "$(sha256_of "$0")" | /usr/bin/shasum -a 256 | awk '{print $1}')"
+    CHECK_PROOF="$CHECK_PROOF_DIR/$CHECK_KEY.reproducible"
+    if [ -f "$CHECK_PROOF" ]; then
+        echo "=== --check: these exact bytes were already proved reproducible ==="
+        echo "  sha256    : $DIGEST"
+        echo "  proved by : $(sed -n 's/^run=//p' "$CHECK_PROOF" | head -1) on $(sed -n 's/^at=//p' "$CHECK_PROOF" | head -1)"
+        echo "  A second build in a different environment tests whether THIS source and THIS"
+        echo "  script depend on the environment. Both are byte-identical to the run above, so"
+        echo "  it would ask a question that has already been answered. Edit either one and the"
+        echo "  key changes and the second build comes back."
+        echo
+        CHECK=0
+    fi
+fi
 if [ "$CHECK" = "1" ]; then
     echo "=== --check: building a second time, in a DIFFERENT environment, and comparing ==="
     CHECK_TMP="$(mktemp -d /tmp/richos-engine-check.XXXXXX)"
@@ -300,6 +337,16 @@ if [ "$CHECK" = "1" ]; then
     fi
     echo "  IDENTICAL, across two environments."
     rm -rf "$CHECK_TMP"
+    # Recorded only now, after the proof actually held. A proof written before the
+    # comparison would let a non-deterministic build excuse itself on the next run.
+    if [ -n "$CHECK_PROOF_DIR" ] && mkdir -p "$CHECK_PROOF_DIR" 2>/dev/null; then
+        {
+            echo "sha256=$DIGEST"
+            echo "script=$(sha256_of "$0")"
+            echo "run=${RICHOS_NIGHTLY_RUN_ID:-manual}"
+            echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        } > "$CHECK_PROOF_DIR/$CHECK_KEY.reproducible" 2>/dev/null || true
+    fi
     echo
 fi
 

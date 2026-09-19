@@ -903,8 +903,16 @@ class Runner:
         # command == "build": stop at the signed, notarized, engine-pinned candidate.
         self.announce(f"Building {info['tag']}...")
         with self.phase("build"):
+            # The engine asset's reproducibility re-build (~25 s, measured 2026-09-19) may
+            # be remembered for a CANDIDATE when the bytes and the build script are both
+            # byte-identical to a run that already proved them. Passed for `build` and
+            # never for `release`, exactly like skip-when-unchanged above: a proof file on
+            # this host may excuse work for a candidate, never for the command that makes
+            # a build installable. See make-engine-asset.sh's CHECK_PROOF_DIR note.
             self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "build",
-                         "--plan", plan_path, "--out", out, credentials=True)
+                         "--plan", plan_path, "--out", out, credentials=True,
+                         env_extra={"RICHOS_ENGINE_CHECK_PROOF_DIR":
+                                    str(self.state / "engine-repro-proofs")})
         candidate_info = json.loads((out / "candidate.json").read_text())["info"]
         self.record_run(self.env["RICHOS_NIGHTLY_RUN_ID"], out)
         self.summary()

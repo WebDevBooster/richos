@@ -399,6 +399,66 @@ else
     bad "L19 extracted voice core runs with the delivered Node runtime" "no delivered Node"
 fi
 
+# ---------------------------------------------------------------------------------------
+# L20–L22 — REMEMBERING A DETERMINISM PROOF, and the two ways that could go wrong
+# ---------------------------------------------------------------------------------------
+# `--check` builds the archive a second time in a different environment: ~25 s of every
+# nightly (measured 2026-09-19). What it proves is a property of (this source + this
+# script), so when the first build's bytes are ones a previous run already proved, the
+# second build cannot learn anything new — and `--check-proof-dir` lets it be remembered.
+#
+# THE DANGEROUS VERSION KEYS ON THE ARCHIVE DIGEST ALONE, and it would be wrong in exactly
+# the way `--check` exists to catch: a script change that makes the output depend on umask
+# produces IDENTICAL bytes under the first environment and different ones only under the
+# second. Keyed on the digest alone, such a change would inherit the old proof and the
+# second build would never run again. So the key is the digest AND this script's own
+# sha256, and L22 is what holds that to account.
+#
+# Run against the synthetic fixture: the real archive takes ~30 s a build and these three
+# cases need four of them.
+PROOFS="$WORK/check-proofs"
+F="$WORK/repro"; make_fixture "$F"
+FSCRIPT="$F/richos/app/scripts/make-engine-asset.sh"
+repro_run() { RICHOS_RUNTIME_DIR= RICHOS_NIGHTLY_RUN_ID="$1" bash "$FSCRIPT" \
+    --out "$F/out-$1" --check --check-proof-dir "$PROOFS" 2>&1; }
+
+OUT="$(repro_run first)"; CODE=$?
+if [ "$CODE" -eq 0 ] && printf '%s' "$OUT" | grep -q 'building a second time'; then
+    ok "L20 the first run with no recorded proof still builds a second time"
+else
+    bad "L20 the first run with no recorded proof still builds a second time" \
+        "exit $CODE — a proof must be EARNED before it can be spent: $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
+fi
+
+OUT="$(repro_run second)"; CODE=$?
+if [ "$CODE" -ne 0 ]; then
+    bad "L21 an already-proved archive does not rebuild" "exit $CODE"
+elif printf '%s' "$OUT" | grep -q 'building a second time'; then
+    bad "L21 an already-proved archive does not rebuild" \
+        "it built again over byte-identical source and an unchanged script"
+elif ! printf '%s' "$OUT" | grep -q 'already proved reproducible'; then
+    bad "L21 an already-proved archive does not rebuild" \
+        "it neither rebuilt nor said why: $(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
+elif ! printf '%s' "$OUT" | grep -q 'proved by : first'; then
+    bad "L21 an already-proved archive does not rebuild" "the skip does not name the run that proved it"
+else
+    ok "L21 an already-proved archive does not rebuild, and the skip names the run that proved it"
+fi
+
+# L22 — THE CASE THE OBVIOUS IMPLEMENTATION FAILS. The script changes; the archive it
+# produces does not. Keyed on the archive alone this would inherit the old proof forever.
+printf '\n# a change that does not move the archive\n' >> "$FSCRIPT"
+fixture_commit "$F"
+OUT="$(repro_run third)"; CODE=$?
+if [ "$CODE" -eq 0 ] && printf '%s' "$OUT" | grep -q 'building a second time'; then
+    ok "L22 editing the script brings the second build back, even though the archive is unchanged"
+else
+    bad "L22 editing the script brings the second build back, even though the archive is unchanged" \
+        "exit $CODE — a proof keyed on the ARCHIVE alone would never notice a script change that \
+makes the output environment-dependent, which is the exact defect --check was written for: \
+$(printf '%s' "$OUT" | tail -2 | tr '\n' ' ')"
+fi
+
 echo ""
 if [ "$FAIL" -gt 0 ]; then
     echo "=== make-engine-asset tests: $FAIL FAILED, $PASS passed ==="
