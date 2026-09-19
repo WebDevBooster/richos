@@ -7416,6 +7416,54 @@ function isOnScreen(node) {
   return true;
 }
 
+/// **PAINTED WHERE IT CLAIMS TO BE — the question `isOnScreen()` above cannot answer.**
+///
+/// `isOnScreen()` walks ancestors for `hidden`, `display` and `visibility`, and has no idea
+/// what is painted over what. A full-screen surface therefore leaves every popup under it
+/// enumerated as open and answerable by a key the CEO is pressing AT THE SURFACE. It has cost
+/// him the same thing three times: the opening curtain over the engine offer (`5bd7d4e5`,
+/// `setup.js` case 19), the home screen over the same offer (`617b4c9e`, `escape.js` B7), and
+/// both were closed where they happened rather than here.
+///
+/// **ASKED OF THE COMPOSITOR, NOT OF THE STACKING RULES.** What is painted at the middle of
+/// this popup's own box? `home.js`'s `popupPaintedOverThisScreen` settled on this derivation
+/// after the obvious one — "computed z-index greater than mine" — read `#set-menu` (no
+/// z-index of its own, painted at 300 by the `.settings` wrapper) as behind the picture and
+/// ate the Escape that closes the most-used menu in the product. `elementFromPoint` needs no
+/// rule about stacking contexts, transforms or inherited z-indexes: those are precisely what
+/// it is asking the browser to have already resolved. ONE sample, at the center, because that
+/// is the point a surface is least likely to be partly covered at.
+///
+/// **ITS BLIND SPOT, NAMED HERE RATHER THAN DISCOVERED LATER.** This is a HIT test, not a
+/// paint. A cover with `pointer-events: none` is invisible to it — and the opening curtain is
+/// exactly that (`.splash`, `splash.css:22`, opaque and click-through for its whole life). So
+/// this is a FLOOR under the two surface guards and not a replacement for either; `escape.js`
+/// B8 asserts the blind spot so that a later reader cannot delete `splash.js`'s guard on the
+/// belief that this line covers it.
+///
+/// **EVERY FAILURE ANSWERS `true`**, which is the behavior this file had before the test
+/// existed. A popup wedged shut by a guard that got its own arithmetic wrong is worse than the
+/// defect it closes.
+function isPainted(node) {
+  try {
+    const box = node.getBoundingClientRect();
+    // No box is not evidence of being covered — it is a different question, and `isOnScreen`
+    // is the one that answers it.
+    if (box.width <= 0 || box.height <= 0) return true;
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    // `elementFromPoint` answers null outside the viewport, which would read as covered. A
+    // popup scrolled or positioned off the edge is not this check's business.
+    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return true;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit) return true;
+    // Its own panel, its own scrim, its own buttons: a hit INSIDE the surface is the surface.
+    return hit === node || node.contains(hit);
+  } catch (e) {
+    return true;
+  }
+}
+
 /// The surface a match belongs to. A `role="dialog"` panel nested inside its own scrim wrapper
 /// (`#home-prefs`) must close the WRAPPER — hiding the panel alone would leave the dimmed
 /// sheet over the whole window with nothing on it.
@@ -7469,6 +7517,18 @@ function dismissTopmostPopup() {
   const open = openPopups();
   if (!open.length) return false;
   const top = open[0];
+  // A KEY PRESSED AT A PICTURE DOES NOT ANSWER WHAT IS BEHIND THE PICTURE, and this is where
+  // that holds for every covering surface rather than for the two that thought to say so. It
+  // returns TRUE — Escape has been ANSWERED, by being refused — for the same reason a
+  // `control:` surface with no control on screen does: the alternative is falling through to
+  // something else underneath, which is the defect one layer down.
+  //
+  // `openPopups()` is deliberately left alone. It answers "is something asking him a
+  // question", which stays true while a sheet is momentarily covered — `init()`'s focus
+  // condition at the foot of this file depends on that being true at boot, when the offer is
+  // open behind a curtain that has not lifted yet (`327cbc7a`). Only DISMISSAL cares what he
+  // is looking at.
+  if (!isPainted(top)) return true;
   const spec = top.getAttribute("data-dismiss") || "";
   if (spec.indexOf("control:") === 0) {
     for (const selector of spec.slice("control:".length).split(",")) {
