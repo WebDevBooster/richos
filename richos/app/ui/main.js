@@ -3027,6 +3027,20 @@ window.setInterval(async () => {
   try { await pollWorkerStatus(); } finally { workStatusBusy = false; }
 }, 3000);
 
+/// **A COUNTED NOUN, PLURALIZED BY ITS COUNT — one rule, used by every part of the chip.**
+///
+/// Ray's candidate-.11 defect 1.2: the status line he reads most often said **"1 saved work
+/// records"** (§1.2, screenshots 06 and 08). Three of this chip's parts already chose their
+/// noun from their own count, inline; the fourth did not, and a rule copied three times is a
+/// rule with a fourth site nobody wrote. So it is a function, and the chip has no other way to
+/// print a count.
+///
+/// `${n} working`, `${n} done` and `${n} I can't see` take no noun at all and are left alone:
+/// they are adjectival and read correctly at any count.
+function counted(n, singular, plural) {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
 function renderDrillChip() {
   drillChipEl.innerHTML = "";
   // `active` comes from the view's own authoritative field, not from counting item labels:
@@ -3038,7 +3052,7 @@ function renderDrillChip() {
   const parts = [];
   if (active) parts.push(`${active} working`);
   if (done) parts.push(`${done} done`);
-  if (savedWork.items?.length) parts.push(`${savedWork.items.length} saved work records`);
+  if (savedWork.items?.length) parts.push(counted(savedWork.items.length, "saved work record", "saved work records"));
   if (savedWork.error) parts.push("Saved work unavailable");
   // THE ASSIGNMENTS, AND THE REASON THEY ARE ON THIS CHIP AT ALL (background-work spec §7's
   // observability note, §7.8). This chip is the only way to open the pane the assignments
@@ -3086,9 +3100,9 @@ function renderDrillChip() {
   const starting = rows.filter((row) => row.state === "registered" || row.state === "preparing").length;
   const running = rows.filter((row) => row.state === "running").length;
   if (awaiting) parts.push(`${awaiting} waiting for you`);
-  if (forScreen) parts.push(`${forScreen} ${forScreen === 1 ? "assignment" : "assignments"} waiting for the screen`);
-  if (starting) parts.push(`${starting} ${starting === 1 ? "assignment" : "assignments"} starting`);
-  if (running) parts.push(`${running} ${running === 1 ? "assignment" : "assignments"} running`);
+  if (forScreen) parts.push(counted(forScreen, "assignment", "assignments") + " waiting for the screen");
+  if (starting) parts.push(counted(starting, "assignment", "assignments") + " starting");
+  if (running) parts.push(counted(running, "assignment", "assignments") + " running");
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
   // error code; this says what actually happened.
   if (unknown) parts.push(`${unknown} I can't see`);
