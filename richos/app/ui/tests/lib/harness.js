@@ -34,6 +34,7 @@
 const path = require("path");
 const fs = require("fs");
 const png = require("./png");
+const stability = require("./shot-stability");
 
 const UI_DIR = path.resolve(__dirname, "..", "..");
 const SHOT_DIR = path.resolve(__dirname, "..", ".shots");
@@ -186,6 +187,29 @@ function publishShot(buf, file) {
   if (existing && !file.startsWith(SHOT_DIR + path.sep)) {
     const rel = path.relative(path.resolve(__dirname, ".."), file);
     const difference = png.describeDifference(existing, buf);
+    // AND THE HANDFUL OF SURFACES THAT ARE NOT THE SAME PICTURE TWICE. `lib/shot-stability.js`
+    // is the only place a file is allowed to differ without being rewritten, it names one file
+    // at a time, and every entry carries the cause, the measurement and the bound. A shot held
+    // under a bound is announced exactly as loudly as one that changed — the whole arrangement
+    // depends on the line being in the run's output where somebody reads it.
+    const rule = stability.ruleFor(file);
+    if (rule && !stability.regenerating(file)) {
+      const verdict = stability.heldBy(rule, existing, buf);
+      if (verdict.held) {
+        console.log(
+          "  shot held: " + rel + " — " + rule.class + " — " + difference +
+            " — inside its declared bound (" + verdict.bound + ", lib/shot-stability.js)"
+        );
+        return { file, written: false, bytes: existing.length, held: true };
+      }
+      console.log(
+        "  shot changed OUTSIDE ITS DECLARED BOUND: " + rel + " — " + difference +
+          " — declared as `" + rule.class + "` at " + verdict.bound +
+          " in lib/shot-stability.js, and this run is past it"
+      );
+      fs.writeFileSync(file, buf);
+      return { file, written: true, bytes: buf.length };
+    }
     console.log("  shot changed: " + rel + " — " + difference);
   }
   fs.writeFileSync(file, buf);
