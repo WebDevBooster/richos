@@ -6074,6 +6074,19 @@ body.bp-narrow .tl-user-bubble {
 .phone-warn {
   margin-top: 16px;
 }
+/* THE PAIRED CARD'S ONE ACTIONABLE LINE — Urban's G8. Every paragraph on that card was
+   `--ink-soft`, so *"the actionable line reads like housekeeping"*: the sentence naming what he
+   still has to do on the phone looked exactly like the sentence about removing a certificate.
+   `--ink` is the shell's own strongest ink and no new color.
+
+   COMPUTED, both themes, against `--surface` — which is `--card` on this panel, rgb(24,36,64)
+   dark and rgb(253,252,248) light, the same grounds Urban measured from:
+     --ink on --card    12.06:1 dark   18.07:1 light   (floor 4.5 at 16px/400)
+   Both far over. The class carries color and nothing else, so the line keeps `.overlay-note`'s
+   size, weight and spacing and differs from the paragraphs around it in exactly one dimension. */
+.phone-push-line {
+  color: var(--ink);
+}
 .phone-qr-row {
   display: flex;
   align-items: flex-start;

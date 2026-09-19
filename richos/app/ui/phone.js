@@ -44,10 +44,24 @@
          candidate .11 defect 3.1, screenshots 13, 14, 15 and 17. Filled from LEAD below. -->
     <p class="overlay-note" id="phone-lead"></p>
 
+    <!-- SCREEN 6 — THE PAIRED CARD, AND IT NOW HAS A TOP — Urban's G8.
+         *"Paired card has no heading and one text color for all five paragraphs — the actionable
+         line reads like housekeeping."* Every line on it was --ink-soft at one size and one
+         weight, labels and paragraphs alike: he measured "Forget this phone" and "Close" at
+         5.78:1, identical to the four paragraphs above them (Ray's frames 21 and 22). A card
+         where nothing is the top and nothing is the point.
+
+         So the phone's own name is the heading — it is what the card is ABOUT, and it is the one
+         string on it that changes — and the push line, which is the only line that asks the
+         reader to go and do something, is the one that takes --ink. -->
     <div id="phone-paired" hidden>
-      <p class="overlay-note"><strong id="phone-device-name"></strong> is paired. Open Rich on it and
-        keep talking.</p>
-      <p class="overlay-note" id="phone-push-state"></p>
+      <h3 class="phone-step-title" id="phone-device-name"></h3>
+      <p class="overlay-note">It is paired. Open Rich on it and keep talking.</p>
+      <!-- THE ONE LINE ON THIS CARD WITH AN ERRAND IN IT. Either it says the phone can reach him
+           — which is the finish — or it names the thing on the phone that has not been done yet,
+           in that phone's own menu names. Both are the point of the card, and both were set in
+           the same ink as the sentence about removing a certificate. -->
+      <p class="overlay-note phone-push-line" id="phone-push-state"></p>
       <!-- SCREEN 6's LIMIT, on the one screen where they live with it. Said on Screen 1 where they
            commit, and here — and on none of the four screens in between, because a limitation
            repeated on every screen is nagging. -->

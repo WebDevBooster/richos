@@ -484,10 +484,17 @@ async function openSheet(browser, theme, preset) {
     // app says it at the moment it becomes true rather than putting it in a README.
     const page = await openSheet(browser, "dark", { phonePaired: true });
     const text = (await page.textContent("#phone-paired")).replace(/\s+/g, " ");
+    const heading = (await page.textContent("#phone-device-name")).trim();
     const forget = await page.isVisible("#phone-forget");
     await page.close();
     assert(forget, "there is no way to forget the phone");
-    assert(/iPhone is paired/.test(text), "the paired phone is not named: " + text);
+    // THE PHONE IS NAMED, AND SINCE URBAN'S G8 IT IS NAMED IN THE HEADING. This read
+    // `/iPhone is paired/` over the card's flat text, which is the same property expressed as
+    // one sentence — the name and the state ran together in a single paragraph because the card
+    // had no heading at all. It does now, so the two halves are asserted where they each live:
+    // weakening this to a search over the flat text would have passed on a card with no heading.
+    assertEqual(heading, "iPhone", "the paired phone is not named in the card's heading: " + text);
+    assert(/is paired/.test(text), "the card does not say the phone is paired: " + text);
     assert(
       /does .{0,4}not.{0,4} remove the certificate from your phone/i.test(text),
       "the screen does not say that forgetting here leaves the profile on his phone: " + text
@@ -734,11 +741,11 @@ async function openSheet(browser, theme, preset) {
               (n) => visible(n) && /signed in to Tailscale/.test(n.textContent || "")
             );
             return {
-              heading: document
-                .getElementById("phone-paired")
-                .textContent.replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 40),
+              // SINCE URBAN'S G8 THIS CARD HAS A REAL HEADING, so the name is read off it
+              // rather than off the first 40 characters of the card's flat text. The old slice
+              // was a stand-in for a heading that did not exist; now that one does, a slice
+              // would pass on a card whose name had moved anywhere in the first line.
+              heading: document.getElementById("phone-device-name").textContent.trim(),
               notes: notes,
               limitShown: limit.length > 0,
             };
@@ -787,8 +794,9 @@ async function openSheet(browser, theme, preset) {
         // The name comes last of the three, deliberately: it is the one assertion that
         // depends on the harness modeling the right phone, and a failure there would mask the
         // copy failures above, which are the defect.
-        assert(
-          first.heading.startsWith(combination.name + " is paired"),
+        assertEqual(
+          first.heading,
+          combination.name,
           "the card does not name the phone it is talking about (" + where + "): " + first.heading
         );
         assertEqual(
@@ -1432,6 +1440,51 @@ async function openSheet(browser, theme, preset) {
         out.push(theme + " " + sel + " " + m.ratio + ":1 (" + m.ink + " on " + m.ground + ")");
       }
       await page.close();
+    }
+    return out.join("; ");
+  });
+
+  // ---- G8: the paired card has a top, and its one errand is not housekeeping ---------------
+
+  await run.check("24  the paired card is headed by the phone's name, and the push line is the strongest line on it", async () => {
+    // Urban's G8: *"Paired card has no heading and one text color for all five paragraphs — the
+    // actionable line reads like housekeeping."* Ray's frames 21 and 22.
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await openSheet(browser, theme, { phonePaired: true, phonePlatform: "android" });
+      await page.waitForFunction(() => {
+        const n = document.getElementById("phone-device-name");
+        return n && n.textContent.trim().length > 0;
+      });
+      const card = await page.evaluate(() => {
+        const heading = document.getElementById("phone-device-name");
+        const push = document.getElementById("phone-push-state");
+        const note = document.getElementById("phone-forget-note");
+        const styleOf = (el) => {
+          const s = getComputedStyle(el);
+          return { color: s.color, size: s.fontSize, weight: s.fontWeight, tag: el.tagName };
+        };
+        return {
+          heading: Object.assign(styleOf(heading), { text: heading.textContent.trim(), cls: heading.className }),
+          push: Object.assign(styleOf(push), { text: push.textContent.trim() }),
+          note: styleOf(note),
+          first: document.getElementById("phone-paired").firstElementChild.id,
+        };
+      });
+      await page.close();
+      // THE HEADING: the device name, as a heading, and it is the first thing on the card.
+      assertEqual(card.heading.tag, "H3", "the device name is not a heading — Urban's G8");
+      assert(/phone-step-title/.test(card.heading.cls), "the heading is not a `.phone-step-title`: " + card.heading.cls);
+      assertEqual(card.first, "phone-device-name", "something comes before the heading on the paired card");
+      assert(card.heading.text.length > 0, "the heading is empty");
+      // THE PUSH LINE: --ink rather than --ink-soft, so the one line with an errand in it is no
+      // longer the same ink as the sentence about removing a certificate.
+      assert(
+        card.push.color !== card.note.color,
+        "THE DEFECT: the push line is the same ink as the paragraphs around it (" + card.push.color + ")"
+      );
+      out.push(theme + ": heading " + JSON.stringify(card.heading.text) + ", push " + card.push.color +
+        " vs prose " + card.note.color);
     }
     return out.join("; ");
   });
