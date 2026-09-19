@@ -146,21 +146,35 @@ function samePicture(a, b) {
   return da.data.equals(db.data);
 }
 
-/// Where two PNGs differ, for a human. Never used to DECIDE anything — `samePicture` does that
-/// — only to say what changed once something has.
-function describeDifference(a, b) {
+/// How far apart two PNGs are, AS NUMBERS.
+///
+/// `{ ok: true, width, height, total, differing, fraction, worst }` when both sides decoded to
+/// the same shape, and `{ ok: false, reason }` when they did not.
+///
+/// SPLIT OUT OF `describeDifference` BECAUSE SOMETHING NOW DECIDES ON IT. `lib/shot-stability.js`
+/// holds a shot when its difference stays inside a bound that file declares, and a caller that
+/// has to compare against a number must not be reading it back out of an English sentence, nor
+/// writing a second loop that could drift from this one. The sentence a human reads and the
+/// numbers a bound is checked against are now the same measurement.
+///
+/// `ok: false` for anything this cannot measure — either side unreadable, a shape this decoder
+/// will not guess at, a change of dimensions or channel count. Every caller treats that as
+/// "not proved the same", which is the asymmetry `samePicture` is built on.
+function measureDifference(a, b) {
   let da;
   let db;
   try {
     da = decode(a);
     db = decode(b);
   } catch (e) {
-    return "could not decode both sides (" + e.message + ")";
+    return { ok: false, reason: "could not decode both sides (" + e.message + ")" };
   }
   if (da.width !== db.width || da.height !== db.height) {
-    return `${da.width}x${da.height} -> ${db.width}x${db.height}`;
+    return { ok: false, reason: `${da.width}x${da.height} -> ${db.width}x${db.height}` };
   }
-  if (da.channels !== db.channels) return `${da.channels} -> ${db.channels} channels`;
+  if (da.channels !== db.channels) {
+    return { ok: false, reason: `${da.channels} -> ${db.channels} channels` };
+  }
   const total = da.width * da.height;
   let differing = 0;
   let worst = 0;
@@ -176,8 +190,25 @@ function describeDifference(a, b) {
       if (d > worst) worst = d;
     }
   }
-  const pct = ((differing / total) * 100).toFixed(4);
-  return `${differing}/${total} pixels (${pct}%), worst channel delta ${worst}`;
+  return {
+    ok: true,
+    width: da.width,
+    height: da.height,
+    total,
+    differing,
+    fraction: differing / total,
+    worst,
+  };
+}
+
+/// Where two PNGs differ, for a human. Never used to DECIDE anything — `samePicture` does that,
+/// and `measureDifference` is what a bound is checked against — only to say what changed once
+/// something has.
+function describeDifference(a, b) {
+  const m = measureDifference(a, b);
+  if (!m.ok) return m.reason;
+  const pct = (m.fraction * 100).toFixed(4);
+  return `${m.differing}/${m.total} pixels (${pct}%), worst channel delta ${m.worst}`;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -258,6 +289,23 @@ function describeDifference(a, b) {
   if (!samePicture(fixture, fixture) || samePicture(fixture, other)) {
     throw new Error("lib/png.js: samePicture does not distinguish a one-sample change");
   }
+  // And the measurement a BOUND is checked against, for the same reason: `measureDifference`
+  // now decides whether a declared shot is held, so a wrong count here is a shot silently not
+  // written. One sample of one pixel changed by 1: exactly one differing pixel, worst 1, and
+  // the shapes agreed.
+  const m = measureDifference(fixture, other);
+  if (!m.ok || m.differing !== 1 || m.worst !== 1 || m.total !== 15) {
+    throw new Error(
+      "lib/png.js: measureDifference miscounted a one-sample change — " + JSON.stringify(m)
+    );
+  }
+  const same = measureDifference(fixture, fixture);
+  if (!same.ok || same.differing !== 0 || same.worst !== 0) {
+    throw new Error("lib/png.js: measureDifference reports a difference between a file and itself");
+  }
+  if (measureDifference(Buffer.from("not a png"), fixture).ok) {
+    throw new Error("lib/png.js: measureDifference claimed to measure an unreadable side");
+  }
 })();
 
-module.exports = { decode, samePicture, describeDifference, UnsupportedPng };
+module.exports = { decode, samePicture, measureDifference, describeDifference, UnsupportedPng };

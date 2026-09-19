@@ -1811,7 +1811,15 @@ async function main() {
         }
         const out = await walk(page, surface.name, theme);
         if (theme === "light") {
-          const s = await shot(page, "contrast-" + surface.name, { fullPage: false });
+          // `parkPointer`: every surface above is reached by CLICKING it, and the pointer stays
+          // where the last click left it. Where the new state puts a different control under
+          // that point, the control is photographed hovered — `voice-model-progress.png`
+          // alternated between a hovered and an unhovered `Stop the download` on every run,
+          // 1,200 pixels at delta 109, purely from `style.css:1628`. Nothing in this suite is
+          // about hovering: the contrast of a hover state is a question, but it is not the
+          // question forty-two driven surfaces are answering, and it must not be answered by
+          // accident on some of them. See `lib/harness.js`'s note above `parkPointer`.
+          const s = await shot(page, "contrast-" + surface.name, { fullPage: false, parkPointer: true });
           publishShotFile(s.file, path.join(SHOTS, surface.name + ".png"));
         }
         await page.close();
