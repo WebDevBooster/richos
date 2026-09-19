@@ -358,10 +358,26 @@
       </div>
     </div>
 
+    <!-- THE AT-HOME ROUTE'S OWN SCREEN. It is what "At home only" leads to, and it was the one
+         screen in the flow with no way back — Urban's N3.
+
+         *"Pick a different way is on Screen 0, on Screens 2/3/7, on This Mac is ready and —
+         since G2 — on the pairing screen. It is absent from exactly one: the screen you land on
+         by answering the question. A user who picks At home only, reads the two sentences and
+         changes their mind has Close and nothing else."*
+
+         **THE FIFTH COPY IS A PLAIN ONE.** Nothing is serving on this screen — "Set my phone up"
+         has not been pressed, so there is no socket and no live code — which is why it shares the
+         handler with the three that only move between screens, and not the pairing screen's,
+         whose whole point is that it has something to put down.
+
+         (No backticks in here, and that is not a style note: this markup is a template literal,
+         so a backtick ends the string and takes the whole sheet with it. It cost one run.) -->
     <div id="phone-off" hidden>
       <p class="overlay-note" id="phone-off-message"></p>
       <div class="desk-card-actions">
         <button id="phone-start" class="desk-btn desk-btn--confirm" type="button">Set my phone up</button>
+        <button id="phone-off-back" class="desk-btn" type="button">Pick a different way</button>
       </div>
     </div>
 
@@ -1289,7 +1305,10 @@
   field("phone-ts-open").addEventListener("click", () =>
     openExternal(field("phone-ts-open").dataset.target || "")
   );
-  for (const id of ["phone-ts-back", "phone-ts-ready-back", "phone-identity-back"]) {
+  // `phone-off-back` is Urban's N3 — the fifth copy, on the At-home route's own screen, and it
+  // belongs in this list rather than beside the pairing screen's: on that screen nothing has been
+  // started, so forgetting the route IS the whole of going back.
+  for (const id of ["phone-ts-back", "phone-ts-ready-back", "phone-identity-back", "phone-off-back"]) {
     field(id).addEventListener("click", async () => {
       route = null;
       await refresh();

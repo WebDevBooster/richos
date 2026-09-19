@@ -1818,6 +1818,82 @@ async function openSheet(browser, theme, preset) {
     }
   );
 
+  await run.check(
+    "29  the At-home route's own screen has the way back, and it takes nothing down to give it",
+    async () => {
+      // URBAN'S N3 (MEDIUM), his frame 10: *"`Pick a different way` is on Screen 0, on Screens
+      // 2/3/7, on `This Mac is ready` and — since G2 — on the pairing screen. It is absent from
+      // exactly one: the screen you land on by answering the question. A user who picks `At home
+      // only`, reads the two sentences and changes their mind has Close and nothing else."*
+      //
+      // **AND IT MUST NOT BECOME A SIXTH VARIANT OF THE CONTROL.** The pairing screen's copy
+      // stops the socket because there is one; this screen has never started anything, so a
+      // back button that called `phone_stop_pairing` would be reaching for a thing that is not
+      // there. The check asserts the Mac is untouched across the press.
+      const page = await openSheet(browser, "dark", {
+        phoneTailnet: {
+          state: "ready",
+          name: "mm1.tail9a3b2.ts.net",
+          origin: "https://mm1.tail9a3b2.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        },
+      });
+      await page.waitForSelector("#phone-route:not([hidden])");
+      await page.click("#phone-route-home");
+      await page.waitForSelector("#phone-off:not([hidden])");
+
+      const before = await page.evaluate(async () => {
+        const back = document.getElementById("phone-off-back");
+        const status = await window.RichBridge.invoke("phone_status");
+        return {
+          present: !!back,
+          // `offsetParent` rather than a text search: four other copies of this label are in the
+          // markup on every screen, hidden with their blocks, so a check that looked for the
+          // string would pass on a button nobody can press. Check 19 makes the same distinction.
+          visible: !!back && back.offsetParent !== null,
+          label: back ? back.textContent.trim() : "",
+          listening: status.listening,
+          // EVERY COPY OF THE CONTROL, counted in the markup: five screens, five buttons.
+          copies: [...document.querySelectorAll("#phone-sheet button")]
+            .filter((b) => b.textContent.trim() === "Pick a different way")
+            .map((b) => b.id),
+        };
+      });
+      assert(before.present, "THE DEFECT: the At-home route's screen has no `Pick a different way`");
+      assert(before.visible, "the control is in the markup but not on the screen he is looking at");
+      assertEqual(before.label, "Pick a different way", "the control is not under the name the rest of the flow uses");
+      assertEqual(before.listening, false, "something was already serving on a screen that has started nothing");
+      assertEqual(
+        before.copies.sort(),
+        ["phone-identity-back", "phone-off-back", "phone-pairing-back", "phone-ts-back", "phone-ts-ready-back"],
+        "the five screens do not carry five copies of the way back"
+      );
+
+      await page.click("#phone-off-back");
+      await page.waitForSelector("#phone-route:not([hidden])");
+      const after = await page.evaluate(async () => {
+        const status = await window.RichBridge.invoke("phone_status");
+        return {
+          chooser: !document.getElementById("phone-route").hidden,
+          off: !document.getElementById("phone-off").hidden,
+          listening: status.listening,
+          pairUrl: status.pairUrl,
+        };
+      });
+      await page.close();
+      assert(after.chooser, "pressing it did not return to the route chooser");
+      assert(!after.off, "the At-home screen is still up after backing out of it");
+      // NOTHING WAS TAKEN DOWN, because nothing was up: the Mac is in exactly the state it was
+      // in before he answered the question.
+      assertEqual(after.listening, false, "the back button started or stopped something on a screen with nothing running");
+      assertEqual(after.pairUrl, null, "a pairing code exists after a screen that never asked for one");
+      return (
+        "5 copies " + JSON.stringify(before.copies) + "; At home only -> back to the chooser with " +
+        "listening " + before.listening + " -> " + after.listening
+      );
+    }
+  );
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
