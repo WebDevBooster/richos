@@ -1305,7 +1305,36 @@ body.bp-narrow .first-run {
   }
 }
 
+/* THE TWO BUTTONS ARE THE SAME HEIGHT AS THE TEXT INPUT — CEO, 2026-09-19, on the nightly he
+   watched the evening before: *"the 2 buttons at the bottom need to be either vertically
+   center aligned relative to the text input or have the same height as the text input
+   because otherwise it looks weird."*
+
+   HIS FIRST OPTION IS NOT AVAILABLE IN EVERY STATE AND THE SECOND ONE IS, which is why this
+   file takes the second. The field GROWS with what he types (`#input`'s `max-height: 112px`),
+   and `align-items: flex-end` below is what keeps the two controls beside the LAST line of a
+   long message rather than beside its middle. Centering them would be right at one line and
+   would float them in the middle of a four-line box; matching their height is right at one
+   line and degrades to bottom-flush, which is the shape every composer he has ever used has.
+   So: same height, bottom-aligned.
+
+   WHAT WAS MEASURED BEFORE THE FIX, in this repository's own WebKit harness at 1024x700 and
+   1400x950, both identical: the field's box (`#input-shell`) 46px tall with its center at
+   y=661; `#talk-toggle` and `#send` 40px tall with theirs at y=664. Six pixels shorter and
+   three pixels low, in both themes and at both window sizes. That is the "weird" — a row of
+   three boxes that agree on neither edge.
+
+   THE HEIGHT IS DERIVED, NEVER TYPED, so the buttons cannot drift from the field the way they
+   had: `--field-h` is `#input`'s own height declaration, and `--control-h` adds the 1px border
+   `#input-shell` draws on the top and on the bottom. Everything here is rem + px exactly as
+   `#input` declares it, so the Text size row in the settings menu (`--app-font-scale`, which
+   multiplies the root font size) moves the field and the two buttons by the same amount. At
+   scale 1: 1.5rem = 24px, + 20px of field padding = 44px, + 2px of shell border = 46px.
+   `1.5rem` and the `1.5em` this was written as are the same number here because the field's
+   own `font-size` is `1rem` — the variable is what lets the buttons share it. */
 #composer-row {
+  --field-h: calc(1.5rem + 20px);
+  --control-h: calc(var(--field-h) + 2px);
   max-width: 680px;
   margin: 0 auto;
   padding: 16px 28px;
@@ -1363,10 +1392,16 @@ body.bp-narrow .first-run {
   background: transparent;
   color: var(--ink);
   /* One line's content box, in the exact units `line-height`/`padding` above use, so it can
-     never disagree with them: 1.5em of text plus the 10px top/bottom padding this rule
-     declares. `box-sizing: border-box` is the page-wide reset (`style.css:268`), so this is
-     the element's TOTAL height, matching what `scrollHeight` reports for one empty line. */
-  height: calc(1.5em + 20px);
+     never disagree with them: 1.5 line-heights of text plus the 10px top/bottom padding this
+     rule declares. `box-sizing: border-box` is the page-wide reset (`style.css:268`), so this
+     is the element's TOTAL height, matching what `scrollHeight` reports for one empty line.
+
+     IT IS A VARIABLE NOW (`--field-h` on `#composer-row`) AND THE VALUE IS UNCHANGED: this
+     rule's `font-size` is `1rem`, so the `1.5em` it was written as and the `1.5rem` the
+     variable is written as compute to the identical 24px at every text scale. The variable
+     exists so the two composer buttons can take their height FROM this declaration rather
+     than from a second copy of it — see the header above `#composer-row`. */
+  height: var(--field-h);
   max-height: 112px;
   overflow-y: auto;
 }
@@ -1379,11 +1414,14 @@ body.bp-narrow .first-run {
   color: var(--ink-faint);
 }
 
+/* THE HEIGHT IS THE FIELD'S HEIGHT, NOT A NUMBER OF ITS OWN — see the header above
+   `#composer-row` for the CEO's sentence and the geometry this replaces. `width` stays 40px:
+   his complaint is about the vertical, and a 46px-square button is a different control. */
 #talk-toggle,
 #stop,
 #send {
   width: 40px;
-  height: 40px;
+  height: var(--control-h);
   flex-shrink: 0;
   border-radius: var(--radius);
   border: 1px solid var(--line-control);
@@ -3788,9 +3826,18 @@ body.bp-narrow .tl-user-bubble {
    everywhere" — a statement about the pixels that happens to also be a statement about the
    pointer.
 
-   `--chrome-lane` is the footprint the fixed button claims: its 40px box, its 18px inset
-   and 8px of air. Any pane that reaches the top-right edge adds it, and nothing else has
-   to know the settings button exists. */
+   `--chrome-lane` is the footprint the fixed button claims: its 40px box, its inset from the
+   right edge, and air. Any pane that reaches the top-right edge adds it, and nothing else has
+   to know the settings button exists.
+
+   IT IS 66 AND THE INSET IS NOW 15, WHICH IS DELIBERATE AND IS NOT A STALE NUMBER. The
+   derivation was 40 + 18 + 8 = 66; the CEO's 2026-09-19 centering took the inset to 15px, so
+   the minimum this lane has to reserve is 40 + 15 + 8 = 63. It is left at 66, which now reads
+   40 + 15 + 11 — the same box, three more pixels of air. A lane is a FLOOR: 66 still clears
+   the button by more than the 8px the original derivation asked for, while shrinking it to 63
+   would slide `#techy-chip` and `button#inspector-close` three pixels right, in every committed
+   screenshot that carries them, to buy nothing the ruling asked for. If the button's inset ever
+   grows past 18px this number has to be re-derived; below it, it cannot be wrong. */
 :root {
   --chrome-lane: 66px;
 }
@@ -4983,10 +5030,39 @@ body.bp-narrow .tl-user-bubble {
    of "it is on every page" and none of its point.
    ========================================================================================= */
 
+/* WHERE IT SITS — CEO, 2026-09-19, on the nightly he watched the evening before: *"the
+   settings button needs to be properly centered vertically and the right padding for that
+   button needs to be reduced to 15px."*
+
+   BOTH NUMBERS, AND ONE OF THEM IS DERIVED RATHER THAN CHOSEN.
+
+   `right: 15px` is his, verbatim, and it is measured from this wrapper's right edge to the
+   right edge of the web content: `#set-btn`'s `getBoundingClientRect().right` reads 1009 in a
+   1024px window and 1385 in a 1400px one. It was 18px, which is what his screenshot marks.
+
+   `top: 6px` is the vertical centering, and it is arithmetic rather than taste. This button
+   floats over `#stage-header`, the only bar it shares a corner with: that header is `height:
+   52px` and sticky at `top: 0`, so its own center is at y=26, and the button is 40px tall.
+
+       (52 - 40) / 2 = 6        button box 6..46, center 26 — the header's own center
+
+   MEASURED BEFORE: the button's box read 18..58 with its center at y=38, twelve pixels below
+   the header's center and six pixels through the header's bottom border, at 1024x700 and at
+   1400x950 alike. That overhang is the thing his arrow points at.
+
+   WHAT THIS COSTS ON THE SCREENS WITH NO HEADER, said plainly rather than discovered later:
+   the wrapper is `position: fixed` and §15 puts it on EVERY screen, so the opening screen and
+   the home screen get the same 12px rise. They have no 52px bar for it to be centered in, so
+   there is nothing to be off-center against — it is simply nearer the top-right corner, in
+   the corner it already owned. `home.js`'s overlap checks measure that corner and are green.
+
+   TWO THINGS DOWNSTREAM READ THESE NUMBERS AND BOTH ARE UPDATED WITH THEM: `.setmenu`'s
+   `max-height`, which is derived from this `top` (see its own note), and `#bug-toast`, which
+   hangs under this button. `--chrome-lane` is deliberately NOT changed — see its note. */
 .settings {
   position: fixed;
-  top: 18px;
-  right: 18px;
+  top: 6px;
+  right: 15px;
   z-index: 300;
   font-family: var(--font);
   /* A ROW, so the update cue can sit beside the button rather than under it — see
@@ -5098,12 +5174,20 @@ body.bp-narrow .tl-user-bubble {
      reason and the server address. Any future row moves it again. So this is a bound, not a
      number chosen to fit today's content.
 
-     84px, DERIVED AND THEN MEASURED. `.settings` is `position: fixed; top: 18px`, `.setbtn` is
-     40px tall and this menu hangs 8px below it: 18 + 40 + 8 = 66px. The panel's own
-     `getBoundingClientRect().top` reads **66** at 1024x700 and at 1400x950 alike, so the anchor
+     72px, DERIVED AND THEN MEASURED. `.settings` is `position: fixed; top: 6px`, `.setbtn` is
+     40px tall and this menu hangs 8px below it: 6 + 40 + 8 = 54px. The panel's own
+     `getBoundingClientRect().top` reads **54** at 1024x700 and at 1400x950 alike, so the anchor
      is viewport-fixed and the same arithmetic holds at every window size. The remaining 18px is
-     a bottom gutter mirroring the wrapper's own 18px top inset, so the panel stops where every
-     other floating surface stops rather than touching the edge. 66 + 18 = 84.
+     a bottom gutter, so the panel stops where every other floating surface stops rather than
+     touching the edge. 54 + 18 = 72.
+
+     IT WAS 84, FROM AN ANCHOR OF 66, until the CEO's 2026-09-19 centering moved the button from
+     `top: 18px` to `top: 6px` (see `.settings`). The bottom gutter used to be described as
+     mirroring the wrapper's top inset; it is now stated as the 18px it is, because mirroring a
+     6px inset would have taken the panel to within 6px of the window's bottom edge — which is
+     a change to how a floating surface stops, and the centering did not ask for one. The panel
+     is 12px freer than it was, never tighter, so the fit this bound exists for is unaffected:
+     `settings-fit.js` re-measures all of it at 1024x700, 1024x520 and the audited 738px.
 
      IT COSTS NOTHING WHEN THE PANEL FITS, which is the common case: `overflow-y: auto` shows no
      scrollbar and changes no geometry until the content is taller than the box. At 1024x700 the
@@ -5114,7 +5198,7 @@ body.bp-narrow .tl-user-bubble {
      it. Nothing in the shipped UI adds that class (grepped: zero uses in `ui/*.js` and
      `ui/*.html`), so there is no second case to get right today; whoever revives it owns this
      line with it. */
-  max-height: calc(100vh - 84px);
+  max-height: calc(100vh - 72px);
   overflow-y: auto;
   /* A flick that reaches the end of this panel must not then scroll the thread behind it. */
   overscroll-behavior: contain;
@@ -5499,11 +5583,17 @@ body.bp-narrow .tl-user-bubble {
 
 /* The toast Bust a bug raises. Ported from the round-10.1 mockups' own answer, which is the
    only part of "what Bust a bug opens" this round specifies — the report flow itself is
-   explicitly not designed yet. */
+   explicitly not designed yet.
+
+   IT HANGS UNDER THE BUTTON THAT RAISED IT, so it moves with it: the button is now `top: 6px;
+   right: 15px` (CEO, 2026-09-19 — see `.settings`), its box ends at y=46, and this keeps the
+   same 12px of air below it that 70 kept below the old 58. 46 + 12 = 58. Left where it was,
+   the toast would have opened 24px below a button that had moved 12px up and 3px right, which
+   is a toast that has come loose from what it is about. */
 #bug-toast {
   position: fixed;
-  top: 70px;
-  right: 18px;
+  top: 58px;
+  right: 15px;
   z-index: 301;
   max-width: 320px;
   background: var(--surface);

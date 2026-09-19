@@ -1,0 +1,58 @@
+[
+  {
+    "frame": "after-1024x700-dark.png",
+    "theme": "dark",
+    "headerCy": 26,
+    "setCy": 26,
+    "setDelta": 0,
+    "rightPadding": 15,
+    "fieldH": 46,
+    "fieldCy": 661,
+    "talkH": 46,
+    "talkCy": 661,
+    "sendH": 46,
+    "sendCy": 661
+  },
+  {
+    "frame": "after-1024x700-light.png",
+    "theme": "light",
+    "headerCy": 26,
+    "setCy": 26,
+    "setDelta": 0,
+    "rightPadding": 15,
+    "fieldH": 46,
+    "fieldCy": 661,
+    "talkH": 46,
+    "talkCy": 661,
+    "sendH": 46,
+    "sendCy": 661
+  },
+  {
+    "frame": "after-1400x950-dark.png",
+    "theme": "dark",
+    "headerCy": 26,
+    "setCy": 26,
+    "setDelta": 0,
+    "rightPadding": 15,
+    "fieldH": 46,
+    "fieldCy": 911,
+    "talkH": 46,
+    "talkCy": 911,
+    "sendH": 46,
+    "sendCy": 911
+  },
+  {
+    "frame": "after-1400x950-light.png",
+    "theme": "light",
+    "headerCy": 26,
+    "setCy": 26,
+    "setDelta": 0,
+    "rightPadding": 15,
+    "fieldH": 46,
+    "fieldCy": 911,
+    "talkH": 46,
+    "talkCy": 911,
+    "sendH": 46,
+    "sendCy": 911
+  }
+]

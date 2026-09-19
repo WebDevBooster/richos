@@ -128,7 +128,14 @@ async function main() {
   await run.check("the panel as it comes up at 1024x700 is inside the window", async () => {
     const m = await measure(page, {});
     assertEqual(m.vh, WINDOW.height, "the viewport is not the audited window");
-    assert(m.top === 66, `the panel's anchor moved to ${m.top}px; the 84px bound in style.css is derived from 66`);
+    // 54 SINCE 2026-09-19, AND IT WAS 66. The CEO centered the settings button in the header
+    // that day — `top: 18px` became `top: 6px` — and this panel hangs 8px below it, so the
+    // anchor it is derived from moved with it: 6 + 40 + 8 = 54, and the bound in `style.css`
+    // is now `calc(100vh - 72px)`. The number is pinned here rather than computed for the
+    // same reason it always was: a panel that quietly stopped hanging from the button would
+    // still satisfy every fit check below it. `chrome-align.js` owns the other half — that the
+    // button is where the CEO asked for it — and this owns that the panel followed.
+    assert(m.top === 54, `the panel's anchor moved to ${m.top}px; the 72px bound in style.css is derived from 54`);
     assert(m.bottom <= m.vh, `the panel's bottom edge is at ${m.bottom} in a ${m.vh}px window`);
     assert(m.bugInWindow, `"Bust a bug!" ends at ${m.bugBottom} in a ${m.vh}px window`);
     return `panel ${m.height}px at top ${m.top}, bottom ${m.bottom} of ${m.vh}; Bust a bug ends at ${m.bugBottom}`;

@@ -1,0 +1,58 @@
+[
+  {
+    "frame": "before-1024x700-dark.png",
+    "theme": "dark",
+    "headerCy": 26,
+    "setCy": 38,
+    "setDelta": 12,
+    "rightPadding": 18,
+    "fieldH": 46,
+    "fieldCy": 661,
+    "talkH": 40,
+    "talkCy": 664,
+    "sendH": 40,
+    "sendCy": 664
+  },
+  {
+    "frame": "before-1024x700-light.png",
+    "theme": "light",
+    "headerCy": 26,
+    "setCy": 38,
+    "setDelta": 12,
+    "rightPadding": 18,
+    "fieldH": 46,
+    "fieldCy": 661,
+    "talkH": 40,
+    "talkCy": 664,
+    "sendH": 40,
+    "sendCy": 664
+  },
+  {
+    "frame": "before-1400x950-dark.png",
+    "theme": "dark",
+    "headerCy": 26,
+    "setCy": 38,
+    "setDelta": 12,
+    "rightPadding": 18,
+    "fieldH": 46,
+    "fieldCy": 911,
+    "talkH": 40,
+    "talkCy": 914,
+    "sendH": 40,
+    "sendCy": 914
+  },
+  {
+    "frame": "before-1400x950-light.png",
+    "theme": "light",
+    "headerCy": 26,
+    "setCy": 38,
+    "setDelta": 12,
+    "rightPadding": 18,
+    "fieldH": 46,
+    "fieldCy": 911,
+    "talkH": 40,
+    "talkCy": 914,
+    "sendH": 40,
+    "sendCy": 914
+  }
+]
