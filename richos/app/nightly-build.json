@@ -1,0 +1,108 @@
+{
+  "build": true,
+  "version": "1.2.0-nightly.20260919.8",
+  "tag": "v1.2.0-nightly.20260919.8",
+  "source_commit": "cb95e9052fa7595ff092203fbde0558a127e8977",
+  "created_at": "2026-09-19T23:48:43.352341+00:00",
+  "run_id": "20260919T234500Z-09b02927",
+  "run_attempt": "1",
+  "channel": "nightly",
+  "platform": "darwin-aarch64",
+  "no_host_screen": true,
+  "script_suites": {
+    "jobs": 3,
+    "seconds": 134,
+    "run_id": "20260919T234500Z-09b02927",
+    "commit": "cb95e9052fa7595ff092203fbde0558a127e8977",
+    "suites": [
+      {
+        "name": "front-door.test.sh",
+        "state": "notrun",
+        "seconds": 0,
+        "where": "host",
+        "reason": "no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+      },
+      {
+        "name": "frontend-payload.test.sh",
+        "state": "passed",
+        "seconds": 0,
+        "where": "host"
+      },
+      {
+        "name": "gui-boot.test.sh",
+        "state": "notrun",
+        "seconds": 0,
+        "where": "host",
+        "reason": "no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+      },
+      {
+        "name": "make-engine-asset.test.sh",
+        "state": "passed",
+        "seconds": 126,
+        "where": "host",
+        "inputs_sha256": "e483f400c5aab226024def8c1ee29976027bab89eb4aa6409ef41702824eddf3"
+      },
+      {
+        "name": "make-release.test.sh",
+        "state": "passed",
+        "seconds": 134,
+        "where": "host",
+        "inputs_sha256": "46977bae96594bc63d8c73ba850465dc0a16da7089239fb51ac1340dc6271e39"
+      },
+      {
+        "name": "nightly-local.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "nightly.test.sh",
+        "state": "passed",
+        "seconds": 23,
+        "where": "host"
+      },
+      {
+        "name": "no-compile-time-paths.test.sh",
+        "state": "passed",
+        "seconds": 2,
+        "where": "host"
+      },
+      {
+        "name": "package-app.test.sh",
+        "state": "passed",
+        "seconds": 5,
+        "where": "host"
+      },
+      {
+        "name": "rebuild-survival.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host"
+      },
+      {
+        "name": "run-tests.test.sh",
+        "state": "passed",
+        "seconds": 17,
+        "where": "host"
+      },
+      {
+        "name": "signing-setup.test.sh",
+        "state": "passed",
+        "seconds": 4,
+        "where": "host"
+      },
+      {
+        "name": "updater-setup.test.sh",
+        "state": "passed",
+        "seconds": 19,
+        "where": "host"
+      },
+      {
+        "name": "voice-component.test.sh",
+        "state": "passed",
+        "seconds": 17,
+        "where": "host"
+      }
+    ]
+  }
+}
