@@ -50,6 +50,16 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS="$DIR/run-tests.sh"
 
+# A FIXTURE IS THE HARNESS AS IT SHIPS, not the harness minus its libraries. `run-tests.sh`
+# derives every shared name — the proof store today — through `lib/worktree-resource.sh`,
+# and refuses to run without it rather than falling back to a fixed path. So a scratch box
+# gets both files, exactly as the real directory holds both.
+install_harness() {  # install_harness <box directory>
+  mkdir -p "$1/lib"
+  cp "$HARNESS" "$1/run-tests.sh"
+  cp "$DIR/lib/worktree-resource.sh" "$1/lib/worktree-resource.sh"
+}
+
 TMP="$(mktemp -d -t run-tests-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -85,7 +95,7 @@ fi
 # either direction: the fixture also stops writing proofs into the operator's real store.
 #
 # TWO — THE ASSERTION ITSELF COULD REPORT "NO MATCH" FOR TEXT THAT WAS THERE. Every check
-# here read `printf '%s' "$OUT" | grep -Fq NEEDLE`. `set -o pipefail` is on (line 51) and
+# here read `printf '%s' "$OUT" | grep -Fq NEEDLE`. This file runs under `pipefail` and
 # `grep -q` exits the instant it matches, so the writer on the left can die of SIGPIPE
 # AFTER the match was found; the pipeline then reports 141 and the `!` reads it as absence.
 # Measured on this Mac, 2026-09-20: 400 of 400 iterations reported "no match" for a 400 KB
@@ -148,7 +158,7 @@ saysre() {  # saysre <extended regex> — the same contract, for the two regex c
 # A scratch inventory. `run-tests.sh` discovers suites next to ITSELF, so the copy goes in
 # with them and the real directory is never read.
 BOX="$TMP/box"; mkdir -p "$BOX"
-cp "$HARNESS" "$BOX/run-tests.sh"
+install_harness "$BOX"
 printf '%s\n' 'echo "=== aaa tests: all 3 passed ==="' 'exit 0' > "$BOX/aaa.test.sh"
 printf '%s\n' 'echo "=== bbb tests: all 2 passed ==="' 'exit 0' > "$BOX/bbb.test.sh"
 printf '%s\n' 'echo "gap.test.sh: cannot answer on this host." >&2' 'exit 2' > "$BOX/gap.test.sh"
@@ -268,7 +278,7 @@ printf '%s\n' 'echo "=== bbb tests: all 2 passed ==="' 'exit 0' > "$BOX/bbb.test
 
 # H7 — the pre-existing refusal that must survive all of the above.
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
-cp "$HARNESS" "$EMPTY/run-tests.sh"
+install_harness "$EMPTY"
 harness -- "$EMPTY/run-tests.sh"
 expect "H7 an empty inventory is refused, never 'all 0 suites passed'" 2 "refusing to report green over an empty inventory"
 
@@ -283,7 +293,7 @@ expect "H7 an empty inventory is refused, never 'all 0 suites passed'" 2 "refusi
 echo ""
 echo "=== P. the pool ==="
 PBOX="$TMP/pool"; mkdir -p "$PBOX"
-cp "$HARNESS" "$PBOX/run-tests.sh"
+install_harness "$PBOX"
 P2LOG="$TMP/concurrency.log"; export P2LOG
 
 mk_timed() {  # mk_timed <name> <seconds>
@@ -372,7 +382,7 @@ git -C "$KREPO" config user.name "run-tests fixture"
 # machine's git configuration, so this one turns hooks off for itself and `kcommit` checks
 # that the commit actually happened instead of trusting that it did.
 git -C "$KREPO" config core.hooksPath "$KREPO/.nohooks"
-cp "$HARNESS" "$KREPO/scripts/run-tests.sh"
+install_harness "$KREPO/scripts"
 printf 'one\n' > "$KREPO/inputs/a.txt"
 printf '%s\n' \
   '# run-tests: inputs inputs' \
@@ -492,7 +502,7 @@ fi
 echo ""
 echo "=== S. --no-host-screen ==="
 SBOX="$TMP/screen"; mkdir -p "$SBOX"
-cp "$HARNESS" "$SBOX/run-tests.sh"
+install_harness "$SBOX"
 printf '%s\n' 'echo "=== quiet tests: all 2 passed ==="' 'exit 0' > "$SBOX/quiet.test.sh"
 # Classified by the ONE library in this repository that boots the shipped binary — a
 # structural fact about what a suite calls, not a guess about what it might do.

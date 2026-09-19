@@ -137,7 +137,15 @@ printf 'the bytes that were published\n' > "$SERVE/$ASSET"
 cp "$SERVE/$ASSET" "$OUTDIR/$ASSET"
 GOOD_DIGEST="$(/usr/bin/shasum -a 256 "$SERVE/$ASSET" | awk '{print $1}')"
 
-PORT="${RICHOS_RELEASE_TEST_PORT:-8975}"
+# DERIVED FROM THIS CHECKOUT'S PATH, never a fixed 8975. This is the only port anything in
+# this directory binds, and `run-tests.sh`'s own INDEPENDENCE section recorded what a fixed
+# one costs: *"Two SIMULTANEOUS run-tests.sh runs on one host still would"* collide. This
+# Mac runs a worktree per engineer plus the nightly's own checkout, so "two simultaneous
+# runs" is the normal state of the machine, not an edge case. Stable per worktree (the same
+# checkout gets the same port every run, so a failure is reproducible), distinct between
+# siblings. See `lib/worktree-resource.sh`; RICHOS_RELEASE_TEST_PORT still wins.
+. "$SRC_DIR/lib/worktree-resource.sh"
+PORT="${RICHOS_RELEASE_TEST_PORT:-$(worktree_port "$(worktree_root "$SRC_DIR")" 8975 1000)}"
 ( cd "$SERVE" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1 ) &
 SERVER_PID=$!
 # Job control's own "Terminated" line would otherwise be the last thing this suite prints,
