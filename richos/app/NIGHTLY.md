@@ -86,6 +86,47 @@ python3 richos/app/scripts/nightly-local.py candidate --run <run-id>
 `candidate` reads only the recorded build; it never runs any command and never
 touches the network.
 
+### `--no-host-screen`: a build that opens nothing on this Mac
+
+CEO, 2026-09-19: *"So, every engineer will keep opening the app making me
+unable to do anything here or WHAT???"* — `gui-boot.test.sh` boots the real app
+on the real screen for ~162 s of every build.
+
+```sh
+python3 richos/app/scripts/nightly-local.py build --no-host-screen
+```
+
+holds back every suite that boots the shipped binary, so the candidate is
+built, signed, notarized and walkable without one pixel reaching this machine.
+It is accepted for `build` and refused for `release`, which publishes in one
+motion with no `publish` step to refuse an unproven boot.
+
+**The price is real and `publish` collects it.** Such a candidate records
+`gui-boot.test.sh: not-run` in its `build-info.json`, and `publish` refuses it
+until you show that somebody watched it start:
+
+```sh
+richos/app/scripts/gui-proof-in-vm.sh --run <run-id>
+python3 richos/app/scripts/nightly-local.py publish --run <run-id> --gui-proof <the file it names>
+```
+
+`gui-proof-in-vm.sh` boots the candidate's own signed bundle inside a `testvm`
+guest (`docs/testvm.md`) on an empty fixture home, reads `windows=N` back — a
+pid is not a proof; the app can run and draw nothing — writes the proof, and
+stops the guest. Nothing appears on this Mac's screen.
+
+A proof must name **this** candidate's commit, exactly as `--checks-done-at-land`
+must name the commit it fetched; one taken against another tree is refused.
+Two kinds are accepted and they are not the same claim:
+
+| `suite=` | what it proves | written by |
+|---|---|---|
+| `gui-boot.test.sh` | a debug binary built from the checkout, held to B0–B8 and C1–C5 on a synthetic machine — engine resolution, the plist's shape, the company registry | `run-tests.sh --only gui-boot.test.sh --proof-out <path>` |
+| `shipped-bundle-boot` | **the artifact this release will publish** — signed, notarized, stapled — started on a clean guest with no developer environment and drew a window. Fewer assertions, truer artifact | `gui-proof-in-vm.sh` |
+
+A candidate built before this field existed publishes as it always did: those
+builds ran `gui-boot.test.sh`, because it was not skippable then.
+
 Once QA returns a READY verdict, publish the SAME candidate:
 
 ```sh
