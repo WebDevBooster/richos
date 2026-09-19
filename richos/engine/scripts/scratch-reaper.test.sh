@@ -135,6 +135,39 @@
 #        stopped (D14). S26d is the control that protects the Buzz production
 #        stack: an undeclared image is never nominated, however old.
 #
+# --- added 2026-09-19, after the CEO read the alert his own mechanism made ---
+# "And what is this all about: MASSIVE ALERT — DISK: 218 path(s) could not be
+# deleted (delete BY HAND) | 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT |
+# 11.4 GB in 2 place(s) UNDECIDABLE — no run will clear it". Every one of those
+# three numbers was wrong in a different way, and the alert had been repeating
+# them every six hours for a day.
+#
+#   S28  A SOCKET IS NOT A DIRECTORY. 200 of the 218 were unix sockets and FIFOs
+#        that apply() sent to rmtree because the branch asked what they were NOT
+#        (`islink or isfile -> unlink, ELSE rmtree`). They had passed every wall
+#        and the open-handle check; one missing `os.unlink` turned two hundred
+#        correct decisions into two hundred permanent alerts. S28b asserts
+#        `failures=0`, because "the file is gone" also passes against a reaper
+#        that never planned it, and S28c is the control that it still deletes.
+#   S29  WHAT THE KERNEL OWNS IS NOT GARBAGE. The other 18 were the directories
+#        macOS makes for its own agents, marked `sunlnk`, retried 52 times each,
+#        each asking a person to delete something no person can. Now classified
+#        once (S29), never counted as a failure (S29a), with the unflagged
+#        sibling still deleted in the same run (S29b, the control), and the rows
+#        already in the ledger WITHDRAWN (S29c) without touching the path (S29d).
+#   S30  A FINISHED SESSION'S CLOCK. 11 GB of an ended session's scratchpad was
+#        kept for 22 hours because an orphaned writer kept its mtime at "0 min
+#        ago" and the floor never expired. The floor now runs from the recorded
+#        end (S30); the control is that a just-ended session is still kept
+#        (S30b) and that the reason names the clock (S30c).
+#   S31  ...AND THE ONE THING IN THERE THAT IS NOT OURS: a repository an app
+#        instance has registered survives (S31/S31a), against the control that
+#        the same scratchpad with nothing registered is collected (S31b).
+#   S32  THE SKIPPED PILE IS SPLIT BY WHO CAN ACT ON IT. The 13.9 GB was 12.8 GB
+#        of our own campaign roots — each printing the command that reclaims it —
+#        summed with 1.15 GB of other programs' temp that nobody should touch.
+#        Two opposite responses under one heading is a heading nobody can act on.
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -240,6 +273,7 @@ world() {                  # <name> -> exports W_*
     W_HOME="$W_ROOT/claude"
     W_TMP="$W_ROOT/tmp"
     W_NIGHTLY="$W_ROOT/nightly"
+    W_FAKE_HOME=""
     mkdir -p "$W_SCRATCH" "$W_SESSIONS" "$W_HOME/state" "$W_TMP" "$W_NIGHTLY"
     {
         echo 'SCRATCH_REAPER_ENABLE="1"'
@@ -289,8 +323,14 @@ run() {                    # run the reaper in the current world
     RICHOS_SESSIONS_DIR="$W_SESSIONS" \
     CLAUDE_CONFIG_DIR="$W_HOME" \
     TMPDIR="$W_TMP" \
+    HOME="${W_FAKE_HOME:-$HOME}" \
     bash "$REAPER" "$@" 2>&1
 }
+# W_FAKE_HOME IS EMPTY IN EVERY WORLD BUT S31's, and it has to be RESET by
+# world() rather than merely set by the case that wants it: a shell variable set
+# in one case is still set in the next, and a suite where case 30 changes what
+# case 31 measures is a suite that cannot be read in isolation.
+W_FAKE_HOME=""
 
 SID_LIVE="11111111-1111-1111-1111-111111111111"
 SID_DEAD="22222222-2222-2222-2222-222222222222"
@@ -2027,6 +2067,364 @@ if [ ! -d "$W_TMP/zzz-blind-1" ] && [ ! -d "$W_TMP/zzz-blind-6" ]; then
 else
     bad "S27d CONTROL FAILED: the arm decides nothing either way"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# ===========================================================================
+# S28 — A SOCKET AND A FIFO ARE UNLINKED, NOT rmtree'd
+# ===========================================================================
+# THE CEO, 2026-09-19: "And what is this all about: MASSIVE ALERT — DISK: 218
+# path(s) could not be deleted (delete BY HAND)".
+#
+# TWO HUNDRED OF THOSE 218 WERE ONE MISSING BRANCH. apply() asked what the path
+# was NOT — `islink or isfile -> unlink, ELSE rmtree` — and a unix socket is
+# neither a link nor a REGULAR file, so every one of them went to rmtree, which
+# cannot take a socket. Measured in the standing-failure ledger that morning:
+#
+#   198  [Errno 102] Operation not supported on socket  (197 srt-mux-*.sock)
+#     2  [Errno 20]  Not a directory                    (clr-debug-pipe-*)
+#
+# Every one had ALREADY passed every wall, the age floor and the open-handle
+# check. The reaper had decided correctly and then could not carry the decision
+# out, and re-issued the same two hundred "delete this BY HAND" lines every six
+# hours for a day — against paths a person would have deleted with one `rm`.
+#
+# THE ASSERTION IS `failures=0` AND NOT MERELY "the file is gone", because a
+# reaper that never planned them at all would also leave nothing behind.
+deny_world sockets
+start_claude; PID_S28="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S28" "$SID_LIVE"
+# BOUND FROM INSIDE THE DIRECTORY, ON PURPOSE. macOS caps an AF_UNIX path at
+# 104 bytes, and this suite's sandbox lives under
+# /private/var/folders/mx/.../T/scratch-reaper-test.XXXXXX/sockets/tmp — which is
+# already past it. The first version of this case bound an absolute path, the
+# bind failed, the socket was never created, and `[ ! -e ]` then passed against
+# the UNFIXED reaper: the negative test passed because the fixture was absent.
+# Hence the chdir, and hence the precondition assertion below it.
+python3 - "$W_TMP" <<'PY'
+import os, socket, sys
+os.chdir(sys.argv[1])
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.bind("zzz-dead.sock")
+s.close()                      # bound, then abandoned: the file stays behind
+PY
+mkfifo "$W_TMP/zzz-dead.fifo"
+stale "$W_TMP/zzz-ordinary-dir"
+backdate "$W_TMP/zzz-dead.sock"
+backdate "$W_TMP/zzz-dead.fifo"
+# THE PRECONDITION IS AN ASSERTION, NOT A COMMENT. An absent fixture makes every
+# "it is gone" test below pass for the one reason that proves nothing.
+if [ -S "$W_TMP/zzz-dead.sock" ] && [ -p "$W_TMP/zzz-dead.fifo" ]; then
+    ok "S28-pre the fixture really is a socket and a FIFO before the run"
+else
+    bad "S28-pre the fixture was never created — every S28 case below is vacuous"
+    ls -l "$W_TMP" | sed 's/^/        /' | head -6
+fi
+OUT="$(run --apply)"
+if [ ! -e "$W_TMP/zzz-dead.sock" ]; then
+    ok "S28  an abandoned unix SOCKET is unlinked (198 of the 218)"
+else
+    bad "S28  the socket survived — rmtree cannot take one, and unlink was never tried"
+    printf '%s\n' "$OUT" | grep -i sock | sed 's/^/        /' | head -4
+fi
+if [ ! -e "$W_TMP/zzz-dead.fifo" ]; then
+    ok "S28a an abandoned FIFO is unlinked (2 of the 218)"
+else
+    bad "S28a the FIFO survived — [Errno 20] Not a directory, for ever"
+    printf '%s\n' "$OUT" | grep -i fifo | sed 's/^/        /' | head -4
+fi
+case "$OUT" in
+    *"failures=0"*)
+        ok "S28b ...and the run reports failures=0, so no MASSIVE ALERT is raised" ;;
+    *)  bad "S28b the run still reports a failure for a path it removed"
+        printf '%s\n' "$OUT" | grep -E 'applied:|verdict:' | sed 's/^/        /' ;;
+esac
+# THE CONTROL: an ordinary directory in the SAME run is still deleted. Without
+# it, S28 passes just as well against a reaper that has stopped planning
+# anything at all under this root.
+if [ ! -d "$W_TMP/zzz-ordinary-dir" ]; then
+    ok "S28c CONTROL: an ordinary stale directory in the same run still goes"
+else
+    bad "S28c the arm deleted nothing at all — S28 proves nothing"
+fi
+
+# ===========================================================================
+# S29 — WHAT THE KERNEL OWNS IS CLASSIFIED ONCE AND NEVER ATTEMPTED AGAIN
+# ===========================================================================
+# The other 18 of the 218. macOS creates a directory under the per-user temp
+# root for each of its own agents — AudioComponentRegistrar, SandboxHelper,
+# talagent, studentd, ${DaemonNameOrIdentifierHere} — and marks it `sunlnk`
+# (SF_NOUNLINK) with the `com.apple.rootless` attribute. Every unlink returns
+# EPERM. Measured 2026-09-19: 18 of 18 carried the flag, each had been retried 52
+# times since the previous day, and each produced a line telling Rich to go and
+# delete something nobody at this privilege can delete.
+#
+# WHY THE FIXTURE USES `nodump` AND NOT `sunlnk`: an SF_* flag CANNOT BE SET
+# WITHOUT ROOT — `chflags sunlnk` from this account is "Operation not permitted",
+# which is the same fact that makes the classification correct in production and
+# would otherwise make it untestable. SCRATCH_SYSTEM_FLAGS is the declared mask,
+# so this world declares a flag it can actually set and the shipped code path —
+# a real chflags, a real st_flags, a real classification — runs byte for byte.
+deny_world sysflags
+{
+    echo 'SCRATCH_SYSTEM_FLAGS="0x00000001"'   # UF_NODUMP, settable unprivileged
+} >>"$W_CFG"
+start_claude; PID_S29="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S29" "$SID_LIVE"
+stale "$W_TMP/zzz-the-os-owns-this"
+stale "$W_TMP/zzz-ours-plainly"
+chflags nodump "$W_TMP/zzz-the-os-owns-this"
+OUT="$(run --apply)"
+if [ -d "$W_TMP/zzz-the-os-owns-this" ]; then
+    ok "S29  a kernel-flagged path is KEPT, not attempted"
+else
+    bad "S29  the flagged path was deleted — the mask is read by nothing"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -6
+fi
+case "$OUT" in
+    *"failures=0"*) ok "S29a ...and it is not reported as a failed clean-up" ;;
+    *) bad "S29a it still counts as a deletion that failed, which is the alert"
+       printf '%s\n' "$OUT" | grep -E 'applied:' | sed 's/^/        /' ;;
+esac
+# THE CONTROL, and it is the one that decides whether S29 means anything: the
+# IDENTICAL fixture without the flag, in the same run, is deleted.
+if [ ! -d "$W_TMP/zzz-ours-plainly" ]; then
+    ok "S29b CONTROL: the identical unflagged sibling IS deleted in the same run"
+else
+    bad "S29b nothing was deleted either way — S29 proves nothing about the flag"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -6
+fi
+# AND THE EIGHTEEN ALREADY IN THE LEDGER LEAVE IT. A failure row is a standing
+# instruction to a person; one that nobody can carry out is withdrawn, not
+# re-issued every six hours.
+deny_world sysledger
+{
+    echo 'SCRATCH_SYSTEM_FLAGS="0x00000001"'
+} >>"$W_CFG"
+start_claude; PID_S29B="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S29B" "$SID_LIVE"
+stale "$W_TMP/zzz-already-blamed"
+chflags nodump "$W_TMP/zzz-already-blamed"
+python3 - "$W_HOME/state/scratch-failures.json" "$W_TMP/zzz-already-blamed" <<'PY'
+import json, sys
+path, target = sys.argv[1:3]
+json.dump({target: {"first": "2026-09-18T12:15:05Z", "last": "2026-09-19T12:10:33Z",
+                    "error": "[Errno 1] Operation not permitted", "attempts": 52}},
+          open(path, "w"))
+PY
+OUT="$(run --apply)"
+if [ ! -s "$W_HOME/state/scratch-failures.json" ]; then
+    ok "S29c a standing failure the kernel owns LEAVES the ledger"
+else
+    bad "S29c the unclearable row survived — the alert is permanent by construction"
+    cat "$W_HOME/state/scratch-failures.json" | sed 's/^/        /'
+fi
+if [ -d "$W_TMP/zzz-already-blamed" ]; then
+    ok "S29d ...and withdrawing the claim did not delete the thing"
+else
+    bad "S29d it cleared the row by removing a path it does not own"
+fi
+
+# ===========================================================================
+# S30 — A FINISHED SESSION'S AGE COMES OFF ITS RECORDED END, NOT ITS MTIME
+# ===========================================================================
+# MEASURED 2026-09-19. 11 GB of a finished session's scratchpad sat on this disk
+# and every six-hourly pass reported it KEEP, with this reason:
+#
+#   session 5645c662 recorded its end at 2026-09-18T15:38:15Z, and no running
+#   claude process is this session, but it was written 0 min ago and the floor
+#   is 60 min
+#
+# — twenty-two hours after the session ended. The age was taken from the newest
+# mtime in the tree, and an orphaned background child of the dead session kept
+# touching it, so the tree was permanently "0 min old" and the 60-minute floor
+# never expired. Rich deleted it by hand; free space went 198 -> 214 GB. That is
+# §54's failure exactly: reclaiming it took a person.
+#
+# THE FLOOR'S OWN DECLARATION SAYS WHY THIS IS RIGHT: it "exists only to cover
+# the seconds between a session starting and recording itself". A session that
+# has written `ended_at` is not in that race. It is the same defect, in the same
+# file, as the one scan_standing_failures exists for — a clock read off an mtime
+# that something else keeps moving.
+world endedclock
+sed -i.bak 's/^SCRATCH_AGE_FLOOR_MINUTES=.*/SCRATCH_AGE_FLOOR_MINUTES="60"/' "$W_CFG"
+start_claude; PID_S30="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S30" "$SID_LIVE"
+mkdir -p "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad" \
+         "$W_HOME/state/workspaces/sessions"
+echo payload >"$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/work.txt"
+python3 - "$W_HOME/state/workspaces/sessions/$SID_DEAD.json" "$SID_DEAD" \
+          "$(date -u -v-22H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+             || date -u -d '22 hours ago' +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
+import json, sys
+path, sid, ended = sys.argv[1:4]
+json.dump({"session_id": sid, "ended_at": ended, "end_reason": "prompt_input_exit",
+           "pid": 999999, "pid_start": "Wed Sep 16 23:31:27 2026",
+           "cwd": "/", "repo": "/"}, open(path, "w"))
+PY
+# The orphaned writer, in one line: the tree is touched RIGHT NOW, which is what
+# kept the real 11 GB alive for twenty-two hours.
+touch "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/work.txt"
+OUT="$(run --apply)"
+if [ ! -e "$W_SCRATCH/-a-project/$SID_DEAD" ]; then
+    ok "S30  a session that ENDED 22 h ago is collected though its tree was touched now"
+else
+    bad "S30  the floor read the mtime and kept it — the 11 GB case, unchanged"
+    printf '%s\n' "$OUT" | grep -A1 "$SID_DEAD" | sed 's/^/        /' | head -4
+fi
+# THE CONTROL, and it is the safety half: a session that ended MOMENTS ago is
+# still inside the floor and is still kept. Without this, S30 passes against a
+# reaper that has simply stopped applying the floor to sessions at all.
+world endedfloor
+sed -i.bak 's/^SCRATCH_AGE_FLOOR_MINUTES=.*/SCRATCH_AGE_FLOOR_MINUTES="60"/' "$W_CFG"
+start_claude; PID_S30B="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S30B" "$SID_LIVE"
+mkdir -p "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad" \
+         "$W_HOME/state/workspaces/sessions"
+echo payload >"$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/work.txt"
+backdate "$W_SCRATCH/-a-project/$SID_DEAD"
+python3 - "$W_HOME/state/workspaces/sessions/$SID_DEAD.json" "$SID_DEAD" \
+          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
+import json, sys
+path, sid, ended = sys.argv[1:4]
+json.dump({"session_id": sid, "ended_at": ended, "end_reason": "prompt_input_exit",
+           "pid": 999999, "pid_start": "Wed Sep 16 23:31:27 2026",
+           "cwd": "/", "repo": "/"}, open(path, "w"))
+PY
+OUT="$(run --apply)"
+if [ -e "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/work.txt" ]; then
+    ok "S30b CONTROL: a session that ended MOMENTS ago is still inside the floor"
+else
+    bad "S30b a just-ended session was collected — the floor no longer applies at all"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -6
+fi
+# --verbose, because a KEEP is only printed in the full report — and the REASON
+# is the assertion here, not the survival. S21o is the case that established
+# why: a test asserting only that the tree was still there would have passed
+# against the wrong answer for ever (it hid a one-hour DST error for weeks).
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"recorded its end"*)
+        ok "S30c ...and the reason says WHICH clock it used" ;;
+    *)  bad "S30c kept, but not by the recorded-end clock — the reason is the test"
+        printf '%s\n' "$OUT" | grep -A1 "$SID_DEAD" | sed 's/^/        /' | head -4 ;;
+esac
+
+# ===========================================================================
+# S31 — A REPOSITORY AN APP INSTANCE HAS REGISTERED IS NOT SCRATCH
+# ===========================================================================
+# The one thing inside a finished session's scratchpad that is NOT garbage. A QA
+# fixture repository is built in there and its absolute path is written into the
+# app's entity registry, so an instance that is still running is pointed at a
+# directory this program is now entitled to remove. Deleting it is not
+# reclaiming garbage; it is pulling a repository out from under a running
+# program, and the running program is the only thing that knew it mattered.
+world appregistry
+sed -i.bak 's/^SCRATCH_AGE_FLOOR_MINUTES=.*/SCRATCH_AGE_FLOOR_MINUTES="0"/' "$W_CFG"
+W_FAKE_HOME="$W_ROOT/fakehome"
+mkdir -p "$W_FAKE_HOME/Library/Application Support/com.richos.app"
+start_claude; PID_S31="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S31" "$SID_LIVE"
+mkdir -p "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/qa-fixture-repo"
+echo payload >"$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/qa-fixture-repo/f.txt"
+backdate "$W_SCRATCH/-a-project/$SID_DEAD"
+python3 - "$W_FAKE_HOME/Library/Application Support/com.richos.app/entities.json" \
+          "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/qa-fixture-repo" <<'PY'
+import json, sys
+path, repo = sys.argv[1:3]
+json.dump({"version": 1, "entities": [
+    {"id": "qa", "display_name": "QA", "roots": [repo]}]}, open(path, "w"))
+PY
+OUT="$(run --apply)"
+if [ -f "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/qa-fixture-repo/f.txt" ]; then
+    ok "S31  a dead session's scratchpad holding a REGISTERED repository survives"
+else
+    bad "S31  the registered repository went with the scratchpad"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -6
+fi
+# --verbose for the same reason S30c gives: the REASON is the assertion.
+OUT="$(run --dry-run --verbose)"
+case "$OUT" in
+    *"registered as a repository"*)
+        ok "S31a ...and the reason names the registration, not the age" ;;
+    *)  bad "S31a kept, but for some other reason — S31 may be passing by luck"
+        printf '%s\n' "$OUT" | grep -A1 "$SID_DEAD" | sed 's/^/        /' | head -4 ;;
+esac
+# THE CONTROL: the same dead session's scratchpad with NOTHING registered is
+# collected. Without it, S31 passes against a reaper that keeps every scratchpad.
+world appregistryoff
+sed -i.bak 's/^SCRATCH_AGE_FLOOR_MINUTES=.*/SCRATCH_AGE_FLOOR_MINUTES="0"/' "$W_CFG"
+W_FAKE_HOME="$W_ROOT/fakehome"
+mkdir -p "$W_FAKE_HOME/Library/Application Support/com.richos.app"
+start_claude; PID_S31B="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S31B" "$SID_LIVE"
+mkdir -p "$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/qa-fixture-repo"
+echo payload >"$W_SCRATCH/-a-project/$SID_DEAD/scratchpad/qa-fixture-repo/f.txt"
+backdate "$W_SCRATCH/-a-project/$SID_DEAD"
+python3 - "$W_FAKE_HOME/Library/Application Support/com.richos.app/entities.json" <<'PY'
+import json, sys
+json.dump({"version": 1, "entities": []}, open(sys.argv[1], "w"))
+PY
+OUT="$(run --apply)"
+if [ ! -e "$W_SCRATCH/-a-project/$SID_DEAD" ]; then
+    ok "S31b CONTROL: with nothing registered the same scratchpad IS collected"
+else
+    bad "S31b it keeps every scratchpad regardless — S31 proves nothing"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -6
+fi
+
+# ===========================================================================
+# S32 — THE SKIPPED PILE IS SPLIT BY WHO CAN ACT ON IT
+# ===========================================================================
+# CEO, 2026-09-19: "13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT". Measured
+# the same hour, that number was 12.8 GiB of two DECLARED campaign roots past
+# their retention — ours, each printing its own `rm -rf`, 12.8 GB a person gets
+# back by running it — added to 1.15 GiB of Visual Studio Code's and Codex's
+# temporary files, which nobody should ever touch. One heading, two opposite
+# responses, and the actionable 12.8 GB invisible inside a number that is mostly
+# not actionable.
+deny_world skippedsplit
+{
+    echo "SCRATCH_CAMPAIGN_PARENT=\"$W_ROOT/campaigns\""
+    echo 'SCRATCH_CAMPAIGN_ROOTS="zcampaign-done"'
+    echo 'SCRATCH_CAMPAIGN_RETENTION_DAYS="1"'
+} >>"$W_CFG"
+mkdir -p "$W_ROOT/campaigns"
+start_claude; PID_S32="$LAST_CLAUDE"
+register "$W_SESSIONS" "$PID_S32" "$SID_LIVE"
+stale "$W_ROOT/campaigns/zcampaign-done"
+stale "$W_TMP/zforeign.someone-elses-app"
+OUT="$(run --dry-run)"
+case "$OUT" in
+    *"by_hand=1"*) ok "S32  the verdict line counts OUR by-hand pile separately" ;;
+    *) bad "S32  the by-hand pile is still summed into one skipped= number"
+       printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /' ;;
+esac
+case "$OUT" in
+    *"foreign=1"*) ok "S32a ...and another program's temp is its own number" ;;
+    *) bad "S32a the foreign pile is not separated from ours"
+       printf '%s\n' "$OUT" | grep verdict | sed 's/^/        /' ;;
+esac
+# THE PUBLISHED RECORD CARRIES THE SPLIT AND THE PATHS, because the watchdog
+# reads that file and cannot say WHICH 12.8 GB from a total.
+run --apply >/dev/null 2>&1
+if python3 - "$W_HOME/state/scratch-reaper-state.json" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+s = d.get("skipped_split") or {}
+paths = (s.get("by_hand") or {}).get("paths") or []
+sys.exit(0 if (s.get("by_hand", {}).get("count") == 1
+               and s.get("foreign", {}).get("count") == 1
+               and any("zcampaign-done" in (p.get("path") or "") for p in paths)
+               and d.get("last_apply_epoch")) else 1)
+PY
+then
+    ok "S32b --apply publishes the split, the paths and the measurement time"
+else
+    bad "S32b the watchdog cannot tell the two piles apart from what is published"
+    cat "$W_HOME/state/scratch-reaper-state.json" 2>/dev/null | sed 's/^/        /' | head -20
 fi
 
 # --- THE MUTATION HARNESS RUNS FROM THE SUITE IT MUTATES -------------------

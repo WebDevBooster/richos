@@ -161,11 +161,32 @@ if [ "$EVENT" = "Stop" ]; then
     # ONE LINE, assembled from the block. The interesting facts are the volume
     # lines, the stuck-path count and the classification; the "what to do"
     # section is left for SessionStart and for --status.
+    # ===================================================================
+    # THE LINE THE CEO ASKED ABOUT WAS WRITTEN HERE
+    # ===================================================================
+    # 2026-09-19, verbatim: "And what is this all about: MASSIVE ALERT — DISK:
+    # 218 path(s) could not be deleted (delete BY HAND) | 13.9 GB in 4122
+    # place(s) NOTHING WILL EVER COLLECT | 11.4 GB in 2 place(s) UNDECIDABLE —
+    # no run will clear it".
+    #
+    # Three clauses, and each was a different thing wearing the same words:
+    # 200 of the 218 were a defect in the sweeper's own delete loop and 18 were
+    # directories the kernel owns; 12.8 of the 13.9 GB were our campaign roots,
+    # each already printing the command that reclaims it, added to 1.15 GB of
+    # other programs' temporary files; the 11.4 GB had been deleted by hand an
+    # hour before the line was printed. He could act on none of it, and it was
+    # repeated every turn.
+    #
+    # SO THE SUMMARY NOW SPLITS THE SAME WAY THE BLOCK DOES. Only what a person
+    # must ACT on reaches this line, and only an ALARM wears the words MASSIVE
+    # ALERT. Another program's temporary files never appear here at all: they
+    # are in the SessionStart block, where they are information, and a turn-end
+    # line about files nobody may touch is the definition of wallpaper.
     SUMMARY="$(printf '%s\n' "$BODY" | python3 -c '
 import re, sys
 text = sys.stdin.read()
-vols, stuck, klass, notinstalled, stopped = [], "", "", False, False
-garbage = []
+vols, stuck, inst, klass, notinstalled, stopped = [], "", "", "", False, False
+todo = []
 for line in text.splitlines():
     s = line.strip()
     if "NOT INSTALLED" in s:
@@ -179,41 +200,58 @@ for line in text.splitlines():
     m = re.match(r"^(\d+) GARBAGE PATH\(S\) COULD NOT BE DELETED", s)
     if m:
         stuck = "%s path(s) could not be deleted (delete BY HAND)" % m.group(1)
-    # THE GARBAGE ALARM, added 2026-09-18. Without these two the turn-end line
-    # would read "disk alert standing" while the block said 1.05 GB of garbage
-    # nothing is coming for — a summary that drops the only condition present is
-    # worse than no summary, because it teaches the eye that the line is empty.
-    m = re.match(r"^(\S+ \S+) in (\d+) place\(s\) SKIPPED", s)
+    m = re.match(r"^(\d+) TEST APP INSTANCE\(S\) WOULD NOT CLOSE", s)
     if m:
-        garbage.append("%s in %s place(s) NOTHING WILL EVER COLLECT"
-                       % (m.group(1), m.group(2)))
-    m = re.match(r"^(\S+ \S+) in (\d+) place\(s\) UNDECIDABLE", s)
+        inst = "%s test app instance(s) would not close" % m.group(1)
+    # OURS AND NEVER DELETED AUTOMATICALLY — a campaign root past its retention,
+    # a running throwaway container. Not an alarm, but the one pile a person
+    # gets space back from, so it keeps its place on this line.
+    m = re.match(r"^(\S+ \S+) in (\d+) place\(s\) IS OURS AND IS NEVER DELETED", s)
     if m:
-        garbage.append("%s in %s place(s) UNDECIDABLE — no run will clear it"
-                       % (m.group(1), m.group(2)))
+        todo.append("%s in %s place(s) is ours and waits for a person to remove it"
+                    % (m.group(1), m.group(2)))
     if s.startswith("CLASSIFICATION:"):
         klass = s.split(":", 1)[1].strip()
-parts = []
+# ALARM and REPORT are assembled separately, and the prefix follows the ALARM.
+alarm = []
 if notinstalled:
-    parts.append("THE DISK WATCHDOG IS NOT INSTALLED — nothing is watching free space")
+    alarm.append("THE DISK WATCHDOG IS NOT INSTALLED — nothing is watching free space")
 if stopped:
-    parts.append("THE DISK WATCHDOG HAS STOPPED REPORTING")
-parts.extend(vols)
+    alarm.append("THE DISK WATCHDOG HAS STOPPED REPORTING")
+alarm.extend(vols)
 if stuck:
-    parts.append(stuck)
-parts.extend(garbage)
-if klass:
-    parts.append("classification: " + klass)
-print(" | ".join(parts) if parts else "disk alert standing")
-' 2>/dev/null || echo "disk alert standing")"
+    alarm.append(stuck)
+if inst:
+    alarm.append(inst)
+if alarm and klass:
+    alarm.append("classification: " + klass)
+if alarm:
+    print("MASSIVE ALERT — DISK: " + " | ".join(alarm + todo)
+          + ". Full reading: scripts/disk-watchdog.sh --status")
+elif todo:
+    # NO ALARM WORDS. Nothing is broken and nothing is at risk; there is simply
+    # space a person can reclaim with a command the full reading prints.
+    print("Disk: " + " | ".join(todo)
+          + ". Which, and the command: scripts/disk-watchdog.sh --status")
+# AND NOTHING AT ALL when the block held only other programs temp or an
+# undecidable pile. Those are in the SessionStart block to be read, not on
+# every turn end to be scrolled past.
+' 2>/dev/null || echo "")"
+
+    if [ -z "$SUMMARY" ]; then
+        # The block said something, but nothing a person must act on. Treat it
+        # exactly as the empty-block path above: tell the ledger the condition
+        # has cleared so the next real one announces afresh.
+        stop_notice_normal 2>/dev/null || true
+        exit 0
+    fi
 
     # THE STATE KEY IS THE CONDITION, NOT THE NUMBER. Keying on free bytes would
     # make every reading a new state and defeat the ledger entirely; keying on
     # WHICH conditions hold means the recurrence below is what drives repetition,
     # which is the behavior that was actually asked for.
     KEY="$(printf '%s' "$BODY" | grep -c 'MASSIVE ALERT')"
-    stop_notice_abnormal_recurring "disk-alert:$KEY" \
-        "MASSIVE ALERT — DISK: $SUMMARY. Full reading: scripts/disk-watchdog.sh --status ; reclaim: scripts/scratch-sweep.sh" \
+    stop_notice_abnormal_recurring "disk-alert:$KEY" "$SUMMARY" \
         1 2>/dev/null || true
     exit 0
 fi

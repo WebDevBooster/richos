@@ -70,6 +70,28 @@
 #        the silence control that matters more than the alarm (W18b) and a
 #        separate lower threshold for the undecidable pile (W18c, his D12).
 #
+# --- added 2026-09-19, after the CEO read the alert this mechanism made -----
+# "And what is this all about: MASSIVE ALERT — DISK: 218 path(s) could not be
+# deleted (delete BY HAND) | 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT
+# | 11.4 GB in 2 place(s) UNDECIDABLE — no run will clear it". Under one heading:
+# 200 paths a defect in the sweeper could not delete, 18 the kernel owns, 12.8 GB
+# of our own campaign roots each already printing its `rm -rf`, 1.15 GB of Visual
+# Studio Code's and Codex's temporary files, and one figure six hours stale that
+# he had already cleared by hand. FOUR DIFFERENT RESPONSES, presented as one
+# alarm — and failure 2 in the list above is the one that gets an alarm ignored.
+#
+#   W19  THREE PILES, THREE HEADINGS. Our failed clean-up is the MASSIVE ALERT
+#        and the banner names it (W19/W19a — it said "DISK SPACE" with 198 GB
+#        free); the by-hand pile gets its own heading and the command that
+#        clears it (W19b); and W19c is the control that decides whether the
+#        split is real — the same 13.9 GB, alone, reports and exits 0.
+#   W20  EVERY FIGURE CARRIES THE TIME IT WAS MEASURED, and past a declared
+#        window it is disowned rather than quoted (W20b). W18/W18a are the
+#        amended cases: other programs' temp is reported and is NOT an alarm.
+#   W21  --status RUNS the sweeper, so a person who asks gets this second's
+#        answer (W21), it is not an ALERT (W21a), and when the sweeper cannot be
+#        run the fallback says how old its number is (W21b).
+#
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
 set -uo pipefail
@@ -142,6 +164,16 @@ DISK_STATE_JSON="$W_STATE"
 SCRATCH_ROOT_NAME="richos-scratch"
 SCRATCH_CLAUDE_ROOTS="$W_DIR/claude-%u"
 SCRATCH_FAILURES_STATE="$W_FAILS"
+# THE SWEEPER'S PUBLISHED NUMBERS BELONG TO THE WORLD TOO, and leaving this out
+# was a hermeticity hole this suite had from the day the garbage report was
+# added: with no declaration the program fell back to
+# ~/.claude/state/scratch-reaper-state.json and W2 — "a healthy machine gets
+# COMPLETE SILENCE" — failed on the operator's own 1.2 GB of Visual Studio
+# Code's temporary files. A suite whose result depends on the machine it runs on
+# is the same defect as a program that reads none of its declarations (W1), from
+# the other side. Cases that want their own figures append this key AFTER, and a
+# later declaration wins.
+SCRATCH_REAPER_STATE="$W_DIR/reaper-state.json"
 CFG
 }
 
@@ -756,14 +788,36 @@ PY
     echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="67108864"'
 } >>"$W_CFG"
 OUT="$(run_wd --alert)"; RC=$?
-if [ "$RC" = "1" ] \
-   && printf '%s' "$OUT" | grep -q 'GARBAGE NOTHING WILL EVER COLLECT' \
+# AMENDED 2026-09-19. It used to assert rc=1 and the heading "GARBAGE NOTHING
+# WILL EVER COLLECT", and the CEO read the result of that: "And what is this all
+# about: MASSIVE ALERT — DISK: ... 13.9 GB in 4122 place(s) NOTHING WILL EVER
+# COLLECT". Measured the same hour, that 13.9 GB was 12.8 GB of OUR OWN campaign
+# roots, each already printing the `rm -rf` that reclaims it, summed with 1.15 GB
+# of Visual Studio Code's and Codex's temporary files that nobody should ever
+# touch. Two opposite responses under one MASSIVE ALERT.
+#
+# THE PILE IS STILL REPORTED — the reporting is the half of §54 Fix 2 added, and
+# removing it would be going back to silence. What changes is that other
+# programs' temp is not an ALARM: it appears under its own heading and it does
+# NOT raise the exit code. The alarm is reserved for the branch where a person
+# must go and delete something, which this is not.
+if [ "$RC" = "0" ] \
+   && printf '%s' "$OUT" | grep -q 'GARBAGE REPORT (not an alert)' \
+   && printf '%s' "$OUT" | grep -q 'BELONGS TO OTHER PROGRAMS' \
    && printf '%s' "$OUT" | grep -q '2934'; then
-    ok "W18  garbage nothing will ever collect reaches Rich's alert, with a count"
+    ok "W18  other programs' temp is REPORTED with its count and is not an alarm"
 else
-    bad "W18  the garbage alarm did not fire on 1.05 GB of skipped garbage (rc=$RC)"
+    bad "W18  1.05 GB of foreign temp did not report, or reported as an alarm (rc=$RC)"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -14
 fi
+# AND IT MUST NOT WEAR THE ALARM'S WORDS. `grep -q 'MASSIVE ALERT'` is the
+# assertion that would have caught the line he actually read.
+case "$OUT" in
+    *"MASSIVE ALERT"*)
+        bad "W18a other programs' temporary files are still under a MASSIVE ALERT"
+        printf '%s\n' "$OUT" | sed 's/^/        /' | head -6 ;;
+    *)  ok "W18a ...and the words MASSIVE ALERT appear nowhere near it" ;;
+esac
 # THE CONTROL, and it is the one that matters most for an alarm: below the
 # declared threshold it must be COMPLETELY silent. An alarm that always fires is
 # the failure this suite's own header ranks as worse than not firing at all.
@@ -785,11 +839,214 @@ json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
            "failures": 0, "verdict": "undecided"}, open(sys.argv[1], "w"))
 PY
 OUT="$(run_wd --alert)"; RC=$?
-if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'UNDECIDABLE'; then
-    ok "W18c an undecidable pile alerts on its OWN lower threshold, not the 1 GiB one"
+# Its own LOWER threshold is still the point of this case (D12). What changed on
+# 2026-09-19 is the response: an undecidable pile is something to READ — a wall
+# tripped, and the reason says which — not something to go and delete by hand.
+# So it reports on its own threshold and does not raise the exit code.
+if [ "$RC" = "0" ] && printf '%s' "$OUT" | grep -q 'COULD NOT BE DECIDED'; then
+    ok "W18c an undecidable pile reports on its OWN lower threshold, not the 1 GiB one"
 else
-    bad "W18c 157 MB of permanently undecidable garbage was silent (rc=$RC)"
+    bad "W18c 157 MB of permanently undecidable garbage was silent or alarmed (rc=$RC)"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+
+# ===========================================================================
+# W19 — THREE PILES, THREE HEADINGS, AND ONLY ONE OF THEM IS AN ALARM
+# ===========================================================================
+# The line the CEO read on 2026-09-19 ran all three together:
+#
+#   MASSIVE ALERT — DISK: 218 path(s) could not be deleted (delete BY HAND)
+#   | 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT
+#   | 11.4 GB in 2 place(s) UNDECIDABLE — no run will clear it
+#
+# Under one heading: 200 paths a defect could not delete, 18 the kernel owns,
+# 12.8 GB of our own campaign roots with a printed command, 1.15 GB of another
+# program's temp, and one figure six hours stale. Four different responses. An
+# alarm whose items do not share a response is one nobody can act on — and this
+# suite's own header ranks firing wrongly as worse than not firing.
+world threepiles
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+mkdir -p "$W_DIR/state"
+python3 - "$W_FAILS" <<'PY'
+import json, sys
+json.dump({"/tmp/ours-that-would-not-go": {
+    "first": "2026-09-19T01:00:00Z", "last": "2026-09-19T12:00:00Z",
+    "error": "[Errno 13] Permission denied", "attempts": 4}}, open(sys.argv[1], "w"))
+PY
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys, time
+json.dump({"last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "last_apply_epoch": int(time.time()),
+           "deleted": 3, "freed": 100, "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 4122, "skipped_bytes": 14958789966,
+           "skipped_split": {
+               "by_hand": {"count": 2, "bytes": 13750465408,
+                           "label": "OURS", "paths": [
+                               {"path": "/Users/x/ab/campaign-done",
+                                "bytes": 13749244608,
+                                "why": "PAST ITS RETENTION ... a person removes it:  "
+                                       "rm -rf /Users/x/ab/campaign-done"}]},
+               "foreign": {"count": 4120, "bytes": 1208324558, "label": "theirs"}},
+           "failures": 1, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+{
+    echo "SCRATCH_REAPER_STATE=\"$W_DIR/state/scratch-reaper-state.json\""
+    echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"'
+    echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="67108864"'
+} >>"$W_CFG"
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] \
+   && printf '%s' "$OUT" | grep -q 'MASSIVE ALERT — CLEAN-UP FAILED' \
+   && printf '%s' "$OUT" | grep -q 'ours-that-would-not-go'; then
+    ok "W19  OUR failed deletion is the MASSIVE ALERT, and the banner names it"
+else
+    bad "W19  a failed clean-up did not raise the alarm, or the banner still says DISK SPACE (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -10
+fi
+# THE BANNER IS PART OF THE ASSERTION. It said "MASSIVE ALERT — DISK SPACE"
+# while firing on 218 undeletable paths with 198 GB free, so the first line a
+# reader saw was about a thing that was not happening.
+case "$OUT" in
+    *"MASSIVE ALERT — DISK SPACE"*)
+        bad "W19a the banner still says DISK SPACE when the disk is fine" ;;
+    *)  ok "W19a ...and it does not say DISK SPACE when the disk is not the problem" ;;
+esac
+if printf '%s' "$OUT" | grep -q 'IS OURS AND IS NEVER DELETED' \
+   && printf '%s' "$OUT" | grep -q 'rm -rf /Users/x/ab/campaign-done'; then
+    ok "W19b the by-hand pile is its OWN heading and carries the command that clears it"
+else
+    bad "W19b 12.8 GB a person could reclaim is still summed into somebody else's number"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -20
+fi
+# AND THE ONE THAT DECIDES WHETHER THE SPLIT IS REAL: with the failure removed,
+# the SAME 13.9 GB is reported and the run exits 0.
+python3 - "$W_FAILS" <<'PY'
+import json, sys
+json.dump({}, open(sys.argv[1], "w"))
+PY
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "0" ] && printf '%s' "$OUT" | grep -q 'GARBAGE REPORT (not an alert)'; then
+    ok "W19c CONTROL: the same 13.9 GB alone reports and exits 0"
+else
+    bad "W19c the garbage report still raises the exit code on its own (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+
+# ===========================================================================
+# W20 — EVERY FIGURE CARRIES THE TIME IT WAS MEASURED
+# ===========================================================================
+# CEO, 2026-09-19: "11.4 GB in 2 place(s) UNDECIDABLE — no run will clear it".
+# He had deleted both of those piles BY HAND an hour earlier, and the live sweep
+# said one place at 2,176 bytes. The number came from the state file the 12:10Z
+# scheduled pass wrote, with nothing on the line to say it was six hours old. A
+# cached number printed in the present tense is the stale-artifact failure, and
+# it costs one clause to avoid.
+world dated
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+mkdir -p "$W_DIR/state"
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys, time
+old = time.time() - 6 * 3600
+json.dump({"last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(old)),
+           "last_apply_epoch": int(old),
+           "deleted": 0, "freed": 0, "undecidable": 2,
+           "undecidable_bytes": 12228131110,
+           "skipped": 0, "skipped_bytes": 0, "failures": 0,
+           "verdict": "undecided"}, open(sys.argv[1], "w"))
+PY
+{
+    echo "SCRATCH_REAPER_STATE=\"$W_DIR/state/scratch-reaper-state.json\""
+    echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1073741824"'
+    echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="67108864"'
+    echo 'SCRATCH_REAPER_STATE_MAX_AGE_HOURS="12"'
+} >>"$W_CFG"
+OUT="$(run_wd --alert)"
+if printf '%s' "$OUT" | grep -q 'measured .* ago' \
+   && printf '%s' "$OUT" | grep -q '6 h'; then
+    ok "W20  a figure from the last scheduled pass says when it was measured"
+else
+    bad "W20  the 11.4 GB is still printed as though it were the present"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+case "$OUT" in
+    *"OUT OF DATE"*) bad "W20a six hours is inside the declared 12 h window and is not stale" ;;
+    *) ok "W20a ...and inside the declared window it is dated, not disowned" ;;
+esac
+# PAST THE WINDOW IT IS DISOWNED, not quoted. Two cadences of the six-hourly
+# sweep is the declared point at which a number stops being evidence.
+sed -i.bak 's/^SCRATCH_REAPER_STATE_MAX_AGE_HOURS=.*/SCRATCH_REAPER_STATE_MAX_AGE_HOURS="1"/' "$W_CFG"
+OUT="$(run_wd --alert)"
+if printf '%s' "$OUT" | grep -q 'THESE FIGURES ARE OUT OF DATE'; then
+    ok "W20b past the declared window the figure is disowned, not quoted as fact"
+else
+    bad "W20b a six-hour-old number past a one-hour window still reads as current"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+
+# ===========================================================================
+# W21 — --status RUNS THE SWEEPER; IT NEVER QUOTES A CACHED NUMBER
+# ===========================================================================
+# The other half of the same defect. `--alert` and `--check` fire from launchd
+# and from a session hook and must stay cheap, so they read the published file
+# and date it. `--status` is a PERSON WAITING FOR AN ANSWER, and the honest
+# answer there is this second's, which costs about nine seconds once.
+world statuslive
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+mkdir -p "$W_DIR/state"
+python3 - "$W_DIR/state/scratch-reaper-state.json" <<'PY'
+import json, sys, time
+old = time.time() - 6 * 3600
+json.dump({"last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(old)),
+           "last_apply_epoch": int(old), "deleted": 0, "freed": 0,
+           "undecidable": 2, "undecidable_bytes": 12228131110,
+           "skipped": 4122, "skipped_bytes": 14958789966,
+           "failures": 0, "verdict": "undecided"}, open(sys.argv[1], "w"))
+PY
+# A STUB SWEEPER WHOSE ANSWER IS UNMISTAKABLY DIFFERENT from the file's. If
+# --status prints the file's 11.4 GB, it did not run anything.
+cat >"$W_DIR/fake-reaper.sh" <<'STUB'
+#!/bin/sh
+cat <<'JSON'
+{"verdict": "decided", "applied": false, "deleted": 0, "freed": 0,
+ "undecidable": 0, "undecidable_bytes": 0,
+ "skipped": 7, "skipped_bytes": 7654321,
+ "skipped_split": {"by_hand": {"count": 0, "bytes": 0, "paths": []},
+                   "foreign": {"count": 7, "bytes": 7654321}},
+ "failures": 0}
+JSON
+STUB
+chmod +x "$W_DIR/fake-reaper.sh"
+{
+    echo "SCRATCH_REAPER_STATE=\"$W_DIR/state/scratch-reaper-state.json\""
+    echo "SCRATCH_REAPER_CMD=\"$W_DIR/fake-reaper.sh\""
+    echo 'SCRATCH_SKIPPED_NOTICE_BYTES="1"'
+    echo 'SCRATCH_UNDECIDABLE_NOTICE_BYTES="1"'
+} >>"$W_CFG"
+OUT="$(run_wd --status)"
+if printf '%s' "$OUT" | grep -q 'measured just now' \
+   && ! printf '%s' "$OUT" | grep -q '11.4 GB'; then
+    ok "W21  --status reports the sweeper's CURRENT verdict, not the cached one"
+else
+    bad "W21  --status is still quoting a six-hour-old figure as the present"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+case "$OUT" in
+    *"ALERT"*)
+        bad "W21a --status calls another program's temp an ALERT" ;;
+    *)  ok "W21a ...and the foreign pile reads as information, not as an alarm" ;;
+esac
+# THE FALLBACK, AND IT SAYS SO. A sweeper that cannot be run is not a reason to
+# print nothing and it is not a reason to pretend the old number is new.
+sed -i.bak "s|^SCRATCH_REAPER_CMD=.*|SCRATCH_REAPER_CMD=\"$W_DIR/nothing-here.sh\"|" "$W_CFG"
+OUT="$(run_wd --status)"
+if printf '%s' "$OUT" | grep -q 'measured .* ago'; then
+    ok "W21b when the sweeper cannot be run, --status says how old the figure is"
+else
+    bad "W21b the fallback prints a stale figure with no date on it"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
 fi
 
 echo ""
