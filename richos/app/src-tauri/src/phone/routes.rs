@@ -31,7 +31,7 @@
 
 use super::api_base::ApiBaseDesk;
 use super::assets::PhoneApp;
-use super::device::{parse_authorization, DeviceDesk, Presented, Refusal};
+use super::device::{parse_authorization, platform_of_name, DeviceDesk, Platform, Presented, Refusal};
 use super::push::Subscription;
 use super::rows::rows_from_payload;
 use super::stream::{Frame, PhoneHub, Replay};
@@ -39,7 +39,7 @@ use super::MAX_BODY_BYTES;
 use serde_json::{json, Value};
 #[cfg(test)]
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// One request, as the listener read it off the wire.
 pub struct Incoming {
@@ -133,6 +133,19 @@ pub struct Channel {
     /// sent pretty words, a Mac that wanted to could send words that do not belong to the
     /// certificate it is actually serving."*
     pub fingerprint_hex: String,
+    /// **WHICH PATH THE PAIRING CODE IS GOING OUT UNDER RIGHT NOW** —
+    /// [`super::device::PairedVia::TAILNET`] or `HOME`. Written into the device record at
+    /// pairing (see [`super::device::Device::paired_via`]) and never consulted again.
+    ///
+    /// **It is the DECISION, not the origin string.** `serving_plan` in `phone/mod.rs` already
+    /// answers "did the tailnet branch happen" with a `Some`/`None`, so carrying that answer
+    /// costs nothing and needs no `.ts.net` suffix test to read it back.
+    ///
+    /// **A `Mutex` because the answer can still change after this struct is built.**
+    /// `PhoneRuntime::start` constructs the channel, then tries to bind, and falls back to the
+    /// home addresses when the tailnet ones will not — which is a real move from `tailnet` to
+    /// `home` after construction. One write, at start, under no contention.
+    pub pairing_path: Mutex<&'static str>,
 }
 
 /// **The whole route table.** One match, one fall-through, and the fall-through is a 404.
@@ -242,7 +255,19 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
         return Outcome::NotFound;
     };
     let name = body.get("device_name").and_then(|v| v.as_str()).unwrap_or("Phone");
-    let device = match channel.devices.complete_pairing(code, &form, name) {
+    // **THE PLATFORM, PREFERRING WHAT THE PHONE SAYS OUTRIGHT OVER WHAT IT CALLS ITSELF.**
+    // `web/web-app/` sends no `platform` today, so in practice this reads the name — and the
+    // moment the phone page starts sending one, this Mac already honors it without a change
+    // here. An unrecognized value is not silently accepted: it falls through to the name.
+    let platform = match body.get("platform").and_then(|v| v.as_str()) {
+        Some(Platform::IOS) => Platform::IOS,
+        Some(Platform::ANDROID) => Platform::ANDROID,
+        _ => platform_of_name(name),
+    };
+    // Which path the code being redeemed went out under. Read once, here, because this is the
+    // last moment at which it is a fact rather than a recomputation (Ray's defect 3.2).
+    let via = *channel.pairing_path.lock().unwrap();
+    let device = match channel.devices.complete_pairing(code, &form, name, via, platform) {
         Ok(d) => d,
         Err(refusal) => {
             log_refusal("POST /api/pair", &refusal);
@@ -730,6 +755,8 @@ mod tests {
                     &window.code,
                     &crate::phone::device::PublicKeyForm::Jwk(phone.jwk()),
                     "iPhone",
+                    crate::phone::device::PairedVia::HOME,
+                    crate::phone::device::Platform::IOS,
                 )
                 .unwrap()
                 .id;
@@ -746,6 +773,7 @@ mod tests {
             assets: PhoneApp::from_files(TEST_APP),
             vapid_public: "BExampleVapidKey".into(),
             fingerprint_hex: "3D:9C:A1".into(),
+            pairing_path: Mutex::new(crate::phone::device::PairedVia::HOME),
         };
         Fixture { dir, channel, phone, device_id, challenge, bridge }
     }

@@ -1216,6 +1216,7 @@ mod tests {
             assets: crate::phone::assets::PhoneApp::embedded(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: ca.fingerprint_hex(),
+            pairing_path: std::sync::Mutex::new(crate::phone::device::PairedVia::HOME),
         });
 
         devices.open_pairing().unwrap();
@@ -1362,6 +1363,7 @@ mod tests {
             assets: crate::phone::assets::PhoneApp::embedded(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: ca.fingerprint_hex(),
+            pairing_path: std::sync::Mutex::new(crate::phone::device::PairedVia::HOME),
         });
 
         devices.open_pairing().unwrap();
@@ -1618,6 +1620,7 @@ mod tests {
             assets: crate::phone::assets::PhoneApp::embedded(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: ca.fingerprint_hex(),
+            pairing_path: std::sync::Mutex::new(crate::phone::device::PairedVia::HOME),
         });
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;

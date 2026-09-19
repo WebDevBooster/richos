@@ -25,6 +25,13 @@
   // namespace, and never the mirror's keys: this is the STORE, not the cache of it.
   // THE PHONE CHANNEL'S HARNESS STATE. Six words from the same list the Mac and the phone both
   // use, so a browser walk shows what he would actually read rather than lorem.
+  // **THE PAIRING WINDOW, AND IT IS THE MAC'S NUMBER.** `src-tauri/src/phone/mod.rs`'s
+  // `PAIRING_WINDOW_MS`. It was sixty seconds and it is five minutes: Ray's candidate .11 defect
+  // 3.3 measured the errand this screen asks for — read it, walk to the phone, unlock it, open
+  // the camera — against sixty seconds and the code was gone. A harness that modeled a different
+  // window would draw a countdown the product never shows, so `ui/tests/phone.js` check 8c reads
+  // the constant out of the Rust and asserts this line matches it.
+  const PAIRING_WINDOW_MS = 300000;
   const mockPhone = {
     paired: window.__RICHOS_MOCK_PRESET__?.phonePaired === true,
     pairing:
@@ -33,7 +40,22 @@
     // A FOURTH STATE, and it is the one a real person meets most often: he opened the screen,
     // went to find his phone, and came back after the sixty seconds were up. Reaching it by
     // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
-    openedAt: window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true ? now() - 61000 : now(),
+    openedAt:
+      window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true
+        ? now() - (PAIRING_WINDOW_MS + 1000)
+        : now(),
+    // THE RECORDED PATH AND PLATFORM (`device.rs`: `paired_via`, `platform`). The default is
+    // the home path on an iPhone, which is what this harness has always modeled; the presets
+    // are how the other three combinations — and the legacy record that recorded neither — are
+    // reached without a Mac, a tailnet and two phones.
+    pairedVia:
+      window.__RICHOS_MOCK_PRESET__?.phonePairedVia === undefined
+        ? "home"
+        : window.__RICHOS_MOCK_PRESET__.phonePairedVia,
+    platform:
+      window.__RICHOS_MOCK_PRESET__?.phonePlatform === undefined
+        ? "ios"
+        : window.__RICHOS_MOCK_PRESET__.phonePlatform,
   };
   // WHERE THIS MAC IS ON THE TAILSCALE PATH, for the harness. The shipped sheet draws its four
   // Tailscale screens from `status.tailnet` and nothing else, so without this the whole of CEO
@@ -61,12 +83,19 @@
   }
   function phoneStatusOf() {
     const elapsed = now() - mockPhone.openedAt;
-    const secondsLeft = Math.max(0, Math.ceil((60000 - elapsed) / 1000));
+    const secondsLeft = Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
     const open = mockPhone.pairing && !mockPhone.paired && secondsLeft > 0;
     return {
       listening: mockPhone.paired || mockPhone.pairing,
       paired: mockPhone.paired,
-      deviceName: mockPhone.paired ? "iPhone" : null,
+      // WHAT THE PAIRED PHONE IS AND HOW IT GOT HERE — the two fields `PhoneStatus` grew for
+      // Ray's defect 3.2, and the reason the harness can reach all four combinations. The
+      // device NAME follows the platform rather than being pinned to "iPhone", because the
+      // defect was a card reading "Android phone is paired" over iOS instructions and a
+      // harness that could only ever be an iPhone could not have shown it.
+      deviceName: mockPhone.paired ? (mockPhone.platform === "android" ? "Android phone" : "iPhone") : null,
+      pairedVia: mockPhone.paired ? mockPhone.pairedVia : null,
+      platform: mockPhone.paired ? mockPhone.platform : null,
       pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
       trustUrl: mockPhone.paired || mockPhone.pairing ? "http://mm1.local:8444/ca" : null,
       pairUrl: open ? "https://mm1.local:8443/#pair=K7QF2M9X" : null,

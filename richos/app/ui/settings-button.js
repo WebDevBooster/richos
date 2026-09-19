@@ -371,6 +371,21 @@ window.RichSettings = (function () {
       "data-dismiss": "escape",
     });
     menu.hidden = true;
+    // THE PANEL SAYS WHAT IT IS — Ray's candidate .11 defect 3.4, and the lead's call on it.
+    //
+    // His sentence is "a person looking for a setting presses the gear", and what he found
+    // behind the OTHER control was a panel of rows with no name on it. This menu has carried
+    // `aria-label="Settings"` since it was written and the button carries a stylesheet
+    // tooltip reading Settings — both of which a screen reader and a hover reach, and
+    // neither of which a person scanning two panels for the word does. So the word is on the
+    // panel now, where he is already looking.
+    //
+    // `aria-hidden` because the menu's own `aria-label` already announces it: a heading that
+    // repeats the container's name reads it twice to anyone using a screen reader, which is
+    // the accessible equivalent of the two panels this defect is about.
+    var title = elem("p", "setmenu-title", { "aria-hidden": "true" });
+    title.textContent = "Settings";
+    menu.appendChild(title);
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode

@@ -678,7 +678,8 @@ button {
    already uses.
    ========================================================================================= */
 .popover-option > input[type="radio"],
-.techy-scope-option > input[type="radio"] {
+.techy-scope-option > input[type="radio"],
+.feedback-option > input[type="radio"] {
   appearance: none;
   -webkit-appearance: none;
   flex: none;
@@ -694,7 +695,8 @@ button {
 }
 
 .popover-option > input[type="radio"]:checked,
-.techy-scope-option > input[type="radio"]:checked {
+.techy-scope-option > input[type="radio"]:checked,
+.feedback-option > input[type="radio"]:checked {
   border-color: var(--accent);
   background: var(--accent);
   /* The gap that makes the dot. `box-sizing: border-box` is global, so the padding box is
@@ -703,7 +705,127 @@ button {
 }
 
 .popover-option > input[type="radio"]:focus-visible,
-.techy-scope-option > input[type="radio"]:focus-visible {
+.techy-scope-option > input[type="radio"]:focus-visible,
+.feedback-option > input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* =========================================================================================
+   THE CHECKBOXES — the half audit-10's radio fix did not reach.
+
+   Ray's candidate .11 walk, defect 3.6, verified on screen with a positive control: the
+   radios in the rail's popover are genuinely fixed and the checkboxes beside them were never
+   touched. They were still the bare native control, and he proved it from the pixels — the
+   same 60 px of `rgb(255,255,255)`, 18 of `(252,252,252)`, 16 of `(209,209,209)` and 6 of
+   `(188,188,188)` in BOTH themes, byte for byte. A control that paints identically in light
+   and dark is a control nothing in this app is painting.
+
+   WHAT SHIPPED, and the first two numbers are Ray's, re-derived here from the same hexes
+   before a line of this block was written rather than quoted from his table:
+
+                                       ink        ground     ratio    floor 3:1
+     LIGHT  unchecked border          #bcbcbc    #fdfcf8     1.85:1   FAIL
+     LIGHT  its antialiased edge      #d1d1d1    #fdfcf8     1.49:1   FAIL
+     DARK   the box, as painted       #ffffff    #182440    15.38:1   pass on the number
+
+   THE DARK ROW IS THE WORSE DEFECT AND ITS RATIO IS FINE, which is the same lesson the radio
+   block above records one screen earlier. A white box on the dark navy panel reads as a
+   SOLID FILLED WHITE SQUARE, and a filled square is what "checked" looks like. Ray's positive
+   control settles it: he checked "Show it" and it became a blue box with a white tick, while
+   "Show it when RichOS starts", still UNchecked, stayed a solid white square — so in dark mode
+   the unchecked state was the more prominent of the two, and anyone glancing at that panel
+   believed Technical view was on.
+
+   SO: THE SAME TOKENS, THE SAME RULE, THE SAME SHAPES AS THE RADIOS. State is carried by fill
+   and by a tick, never by hue. Unchecked is an empty square on the card; checked is a filled
+   accent square with the card cut back out of it as a checkmark.
+
+   THE ARITHMETIC, computed from the tokens in this file (WCAG 2.2 §1.4.11, 3:1 for a
+   non-text indicator), both themes, every state:
+
+                                                  dark      light
+     unchecked border  --line-control on --card    3.79:1    4.06:1
+     checked box       --accent on --card          6.36:1    3.83:1
+     the tick          --card through the box      6.36:1    3.83:1
+
+   AND ON `--surface-raised`, so a checkbox moved to a raised surface later still clears:
+     unchecked 4.09:1 dark / 3.82:1 light, checked 6.87:1 dark / 3.60:1 light.
+
+   FOUR SURFACES, NOT THE TWO IN THE AUDIT. Ray measured the rail popover's pair because that
+   is where he was standing. `.overlay-note` carries the repositories sheet's "Initialize Git
+   if this folder is empty", `.home-prefs-show` carries the home screen's per-company
+   switches, and `.feedback-option` carries the feedback desk's multi-select terms — all three
+   were the same unstyled native control with the same two failures. `.home-prefs-show input`
+   in `home.css` sets `accent-color`, which paints the CHECKED box gold and leaves the
+   unchecked border and the dark-mode fill exactly as the platform drew them; that is why it
+   looked handled and was not.
+
+   `.feedback-option`'s RADIOS were in the same position and are added to the block above,
+   because leaving a 1.63:1 radio on a shipped surface while fixing the checkbox beside it
+   would be the same miss this block exists to correct.
+
+   `.set-switch` IS DELIBERATELY NOT HERE. The universal settings menu's Techy Mode and Splash
+   rows are checkboxes painted as a track-and-knob switch, measured and fixed in their own
+   block below, and they are a different control with a different shape.
+
+   THE TICK IS AN `::after`, WHICH THIS FILE ALREADY KNOWS WORKS: `.set-switch::after` is the
+   knob and it ships. `appearance: none` changes painting, not conduct — Space still toggles,
+   the label still targets it — and what it removes is the platform's focus ring, so one is
+   declared in the same vocabulary the radios use.
+   ========================================================================================= */
+.popover-option > input[type="checkbox"],
+.feedback-option > input[type="checkbox"],
+.home-prefs-show > input[type="checkbox"],
+label.overlay-note > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 2px solid var(--line-control);
+  /* A square with the corners taken off, against the radios' circle: the two controls mean
+     different things and a person tells them apart by shape before they read either. */
+  border-radius: 3px;
+  /* Not `transparent`, for the reason the radio block gives: the walker reads
+     `backgroundColor`, and a control whose ground has to be inferred is one nothing can
+     vouch for. */
+  background: var(--card);
+  cursor: pointer;
+}
+
+.popover-option > input[type="checkbox"]:checked,
+.feedback-option > input[type="checkbox"]:checked,
+.home-prefs-show > input[type="checkbox"]:checked,
+label.overlay-note > input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The tick, cut out of the filled box in the card's own color. Two borders of a 4x8 box
+   rotated 45 degrees — the shape a checkmark has had since before this app existed, and it
+   survives grayscale because it is a shape and not a hue. */
+.popover-option > input[type="checkbox"]:checked::after,
+.feedback-option > input[type="checkbox"]:checked::after,
+.home-prefs-show > input[type="checkbox"]:checked::after,
+label.overlay-note > input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 4px;
+  height: 8px;
+  border: solid var(--card);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.popover-option > input[type="checkbox"]:focus-visible,
+.feedback-option > input[type="checkbox"]:focus-visible,
+.home-prefs-show > input[type="checkbox"]:focus-visible,
+label.overlay-note > input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -4276,7 +4398,32 @@ body.bp-narrow .tl-user-bubble {
 
 /* A control that cannot be pressed yet is DISABLED and looks it, rather than being hidden:
    "show me what you'd say" with nothing chosen would refuse in the backend, and a button
-   that appears and then refuses teaches him the surface is unreliable. */
+   that appears and then refuses teaches him the surface is unreliable.
+
+   DECLARED CONTRAST EXEMPTION — WCAG 2.2 §1.4.3 and §1.4.11 both exempt INACTIVE
+   COMPONENTS, and this rule is the one place in this file that relies on that. It is
+   declared here, where a reviewer reading the rule sees it, rather than left to be
+   rediscovered by the next audit.
+
+   WHAT IT MEASURES, derived from the tokens and confirmed against a photograph. Ray's
+   candidate .11 walk measured the disabled "Set it up" label during the engine install at
+   1.45:1, rgb(165,162,154) on rgb(209,194,160), and declared it himself rather than passing
+   over it. Re-derived here: 0.45 opacity over `--card` puts `--accent` at exactly
+   rgb(209,194,160) in light, which is his ground to the byte, and `--on-gold` at
+   rgb(145,147,152) — a DECLARED 1.75:1 light and 2.59:1 dark. His 1.45:1 is the painted
+   glyph rather than the declared color, the same antialiasing gap `contrast.js` check 17
+   records for thin type. All four numbers are far under 4.5:1 and none of them is a defect,
+   because the control is inactive.
+
+   AND THE INFORMATION IS NOT CARRIED BY THIS LABEL WHILE IT IS FADED, which is the
+   condition the exemption is worth anything under. The live status line beside it says what
+   is happening — "Getting my instructions." — at 6.33:1, and the heading above it at
+   18.07:1. The moment the button becomes pressable again it is `--on-gold` on `--accent`:
+   4.72:1 light, 7.68:1 dark, both over the floor.
+
+   IF THAT STOPS BEING TRUE — if a disabled control ever becomes the only thing on screen
+   saying what the app is doing — this rule is a failure and not an exemption, and the fix
+   is roughly three times the contrast rather than a longer comment. */
 .desk-btn:disabled {
   opacity: 0.45;
   cursor: default;
@@ -5254,6 +5401,23 @@ body.bp-narrow .tl-user-bubble {
 .set-switch:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+
+/* THE PANEL'S OWN NAME — Ray's candidate .11 defect 3.4. It is the only heading in this
+   menu, so it takes the shell's strongest ink rather than a hint tier, and it takes the
+   same 16px the rows below it use: a panel title a person has to lean in for is the defect
+   wearing a smaller font.
+
+   COMPUTED, both themes, against the ground `.setmenu` declares — `--surface`, which is
+   `--card` in both themes:
+     --ink on --card    12.06:1 dark   18.07:1 light   (floor 4.5)
+   Both far over. No new token, no new color. */
+.setmenu-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
 }
 
 /* Row 2 of the reference: a full-row tappable ACTION, not a toggle. */

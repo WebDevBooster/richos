@@ -274,11 +274,17 @@ async function openApp(browser, opts) {
 }
 
 const themeOf = (page) => page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+/// The menu's ROWS, in order. `.setmenu-title` is excluded by name and not by position: it
+/// is the panel's own name rather than a row — added for Ray's candidate .11 defect 3.4,
+/// because he found a panel of settings with no word on it saying it was Settings — and
+/// §15's ruling is about the ORDER OF THE ROWS. Check 11b asserts the title itself.
 const menuRows = (page) =>
   page.evaluate(() =>
-    [...document.querySelectorAll("#set-menu > *")].map((n) =>
-      n.querySelector(".set-name") ? n.querySelector(".set-name").textContent.trim() : n.textContent.trim()
-    )
+    [...document.querySelectorAll("#set-menu > *")]
+      .filter((n) => !n.classList.contains("setmenu-title"))
+      .map((n) =>
+        n.querySelector(".set-name") ? n.querySelector(".set-name").textContent.trim() : n.textContent.trim()
+      )
   );
 
 /// `.setmenu` carries `animation: setrise 0.2s ... both` — opacity 0 to 1 over a 14px
@@ -896,28 +902,43 @@ async function main() {
     return "in a conversation: menu -> sheet (first option preselected) -> rail, and rail -> sheet -> menu; with none open: straight to set_techy_default, no sheet";
   });
 
-  await run.check("11b  the splash off switch survived the rebuild, and is ONE state behind two doors", async () => {
-    // A GUARD-RAIL, not a feature. The gear popover has carried this switch since the
-    // opening screen shipped, and the CEO restated on 2026-08-31 that turning the splash off
-    // from settings is a requirement. This build rebuilt the settings menu around three new
-    // rows, and the way a control dies in a rebuild is that nobody was asserting it was
-    // still there. Now something is.
+  await run.check("11b  the splash off switch survived the rebuild, and there is exactly ONE of it", async () => {
+    // A GUARD-RAIL, not a feature, and it has changed shape once — READ THE SECOND HALF
+    // BEFORE CHANGING IT AGAIN.
+    //
+    // It was written to assert the switch existed in BOTH the rail's gear popover and the
+    // universal settings menu, and that each followed the other: one state, two doors. The
+    // reason was the CEO's, restated 2026-08-31 — turning the splash off FROM SETTINGS is a
+    // requirement — and the fear was a rebuild silently losing the control.
+    //
+    // WHAT CHANGED, and it is not a relaxation. Ray's candidate .11 walk, defect 3.4:
+    // "Splash screen appears in BOTH panels, which is how you can tell the split is not
+    // deliberate." He read the duplication correctly — a person meeting two copies of one
+    // switch cannot tell which is authoritative — and the history behind it said the
+    // opposite, which is exactly why it needed a decision rather than an argument. The lead
+    // ruled: one panel. The rail's copy is gone; the universal menu's stays.
+    //
+    // THE CEO'S REQUIREMENT IS UNTOUCHED BY THAT, which is the thing this check now pins.
+    // His word is "from settings", and §15 makes the universal menu what "settings" means —
+    // "always everywhere on every page" — so the surviving door reaches it from strictly
+    // MORE places than the pair did, including screens the rail popover does not exist on.
+    // The fear the check was written against is unchanged and is still covered: it asserts
+    // the switch EXISTS, that it moves the state, and that the mirror `splash.js` reads
+    // synchronously on the next launch agrees with it.
     const page = track(await openApp(browser));
-    assert(
-      await page.locator("#splash-enabled").count(),
-      "the gear popover's own splash switch is GONE — it was not mine to remove and nothing moved it"
-    );
     await openMenu(page);
     assert(
       await page.locator("#set-splash").count(),
       "the settings button does not offer the splash switch, and 'from settings' is the CEO's word"
     );
-    const both = () =>
-      page.evaluate(() => ({
-        menu: document.getElementById("set-splash").checked,
-        gear: document.getElementById("splash-enabled").checked,
-      }));
-    assertEqual(await both(), { menu: true, gear: true }, "both start on, which is the shipped default");
+    assertEqual(
+      await page.locator("#splash-enabled").count(),
+      0,
+      "the rail popover has a second copy of the splash switch again. One state, one control " +
+        "— the duplication is what Ray met on candidate .11 and what the lead ruled on"
+    );
+    const read = () => page.evaluate(() => document.getElementById("set-splash").checked);
+    assertEqual(await read(), true, "it starts on, which is the shipped default");
 
     // `set_splash_enabled` is NOT implemented by the mock — `main.js` fires it and swallows
     // the rejection on purpose, because the local mirror is what decides the next launch. The
@@ -926,24 +947,34 @@ async function main() {
     const offCall = await invokeCount(page, "set_splash_enabled");
     await page.click("#set-splash");
     await afterInvoke(page, "set_splash_enabled", offCall);
-    await page.click("#rail-settings");
-    await overlayOpen(page, "#assertiveness-popover");
-    assertEqual(await both(), { menu: false, gear: false }, "the gear followed the menu");
-
-    const onCall = await invokeCount(page, "set_splash_enabled");
-    await page.click("#splash-enabled");
-    await afterInvoke(page, "set_splash_enabled", onCall);
-    await page.click("#rail-settings");
-    await openMenu(page);
-    assertEqual(await both(), { menu: true, gear: true }, "and the menu followed the gear");
+    assertEqual(await read(), false, "the switch did not take his answer");
 
     // The mirror is what splash.js reads synchronously on the NEXT launch, before there is a
     // bridge to ask. A switch that only reached the durable store would look right all
     // session and do nothing at the one moment it exists for.
-    const mirrored = await page.evaluate(() => window.localStorage.getItem("richos.splash.enabled"));
-    assert(mirrored !== "false", "the local mirror disagrees with the switches: " + mirrored);
+    const mirroredOff = await page.evaluate(() =>
+      window.localStorage.getItem("richos.splash.enabled")
+    );
+    assertEqual(mirroredOff, "false", "the mirror splash.js reads disagrees with the switch");
+
+    const onCall = await invokeCount(page, "set_splash_enabled");
+    await page.click("#set-splash");
+    await afterInvoke(page, "set_splash_enabled", onCall);
+    assertEqual(await read(), true, "it does not come back on");
+    const mirrored = await page.evaluate(() =>
+      window.localStorage.getItem("richos.splash.enabled")
+    );
+    assert(mirrored !== "false", "the local mirror disagrees with the switch: " + mirrored);
+
+    // AND THE PANEL SAYS WHAT IT IS. The other half of defect 3.4 — he found a panel of rows
+    // with no name on it behind a control he had no reason to press.
+    assertEqual(
+      (await page.textContent(".setmenu-title")).trim(),
+      "Settings",
+      "the settings menu does not name itself, so the panel a person lands on is unlabeled"
+    );
     await page.close();
-    return "present in both places, both directions observed, and the mirror splash.js reads agrees";
+    return "present in exactly one place, both directions observed, the mirror splash.js reads agrees, and the panel names itself";
   });
 
   // ---- 12-13. the type scale itself ------------------------------------------------------

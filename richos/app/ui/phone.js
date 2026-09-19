@@ -37,8 +37,12 @@
   sheet.setAttribute("data-dismiss", "control:#phone-close");
   sheet.innerHTML = `<div class="overlay-panel">
     <h2 id="phone-title" class="overlay-title">Use Rich from your phone</h2>
-    <p class="overlay-note">Your phone talks to this Mac directly, over your own home network. Nothing
-      of what you say goes anywhere else, and there is no account to make.</p>
+    <!-- THE LEAD FOLLOWS THE OPTION HE PICKED, and it used to be a fixed sentence describing
+         the home-network option. It stayed on screen unchanged after he chose "Anywhere",
+         which is not the home network and DOES involve making an account — so every screen of
+         the Tailscale path opened by telling him the opposite of the path he was on. Ray's
+         candidate .11 defect 3.1, screenshots 13, 14, 15 and 17. Filled from LEAD below. -->
+    <p class="overlay-note" id="phone-lead"></p>
 
     <div id="phone-paired" hidden>
       <p class="overlay-note"><strong id="phone-device-name"></strong> is paired. Open Rich on it and
@@ -47,18 +51,15 @@
       <!-- SCREEN 6's LIMIT, on the one screen where they live with it. Said on Screen 1 where they
            commit, and here — and on none of the four screens in between, because a limitation
            repeated on every screen is nagging. -->
-      <p class="overlay-note" id="phone-ts-limit" hidden>You can use this away from the office. Both
-        devices have to be signed in to Tailscale for it to connect — including at home.</p>
-      <!-- THE FORGET NOTE IS CONDITIONAL, and that is the point. On the Tailscale route there is no
-           profile, and telling someone to go and remove one that does not exist is the kind of
-           leftover that makes a product feel untended. -->
-      <p class="overlay-note" id="phone-forget-note-home">Forgetting it here stops this Mac answering
-        it, and deletes the keys. It does <strong>not</strong> remove the certificate from your
-        phone. To remove that too, on your phone open Settings, then General, then VPN and Device
-        Management, then the RichOS profile, then Remove Profile.</p>
-      <p class="overlay-note" id="phone-forget-note-ts" hidden>Forgetting it here stops this Mac
-        answering it, deletes the keys, and stops this Mac answering at its Tailscale name. There is
-        nothing to remove from your phone.</p>
+      <p class="overlay-note" id="phone-ts-limit" hidden></p>
+      <!-- ONE FORGET NOTE, FILLED FROM THE DEVICE RECORD. It was two paragraphs, one shown and
+           one hidden, chosen by the sheet's own route variable — which is forgotten on every
+           open by design, so reopening this card for a paired phone always redrew the home
+           path's iOS profile-removal steps. Ray's candidate .11 defect 3.2 caught it on an
+           ANDROID phone that had paired over Tailscale and installed no certificate at all.
+           One node, filled from status.pairedVia and status.platform, is the only shape in
+           which the two cannot disagree — see PAIRED_FORGET_NOTE below. -->
+      <p class="overlay-note" id="phone-forget-note"></p>
       <div class="desk-card-actions">
         <button id="phone-forget" class="desk-btn" type="button">Forget this phone</button>
       </div>
@@ -155,6 +156,15 @@
 
       <p class="overlay-note" id="phone-bound"></p>
       <p class="overlay-note" id="phone-message" role="status"></p>
+      <!-- WHAT HAPPENS WHEN THE CODE RUNS OUT, ON THE SCREEN IT RAN OUT ON. It used to happen
+           in silence: the Mac dropped the window, the next poll returned no code, and the
+           dialog fell back to an earlier screen with the QR, the code and the six words simply
+           gone. Ray's candidate .11 defect 3.3 — "he comes back to a screen that looks like he
+           imagined the whole thing". The screen stays; the code is replaced by this. -->
+      <div id="phone-expired" hidden>
+        <h3 class="phone-step-title">That code ran out</h3>
+        <p class="overlay-note" id="phone-expired-note" role="status"></p>
+      </div>
       <div class="desk-card-actions">
         <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button">Show me another code</button>
       </div>
@@ -168,7 +178,7 @@
       <p class="overlay-note">This is an extra. Rich on this Mac does not need it.</p>
       <h3 class="phone-step-title">Where do you want to use it?</h3>
       <div class="phone-route">
-        <button id="phone-route-anywhere" class="desk-btn" type="button">Anywhere, including away from the office</button>
+        <button id="phone-route-anywhere" class="desk-btn" type="button">Anywhere, including away from home</button>
         <p class="overlay-note phone-route-note">On the go, on cellular, anywhere your phone has a
           signal. It costs you two app installs, one free Tailscale account, and no certificate at
           all.</p>
@@ -178,7 +188,7 @@
       <div class="phone-route">
         <button id="phone-route-home" class="desk-btn" type="button">At home only</button>
         <p class="overlay-note phone-route-note">Your phone talks to this Mac over your own home
-          network, with no account and no third party. Away from the house it will not connect, and
+          network, with no account and no third party. Away from home it will not connect, and
           setting it up means installing a certificate on your phone: sixteen taps, once.</p>
       </div>
     </div>
@@ -356,6 +366,167 @@
     }
   }
 
+  /// **WHAT THE PAIRED PHONE HAS TO DO BEFORE IT CAN BE REACHED — in that phone's own words.**
+  ///
+  /// Ray's candidate .11 defect 4.5. The card said *"Add Rich to your phone's Home Screen and
+  /// allow notifications when it asks."* On his HONOR X6b, Chrome's menu offers **"Install and
+  /// create shortcut"** and has no item by the other name at all — so the Mac named a control
+  /// the device does not have.
+  ///
+  /// **AND ON ANDROID THE INSTRUCTION IS WRONG, NOT ONLY MISNAMED.** Chrome on Android
+  /// subscribes to push from a tab; nothing has to be installed first. It is iOS Safari that
+  /// cannot take a push until the app is on the Home Screen. The phone page records the same
+  /// division (`web/web-app/app.js`, `installControlName` / `installSentence`), and the two
+  /// surfaces now say the same thing about the same phone.
+  ///
+  /// The menu and item names are exactly the phone page's, so a person reading the Mac and then
+  /// his phone is not reading two names for one control. `null`-equivalent — a phone this Mac
+  /// cannot name — gets the sentence that is true of both and names neither as the one to use.
+  const PUSH_NOT_READY = {
+    ios:
+      "It cannot send you notifications yet. On your phone, open the Share menu in Safari and " +
+      "choose \u201cAdd to Home Screen\u201d, then allow notifications when Rich asks.",
+    android:
+      "It cannot send you notifications yet. Allow notifications on your phone when Rich asks " +
+      "\u2014 Chrome on Android does not need Rich installed first.",
+    other:
+      "It cannot send you notifications yet. Allow notifications on your phone when Rich asks. " +
+      "On an iPhone you have to add Rich to the Home Screen first, from Safari\u2019s Share menu.",
+  };
+
+  /// Which of the three, from the platform on the device record. Anything unrecognized —
+  /// including a record written before the field existed — gets the sentence that is true
+  /// whatever the phone is, rather than a guess at which menu it has.
+  function pushNotReadyFor(platform) {
+    return Object.prototype.hasOwnProperty.call(PUSH_NOT_READY, platform)
+      ? PUSH_NOT_READY[platform]
+      : PUSH_NOT_READY.other;
+  }
+
+  /// **THE PAIRED CARD'S COPY, DERIVED FROM THE RECORD AND FROM NOTHING THE SHEET REMEMBERS.**
+  ///
+  /// Ray's candidate .11 walk, defect 3.2: immediately after pairing an ANDROID phone over
+  /// Tailscale the card said *"There is nothing to remove from your phone."* Closing and
+  /// reopening the same card for the same phone said, instead, *"…open Settings, then General,
+  /// then VPN and Device Management, then the RichOS profile, then Remove Profile"* — an iOS
+  /// procedure, on a card whose own first line reads "Android phone is paired", on the one path
+  /// that never installs a certificate. Reproduced twice.
+  ///
+  /// **The cause was not the copy, it was where the copy was keyed from.** `route` below is
+  /// forgotten on every open, on purpose (Urban §1). So on a reopen `route === null`, which is
+  /// not "anywhere", which selected the home path's paragraph — a default presented as a fact.
+  ///
+  /// So the two answers are recorded on the Mac at pairing (`device.rs`'s `paired_via` and
+  /// `platform`) and arrive on every `phone_status`. **Four combinations, and a fifth for a
+  /// record written before those fields existed**, which says it does not know rather than
+  /// picking one of the four.
+  const PAIRED_FORGET_NOTE = {
+    // BOTH PLATFORMS, ONE SENTENCE, on the Tailscale path — because on this path the answer
+    // genuinely does not depend on the phone: no profile is ever installed on it. The flow says
+    // so on the way in ("There is no certificate to install on this path"), and this is the same
+    // fact at the other end of the feature.
+    "tailnet:ios":
+      "Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac " +
+      "answering at its Tailscale name. There is nothing to remove from your phone.",
+    "tailnet:android":
+      "Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac " +
+      "answering at its Tailscale name. There is nothing to remove from your phone.",
+    "tailnet:other":
+      "Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac " +
+      "answering at its Tailscale name. There is nothing to remove from your phone.",
+    // THE SIXTEEN TAPS' OTHER END, and the only combination this paragraph was ever true of.
+    // Apple's own screen names, in Apple's own order, exactly as the sixteen steps use them —
+    // "VPN &amp; Device Management" is what the phone says, and the flow spelled it "VPN and
+    // Device Management" in this one place.
+    "home:ios":
+      "Forgetting it here stops this Mac answering it, and deletes the keys. It does " +
+      "<strong>not</strong> remove the certificate from your phone. To remove that too, on your " +
+      "phone open Settings, then General, then VPN &amp; Device Management, then the RichOS " +
+      "profile, then Remove Profile.",
+    // AND THE COMBINATION THE OLD COPY WAS ACTUALLY SHOWN FOR. What this Mac serves at the trust
+    // endpoint is an Apple `.mobileconfig` and nothing else (`ca.rs`'s `mobileconfig`, served by
+    // `listen.rs` on TRUST_PORT), so RichOS has never put anything on an Android phone to
+    // remove. It does not name an Android menu path, because it cannot know one it did not use.
+    "home:android":
+      "Forgetting it here stops this Mac answering it, and deletes the keys. There is nothing " +
+      "RichOS put on your Android phone to remove — the certificate step on this path installs " +
+      "an Apple profile, which an Android phone never took. If you added this Mac's certificate " +
+      "to it by hand, remove it in your phone's own security settings.",
+    "home:other":
+      "Forgetting it here stops this Mac answering it, and deletes the keys. If you installed " +
+      "this Mac's certificate on your phone during setup, that stays on the phone until you " +
+      "remove it there — on an iPhone it is under Settings, then General, then VPN &amp; Device " +
+      "Management.",
+  };
+
+  /// The fifth answer: a phone paired by a build that did not write either field down.
+  /// **It says it does not know.** A default here would be the original defect with a longer
+  /// comment on it, and the honest version costs him one re-pair.
+  const FORGET_NOTE_UNKNOWN =
+    "Forgetting it here stops this Mac answering it, and deletes the keys. This phone was " +
+    "paired by an older version of RichOS, which did not record which way it connected, so I " +
+    "cannot tell you whether it has a certificate on it to remove. Pair it again and I will be " +
+    "able to.";
+
+  /// **THE FIRST PARAGRAPH OF EVERY SCREEN, AND IT FOLLOWS THE OPTION HE CHOSE.**
+  ///
+  /// Ray's candidate .11 defect 3.1. Every screen in this flow opened with *"Your phone talks
+  /// to this Mac directly, over your own home network. Nothing of what you say goes anywhere
+  /// else, and there is no account to make."* That describes **At home only**. It stayed there,
+  /// word for word, after he chose **Anywhere** — which is not the home network, and which does
+  /// involve making an account. §61 exists because he wants this usable away from home, and the
+  /// standing first sentence told him the opposite. Screenshots 13, 14, 15, 17.
+  ///
+  /// **The Tailscale lead does not repeat the home path's privacy claim, and that is the
+  /// point.** "Nothing of what you say goes anywhere else" is true of a phone and a Mac on one
+  /// home network. On the tailnet the packets are encrypted end to end between the two devices
+  /// but they can be relayed by Tailscale's own servers when a direct connection cannot be
+  /// made, so the honest claim is about what is ENCRYPTED and about where the conversation is
+  /// KEPT — both of which this Mac can stand behind — and not about what never travels.
+  ///
+  /// **ONE WORD FOR THE PLACE, and the word is "home".** The flow called it "the office", "the
+  /// house" and "home" in three adjacent sentences (same defect, Ray's related note). "At home
+  /// only" is the option's own name and "your own home network" is the thing it describes, so
+  /// the other two were the odd ones out: the button now reads "Anywhere, including away from
+  /// home" and the home option's note "Away from home it will not connect".
+  const LEAD = {
+    // Before he has chosen. It says the one thing that is true of both options and makes no
+    // claim that belongs to either.
+    none:
+      "Rich on your phone talks to this Mac and to nothing else. Your conversations stay here, " +
+      "on this Mac, whichever way you set it up.",
+    anywhere:
+      "Your phone reaches this Mac over your own Tailscale network, from anywhere it has a " +
+      "signal. The connection to this Mac is encrypted, your conversations stay here, and it " +
+      "costs one free Tailscale account signed in on both devices.",
+    "at-home":
+      "Your phone talks to this Mac directly, over your own home network. Nothing of what you " +
+      "say goes anywhere else, and there is no account to make.",
+  };
+
+  /// **WHAT AN EXPIRED CODE SAYS**, on the screen it expired on. It names what happened, says
+  /// the codes are meant to run out, and points at the button beside it — so the one thing he
+  /// does next is the one control on the screen. Before this he was shown nothing at all.
+  const EXPIRED_NOTE =
+    "Pairing codes run out on purpose, so one left on a screen cannot be used later. Nothing " +
+    "is wrong and nothing was lost. Press Show me another code and a fresh one appears here.";
+
+  /// **The one line that is true only of the Tailscale path.** Same source as the note above,
+  /// for the same reason: it was keyed off `route` and vanished on a reopen.
+  const PAIRED_TAILNET_LIMIT =
+    "You can use this away from home. Both devices have to be signed in to Tailscale for it to " +
+    "connect — at home too.";
+
+  /// Which of the five the record selects. `via` and `platform` are the tokens `device.rs`
+  /// writes; an empty string is a record from before they existed, and anything unrecognized is
+  /// treated the same way rather than folded into one of the four.
+  function forgetNoteFor(via, platform) {
+    const key = String(via || "") + ":" + String(platform || "");
+    return Object.prototype.hasOwnProperty.call(PAIRED_FORGET_NOTE, key)
+      ? PAIRED_FORGET_NOTE[key]
+      : FORGET_NOTE_UNKNOWN;
+  }
+
   let ticker = null;
   let busy = false;
   let returnFocus = null;
@@ -523,9 +694,41 @@
   WAITING["other-user"] = WAITING["needs-sign-in"];
 
   function render(status) {
-    const pairing = !!status.pairUrl;
+    const live = !!status.pairUrl;
+    // **A CODE THAT RAN OUT IS A STATE OF THIS SCREEN, NOT A REASON TO LEAVE IT.**
+    //
+    // Ray's candidate .11 defect 3.3: the Mac dropped the window, the next poll came back with
+    // no `pairUrl`, and the dialog fell back to an earlier screen with the QR, the code and the
+    // six words gone and nothing said. *"He reads the screen, walks to get his phone, unlocks
+    // it, opens the camera — and comes back to a screen that looks like he imagined the whole
+    // thing."*
+    //
+    // **`listening` IS THE EVIDENCE, and it is the Mac's rather than this sheet's.** The socket
+    // comes up only inside `phone_begin_pairing` for an unpaired Mac (`mod.rs`'s `start`, and
+    // `resume_if_paired` returns early unless something is paired), and it stays up after the
+    // window closes. So a Mac that is serving, has nothing paired and has no live code is a Mac
+    // whose code ran out — no matter how long ago, and no matter how many times this sheet has
+    // been closed and reopened since. A flag in this file would have forgotten it on the open,
+    // which is the same mistake defect 3.2 was.
+    const expired = !live && !status.paired && !!status.listening;
+    // Everything downstream that used to mean "a window is open" now means "the pairing screen
+    // is the screen", because it is, in both states.
+    const pairing = live || expired;
     const tailnet = status.tailnet || { state: "absent" };
     const onTailscale = route === "anywhere";
+
+    // **THE LEAD, FIRST, BECAUSE EVERY SCREEN BELOW CARRIES IT.** Once a phone is paired the
+    // route is not a question any more and the record answers it — the same source the forget
+    // note uses, and for the same reason: `route` is forgotten on every open, so a paired card
+    // that read it would describe the wrong path on the second visit (defect 3.2).
+    const leadKey = status.paired
+      ? status.pairedVia === "tailnet"
+        ? "anywhere"
+        : status.pairedVia === "home"
+          ? "at-home"
+          : "none"
+      : route || "none";
+    field("phone-lead").textContent = LEAD[leadKey];
 
     // Rows 1 and 9 of Urban's §3: unpaired with no route chosen is Screen 1.
     //
@@ -577,12 +780,16 @@
       field("phone-device-name").textContent = status.deviceName || "Your phone";
       field("phone-push-state").textContent = status.pushReady
         ? "It can reach you with a notification when Rich has something for you."
-        : "It cannot send you notifications yet. Add Rich to your phone's Home Screen and allow notifications when it asks.";
-      // Screen 6 against the shipped paired block: the limit appears, and the forget note is the
-      // one that is true of the route he is actually on.
-      field("phone-ts-limit").hidden = !onTailscale;
-      field("phone-forget-note-ts").hidden = !onTailscale;
-      field("phone-forget-note-home").hidden = onTailscale;
+        : pushNotReadyFor(status.platform);
+      // **SCREEN 6, DERIVED FROM THE RECORD.** `onTailscale` is deliberately NOT consulted
+      // here: it reads `route`, which this sheet forgets on every open, and a card that
+      // described the path from a forgotten answer is the whole of defect 3.2. What the phone
+      // paired over is a fact the Mac wrote down at pairing, and it is the only thing that
+      // decides these two lines — on the first open and on every reopen alike.
+      const pairedOverTailnet = status.pairedVia === "tailnet";
+      field("phone-ts-limit").textContent = PAIRED_TAILNET_LIMIT;
+      field("phone-ts-limit").hidden = !pairedOverTailnet;
+      field("phone-forget-note").innerHTML = forgetNoteFor(status.pairedVia, status.platform);
       return;
     }
     if (waiting) {
@@ -621,22 +828,31 @@
     }
 
     if (!pairing) {
-      field("phone-off-message").textContent = status.listening
-        ? "Nearly there. Ask for a code and point your phone's camera at it."
-        : "I will make a certificate for your phone, then show you two codes to scan. It takes a few minutes, once, ever.";
+      // ONE MESSAGE, BECAUSE THERE IS NOW ONE STATE HERE. This used to branch on
+      // `status.listening` and say "Nearly there. Ask for a code…" for a serving Mac with no
+      // live code — which is precisely the expired state, and it is now drawn above with the
+      // reason and the button rather than as a sentence on a screen he was thrown back to.
+      // `pairing` is true whenever `listening && !paired`, so that branch is unreachable from
+      // here: this block is a Mac that has never been asked for a code.
+      field("phone-off-message").textContent =
+        "I will make a certificate for your phone, then show you two codes to scan. It takes a few minutes, once, ever.";
       return;
     }
 
     // SCREEN 5 versus the shipped home flow. The trust code, the two warnings and the sixteen
     // steps belong to the home path and are absent here rather than hidden behind a smaller font.
-    field("phone-ts-steps").hidden = !onTailscale;
-    field("phone-home-warnings").hidden = onTailscale;
-    field("phone-ts-failure").hidden = !onTailscale;
-    field("phone-ts-store").textContent = onTailscale
+    // **AN EXPIRED SCREEN IS THE EXPIRY AND THE WAY OUT, AND NOTHING ELSE.** The instructions
+    // belong with a live code: warnings about a red word he is not about to meet, and steps
+    // pointing at a QR that is not on the screen, are a screen asking him to do a thing that is
+    // not there. They all come back with the next code.
+    field("phone-ts-steps").hidden = !onTailscale || expired;
+    field("phone-home-warnings").hidden = onTailscale || expired;
+    field("phone-ts-failure").hidden = !onTailscale || expired;
+    field("phone-ts-store").textContent = onTailscale && !expired
       ? "iPhone: " + LINKS.phone + "      Android: " + LINKS.android
       : "";
 
-    if (onTailscale) {
+    if (onTailscale && !expired) {
       // THE WHY COMES BEFORE THE STEPS, AND IT NAMES THE ACCOUNT (§61.1 (c)). The reason is given
       // before the instruction because it is asking the user to break a habit: *"I would normally
       // absolutely NEVER use the same identity on the Mac and on the phone."* A person who
@@ -672,15 +888,44 @@
       ? "Check the six words match"
       : "3. Check the six words match";
 
-    paint(field("phone-qr-trust"), onTailscale ? "" : status.trustUrl);
-    paint(field("phone-qr-pair"), status.pairUrl);
-    field("phone-trust-url").textContent = onTailscale ? "" : status.trustUrl || "";
-    field("phone-pair-url").textContent = status.pairUrl || "";
-    field("phone-words").textContent = (status.fingerprintWords || []).join("  ");
-    field("phone-bound").textContent = status.bound && status.bound.length
-      ? "This Mac is answering on " + status.bound.join(", ") + "."
-      : "";
-    tick(status.pairingSecondsLeft);
+    // **THE CODE, OR THE FACT THAT IT RAN OUT — never neither, and never a screen that just
+    // went blank.** Defect 3.3. Everything that IS the code is drawn only while there is one;
+    // when it has run out the same screen carries the reason and the button that replaces it.
+    paint(field("phone-qr-trust"), live && !onTailscale ? status.trustUrl : "");
+    paint(field("phone-qr-pair"), live ? status.pairUrl : "");
+    field("phone-trust-url").textContent = live && !onTailscale ? status.trustUrl || "" : "";
+    field("phone-pair-url").textContent = live ? status.pairUrl || "" : "";
+    field("phone-words").textContent = live ? (status.fingerprintWords || []).join("  ") : "";
+    field("phone-bound").textContent =
+      live && status.bound && status.bound.length
+        ? "This Mac is answering on " + status.bound.join(", ") + "."
+        : "";
+    // The headings above those blocks go with them: a numbered step over an empty space is a
+    // screen telling him to do something that is not there.
+    field("phone-code-title").hidden = !live;
+    field("phone-words-title").hidden = !live;
+    field("phone-expired").hidden = !expired;
+    if (expired) {
+      field("phone-expired-note").textContent = EXPIRED_NOTE;
+      // One label, in both states, because it is the same act: ask the Mac for a code. It reads
+      // "Show me another code" and that is true of a first code after an expiry too.
+      field("phone-countdown").textContent = "";
+    }
+    tick(live ? status.pairingSecondsLeft : null);
+  }
+
+  /// **How long is left, in the units a person would say it in.**
+  ///
+  /// The window is five minutes now (`PAIRING_WINDOW_MS`), and "This code lasts 287 more
+  /// seconds." is a number nobody converts. Minutes while there are minutes, seconds under one
+  /// minute — and the last minute is where the seconds start to matter, which is the only place
+  /// they are shown.
+  function remaining(seconds) {
+    if (seconds < 60) {
+      return seconds + (seconds === 1 ? " more second" : " more seconds");
+    }
+    const minutes = Math.ceil(seconds / 60);
+    return minutes + (minutes === 1 ? " more minute" : " more minutes");
   }
 
   /// The countdown, which is the one thing on this screen that has to be honest by the second: a
@@ -694,10 +939,11 @@
     const paintCountdown = () => {
       const label = field("phone-countdown");
       if (left > 0) {
-        label.textContent =
-          "This code lasts " + left + (left === 1 ? " more second." : " more seconds.");
+        label.textContent = "This code lasts " + remaining(left) + ".";
       } else {
-        label.textContent = "That code has expired. Ask for another one.";
+        // The last second of the countdown, and then the expiry block below takes over on the
+        // next poll. Both say it; neither leaves the screen.
+        label.textContent = "That code has run out. Ask for another one.";
         if (ticker) {
           window.clearInterval(ticker);
           ticker = null;
@@ -709,6 +955,13 @@
       ticker = window.setInterval(() => {
         left -= 1;
         paintCountdown();
+        // **AND THE SCREEN REDRAWS ITSELF AT ZERO, ON EVERY PATH.** The poll only runs on the
+        // Tailscale route, so on the home route nothing would ever have asked the Mac again and
+        // the expiry block would never have appeared — the countdown would have hit zero and
+        // the screen would have sat there. One refresh, from inside the interval that has just
+        // been cleared, so it cannot recur: the render that follows calls `tick(null)`, which
+        // starts no interval.
+        if (left <= 0) refresh();
       }, 1000);
     }
   }

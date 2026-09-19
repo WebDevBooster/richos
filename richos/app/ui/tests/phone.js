@@ -27,6 +27,7 @@
 
 "use strict";
 
+const fs = require("fs");
 const path = require("path");
 const {
   bootSettled,
@@ -359,31 +360,104 @@ async function openSheet(browser, theme, preset) {
     const pairVisible = await live.isVisible("#phone-qr-pair");
     await live.close();
     assert(
-      /lasts \d+ more seconds?\./.test(countdown),
+      // Minutes while there are minutes, seconds in the last one — the window is 300 s now and
+      // "This code lasts 287 more seconds." is a number nobody converts.
+      /lasts \d+ more (seconds?|minutes?)\./.test(countdown),
       "a live code does not say how long is left: " + JSON.stringify(countdown)
     );
     assert(pairVisible, "a live code is not on screen");
 
+    // **DEFECT 3.3 — AN EXPIRED CODE IS ANNOUNCED WHERE IT EXPIRED, NEVER A SILENT RESET.**
+    //
+    // What Ray met: the code, the QR and the six words vanished with no message at all and the
+    // dialog dropped back to "This Mac is ready". *"He comes back to a screen that looks like
+    // he imagined the whole thing."*
     const expired = await openSheet(browser, "dark", { phonePairingExpired: true });
-    const shown = await expired.evaluate(() => ({
-      pairingVisible: !document.getElementById("phone-pairing").hidden,
-      offVisible: !document.getElementById("phone-off").hidden,
-      offMessage: document.getElementById("phone-off-message").textContent.trim(),
-      canAskAgain: !document.getElementById("phone-start").disabled,
-    }));
+    const shown = await expired.evaluate(() => {
+      const visible = (id) => {
+        const node = document.getElementById(id);
+        return !!node && node.offsetParent !== null;
+      };
+      return {
+        pairingScreen: visible("phone-pairing"),
+        expiredBlock: visible("phone-expired"),
+        expiredHeading: (document.querySelector("#phone-expired h3") || {}).textContent || "",
+        expiredNote: (document.getElementById("phone-expired-note") || {}).textContent || "",
+        qrShown: visible("phone-qr-pair"),
+        codeShown: (document.getElementById("phone-pair-url").textContent || "").trim(),
+        wordsShown: (document.getElementById("phone-words").textContent || "").trim(),
+        // The one control the screen is about, and it must be pressable where he is standing.
+        newCode: visible("phone-refresh") && !document.getElementById("phone-refresh").disabled,
+        newCodeLabel: document.getElementById("phone-refresh").textContent.trim(),
+        // The screens he must NOT have been thrown back to.
+        readyScreen: visible("phone-ts-ready"),
+        routeScreen: visible("phone-route"),
+        offScreen: visible("phone-off"),
+      };
+    });
     await expired.close();
     assert(
-      !shown.pairingVisible,
-      "an expired window still shows a code, so he scans one that cannot work"
+      !shown.qrShown && !shown.codeShown && !shown.wordsShown,
+      "an expired window still shows a code, so he scans one that cannot work: " + JSON.stringify(shown)
     );
-    assert(shown.offVisible && shown.canAskAgain, JSON.stringify(shown));
     assert(
-      /ask for a code/i.test(shown.offMessage),
-      "he is not told how to get another code: " + JSON.stringify(shown.offMessage)
+      shown.pairingScreen && shown.expiredBlock,
+      "the expiry is not announced on the screen it happened on — this is the silent reset: " +
+        JSON.stringify(shown)
+    );
+    assert(
+      !shown.readyScreen && !shown.routeScreen && !shown.offScreen,
+      "an expired code threw him back to an earlier screen: " + JSON.stringify(shown)
+    );
+    assert(
+      /ran out/i.test(shown.expiredHeading) && /Show me another code/.test(shown.expiredNote),
+      "the expiry does not say what happened and point at the way on: " +
+        JSON.stringify(shown.expiredHeading + " / " + shown.expiredNote)
+    );
+    assert(
+      shown.newCode && /another code/i.test(shown.newCodeLabel),
+      "a new code is not offered in its place: " + JSON.stringify(shown)
     );
     return (
-      "a live code says " + JSON.stringify(countdown) + "; an expired one shows no code at all and " +
-      "says " + JSON.stringify(shown.offMessage)
+      "a live code says " + JSON.stringify(countdown) + "; an expired one stays on the same " +
+      "screen, shows no code, says " + JSON.stringify(shown.expiredHeading.trim()) + " and " +
+      "offers " + JSON.stringify(shown.newCodeLabel)
+    );
+  });
+
+  // ---- 8c. the harness's window is the Mac's window -----------------------------------------
+
+  await run.check("8c  the window the harness models is the window the Mac serves", async () => {
+    // `PAIRING_WINDOW_MS` went from 60 s to 300 s for defect 3.3. The mock models the countdown
+    // itself, so a mock left at 60 s would draw a countdown the product never shows and every
+    // check above it would be measuring a screen that does not ship. This is one grep against
+    // the Rust rather than a second copy of the number.
+    const modRs = fs.readFileSync(
+      path.resolve(UI_DIR, "..", "src-tauri", "src", "phone", "mod.rs"),
+      "utf8"
+    );
+    const rust = /pub const PAIRING_WINDOW_MS: u64 = ([\d_]+);/.exec(modRs);
+    assert(rust, "PAIRING_WINDOW_MS is not declared in src-tauri/src/phone/mod.rs any more");
+    const mockJs = fs.readFileSync(path.join(UI_DIR, "mock.js"), "utf8");
+    const mock = /const PAIRING_WINDOW_MS = (\d+);/.exec(mockJs);
+    assert(mock, "ui/mock.js no longer declares the window it models");
+    const rustMs = Number(rust[1].replace(/_/g, ""));
+    assertEqual(
+      Number(mock[1]),
+      rustMs,
+      "the harness models a different pairing window than the Mac serves"
+    );
+    assert(
+      rustMs >= 180000,
+      "the window is " + rustMs / 1000 + " s. Defect 3.3 is that sixty seconds is not enough " +
+        "time to read the screen, walk to the phone, unlock it and open the camera — a window " +
+        "under three minutes puts that defect back"
+    );
+    return (
+      "PAIRING_WINDOW_MS is " + rustMs / 1000 + " s in phone/mod.rs and " + Number(mock[1]) / 1000 +
+      " s in ui/mock.js. One guess per window (complete_pairing takes the window before it " +
+      "compares), 30^8 = 656,100,000,000 codes, so the chance per window is 1.5e-12 at either " +
+      "length — the duration is not in that number."
     );
   });
 
@@ -403,11 +477,319 @@ async function openSheet(browser, theme, preset) {
       "the screen does not say that forgetting here leaves the profile on his phone: " + text
     );
     assert(
-      /VPN and Device Management/.test(text) && /Remove Profile/.test(text),
+      // "VPN & Device Management" — Apple's own screen name, and the spelling the sixteen
+      // steps above already use. This one paragraph said "VPN and Device Management", which is
+      // a screen name that does not exist on the phone he is holding.
+      /VPN & Device Management/.test(text) && /Remove Profile/.test(text),
       "the screen does not say WHERE on the phone to remove it, which is the whole point: " + text
     );
     return "the paired state names the phone, offers the way out, and says what the Mac cannot undo for him";
   });
+
+  // ---- 9d. DEFECT 4.5 — the Mac names the control the paired phone actually has -------------
+
+  await run.check(
+    "9d  the install instruction names the phone's own control, and is not given where it is wrong",
+    async () => {
+      // RAY'S CANDIDATE .11 DEFECT 4.5. The card said "Add Rich to your phone's Home Screen and
+      // allow notifications when it asks." Chrome on his HONOR X6b offers "Install and create
+      // shortcut" and has no item by the other name at all — the Mac named a control the device
+      // does not have.
+      //
+      // AND ON ANDROID THE INSTRUCTION IS WRONG RATHER THAN MISNAMED: Chrome on Android
+      // subscribes to push from a tab, so nothing has to be installed first. It is iOS Safari
+      // that cannot take a push until the app is on the Home Screen. The phone page draws the
+      // same division (web/web-app/app.js, installControlName / installSentence).
+      const cases = [
+        {
+          platform: "ios",
+          must: [/Share menu/, /Add to Home Screen/],
+          mustNot: [/Install and create shortcut/],
+        },
+        {
+          platform: "android",
+          must: [/does not need Rich installed first/],
+          // The defect, in one pattern: an Android phone must never be sent to look for this.
+          mustNot: [/Add to Home Screen/, /Home Screen and allow/],
+        },
+        {
+          // A phone this Mac cannot name gets what is true of both and names neither as the
+          // one to use — the same "null means say nothing" rule the phone page follows.
+          platform: "",
+          must: [/Allow notifications on your phone/],
+          mustNot: [/Install and create shortcut/],
+        },
+      ];
+
+      const said = [];
+      for (const one of cases) {
+        const page = await openSheet(browser, "dark", {
+          phonePaired: true,
+          phonePlatform: one.platform,
+          phonePairedVia: "tailnet",
+        });
+        const text = (await page.textContent("#phone-push-state")).replace(/\s+/g, " ").trim();
+        await page.close();
+        for (const pattern of one.must) {
+          assert(
+            pattern.test(text),
+            (one.platform || "unknown") + " is missing " + pattern + ": " + JSON.stringify(text)
+          );
+        }
+        for (const pattern of one.mustNot) {
+          assert(
+            !pattern.test(text),
+            (one.platform || "unknown") + " names a control that phone does not have (" +
+              pattern + "): " + JSON.stringify(text)
+          );
+        }
+        said.push((one.platform || "unknown") + ": " + JSON.stringify(text.slice(0, 56) + "…"));
+      }
+      return said.length + " platform(s), each named in its own phone's words — " + said.join("; ");
+    }
+  );
+
+  // ---- 9c. DEFECT 3.1 — the first sentence describes the option he chose --------------------
+
+  await run.check(
+    "9c  the lead paragraph follows the chosen option, and the flow has one word for the place",
+    async () => {
+      // RAY'S CANDIDATE .11 DEFECT 3.1. Every screen opened with "Your phone talks to this Mac
+      // directly, over your own home network ... there is no account to make" — a description
+      // of "At home only" — and it stayed there unchanged after he pressed "Anywhere", which is
+      // not the home network and does involve making an account. Screenshots 13, 14, 15, 17.
+      const page = await openSheet(browser, "dark", {
+        phoneTailnet: {
+          state: "ready",
+          name: "mm1.tail770f6e.ts.net",
+          origin: "https://mm1.tail770f6e.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        },
+      });
+      // THE FIRST PARAGRAPH OF THE PANEL, by position rather than by id — the only direct
+      // `p.overlay-note` child of `.overlay-panel`, on this build and on the one Ray walked. So
+      // this check measures the SENTENCE, and a build where that sentence is a fixed literal
+      // fails on what it says rather than on a missing element.
+      const lead = async () =>
+        (
+          await page.textContent("#phone-sheet .overlay-panel > p.overlay-note")
+        )
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const chooser = await lead();
+      assert(
+        !/home network/i.test(chooser),
+        "before he has chosen anything the screen already describes one of the two options: " +
+          JSON.stringify(chooser)
+      );
+
+      await page.click("#phone-route-anywhere");
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
+      const anywhere = await lead();
+      assert(
+        /Tailscale/.test(anywhere) && /account/.test(anywhere),
+        "the Anywhere path's lead does not name the network or the account it costs: " +
+          JSON.stringify(anywhere)
+      );
+      assert(
+        !/own home network/i.test(anywhere) && !/no account to make/i.test(anywhere),
+        "THE DEFECT: the Anywhere path still opens by describing the home-network option, which " +
+          "is not the network he is on and is not true of the account he has to make: " +
+          JSON.stringify(anywhere)
+      );
+
+      await page.click("#phone-ts-ready-back");
+      await page.waitForSelector("#phone-route:not([hidden])");
+      await page.click("#phone-route-home");
+      await page.waitForSelector("#phone-off:not([hidden])");
+      const atHome = await lead();
+      assert(
+        /own home network/i.test(atHome) && /no account to make/i.test(atHome),
+        "the At-home path lost the sentence that is true of it: " + JSON.stringify(atHome)
+      );
+
+      // ONE WORD FOR THE PLACE. It was "the office", "the house" and "home" in three adjacent
+      // sentences. The option is called "At home only" and the thing it describes is "your own
+      // home network", so the other two were the odd ones out.
+      const whole = (await page.textContent("#phone-sheet")).replace(/\s+/g, " ");
+      await page.close();
+      const strays = ["the office", "the house"].filter((word) => whole.includes(word));
+      assertEqual(
+        strays,
+        [],
+        "the flow uses more than one word for the same place, which is how he ends up wondering " +
+          "whether they are three different places"
+      );
+
+      return (
+        "three leads, one per state: no choice -> " + JSON.stringify(chooser.slice(0, 48) + "…") +
+        "; Anywhere -> names Tailscale and the account; At home only -> keeps the sentence that " +
+        'is true of it. And 0 stray words for the place ("the office", "the house") across the ' +
+        "whole sheet, read with every screen's markup in the DOM."
+      );
+    }
+  );
+
+  // ---- 9b. DEFECT 3.2 — the card says the same thing on the second open as on the first ----
+
+  await run.check(
+    "9b  the paired card's copy comes from the record: four combinations, and identical on reopen",
+    async () => {
+      // RAY'S CANDIDATE .11 DEFECT 3.2, REPRODUCED AND THEN PINNED.
+      //
+      // What he did: paired his ANDROID phone over Tailscale, read "There is nothing to remove
+      // from your phone", closed the card, reopened it, and was told to open "Settings, then
+      // General, then VPN and Device Management, then the RichOS profile" — an iOS menu, on an
+      // Android phone, for a certificate that path never installs. Reproduced twice.
+      //
+      // The cause is that the copy was keyed off the sheet's `route`, which `open()` resets to
+      // null on every open by design. So the SECOND OPEN is the whole test: same status, same
+      // phone, and the card must say the same words.
+      const combinations = [
+        {
+          via: "tailnet",
+          platform: "android",
+          name: "Android phone",
+          must: [/nothing to remove from your phone/i, /Tailscale name/],
+          mustNot: [/VPN & Device Management/, /Remove Profile/, /Settings, then General/],
+          limit: true,
+        },
+        {
+          via: "tailnet",
+          platform: "ios",
+          name: "iPhone",
+          must: [/nothing to remove from your phone/i],
+          mustNot: [/VPN & Device Management/, /Remove Profile/],
+          limit: true,
+        },
+        {
+          via: "home",
+          platform: "ios",
+          name: "iPhone",
+          must: [/VPN & Device Management/, /Remove Profile/],
+          mustNot: [/nothing to remove from your phone/i],
+          limit: false,
+        },
+        {
+          via: "home",
+          platform: "android",
+          name: "Android phone",
+          // An Android phone on the home path never took a profile: what this Mac serves at the
+          // trust endpoint is an Apple `.mobileconfig` and nothing else. So it must not be sent
+          // to an iOS menu, and it must not be told a menu path nobody here verified either.
+          must: [/nothing RichOS put on your Android phone to remove/i],
+          mustNot: [/VPN & Device Management/, /Remove Profile/, /Settings, then General/],
+          limit: false,
+        },
+        {
+          // THE FIFTH: a record written before either field existed. It must say it does not
+          // know rather than fall back to one of the four — the defect was a default stated as
+          // a fact, and a default in here would be the same defect one layer down.
+          via: "",
+          platform: "",
+          name: "iPhone",
+          must: [/did not record which way it connected/i, /Pair it again/],
+          mustNot: [/VPN & Device Management/, /nothing to remove from your phone/i],
+          limit: false,
+        },
+      ];
+
+      const seen = [];
+      for (const combination of combinations) {
+        const page = await openSheet(browser, "dark", {
+          phonePaired: true,
+          phonePairedVia: combination.via,
+          phonePlatform: combination.platform,
+        });
+        // WHAT IS ON THE SCREEN, NOT WHAT IS IN THE MARKUP. The forget note is read by
+        // gathering every VISIBLE paragraph in the paired card that is about forgetting,
+        // rather than by one element id — so this check measures the copy a person reads and
+        // keeps measuring it whether that copy lives in one node or in two. Run against the
+        // build Ray walked it fails on the words, which is the defect, rather than on a
+        // missing id, which would only be a rename.
+        const read = async () =>
+          page.evaluate(() => {
+            const visible = (node) => node.offsetParent !== null || !node.hidden;
+            const notes = [...document.querySelectorAll("#phone-paired p")]
+              .filter((n) => visible(n) && /Forgetting it here/.test(n.textContent || ""))
+              .map((n) => (n.textContent || "").replace(/\s+/g, " ").trim());
+            const limit = [...document.querySelectorAll("#phone-paired p")].filter(
+              (n) => visible(n) && /signed in to Tailscale/.test(n.textContent || "")
+            );
+            return {
+              heading: document
+                .getElementById("phone-paired")
+                .textContent.replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 40),
+              notes: notes,
+              limitShown: limit.length > 0,
+            };
+          });
+        const first = await read();
+        // CLOSE AND REOPEN — the exact sequence that produced the defect on screen.
+        await page.click("#phone-close");
+        // `state: "hidden"` — the default waits for VISIBLE, and a hidden sheet never is.
+        await page.waitForSelector("#phone-sheet", { state: "hidden" });
+        await page.click("#set-btn");
+        await page.click("#set-phone-open");
+        await page.waitForSelector("#phone-sheet:not([hidden])");
+        const second = await read();
+        await page.close();
+
+        const where = combination.via + ":" + combination.platform;
+        assertEqual(
+          second,
+          first,
+          "reopening the paired card for the SAME phone (" + where + ") changed what it says. " +
+            "That is defect 3.2: the copy is being derived from something the sheet forgets on " +
+            "open instead of from the device record."
+        );
+        // EXACTLY ONE forget paragraph may be on screen. Two visible paragraphs about the
+        // same act is its own defect and the reason this is one node now.
+        assertEqual(
+          first.notes.length,
+          1,
+          where + " shows " + first.notes.length + " visible paragraph(s) about forgetting the " +
+            "phone, and exactly one is the right number: " + JSON.stringify(first.notes)
+        );
+        const note = first.notes[0];
+        for (const pattern of combination.must) {
+          assert(
+            pattern.test(note),
+            where + " is missing " + pattern + " — it says: " + JSON.stringify(note)
+          );
+        }
+        for (const pattern of combination.mustNot) {
+          assert(
+            !pattern.test(note),
+            where + " shows copy that belongs to another combination (" + pattern + "): " +
+              JSON.stringify(note)
+          );
+        }
+        // The name comes last of the three, deliberately: it is the one assertion that
+        // depends on the harness modeling the right phone, and a failure there would mask the
+        // copy failures above, which are the defect.
+        assert(
+          first.heading.startsWith(combination.name + " is paired"),
+          "the card does not name the phone it is talking about (" + where + "): " + first.heading
+        );
+        assertEqual(
+          first.limitShown,
+          combination.limit,
+          "the Tailscale limit line is on the wrong combination (" + where + ")"
+        );
+        seen.push(where + (first.limitShown ? " +limit" : ""));
+      }
+      return (
+        combinations.length + " path x platform combination(s) read off the device record and " +
+        "identical on a second open: " + seen.join(", ") + ". The reopen is the measurement — " +
+        "before this, every reopen drew the home path's iOS profile-removal steps whatever the " +
+        "phone was."
+      );
+    }
+  );
 
   // ---- 11-16. CEO §61.1: the identity trap, made crystal-clear -----------------------------
   //

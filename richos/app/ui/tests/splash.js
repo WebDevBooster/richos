@@ -1773,15 +1773,18 @@ async function main() {
     const page = await newPage(ctx);
     await page.goto(APP);
     await page.waitForSelector(".nav-thread", { state: "attached" });
-    // The gear this check reaches for is in the RAIL, behind both the curtain and the home
-    // screen. The curtain has always been click-through; the home screen is not, and is not
-    // meant to be. Everything above and below still tests the curtain itself.
+    // THE SWITCH THIS CHECK REACHES FOR MOVED, and it moved to the panel that is easier to
+    // reach rather than harder: it was behind the RAIL's gear and in the universal settings
+    // menu both, and Ray's candidate .11 defect 3.4 is that a person meeting two copies of
+    // one switch cannot tell which is authoritative. There is one now, in the menu §15 puts
+    // on every screen. `leaveHome` is still needed — the menu is behind the home screen,
+    // which is not click-through and is not meant to be.
     await leaveHome(page);
-    await page.click("#rail-settings");
-    await page.waitForSelector("#assertiveness-popover:not([hidden])");
-    const before = await page.isChecked("#splash-enabled");
+    await page.click("#set-btn");
+    await page.waitForSelector("#set-menu:not([hidden])");
+    const before = await page.isChecked("#set-splash");
     assertEqual(before, true, "the opening screen is on by default");
-    await page.uncheck("#splash-enabled");
+    await page.uncheck("#set-splash");
     await page.waitForTimeout(200);
     fs.mkdirSync(SHOTS, { recursive: true });
     const sw = await shot(page, "splash-03-the-off-switch", { fullPage: false });
@@ -1796,7 +1799,15 @@ async function main() {
       splashNodes: document.querySelectorAll("#splash, .splash").length,
       shown: window.RichSplash.state.shown,
       declined: window.RichSplash.state.declined,
-      checked: document.getElementById("splash-enabled").checked,
+      // The menu has to be OPENED to be read, which is also the honest test: what a person
+      // sees. The rail popover's duplicate copy of this switch was removed for Ray's
+      // candidate .11 defect 3.4, so this is the one control there is.
+      checked: (() => {
+        const btn = document.getElementById("set-btn");
+        if (btn) btn.click();
+        const box = document.getElementById("set-splash");
+        return box ? box.checked : null;
+      })(),
     }));
     assertEqual(after.splashNodes, 0, "it came back after being switched off");
     assertEqual(after.shown, false, "it thinks it drew");
@@ -1898,13 +1909,15 @@ async function main() {
           homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
           homeVisible: !!(cs && cs.display !== "none" && cs.visibility === "visible"),
           // The word the CEO would look for, off the rendered control rather than the source.
+          // It reads the UNIVERSAL MENU's row now, for the reason above: that is the one
+          // control there is. The menu has to be opened to be read, which is also the honest
+          // test — the label is a thing a person sees, not a thing in the source.
           title: (() => {
-            const box = document.getElementById("splash-enabled");
-            if (!box) return null;
-            const group = box.closest(".popover-option");
-            let n = group ? group.previousElementSibling : null;
-            while (n && !n.classList.contains("popover-title")) n = n.previousElementSibling;
-            return n ? n.textContent.trim() : null;
+            const btn = document.getElementById("set-btn");
+            if (btn) btn.click();
+            const row = document.getElementById("set-splash-row");
+            const label = row ? row.querySelector(".set-name") : null;
+            return label ? label.textContent.trim() : null;
           })(),
         };
       });

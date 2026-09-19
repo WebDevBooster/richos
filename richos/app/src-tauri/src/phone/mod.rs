@@ -69,8 +69,40 @@ pub const TRUST_PORT: u16 = 8444;
 /// argument for it.
 pub const MAX_BODY_BYTES: usize = 65536;
 
-/// How long a pairing window stays open. Plan §4.1: *"a 60-second one-shot pairing code"*.
-pub const PAIRING_WINDOW_MS: u64 = 60_000;
+/// **How long a pairing window stays open. FIVE MINUTES, and it was sixty seconds.**
+///
+/// Plan §4.1 said *"a 60-second one-shot pairing code"*, and sixty seconds is not enough time
+/// for the errand this screen asks for. Ray's candidate .11 walk, defect 3.3: he read the
+/// screen, went to get his phone, unlocked it, opened the camera, and came back to a dialog
+/// that had dropped back to "This Mac is ready" with the code, the QR and the six words gone
+/// and nothing said. *"Sixty seconds is not enough time for the task the screen is asking him
+/// to do."*
+///
+/// **THE SECURITY COST OF THE LONGER WINDOW, COMPUTED RATHER THAN WAVED AT.**
+///
+/// The code is `device::CODE_LENGTH` = 8 characters from a 30-character alphabet:
+/// `30^8 = 656,100,000,000` codes.
+///
+/// **A guess costs the attacker the window.** `DeviceDesk::complete_pairing` does
+/// `state.pairing.take()` BEFORE it compares, so a wrong code closes the window — one guess per
+/// window, and the window is only ever opened by the user pressing a button on this Mac. So the
+/// chance of an unpaired caller on the network pairing itself is `1 / 6.561e11` per window he
+/// opens, which is `1.5e-12`, and it is the SAME number at sixty seconds and at five minutes:
+/// the duration does not appear in it. That is what makes this change cheap, and it is a
+/// property of the one-shot window rather than of the length.
+///
+/// What the extra 240 seconds does buy an attacker is exposure: four more minutes in which
+/// `/api/pair` will answer an unauthenticated POST at all, and four more minutes of a QR on a
+/// screen. Both are bounded by the rate limit (`device::RATE_LIMIT`, 60 requests a minute) and
+/// by the single-guess property above.
+///
+/// **AND IT MOVES ONE OTHER PIECE OF FRAME MATH, named because it was written down.**
+/// `ui/phone.js`'s `PHONE_JOIN_GRACE_MS` is 60 s and its comment records that the phone step's
+/// mismatch sentence *"could never be reached at all"* — the grace fell due exactly as the
+/// window expired. At 300 s the grace now falls due 240 s INSIDE the window, so that sentence
+/// becomes reachable on the pairing screen as well as on the ready screen. That is an
+/// improvement, and it is a change to a stated invariant rather than a side effect nobody saw.
+pub const PAIRING_WINDOW_MS: u64 = 300_000;
 
 /// **How much life a tailnet certificate must have left before this Mac asks for a new one.**
 ///
@@ -329,6 +361,18 @@ pub struct PhoneStatus {
     /// Is a phone paired? `listening && !paired` means a pairing window is open.
     pub paired: bool,
     pub device_name: Option<String>,
+    /// **WHICH PATH THE PAIRED PHONE PAIRED OVER**, read off its record — `"tailnet"`,
+    /// `"home"`, or `""` for a record written before the field existed. `None` when nothing is
+    /// paired.
+    ///
+    /// The settings card's copy about removing certificates is derived from THIS and from
+    /// [`PhoneStatus::platform`], and from nothing the sheet remembers. The sheet forgets the
+    /// route on every open by design, so keying that copy off it made reopening the card for a
+    /// paired Android phone print iOS profile-removal steps (Ray's candidate .11 defect 3.2).
+    pub paired_via: Option<String>,
+    /// **WHAT KIND OF PHONE IT IS** — `"ios"`, `"android"`, `"other"`, or `""` for a record
+    /// written before the field existed. `None` when nothing is paired.
+    pub platform: Option<String>,
     /// Whether that phone can be pushed to yet — it cannot until he has installed the app to the
     /// Home Screen and allowed notifications, which happens after pairing.
     pub push_ready: bool,
@@ -528,6 +572,8 @@ impl PhoneRuntime {
                 listening: false,
                 paired: false,
                 device_name: None,
+                paired_via: None,
+                platform: None,
                 push_ready: false,
                 trust_url: None,
                 pair_url: None,
@@ -548,6 +594,8 @@ impl PhoneRuntime {
             listening: running.listener.is_running(),
             paired: device.is_some(),
             device_name: device.as_ref().map(|d| d.name.clone()),
+            paired_via: device.as_ref().map(|d| d.paired_via.clone()),
+            platform: device.as_ref().map(|d| d.platform.clone()),
             push_ready: device.as_ref().map(|d| d.push.is_some()).unwrap_or(false),
             trust_url: Some(running.names.trust_url()),
             pair_url: window
@@ -647,6 +695,15 @@ impl PhoneRuntime {
             assets: phone_assets(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: fingerprint_hex.clone(),
+            // **THE DECISION `serving_plan` JUST MADE, CARRIED RATHER THAN RE-READ.** A phone
+            // that redeems a code minted now paired over this path, and the card that talks
+            // about removing certificates needs that answer to survive every later change of
+            // this Mac's mind (Ray's candidate .11 defect 3.2).
+            pairing_path: std::sync::Mutex::new(if tailnet_tls.is_some() {
+                device::PairedVia::TAILNET
+            } else {
+                device::PairedVia::HOME
+            }),
         });
 
         // The window opens BEFORE the socket, so a failure to bind leaves nothing half-armed.
@@ -674,6 +731,10 @@ impl PhoneRuntime {
                      the home path only: {e}"
                 );
                 origin = names.origin();
+                // AND THE RECORDED PATH MOVES WITH IT. This is the one place the answer
+                // changes after the channel was built, and a code handed out from here goes
+                // out under `mm1.local` — the home path, certificate and all.
+                *channel.pairing_path.lock().unwrap() = device::PairedVia::HOME;
                 listen::Listener::start(
                     Arc::clone(&channel),
                     tls,

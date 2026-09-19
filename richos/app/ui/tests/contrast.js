@@ -2553,6 +2553,128 @@ async function main() {
     return "floor " + RADIO_FLOOR + ":1, measured off the painted control — " + lines.join("; ");
   });
 
+  await run.check("16b  every checkbox paints its own indicator too — the half check 16 did not cover", async () => {
+    // RAY'S CANDIDATE .11 WALK, DEFECT 3.6. Check 16 above fixed the radios and this file said
+    // nothing about the checkboxes beside them, so they stayed the bare native control and the
+    // next walk found them. His measurement, and it is the same instrument this check uses:
+    //
+    //     "Their pixels are byte-identical in light and dark (the same 60 px of rgb(255,255,255),
+    //      18 of (252,252,252), 16 of (209,209,209), 6 of (188,188,188) in both captures) — this
+    //      is the unstyled native control."
+    //     LIGHT unchecked border #bcbcbc on #fdfcf8 = 1.85:1, against a 3:1 floor.
+    //     DARK  the same white box on the navy panel renders as a SOLID FILLED WHITE SQUARE,
+    //           which reads as CHECKED. His positive control: he checked "Show it" and it became
+    //           a blue box with a white tick, while the still-unchecked "Show it when RichOS
+    //           starts" stayed a solid white square. So the unchecked state was the more
+    //           prominent of the two and the panel read backwards.
+    //
+    // THREE ASSERTIONS, BECAUSE THE RATIO ALONE CALLED THE WORSE DEFECT FINE (15.38:1):
+    //   1. the ratio, in both themes, both states, against 3:1;
+    //   2. the FILL — a checked box carries strictly more of its own ink than an unchecked one,
+    //      which is what "checked" has always looked like and what survives grayscale;
+    //   3. THE THEMES DIFFER. A control whose crop is byte-identical in light and dark is a
+    //      control nothing in this app is painting, whatever its ratio says. That is the one
+    //      assertion that would have caught this defect as it shipped.
+    const BOX_FLOOR = 3;
+    const lines = [];
+    const crops = {};
+    for (const theme of ["light", "dark"]) {
+      const page = await openApp(browser, theme);
+      await page.click('.nav-thread[data-thread-id="hiring"]');
+      await settleOnThread(page, "hiring");
+      await page.click("#rail-settings");
+      await page.waitForSelector("#assertiveness-popover:not([hidden])");
+      await awaitSettled(page);
+
+      // ONE CONTROL, BOTH OF ITS STATES, and it is measured by setting `.checked` in the
+      // DOM rather than by clicking. Two reasons, and neither is convenience.
+      //
+      //   1. THIS CHECK IS ABOUT PAINT, not about conduct. `.checked = true` fires no
+      //      `change` listener, so the three-way technical-view scope sheet does not open
+      //      over the panel — and measuring a control through a modal measures the modal.
+      //   2. ONE CONTROL RATHER THAN TWO removes the last way a fill comparison can lie: the
+      //      two crops are the same element, at the same size, on the same ground, one frame
+      //      apart. Nothing but the state differs.
+      //
+      // It used to read `#splash-enabled` for the unchecked half. That control is gone from
+      // this popover — Ray's candidate .11 defect 3.4, one state, one door — and this shape
+      // does not need a second control at all.
+      //
+      // THE STATE IS SET AND THE CROP IS TAKEN IN THE SAME TURN OF THIS LOOP. The first
+      // draft set both states first and screenshotted afterwards, so both crops were of the
+      // CHECKED control and the fill test compared 188 samples with 188. It failed, which is
+      // the fill test doing its job on its own author.
+      const measured = [];
+      for (const want of [false, true]) {
+        const b = await page.evaluate((state) => {
+          const node = document.getElementById("techy-default");
+          node.checked = state;
+          const r = node.getBoundingClientRect();
+          return { id: "techy-default", checked: node.checked, x: r.x, y: r.y, w: r.width, h: r.height };
+        }, want);
+        assertEqual(b.checked, want, "the checkbox would not take the state to be measured");
+        // The same three-pixel skirt check 16 uses, so the ground is READ off the panel
+        // rather than assumed, and the two checks are the same instrument.
+        const buf = await page.screenshot({
+          clip: {
+            x: Math.floor(b.x - 3),
+            y: Math.floor(b.y - 3),
+            width: Math.ceil(b.w + 6),
+            height: Math.ceil(b.h + 6),
+          },
+        });
+        crops[theme + ":techy-default:" + b.checked] = buf.toString("base64");
+        measured.push(Object.assign({ theme: theme }, C.measureIndicatorCrop(buf), { id: b.id, checked: b.checked }));
+      }
+      assert(
+        measured.length === 2 && !measured[0].checked && measured[1].checked,
+        "the two states were not both measured: " + JSON.stringify(measured)
+      );
+
+      for (const m of measured) {
+        assert(
+          m.ratio >= BOX_FLOOR,
+          theme + ": the " + (m.checked ? "checked" : "unchecked") + " checkbox (" + m.id +
+            ") paints " + m.ink + " on " + m.ground + " = " + m.ratio + ":1, under the " +
+            BOX_FLOOR + ":1 floor a non-text indicator owes. Ray measured this shape at 1.85:1."
+        );
+      }
+      const on = measured.find((m) => m.checked);
+      const off = measured.find((m) => !m.checked);
+      assert(
+        on.inkSamples > off.inkSamples,
+        theme + ": the CHECKED box carries " + on.inkSamples + " samples of its own ink and the " +
+          "unchecked one carries " + off.inkSamples + ". The unchecked control is at least as " +
+          "filled as the checked one, so the panel reads backwards — which is defect 3.6's " +
+          "dark-mode half, and it passed its RATIO at 15.38:1."
+      );
+      lines.push(
+        theme + ": checked " + on.ratio + ":1 (" + on.inkSamples + " samples) vs unchecked " +
+          off.ratio + ":1 (" + off.inkSamples + ")"
+      );
+      await page.close();
+    }
+
+    // 3. THE THEMES DIFFER, in BOTH states. Ray's own evidence that the control was
+    // unstyled was that its pixels were the same in light and dark. A theme-aware control
+    // cannot be, and asserting it of the checked state as well as the unchecked one is what
+    // stops a half-themed control passing.
+    for (const state of ["false", "true"]) {
+      assert(
+        crops["light:techy-default:" + state] !== crops["dark:techy-default:" + state],
+        "the " + (state === "true" ? "checked" : "unchecked") + " checkbox paints " +
+          "byte-identical pixels in light and dark. That is not a ratio failure, it is the " +
+          "proof that nothing in this app is painting the control — which is how defect 3.6 " +
+          "shipped past a green contrast run."
+      );
+    }
+
+    return (
+      "floor " + BOX_FLOOR + ":1, measured off the painted control — " + lines.join("; ") +
+      "; and both themes' crops differ, which the native control's never did."
+    );
+  });
+
   await run.check("17  the technical view's own labels, DECLARED and RENDERED — the surface walk sees neither", async () => {
     // AUDIT-10 ROW 4, AND TWO REASONS THIRTY-NINE GREEN SURFACES DID NOT HOLD IT.
     //
