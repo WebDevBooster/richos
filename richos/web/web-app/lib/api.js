@@ -137,6 +137,12 @@
 
 		if (!state) throw new Error('createApi needs a state object');
 
+		/// How many requests had to be re-signed because the Mac had replaced the challenge this
+		/// phone was holding. Read by the tests and by nothing in the app — it is the count that
+		/// says whether the Mac's challenge set is still being emptied underneath the phone, and
+		/// a build where it climbs on an idle phone has the Mac-side half of this defect back.
+		let staleCredentialRetries = 0;
+
 		function setChallenge(next) {
 			if (next && next !== state.challenge) {
 				state.challenge = next;
@@ -215,7 +221,7 @@
 		async function request(method, pathWithQuery, body, contentType, options) {
 			if (!fetchImpl) throw new ApiError(FAULT, 'this browser has no fetch');
 			const inQuery = !!(options && options.credential === 'query');
-			let url = joinBase(state.apiBase, pathWithQuery);
+			const baseUrl = joinBase(state.apiBase, pathWithQuery);
 			const headers = {};
 			let payload;
 			if (body !== undefined && body !== null) {
@@ -225,27 +231,79 @@
 				headers['Content-Type'] = contentType || 'application/json';
 			}
 			const bodyHash = payload === undefined ? '' : await signer.sha256Hex(payload);
-			const auth = await authorization(method, pathWithQuery, bodyHash);
-			if (auth && inQuery) {
-				// The separator is derived rather than assumed, for the same reason `openEvents`
-				// derives it: a path that ever lost its query string would otherwise produce
-				// `…/api/events&auth=`, which the Mac refuses for a reason nobody would find
-				// quickly. Appended LAST, so `signed_path`'s filter leaves the rest in order.
-				url += `${url.includes('?') ? '&' : '?'}auth=${encodeURIComponent(auth)}`;
-			} else if (auth) {
-				headers.Authorization = auth;
+
+			/// One signed attempt. Returns the answer together with the challenge this attempt
+			/// actually SIGNED, which is the thing the stale-credential test below compares
+			/// against — `state.challenge` has already moved on by the time it is read.
+			async function attempt() {
+				const presented = state.challenge;
+				let url = baseUrl;
+				const sent = Object.assign({}, headers);
+				const auth = await authorization(method, pathWithQuery, bodyHash);
+				if (auth && inQuery) {
+					// The separator is derived rather than assumed, for the same reason `openEvents`
+					// derives it: a path that ever lost its query string would otherwise produce
+					// `…/api/events&auth=`, which the Mac refuses for a reason nobody would find
+					// quickly. Appended LAST, so `signed_path`'s filter leaves the rest in order.
+					url += `${url.includes('?') ? '&' : '?'}auth=${encodeURIComponent(auth)}`;
+				} else if (auth) {
+					sent.Authorization = auth;
+				}
+				let answer;
+				try {
+					answer = await fetchImpl(url, { method, headers: sent, body: payload, mode: 'cors', cache: 'no-store' });
+				} catch (err) {
+					// This is the branch the queue exists for. A `fetch` that throws did not reach the
+					// Mac at all — wrong network, Mac asleep, name not resolving here.
+					throw new ApiError(UNREACHABLE, String((err && err.message) || err));
+				}
+				const next = answer.headers && answer.headers.get
+					? answer.headers.get('X-RichOS-Challenge')
+					: null;
+				setChallenge(next);
+				return { answer, presented, next, credentialed: Boolean(auth) };
 			}
 
-			let response;
-			try {
-				response = await fetchImpl(url, { method, headers, body: payload, mode: 'cors', cache: 'no-store' });
-			} catch (err) {
-				// This is the branch the queue exists for. A `fetch` that throws did not reach the
-				// Mac at all — wrong network, Mac asleep, name not resolving here.
-				throw new ApiError(UNREACHABLE, String((err && err.message) || err));
-			}
+			let { answer: response, presented, next, credentialed } = await attempt();
 
-			setChallenge(response.headers && response.headers.get ? response.headers.get('X-RichOS-Challenge') : null);
+			// **A 404 THAT HANDED BACK A DIFFERENT CHALLENGE IS A STALE CREDENTIAL, NOT A REFUSAL,
+			// AND IT IS THE CAUSE OF THE SEND THAT NEVER ARRIVED** (Ray, nightly `.7`, defect 1).
+			//
+			// Every answer on this port carries `X-RichOS-Challenge`
+			// (`app/src-tauri/src/phone/listen.rs` `render`), and the Mac keeps only the most
+			// recent `LIVE_CHALLENGES` of them (`phone/device.rs` `issue_challenge`). EVERY
+			// response burns one of those slots, including the flat static-asset GETs this very
+			// app is served over — and `sw.js` re-fetches its whole shell with `cache: 'reload'`
+			// on install, nineteen entries in one burst. A burst wider than that set pushes out
+			// the challenge this phone is holding, and the next signed request is refused with
+			// `UnknownChallenge`, which §2.5 item 4 renders as a flat 404 so an unpaired caller
+			// learns nothing.
+			//
+			// The phone cannot be TOLD which 404 it got — that is the whole point of the flat
+			// refusal — and it does not need to be. It has a positive signal of its own: the
+			// refusal carried a challenge, and it is not the one just presented. That means the
+			// Mac answered, the Mac is alive, and the credential presented is no longer current.
+			// So the request is re-signed and sent again, ONCE, with the challenge that refusal
+			// handed back.
+			//
+			// ONCE, and not a loop. A second 404 under a challenge the Mac minted itself seconds
+			// earlier is not a stale credential, it is the answer — and retrying past it is rule
+			// 4's "a phone hammering a Mac that has forgotten it".
+			//
+			// Safe to repeat on a POST: `/api/messages` is idempotent on `client_id`
+			// (`phone/routes.rs` `messages` → `already_answered`), and in any case nothing here
+			// is reached unless the first attempt was REFUSED, which means the Mac did not act
+			// on it. Nothing new leaks either: the header is on every answer this port gives, to
+			// anything that knocks, before any credential is looked at.
+			if (
+				response.status === 404 &&
+				credentialed &&
+				typeof next === 'string' && next.length > 0 &&
+				next !== presented
+			) {
+				staleCredentialRetries += 1;
+				({ answer: response } = await attempt());
+			}
 
 			if (response.status === 403) {
 				let revoked = false;
@@ -306,6 +364,9 @@
 			/// "Can this Mac be asked for this?" — the only question the screen asks about
 			/// capabilities, so it is the only thing exposed rather than the list itself.
 			offers(name) { return offers(state.capabilities, name); },
+
+			/// See `staleCredentialRetries` above. For the harness; nothing in the app reads it.
+			staleCredentialRetries() { return staleCredentialRetries; },
 
 			// ---- (a) post a message -------------------------------------------------------------
 			//
@@ -490,6 +551,24 @@
 					device_id: state.deviceId,
 					push_transport: 'web-push',
 					push: subscription
+				});
+			},
+
+			/// **THE ANSWER TO THE SIX WORDS, SENT BACK TO THE MAC** — Ray's nightly `.7`, defect 2.
+			///
+			/// There was no such message. The person pressed `They match — pair this phone` or
+			/// `They do not match`, this app acted on it locally, and the Mac was told nothing
+			/// either way — so its sheet read `It is paired` while this screen was still asking
+			/// the question, and a phone he had just declared suspect stayed paired over there.
+			///
+			/// It is the same route as the device record, told apart by the field, which is what
+			/// keeps §2.5's ceiling of four routes. `false` is not a flag the Mac files away: it
+			/// FORGETS this phone, which is the same thing `pair-reject` does to the key on this
+			/// side, so the two ends finish in one state.
+			async confirmFingerprint(matched) {
+				return json('POST', '/api/pair', {
+					device_id: state.deviceId,
+					fingerprint_confirmed: matched === true
 				});
 			}
 		};

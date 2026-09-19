@@ -166,9 +166,16 @@ test('his Mac forgot this phone: the queue stops and says so, and never retries 
 	assert.strictEqual(second.blocked, 1);
 });
 
-test('a fault is retried on the next flush, because a fault might not repeat', async () => {
+test('a fault is retried on the outbox’s own clock, one second later — not on the stream’s thirty', async () => {
+	// THIS TEST CHANGED, AND THE CHANGE IS THE FIX. It used to assert that a second `flush` sent
+	// the message whenever one happened to be called — which was true, and was the defect: the
+	// only thing that called one unprompted was `lib/link.js` reconnecting the stream, capped at
+	// 30 s. Ray measured 30.67 s, 54.47 s and 48.79 s on nightly `.7` and one send that never
+	// arrived at all. The outbox has its own policy now (T3 Code's `threadOutboxRetryDelayMs`),
+	// and a test that cannot see time cannot tell the two apart — so the clock is injected.
 	const storage = memoryStorage();
-	const queue = createQueue({ storage });
+	let ms = 1_000_000;
+	const queue = createQueue({ storage, clock: () => ms });
 	await queue.enqueue({ clientId: 'c-1', threadId: 't', kind: 'text', text: 'try again' });
 
 	let calls = 0;
@@ -183,9 +190,118 @@ test('a fault is retried on the next flush, because a fault might not repeat', a
 
 	await queue.flush(sometimes);
 	assert.strictEqual(queue.all()[0].state, WAITING);
+	// It is owed another try in ONE SECOND, and a flush before then spends no attempt on a
+	// condition that has not changed.
+	assert.strictEqual(queue.dueInMs(), 1000);
+	const tooSoon = await queue.flush(sometimes);
+	assert.strictEqual(calls, 1, 'the backoff was ignored and an attempt was spent early');
+	assert.strictEqual(tooSoon.deferred, 1);
+	assert.strictEqual(tooSoon.sent, 0);
+
+	ms += 1000;
+	assert.strictEqual(queue.dueInMs(), 0);
 	const second = await queue.flush(sometimes);
 	assert.strictEqual(second.sent, 1);
 	assert.strictEqual(calls, 2);
+	assert.strictEqual(queue.dueInMs(), null, 'an empty outbox still claims to be owed a try');
+});
+
+test('the retry schedule doubles from a second and stops at sixteen — the arithmetic, not a sleep', async () => {
+	// Ported from T3 Code (MIT, `pingdotgg/t3code` @ `8ebb6112`,
+	// `apps/mobile/src/state/thread-outbox-model.ts:163-165`), and re-derived here rather than
+	// quoted: attempt 1 waits 1,000 ms, so a message that keeps failing is tried again at
+	// t = 1 s, 3 s, 7 s, 15 s, 31 s, and every 16 s after that — against a FIRST attempt that is
+	// immediate. Five attempts inside the first half-minute, where the old path made one and
+	// then waited for a stream whose ceiling is 30 s.
+	const { retryDelayMs } = createQueue({ storage: memoryStorage() });
+	assert.deepStrictEqual(
+		[1, 2, 3, 4, 5, 6, 7].map(retryDelayMs),
+		[1000, 2000, 4000, 8000, 16000, 16000, 16000]
+	);
+	// The cumulative schedule, which is the number a person would actually feel.
+	let t = 0;
+	const at = [1, 2, 3, 4, 5].map((n) => (t += retryDelayMs(n)));
+	assert.deepStrictEqual(at, [1000, 3000, 7000, 15000, 31000]);
+	// And it is BELOW the stream's own ceiling, which is the whole point of it being separate.
+	assert.ok(retryDelayMs(99) < require('../lib/link.js').MAX_RETRY_MS);
+});
+
+test('the first attempt is immediate: a message he just typed is never held by a clock', async () => {
+	const storage = memoryStorage();
+	let ms = 5_000_000;
+	const queue = createQueue({ storage, clock: () => ms });
+	await queue.enqueue({ clientId: 'c-first', threadId: 't', kind: 'text', text: 'now' });
+	assert.strictEqual(queue.dueInMs(), 0, 'a fresh message was put on a backoff it never earned');
+
+	let sentAt = null;
+	const mac = {
+		async sendText() { sentAt = ms; return { message_id: 'm', cursor: 1 }; },
+		async sendVoice() { throw new Error('not used'); }
+	};
+	const result = await queue.flush(mac);
+	assert.strictEqual(result.sent, 1);
+	assert.strictEqual(sentAt, 5_000_000);
+});
+
+test('a message he removes mid-send stays removed — the write that lost the race does not bring it back', async () => {
+	// T3 Code's compare-and-set (`apps/mobile/src/state/thread-outbox-manager.ts:51-57, 164-177`):
+	// *"a writer that captured a revision before slow work"* must lose to a write accepted since.
+	// Ours had the same hole and it was reachable — `flush` awaits the network inside its `try`,
+	// and the error path then wrote the item back over the top of a `discard` that had landed
+	// during the await. What he saw was a message he had removed, back on his phone.
+	const storage = memoryStorage();
+	const queue = createQueue({ storage });
+	await queue.enqueue({ clientId: 'c-gone', threadId: 't', kind: 'text', text: 'remove me' });
+
+	const slow = {
+		async sendText(item) {
+			// He taps "Remove this message" while this request is in flight.
+			await queue.discard(item.clientId);
+			throw new ApiError(UNREACHABLE, 'Load failed');
+		},
+		async sendVoice() { throw new Error('not used'); }
+	};
+
+	await queue.flush(slow);
+	assert.deepStrictEqual(queue.all(), [], 'the discarded message came back');
+	assert.strictEqual(storage.map.size, 0, 'the discarded message is still on the phone');
+	assert.strictEqual(queue.dueInMs(), null);
+});
+
+test('"Try again" means now, not when a backoff this app chose comes round', async () => {
+	const storage = memoryStorage();
+	let ms = 9_000_000;
+	const queue = createQueue({ storage, clock: () => ms });
+	await queue.enqueue({ clientId: 'c-tap', threadId: 't', kind: 'text', text: 'again' });
+
+	let calls = 0;
+	const mac = {
+		async sendText() {
+			calls++;
+			if (calls === 1) throw new ApiError(FAULT, 'your Mac answered with 500', 500);
+			return { message_id: 'm', cursor: 2 };
+		},
+		async sendVoice() { throw new Error('not used'); }
+	};
+	await queue.flush(mac);
+	assert.strictEqual(queue.dueInMs(), 1000);
+
+	// His tap. Nothing about the clock has changed and it must not matter.
+	queue.retryEverythingNow();
+	assert.strictEqual(queue.dueInMs(), 0);
+	const result = await queue.flush(mac);
+	assert.strictEqual(result.sent, 1);
+	assert.strictEqual(calls, 2);
+});
+
+test('a launch that died mid-send starts over with no wait: the Mac’s client_id makes the repeat free', async () => {
+	const storage = memoryStorage([
+		{ clientId: 'c-crash', threadId: 't', kind: 'text', text: 'mid-flight', state: 'sending', attempts: 1, queuedAt: '2026-09-19T10:00:00.000Z', notBefore: 9_999_999_999_999 }
+	]);
+	const queue = createQueue({ storage, clock: () => 1_000_000 });
+	const loaded = await queue.load();
+	assert.strictEqual(loaded.resumed, 1);
+	assert.strictEqual(queue.dueInMs(), 0, 'a resumed message was left sitting on a stale clock');
 });
 
 test('two flushes at once collapse into one, so an item is never sent twice by our own hand', async () => {
@@ -383,4 +499,49 @@ test('the whole chain, from the Mac\'s bytes: a 503 marked final blocks that ite
 	const again = await queue.flush(api);
 	assert.strictEqual(urls.length, 2, 'a refusal that will never change was sent again');
 	assert.strictEqual(again.blocked, 1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// THE WHOLE OF RAY'S FOURTH SEND, ACROSS BOTH HALVES OF THE FIX, over the real route module.
+//
+// A page load empties the Mac's live-challenge set (`phone/device.rs` `issue_challenge`, and
+// `sw.js` reloads a nineteen-entry shell on install), so the credential this phone is holding is
+// refused with a flat 404. On nightly `.7` that was REFUSED, REFUSED is not retryable, and the
+// message was BLOCKED: `Not sent.` beside it, and never delivered at all.
+// ---------------------------------------------------------------------------------------------
+
+test('a send refused because the Mac replaced the challenge is delivered on the same flush, not blocked', async () => {
+	const storage = memoryStorage();
+	const queue = createQueue({ storage, clock: () => 1_000_000 });
+	await queue.enqueue({ clientId: 'c-ray4', threadId: 't', kind: 'text', text: 'ray r3 pass three' });
+
+	let n = 0;
+	const state = { apiBase: 'https://mm1.tail9a3b2.ts.net:8443', challenge: 'evicted', deviceId: 'd' };
+	const api = createApi({
+		state,
+		origin: 'https://mm1.tail9a3b2.ts.net:8443',
+		signer: { deviceId: 'd', async sign() { return 'signature'; }, async sha256Hex() { return '0'.repeat(64); } },
+		fetchImpl: async () => {
+			n += 1;
+			// The Mac's flat refusal, with the fresh challenge every answer on that port carries.
+			if (n === 1) {
+				const r = jsonResponse(404, {});
+				r.headers = { get: (k) => (k === 'X-RichOS-Challenge' ? 'live' : null) };
+				return r;
+			}
+			const ok = jsonResponse(200, { message_id: 'intake_9', cursor: 12 });
+			ok.headers = { get: (k) => (k === 'X-RichOS-Challenge' ? 'newer' : null) };
+			return ok;
+		},
+		eventSourceImpl: null
+	});
+
+	const result = await queue.flush(api);
+	assert.strictEqual(result.sent, 1, 'the message was blocked instead of being re-signed and sent');
+	assert.strictEqual(result.blocked, 0);
+	assert.strictEqual(n, 2, 'the stale credential was not retried inside the one flush');
+	assert.deepStrictEqual(queue.all(), [], 'a delivered message is still on the phone');
+	assert.strictEqual(state.challenge, 'newer');
+	// And it did not cost a wait: nothing is left owed a try.
+	assert.strictEqual(queue.dueInMs(), null);
 });

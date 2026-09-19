@@ -240,6 +240,35 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
     if let Some(cursor) = body.get("delivered_cursor").and_then(|v| v.as_u64()) {
         let _ = channel.devices.set_delivered_cursor(cursor);
     }
+
+    // **THE SIX WORDS, ANSWERED** — Ray's nightly `.7` walk, defect 2, and the half of it that
+    // was missing from the protocol rather than from the copy.
+    //
+    // The Mac's sheet said `It is paired` while the phone was still asking the person whether
+    // the words matched, and it had no choice: the phone told it nothing either way. `true` is
+    // the person pressing `They match — pair this phone`; `false` is `They do not match`, and
+    // that one FORGETS the phone rather than recording a flag. A person who has just said the
+    // words are wrong has said that something other than his Mac may be on the other end of
+    // this credential, and leaving it paired "in case he was mistaken" is the one outcome worse
+    // than stopping. The phone throws its own key away on the same press, so both sides end in
+    // the same state.
+    //
+    // **Strictly a boolean, like every other reading on this channel.** A missing key is not a
+    // confirmation, and neither is the string "true".
+    if let Some(confirmed) = body.get("fingerprint_confirmed").and_then(|v| v.as_bool()) {
+        if confirmed {
+            if let Err(e) = channel.devices.confirm_fingerprint() {
+                eprintln!("[richos] could not record the phone's fingerprint confirmation: {e}");
+                return Outcome::NotFound;
+            }
+        } else {
+            eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
+            if let Err(e) = channel.devices.forget() {
+                eprintln!("[richos] could not forget the phone after a rejected fingerprint: {e}");
+                return Outcome::NotFound;
+            }
+        }
+    }
     Outcome::Json { status: 200, body: json!({ "ok": true }).to_string() }
 }
 
@@ -1151,6 +1180,72 @@ mod tests {
         let mut unsigned = plain("POST", "/api/pair");
         unsigned.body = body.clone().into_bytes();
         assert_eq!(dispatch(&f.channel, &unsigned), Outcome::NotFound);
+    }
+
+    /// **THE MAC LEARNS THE ANSWER TO THE SIX WORDS, WHICH IT COULD NOT BEFORE** — Ray's
+    /// nightly `.7` walk, defect 2.
+    ///
+    /// Its sheet read `It is paired. Open Rich on it and keep talking.` while the phone, on
+    /// screen beside it, was still asking `They match — pair this phone` / `They do not match`.
+    /// That was not a wording slip: nothing in the protocol carried the person's answer, so the
+    /// Mac had nothing to wait for. This is the message.
+    #[test]
+    fn a_phone_is_not_confirmed_until_the_person_says_the_six_words_matched() {
+        let f = fixture("confirm");
+        assert!(
+            !f.channel.devices.fingerprint_confirmed(),
+            "a phone that has only redeemed a code counts as confirmed"
+        );
+
+        let body = json!({ "device_id": f.device_id, "fingerprint_confirmed": true }).to_string();
+        let out = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body));
+        assert_eq!(out.status(), 200);
+        assert!(f.channel.devices.fingerprint_confirmed());
+        assert!(f.channel.devices.is_paired(), "confirming forgot the phone");
+
+        // Idempotent: a phone that says it twice, or says it again after a relaunch, is fine.
+        let again = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body));
+        assert_eq!(again.status(), 200);
+        assert!(f.channel.devices.fingerprint_confirmed());
+    }
+
+    #[test]
+    fn they_do_not_match_forgets_the_phone_rather_than_recording_a_flag() {
+        // The phone throws its own key away on that press. A Mac that kept the device record
+        // "in case he was mistaken" would leave a live credential for something the person has
+        // just said may not be his Mac's phone at all.
+        let f = fixture("mismatch");
+        let body = json!({ "device_id": f.device_id, "fingerprint_confirmed": false }).to_string();
+        let out = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body));
+        assert_eq!(out.status(), 200);
+        assert!(!f.channel.devices.is_paired(), "a rejected phone is still paired");
+        assert!(!f.channel.devices.fingerprint_confirmed());
+    }
+
+    #[test]
+    fn the_confirmation_needs_a_signature_and_a_boolean_and_accepts_nothing_else() {
+        let f = fixture("confirm-strict");
+
+        // Unsigned it is nothing at all — being on his Wi-Fi is not authentication.
+        let mut unsigned = plain("POST", "/api/pair");
+        unsigned.body = json!({ "device_id": f.device_id, "fingerprint_confirmed": true })
+            .to_string()
+            .into_bytes();
+        assert_eq!(dispatch(&f.channel, &unsigned), Outcome::NotFound);
+        assert!(!f.channel.devices.fingerprint_confirmed());
+
+        // STRICTLY a boolean. The string "true" and the number 1 are not a person's answer, and
+        // reading them as one would be this Mac guessing at the one thing it must not guess at.
+        for shape in [json!("true"), json!(1), json!(null)] {
+            let body = json!({ "device_id": f.device_id, "fingerprint_confirmed": shape }).to_string();
+            let out = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body));
+            assert_eq!(out.status(), 200, "the request itself is well formed; the field is not");
+            assert!(
+                !f.channel.devices.fingerprint_confirmed(),
+                "{shape} was read as a confirmation"
+            );
+            assert!(f.channel.devices.is_paired(), "{shape} was read as a rejection");
+        }
     }
 
     #[test]
