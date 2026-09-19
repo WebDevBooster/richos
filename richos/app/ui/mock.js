@@ -136,6 +136,17 @@
       servingVia,
       platform: mockPhone.paired ? mockPhone.platform : null,
       pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
+      // **HAS THE PERSON ANSWERED THE SIX WORDS?** Ray's nightly `.7`, defect 2: the Mac read
+      // `It is paired` while the phone was still asking, so the card now waits for the phone to
+      // come back with `fingerprint_confirmed` (`phone/routes.rs`, `POST /api/pair`).
+      //
+      // The default is CONFIRMED, and that is deliberate rather than convenient: it is what
+      // every screen of an established pairing looks like, which is the state almost every
+      // check on this card is about. `phoneFingerprintUnconfirmed: true` reaches the window
+      // between the code being redeemed and the person answering — the state that used to be
+      // undrawable, which is why nothing caught the defect.
+      fingerprintConfirmed:
+        mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phoneFingerprintUnconfirmed !== true,
       // **AND THE CODE GOES OUT UNDER THE ORIGIN THAT IS ACTUALLY SERVING IT.** The Mac builds
       // this string from `Running::origin`, which is `serving_plan`'s answer — and there is one
       // answer now, the tailnet name. A suite that opens a window without a `ready` tailnet is

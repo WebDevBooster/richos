@@ -615,6 +615,67 @@ async function openSheet(browser, theme, preset) {
     return "the paired state names the phone, offers the way out, and says exactly what forgetting does";
   });
 
+  // ---- 9e. DEFECT 2 — the Mac does not answer a question the person is still being asked ----
+
+  await run.check(
+    "9e  the Mac says `It is paired` only after the person has answered the six words",
+    async () => {
+      // RAY'S NIGHTLY `.7`, DEFECT 2, and his frame 13 has both screens on it at once: the Mac's
+      // sheet reading `Phone — It is paired. Open Rich on it and keep talking.` while the phone
+      // was still asking `They match — pair this phone` / `They do not match`.
+      //
+      // The six words exist so a person can detect that something other than his Mac answered.
+      // A Mac that settles that question before he has answered it teaches him the check is
+      // ceremonial — and it had no choice, because nothing in the protocol carried his answer
+      // until `POST /api/pair` took `fingerprint_confirmed`.
+      //
+      // THE STATE UNDER TEST WAS UNDRAWABLE UNTIL NOW, which is why no check caught it: the
+      // fixture had no way to be paired-and-unanswered, so every existing check on this card
+      // silently modeled the end state.
+      const waiting = await openSheet(browser, "dark", {
+        phonePaired: true,
+        phoneFingerprintUnconfirmed: true
+      });
+      const before = (await waiting.textContent("#phone-paired")).replace(/\s+/g, " ");
+      const wordsShown = await waiting.isVisible("#phone-paired-words");
+      const words = (await waiting.textContent("#phone-paired-words")).trim();
+      await waiting.close();
+
+      assert(
+        !/It is paired/.test(before),
+        "the Mac claims the phone is paired before the person has answered the six words: " + before
+      );
+      assert(
+        /six words/i.test(before) && /answer on the phone/i.test(before),
+        "the card does not say what he is being asked to do: " + before
+      );
+      // AND THE MAC'S HALF OF THE COMPARISON IS ON THE SCREEN WHILE HE IS MAKING IT. The pairing
+      // screen that carries the words is hidden the instant `paired` flips, which is the same
+      // instant the phone starts asking — so without this the Mac took its own six words away at
+      // exactly the moment they were needed.
+      assert(wordsShown, "the six words are not on the Mac while the phone is asking about them");
+      assertEqual(
+        words,
+        "harbor  candle  meadow  lantern  fossil  juniper",
+        "the words on the paired card are not the Mac's own fingerprint"
+      );
+
+      // And the finish: once the phone has come back, the sentence is the one it always was and
+      // the words are gone — a fingerprint nobody is checking is chrome.
+      const done = await openSheet(browser, "dark", { phonePaired: true });
+      const after = (await done.textContent("#phone-paired")).replace(/\s+/g, " ");
+      const stillThere = await done.isVisible("#phone-paired-words");
+      await done.close();
+      assert(/It is paired/.test(after), "a confirmed phone is not called paired: " + after);
+      assert(!stillThere, "the six words stayed on the card after he had answered them");
+
+      return (
+        "unconfirmed: \"" + before.slice(0, 96) + "…\" with the words on screen; " +
+        "confirmed: \"" + after.slice(0, 48) + "…\" with the words gone"
+      );
+    }
+  );
+
   // ---- 9d. DEFECT 4.5 — the Mac names the control the paired phone actually has -------------
 
   await run.check(
