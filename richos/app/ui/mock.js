@@ -13,9 +13,17 @@
 
   const now = () => Date.now();
 
-  // §15 appearance state, and the person. `theme` starts DARK because that is the ruling's
-  // default for a fresh install, and `user_name` starts NULL because "nobody has said who
-  // this is" is the state the product actually ships in.
+  // §15/§63 appearance state, and the person. `theme` starts SYSTEM because that is
+  // `Theme::default()` in `crates/richos-core/src/config.rs` — CEO §63, "system should be
+  // the default for a freshly installed app" — and `user_name` starts NULL because "nobody
+  // has said who this is" is the state the product actually ships in.
+  //
+  // IT STANDS IN FOR `Theme::default()` AND MUST NOT DRIFT FROM IT. This one literal is
+  // what every browser walk that does not seed a theme actually opens on, so a harness
+  // still saying "dark" after the Rust said "system" would make every unseeded suite
+  // measure a product that no longer ships. `tests/appearance.js` check 1 reads the Rust
+  // default out of config.rs and asserts this side matches, so the drift is a failing
+  // check rather than a silent one.
   //
   // IT IS DURABLE, because the thing it stands in for is. `config.rs` survives a relaunch,
   // so a harness whose "stored preference" evaporated on reload would model the one
@@ -112,7 +120,7 @@
 
   const MOCK_CONFIG_KEY = "richos-mock-config";
   const mockConfig = (function () {
-    const fresh = { theme: "dark", font_scale: 100, user_name: null };
+    const fresh = { theme: "system", font_scale: 100, user_name: null };
     try {
       const raw = window.localStorage.getItem(MOCK_CONFIG_KEY);
       if (!raw) return fresh;

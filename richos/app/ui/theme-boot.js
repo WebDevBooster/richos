@@ -17,9 +17,24 @@
 //              and re-synced from config.rs by main.js at init. If the two ever disagree,
 //              config.rs wins and the mirror is corrected — see `RichTheme.sync`.
 //
-// A first launch has no mirror, so it takes the default, and §15's default is DARK: "a
-// newly installed app opens dark." That is a ruling, not a fallback — `system` is an
-// option the CEO can pick, never the thing he gets without picking.
+// A first launch has no mirror, so it takes the default, and §63 (2026-09-19) is what
+// the default is: "the app should detect the user's SYSTEM preference for dark or light
+// theme and SYSTEM should be the default for a freshly installed app. Only if the user
+// switches the theme to some other option, only then should the app remember that."
+//
+// So the default here is `system`, and it has to be the default HERE and not only in
+// config.rs, for the same reason this file exists at all: config.rs arrives asynchronously.
+// Boot the mirror on `dark` and reconcile to `system` a moment later and a light-OS user
+// gets a full-screen flash of midnight blue on every launch — which is the exact defect
+// the paragraph above describes, merely pointed the other way. The pair is the guarantee:
+// both sides default to `system`, so the first frame and the settled frame agree.
+//
+// §15's "a newly installed app opens dark" did not go away; it moved. It governs the
+// splash and the home screen, which are clamped dark through `forceDark` below — a FORCE
+// flag and never a write, so the clamp can never be mistaken for a preference the user
+// expressed. Nothing in this file writes a theme on his behalf: `setTheme` is only ever
+// reached from the theme row he clicked, and `sync` copies config.rs's answer into the
+// cache rather than forming an opinion of its own.
 "use strict";
 
 window.RichTheme = (function () {
@@ -59,7 +74,10 @@ window.RichTheme = (function () {
     return STEPS.indexOf(n) !== -1 ? n : null;
   }
 
-  var pref = validTheme(read(THEME_KEY)) || "dark";
+  // §63: an unchosen lighting is the operating system's. `Theme::default()` in config.rs
+  // is `Theme::System` and this is its synchronous twin — see the header for why both
+  // sides have to say it.
+  var pref = validTheme(read(THEME_KEY)) || "system";
   var scale = validScale(read(SCALE_KEY)) || DEFAULT_SCALE;
 
   // THE ONE PERMANENT EXCEPTION (§15). The opening screen is ALWAYS dark — "because of its
@@ -70,7 +88,17 @@ window.RichTheme = (function () {
 
   function resolved() {
     if (forcedDark) return "dark";
-    if (pref === "system") return mq && mq.matches ? "dark" : "light";
+    if (pref === "system") {
+      // NO `matchMedia` MEANS THE OS WAS NEVER ASKED, WHICH IS NOT THE SAME AS "IT SAID
+      // LIGHT". `system` is now the default rather than an opt-in (§63), so this branch
+      // stopped being a corner the CEO had to walk into deliberately and became the branch
+      // a first launch takes. `mq && mq.matches ? "dark" : "light"` folded "no answer" into
+      // "light" and would have painted the whole product ivory on any webview without the
+      // query. Dark is the product's own opinion where there is no other one — §15's
+      // sentence, doing the one job §63 leaves it on the normal screens.
+      if (!mq) return "dark";
+      return mq.matches ? "dark" : "light";
+    }
     return pref;
   }
 
