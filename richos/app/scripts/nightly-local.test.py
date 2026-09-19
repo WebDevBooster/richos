@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -370,6 +371,157 @@ class LocalTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "has changes"):
                 r.checkout()
             self.assertTrue((r.source / "unexpected").exists())
+
+    # ---- where the time goes, and the one gate a land is allowed to have already run ----
+
+    def gate_commands(self, checks_done_at_land=None):
+        """Every gate subprocess a build would launch, as plain argv lists."""
+        r = m.Runner(self.root, self.root / "state",
+                     {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"},
+                     io.StringIO())
+        seen = []
+
+        def record(args, **kwargs):
+            seen.append([str(a) for a in args])
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m.subprocess, "run", side_effect=record), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.gates(checks_done_at_land)
+        return r, seen
+
+    def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
+        r, seen = self.gate_commands()
+        self.assertEqual(len(seen), 4)
+        self.assertEqual(r.skipped, {})
+        self.assertEqual([name for name, _, _ in r.timings],
+                         ["gates/core-tests", "gates/updater-tests",
+                          "gates/script-suites", "gates/privacy-sweep"])
+
+    def test_the_land_proven_gate_is_the_only_one_the_flag_drops(self):
+        """`--checks-done-at-land` may drop what a land ran and NOTHING else.
+
+        The land runs `cargo test -p richos-core`, `cargo test --bin richos-tauri` and the
+        sharded ui suite on the exact commit that becomes `main`. It does not run the
+        updater crate, the fourteen script suites or the privacy sweep, so those stay on
+        the candidate path no matter what the flag says. A flag that grew to cover them
+        would be trading a gate for time nobody measured.
+        """
+        r, seen = self.gate_commands("a" * 40)
+        self.assertEqual(len(seen), 3)
+        joined = [" ".join(argv) for argv in seen]
+        self.assertFalse([c for c in joined if "-p richos-core" in c], joined)
+        self.assertTrue([c for c in joined if "richos-user-update" in c], joined)
+        self.assertTrue([c for c in joined if c.endswith("run-tests.sh")], joined)
+        self.assertTrue([c for c in joined if "named-persons.sh" in c], joined)
+        self.assertIn(m.LAND_PROVEN_GATE, r.skipped)
+        self.assertIn("a" * 40, r.skipped[m.LAND_PROVEN_GATE])
+
+    def test_a_sha_that_is_not_this_runs_source_is_refused(self):
+        """The whole safety of the flag is this comparison.
+
+        A flag that took its argument on trust would let yesterday's land wave a different
+        tree's tests through today's candidate, which is worse than not having the flag:
+        the candidate would carry a provenance record saying a gate was covered when the
+        gate covered something else.
+        """
+        r = m.Runner(self.root, self.root / "state", {}, io.StringIO())
+        source = "4f2d57c9f9519409427b86c7502b9a7588216bf1"
+        self.assertEqual(r.accept_land_proof(source, source), source)
+        self.assertEqual(r.accept_land_proof("4f2d57c", source), source)
+        for wrong in ("deadbeefcafe0123456789012345678901234567", "4f2d57d", "4f2d5",
+                      "", None, "not-hex", "4F2D57C9"):
+            with self.subTest(sha=wrong), self.assertRaises(ValueError):
+                r.accept_land_proof(wrong, source)
+
+    def test_a_taken_skip_is_written_into_the_candidates_provenance(self):
+        """A skip recorded only in a log lives on this Mac. This one travels.
+
+        nightly.py copies the plan verbatim into `build-info.json` and into the commit it
+        builds, so putting the record in the plan is what makes a candidate unable to
+        claim a gate it did not run.
+        """
+        r = self.runner()
+        r.env = {"RICHOS_NIGHTLY_RUN_ID": "fixture-run-id"}
+        plan_path = self.root / "plan.json"
+        r.plan = Mock(return_value=(plan_path, {
+            "build": True, "tag": "v1.2.0-nightly.20260916.1",
+            "source_commit": "4f2d57c9f9519409427b86c7502b9a7588216bf1"}))
+        r.checkout = Mock(return_value="4f2d57c9f9519409427b86c7502b9a7588216bf1")
+        r.command = Mock(side_effect=lambda *a, **k: self.write_candidate(
+            Path(a[a.index("--out") + 1])))
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.perform("build", checks_done_at_land="4f2d57c9")
+        recorded = json.loads(plan_path.read_text())
+        self.assertEqual(recorded["checks_done_at_land"],
+                         "4f2d57c9f9519409427b86c7502b9a7588216bf1")
+        self.assertEqual(recorded["checks_skipped"], [m.LAND_PROVEN_GATE])
+        r.gates.assert_called_once_with("4f2d57c9f9519409427b86c7502b9a7588216bf1")
+
+    def test_a_wrong_sha_refuses_before_any_gate_runs(self):
+        r = self.runner()
+        r.checkout = Mock(return_value="4f2d57c9f9519409427b86c7502b9a7588216bf1")
+        with contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(ValueError, "not the source this run fetched"):
+            r.perform("build", checks_done_at_land="deadbeef")
+        r.gates.assert_not_called()
+        r.preflight.assert_not_called()
+        r.command.assert_not_called()
+
+    def test_every_logged_line_carries_the_clock_and_a_child_needs_no_change(self):
+        """The log is stamped by handing children a pipe, not by asking them to cooperate.
+
+        nightly.py, make-release.sh and package-app.sh are read from the FETCHED tree, not
+        from this checkout, so an instrument that needed their cooperation would not
+        measure anything until it had been landed and fetched. This one measures the tree
+        as it is.
+        """
+        path = self.root / "run.log"
+        with m.TimestampedLog(path) as log:
+            subprocess.run(["/bin/echo", "a child said this"], stdout=log, check=True)
+            log.write("and this script said this\n")
+        lines = path.read_text().splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        for line, text in zip(lines, ("a child said this", "and this script said this")):
+            self.assertRegex(line, r"^\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\] ")
+            self.assertTrue(line.endswith(text), line)
+
+    def test_milestones_match_in_order_and_only_while_the_build_step_is_open(self):
+        """Armed only inside `build`, because the suites print the same words first.
+
+        nightly.test.sh prints its own "Published https://github.com/..." fixtures while
+        the gates run, roughly a thousand lines before the real release exists. Matching
+        those would put the engine phase's boundary in the middle of the test suites and
+        report a compile that took nine minutes.
+        """
+        path = self.root / "run.log"
+        decoy = "https://github.com/WebDevBooster/richos/releases/tag/v-from-a-test-fixture"
+        with m.TimestampedLog(path, m.BUILD_MILESTONES) as log:
+            log.write(decoy + "\n")
+            log.arm(True)
+            log.write("building the engine asset for v1.2.0-nightly.20260919.9\n")
+            log.write("=== --check: building a second time, in a DIFFERENT environment\n")
+            log.arm(False)
+            log.write("=== every member accounted for, against git ===\n")
+        self.assertEqual([name for name, _ in log.seen],
+                         ["build/engine-asset", "build/engine-asset-recheck"])
+
+    def test_an_unseen_milestone_is_reported_rather_than_folded_into_its_neighbor(self):
+        """A boundary nobody saw must not silently inflate the segment beside it."""
+        r = m.Runner(self.root, self.root / "state",
+                     {"RICHOS_NIGHTLY_RUN_ID": "fixture-run-id"}, io.StringIO())
+        start = time.time()
+        r.timings = [("fetch", start, start + 3), ("build", start + 3, start + 63)]
+        r.log.seen = [("build/engine-asset", start + 13)]
+        rows = dict(r.segments())
+        self.assertEqual(round(rows["fetch"]), 3)
+        self.assertEqual(round(rows["build/tag-and-prepare"]), 10)
+        self.assertEqual(round(rows["build/engine-asset"]), 50)
+        self.assertIsNone(rows["build/app-compile"])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            r.summary()
+        self.assertIn("not observed", buf.getvalue())
 
 
 if __name__ == "__main__":
