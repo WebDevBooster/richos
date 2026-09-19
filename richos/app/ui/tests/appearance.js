@@ -64,6 +64,7 @@ const {
   bootSettled,
   openThread,
   settleOnThread,
+  leaveSplash,
   HOLD_CURTAIN,
   assertCurtainHeld,
   UI_DIR,
@@ -597,6 +598,68 @@ async function main() {
       "dark, remembered on the next launch's FIRST frame; back to System -> light again, and " +
       "that survives a relaunch as well"
     );
+  });
+
+  await run.check("1d  the HOME SCREEN is dark whatever the OS says, and hands the app back to the OS on the way out", async () => {
+    // §63 GAVE THE OS A SURFACE IT MUST NOT REACH, and that is a new risk rather than an old
+    // one. While the default was `dark`, a light-OS launch of the home screen was dark for
+    // two independent reasons — the clamp AND the preference — so the clamp could have been
+    // broken for weeks without anything looking wrong. The default is `system` now, the
+    // preference under a light OS resolves LIGHT, and the clamp is the only thing between
+    // the CEO and an ivory opening screen. Checks 4 and 4b hold the SPLASH to that; this one
+    // is the home screen, which is a different surface with its own `forceDark` owner in
+    // `home.js`, and nothing asserted it.
+    //
+    // The second half is what makes it a hand-off rather than a clamp: leaving the home
+    // screen must drop the clamp and let the preference decide. A clamp that never lowers
+    // looks identical on the surface it protects and takes the whole app with it.
+    const seen = [];
+    for (const [osScheme, afterHome] of [["light", "light"], ["dark", "dark"]]) {
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: osScheme });
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      page.on("console", (m) => {
+        if (m.type() === "error") errors.push("console: " + m.text());
+      });
+      await page.goto(APP);
+      // The curtain is ABOVE the home screen and has its own clamp; clearing it leaves the
+      // home screen up, which is the surface this check is about.
+      await leaveSplash(page);
+      await page.waitForFunction(() => typeof window.RichHome === "object", null, { timeout: 15000 });
+      await page.waitForFunction(() => window.RichHome.isOpen(), null, { timeout: 15000 });
+      await settledPage(page);
+      const onHome = await page.evaluate(() => ({
+        theme: document.documentElement.getAttribute("data-theme"),
+        forced: window.RichTheme.forcedDark(),
+        pref: window.RichTheme.theme(),
+        ground: getComputedStyle(document.body).backgroundColor,
+        themeRow: !!document.querySelector(".theme-opt"),
+      }));
+      assertEqual(onHome.theme, "dark", "§15's clamp: the home screen is dark under a " + osScheme + " OS");
+      assertEqual(onHome.ground, "rgb(12, 19, 34)", "painted on the §14 ground, not merely named dark");
+      assertEqual(onHome.forced, true, "and it is a FORCE, so it cannot be mistaken for a preference");
+      assertEqual(onHome.pref, "system", "his own preference is untouched underneath the clamp");
+      assertEqual(onHome.themeRow, false, "no theme switch reaches the home screen (§15)");
+
+      await leaveHome(page);
+      await page.waitForSelector(".nav-thread", { state: "attached" });
+      await bootSettled(page);
+      await settledPage(page);
+      const afterward = await page.evaluate(() => ({
+        theme: document.documentElement.getAttribute("data-theme"),
+        forced: window.RichTheme.forcedDark(),
+      }));
+      assertEqual(afterward.forced, false, "the clamp must LOWER on the way out, or it is a trap");
+      assertEqual(
+        afterward.theme,
+        afterHome,
+        "and the normal screens take the " + osScheme + " OS's answer, which is what §63 gives them"
+      );
+      assertEqual(errors, [], "no page errors on the " + osScheme + "-OS home walk");
+      seen.push(osScheme + " OS: home dark (forced), then " + afterward.theme);
+      await page.close();
+    }
+    return seen.join("; ") + " — pref stayed 'system' throughout, and the theme row was absent on both home walks";
   });
 
   // ---- 2. durable, and the backend wins ------------------------------------------------
@@ -1849,6 +1912,26 @@ main().catch((e) => {
 //      one redundant repaint and changes no answer. A ledger entry nobody executed is a
 //      claim about coverage that the coverage does not support; this one was executed and
 //      the first version of it is recorded here rather than quietly replaced.
+//  1f  home.js: neuter the body of the `RichTheme.onChange` listener that RE-ASSERTS the
+//      clamp (`if (state.open && !t.forcedDark) window.RichTheme.forceDark(true)`)
+//        -> "§15's clamp: the home screen is dark under a light OS", expected "dark",
+//           actual "light".
+//
+//      THE TWO OBVIOUS MUTATIONS HERE ARE BOTH FALSE, and each was run before this entry
+//      was written. Deleting `RichTheme.forceDark(true)` from `show()` leaves every check
+//      green, because this walk never RE-ENTERS the home screen — `tests/home.js` owns that
+//      path. Deleting the one where the home screen first opens ALSO leaves every check
+//      green, and that one is more interesting: the splash drops the clamp when the curtain
+//      yields (`splash.js`, "Drop the always-dark clamp as the curtain goes"), so the
+//      listener puts it straight back and masks the missing raise entirely. home.js's own
+//      comment already says the re-assertion "is NOT belt and braces"; this is that sentence
+//      measured from the outside. All three raises have to go before the light-OS home
+//      screen turns ivory, and the listener is the one that decides.
+//
+//      And it fails under a LIGHT OS only. Under a dark OS the break is invisible, because
+//      the preference resolves dark anyway — which is why this check walks both, and why it
+//      could not have existed before §63: while the default was `dark`, the clamp and the
+//      preference agreed on every surface, and either one alone made the walk look right.
 //  1e  theme-boot.js: neuter the `mq.addEventListener("change", ...)` body -> check 1b
 //      ("the OS went dark and the app did not"). The app detects the OS once, at boot, and
 //      never again — which §63's word "detect" does not survive, and which no check that

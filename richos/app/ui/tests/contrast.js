@@ -2075,11 +2075,23 @@ async function main() {
     // date, which was §15 and was right; its replacement cannot be "dark under a dark OS",
     // because that is also what a build ignoring the OS entirely produces. The claim is that
     // the two answers DIFFER and each matches its host, and only the pair can carry it.
+    //
+    // AND IT HAS TO LEAVE THE HOME SCREEN FIRST, WHICH THE OLD WALK DID NOT. `.nav-thread`
+    // is attached while the home screen is still up, and the home screen is CLAMPED DARK by
+    // §15 — a FORCE flag over the top of whatever the preference says. So this walk used to
+    // sample the clamp and report it as the default, and its `assertEqual(virgin, "dark")`
+    // was green for a reason that had nothing to do with §15's default: it would have stayed
+    // green with the preference set to light. The §63 shape is what exposed it — the fixed
+    // assertion came back ["dark","dark"] on a build that resolves light correctly
+    // everywhere check 1 of appearance.js looks. `leaveHome` also clears the curtain, which
+    // carries a clamp of its own.
     const virgins = {};
     for (const os of ["light", "dark"]) {
       const fresh = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: os });
       await fresh.goto(APP);
+      await leaveHome(fresh);
       await fresh.waitForSelector(".nav-thread", { state: "attached" });
+      await fresh.waitForFunction(() => window.RichTheme && !window.RichTheme.forcedDark(), null, { timeout: 15000 });
       virgins[os] = await fresh.evaluate(() => document.documentElement.getAttribute("data-theme"));
       await fresh.close();
     }
