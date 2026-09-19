@@ -1195,6 +1195,7 @@ guard-host-display-power.sh|PreToolUse
 guard-host-display-power.sh|PreToolUse
 guard-host-display-power.sh|PreToolUse
 guard-host-display-power.sh|PreToolUse
+guard-reference-ledger.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 dispatch-pretooluse.sh|PreToolUse

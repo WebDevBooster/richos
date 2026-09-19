@@ -201,6 +201,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-host-display-power.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-reference-ledger.sh",
+            "timeout": 20
           }
         ]
       },

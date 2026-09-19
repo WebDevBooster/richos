@@ -773,8 +773,22 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # reference-ledger guard, whose commit the completeness predicate refused
 # fail-closed until this entry existed. Twice in two days is a pattern, not an
 # accident: the acknowledgement belongs in the same commit as the registration.
+# guard-reference-ledger.sh, ADDED 2026-09-20 — BLOCKING, PreToolUse[Agent]
+# only. It refuses a spawn whose own BUILD SECTION names a surface the adoption
+# ledger already answered, unless the prompt carries a live `reference:` line
+# naming the ledger AND a section that EXISTS in it (or an argued
+# `reference: none — <40+ characters>`, logged). ceo-decisions §66: Reed named
+# the connection runtime and the outbox on 2026-09-18 and three phone briefs
+# rebuilt them from scratch the next day, which is what "you ARE FUCKING
+# REINVENTING THE FUCKING WHEEL FROM SCRATCH" is about. The SURFACES ARE DATA,
+# in scripts/hooks/adoption-ledger.surfaces, so adding an area never edits the
+# guard. Measured over 302 real briefs and spawn prompts: 11 refused, 9 of them
+# build dispatches onto a ledger surface. Suite:
+# guard-reference-ledger.test.sh (38 cases); harness:
+# reference-ledger.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-host-display-power.sh
+guard-reference-ledger.sh
 guard-no-home-network-phone.sh
 notice-disk-alert.sh
 left-off-report.sh
