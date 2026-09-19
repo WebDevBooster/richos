@@ -384,9 +384,33 @@ window.RichSettings = (function () {
    *  The chevron is `aria-hidden` like every other icon here — it is drawn evidence that this
    *  row opens something, and the row's own label is what a screen reader needs.
    */
-  function buildDisclosureRow(id, label, onOpen) {
+  /** A row that opens a sheet, and — when `stateId` is given — SAYS WHAT STATE THAT SHEET IS IN.
+   *
+   *  Ray's candidate-.16 defect D2: with port 8443 open and code 56WS37AH live, this panel read
+   *  `Use Rich from your phone >` and nothing else — *"byte-for-byte the same row as with no code
+   *  at all, and the same again while a phone is paired. A user who started a pairing, closed the
+   *  sheet and walked away has no way to learn from Settings that their Mac is currently answering
+   *  on its Tailscale name."*
+   *
+   *  A SECOND LINE, NOT AN INLINE SUFFIX. The panel is 267px wide (Ray's own measurement of it);
+   *  "Use Rich from your phone" already fills that, so a state put beside the label would be
+   *  truncated or would wrap the label. The two lines sit in one column and the chevron keeps its
+   *  place at the row's right edge.
+   *
+   *  AND IT IS 16px, NOT 14px. CEO §15 puts 14px at "skippable"; whether a pairing code is live on
+   *  this Mac right now is the opposite of skippable, so the line keeps the row's size and differs
+   *  from the label in weight and ink alone. Both computed in `.set-row-state` (style.css).
+   */
+  function buildDisclosureRow(id, label, onOpen, stateId) {
     var b = elem("button", "bugbtn bugbtn--disclosure", { type: "button", role: "menuitem", id: id });
-    b.appendChild(document.createTextNode(label));
+    if (stateId) {
+      var col = elem("span", "set-row-text");
+      col.appendChild(document.createTextNode(label));
+      col.appendChild(elem("span", "set-row-state", { id: stateId }));
+      b.appendChild(col);
+    } else {
+      b.appendChild(document.createTextNode(label));
+    }
     b.appendChild(icon(ICON_CHEVRON));
     b.addEventListener("click", function () {
       close();
@@ -483,7 +507,7 @@ window.RichSettings = (function () {
       // one-off arrangements rather than among the switches.
       menu.appendChild(buildDisclosureRow("set-phone-open", "Use Rich from your phone", function () {
         phonePairing.open();
-      }));
+      }, "set-phone-state"));
     }
     if (updates) menu.appendChild(buildUpdatesRow()); // ...then what version this is, and what is waiting
     menu.appendChild(buildBugButton()); // the floor, always last and always present
@@ -577,6 +601,12 @@ window.RichSettings = (function () {
     // launch check may have completed while this menu was closed. One read of an in-memory
     // struct, on an explicit click.
     if (updates && updates.onOpen) updates.onOpen();
+    // AND THE SAME FOR THE PHONE, for the same reason and on the same explicit click (Ray's D2).
+    // A code expires five minutes after it is issued and a phone can pair while this menu is
+    // shut, so the row's state is read when the menu is opened rather than cached from whenever
+    // the sheet was last looked at. It is one `phone_status` call on this Mac — no network — and
+    // it is never on a timer: an open menu does not poll.
+    if (phonePairing && phonePairing.onOpen) phonePairing.onOpen();
   }
   function close(refocus) {
     if (!menuEl || menuEl.hidden) return;
@@ -881,6 +911,21 @@ window.RichSettings = (function () {
      *  only in memory. */
     repaintUpdates: function () {
       paint();
+    },
+
+    /** THE PHONE ROW'S SECOND LINE (Ray's candidate-.16 defect D2). `phone.js` owns the words —
+     *  it is the file that knows what a live code and a paired device are called — and this only
+     *  puts them on the row. An empty string clears the line, which is the state where there is
+     *  nothing to say: no code, nothing paired, and the row reads exactly as it always did.
+     *
+     *  A no-op when the menu has not been built or the row is not in it, because the capability
+     *  is registered conditionally and the opening screen carries no phone row at all. */
+    setPhoneState: function (line) {
+      if (!menuEl) return;
+      var node = menuEl.querySelector("#set-phone-state");
+      if (!node) return;
+      node.textContent = line || "";
+      node.hidden = !line;
     },
 
     /** §15's one permanent exception, raised while the opening screen's curtain is up and

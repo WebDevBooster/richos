@@ -408,3 +408,65 @@ fn a_message_deferred_at_the_desk_carries_his_words_too() {
     assert_eq!(his[0]["text"].as_str(), Some("a correction, typed while he waited"));
     let _ = std::fs::remove_file(ledger_path);
 }
+
+#[test]
+fn the_fence_on_his_phone_message_is_the_one_the_open_window_is_holding() {
+    // **RAY'S R3 AGAIN, ON CANDIDATE .16, AND THIS IS THE HALF AN EVENT LIST CANNOT SEE.**
+    // `his_phone_message_reaches_the_mac_with_his_words_in_it_and_not_only_a_status` proves
+    // the event is emitted, carries his sentence, and precedes the reply. It was GREEN when
+    // Ray measured **7,288 ms** on the real app, with the bubble and the whole reply landing
+    // in ONE paint (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260919.5-stale-engine-and-phone-audit.md`
+    // §"R3, phone → Mac").
+    //
+    // The event was emitted and THE WINDOW THREW IT AWAY. `timeline.js accepts()` applies
+    // §13's staleness fence: `payload.bindingRevision < model.bindingRevision` → reject. The
+    // window binds its model to the ACTIVATION revision (`main.js` → `active_binding()` →
+    // `Spine::activate` → `Ledger::rebind_at_new_revision`, which mints a fresh revision from
+    // `take_revision()` and deliberately persists nothing). `drain_intake` built its fence
+    // from `Ledger::thread_binding()` instead — the revision written ONCE when the thread was
+    // bound and never rewritten. So an intake fence is always strictly lower than the open
+    // window's, and every intake-borne event in this family is dropped as stale.
+    //
+    // The sidebar's dot still moved at +471 ms because `rich://thread-summary-updated` is
+    // handled outside the timeline model and is not fenced at all — the same "the path was
+    // live and one thing was missing from it" shape R3 had the first time.
+    //
+    // A DESK message is unaffected: `submit_prompt_inner` uses `ensure_active_thread()`, the
+    // activation binding. So the invariant is that both mouths fence the same.
+    let (mut spine, control, thread, ledger_path) = phone_ready("fence", vec!["On it!"]);
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+
+    // POSITIVE CONTROL, in the same fixture: what the desk emits for the same thread is what
+    // the window accepts, by construction. If this ever stops being strictly-greater-or-equal
+    // the fence itself has changed and the assertion below is measuring nothing.
+    let open_window_revision = spine.active_binding().expect("no active binding").binding_revision();
+    spine.submit_prompt("typed at the desk", Source::Text).unwrap();
+    for payload in live.of("rich://ceo-message") {
+        assert_eq!(
+            payload["bindingRevision"].as_u64(),
+            Some(open_window_revision),
+            "the desk's own fence no longer matches the window's, so this test proves nothing"
+        );
+    }
+
+    let before = live.names().len();
+    control.submit_from_channel(&thread, Some(femcboost()), "phone to Mac", "phone").unwrap();
+    spine.poll_intake().unwrap();
+    assert!(live.names().len() > before, "the drain emitted nothing at all");
+
+    for name in ["rich://ceo-message", "rich://turn-status", "rich://thread-summary-updated"] {
+        for payload in live.of(name).into_iter().skip_while(|p| p["text"] == "typed at the desk") {
+            let on_the_wire =
+                payload["bindingRevision"].as_u64().expect("no fence revision on the wire");
+            assert!(
+                on_the_wire >= open_window_revision,
+                "{name} carries bindingRevision {on_the_wire}; the open window holds \
+                 {open_window_revision}, so `accepts()` drops it and the thread pane does not \
+                 repaint until `turn-completed` reloads it"
+            );
+        }
+    }
+
+    let _ = std::fs::remove_file(ledger_path);
+}

@@ -706,10 +706,11 @@ async function openSheet(browser, theme, preset) {
         const page = await openSheet(browser, "dark", { phoneTailnet: c.tailnet });
         await page.waitForSelector(c.screen + ":not([hidden])");
         // THE FIRST PARAGRAPH OF THE PANEL, by position rather than by id — the only direct
-        // `p.overlay-note` child of `.overlay-panel`, on this build and on the one Ray walked.
+        // `p.overlay-note` child of the sheet's scroll box — `.overlay-panel` until Ray's
+        // candidate-.16 defect put the action row outside the scroll, `#phone-scroll` since.
         // So this check measures the SENTENCE, and a build where that sentence is a fixed
         // literal fails on what it says rather than on a missing element.
-        const lead = (await page.textContent("#phone-sheet .overlay-panel > p.overlay-note"))
+        const lead = (await page.textContent("#phone-sheet #phone-scroll > p.overlay-note"))
           .replace(/\s+/g, " ")
           .trim();
         await page.close();
@@ -1213,7 +1214,7 @@ async function openSheet(browser, theme, preset) {
               homeWarnings: !!document.getElementById("phone-home-warnings"),
               trustQrUrl: (document.getElementById("phone-trust-url") || {}).textContent || "",
               lead: (document.getElementById("phone-lead") || {}).textContent || "",
-              panel: (document.querySelector("#phone-sheet .overlay-panel") || {}).innerText || "",
+              panel: (document.getElementById("phone-scroll") || {}).innerText || "",
             };
           });
 
@@ -1269,7 +1270,7 @@ async function openSheet(browser, theme, preset) {
     await gone.waitForSelector("#phone-expired:not([hidden])");
     const onExpired = await gone.evaluate(() => {
       const el = document.getElementById("phone-words-note");
-      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      const panel = document.getElementById("phone-scroll");
       return {
         shown: !!el && !el.hidden && el.offsetParent !== null,
         words: (document.getElementById("phone-words") || {}).textContent || "",
@@ -1446,13 +1447,13 @@ async function openSheet(browser, theme, preset) {
     await page.waitForSelector("#phone-pairing:not([hidden])");
     // Where he is when he presses it: at the bottom, on the button.
     await page.evaluate(() => {
-      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      const panel = document.getElementById("phone-scroll");
       panel.scrollTop = panel.scrollHeight;
     });
     await page.click("#phone-refresh");
     await page.waitForTimeout(250);
     const where = await page.evaluate(() => {
-      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      const panel = document.getElementById("phone-scroll");
       const code = document.getElementById("phone-code-block");
       const p = panel.getBoundingClientRect();
       const c = code.getBoundingClientRect();
@@ -1487,7 +1488,7 @@ async function openSheet(browser, theme, preset) {
     found.push(await home.evaluate(() => ({
       route: "home",
       node: !!document.getElementById("phone-bound"),
-      text: document.querySelector("#phone-sheet .overlay-panel").innerText,
+      text: document.getElementById("phone-scroll").innerText,
     })));
     await home.close();
 
@@ -1500,7 +1501,7 @@ async function openSheet(browser, theme, preset) {
     found.push(await ts.evaluate(() => ({
       route: "tailnet",
       node: !!document.getElementById("phone-bound"),
-      text: document.querySelector("#phone-sheet .overlay-panel").innerText,
+      text: document.getElementById("phone-scroll").innerText,
     })));
     await ts.close();
 
@@ -1814,7 +1815,7 @@ async function openSheet(browser, theme, preset) {
       };
       const where = (page) =>
         page.evaluate(() => {
-          const panel = document.querySelector("#phone-sheet .overlay-panel");
+          const panel = document.getElementById("phone-scroll");
           const code = document.getElementById("phone-code-block");
           const p = panel.getBoundingClientRect();
           const c = code.getBoundingClientRect();
@@ -1862,7 +1863,7 @@ async function openSheet(browser, theme, preset) {
         }
         await page.waitForSelector("#phone-pairing:not([hidden])");
         await page.evaluate(() => {
-          const panel = document.querySelector("#phone-sheet .overlay-panel");
+          const panel = document.getElementById("phone-scroll");
           panel.scrollTop = panel.scrollHeight;
         });
         const before = await where(page);
@@ -1891,7 +1892,7 @@ async function openSheet(browser, theme, preset) {
       const expired = await openSheet(browser, "dark", { phonePairingExpired: true });
       await expired.waitForSelector("#phone-expired:not([hidden])");
       await expired.evaluate(() => {
-        const panel = document.querySelector("#phone-sheet .overlay-panel");
+        const panel = document.getElementById("phone-scroll");
         panel.scrollTop = panel.scrollHeight;
       });
       await reopen(expired);
