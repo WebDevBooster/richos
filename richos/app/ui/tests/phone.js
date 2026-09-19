@@ -1489,6 +1489,40 @@ async function openSheet(browser, theme, preset) {
     return out.join("; ");
   });
 
+  // ---- G13: a countdown that never overpromises --------------------------------------------
+
+  await run.check("25  the countdown never claims more time than the code has", async () => {
+    // Urban's G13, filmed at 30-second intervals: *"Countdown says '2 more minutes' at 61 s
+    // remaining (`Math.ceil`), then jumps to '59 more seconds'."*
+    //
+    // Asserted as the PROPERTY and not as one string: at every second measured, the number of
+    // whole minutes the label claims must be time the code actually has. 61 is the value the
+    // defect lives at; 120, 60 and 59 are the values on either side of it, which keep the fix
+    // from being a hard-coded answer to one number.
+    const seen = [];
+    for (const secondsLeft of [300, 120, 61, 60, 59, 1]) {
+      const page = await openSheet(browser, "dark", { phonePairing: true, phonePairingSecondsLeft: secondsLeft });
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+      const label = (await page.evaluate(() => document.getElementById("phone-countdown").textContent)).trim();
+      await page.close();
+      seen.push(secondsLeft + "s -> " + JSON.stringify(label));
+      const minutes = label.match(/(\d+) more minutes?/);
+      if (minutes) {
+        const claimed = Number(minutes[1]) * 60;
+        assert(
+          claimed <= secondsLeft,
+          "THE DEFECT: with " + secondsLeft + "s left the screen says " + JSON.stringify(label) +
+            " — " + (claimed - secondsLeft) + "s more than the code has"
+        );
+      } else {
+        const secs = label.match(/(\d+) more seconds?/);
+        assert(secs, "the countdown said neither minutes nor seconds: " + JSON.stringify(label));
+        assert(Number(secs[1]) <= secondsLeft, "the seconds label overpromises: " + JSON.stringify(label));
+      }
+    }
+    return seen.join("; ");
+  });
+
   // ---- G14: the screen that names the account first stops whispering it ---------------------
 
   await run.check("26  on `This Mac is ready` the account is bold and sits directly under the heading", async () => {

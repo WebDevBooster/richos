@@ -1059,11 +1059,23 @@
   /// seconds." is a number nobody converts. Minutes while there are minutes, seconds under one
   /// minute — and the last minute is where the seconds start to matter, which is the only place
   /// they are shown.
+  ///
+  /// **`floor`, NEVER `ceil`** — Urban's G13, filmed at 30-second intervals: *"Countdown says
+  /// '2 more minutes' at 61 s remaining, then jumps to '59 more seconds' … a countdown must
+  /// never overpromise."*
+  ///
+  /// The arithmetic, at the four values that decide it. `ceil`: 120 -> 2, 61 -> **2**, 60 -> 1,
+  /// 59 -> "59 more seconds". So the label said two minutes when 61 seconds were left — 59
+  /// seconds more than it had — and then fell 61 seconds in one step. `floor`: 120 -> 2,
+  /// 61 -> 1, 60 -> 1, 59 -> "59 more seconds", which never states a number the code cannot
+  /// meet and never falls by more than the minute it just finished. The cost of `floor` is that
+  /// the label reads "1 more minute" for the whole of the second minute; the cost of `ceil` is a
+  /// person walking to their phone on a promise the Mac has already broken.
   function remaining(seconds) {
     if (seconds < 60) {
       return seconds + (seconds === 1 ? " more second" : " more seconds");
     }
-    const minutes = Math.ceil(seconds / 60);
+    const minutes = Math.floor(seconds / 60);
     return minutes + (minutes === 1 ? " more minute" : " more minutes");
   }
 

@@ -48,10 +48,16 @@
     // A FOURTH STATE, and it is the one a real person meets most often: he opened the screen,
     // went to find his phone, and came back after the sixty seconds were up. Reaching it by
     // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
+    // `phonePairingSecondsLeft` puts the window at an EXACT point inside itself, which is what
+    // Urban's G13 needs: the countdown's defect is at 61 seconds and nowhere else, and reaching
+    // 61 seconds by waiting four minutes is not a test anybody runs. Same device as the expired
+    // preset above — the clock is started in the past — rather than a second code path.
     openedAt:
       window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true
         ? now() - (PAIRING_WINDOW_MS + 1000)
-        : now(),
+        : Number.isFinite(window.__RICHOS_MOCK_PRESET__?.phonePairingSecondsLeft)
+          ? now() - (PAIRING_WINDOW_MS - window.__RICHOS_MOCK_PRESET__.phonePairingSecondsLeft * 1000)
+          : now(),
     // THE RECORDED PATH AND PLATFORM (`device.rs`: `paired_via`, `platform`). The default is
     // the home path on an iPhone, which is what this harness has always modeled; the presets
     // are how the other three combinations — and the legacy record that recorded neither — are
