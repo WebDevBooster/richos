@@ -20,6 +20,28 @@
 //
 // So the window size is the subject here, and every check states it.
 //
+// ## AND THE SURFACE IS THE HOME SCREEN, WHICH THIS HEADER SHOULD HAVE SAID FROM THE START
+//
+// `openMenu` sends the CURTAIN away and then clicks the button. It does not call `leaveHome`,
+// so the surface in front of every check in this file is the home screen, not a thread. That
+// has always been true here and cost nothing while the settings button had one position on
+// every screen. It stopped costing nothing on 2026-09-19, when the CEO gave the button two —
+// centered on the regular screens, back in the corner on the home screen and the held opening
+// screen — at which point the anchor this suite pins is a number that only means something once
+// the surface is named. It is named here, and again beside the assertion.
+//
+// Left ON the home screen deliberately, rather than made to leave it. Measured at 1024x700,
+// dark, with the bound lifted so the panel reports its natural height:
+//
+//     home screen   12 rows, 620px natural, no theme row   against a 616px bound
+//     a thread      13 rows, 658px natural, theme row      against a 628px bound
+//
+// §15 clamps this surface dark and `settings-button.js` OMITS the theme row rather than
+// disabling it, which is the missing row. Both surfaces overflow their bound and both therefore
+// scroll — this one by 4px, a thread by 30px — so this file is measuring the case it exists for
+// on either, and it is measuring it on the surface the audited window was audited from. Moving
+// it would be a change of subject, not an improvement.
+//
 // ## THE PAIR
 //
 // A negative control that reproduces Ray's geometry, and the positive control the brief asks
@@ -128,14 +150,30 @@ async function main() {
   await run.check("the panel as it comes up at 1024x700 is inside the window", async () => {
     const m = await measure(page, {});
     assertEqual(m.vh, WINDOW.height, "the viewport is not the audited window");
-    // 54 SINCE 2026-09-19, AND IT WAS 66. The CEO centered the settings button in the header
-    // that day — `top: 18px` became `top: 6px` — and this panel hangs 8px below it, so the
-    // anchor it is derived from moved with it: 6 + 40 + 8 = 54, and the bound in `style.css`
-    // is now `calc(100vh - 72px)`. The number is pinned here rather than computed for the
-    // same reason it always was: a panel that quietly stopped hanging from the button would
-    // still satisfy every fit check below it. `chrome-align.js` owns the other half — that the
-    // button is where the CEO asked for it — and this owns that the panel followed.
-    assert(m.top === 54, `the panel's anchor moved to ${m.top}px; the 72px bound in style.css is derived from 54`);
+    // **66, AND THIS SUITE MEASURES ON THE HOME SCREEN — which nothing said out loud until
+    // 2026-09-19 and which is the reason this number moved twice in one day.** `openMenu` above
+    // dismisses the CURTAIN and then clicks the button; it never calls `leaveHome`, so the
+    // surface in front throughout every check in this file is the home screen. That was true
+    // when this line was written and is not a change made here.
+    //
+    // WHY IT MATTERS NOW: since the CEO's afternoon ruling the settings button has two positions
+    // rather than one — 6px on the regular screens, 18px on the home screen and the held
+    // opening screen (`style.css`, `--settings-top`) — so "the anchor" is a question with two
+    // answers and the surface has to be named before either is right. This panel hangs 8px
+    // below the 40px button, so on THIS surface it is 18 + 40 + 8 = 66, and the bound is
+    // `calc(100vh - (18px + 66px))` = `100vh - 84px`. Measured here: anchor 66, panel clamped to
+    // 616px in a 700px window.
+    //
+    // IT WAS 66 UNTIL `dcfb87c9`, WENT TO 54 WITH THE MORNING'S CENTERING, AND IS 66 AGAIN.
+    // The 54 was not wrong arithmetic; it was right arithmetic about a different surface, and it
+    // passed here only because that commit moved the button on all three at once.
+    //
+    // THE NUMBER IS STILL PINNED RATHER THAN COMPUTED, for the reason it always was: a panel
+    // that quietly stopped hanging from the button would still satisfy every fit check below it.
+    // `chrome-align.js` owns the other half — that the button is where the CEO asked for it, on
+    // each of the three surfaces — and pins the thread's 54 there, so nothing is lost by this
+    // file naming only the surface it is actually on.
+    assert(m.top === 66, `the panel's anchor moved to ${m.top}px; on the home screen the bound is derived from 66`);
     assert(m.bottom <= m.vh, `the panel's bottom edge is at ${m.bottom} in a ${m.vh}px window`);
     assert(m.bugInWindow, `"Bust a bug!" ends at ${m.bugBottom} in a ${m.vh}px window`);
     return `panel ${m.height}px at top ${m.top}, bottom ${m.bottom} of ${m.vh}; Bust a bug ends at ${m.bugBottom}`;
