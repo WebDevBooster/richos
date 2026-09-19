@@ -765,6 +765,53 @@ function whatTheSixWordsAre() {
 	return 'They are the name of the certificate your Mac made for itself. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
 }
 
+/// **WHAT THIS PHONE CALLS THE CONTROL THAT PUTS THE APP ON ITS HOME SCREEN.**
+///
+/// The Mac's card says *"Add Rich to your phone's Home Screen"*. On the CEO's HONOR X6b, Chrome's
+/// menu offers **"Install and create shortcut"** and there is no item by the other name at all
+/// (Ray, candidate .11, §4.5, verified on the device). On his iPhone X, Safari's Share menu does
+/// say "Add to Home Screen". One instruction cannot be right for both, and an instruction that
+/// names a control the device does not have is one he cannot follow.
+///
+/// Returns `{ menu, item }` in the device's own words, or `null` when this app cannot say which
+/// browser it is in. **`null` means SAY NOTHING**, not "guess": a wrong menu name sends him
+/// looking for something that is not there, which is worse than the silence this replaced.
+///
+/// The user agent is the only thing that can answer this, and it is a string a browser is free to
+/// lie in — which is survivable here because the cost of being wrong is a sentence, not a
+/// decision. Nothing else in this app reads it.
+function installControlName() {
+	const ua = String(navigator.userAgent || '');
+	// iPadOS reports itself as a Mac and gives itself away with touch points; iPhone and iPod say
+	// what they are.
+	const iOS = /iPad|iPhone|iPod/.test(ua)
+		|| (/Macintosh/.test(ua) && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1);
+	if (iOS) return { menu: 'the Share menu', item: 'Add to Home Screen' };
+	// Chrome on Android. Every other Chromium browser on Android puts its own token in the same
+	// string and has its own wording, so they are not claimed.
+	if (/Android/.test(ua) && /Chrome\//.test(ua) && !/EdgA|OPR\/|SamsungBrowser|Firefox|DuckDuckGo/.test(ua)) {
+		return { menu: "your browser's menu", item: 'Install and create shortcut' };
+	}
+	return null;
+}
+
+/// Is this app already on his home screen and running as one?
+function alreadyInstalled() {
+	if (navigator.standalone === true) return true;               // iOS, all versions
+	return Boolean(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
+/// The sentence for a browser that cannot take a push at all until the app is installed — which
+/// is iOS Safari in a tab, and is the case that used to be told NOTHING.
+///
+/// Android Chrome is deliberately not this case: it subscribes from a tab, which is why the page
+/// needs no install instruction there and why §4.5 was only ever about the Mac's card.
+function installSentence() {
+	const control = installControlName();
+	if (!control) return null;
+	return `Rich can only reach you while this app is open. To let him reach you when it is closed, open ${control.menu} and choose \u201c${control.item}\u201d.`;
+}
+
 function newClientId() {
 	if (crypto.randomUUID) return crypto.randomUUID();
 	const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -1156,6 +1203,18 @@ async function hearIt(messageId, button) {
 async function refreshPushOffer() {
 	const offer = $('push-offer');
 	if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+		// THIS BROWSER CANNOT TAKE A PUSH AT ALL, and on iOS that is not a dead end — it is an app
+		// that has not been installed yet. Saying nothing, which is what this used to do, left him
+		// with no way to find out. The control is named in the device's own words or not at all.
+		const sentence = installSentence();
+		if (sentence && !alreadyInstalled()) {
+			offer.hidden = false;
+			$('push-offer-text').textContent = sentence;
+			// There is no control this app can offer that does this: the item is in the browser's
+			// own menu, so the sentence says where it is instead of pretending to be a button.
+			$('push-on').hidden = true;
+			return;
+		}
 		offer.hidden = true;
 		return;
 	}
