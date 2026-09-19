@@ -2893,6 +2893,16 @@ module.exports = [
       "sentence — so this string is a diagnostic the CEO never sees.",
   },
 
+  {
+    s:
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
+      'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    c: "NOT-RENDERED",
+    why:
+      "`home.js`'s FOCUSABLE — the CSS selector the home screen uses to find the control a " +
+      "desk sheet would have focused itself, had the screen let it. A selector, never prose.",
+  },
+
   // ---- settings-button.js — the universal settings button, CEO ruling §15 ----------------
   {
     s:
@@ -3967,17 +3977,6 @@ module.exports = [
       "was attempted and nothing was changed, and the row is still there to press again — so " +
       "this is a statement rather than a request, and it deliberately offers no control: a " +
       "`Try again` button here would be a second name for the row he just used.",
-  },
-  {
-    "s": "body > .overlay",
-    "c": "NOT-RENDERED",
-    "why":
-      "A CSS SELECTOR, not a sentence. It is the argument to `document.querySelectorAll` in " +
-      "home.js's `giveWayToOpenDeskSheet` (audit-7 row 5): a `.overlay` that is a direct child " +
-      "of `<body>` is what a DESK SHEET structurally is, and the opening screen gives way when " +
-      "one appears rather than sitting on top of it. It is never assigned to textContent, an " +
-      "attribute or a label, and the prose filter caught it because a two-word string with a " +
-      "period in it is the one shape it cannot tell from a fragment of copy.",
   },
 
   // -------------------------------------------------------------------------------------
