@@ -45,6 +45,13 @@
   sheet.setAttribute("aria-labelledby", "phone-title");
   sheet.setAttribute("data-dismiss", "control:#phone-close");
   sheet.innerHTML = `<div class="overlay-panel">
+    <!-- THE BOX THAT SCROLLS, AND IT IS NOT THE PANEL ANY MORE.
+         The panel is a flex column of exactly two children: this, which scrolls, and the action
+         row below, which does not. See .phone-scroll and .phone-actions in style.css for the
+         measurements that forced the split and for why a sticky footer over one scrollport was
+         tried first and rejected. Everything the sheet says lives in here; the way out lives
+         underneath it and never moves. -->
+    <div id="phone-scroll" class="phone-scroll">
     <h2 id="phone-title" class="overlay-title">Use Rich from your phone</h2>
     <!-- ONE LEAD, TRUE OF THE ONE PATH. It was a fixed sentence describing the option he had
          not chosen: it stayed on screen unchanged after he chose the other one, so every screen
@@ -219,11 +226,15 @@
            The four plain copies of this control — on the identity screen, on the two waiting
            screens and on "This Mac is ready" — are gone with the chooser they led to. Nothing was
            behind them to put down, and a button that returns to the screen you are already on is
-           a button that does nothing. Close is on every screen and always was. -->
-      <div class="desk-card-actions">
-        <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button">Show me another code</button>
-        <button id="phone-pairing-back" class="desk-btn" type="button">Stop and go back</button>
-      </div>
+           a button that does nothing. Close is on every screen and always was.
+
+           **AND THE TWO OF THEM NOW LIVE IN THE FOOTER, NOT HERE** — Ray's candidate-.16 new
+           defect. Measured in this harness at 1024x700, dark, with a code live: the panel is
+           592px tall in a 700px window and its content is 1196px, so on a REOPENED sheet the
+           three controls sat at window y 1040..1116 — "Show me another code", "Stop and go back"
+           and "Close", none of them on screen, under sixteen steps of how-to. Ray read the same
+           thing off AX on the real app: y=1175..1364 against a window bottom of y=792.
+           See .phone-actions in style.css for the pin. -->
     </div>
 
     <!-- SCREEN 0 — THE IDENTITY TRAP, AND IT COMES BEFORE THE DOWNLOAD.
@@ -337,6 +348,7 @@
          most on this screen"*. The addresses are still printed to the log at every start, which
          is where a diagnosis is read from. -->
     <p class="overlay-note" id="phone-message" role="status"></p>
+    </div>
 
     <!-- ONE CLOSE, OUTSIDE THE THREE STATES AND ALWAYS VISIBLE.
          The first version of this sheet had three, one inside each state block, and
@@ -344,14 +356,36 @@
          document-level Escape handler clicks it, and a button hidden with its block does
          nothing at all. Two of the three states could not be dismissed from the keyboard. One
          button that is always on screen is both the simpler markup and the only shape that can
-         satisfy the contract. -->
-    <div class="desk-card-actions">
+         satisfy the contract.
+
+         **"ALWAYS VISIBLE" WAS A CLAIM ABOUT THE MARKUP AND NOT ABOUT THE SCREEN, AND A PERSON
+         FOUND THE DIFFERENCE.** One Close outside the three states is what makes it always
+         RENDERED; it is .phone-actions below that makes it always SEEN. With a code live at
+         1024x700 the panel's content is 1196px in a 590px scrollport, and this row sat 445px
+         below the window's bottom edge while the six-words note three screens above it read
+         *"press Close and tell me"*. The row is now pinned to the bottom of the scrollport
+         with position:sticky, so the how-to scrolls under it and the way out does not leave.
+
+         AND THE PAIRING SCREEN'S TWO CONTROLS JOIN IT, for the same reason and in one row: two
+         separately-pinned rows would overlap. They are hidden with the screen they belong to —
+         by their own hidden attribute, set in render() from the same condition that shows the
+         pairing block, because a display:none button contributes no flex gap and the row
+         collapses to Close alone. Close stays LAST, which is where the copy points. -->
+    <div class="desk-card-actions phone-actions">
+      <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button" hidden>Show me another code</button>
+      <button id="phone-pairing-back" class="desk-btn" type="button" hidden>Stop and go back</button>
       <button id="phone-close" class="desk-btn" type="button">Close</button>
     </div>
   </div>`;
   document.body.appendChild(sheet);
 
   const field = (id) => sheet.querySelector("#" + id);
+
+  /// **THE ONE BOX ON THIS SHEET THAT SCROLLS.** It used to be `.overlay-panel` itself; since the
+  /// footer was taken out of the scroll (Ray's candidate-.16 defect) the panel is a flex column
+  /// with `overflow-y: hidden` and this is the box inside it. Named once here so `open()` and
+  /// `scrollToCode()` cannot end up aimed at different boxes.
+  const scrollBox = () => field("phone-scroll");
 
   /// Draw a QR matrix into a canvas: black modules, white background, and the four-module quiet
   /// zone the standard requires. The white is painted rather than inherited on purpose — the quiet
@@ -726,7 +760,14 @@
     field("phone-ts-wait").hidden = !waiting;
     field("phone-ts-ready").hidden = !ready;
     field("phone-paired").hidden = !status.paired;
-    field("phone-pairing").hidden = status.paired || !pairing;
+    const onThePairingScreen = !(status.paired || !pairing);
+    field("phone-pairing").hidden = !onThePairingScreen;
+    // The pairing screen's own two controls live in the pinned footer (see the markup), so they
+    // are hidden BY THEMSELVES from the same condition rather than by their container. One
+    // condition, one source, evaluated once — a second copy of it here is how the footer and the
+    // screen it belongs to would come to disagree.
+    field("phone-refresh").hidden = !onThePairingScreen;
+    field("phone-pairing-back").hidden = !onThePairingScreen;
 
     // Rows 2, 3 and 5 poll — and so do BOTH of the screens that are waiting for the phone, because
     // a phone joining the tailnet is another thing that happens elsewhere and has to move the
@@ -999,7 +1040,27 @@
     identityUnderstood = false;
     sheet.hidden = false;
     await refresh();
-    const first = sheet.querySelector("button:not([disabled])");
+    // **THE FIRST BUTTON IN THE MARKUP IS NOT THE FIRST BUTTON ON THE SCREEN** — Ray's
+    // candidate-.16 new defect, second half.
+    //
+    // `querySelector("button:not([disabled])")` answers a question about DOM order and this is a
+    // question about what is drawn. On every screen but the paired card the first match is
+    // `#phone-forget`, which lives inside `#phone-paired` and is hidden with it — and `.focus()`
+    // on a hidden element does nothing AT ALL, silently. So the sheet opened with focus still on
+    // `document.body`: Ray pressed Tab three times on a reopened live-code sheet and never
+    // reached a control, and Page Down did nothing because the body is not the box that scrolls.
+    // Reproduced in this harness before the fix — `activeElement` BODY, `inSheet: false`, three
+    // Tabs and still BODY.
+    //
+    // `offsetParent !== null` is the same visibility test the Tab trap at the bottom of this file
+    // already uses, so the set focus may land in and the set Tab cycles through cannot diverge.
+    // The PRIMARY control first — `Show me another code` on the pairing screen, `Set my phone up`
+    // on "This Mac is ready", `I understand` on the identity trap — and Close when a screen has
+    // no primary, which is the one every screen has.
+    const shown = [...sheet.querySelectorAll("button")].filter(
+      (node) => !node.disabled && node.offsetParent !== null
+    );
+    const first = shown.find((node) => node.classList.contains("desk-btn--confirm")) || shown[0];
     if (first) first.focus();
     // **AND THE SHEET OPENS WHERE THE SCREEN BEGINS, NOT WHERE HE LEFT IT** — Urban's N2.
     //
@@ -1017,7 +1078,7 @@
     // Two branches, and the live one is the same helper `Show me another code` uses, so the two
     // doors into this screen cannot land in different places. `scrollToCode` no-ops when the code
     // block is hidden, so the order below is: top first, then the code if there is one.
-    const panel = sheet.querySelector(".overlay-panel");
+    const panel = scrollBox();
     if (panel) panel.scrollTop = 0;
     scrollToCode();
   }
@@ -1028,16 +1089,17 @@
   /// the user must scroll the whole way down again to reach the thing they just asked for
   /// (frame 09)."*
   ///
-  /// The panel is what scrolls, not the window: `.overlay-panel` is `max-height` + `overflow-y:
-  /// auto` (style.css, the note about a first-run sheet losing its own way out below the fold),
-  /// and `.overlay` itself is `position: fixed` and does not scroll at all. So the measurement
-  /// is taken between those two boxes rather than from `offsetTop`, whose `offsetParent` here is
-  /// the fixed `.overlay` and not the box that moves.
+  /// `#phone-scroll` is what scrolls, not the window and — since Ray's candidate-.16 defect —
+  /// not `.overlay-panel` either. The panel is now a flex column whose `overflow-y` is `hidden`,
+  /// holding one scroll box and a footer that does not move (style.css, `.phone-scroll`), and
+  /// `.overlay` itself is `position: fixed` and does not scroll at all. So the measurement is
+  /// taken between the scroll box and the code rather than from `offsetTop`, whose `offsetParent`
+  /// here is the fixed `.overlay` and not the box that moves.
   ///
   /// 12px of air above the heading rather than 0, so the code reads as the top of a screen and
-  /// not as a block cut off by the panel's edge.
+  /// not as a block cut off by the box's edge.
   function scrollToCode() {
-    const panel = sheet.querySelector(".overlay-panel");
+    const panel = scrollBox();
     const code = field("phone-code-block");
     if (!panel || !code || code.hidden) return;
     const delta = code.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12;
@@ -1167,5 +1229,46 @@
     }
   });
 
-  window.RichSettings.registerPhone({ open });
+  /// **WHAT THE SETTINGS ROW SAYS WHEN THE SHEET IS SHUT** — Ray's candidate-.16 defect D2.
+  ///
+  /// *"With port 8443 open and code 56WS37AH live, the Settings panel reads `Use Rich from your
+  /// phone >`. Nothing else. Byte-for-byte the same row as with no code at all, and the same
+  /// again while a phone is paired."*
+  ///
+  /// Three states, two of which have something to say:
+  ///
+  ///   * paired    -> the phone's own name, which is the one fact that identifies it
+  ///   * code live -> that it is live AND how long is left, in `remaining()`'s units — the same
+  ///                  sentence the countdown on the sheet is built from, so the row and the sheet
+  ///                  cannot state different amounts of time
+  ///   * anything else -> nothing, and the row reads exactly as it always did. "Not pairing" is
+  ///                  not a state worth a line; a live code and a paired phone are.
+  ///
+  /// SPEAKABLE, because this app is read out loud (CEO, 2026-09-04): "Paired with Pixel 8" and
+  /// "A code is live for 4 more minutes" mean the same thing spoken as written, with no glyph,
+  /// no abbreviation and no number whose unit has to be inferred.
+  ///
+  /// **The expired state deliberately says nothing.** The socket stays up after a window closes
+  /// (see `listening` in `render`), so a Mac that is merely still serving is not a Mac with
+  /// anything live on it, and a row that said so would be telling him about a code that no
+  /// longer works.
+  function settingsLine(status) {
+    if (status.paired) return "Paired with " + (status.deviceName || "your phone");
+    const left = status.pairingSecondsLeft;
+    if (Number.isFinite(left) && left > 0) return "A code is live for " + remaining(left);
+    return "";
+  }
+
+  /// Read once, on the explicit click that opens the menu — never on a timer. See the call site
+  /// in `settings-button.js`'s `open()`. A failure leaves the row bare rather than putting an
+  /// error into a settings menu: the sheet behind the row is where a phone error is read.
+  async function describeForSettings() {
+    try {
+      window.RichSettings.setPhoneState(settingsLine(await bridge.invoke("phone_status")));
+    } catch (error) {
+      window.RichSettings.setPhoneState("");
+    }
+  }
+
+  window.RichSettings.registerPhone({ open, onOpen: describeForSettings });
 })();

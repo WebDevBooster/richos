@@ -205,6 +205,79 @@ async function main() {
         return "fenced out, as every other event in the family is";
       }
     );
+
+    // ---- 5. WHY THIS FILE WAS GREEN OVER A RED APP ---------------------------------------
+    await run.check(
+      "the revision fence is a FLOOR, so an emitter that builds a fence from the durable binding is invisible here",
+      async () => {
+        // **THIS CHECK EXISTS BECAUSE CHECKS 1–4 PASSED WHILE THE APP MEASURED 7,288 ms.**
+        //
+        // Ray re-walked the same defect on candidate .16 with the emit fix in the build
+        // (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260919.5-stale-engine-and-phone-audit.md`,
+        // §"R3, phone → Mac"): 7,288 ms, WORSE than the 5.68 s this file was written against, the
+        // bubble and the whole reply in one paint, and the sidebar's dot still at +471 ms.
+        //
+        // The event WAS emitted. This window threw it away. `fenceOf()` at the top of this file
+        // reads the fence OFF THE LIVE MODEL — which is the honest thing for checks 1–4 to do and
+        // is exactly what made them blind: the spine built its fence from a DIFFERENT source.
+        //
+        //   * the window binds to the ACTIVATION revision — `main.js` → `active_binding()` →
+        //     `Spine::activate` → `Ledger::rebind_at_new_revision`, a fresh `take_revision()`
+        //     that persists nothing;
+        //   * `Spine::drain_intake` built its fence from `Ledger::thread_binding` — the revision
+        //     written once when the thread was bound and never rewritten.
+        //
+        // Measured in `phone_intake_tests::the_fence_on_his_phone_message_is_the_one_the_open_window_is_holding`:
+        // the wire carried **1**, the window held **3**. `accepts()` rejects anything strictly
+        // lower, so his sentence, the queued status and the working status were all dropped, and
+        // only `turn-completed`'s `loadTimeline()` ever drew them — in one frame.
+        //
+        // THE FIX IS THE EMITTER'S, and that is where the red-to-green proof lives (Rust, above).
+        // What is pinned HERE is the half that made the trap possible: the floor is real, a
+        // payload below it does not render, and therefore a harness that feeds this window the
+        // model's own fence is not evidence about what the spine sends. Read this check before
+        // trusting checks 1–4 about anything outside this file.
+        const page = await openApp(browser, "dark");
+        const fence = await fenceOf(page);
+        assert(
+          typeof fence.bindingRevision === "number" && fence.bindingRevision > 0,
+          `the model carries no activation revision to be measured against: ${JSON.stringify(fence)}`
+        );
+        // The thread's DURABLE revision, which is what the shipped spine used to put on the wire.
+        // Strictly lower, always: a thread is bound at one revision and then activated at the
+        // next, before this window ever sees it.
+        const durable = Object.assign({}, fence, { bindingRevision: fence.bindingRevision - 1 });
+        await phoneMessageArrives(page, durable, { text: "sent from the kitchen", turnId: "turn_stale_fence" });
+        await page.waitForTimeout(600);
+        const shown = await hisBubbles(page);
+        assert(
+          !shown.some((t) => t.includes("sent from the kitchen")),
+          "the revision floor is gone: an event older than this window's activation now renders, " +
+            "which is §13's fence removed rather than the emitter fixed"
+        );
+        // AND THE POSITIVE CONTROL, one revision up, in the same fixture: the identical sequence
+        // at the window's own revision draws immediately. Without this the check above would pass
+        // on a window that renders nothing at all.
+        await phoneMessageArrives(page, fence, { text: "sent from the hallway", turnId: "turn_live_fence" });
+        await page.waitForFunction(
+          (t) => document.body.innerText.includes(t),
+          "sent from the hallway",
+          { timeout: 4000 }
+        );
+        const after = await hisBubbles(page);
+        assert(
+          after.some((t) => t.includes("sent from the hallway")),
+          `the positive control did not render either: ${JSON.stringify(after)}`
+        );
+        assertEqual(page.__errors || [], [], "the page reported errors");
+        await page.close();
+        return (
+          `at bindingRevision ${durable.bindingRevision} the window drew nothing; at ` +
+          `${fence.bindingRevision} — its own — the same sequence drew the bubble before any prose. ` +
+          `The emitter is pinned in phone_intake_tests.rs, not here.`
+        );
+      }
+    );
   } finally {
     await browser.close();
   }
