@@ -18,12 +18,15 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shlex
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -48,6 +51,167 @@ DECLARED_GAPS = (
     "walk, against a published release: scripts/front-door.test.sh --release <release dir>. "
     "Measured on this Mac, 2026-09-18: a bare invocation exits 2 in nine lines and no process."
 )
+
+# WHAT THE LAND ALREADY PROVED, and therefore the one gate a candidate build may be told to
+# skip. Rich runs these at every land, from the main checkout, on the exact commit that
+# then becomes `main` -- which is the commit this build fetches:
+#
+#     cargo test -p richos-core
+#     cargo test --bin richos-tauri
+#     the sharded ui suite
+#
+# `--checks-done-at-land <sha>` drops `gates/core-tests` when the sha it is handed is the
+# sha this run actually fetched, and REFUSES when it is not. A flag that trusted its own
+# argument would let a stale sha wave a different tree's tests through, which is worse than
+# having no flag: the skip has to be unable to lie, not merely documented as honest.
+#
+# Nothing else in gates() is skippable, because nothing at the land runs it.
+# `richos-user-update` is the updater's own crate; `run-tests.sh` is the packaging,
+# signing, updater and release-chain suites; `named-persons.sh --tree` is the privacy sweep
+# over the tree that is about to be published. Those are exactly the invariants a land does
+# NOT check, so they stay on the candidate path.
+#
+# The default is unchanged. When the skip is taken it is written into the run log and into
+# `build-info.json` (through the plan, which nightly.py copies into the candidate's
+# provenance), so a candidate can never quietly claim a gate it did not run.
+LAND_PROVEN_GATE = "gates/core-tests"
+
+# The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
+# its children stream past TimestampedLog, so the split is readable without coupling this
+# script to a child's internals beyond these strings.
+#
+# IN ORDER is the protection that does the work: the first marker gates every later one,
+# so a pattern cannot fire early unless the one ahead of it already has. Measured against
+# the real 3,158-line log of run 20260919T180454Z-ac11d13e, NONE of the eleven patterns
+# matches any of the 2,727 lines before the build step -- so arming the matcher for the
+# duration of that step (phase(), below) changes nothing today, and this comment used to
+# claim a collision it does not have. It is kept as the second condition because the
+# suites' whole job is to drive the scripts these markers come from:
+# `make-engine-asset.test.sh` and `make-release.test.sh` run `make-engine-asset.sh` and
+# `make-release.sh`. The day one of them stops shimming a banner, the first marker fires a
+# thousand lines early and every segment after it is wrong. It costs one boolean.
+#
+# A marker that never appears is reported as "not observed" rather than folded into the
+# segment beside it, because a silently merged boundary makes one phase look expensive and
+# hides another entirely.
+BUILD_MILESTONES = (
+    ("build/engine-asset", r"^building the engine asset for "),
+    ("build/engine-asset-recheck", r"^=== --check: building a second time"),
+    ("build/engine-member-audit", r"^=== every member accounted for"),
+    ("build/engine-release-create", r"^https://github\.com/\S+/releases/tag/"),
+    ("build/engine-verify-download", r"^fetching the PUBLISHED asset"),
+    ("build/app-preflight", r"^building RichOS \S+ for "),
+    ("build/app-compile", r"^building \(release\) with RICHOS_REQUIRE_REAL_ICONS"),
+    ("build/app-bundle-and-sign", r"^\s*Finished `release` profile"),
+    ("build/app-notarize", r"^\s*submitting to Apple's notary service"),
+    ("build/app-staple-and-verify", r'^\s*\{"status":"Accepted"'),
+    ("build/app-archive", r"^OK: RichOS\.app is bundled,"),
+)
+
+
+def stamp(epoch):
+    return datetime.fromtimestamp(epoch, timezone.utc).strftime("[%Y-%m-%dT%H:%M:%S.") \
+        + f"{int(epoch % 1 * 1000):03d}Z]"
+
+
+class TimestampedLog:
+    """The run log, every line of it stamped with UTC wall clock as it is written.
+
+    A log that says WHAT happened but never WHEN cannot answer where a build's twenty
+    minutes went. On 2026-09-19 the only available answer was the mtimes of the staging
+    directory, which stop at four coarse boundaries and say nothing at all about the eight
+    and a half minutes of gates that run before the first of those files is written.
+
+    Children are handed the write end of a pipe (via `fileno()`, so no call site changes)
+    rather than the file itself, and one reader thread stamps each line and writes it
+    through. Nothing any child prints has to change, now or ever, for its phase to become
+    timeable -- which is the whole point of putting this here instead of threading a timer
+    through nightly.py, make-release.sh and package-app.sh, none of which this script even
+    supplies (they are read from the FETCHED tree, not from this checkout).
+
+    Undecodable bytes are replaced rather than raised: a reader thread that dies takes the
+    log with it and leaves the build writing into a full pipe until it blocks forever.
+    """
+
+    SENTINEL = "richos-nightly-log-sync-"
+
+    def __init__(self, path, milestones=()):
+        self.file = path.open("w")
+        read_fd, self._write_fd = os.pipe()
+        self._reader = os.fdopen(read_fd, "rb")
+        self._milestones = list(milestones)
+        self._next = 0
+        self._armed = False
+        self._awaited = None
+        self._lock = threading.Lock()
+        self._synced = threading.Event()
+        self.seen = []
+        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread.start()
+
+    def _pump(self):
+        for raw in self._reader:
+            now = time.time()
+            line = raw.decode("utf-8", "replace").rstrip("\n")
+            with self._lock:
+                if line == self._awaited:
+                    self._synced.set()
+                    continue
+                if self._armed and self._next < len(self._milestones):
+                    name, pattern = self._milestones[self._next]
+                    if re.search(pattern, line):
+                        self.seen.append((name, now))
+                        self._next += 1
+            self.file.write(f"{stamp(now)} {line}\n")
+        self.file.flush()
+
+    def fileno(self):
+        """Every existing `stdout=self.log` / `stderr=self.log` call site keeps working."""
+        return self._write_fd
+
+    def sync(self):
+        """Block until everything written so far has been read by the pump thread.
+
+        The pipe is asynchronous, so flipping the matcher off the instant a child exits
+        would race that child's last lines: they are already in the pipe and not yet
+        matched, and the milestone they carry would be lost. A sentinel pushed through the
+        same pipe is the only ordering guarantee available, because the pump reads in
+        order -- when the sentinel comes back, everything ahead of it has been seen.
+        """
+        token = self.SENTINEL + uuid.uuid4().hex
+        with self._lock:
+            self._awaited = token
+            self._synced.clear()
+        os.write(self._write_fd, (token + "\n").encode())
+        self._synced.wait(timeout=30)
+        with self._lock:
+            self._awaited = None
+
+    def arm(self, armed):
+        self.sync()
+        with self._lock:
+            self._armed = armed
+
+    def write(self, text):
+        """This script's own lines go down the same pipe, so ordering is one thread's.
+
+        Only ever called at a phase boundary, when no child holds the write end, so a line
+        longer than PIPE_BUF cannot interleave with a child's output.
+        """
+        os.write(self._write_fd, text.encode("utf-8", "replace"))
+
+    def close(self):
+        os.close(self._write_fd)
+        self._thread.join(timeout=30)
+        self._reader.close()
+        self.file.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+        return False
 
 
 def private_file(path):
@@ -184,6 +348,83 @@ class Runner:
         # Merged in only where `credentials=True` says a step signs or notarizes.
         self.credentials = dict(credentials or {})
         self.source = state / "source"
+        self.timings = []
+        self.skipped = {}
+        self.started = time.time()
+
+    def announce(self, text):
+        """Say it on the terminal AND in the run log, so neither has to be read beside
+        the other to know what this run did."""
+        print(text, flush=True)
+        self.log.write(text + "\n")
+
+    def watch_child_milestones(self, armed):
+        """Milestone matching belongs to the log, and only the `build` phase has any.
+
+        A plain writable stream -- which is what the tests hand the Runner -- has no
+        matcher, so there is nothing to arm and nothing to fail about.
+        """
+        arm = getattr(self.log, "arm", None)
+        if arm:
+            arm(armed)
+
+    @contextmanager
+    def phase(self, name):
+        """One named, wall-clocked step. Nested phases are named `parent/child`."""
+        self.log.write(f"=== phase {name} begins ===\n")
+        self.watch_child_milestones(name == "build")
+        start = time.time()
+        try:
+            yield
+        finally:
+            end = time.time()
+            self.watch_child_milestones(False)
+            self.timings.append((name, start, end))
+            self.log.write(f"=== phase {name} ends: {end - start:.1f}s ===\n")
+
+    def skip(self, name, reason):
+        self.skipped[name] = reason
+        self.timings.append((name, None, None))
+        self.announce(f"SKIPPED {name}: {reason}")
+
+    def segments(self):
+        """Every phase as (name, seconds), with the `build` step split by its milestones.
+
+        The build step is one opaque subprocess from this script's side, so its interior
+        comes from the milestones TimestampedLog matched while it ran. The leading stretch
+        before the first milestone is named rather than dropped, and a milestone that was
+        never seen is reported as such -- an unobserved boundary must not quietly inflate
+        the segment next to it.
+        """
+        rows, seen = [], list(self.log.seen) if hasattr(self.log, "seen") else []
+        observed = {name for name, _ in seen}
+        for name, start, end in self.timings:
+            if start is None:
+                rows.append((name, None))
+                continue
+            if name != "build" or not seen:
+                rows.append((name, end - start))
+                continue
+            bounds = [("build/tag-and-prepare", start)] + seen + [(None, end)]
+            for (label, at), (_, nxt) in zip(bounds, bounds[1:]):
+                rows.append((label, nxt - at))
+            for label, _ in BUILD_MILESTONES:
+                if label not in observed:
+                    rows.append((label, None))
+        return rows
+
+    def summary(self):
+        rows = self.segments()
+        width = max([len(name) for name, _ in rows] + [len("total")])
+        self.announce("")
+        self.announce(f"phase timings for run {self.env.get('RICHOS_NIGHTLY_RUN_ID', 'manual')}:")
+        for name, seconds in rows:
+            if seconds is None:
+                note = self.skipped.get(name, "not observed in this run's log")
+                self.announce(f"  {name.ljust(width)} : -       ({note})")
+            else:
+                self.announce(f"  {name.ljust(width)} : {seconds:7.1f}s")
+        self.announce(f"  {'total'.ljust(width)} : {time.time() - self.started:7.1f}s")
 
     def command(self, *args, cwd=None, capture=False, timeout=None, credentials=False,
                 env_extra=None):
@@ -275,7 +516,6 @@ class Runner:
         self.command("xcrun", "notarytool", "history", *auth, "--output-format", "json",
                      capture=True, timeout=90, credentials=True)
         identities = self.command("security", "find-identity", "-v", "-p", "codesigning", capture=True)
-        import re
         found = re.findall(r'\b([0-9A-F]{40}) "Developer ID Application:[^"]+"', identities)
         wanted = self.credentials.get("RICHOS_SIGNING_IDENTITY")
         if wanted:
@@ -323,16 +563,28 @@ class Runner:
                      self.source / SCRIPTS / "runtime-sources.json")
         self.env["RICHOS_RUNTIME_DIR"] = str(path)
 
-    def gates(self):
+    def gates(self, checks_done_at_land=None):
         # Deliberately without `credentials=True`: a gate that can see the operator's
         # notary key answers questions the suites ask precisely because the answer
         # should be absent. See split_credentials() and package-app.test.sh section E.
-        print("Running core, updater and packaging checks...", flush=True)
-        self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/Cargo.toml", "-p", "richos-core")
-        self.command("cargo", "test", "--locked", "--manifest-path", "richos/app/crates/richos-user-update/Cargo.toml")
-        self.command("bash", self.source / SCRIPTS / "run-tests.sh",
-                     env_extra={"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS})
-        self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree", "--repo", self.source)
+        self.announce("Running core, updater and packaging checks...")
+        if checks_done_at_land:
+            self.skip(LAND_PROVEN_GATE,
+                      f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "
+                      "which is the commit this run fetched")
+        else:
+            with self.phase(LAND_PROVEN_GATE):
+                self.command("cargo", "test", "--locked", "--manifest-path",
+                             "richos/app/Cargo.toml", "-p", "richos-core")
+        with self.phase("gates/updater-tests"):
+            self.command("cargo", "test", "--locked", "--manifest-path",
+                         "richos/app/crates/richos-user-update/Cargo.toml")
+        with self.phase("gates/script-suites"):
+            self.command("bash", self.source / SCRIPTS / "run-tests.sh",
+                         env_extra={"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS})
+        with self.phase("gates/privacy-sweep"):
+            self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree",
+                         "--repo", self.source)
 
     def run_pointer(self, run_id):
         if not run_id or "/" in run_id or run_id in (".", ".."):
@@ -380,7 +632,26 @@ class Runner:
         print("", flush=True)
         print(f"Publish only on a READY verdict:  nightly-local.py publish --run {info['run_id']}", flush=True)
 
-    def perform(self, command, force=False, runtime=None, run_id=None):
+    def accept_land_proof(self, sha, source):
+        """Return the sha to record, or refuse. Never a bare boolean.
+
+        The flag says "a land already ran this, on THIS source". The only thing that can
+        make that true is the sha, so it is compared against the sha this run actually
+        fetched -- not against `main`, not against HEAD, and never taken on trust. An
+        abbreviation is accepted because Rich passes one by hand, but only at git's own
+        minimum unambiguous length, and only as a prefix of the fetched sha.
+        """
+        if not re.fullmatch(r"[0-9a-f]{7,40}", sha or ""):
+            raise ValueError("--checks-done-at-land needs a hex commit sha of at least 7 characters")
+        if not source.startswith(sha):
+            raise ValueError(
+                f"--checks-done-at-land {sha} is not the source this run fetched ({source}). "
+                "The land proved a different tree, so its checks prove nothing about this one; "
+                "run without the flag.")
+        return source
+
+    def perform(self, command, force=False, runtime=None, run_id=None,
+                checks_done_at_land=None):
         if command == "candidate":
             out, info = self.load_candidate(run_id)
             self.print_candidate(info, out)
@@ -397,43 +668,64 @@ class Runner:
             print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}", flush=True)
             return
 
-        source = self.checkout()
-        plan_path, info = self.plan(force)
-        print(f"Source: {source}", flush=True)
+        with self.phase("fetch"):
+            source = self.checkout()
+        with self.phase("plan"):
+            plan_path, info = self.plan(force)
+        self.announce(f"Source: {source}")
+        if checks_done_at_land:
+            checks_done_at_land = self.accept_land_proof(checks_done_at_land, source)
         if not info["build"] and command in ("release", "build"):
             print(info["reason"] + "; nothing published.", flush=True)
             return
-        self.preflight()
+        with self.phase("preflight"):
+            self.preflight()
         if command == "check":
             if runtime or (self.state / "runtime").exists():
-                self.runtime(runtime)
+                with self.phase("runtime-verify"):
+                    self.runtime(runtime)
             print("Preflight passed. No release was triggered or published.", flush=True)
+            self.summary()
             return
         if command not in ("release", "build"):
             raise ValueError("only build, release or publish may build or publish")
-        self.runtime(runtime)
-        self.gates()
+        with self.phase("runtime-verify"):
+            self.runtime(runtime)
+        self.gates(checks_done_at_land)
         # Capture the UTC date at allocation, even if checks crossed midnight.
-        plan_path, info = self.plan(force)
+        with self.phase("plan-recheck"):
+            plan_path, info = self.plan(force)
         if not info["build"]:
             print(info["reason"] + "; nothing published.", flush=True)
             return
+        if checks_done_at_land:
+            # Into the plan, because nightly.py copies the plan verbatim into the
+            # candidate's `build-info.json` and its committed provenance. A skip recorded
+            # only in a log lives on this Mac; a skip recorded here travels with the
+            # candidate to whoever walks it.
+            info = {**info, "checks_done_at_land": checks_done_at_land,
+                    "checks_skipped": [LAND_PROVEN_GATE]}
+            plan_path.write_text(json.dumps(info, indent=2) + "\n")
         out = self.state / "releases" / info["tag"]
         if command == "release":
-            print(f"Building and publishing {info['tag']}...", flush=True)
+            self.announce(f"Building and publishing {info['tag']}...")
             # The publisher builds, signs, notarizes and signs the updater manifest; it is
             # the one step that reads these variables out of its environment
             # (make-release.sh:359 and its notarize_env at :410).
-            self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
-                         "--plan", plan_path, "--out", out, credentials=True)
+            with self.phase("build"):
+                self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
+                             "--plan", plan_path, "--out", out, credentials=True)
             print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}", flush=True)
+            self.summary()
             return
         # command == "build": stop at the signed, notarized, engine-pinned candidate.
-        print(f"Building {info['tag']}...", flush=True)
-        self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "build",
-                     "--plan", plan_path, "--out", out, credentials=True)
+        self.announce(f"Building {info['tag']}...")
+        with self.phase("build"):
+            self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "build",
+                         "--plan", plan_path, "--out", out, credentials=True)
         candidate_info = json.loads((out / "candidate.json").read_text())["info"]
         self.record_run(self.env["RICHOS_NIGHTLY_RUN_ID"], out)
+        self.summary()
         print("", flush=True)
         self.print_candidate(candidate_info, out)
 
@@ -446,9 +738,15 @@ def main():
     parser.add_argument("--runtime-dir", type=Path, help="existing verified runtime cache")
     parser.add_argument("--force", action="store_true", help="explicitly rebuild a previously released source")
     parser.add_argument("--run", help="an existing build's run id (required for publish/candidate)")
+    parser.add_argument("--checks-done-at-land", metavar="SHA",
+                        help="skip the one gate a land already ran on this exact commit "
+                             "(cargo test -p richos-core); refused unless SHA is the sha "
+                             "this run fetches")
     args = parser.parse_args()
     if args.command in ("publish", "candidate") and not args.run:
         parser.error(f"{args.command} requires --run <run-id> (see the output of a prior `build`)")
+    if args.checks_done_at_land and args.command not in ("build", "release"):
+        parser.error("--checks-done-at-land only means anything for build or release")
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("local nightly releases currently require an Apple Silicon Mac")
     os.umask(0o077)
@@ -459,10 +757,10 @@ def main():
         logs.mkdir(exist_ok=True)
         log_path = logs / (env["RICHOS_NIGHTLY_RUN_ID"] + ".log")
         print(f"Run log: {log_path}", flush=True)
-        with log_path.open("w") as log:
+        with TimestampedLog(log_path, BUILD_MILESTONES) as log:
             Runner(args.repo.resolve(), state, env, log, credentials).perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None,
-                args.run)
+                args.run, args.checks_done_at_land)
 
 
 if __name__ == "__main__":

@@ -941,13 +941,26 @@ fi
 
 # ---------------------------------------------------------------------------------------
 # Z — the instance is closed when the test ends (CEO §54 addendum 4)
+#
+# BY PID, AND NEVER BY A COMMAND KEYSTROKE. Until 2026-09-19 this line was
+#
+#   osascript -e 'tell application "System Events" to tell (first process whose unix id
+#                 is $PID) to keystroke "q" using command down'
+#
+# and on that day it quit the CEO's Terminal. The `tell process` wrapper reads as though
+# it addresses the keystroke, and it does not: System Events' `keystroke` is delivered to
+# whatever application is FRONTMOST at that instant, whatever process the enclosing block
+# names. Every other osascript in this file addresses an ELEMENT of the process (line 418's
+# own note), which genuinely is targeted; a keystroke is the one form that is not. So a
+# run whose window had lost the front -- the app already gone, a Space switch, anything at
+# all -- sent ⌘Q to a bystander. `send_key` (line 644) is the same shape and is safe only
+# because Escape and Return do nothing to a bystander; a Command chord is never safe.
+#
+# `gui_kill` is TERM, then KILL, then proof that the pid is gone (lib/gui-launch.sh:513).
+# It cannot reach a process this run did not start, which is the whole property wanted
+# here. The app's own Quit path is exercised by gui-boot.test.sh, from its own harness.
 # ---------------------------------------------------------------------------------------
-osascript -e "tell application \"System Events\" to tell (first process whose unix id is $PID) to keystroke \"q\" using command down" >/dev/null 2>&1
-sleep 3
-if kill -0 "$PID" 2>/dev/null; then
-  note "Z   its own Quit did not end it; sending a signal"
-  gui_kill "$PID" >/dev/null 2>&1
-fi
+gui_kill "$PID" >/dev/null 2>&1
 if kill -0 "$PID" 2>/dev/null; then
   bad "Z   pid $PID SURVIVED both signals — there is a window of this test still on his screen"
 else
