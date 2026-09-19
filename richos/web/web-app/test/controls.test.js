@@ -40,6 +40,26 @@ test('the voice control ships HIDDEN, so a Mac that says nothing shows nothing',
 	assert.match(note[0], /\shidden[\s>]/, `the note under the hold control ships visible: ${note[0]}`);
 });
 
+test('the empty state does not point at the button either, unless that button is on screen', () => {
+	// Ray, candidate .11, §4.4: the first thing in an empty thread read "Nothing here yet. Write
+	// to Rich, or hold the button and speak." on a phone whose composer is a text field and a Send
+	// button. Same defect class as the control itself — a sentence the Mac cannot stand behind —
+	// one sentence further down the screen.
+	const empty = appJs.match(/p\.textContent = streamIsOpen\(\)[\s\S]*?;\n/);
+	assert.ok(empty, 'the empty state is gone from app.js');
+	assert.match(empty[0], /canSpeak/, 'the empty state names the hold control unconditionally again');
+
+	// And it reads the screen rather than deciding a second time. `applyCapabilities` stays the one
+	// decider; if this asked `api.offers('voice')` itself, the sentence and the control could
+	// disagree for one repaint, and the sentence would be the one that was wrong.
+	assert.match(appJs, /const canSpeak = !\$\('hold'\)\.hidden;/,
+		'the empty state decides for itself whether the control exists, instead of looking at it');
+
+	// Both sentences still exist, and the one without the button is a complete instruction.
+	assert.match(appJs, /'Nothing here yet\. Write to Rich, or hold the button and speak\.'/);
+	assert.match(appJs, /'Nothing here yet\. Write to Rich\.'/);
+});
+
 test('the stylesheet honors `hidden` on both halves — the attribute is only as good as the CSS', () => {
 	// This file sets `display` per class rather than relying on a global `[hidden]` rule, so an
 	// element whose class sets a display and whose `[hidden]` rule is missing stays on screen.

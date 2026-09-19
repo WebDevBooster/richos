@@ -454,8 +454,24 @@ function render(forceBottom) {
 		empty.className = 'msg msg-rich';
 		const p = document.createElement('p');
 		p.className = 'msg-text';
+		// **THE SENTENCE NAMES WHAT IS ON SCREEN, AND IT READS THE SCREEN TO FIND OUT.**
+		//
+		// It used to say "or hold the button and speak" unconditionally, on a phone whose composer
+		// is a text field and a Send button and nothing else (Ray, candidate .11, §4.4). The
+		// control it names is hidden unless the Mac's `hello` lists `voice` in `capabilities`, and
+		// this build's Mac answers every voice note 503 and advertises `["text"]`
+		// (`app/src-tauri/src/phone/routes.rs` `CAPABILITIES`) — so the sentence pointed at
+		// something that was never going to be there.
+		//
+		// It asks `hold.hidden` rather than `api.offers('voice')` on purpose. `applyCapabilities`
+		// stays the ONE place that decides whether the control is on screen (`test/controls.test.js`
+		// holds that property); this reads the answer rather than deciding it a second time, so the
+		// sentence cannot disagree with the screen it is describing.
+		const canSpeak = !$('hold').hidden;
 		p.textContent = streamIsOpen()
-			? 'Nothing here yet. Write to Rich, or hold the button and speak.'
+			? (canSpeak
+				? 'Nothing here yet. Write to Rich, or hold the button and speak.'
+				: 'Nothing here yet. Write to Rich.')
 			: 'Nothing here yet. When your Mac is reachable, this is where the conversation appears.';
 		empty.appendChild(p);
 		list.appendChild(empty);
