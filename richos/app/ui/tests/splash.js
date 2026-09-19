@@ -3375,6 +3375,16 @@ async function main() {
     });
     assert(held.present, "the curtain was gone before the space key landed — a harness fault, not a product one");
     assert(held.paused, "space did not hold the screen");
+    // AND THE KEYSTROKE DID NOTHING ELSE, which is what `preventDefault` + `stopPropagation`
+    // are there for and is invisible from the curtain alone. The app behind this curtain is
+    // live and focused from its first frame: `main.js` focuses the composer, and the home
+    // screen's own door (`#home-enter`, "Talk to Rich") is a focusable button — a space that
+    // was not consumed would have paused the opening screen AND typed a character, or pressed
+    // the door behind it. The home screen still being open is that claim, measured.
+    assert(
+      await page.evaluate(() => !!(window.RichHome && window.RichHome.isOpen())),
+      "the space that held the opening screen also went through to the app behind it — the home screen is gone"
+    );
     assertEqual(held.pauses, 1, "one press, one hold");
     assertEqual(held.reason, null, "space DISMISSED the screen instead of holding it");
     assert(held.klass, "the composition is not carrying `splash--paused`, so `splash.css` cannot have stopped anything");
@@ -3793,6 +3803,28 @@ async function main() {
 //                          an assertion, and this is what says it can.
 //  23   splash-library.js  `tagline` back to the trim the round-8.1 sources set it in —
 //                          2.65:1 against a 4.5:1 floor, the failure the lift fixed
+//
+// THE §62 SEVEN — 2026-09-19, and the mutation is the WHOLE FEATURE rather than one edit.
+// Checks 25-25g were run against the shipped renderer as it stood at `f918f185`, with this
+// file exactly as it is now: `app/ui/splash.js` and `app/ui/splash.css` restored to that
+// commit, everything else on the branch. All seven were RED, each on its own subject and
+// none on a missing file or a thrown reference:
+//
+//  25   `§62: the running opening screen must not carry a settings button` — expected
+//       "none", actual "flex". The button was there for the whole three seconds
+//  25b  `space did not hold the screen`
+//  25c  `the first press did not hold it, so the second proves nothing`
+//  25d  `the screen was not held, so this is not §62's state`
+//  25e  `running · a key: it dismissed but is still reporting itself held` — the surface
+//       had no `state.paused` to report
+//  25f  `an untouched launch reports having been held` — same reading, absent
+//  25g  `dark: the screen was not held, so the button is not on it`
+//
+// AND CHECK 22's REWRITTEN LEG 1 WITH THEM, which is the point of attributing the call
+// sites rather than counting them: `expected ["start","tick","unpause"] / actual
+// ["start","tick"]`. `appearance.js` 5 and 6 were red in the same pass — "the RUNNING
+// opening screen must not carry a settings button" and "space did not hold the opening
+// screen" — which is the other half of this ruling and lives in that file.
 // ---------------------------------------------------------------------------------------
 
 main().then(
