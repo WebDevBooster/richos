@@ -2553,6 +2553,114 @@ async function main() {
     return "floor " + RADIO_FLOOR + ":1, measured off the painted control — " + lines.join("; ");
   });
 
+  await run.check("16b  every checkbox paints its own indicator too — the half check 16 did not cover", async () => {
+    // RAY'S CANDIDATE .11 WALK, DEFECT 3.6. Check 16 above fixed the radios and this file said
+    // nothing about the checkboxes beside them, so they stayed the bare native control and the
+    // next walk found them. His measurement, and it is the same instrument this check uses:
+    //
+    //     "Their pixels are byte-identical in light and dark (the same 60 px of rgb(255,255,255),
+    //      18 of (252,252,252), 16 of (209,209,209), 6 of (188,188,188) in both captures) — this
+    //      is the unstyled native control."
+    //     LIGHT unchecked border #bcbcbc on #fdfcf8 = 1.85:1, against a 3:1 floor.
+    //     DARK  the same white box on the navy panel renders as a SOLID FILLED WHITE SQUARE,
+    //           which reads as CHECKED. His positive control: he checked "Show it" and it became
+    //           a blue box with a white tick, while the still-unchecked "Show it when RichOS
+    //           starts" stayed a solid white square. So the unchecked state was the more
+    //           prominent of the two and the panel read backwards.
+    //
+    // THREE ASSERTIONS, BECAUSE THE RATIO ALONE CALLED THE WORSE DEFECT FINE (15.38:1):
+    //   1. the ratio, in both themes, both states, against 3:1;
+    //   2. the FILL — a checked box carries strictly more of its own ink than an unchecked one,
+    //      which is what "checked" has always looked like and what survives grayscale;
+    //   3. THE THEMES DIFFER. A control whose crop is byte-identical in light and dark is a
+    //      control nothing in this app is painting, whatever its ratio says. That is the one
+    //      assertion that would have caught this defect as it shipped.
+    const BOX_FLOOR = 3;
+    const lines = [];
+    const crops = {};
+    for (const theme of ["light", "dark"]) {
+      const page = await openApp(browser, theme);
+      await page.click('.nav-thread[data-thread-id="hiring"]');
+      await settleOnThread(page, "hiring");
+      await page.click("#rail-settings");
+      await page.waitForSelector("#assertiveness-popover:not([hidden])");
+      await awaitSettled(page);
+
+      // ONE CHECKED AND ONE UNCHECKED BOX, IN THE SAME PANEL IN THE SAME FRAME — which is
+      // exactly the comparison Ray made by eye, and it needs no clicking at all: the splash
+      // switch ships ON and the technical view ships OFF, so opening the popover puts both
+      // states side by side. Nothing is toggled here deliberately: checking `#techy-default`
+      // opens the three-way scope sheet OVER this panel, and measuring a control through a
+      // modal is measuring the modal.
+      const boxes = await page.evaluate(() =>
+        ["splash-enabled", "techy-default"].map((id) => {
+          const node = document.getElementById(id);
+          const r = node.getBoundingClientRect();
+          return { id: id, checked: node.checked, x: r.x, y: r.y, w: r.width, h: r.height };
+        })
+      );
+      assert(
+        boxes.length === 2 && boxes[0].checked && !boxes[1].checked,
+        "the panel is not showing one checked and one unchecked box: " + JSON.stringify(boxes)
+      );
+
+      const measured = [];
+      for (const b of boxes) {
+        // The same three-pixel skirt check 16 uses, so the ground is READ off the panel rather
+        // than assumed, and the two checks are the same instrument.
+        const buf = await page.screenshot({
+          clip: {
+            x: Math.floor(b.x - 3),
+            y: Math.floor(b.y - 3),
+            width: Math.ceil(b.w + 6),
+            height: Math.ceil(b.h + 6),
+          },
+        });
+        crops[theme + ":" + b.id] = buf.toString("base64");
+        measured.push(Object.assign({ theme: theme }, C.measureIndicatorCrop(buf), { id: b.id, checked: b.checked }));
+      }
+
+      for (const m of measured) {
+        assert(
+          m.ratio >= BOX_FLOOR,
+          theme + ": the " + (m.checked ? "checked" : "unchecked") + " checkbox (" + m.id +
+            ") paints " + m.ink + " on " + m.ground + " = " + m.ratio + ":1, under the " +
+            BOX_FLOOR + ":1 floor a non-text indicator owes. Ray measured this shape at 1.85:1."
+        );
+      }
+      const on = measured.find((m) => m.checked);
+      const off = measured.find((m) => !m.checked);
+      assert(
+        on.inkSamples > off.inkSamples,
+        theme + ": the CHECKED box carries " + on.inkSamples + " samples of its own ink and the " +
+          "unchecked one carries " + off.inkSamples + ". The unchecked control is at least as " +
+          "filled as the checked one, so the panel reads backwards — which is defect 3.6's " +
+          "dark-mode half, and it passed its RATIO at 15.38:1."
+      );
+      lines.push(
+        theme + ": checked " + on.ratio + ":1 (" + on.inkSamples + " samples) vs unchecked " +
+          off.ratio + ":1 (" + off.inkSamples + ")"
+      );
+      await page.close();
+    }
+
+    // 3. THE THEMES DIFFER. Ray's own evidence that the control was unstyled was that its
+    // pixels were the same in both. A theme-aware control cannot be.
+    for (const id of ["techy-default", "splash-enabled"]) {
+      assert(
+        crops["light:" + id] !== crops["dark:" + id],
+        "the " + id + " checkbox paints byte-identical pixels in light and dark. That is not a " +
+          "ratio failure, it is the proof that nothing in this app is painting the control — " +
+          "which is how defect 3.6 shipped past a green contrast run."
+      );
+    }
+
+    return (
+      "floor " + BOX_FLOOR + ":1, measured off the painted control — " + lines.join("; ") +
+      "; and both themes' crops differ, which the native control's never did."
+    );
+  });
+
   await run.check("17  the technical view's own labels, DECLARED and RENDERED — the surface walk sees neither", async () => {
     // AUDIT-10 ROW 4, AND TWO REASONS THIRTY-NINE GREEN SURFACES DID NOT HOLD IT.
     //
