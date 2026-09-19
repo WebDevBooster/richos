@@ -1,0 +1,11 @@
+{
+  "build": true,
+  "version": "1.2.0-nightly.20260919.1",
+  "tag": "v1.2.0-nightly.20260919.1",
+  "source_commit": "a08cc7888e9bb77ca93011515c3f7b0cdb7b59dd",
+  "created_at": "2026-09-19T02:51:01.134340+00:00",
+  "run_id": "20260919T024236Z-99cb823a",
+  "run_attempt": "1",
+  "channel": "nightly",
+  "platform": "darwin-aarch64"
+}
