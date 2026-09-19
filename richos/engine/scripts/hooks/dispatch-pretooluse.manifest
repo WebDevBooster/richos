@@ -42,3 +42,4 @@ Write|scan-secrets.sh
 Write|guard-publication-writes.sh
 Write|guard-named-persons-writes.sh
 Write|guard-dialect.sh
+Write|guard-no-home-network-phone.sh

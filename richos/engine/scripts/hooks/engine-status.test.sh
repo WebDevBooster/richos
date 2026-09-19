@@ -733,7 +733,33 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # a person deleting it by hand after the operating system shouted. It resolves
 # no entity root, so it is declared in the probe's R_ROOTLESS_HOOKS; suite:
 # session-start-scratch.test.sh (9 cases, four of them silence).
+# notice-disk-alert.sh, ADDED 2026-09-19 — SessionStart, refuses nothing, and
+# the CEO's own §54: when the disk falls below the declared DISK_CEO_NOTIFY_GB
+# it tells him at session start and keeps telling him until the space is back,
+# because a cleanup that failed must reach a person rather than a log. IT WAS
+# WIRED WITHOUT BEING ADDED HERE, and case 1b has been RED on main ever since:
+# 74 registered against 73 acknowledged. Nothing noticed, because
+# hook-registration-completeness.sh only evaluates this file's unanimity when a
+# NEW hook script appears — so the first person to add a hook inherits it, and
+# on 2026-09-19 that was the §61 home-network guard, whose commit the
+# completeness predicate refused fail-closed until this line existed.
+# guard-no-home-network-phone.sh, ADDED 2026-09-19 — BLOCKING, and the first
+# RULE on BOTH surfaces: PreToolUse[Agent] in hooks.json and the Write chain's
+# manifest, because ceo-decisions §61's addendum names "any brief, code write
+# or spawn". It refuses a text that ties the phone surface to a home-network
+# path unless a `ceo-ruled-home-network:` citation RESOLVES against
+# wiki/ceo-decisions.md. §61 ruled on 2026-09-18 that a mobile app is for
+# outside the home network; three briefs on 2026-09-19 kept the "At home only"
+# route anyway and one invented a ruling to justify it, and he asked how many
+# more times it would happen. Measured over 269 real briefs and spawn prompts:
+# 7 refused, all of them home-path work. Suite:
+# guard-no-home-network-phone.test.sh (48 cases); harness:
+# home-network-phone.mutation.sh (12 properties). It appears TWICE in the
+# probe's BR_EXPECTED, once per registration, and is deliberately absent from
+# Layer M's single-registration list.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+guard-no-home-network-phone.sh
+notice-disk-alert.sh
 left-off-report.sh
 guard-brief-scope.sh
 guard-hook-registration-commits.sh

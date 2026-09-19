@@ -191,6 +191,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-brief-scope.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/guard-no-home-network-phone.sh",
+            "timeout": 20
           }
         ]
       },

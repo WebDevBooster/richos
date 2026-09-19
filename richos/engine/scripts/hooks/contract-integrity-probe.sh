@@ -1147,6 +1147,13 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # listed here individually: BR2's parse expands the dispatcher into them, so
     # a rule deleted from the manifest arrives here as NOT registered, exactly as
     # a rule deleted from hooks.json used to.
+    #
+    # guard-no-home-network-phone.sh appears TWICE for the same reason and a
+    # different one: it is the first RULE registered on BOTH surfaces — once
+    # under `Agent` in hooks.json, once in the Write chain's manifest — because
+    # the ruling it carries (ceo-decisions §61) names "any brief, code write or
+    # spawn". A brief and code are Writes; a dispatch is an Agent call. It is
+    # therefore deliberately NOT in the single-registration list below.
     BR_EXPECTED="\
 engine-status.sh|SessionStart
 workspace-lifecycle.sh|SessionStart
@@ -1173,6 +1180,8 @@ scan-secrets.sh|PreToolUse
 guard-publication-writes.sh|PreToolUse
 guard-named-persons-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
+guard-no-home-network-phone.sh|PreToolUse
+guard-no-home-network-phone.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 dispatch-pretooluse.sh|PreToolUse

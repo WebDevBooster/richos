@@ -384,27 +384,102 @@ fi
 # settings.json era, when two surfaces both registered the same hook and "every
 # hook fired TWICE per matching tool event". A rule that is BOTH a dispatcher
 # module AND its own registration rebuilds that bug inside one surface.
-DOUBLE=""
-REGISTERED="$(python3 - "$HOOKS_JSON" <<'PY'
+#
+# THE TEST IS ABOUT TOOL EVENTS, NOT ABOUT NAMES — CORRECTED 2026-09-19.
+# It used to flag any module whose basename also appeared anywhere in
+# hooks.json, which was EXACT for as long as every separately-registered hook
+# sat on `Bash`, on the Write matcher, or on the empty one. It is not exact in
+# general: guard-no-home-network-phone.sh is a Write-chain module and is also
+# registered on `Agent`, because the ruling it carries (§61) names "any brief,
+# code write or spawn" — a brief and code are Writes, a dispatch is an Agent
+# call. Those two matchers are DISJOINT, so no tool event reaches it twice and
+# there is no double execution to find.
+#
+# So the comparison is between MATCHER SETS. A module is flagged when one of
+# its own registrations covers a tool its chain already covers — including the
+# EMPTY matcher, which governs every tool and therefore overlaps everything.
+# That is the property the regression was about, and it is now checked rather
+# than approximated. A same-matcher double still fails: the negative control
+# below plants one.
+overlap_report() {   # <hooks.json> <manifest> -> one line per offending module
+    python3 - "$1" "$2" <<'PY'
 import json, re, sys
-d = json.load(open(sys.argv[1]))
-out = set()
-for entries in d.get("hooks", {}).values():
+hooks_json, manifest = sys.argv[1:3]
+
+CHAIN_TOOLS = {
+    "Bash":  {"Bash"},
+    "Write": {"Write", "Edit", "MultiEdit", "NotebookEdit"},
+}
+UNIVERSAL = object()
+
+modules = {}   # basename -> set of chain keys it is a module of
+for line in open(manifest, encoding="utf-8"):
+    line = line.strip()
+    if not line or line.startswith("#") or "|" not in line:
+        continue
+    key, name = line.split("|", 1)
+    key, name = key.strip(), name.strip()
+    if key in CHAIN_TOOLS:
+        modules.setdefault(name, set()).add(key)
+
+d = json.load(open(hooks_json, encoding="utf-8"))
+own = {}   # basename -> list of matcher tool-sets it is registered under
+for entries in (d.get("hooks") or {}).values():
     for entry in entries:
+        matcher = entry.get("matcher", "")
+        tools = UNIVERSAL if not str(matcher).strip() else {
+            t.strip() for t in str(matcher).split("|") if t.strip()}
         for h in entry.get("hooks", []) or []:
-            for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)", h.get("command", "") or ""):
-                out.add(m)
-print("\n".join(sorted(out)))
+            for m in re.findall(r"scripts/hooks/([A-Za-z0-9._+-]+\.sh)",
+                                h.get("command", "") or ""):
+                own.setdefault(m, []).append(tools)
+
+for name in sorted(modules):
+    chain_tools = set()
+    for key in modules[name]:
+        chain_tools |= CHAIN_TOOLS[key]
+    for tools in own.get(name, []):
+        if tools is UNIVERSAL:
+            print("%s (registered on the EMPTY matcher, which governs every tool, "
+                  "while also a %s-chain module)"
+                  % (name, "/".join(sorted(modules[name]))))
+            break
+        clash = tools & chain_tools
+        if clash:
+            print("%s (registered on %s, which its own chain already covers)"
+                  % (name, "|".join(sorted(clash))))
+            break
 PY
-)"
-for m in $SHIPPED_MODULES; do
-    printf '%s\n' "$REGISTERED" | grep -qxF "$m" && DOUBLE="$DOUBLE $m"
-done
-if [ -z "$DOUBLE" ]; then
-    ok "D19 no rule is BOTH a dispatcher module and its own registration (no double execution)"
+}
+
+DOUBLE="$(overlap_report "$HOOKS_JSON" "$MANIFEST" | tr '\n' ' ')"
+if [ -z "${DOUBLE// /}" ]; then
+    ok "D19 no rule is registered on a tool its own dispatcher chain already covers (no double execution)"
 else
-    bad "D19 no rule is BOTH a dispatcher module and its own registration — DOUBLED:$DOUBLE"
+    bad "D19 no rule is registered on a tool its own dispatcher chain already covers — DOUBLED: $DOUBLE"
 fi
+
+# D19z NEGATIVE CONTROL. D19 can only be trusted if it still fails on the thing
+# it was written for, and the correction above widened what it accepts — so the
+# same-matcher double is planted here and must be caught.
+D19Z_DIR="$(mktemp -d -t d19z.XXXXXX)"
+python3 - "$HOOKS_JSON" "$D19Z_DIR/hooks.json" <<'PY'
+import json, sys
+src, dst = sys.argv[1:3]
+d = json.load(open(src, encoding="utf-8"))
+d.setdefault("hooks", {}).setdefault("PreToolUse", []).append({
+    "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+    "hooks": [{"type": "command",
+               "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-dialect.sh",
+               "timeout": 20}]})
+json.dump(d, open(dst, "w", encoding="utf-8"))
+PY
+if overlap_report "$D19Z_DIR/hooks.json" "$MANIFEST" | grep -q 'guard-dialect.sh'; then
+    ok "D19z NEGATIVE CONTROL: a module re-registered on its OWN chain's matcher is still caught"
+else
+    bad "D19z NEGATIVE CONTROL: a module re-registered on its OWN chain's matcher was NOT caught"
+fi
+rm -rf "$D19Z_DIR"
 
 WIRED_KEYS="$(python3 - "$HOOKS_JSON" <<'PY'
 import json, re, sys

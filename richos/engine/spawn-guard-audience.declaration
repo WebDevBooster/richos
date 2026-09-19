@@ -123,6 +123,10 @@ id: guard-owned-state.sh
 audience: operator-session
 reason: It refuses a dispatch while a standing system the DEVELOPMENT session's orchestrator owns the health of is known-bad, and both of its ways out — put somebody on the problem, or write an acknowledgement line into the spawn prompt — are things only an operator can do. This is the one that was measured refusing the app's own dispatch over a paused continuous-integration run on 2026-09-18.
 
+id: guard-no-home-network-phone.sh
+audience: operator-session
+reason: It refuses a dispatch that ties a phone surface to a home-network path, and both halves of that are the DEVELOPMENT project's own — the rule is one CEO's ruling about one product's phone flow, and the only way through is a citation that must resolve against a section of THAT record. An app user could be building a mobile app whose home-network feature is entirely correct for them, and they have no ceo-decisions.md to cite and no section number that would mean anything if they did.
+
 id: guard-brief-scope.sh
 audience: operator-session
 reason: It refuses a dispatch that drifts off a design-round specification recorded in the DEVELOPMENT project, and its spec pages, round verdict history and CEO-word escape line are all conventions of that session; it was silent on a user's own repository only because a user's repository happens to carry no such record.
