@@ -28,6 +28,12 @@ Each arm: 1024x700 (the app's own minimum, and the size it restores itself to) a
 and in light. `before-measurements.json` and `after-measurements.json` carry the geometry read out of
 the same page in the same instant as each frame.
 
+The lighting is **stated**, with the harness's own `SEED_THEME`, and each frame re-reads
+`data-theme` after boot and refuses to be saved under a name it is not painting. CEO §63 made the
+shipped default preference `system`, so a frame that said nothing would follow whatever this
+machine's browser context happened to be — which is exactly how a record changes palette without
+anyone deciding.
+
 ## The three numbers
 
 | | before (`f918f185`) | after | the CEO asked for |
@@ -84,6 +90,38 @@ username:
 `mock.js`'s own fixture companies (Northwind Traders, Lumen Labs, Harbor Analytics, Meridian Group,
 Tidewater Films, Kestrel Supply) with `user_name: null`, in a headless browser with no access to the
 operator's machine state. The frames carry no name, no path and no address.
+
+## Why no committed `shots-*` PNG was regenerated on this branch
+
+The settings button is on **every** screen, so a full `node run.js` rewrites about **125** of the
+committed reference PNGs under `app/ui/tests/shots-*/`. None of them is a failure — a changed shot
+prints a `shot changed:` notice and the suite still exits 0 — and all 53 suites are green on this
+branch with the committed shots in place.
+
+**They are not all this branch's doing, and that was measured rather than assumed.** With ONLY the
+pre-fix stylesheet restored on an otherwise identical tree, a full pass was taken and compared
+against the committed bytes:
+
+```
+125 committed shots differ after a full pass on this branch
+ 39 of those 125 ALSO differ with the pre-fix stylesheet restored — drift that predates this work
+ 86 differ only because the chrome moved
+```
+
+The 39 are `shots-5b` (12), `shots-26` (5), `shots-updates` (4), `shots-splash` (4), `shots-home` (3),
+`shots-contrast` (6), `shots-5c`/`shots-5d` (4) and `shots-10-1/10-1-start-screen-always-dark.png`.
+Some of that is the run-to-run drift this directory's own README already tabulates (`shots-home/*`,
+`shots-splash/*`, the start screen); the corrections desk is not in that table and is the largest —
+`shots-5b/5b-02-two-asks-waiting.png` differs by **4.63%** of its pixels with the pre-fix stylesheet
+in place, in a 718x637 box that is the desk panel itself, and it is **byte-identical across two
+consecutive runs**, so it is a stale reference rather than a flake.
+
+So committing the regenerated set would have carried three other branches' drift in under this one's
+name, at the same time as two other in-flight branches (`theme1`, and the §62 splash work) are
+rewriting shots of their own. **A whole-directory shot refresh is one deliberate pass on main after
+the in-flight shot-touching branches land, and this branch is not it.** What is on record instead is
+this directory: eight frames whose numbers are the CEO's three, and the count above for whoever runs
+that pass.
 
 ## Not in scope, found while measuring
 

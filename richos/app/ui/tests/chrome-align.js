@@ -56,6 +56,7 @@ const {
   createRun,
   assert,
   assertEqual,
+  SEED_THEME,
   UI_DIR,
 } = require("./lib/harness");
 
@@ -125,29 +126,37 @@ async function openApp(browser, viewport, theme, scale) {
   });
   page.__errors = errors;
   await page.addInitScript(BRIDGE_OVERRIDES);
-  if (theme || scale) {
-    // Seeded the way `contrast.js` documents at length: the STORE decides, the mirror is a
-    // cache the backend reconciles, so BOTH are written or the backend's answer overrules the
-    // seed a few hundred milliseconds after boot. Geometry does not depend on the palette; the
-    // TEXT SCALE is seeded here rather than set afterwards because `main.js`'s `autoGrow()`
-    // writes the field's height inline and is not re-run when the scale changes — see the
-    // 120% check for what that costs and for the measurement behind this sentence.
-    await page.addInitScript(
-      (a) => {
+  // THE TEXT SCALE IS SEEDED BEFORE THE THEME AND THAT ORDER IS LOAD-BEARING: `SEED_THEME`
+  // merges into `richos-mock-config` and only defaults `font_scale` when it finds none, so a
+  // scale written first survives it and a scale written after would be the one that survives
+  // — either way one of them has to know about the other, and this is the order the helper
+  // was written for.
+  //
+  // IT IS SEEDED AT BOOT RATHER THAN SET AFTERWARDS because `main.js`'s `autoGrow()` writes
+  // the field's height inline and is not re-run when the scale changes; see the 120% check.
+  if (scale && scale !== 100) {
+    await page.addInitScript((s) => {
+      try {
+        window.localStorage.setItem("richos-font-scale", String(s));
+        let prev = {};
         try {
-          window.localStorage.setItem("richos-theme", a.theme);
-          window.localStorage.setItem("richos-font-scale", String(a.scale));
-          window.localStorage.setItem(
-            "richos-mock-config",
-            JSON.stringify({ theme: a.theme, font_scale: a.scale, user_name: null })
-          );
+          prev = JSON.parse(window.localStorage.getItem("richos-mock-config")) || {};
         } catch (e) {
-          /* storage unavailable: theme-boot falls back to the shipped default, which is dark */
+          prev = {};
         }
-      },
-      { theme: theme || "dark", scale: scale || 100 }
-    );
+        prev.font_scale = s;
+        window.localStorage.setItem("richos-mock-config", JSON.stringify(prev));
+      } catch (e) {
+        /* storage unavailable: the default scale applies and the check below says so */
+      }
+    }, scale);
   }
+  // THIS SUITE STATES ITS LIGHTING EVEN THOUGH IT PHOTOGRAPHS NOTHING AND ASSERTS NO COLOR.
+  // Since CEO §63 the shipped default preference is `system`, which resolves against the
+  // browser context's `colorScheme` — so "said nothing" now means "followed the host". None of
+  // the geometry below depends on the palette, and a check that has never been run in a stated
+  // lighting cannot say that; this is how it gets to.
+  await page.addInitScript(SEED_THEME, theme || "dark");
   await page.goto(APP);
   await leaveHome(page);
   await page.waitForFunction("typeof window.RichTimeline === 'object'");
