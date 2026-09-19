@@ -1,0 +1,98 @@
+{
+  "jobs": 3,
+  "seconds": 56,
+  "run_id": "20260919T194217Z-gatesonly",
+  "commit": "4c0433987be2751656e6ca91442798745c214fff",
+  "suites": [
+    {
+      "name": "front-door.test.sh",
+      "state": "notrun",
+      "seconds": 0,
+      "where": "host",
+      "reason": "no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+    },
+    {
+      "name": "frontend-payload.test.sh",
+      "state": "passed",
+      "seconds": 0,
+      "where": "host"
+    },
+    {
+      "name": "gui-boot.test.sh",
+      "state": "notrun",
+      "seconds": 0,
+      "where": "host",
+      "reason": "no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+    },
+    {
+      "name": "make-engine-asset.test.sh",
+      "state": "skipped",
+      "seconds": 0,
+      "where": "host",
+      "inputs_sha256": "2e21033f43a3465c9357700c9ef24829b9168214967fda5d3dbe03408a43a3fa",
+      "reason": "inputs unchanged since run 20260919T193842Z-gatesonly (sha256 2e21033f43a3465c9357700c9ef24829b9168214967fda5d3dbe03408a43a3fa)"
+    },
+    {
+      "name": "make-release.test.sh",
+      "state": "skipped",
+      "seconds": 0,
+      "where": "host",
+      "inputs_sha256": "cac77438aca0cc1889fe79892d3dd753e67d947cb3005539ee231f9853b05dc9",
+      "reason": "inputs unchanged since run 20260919T193842Z-gatesonly (sha256 cac77438aca0cc1889fe79892d3dd753e67d947cb3005539ee231f9853b05dc9)"
+    },
+    {
+      "name": "nightly-local.test.sh",
+      "state": "passed",
+      "seconds": 1,
+      "where": "host"
+    },
+    {
+      "name": "nightly.test.sh",
+      "state": "passed",
+      "seconds": 38,
+      "where": "host"
+    },
+    {
+      "name": "no-compile-time-paths.test.sh",
+      "state": "passed",
+      "seconds": 2,
+      "where": "host"
+    },
+    {
+      "name": "package-app.test.sh",
+      "state": "passed",
+      "seconds": 4,
+      "where": "host"
+    },
+    {
+      "name": "rebuild-survival.test.sh",
+      "state": "passed",
+      "seconds": 1,
+      "where": "host"
+    },
+    {
+      "name": "run-tests.test.sh",
+      "state": "passed",
+      "seconds": 10,
+      "where": "host"
+    },
+    {
+      "name": "signing-setup.test.sh",
+      "state": "passed",
+      "seconds": 4,
+      "where": "host"
+    },
+    {
+      "name": "updater-setup.test.sh",
+      "state": "passed",
+      "seconds": 41,
+      "where": "host"
+    },
+    {
+      "name": "voice-component.test.sh",
+      "state": "passed",
+      "seconds": 43,
+      "where": "host"
+    }
+  ]
+}
