@@ -41,9 +41,52 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
 
-/// The Keychain service every item of this feature is filed under. One service, so
-/// "forget everything" is an enumerable set rather than a list somebody has to keep in step.
+/// The Keychain service every item of this feature is filed under, **before the app-data
+/// directory is folded in**. One service prefix, so "forget everything" is an enumerable set
+/// rather than a list somebody has to keep in step.
+///
+/// **NOTHING IS FILED UNDER THIS NAME ANY MORE, AND THAT IS THE POINT** — see [`service_for`].
 pub const SERVICE: &str = "com.richos.app.phone-channel";
+
+/// **THE SERVICE NAME FOR ONE INSTALL, DERIVED FROM THE DIRECTORY THAT INSTALL KEEPS ITS DATA
+/// IN** — Ray's nightly `.7` walk, defect 4, and a standing CEO rule rather than a nicety.
+///
+/// # What went wrong, stated plainly
+///
+/// The service name used to be [`SERVICE`] and nothing else, for every launch of this app on
+/// this machine. A launch under a scratch `HOME` therefore wrote its test keys into the
+/// **same Keychain item** the CEO's real app uses, because `/usr/bin/security` files by
+/// service and account and knows nothing about `HOME`. That is exactly what happened: QA
+/// fixture homes carrying a symbolic link to the host's own `Library/Keychains` ran on the
+/// host through candidates `.14`–`.16`, and `add-generic-password` wrote under
+/// `com.richos.app.phone-channel` — the service his real app reads. This module's own
+/// doctrine (see [`SecretStore`]) already said the tests must not write to the CEO's real
+/// Keychain; the rule was there and nothing enforced it.
+///
+/// # The rule now, and why it is this one
+///
+/// The service is `com.richos.app.phone-channel.<12 hex of SHA-256 of the app-data path>`. The
+/// app-data directory is the one thing that is *already* different between a real launch and a
+/// scratch-`HOME` launch, it is a value this process is handed rather than one it guesses, and
+/// no amount of copying a fixture home changes where that copy sits. So two `HOME`s produce two
+/// service names by construction, and a test cannot collide with his item even by accident.
+///
+/// **The path is used as it is given, and deliberately not canonicalized.** Canonicalizing
+/// fails on a directory that does not exist yet, which is the first launch — and a service name
+/// that changed the moment the directory appeared would lose the key it had just written. The
+/// app resolves this path the same way on every launch, so the name is stable.
+///
+/// # The migration, which is a feature here rather than a cost
+///
+/// No build after this one reads or writes the bare [`SERVICE`] name. Every item under it is
+/// therefore PRE-FIX — which is precisely the set the QA runs above left in his login keychain.
+/// A launch of this build mints a fresh certificate authority under its own derived name and
+/// the phone is paired once more; nothing silently inherits an item whose provenance is now in
+/// doubt.
+pub fn service_for(data_dir: &std::path::Path) -> String {
+    let digest = super::sha256(data_dir.as_os_str().as_encoded_bytes());
+    format!("{SERVICE}.{}", super::hex(&digest[..6]))
+}
 
 /// The three accounts, named as constants so a typo is a compile error rather than a key
 /// that silently regenerates itself on every launch.
@@ -74,19 +117,25 @@ pub struct Keychain {
     service: String,
 }
 
-impl Default for Keychain {
-    fn default() -> Self {
-        Keychain { service: SERVICE.to_string() }
-    }
-}
-
 impl Keychain {
-    /// A store under a different service name, so a walk-through under a scratch `HOME` cannot
-    /// collide with the installed app's own Keychain items. **Called by the verification harness
-    /// and not by the app** — which is the point: the app has exactly one service name.
+    /// **The one constructor the app uses.** The service name comes from [`service_for`], so
+    /// this install's items can never be the items another `HOME` on this machine is writing.
+    pub fn for_app_data(data_dir: &std::path::Path) -> Self {
+        Keychain { service: service_for(data_dir) }
+    }
+
+    /// A store under a service name chosen outright. **Called by the verification harness and
+    /// not by the app** — the app's name is always derived from where its data lives.
     #[allow(dead_code)]
     pub fn for_service(service: &str) -> Self {
         Keychain { service: service.to_string() }
+    }
+
+    /// The service this store files under. For diagnostics and for the tests, which assert that
+    /// two app-data directories cannot produce one name.
+    #[allow(dead_code)]
+    pub fn service(&self) -> &str {
+        &self.service
     }
 }
 
@@ -249,6 +298,34 @@ mod tests {
         for account in [CA_KEY, LEAF_KEY, VAPID_KEY] {
             assert!(store.get(account).unwrap().is_none(), "{account} survived forget_all");
         }
+    }
+
+    /// **TWO `HOME`S, TWO SERVICE NAMES** — Ray's nightly `.7` walk, defect 4.
+    ///
+    /// A QA fixture home ran on the host through candidates `.14`–`.16` and
+    /// `/usr/bin/security` wrote its test keys under the service the CEO's real app reads,
+    /// because the name was a constant and the tool knows nothing about `HOME`. This is the
+    /// property that makes that impossible rather than forbidden.
+    #[test]
+    fn two_app_data_directories_can_never_share_one_keychain_service() {
+        use std::path::Path;
+        let real = Path::new("/Users/alex/Library/Application Support/com.richos.app");
+        let scratch = Path::new("/tmp/richos-qa-cand16/Library/Application Support/com.richos.app");
+
+        assert_ne!(
+            service_for(real),
+            service_for(scratch),
+            "a scratch HOME would write into the same Keychain item as the real app"
+        );
+        // And neither of them is the bare name, which is where every pre-fix item — including
+        // everything those QA runs left behind — still sits.
+        assert_ne!(service_for(real), SERVICE);
+        assert_ne!(service_for(scratch), SERVICE);
+        assert!(service_for(real).starts_with(&format!("{SERVICE}.")));
+
+        // Stable across calls, because a name that moved would lose the key it had just written.
+        assert_eq!(service_for(real), service_for(real));
+        assert_eq!(Keychain::for_app_data(real).service(), service_for(real));
     }
 
     #[test]

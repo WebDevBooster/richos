@@ -835,7 +835,7 @@ impl PhoneRuntime {
         }
 
         let names = names::read()?;
-        let keychain = secrets::Keychain::default();
+        let keychain = secrets::Keychain::for_app_data(&self.data_dir);
         let ca = ca::PhoneCa::open(&self.data_dir, &keychain, names.clone())?;
         let fingerprint_words = ca.fingerprint_words();
         let fingerprint_hex = ca.fingerprint_hex();
@@ -933,7 +933,7 @@ impl PhoneRuntime {
             device::DeviceDesk::open(&self.data_dir)?.forget()?;
         }
         self.hub.set_live(false);
-        ca::PhoneCa::forget(&self.data_dir, &secrets::Keychain::default())?;
+        ca::PhoneCa::forget(&self.data_dir, &secrets::Keychain::for_app_data(&self.data_dir))?;
         Ok(())
     }
 
