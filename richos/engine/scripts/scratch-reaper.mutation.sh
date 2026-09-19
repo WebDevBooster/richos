@@ -488,4 +488,48 @@ mutant M46.blind-lsof-per-entry "S27e" "$LIB" \
      either way; what is destroyed is the readability of the report, which is the
      whole of the second half of §54."
 
+# ---------------------------------------------------------------------------
+# THE 2026-09-19 PROPERTIES — the five the CEO's question paid for
+# ---------------------------------------------------------------------------
+# "And what is this all about: MASSIVE ALERT — DISK: 218 path(s) could not be
+# deleted (delete BY HAND) | 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT
+# | 11.4 GB in 2 place(s) UNDECIDABLE — no run will clear it". Every one of the
+# five cases below exists because one of those clauses was wrong, and every one
+# of them would pass against a reaper that had simply stopped doing its job — so
+# each is asserted here against the mutation that removes it.
+mutant M47.socket-sent-to-rmtree "S28 " "$LIB" \
+    "                if os.path.isdir(e.path) and not os.path.islink(e.path):{NL}                    shutil.rmtree(e.path){NL}                else:{NL}                    os.unlink(e.path)" \
+    "                if os.path.islink(e.path) or os.path.isfile(e.path):{NL}                    os.unlink(e.path){NL}                else:{NL}                    shutil.rmtree(e.path)" \
+    "The delete loop asks what the path is NOT again, so every unix socket and
+     FIFO it has correctly decided to remove goes to rmtree and fails for ever —
+     200 of the 218 permanent MASSIVE ALERT lines, restored exactly."
+
+mutant M48.kernel-owned-attempted "S29 " "$LIB" \
+    "        owned = system_protected(path){NL}        if owned:{NL}            size, _newest, _git = measure(path){NL}            self.add(path, \"tmp-system\", size, KEEP, owned){NL}            return" \
+    "        pass" \
+    "A directory the kernel marked sunlnk is planned for deletion again, fails
+     with EPERM, and re-enters the failure ledger every six hours asking a person
+     to delete something no person at this privilege can — the other 18."
+
+mutant M49.ended-clock-ignored "S30 " "$LIB" \
+    "            ended = self.live.ended_epoch(name)" \
+    "            ended = None" \
+    "The age floor for a finished session goes back to the newest mtime, so an
+     orphaned writer keeps an ended session's scratchpad permanently \"0 min
+     old\" and it is never collected — the 11 GB that took a person, restored."
+
+mutant M50.registered-repository-deleted "S31 " "$LIB" \
+    "            held = self.live_app_repository(path)" \
+    "            held = \"\"" \
+    "A repository a running app instance has registered is deleted with the dead
+     session's scratchpad it lives in. Not garbage reclaimed: a repository
+     pulled out from under a running program."
+
+mutant M51.skipped-split-collapsed "S32 " "$LIB" \
+    "        by_hand = [e for e in self.entries if e.standing]" \
+    "        by_hand = []" \
+    "Our own reclaimable pile is summed back into the foreign one, so 12.8 GB a
+     person gets back by running a printed command is invisible inside a number
+     that is mostly other programs' temporary files — the CEO's 13.9 GB exactly."
+
 mutation_end

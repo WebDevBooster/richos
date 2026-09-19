@@ -96,6 +96,7 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -334,6 +335,55 @@ class Liveness(object):
         self._oldest = min(eps) if eps else None
         return self._oldest
 
+    def ended_epoch(self, session_id):
+        """When this session RECORDED ITS END, as epoch seconds, or None.
+
+        THE AGE FLOOR EXISTS TO COVER A RACE THIS SESSION IS NOT IN. Its own
+        declaration says so: "Age is a floor applied AFTER the proof, and it
+        exists only to cover the seconds between a session starting and
+        recording itself." A session that has written `ended_at` into its
+        record is not starting; it has finished, and it said when.
+
+        WHY IT MATTERS, MEASURED 2026-09-19. 11 GB of a finished session's
+        scratchpad sat on this disk and was reported KEEP by every six-hourly
+        pass with the reason:
+
+          session 5645c662 recorded its end at 2026-09-18T15:38:15Z, and no
+          running claude process is this session, but it was written 0 min ago
+          and the floor is 60 min
+
+        — twenty-two hours after it ended. The age comes from the newest mtime
+        in the tree, and an orphaned background child of the dead session (or
+        anything else holding the path) keeps touching it, so the tree is for
+        ever "0 min old" and the floor never expires. Rich deleted it by hand;
+        free space went 198 -> 214 GB. That is the exact failure §54 was
+        written about: reclaiming it took a person.
+
+        IT IS THE SAME DEFECT AS scan_standing_failures', in the same file, for
+        the same reason — a clock read off an mtime that something else moves.
+        There the answer was to reconsider regardless of age; here it is to take
+        the age from the fact that is actually about the session.
+        """
+        # hasattr, not a hard requirement in load_workspaces(): process_start
+        # and session_state are the LIVENESS contract and their absence is
+        # Fatal. This one is an optimization of the floor, and an engine whose
+        # workspaces module predates it must lose the improvement rather than
+        # refuse to sweep at all — the same asymmetry config_from_env's opt()
+        # is built on.
+        if not hasattr(self.ws, "load_session"):
+            return None
+        try:
+            rec = self.ws.load_session(session_id)
+        except Exception:                                     # pragma: no cover
+            return None
+        when = (rec or {}).get("ended_at")
+        if not isinstance(when, str) or not when:
+            return None
+        try:
+            return calendar.timegm(time.strptime(when, "%Y-%m-%dT%H:%M:%SZ"))
+        except (ValueError, OverflowError):
+            return None
+
     def verdict(self, session_id, newest_mtime):
         """(RUNNING|ENDED|INDETERMINATE, why) for one session's scratch."""
         if session_id in self.running:
@@ -495,6 +545,128 @@ def pid_alive(pid):
         return True
     except OSError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# WHAT THE OPERATING SYSTEM HAS MARKED AS ITS OWN — added 2026-09-19
+# ---------------------------------------------------------------------------
+# THE ALERT THIS CLOSES, IN THE CEO'S WORDS (2026-09-19, reading the status
+# line): "And what is this all about: MASSIVE ALERT — DISK: 218 path(s) could
+# not be deleted (delete BY HAND)".
+#
+# Eighteen of those 218 were directories macOS creates under the per-user temp
+# root for its OWN agents — AudioComponentRegistrar, SandboxHelper, talagent,
+# studentd, StatusKitAgent, ${DaemonNameOrIdentifierHere} and twelve more. Every
+# one is 64 bytes, owned by this uid, mode 0700, and has failed with
+# `[Errno 1] Operation not permitted` on all 52 attempts since
+# 2026-09-18T12:15:05Z. Nobody can delete them and nobody should: they are not
+# garbage, they are the operating system's, and the alert had been screaming
+# about them for a day. §54's "the clean-up failed" branch asks a PERSON to go
+# and delete something. There is nothing here for a person to do.
+#
+# THE TEST IS THE OPERATING SYSTEM'S OWN MARK, NOT A NAME AND NOT A HEURISTIC.
+# Measured on this machine, all 18 of 18:
+#
+#   $ ls -ldO $TMPDIR/talagent
+#   drwx------@ 2 alex staff sunlnk 64 7 Sep 19:57 .../talagent
+#   $ xattr -l $TMPDIR/talagent
+#   com.apple.rootless: folders
+#
+# `sunlnk` is SF_NOUNLINK, a SUPER-USER file flag: it is exactly why unlink
+# returns EPERM, it cannot be set by an unprivileged process, and `chflags` at
+# this privilege cannot clear it — which is what makes this a classification
+# rather than another thing to retry. st_flags is one lstat and needs no
+# subprocess and no third-party module (os.getxattr does not exist on macOS
+# CPython), so the flags are what this reads.
+#
+# WHY A STRUCTURAL TEST AND NOT A LIST OF THE EIGHTEEN NAMES: the same argument
+# scan_unknown's header makes about allowlists. macOS adds agents with every
+# point release, the names are nowhere in this tree, and a list somebody has to
+# maintain converges on the day it stops being maintained. A flag the kernel
+# sets covers the daemon that ships next year.
+#
+# NOTHING IS WEAKENED BY THIS. A path this refuses is a path no process at this
+# privilege could ever have removed; the only thing that changes is that its
+# removal is no longer ATTEMPTED and no longer REPORTED as a failure a person
+# must act on.
+_SF_NOUNLINK = getattr(stat, "SF_NOUNLINK", 0x00100000)
+_SF_IMMUTABLE = getattr(stat, "SF_IMMUTABLE", 0x00020000)
+_SF_APPEND = getattr(stat, "SF_APPEND", 0x00040000)
+_SYSTEM_FLAGS = _SF_NOUNLINK | _SF_IMMUTABLE | _SF_APPEND
+
+# Every flag bit `chflags` can name, so the message says WHICH one was found
+# rather than repeating the mask back at the reader. Ordered most-specific
+# first; only bits inside the declared mask are ever consulted.
+_FLAG_NAMES = ((_SF_NOUNLINK, "sunlnk"),
+               (_SF_IMMUTABLE, "schg"),
+               (_SF_APPEND, "sappnd"),
+               (getattr(stat, "SF_ARCHIVED", 0x00010000), "arch"),
+               (getattr(stat, "UF_IMMUTABLE", 0x00000002), "uchg"),
+               (getattr(stat, "UF_APPEND", 0x00000004), "uappnd"),
+               (getattr(stat, "UF_NODUMP", 0x00000001), "nodump"),
+               (getattr(stat, "UF_HIDDEN", 0x00008000), "hidden"))
+
+_SYSTEM_MASK = [None]
+
+
+def system_flags_mask():
+    """The declared mask, read once.
+
+    DECLARED, LIKE EVERY OTHER THRESHOLD IN THIS PROGRAM, and for one more
+    reason besides: THE SUPER-USER FLAGS CANNOT BE SET WITHOUT ROOT, so a
+    hermetic test cannot build a fixture carrying one. `chflags sunlnk` from an
+    ordinary account is "Operation not permitted" — which is the same fact that
+    makes this classification correct in production and would have made it
+    untestable. A test world declares a mask of a flag it CAN set (`nodump`)
+    and exercises the shipped code path byte for byte: a real chflags, a real
+    st_flags, a real classification. The production default is the SF_* set and
+    is what orchestration.config declares.
+
+    UF_IMMUTABLE (`uchg`) IS DELIBERATELY NOT IN THE DEFAULT. apply()'s retry
+    clears exactly that flag and then succeeds — a `uchg` path is ours, and an
+    obstacle we can remove is not an owner.
+    """
+    if _SYSTEM_MASK[0] is not None:
+        return _SYSTEM_MASK[0]
+    v = (os.environ.get("SCRATCH_SYSTEM_FLAGS") or "").strip()
+    mask = _SYSTEM_FLAGS
+    if v:
+        try:
+            mask = int(v, 0)
+        except ValueError:
+            # A mask nobody can read is not a reason to sweep differently. Say
+            # so and use the declared default: this decides only whether a path
+            # is ATTEMPTED, and the conservative direction is to attempt it.
+            sys.stderr.write("scratch-reaper: SCRATCH_SYSTEM_FLAGS is %r, which "
+                             "is not a number; using the built-in mask.\n" % v)
+    _SYSTEM_MASK[0] = mask
+    return mask
+
+
+def system_protected(path):
+    """'' if this path is ours to remove, else WHY THE KERNEL SAYS IT IS NOT.
+
+    A one-lstat test, safe on anything, and false for every ordinary file. It is
+    consulted BEFORE a deletion is planned, so an OS-owned path never enters the
+    failure ledger at all, and again when an old ledger row is reconsidered, so
+    the eighteen already in there leave it.
+    """
+    mask = system_flags_mask()
+    if not mask:
+        return ""
+    try:
+        flags = getattr(os.lstat(path), "st_flags", 0)
+    except OSError:
+        return ""
+    if not (flags & mask):
+        return ""
+    hit = [name for bit, name in _FLAG_NAMES if bit & mask and flags & bit]
+    return ("the operating system set the file flag %s on it — a flag this "
+            "program did not set and cannot clear at this privilege. macOS "
+            "marks the per-user temp directories it makes for its own agents "
+            "this way; it is not our garbage, nobody here can delete it, and "
+            "there is nothing in it for a person to do"
+            % ("/".join(hit) or "0x%x" % (flags & mask)))
 
 
 def failures_path():
@@ -758,6 +930,11 @@ class Reaper(object):
         # Paths scan_standing_failures has already decided. The other arms skip
         # these, so no path is ever counted twice in the verdict.
         self._standing = set()
+        # Ledger rows this pass has established were NEVER OURS TO DELETE. They
+        # are removed from the failure file rather than retried for ever: a
+        # failure record is a claim that a person must act, and a claim nobody
+        # can act on is the kind of permanent alert that kills every other one.
+        self._unfailable = set()
         # [(path, root)] the deny-by-default arm will decide LAST. Deferred so a
         # --notice run that runs out of budget loses this arm's numbers and not
         # the whole pass. See scan_deferred_unknown.
@@ -816,12 +993,28 @@ class Reaper(object):
             if state == INDETERMINATE:
                 self.add(path, "claude-session", size, INDETERMINATE, why)
                 continue
-            age = self.now - newest
+            # THE CLOCK COMES OFF THE SESSION'S OWN RECORD WHEN IT HAS ONE, and
+            # off the newest mtime only when it does not. See ended_epoch: an
+            # orphaned writer kept an 11 GB finished scratchpad permanently "0
+            # min old" and the floor never expired for twenty-two hours.
+            ended = self.live.ended_epoch(name)
+            if ended is not None:
+                age = self.now - ended
+                clock = ("it recorded its end %d min ago and the floor is "
+                         "%d min" % (age // 60, self.cfg["age_floor_minutes"]))
+            else:
+                age = self.now - newest
+                clock = ("it was written %d min ago and the floor is %d min"
+                         % (age // 60, self.cfg["age_floor_minutes"]))
             if age < self.floor:
                 self.add(path, "claude-session", size, KEEP,
-                         "%s, but it was written %d min ago and the floor is "
-                         "%d min" % (why, age // 60,
-                                     self.cfg["age_floor_minutes"]))
+                         "%s, but %s" % (why, clock))
+                continue
+            # A REPOSITORY A LIVE APP INSTANCE HAS REGISTERED IS NOT GARBAGE,
+            # whatever the session that made it did. See live_app_repository.
+            held = self.live_app_repository(path)
+            if held:
+                self.add(path, "claude-session", size, KEEP, held)
                 continue
             refused = walls.check(path, has_git)
             if refused:
@@ -909,6 +1102,21 @@ class Reaper(object):
             row = rows.get(path) or {}
             first = row.get("first") or "?"
             err = row.get("error") or "?"
+
+            # A PATH THE KERNEL OWNS LEAVES THE LEDGER, and this is the branch
+            # that clears the eighteen already in it. It is not a retry that
+            # keeps failing quietly: the row is DELETED from the failure file by
+            # _record_failures, the path is reported once under its own class
+            # beside the other programs' temp, and no run ever tries again.
+            owned = system_protected(path)
+            if owned:
+                self._unfailable.add(path)
+                self.add(path, "tmp-system", size, KEEP,
+                         "%s. It was recorded as a failed deletion %s and "
+                         "retried %s time(s); that record is wrong and is "
+                         "dropped — nothing here ever needed a person"
+                         % (owned, first, row.get("attempts", "?")))
+                continue
 
             snapshot = self.open_under_tmp()
             if snapshot is not None and os.path.dirname(path) == \
@@ -1433,6 +1641,18 @@ class Reaper(object):
                      "program's to decide")
             return
 
+        # THE KERNEL'S OWN MARK IS READ BEFORE THE DECLARED KEEP-LIST, because
+        # it is the stronger statement of the same fact and it needs no name.
+        # This is what stops the eighteen macOS agent directories being planned
+        # for deletion at all — and the only reason the keep-list above did not
+        # already cover them is that nobody had read their names off a creator,
+        # which is the argument this arm's own header makes about allowlists.
+        owned = system_protected(path)
+        if owned:
+            size, _newest, _git = measure(path)
+            self.add(path, "tmp-system", size, KEEP, owned)
+            return
+
         if any(fnmatch.fnmatch(name, pat) for pat in self.cfg["foreign_patterns"]):
             size, _newest, _git = measure(path)
             self.add(path, "tmp-foreign", size, KEEP,
@@ -1797,6 +2017,94 @@ class Reaper(object):
         self.__dict__["appinst"] = mod
         return mod
 
+    def app_repositories(self):
+        """Every repository a LIVE instance of the app has registered.
+
+        ===================================================================
+        THE ONE THING IN A DEAD SESSION'S SCRATCHPAD THAT IS NOT GARBAGE
+        ===================================================================
+        A finished session's scratchpad is ours and is collected (scan_slug).
+        But a QA fixture repository is built INSIDE one, and its absolute path
+        is then written into the app's entity registry — so an app instance
+        that is still running is pointed at a directory this program is about
+        to remove. Deleting it is not reclaiming garbage; it is pulling a
+        repository out from under a running program, and the running program
+        is the only thing that knows it mattered.
+
+        WHOSE REGISTRY IS READ, AND WHY BOTH. The operator's own
+        ~/Library/Application Support/com.richos.app/entities.json is read
+        ALWAYS — it is one small file, it names the repositories a person
+        connected on purpose, and in practice none of them is ever in scratch,
+        so it costs nothing and can only ever keep more. A TEST instance is
+        launched with HOME set into scratch and keeps its registry under THAT
+        home, so its path is discovered from the instance's own OPEN FILES
+        rather than guessed: appinstances already reads every app process's open
+        paths, for exactly the reason its header gives — macOS will not show
+        another process's environment, but it will show what that process has
+        open, and the registry is a file the app holds.
+
+        SO THE SECOND SOURCE IS LIVE INSTANCES ONLY. A scratch registry
+        belonging to no running process is a dead instance's opinion about a
+        dead session's directory, and it protects nothing. The set is computed
+        once per pass.
+
+        Returns a set of realpaths. Never raises: if none of this can be read
+        the set is empty and the reaper behaves exactly as it did before.
+        """
+        if "app_repos" in self.__dict__:
+            return self.__dict__["app_repos"]
+        out = set()
+        rel = self.cfg["app_registry_relpath"]
+        files = []
+        home = os.path.expanduser("~")
+        if home and rel:
+            files.append(os.path.join(home, rel))
+        mod = self.appinstances()
+        if mod is not None and rel:
+            try:
+                found = mod.find() or []
+            except Exception:                                 # pragma: no cover
+                found = []
+            tail = os.sep + rel
+            # EVERY live app process, whatever appinstances decided about it.
+            # The verdict answers "may this be quit"; this asks "what has it
+            # got open", and a registry held by the operator's own instance
+            # protects a repository just as much as a test instance's does.
+            for inst in found:
+                for p in (getattr(inst, "evidence", None) or []):
+                    if p.endswith(tail):
+                        files.append(p)
+        for path in files:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    obj = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            for ent in (obj.get("entities") or []) if isinstance(obj, dict) else []:
+                if not isinstance(ent, dict):
+                    continue
+                for key in ("roots", "connected_repositories"):
+                    for r in (ent.get(key) or []):
+                        if isinstance(r, str) and r:
+                            out.add(os.path.realpath(r))
+        self.__dict__["app_repos"] = out
+        return out
+
+    def live_app_repository(self, path):
+        """'' if nothing live has this registered, else why it is kept."""
+        repos = self.app_repositories()
+        if not repos:
+            return ""
+        real = os.path.realpath(path)
+        for r in repos:
+            if real == r or inside(r, real) or inside(real, r):
+                return ("an instance of the app has %s registered as a "
+                        "repository, and this %s it — a registered repository "
+                        "is somebody's work, not scratch"
+                        % (r, "is" if real == r else
+                           "contains" if inside(r, real) else "sits inside"))
+        return ""
+
     def test_instance_holders(self, path):
         """Who holds `path` open: ('test-instances', pids) | ('mixed', pids)
         | ('other', pids) | ('unknown', []).
@@ -2082,8 +2390,48 @@ class Reaper(object):
         # Only ones PAST their declared retention count; a young one is not
         # garbage yet and would make this number permanent wallpaper.
         rows = [e for e in self.entries
-                if e.klass == "tmp-foreign" or e.standing]
+                if e.klass in ("tmp-foreign", "tmp-system") or e.standing]
         return len(rows), sum(e.size for e in rows)
+
+    def skipped_classes(self):
+        """The same pile, SPLIT BY WHO IT BELONGS TO AND WHO CAN ACT ON IT.
+
+        ===================================================================
+        WHY ONE NUMBER WAS NOT ENOUGH — THE CEO'S QUESTION, 2026-09-19
+        ===================================================================
+        He read the status line and asked: "And what is this all about: MASSIVE
+        ALERT — DISK: ... 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT".
+        The honest answer, measured the same hour on the same machine, is that
+        the 13.9 GB was two completely different things added together:
+
+          12.8 GiB   TWO DECLARED CAMPAIGN ROOTS past their retention —
+                     richos-password-free-workspaces and richos-recovery-codex.
+                     Ours, and the report already prints the exact `rm -rf` for
+                     each. A person removing them reclaims 12.8 GB.
+           1.15 GiB  4,463 entries of OTHER PROGRAMS' temp — VS Code's updater
+                     at 898 MB, Codex's dot-directories, WebKit's blob registry.
+                     Nobody should ever remove these and nothing about them is
+                     an alert.
+
+        Summing those under one heading made the actionable 12.8 GB invisible
+        inside a number that is mostly not actionable, and made the whole line
+        read as an alarm about other people's files. A count is only usable if
+        everything inside it calls for the same response.
+
+        Returns an ordered list of (key, label, count, bytes). The key is what
+        the watchdog switches on; the label is the sentence a person reads.
+        """
+        by_hand = [e for e in self.entries if e.standing]
+        foreign = [e for e in self.entries
+                   if not e.standing and e.klass in ("tmp-foreign", "tmp-system")]
+        return [
+            ("by_hand",
+             "OURS, AND NEVER DELETED AUTOMATICALLY — a person removes it",
+             len(by_hand), sum(e.size for e in by_hand)),
+            ("foreign",
+             "another program's or the operating system's temporary files",
+             len(foreign), sum(e.size for e in foreign)),
+        ]
 
     def verdict_line(self):
         d, i, k, b = self.counts()
@@ -2092,6 +2440,12 @@ class Reaper(object):
                 "undecidable=%d skipped=%d skipped_bytes=%s"
                 % ("undecided" if i else "decided", d, human(b), k, i,
                    sn, human(sb)))
+        # THE SPLIT, ON THE SAME LINE AS THE TOTAL IT SPLITS. `skipped=` on its
+        # own was the number the CEO asked about, and the answer was that most
+        # of it is a person's to remove and the rest is nobody's business. Both
+        # halves are printed so the total can never again stand in for either.
+        for key, _label, n, b2 in self.skipped_classes():
+            line += " %s=%d %s_bytes=%s" % (key, n, key, human(b2))
         # ONLY WHEN IT IS TRUE, so the line a person is used to reading does not
         # grow a field that is always zero. A budget that truncated the scan is
         # an exceptional condition and reads as one.
@@ -2441,10 +2795,35 @@ class Reaper(object):
                 failures.append(line.split("error=", 1)[-1])
         for e in order:
             try:
-                if os.path.islink(e.path) or os.path.isfile(e.path):
-                    os.unlink(e.path)
-                else:
+                # A DIRECTORY IS THE ONLY THING rmtree CAN TAKE. THE TEST USED TO
+                # BE ITS COMPLEMENT AND THAT IS 200 OF THE 218 PERMANENT ALERTS.
+                #
+                # It was `islink or isfile -> unlink, ELSE rmtree`, so every path
+                # that was neither a link nor a REGULAR file went to rmtree — and
+                # a unix socket and a FIFO are neither. Measured in the standing
+                # failure ledger on 2026-09-19, 218 rows:
+                #
+                #   198  [Errno 102] Operation not supported on socket
+                #          (197 of them srt-mux-*.sock, 0 bytes, 10 days old)
+                #     2  [Errno 20] Not a directory        (clr-debug-pipe-*)
+                #    18  [Errno 1]  Operation not permitted (the OS's own, above)
+                #
+                # Every one of the 200 had ALREADY PASSED every wall, the age
+                # floor and the open-handle check: the reaper had correctly
+                # decided they were abandoned garbage, and then could not carry
+                # the decision out because of the shape of the branch. One
+                # missing `os.unlink` produced two hundred MASSIVE ALERT lines
+                # that no person could ever clear, every six hours, for a day.
+                #
+                # ASKING WHAT IT IS, RATHER THAN WHAT IT IS NOT: a directory that
+                # is not a symlink gets rmtree, and ANYTHING else — regular file,
+                # symlink, socket, FIFO, device node — gets unlink, which is the
+                # call that removes a name from a directory whatever kind of
+                # thing the name refers to.
+                if os.path.isdir(e.path) and not os.path.islink(e.path):
                     shutil.rmtree(e.path)
+                else:
+                    os.unlink(e.path)
             except OSError as exc:
                 # ONE RETRY, AFTER MAKING THE TREE WRITABLE. Measured on the
                 # first real run of the widened sweep: 5 of 37,146 deletions
@@ -2478,10 +2857,13 @@ class Reaper(object):
                         and e.klass in _UNSTICKABLE_CLASSES:
                     try:
                         cleared = _make_writable(e.path)
-                        if os.path.islink(e.path) or os.path.isfile(e.path):
-                            os.unlink(e.path)
-                        else:
+                        # The same is-it-a-directory test as the first attempt.
+                        # Two spellings of one question is how a fix reaches one
+                        # of them and not the other.
+                        if os.path.isdir(e.path) and not os.path.islink(e.path):
                             shutil.rmtree(e.path)
+                        else:
+                            os.unlink(e.path)
                         deleted += 1
                         freed += e.size
                         lines.append("%s DELETED %s bytes=%d class=%s why=%s "
@@ -2579,9 +2961,23 @@ class Reaper(object):
         for path in list(rows):
             if not os.path.exists(path):
                 del rows[path]
+        # ...AND SO IS EVERYTHING THIS PASS PROVED WAS NEVER OURS. A row here is
+        # a standing instruction to a person: "the clean-up failed, go and delete
+        # this by hand." Eighteen of them named directories the kernel forbids
+        # anybody at this privilege from removing, so the instruction could not
+        # be carried out, and it was re-issued every six hours for a day.
+        # Resolving them is not hiding a failure; it is withdrawing a claim that
+        # was wrong.
+        for path in self._unfailable:
+            rows.pop(path, None)
         for entry in failures:
             path, _, err = entry.partition(": ")
             if not path:
+                continue
+            if system_protected(path):
+                # Belt and braces: nothing the kernel owns should have reached
+                # the delete loop at all, and if it ever does it must not be
+                # written into a file that asks a person to remove it.
                 continue
             prev = rows.get(path) or {}
             rows[path] = {
@@ -2925,6 +3321,13 @@ def config_from_env():
             opt("SCRATCH_DOCKER_THROWAWAY_IMAGES", "").split(),
         "docker_container_alert_days":
             opt_number("SCRATCH_DOCKER_CONTAINER_ALERT_DAYS", 7),
+        # Where the app keeps its entity registry, RELATIVE TO A HOME. Declared
+        # rather than hard-coded because it is the app's shape and not this
+        # program's; the fallback is the shipped one, so an engine whose config
+        # predates the key still protects a registered repository.
+        "app_registry_relpath":
+            opt("SCRATCH_APP_REGISTRY_RELPATH",
+                "Library/Application Support/com.richos.app/entities.json"),
     }
 
 
@@ -3053,11 +3456,24 @@ def main(argv=None):
 
     n_failures = 0
     skipped_n, skipped_b = reaper.skipped()
+    # THE SPLIT IS PUBLISHED, NOT JUST PRINTED. The watchdog's job is to say
+    # which of these a person must act on, and it cannot do that from a total.
+    split = {k: {"count": n, "bytes": b2, "label": label}
+             for k, label, n, b2 in reaper.skipped_classes()}
+    # PATHS, NOT JUST A COUNT, FOR THE ONE CLASS A PERSON ACTS ON. The alert's
+    # whole value is being able to say WHICH 12.8 GB, and re-deriving that costs
+    # a full nine-second pass. Capped, largest first, and the `why` already
+    # carries the exact command.
+    by_hand_rows = sorted((e for e in reaper.entries if e.standing),
+                          key=lambda e: -e.size)[:5]
+    split["by_hand"]["paths"] = [{"path": e.path, "bytes": e.size,
+                                  "why": e.why} for e in by_hand_rows]
     if args.apply:
         deleted, freed, failures = reaper.apply(args.log or default_log())
         n_failures = len(failures)
         write_state(default_state(), {
             "last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "last_apply_epoch": int(time.time()),
             "deleted": deleted, "freed": freed,
             "undecidable": undecidable,
             "undecidable_bytes": reaper.undecidable_bytes(),
@@ -3065,6 +3481,7 @@ def main(argv=None):
             # The garbage alarm lives in the turn-end and session-start notices,
             # which read the watchdog, which reads this file. Frank's Fix 2.
             "skipped": skipped_n, "skipped_bytes": skipped_b,
+            "skipped_split": split,
             "failures": n_failures,
             "verdict": "undecided" if undecidable else "decided",
         })
@@ -3076,6 +3493,7 @@ def main(argv=None):
             "undecidable": undecidable,
             "undecidable_bytes": reaper.undecidable_bytes(),
             "skipped": skipped_n, "skipped_bytes": skipped_b,
+            "skipped_split": split,
             "failures": n_failures,
             "entries": [{"path": e.path, "class": e.klass, "bytes": e.size,
                          "action": e.action, "why": e.why}
