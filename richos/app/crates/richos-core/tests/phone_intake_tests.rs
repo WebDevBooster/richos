@@ -23,8 +23,11 @@
 use richos_core::cognition::MockLeaseFactory;
 use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source};
+use richos_core::live::{LiveEvent, LiveObserver};
 use richos_core::spine::Spine;
 use richos_core::steering::{IntakeLog, IntakeRecord, SteeringError, TurnControl};
+use serde_json::Value;
+use std::sync::{Arc, Mutex};
 
 mod support;
 
@@ -280,5 +283,128 @@ fn a_message_for_a_thread_that_does_not_exist_stops_the_drain_rather_than_vanish
     control.submit_from_channel("thr_does_not_exist", Some(femcboost()), "his words", "phone").unwrap();
     assert!(spine.poll_intake().is_err(), "an unknown thread must be an error, not a silent drop");
     assert_eq!(control.pending_intake().len(), 1, "his words were discarded");
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+// -------------------------------------------------------------------------------------
+// WHAT THE MAC LEARNS, AND WHEN — Ray's candidate .13 defect R3
+// -------------------------------------------------------------------------------------
+
+/// The wire, recorded as NAME + PAYLOAD: exactly what the Tauri shell forwards to a webview
+/// and to the phone, never the Rust value. A test that asserted the enum could pass on a
+/// field no renderer would ever see.
+#[derive(Clone, Default)]
+struct RecordingLive {
+    events: Arc<Mutex<Vec<(String, Value)>>>,
+}
+
+impl RecordingLive {
+    fn names(&self) -> Vec<String> {
+        self.events.lock().unwrap().iter().map(|(n, _)| n.clone()).collect()
+    }
+
+    fn of(&self, name: &str) -> Vec<Value> {
+        self.events.lock().unwrap().iter().filter(|(n, _)| n == name).map(|(_, p)| p.clone()).collect()
+    }
+}
+
+impl LiveObserver for RecordingLive {
+    fn on_live_event(&self, event: &LiveEvent) {
+        self.events.lock().unwrap().push((event.event_name().to_string(), event.payload()));
+    }
+}
+
+#[test]
+fn his_phone_message_reaches_the_mac_with_his_words_in_it_and_not_only_a_status() {
+    // **RAY'S R3, AS AN EVENT LIST.** He typed on his phone and the Mac showed nothing for
+    // 5.68 s — measured twice, 5.77 s and 5.68 s — and then his words and Rich's finished
+    // answer arrived in the same frame. At 2.99 s the only thing that had changed was the
+    // sidebar's working dot.
+    //
+    // That dot is `rich://thread-summary-updated`, and it is the whole diagnosis: the
+    // channel's drain was emitting the turn's STATUS and the sidebar's ROW on time, and
+    // not the one event in the family that carries what he SAID. The Mac's window had
+    // nothing to draw with, because until a second surface existed it had always drawn his
+    // sentence itself the moment he pressed Send.
+    //
+    // So the assertion is not "an event was emitted" but WHICH ONE, and that his text is
+    // in it, and that it is on the wire before Rich starts answering.
+    let (mut spine, control, thread, ledger_path) = phone_ready("r3", vec!["On it! Here is where we are."]);
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+
+    control.submit_from_channel(&thread, Some(femcboost()), "where are we on the proposal?", "phone").unwrap();
+    assert!(live.names().is_empty(), "a durable write alone told the Mac something");
+
+    spine.poll_intake().unwrap();
+
+    let his = live.of("rich://ceo-message");
+    assert_eq!(his.len(), 1, "the Mac was never told what he said: {:?}", live.names());
+    assert_eq!(
+        his[0]["text"].as_str(),
+        Some("where are we on the proposal?"),
+        "the event carries something other than his sentence"
+    );
+
+    // **IT COMES BEFORE THE ANSWER, NOT WITH IT.** The defect a person saw was ORDERING, so
+    // the test is about ordering: his words must be on the wire before the first byte of
+    // Rich's reply, or the Mac is still showing him nothing while Rich writes.
+    let names = live.names();
+    let his_at = names.iter().position(|n| n == "rich://ceo-message").unwrap();
+    let reply_at = names
+        .iter()
+        .position(|n| n == "rich://message-started" || n == "rich://message-delta")
+        .expect("the mock lease produced no reply at all, so this proves nothing");
+    assert!(
+        his_at < reply_at,
+        "his own words reached the Mac after Rich started answering them: {names:?}"
+    );
+
+    // And the identity is the PROJECTION'S, which is what stops the live row and the row a
+    // reload projects being two rows for one sentence.
+    let id = his[0]["messageId"].as_str().unwrap().to_string();
+    let binding = spine.ledger().thread_binding(&thread).unwrap();
+    let turn = spine
+        .ledger()
+        .thread_turns_scoped(&binding)
+        .unwrap()
+        .into_iter()
+        .find(|t| t.user_text == "where are we on the proposal?")
+        .expect("no ledger turn for his message");
+    assert_eq!(id, format!("{}:user", turn.id), "the event's id is not this turn's `{{turn}}:user`");
+    assert_eq!(
+        his[0]["createdAt"].as_u64(),
+        Some(turn.created_at),
+        "the live row would sort differently from the projected one"
+    );
+
+    let _ = std::fs::remove_file(ledger_path);
+}
+
+#[test]
+fn a_message_deferred_at_the_desk_carries_his_words_too() {
+    // The `Steer` arm had the same hole and no surface had noticed yet: the desktop window
+    // draws its own optimistic bubble, so a missing event there is invisible until a second
+    // surface asks. Fixed in the same place and held here, because "invisible today" is how
+    // this one got in.
+    let (mut spine, control, thread, ledger_path) = phone_ready("steer", vec!["queued answer"]);
+    let live = RecordingLive::default();
+    spine.set_live_observer(Box::new(live.clone()));
+
+    // `steer()` refuses when nothing is running, correctly — so the turn it would be added
+    // to is put in front of it, exactly as the running app does.
+    control.begin_turn(richos_core::steering::ActiveTurn {
+        turn_id: "turn-already-running".to_string(),
+        thread_id: thread.clone(),
+        entity_id: Some(femcboost()),
+        started_at: Some(1),
+    });
+    control.steer("a correction, typed while he waited").unwrap();
+    control.end_turn("turn-already-running");
+    spine.poll_intake().unwrap();
+
+    let his = live.of("rich://ceo-message");
+    assert_eq!(his.len(), 1, "the steering arm still emits a status with no words: {:?}", live.names());
+    assert_eq!(his[0]["text"].as_str(), Some("a correction, typed while he waited"));
     let _ = std::fs::remove_file(ledger_path);
 }

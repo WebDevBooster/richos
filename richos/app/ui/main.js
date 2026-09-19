@@ -2749,6 +2749,35 @@ inputEl.addEventListener("input", () => {
   parkViewStateSoon();
 });
 
+// **THE TEXT SIZE MOVES THE FIELD TOO** — Ray's candidate .13 defect R1, and the CEO's own
+// sentence about the composer is what it breaks: *"the 2 buttons at the bottom need to be
+// either vertically center aligned relative to the text input or have the same height as the
+// text input because otherwise it looks weird"*.
+//
+// `style.css` keeps that promise by derivation — `--control-h: calc(var(--field-h) + 2px)`,
+// every size in rem off a root the scale multiplies — so the BUTTONS follow the Text size row
+// on their own. The field does not, because `autoGrow()` writes its height INLINE in pixels
+// and that declaration outlives the change. Every call site above is a keystroke, a send, a
+// restored draft or a thread opening; none of them is a scale change.
+//
+// Ray measured the result in both directions, at 5x, in both themes and both window sizes:
+// 100% -> 110%, the buttons go to 48 px and the field stays 46; 110% -> 100%, the field stays
+// 48 and the buttons drop to 46. One character typed and they agree again. Two pixels,
+// transient, self-healing — and visible at the one moment he is looking hardest at the
+// composer, which is why it is worth one line.
+//
+// It listens for a SCALE change and not for the notification: `RichTheme.onChange` also fires
+// for a theme change and for the opening screen's always-dark clamp, neither of which moves a
+// metric, and re-running a layout write on them would be doing work to no purpose.
+if (window.RichTheme && window.RichTheme.onChange) {
+  let lastScale = window.RichTheme.scale();
+  window.RichTheme.onChange((t) => {
+    if (t.scale === lastScale) return;
+    lastScale = t.scale;
+    autoGrow();
+  });
+}
+
 stopBtn.addEventListener("click", (e) => {
   e.preventDefault();
   stopTurn();
@@ -2867,6 +2896,29 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
   }
   syncComposerMode();
   scheduleRender();
+});
+
+// **WHAT HE SAID, WHEN HE DID NOT SAY IT HERE** — Ray's candidate .13 defect R3.
+//
+// This window has always drawn the CEO's own sentence itself, optimistically, the instant he
+// pressed Enter (`addPendingUserMessage`), so it never needed to be told. His phone is a second
+// mouth and made that assumption false: a message typed there took **5.68 s** to reach this
+// window — measured twice — and arrived in the same frame as Rich's finished answer, because
+// the only thing that put it on screen was `turn-completed`'s reload. Mac to phone is 0.096 s.
+//
+// The handler is an UPSERT on the projection's own `{turnId}:user`, so for a message typed HERE
+// it is a no-op: `turn-status: queued` has already adopted the optimistic bubble onto that exact
+// id. One sentence, one row, live and after a reload.
+Bridge.listen("rich://ceo-message", ({ payload }) => {
+  const r = window.RichTimeline.onCeoMessage(timelineModel, payload);
+  if (r.rejected) return;
+  // §18: a message that appeared on this screen without him typing it is a change a screen
+  // reader has no other way to learn about. His own optimistic bubble is not announced twice —
+  // that path returns `structural: false` and never reaches here.
+  if (r.structural) {
+    announce("You said: " + payload.text);
+    scheduleRender();
+  }
 });
 
 Bridge.listen("rich://message-started", ({ payload }) => {

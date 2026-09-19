@@ -132,8 +132,10 @@ async function openApp(browser, viewport, theme, scale) {
   // — either way one of them has to know about the other, and this is the order the helper
   // was written for.
   //
-  // IT IS SEEDED AT BOOT RATHER THAN SET AFTERWARDS because `main.js`'s `autoGrow()` writes
-  // the field's height inline and is not re-run when the scale changes; see the 120% check.
+  // IT IS SEEDED AT BOOT RATHER THAN SET AFTERWARDS so that check 6 measures the CSS
+  // DERIVATION on a page that has never been any other size — a scale set afterwards would
+  // measure the derivation and the re-layout together and could not tell them apart. The
+  // afterwards case is a defect of its own and has its own check: see check 8, Ray's R1.
   if (scale && scale !== 100) {
     await page.addInitScript((s) => {
       try {
@@ -541,6 +543,86 @@ async function main() {
       assertEqual(page.__errors, [], "the page reported errors");
       await page.close();
       return `button ends ${g.btnBottom}, panel top ${g.menuTop} (8px below), bottom ${g.menuBottom} of ${g.vh}`;
+    }
+  );
+
+  // ---- 8. the Text size row, used the way he uses it ---------------------------------------
+  await run.check(
+    "changing the text size keeps the field and its buttons the same height, in BOTH directions",
+    async () => {
+      // **RAY'S CANDIDATE .13, DEFECT R1**, and it is the CEO's own sentence breaking at the one
+      // moment he is looking hardest at the composer. Measured by Ray at 5x, both themes, both
+      // window sizes:
+      //
+      //     100% -> 110%   buttons 48px, field stays 46
+      //     110% -> 100%   field stays 48, buttons drop to 46
+      //     one character typed -> they agree again, 48/48 then 46/46
+      //
+      // The mechanism: `style.css` derives `--control-h` from `--field-h` and every size is rem
+      // off a root the scale multiplies, so the BUTTONS follow on their own. The field does not,
+      // because `main.js`'s `autoGrow()` writes its height INLINE in pixels and none of its call
+      // sites was a scale change — they are all keystrokes, sends, restored drafts and thread
+      // openings. Check 6 above cannot see this: it seeds the scale before boot, so there is no
+      // stale inline declaration to survive.
+      //
+      // DRIVEN THROUGH THE ROW HE ACTUALLY USES — the settings button, then `#font-up` /
+      // `#font-down` — rather than by calling `RichTheme.setScale`, because the defect is about
+      // what happens when the product changes its own scale.
+      const page = await openApp(browser, SMALL);
+      const step = async (id) => {
+        await page.click("#set-btn");
+        await page.waitForSelector("#set-menu", { state: "visible" });
+        await page.click(id);
+        await page.keyboard.press("Escape");
+        await page.waitForSelector("#set-menu", { state: "hidden" });
+        // Two frames: one for the root's new font size to lay out, one for anything answering it.
+        await page.evaluate(
+          () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+        );
+        return measure(page);
+      };
+
+      const start = await measure(page);
+      assertEqual(await page.evaluate(() => window.RichTheme.scale()), 100, "this page did not start at 100%");
+
+      const bigger = await step("#font-up");
+      assertEqual(await page.evaluate(() => window.RichTheme.scale()), 110, "the + control did not move the scale");
+      assert(
+        bigger.field.h > start.field.h,
+        `the field did not follow the text size at all (${start.field.h}px -> ${bigger.field.h}px) — ` +
+          "it is stuck at the height autoGrow() wrote before the change"
+      );
+      for (const id of Object.keys(bigger.controls)) {
+        const c = bigger.controls[id];
+        assert(
+          holdsForControl(c),
+          `LARGER: ${id} is ${c.box.h}px against the field's ${bigger.field.h}px (dh ${c.dHeight}, dc ${c.dCenter}) — ` +
+            "neither centered nor the same height, which is the CEO's sentence broken"
+        );
+      }
+
+      // AND BACK DOWN, because Ray measured the defect in both directions and the shrinking one
+      // is the half where the FIELD is the taller of the two.
+      const back = await step("#font-down");
+      assertEqual(await page.evaluate(() => window.RichTheme.scale()), 100, "the − control did not move the scale back");
+      assertEqual(
+        back.field.h,
+        start.field.h,
+        `the field did not come back to its resting height (${start.field.h}px -> ${back.field.h}px)`
+      );
+      for (const id of Object.keys(back.controls)) {
+        const c = back.controls[id];
+        assert(
+          holdsForControl(c),
+          `SMALLER: ${id} is ${c.box.h}px against the field's ${back.field.h}px (dh ${c.dHeight}, dc ${c.dCenter})`
+        );
+      }
+      assertEqual(page.__errors, [], "the page reported errors");
+      await page.close();
+      return (
+        `100% field ${start.field.h}px; 110% field ${bigger.field.h}px, ${describeControls(bigger)}; ` +
+        `back at 100% field ${back.field.h}px, ${describeControls(back)}`
+      );
     }
   );
 

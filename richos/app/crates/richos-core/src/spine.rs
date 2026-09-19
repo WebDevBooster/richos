@@ -3216,6 +3216,10 @@ impl Spine {
                     let turn_id =
                         self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
+                    // AND WHAT HE ACTUALLY SAID — the same line `accept_prompt` carries, for the
+                    // same reason. See the `Channel` arm below, where its absence was a defect a
+                    // person could see.
+                    self.emit_live(self.ceo_message_event(&binding, &turn_id));
                     self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
@@ -3228,6 +3232,19 @@ impl Spine {
                     // same `Source::Text`. What arrives on the phone is the CEO's own words
                     // on a thread he already has, so anything else here would be a
                     // distinction the back end has no business making.
+                    //
+                    // **AND THAT SENTENCE WAS NOT TRUE OF THE EVENTS UNTIL TODAY** — Ray's
+                    // candidate .13 walk, defect R3. `accept_prompt` emits three events for a
+                    // CEO utterance and this arm emitted two: the status and the sidebar row,
+                    // but never `rich://ceo-message`, which is the only one carrying his WORDS.
+                    // The Mac's window therefore had nothing to draw when he typed on his phone
+                    // — it had always drawn his own sentence itself — and his message appeared
+                    // there only when `turn-completed` reloaded the thread. Measured on his own
+                    // Android: **5.68 s and 5.77 s**, his words and the finished answer landing
+                    // in the same frame, against 0.096 s for the other direction. At 2.99 s the
+                    // only thing that had changed on the Mac was the sidebar's working dot —
+                    // which is this arm's OTHER event arriving on time, and is the proof that
+                    // the path was live and this one line was missing from it.
                     if self.ledger.turn_for_intake(id).is_some() {
                         self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                         continue;
@@ -3236,6 +3253,7 @@ impl Spine {
                     let turn_id =
                         self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
+                    self.emit_live(self.ceo_message_event(&binding, &turn_id));
                     self.emit_live(self.thread_summary_event(&binding, &turn_id, ThreadStatus::Queued));
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;

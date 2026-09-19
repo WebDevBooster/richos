@@ -1129,6 +1129,17 @@
       status: "queued", startedAt: null, activeDurationMs: null, visibility: "ceo", at: now(),
       supersedesTurnId: opts.supersedes,
     }));
+    // **AND WHAT HE ACTUALLY SAID**, beside the queued status and in that order, because that
+    // is where `spine.rs` emits it (`accept_prompt`, and `drain_intake`'s channel and steering
+    // arms). THIS MOCK WAS MISSING IT ENTIRELY, which is worth stating: the event has been on
+    // the real wire since `2c95c27d` and nothing here rehearsed it, so a window that ignored it
+    // looked identical under the mock and took 5.68 s on his phone. `messageId` is the
+    // PROJECTION'S `{turn}:user` and `createdAt` is the turn's own instant — an id minted here
+    // would make his one sentence two rows.
+    emit("rich://ceo-message", Object.assign({}, fence, {
+      messageId: turnId + ":user", text: userText, source: opts.source || "text",
+      createdAt: userAt, visibility: "ceo", at: now(),
+    }));
 
     const startedAt = now();
     turnsById.get(turnId).startedAt = startedAt;
