@@ -174,8 +174,21 @@
         <h3 class="phone-step-title">That code ran out</h3>
         <p class="overlay-note" id="phone-expired-note" role="status"></p>
       </div>
+      <!-- THE WAY BACK OUT, ON THE ONE SCREEN THAT DID NOT HAVE ONE — Urban's G2.
+           "Pick a different way" is on Screen 0, on Screens 2/3/7 and on Screen 4, and it was
+           absent from exactly the screen a person is most likely to want it on: the one they
+           reached by pressing a button. Urban, live: *"once Set my phone up is pressed, the
+           route chooser is unreachable for the life of the app process"* — the expired state
+           sets "pairing" as well, so waiting does not give it back either, and he could not
+           re-reach the route chooser or "This Mac is ready" in dark at all after his walk.
+
+           AND IT STOPS SERVING, which is the half that is not a button. The other four copies
+           of this control move between screens with nothing running behind them; this one undoes
+           a socket and a live code, so it calls phone_stop_pairing rather than only setting
+           route = null. See PhoneRuntime::stop_pairing for why that is not phone_forget. -->
       <div class="desk-card-actions">
         <button id="phone-refresh" class="desk-btn desk-btn--confirm" type="button">Show me another code</button>
+        <button id="phone-pairing-back" class="desk-btn" type="button">Pick a different way</button>
       </div>
     </div>
 
@@ -1099,8 +1112,7 @@
     route = "at-home";
     await refresh();
   });
-  // "Pick a different way" — the only user-driven move backward, and it never tears down a live
-  // pairing window, because it is not offered on the screen that has one.
+  // "Pick a different way" — the only user-driven move backward.
   // SCREEN 0's two controls. "I understand" is not a preference and is not remembered: it lasts
   // as long as this open, exactly like the route.
   field("phone-identity-ok").addEventListener("click", async () => {
@@ -1119,10 +1131,35 @@
       await refresh();
     });
   }
+  // **THE FIFTH COPY, AND THE ONLY ONE WITH SOMETHING TO PUT DOWN** — Urban's G2.
+  //
+  // The four above move between screens that are waiting on the user; this one is pressed on a
+  // screen with a live code and an open socket behind it, so forgetting `route` is not enough:
+  // `choosing` requires `!status.listening`, so a back button that only cleared `route` would
+  // redraw the same pairing screen and read as a control that does nothing. The Mac has to be
+  // asked to stop first, and the render that follows uses the status that call returns rather
+  // than a second round trip — one answer, no window in which the two disagree.
+  field("phone-pairing-back").addEventListener("click", async () => {
+    if (busy) return;
+    busy = true;
+    field("phone-message").textContent = "";
+    // The ticker is stopped before the call rather than after the render: it fires once a
+    // second and calls `refresh()` at zero, and a countdown for a window that is being closed
+    // is the one thing on this screen that must not outlive it.
+    stopTicking();
+    route = null;
+    try {
+      render(await bridge.invoke("phone_stop_pairing"));
+    } catch (error) {
+      field("phone-message").textContent = String(error);
+    } finally {
+      busy = false;
+    }
+  });
   // `Check again` — the button for the impatient and for the failure. The poll is invisible, and a
   // detection path with no manual retry is a dead end the moment detection is wrong once.
   field("phone-ts-recheck").addEventListener("click", refresh);
-  field("phone-ts-start").addEventListener("click", begin);
+  field("phone-ts-start").addEventListener("click", () => begin(false));
   field("phone-forget").addEventListener("click", async () => {
     if (busy) return;
     busy = true;

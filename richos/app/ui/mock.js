@@ -2072,6 +2072,15 @@
           mockPhone.pairing = true;
           mockPhone.openedAt = now();
           return phoneStatusOf();
+        // **"PICK A DIFFERENT WAY" ON THE PAIRING SCREEN** — Urban's G2, and it stops serving.
+        // The Mac's own rule, `PhoneRuntime::stop_pairing`: close the window, then take the
+        // socket down only if nothing is paired. `listening` is derived from `paired ||
+        // pairing` here exactly as the Mac derives it from `listener_should_run`, so clearing
+        // `pairing` is the harness's whole half of it — and a paired phone keeps `listening`
+        // true through the same expression rather than through a second rule that agrees.
+        case "phone_stop_pairing":
+          mockPhone.pairing = false;
+          return phoneStatusOf();
         // THE HOW-TO SCREENS' LINKS (§61.1). Recorded rather than only answered: what a test needs
         // to know is WHICH address the control asked for, and `opener.rs` is where the allowlist
         // that governs it is proved.

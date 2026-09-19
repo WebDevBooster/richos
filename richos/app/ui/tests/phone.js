@@ -1186,6 +1186,71 @@ async function openSheet(browser, theme, preset) {
     return `live: ${JSON.stringify(onLive.text.slice(0, 60))}…; expired: the sentence is gone and the words are ${JSON.stringify(onExpired.words)}`;
   });
 
+  // ---- G2: the pairing screen has a way back, and it stops serving ------------------------
+
+  await run.check("19  `Pick a different way` is on the pairing screen too, and it stops serving", async () => {
+    // Urban's G2, seen live and unreachable afterwards: *"Once `Set my phone up` is pressed, the
+    // route chooser is unreachable for the life of the app process — `expired` also sets
+    // `pairing`, so waiting does not restore it either. I hit this live: after the walk, the
+    // route chooser and `This Mac is ready` could not be reached again in dark at all."*
+    //
+    // BOTH THEMES, because both halves of that sentence are about dark: the screens he could not
+    // re-reach were the dark ones, and a fix proved only in light would not answer him.
+    const out = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await takeTheTailscaleRoute(theme, {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      });
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
+      await page.click("#phone-ts-start");
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+
+      // THE CONTROL IS ON THE SCREEN AND IT IS CLICKABLE, not merely in the markup: the four
+      // other copies of this label live in blocks that are hidden on this screen, so a check
+      // that only looked for the text would pass on a button nobody can press.
+      const before = await page.evaluate(() => {
+        const back = document.getElementById("phone-pairing-back");
+        return {
+          present: !!back,
+          visible: !!back && back.offsetParent !== null,
+          label: back ? back.textContent.trim() : "",
+          listening: null,
+        };
+      });
+      before.listening = (await page.evaluate(() => window.RichBridge.invoke("phone_status"))).listening;
+      assert(before.present, "THE DEFECT: the pairing screen has no `Pick a different way`");
+      assert(before.visible, "`Pick a different way` is in the markup but not on the screen");
+      assertEqual(before.label, "Pick a different way", "the control is not under the name the rest of the flow uses");
+      assert(before.listening === true, "the harness never started serving, so stopping proves nothing");
+
+      await page.click("#phone-pairing-back");
+      await page.waitForSelector("#phone-route:not([hidden])");
+      const after = await page.evaluate(async () => {
+        const status = await window.RichBridge.invoke("phone_status");
+        return {
+          route: !document.getElementById("phone-route").hidden,
+          pairing: !document.getElementById("phone-pairing").hidden,
+          listening: status.listening,
+          pairUrl: status.pairUrl,
+        };
+      });
+      await page.close();
+
+      assert(after.route, "pressing it did not return to the route chooser");
+      assert(!after.pairing, "the pairing screen is still up after backing out of it");
+      // **AND IT STOPPED SERVING**, which is the half that is not a button. `choosing` requires
+      // `!status.listening`, so a Mac still answering would redraw the pairing screen on the
+      // next poll and this control would read as one that does nothing.
+      assert(after.listening === false, "THE DEFECT'S SECOND HALF: the Mac is still serving after `Pick a different way`");
+      assert(after.pairUrl === null, "the code he backed out of is still live");
+      out.push(theme + ": listening " + before.listening + " -> " + after.listening + ", route chooser back");
+    }
+    return out.join("; ");
+  });
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
