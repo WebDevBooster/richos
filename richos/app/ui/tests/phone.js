@@ -486,6 +486,88 @@ async function openSheet(browser, theme, preset) {
     return "the paired state names the phone, offers the way out, and says what the Mac cannot undo for him";
   });
 
+  // ---- 9c. DEFECT 3.1 — the first sentence describes the option he chose --------------------
+
+  await run.check(
+    "9c  the lead paragraph follows the chosen option, and the flow has one word for the place",
+    async () => {
+      // RAY'S CANDIDATE .11 DEFECT 3.1. Every screen opened with "Your phone talks to this Mac
+      // directly, over your own home network ... there is no account to make" — a description
+      // of "At home only" — and it stayed there unchanged after he pressed "Anywhere", which is
+      // not the home network and does involve making an account. Screenshots 13, 14, 15, 17.
+      const page = await openSheet(browser, "dark", {
+        phoneTailnet: {
+          state: "ready",
+          name: "mm1.tail770f6e.ts.net",
+          origin: "https://mm1.tail770f6e.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        },
+      });
+      // THE FIRST PARAGRAPH OF THE PANEL, by position rather than by id — the only direct
+      // `p.overlay-note` child of `.overlay-panel`, on this build and on the one Ray walked. So
+      // this check measures the SENTENCE, and a build where that sentence is a fixed literal
+      // fails on what it says rather than on a missing element.
+      const lead = async () =>
+        (
+          await page.textContent("#phone-sheet .overlay-panel > p.overlay-note")
+        )
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const chooser = await lead();
+      assert(
+        !/home network/i.test(chooser),
+        "before he has chosen anything the screen already describes one of the two options: " +
+          JSON.stringify(chooser)
+      );
+
+      await page.click("#phone-route-anywhere");
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
+      const anywhere = await lead();
+      assert(
+        /Tailscale/.test(anywhere) && /account/.test(anywhere),
+        "the Anywhere path's lead does not name the network or the account it costs: " +
+          JSON.stringify(anywhere)
+      );
+      assert(
+        !/own home network/i.test(anywhere) && !/no account to make/i.test(anywhere),
+        "THE DEFECT: the Anywhere path still opens by describing the home-network option, which " +
+          "is not the network he is on and is not true of the account he has to make: " +
+          JSON.stringify(anywhere)
+      );
+
+      await page.click("#phone-ts-ready-back");
+      await page.waitForSelector("#phone-route:not([hidden])");
+      await page.click("#phone-route-home");
+      await page.waitForSelector("#phone-off:not([hidden])");
+      const atHome = await lead();
+      assert(
+        /own home network/i.test(atHome) && /no account to make/i.test(atHome),
+        "the At-home path lost the sentence that is true of it: " + JSON.stringify(atHome)
+      );
+
+      // ONE WORD FOR THE PLACE. It was "the office", "the house" and "home" in three adjacent
+      // sentences. The option is called "At home only" and the thing it describes is "your own
+      // home network", so the other two were the odd ones out.
+      const whole = (await page.textContent("#phone-sheet")).replace(/\s+/g, " ");
+      await page.close();
+      const strays = ["the office", "the house"].filter((word) => whole.includes(word));
+      assertEqual(
+        strays,
+        [],
+        "the flow uses more than one word for the same place, which is how he ends up wondering " +
+          "whether they are three different places"
+      );
+
+      return (
+        "three leads, one per state: no choice -> " + JSON.stringify(chooser.slice(0, 48) + "…") +
+        "; Anywhere -> names Tailscale and the account; At home only -> keeps the sentence that " +
+        'is true of it. And 0 stray words for the place ("the office", "the house") across the ' +
+        "whole sheet, read with every screen's markup in the DOM."
+      );
+    }
+  );
+
   // ---- 9b. DEFECT 3.2 — the card says the same thing on the second open as on the first ----
 
   await run.check(

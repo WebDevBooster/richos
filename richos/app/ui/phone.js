@@ -37,8 +37,12 @@
   sheet.setAttribute("data-dismiss", "control:#phone-close");
   sheet.innerHTML = `<div class="overlay-panel">
     <h2 id="phone-title" class="overlay-title">Use Rich from your phone</h2>
-    <p class="overlay-note">Your phone talks to this Mac directly, over your own home network. Nothing
-      of what you say goes anywhere else, and there is no account to make.</p>
+    <!-- THE LEAD FOLLOWS THE OPTION HE PICKED, and it used to be a fixed sentence describing
+         the home-network option. It stayed on screen unchanged after he chose "Anywhere",
+         which is not the home network and DOES involve making an account — so every screen of
+         the Tailscale path opened by telling him the opposite of the path he was on. Ray's
+         candidate .11 defect 3.1, screenshots 13, 14, 15 and 17. Filled from LEAD below. -->
+    <p class="overlay-note" id="phone-lead"></p>
 
     <div id="phone-paired" hidden>
       <p class="overlay-note"><strong id="phone-device-name"></strong> is paired. Open Rich on it and
@@ -174,7 +178,7 @@
       <p class="overlay-note">This is an extra. Rich on this Mac does not need it.</p>
       <h3 class="phone-step-title">Where do you want to use it?</h3>
       <div class="phone-route">
-        <button id="phone-route-anywhere" class="desk-btn" type="button">Anywhere, including away from the office</button>
+        <button id="phone-route-anywhere" class="desk-btn" type="button">Anywhere, including away from home</button>
         <p class="overlay-note phone-route-note">On the go, on cellular, anywhere your phone has a
           signal. It costs you two app installs, one free Tailscale account, and no certificate at
           all.</p>
@@ -184,7 +188,7 @@
       <div class="phone-route">
         <button id="phone-route-home" class="desk-btn" type="button">At home only</button>
         <p class="overlay-note phone-route-note">Your phone talks to this Mac over your own home
-          network, with no account and no third party. Away from the house it will not connect, and
+          network, with no account and no third party. Away from home it will not connect, and
           setting it up means installing a certificate on your phone: sixteen taps, once.</p>
       </div>
     </div>
@@ -427,6 +431,42 @@
     "cannot tell you whether it has a certificate on it to remove. Pair it again and I will be " +
     "able to.";
 
+  /// **THE FIRST PARAGRAPH OF EVERY SCREEN, AND IT FOLLOWS THE OPTION HE CHOSE.**
+  ///
+  /// Ray's candidate .11 defect 3.1. Every screen in this flow opened with *"Your phone talks
+  /// to this Mac directly, over your own home network. Nothing of what you say goes anywhere
+  /// else, and there is no account to make."* That describes **At home only**. It stayed there,
+  /// word for word, after he chose **Anywhere** — which is not the home network, and which does
+  /// involve making an account. §61 exists because he wants this usable away from home, and the
+  /// standing first sentence told him the opposite. Screenshots 13, 14, 15, 17.
+  ///
+  /// **The Tailscale lead does not repeat the home path's privacy claim, and that is the
+  /// point.** "Nothing of what you say goes anywhere else" is true of a phone and a Mac on one
+  /// home network. On the tailnet the packets are encrypted end to end between the two devices
+  /// but they can be relayed by Tailscale's own servers when a direct connection cannot be
+  /// made, so the honest claim is about what is ENCRYPTED and about where the conversation is
+  /// KEPT — both of which this Mac can stand behind — and not about what never travels.
+  ///
+  /// **ONE WORD FOR THE PLACE, and the word is "home".** The flow called it "the office", "the
+  /// house" and "home" in three adjacent sentences (same defect, Ray's related note). "At home
+  /// only" is the option's own name and "your own home network" is the thing it describes, so
+  /// the other two were the odd ones out: the button now reads "Anywhere, including away from
+  /// home" and the home option's note "Away from home it will not connect".
+  const LEAD = {
+    // Before he has chosen. It says the one thing that is true of both options and makes no
+    // claim that belongs to either.
+    none:
+      "Rich on your phone talks to this Mac and to nothing else. Your conversations stay here, " +
+      "on this Mac, whichever way you set it up.",
+    anywhere:
+      "Your phone reaches this Mac over your own Tailscale network, from anywhere it has a " +
+      "signal. The connection to this Mac is encrypted, your conversations stay here, and it " +
+      "costs one free Tailscale account signed in on both devices.",
+    "at-home":
+      "Your phone talks to this Mac directly, over your own home network. Nothing of what you " +
+      "say goes anywhere else, and there is no account to make.",
+  };
+
   /// **WHAT AN EXPIRED CODE SAYS**, on the screen it expired on. It names what happened, says
   /// the codes are meant to run out, and points at the button beside it — so the one thing he
   /// does next is the one control on the screen. Before this he was shown nothing at all.
@@ -639,6 +679,19 @@
     const pairing = live || expired;
     const tailnet = status.tailnet || { state: "absent" };
     const onTailscale = route === "anywhere";
+
+    // **THE LEAD, FIRST, BECAUSE EVERY SCREEN BELOW CARRIES IT.** Once a phone is paired the
+    // route is not a question any more and the record answers it — the same source the forget
+    // note uses, and for the same reason: `route` is forgotten on every open, so a paired card
+    // that read it would describe the wrong path on the second visit (defect 3.2).
+    const leadKey = status.paired
+      ? status.pairedVia === "tailnet"
+        ? "anywhere"
+        : status.pairedVia === "home"
+          ? "at-home"
+          : "none"
+      : route || "none";
+    field("phone-lead").textContent = LEAD[leadKey];
 
     // Rows 1 and 9 of Urban's §3: unpaired with no route chosen is Screen 1.
     //
