@@ -784,7 +784,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # in scripts/hooks/adoption-ledger.surfaces, so adding an area never edits the
 # guard. Measured over 302 real briefs and spawn prompts: 11 refused, 9 of them
 # build dispatches onto a ledger surface. Suite:
-# guard-reference-ledger.test.sh (38 cases); harness:
+# guard-reference-ledger.test.sh (39 cases); harness:
 # reference-ledger.mutation.sh.
 # guard-public-record-repo.sh, ADDED 2026-09-20 — BLOCKING, on TWO surfaces:
 # PreToolUse[Agent] in hooks.json and the Bash chain's manifest. It refuses a
@@ -797,7 +797,7 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # publication guards scan what a file SAYS; this one is about CLASS, and
 # docs/verification/ is deliberately out of scope. Measured over 302 real
 # prompts and briefs: ONE refused, and it is the dispatch that caused the
-# incident. Suite: guard-public-record-repo.test.sh (25 cases); harness:
+# incident. Suite: guard-public-record-repo.test.sh (30 cases); harness:
 # public-record-repo.mutation.sh.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
 guard-host-display-power.sh

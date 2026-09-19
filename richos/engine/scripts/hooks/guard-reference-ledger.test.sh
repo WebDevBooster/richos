@@ -321,6 +321,20 @@ run_case C2 0 "Reed's adoption read passes — it COMMISSIONED the ledger" \
 run_case C3 0 "POSITIVE PROBE: a build brief on a surface no row covers passes" \
     Agent "$UNRELATED" RICHOS_REFERENCE_LEDGER_DOC="$LEDGER"
 
+# NARRATIVE IS NOT AN INSTRUCTION. This one names a ledger path, carries no
+# read veto at all, and has no heading that names files to edit — so nothing
+# in it says anybody is going to change that file. It is the case the
+# BUILD-SECTION conjunct exists for, isolated from the read veto.
+read -r -d '' NARRATIVE <<'FIX' || true
+# Brief: tell me how long the phone path has been slow, and since which commit
+
+Ray measured 7,288 ms on candidate .16 and 30-55 s on nightly .7. The send path
+is `richos/web/web-app/lib/link.js` and the intake log is on the Mac side. Walk
+the history and say when each number changed; the answer goes in your handoff.
+FIX
+run_case C4 0 "a narrative naming a ledger path, with no build section, passes" \
+    Agent "$NARRATIVE" RICHOS_REFERENCE_LEDGER_DOC="$LEDGER"
+
 echo ""
 echo "D. THE WEAK-PATH RULE, BOTH DIRECTIONS"
 

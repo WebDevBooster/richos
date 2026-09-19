@@ -183,6 +183,16 @@ saw A1a "docs/research/t3code-tooling-what-to-adopt-2026-09-19.md" "the refusal 
 saw A1b "private-repo" "the refusal names the private repository to use instead"
 saw A1c "public repo????" "the refusal carries the CEO's own sentence"
 
+# THE REFUSAL NAMES THE DELIVERABLE AND NOTHING ELSE. The same prompt carries a
+# BARE prior-art path, docs/research/t3-relay-exact-details-..., on a line that
+# also reads "8 of 19 lands on richos main were our own tooling" — and that
+# sentence is why "lands" is not a delivery verb.
+if printf '%s' "$LAST_OUT" | grep -q "t3-relay-exact-details"; then
+    FAIL=$((FAIL + 1)); printf '  FAIL  %-4s %s\n' A1d "a bare prior-art path on a lands line must not read as a deliverable"
+else
+    PASS=$((PASS + 1)); printf '  PASS  %-4s %s\n' A1d "the refusal names the deliverable only, not the bare prior-art path beside it"
+fi
+
 run_agent A2 0 "the SAME prompt aimed at the private repository passes" "$(prompt_for "$PRIV_WS")"
 
 if printf '%s' "$LAST_OUT" | grep -q "t3code-mobile-vs-richos-phone"; then
@@ -190,6 +200,23 @@ if printf '%s' "$LAST_OUT" | grep -q "t3code-mobile-vs-richos-phone"; then
 else
     PASS=$((PASS + 1)); printf '  PASS  %-4s %s\n' A3 "richos-hq/docs/research/... is prior art, not a deliverable"
 fi
+
+# THE PREFIX IS WHAT DECIDES, NOT THE VERB. This one carries the strongest
+# delivery verb in the list AND a record path, and it must still pass: the path
+# is the private repository's, so it is somebody else's file.
+read -r -d '' PRIOR_ART <<'FIX' || true
+cross-repo-worktree: PUBWS
+
+# Brief: make the nightly fail loudly when the notary rejects it
+
+The read that settled this was delivered as `richos-hq/docs/research/t3code-tooling-what-to-adopt-2026-09-19.md`; write your fix against its section 2.1.
+
+## Scope
+
+`richos/app/scripts/nightly-local.py`.
+FIX
+run_agent A4 0 "a PREFIXED record path on a line with a delivery verb is still prior art" \
+    "${PRIOR_ART/PUBWS/$PUB_WS}"
 
 echo ""
 echo "B. THE COMMIT SURFACE"
@@ -223,8 +250,28 @@ run_bash B5 0 "MODIFYING a record already in history is not refused" \
     "git commit -m 'plan v2'" "$PUBLIC"
 git -C "$PUBLIC" reset -q --hard >/dev/null 2>&1
 
+# STAGING AND COMMITTING IN ONE COMMAND. The index alone answers "what is in
+# this commit" only when the staging already happened in an earlier tool call,
+# and a guard that reads only the index is defeated by one ampersand.
+printf 'a plan\n' >"$PUBLIC/docs/plans/q.md"
+run_bash B8 2 "git add docs/plans/q.md && git commit, in ONE command, is REFUSED" \
+    "git add docs/plans/q.md && git commit -m 'the plan'" "$PUBLIC"
+saw B8a "docs/plans/q.md" "the refusal names the path the same command would stage"
+rm -f "$PUBLIC/docs/plans/q.md"
+
 run_bash B6 0 "a commit in a repository with NO publication declaration passes" \
     "git commit -m anything" "$PRIVATE"
+
+# THE REMEDY MUST WORK. Everything this guard refuses, it refuses by telling
+# somebody to do it in the private repository instead — so the identical
+# commit there has to pass, and it must pass because the declaration says so
+# and not because the commit happened to stage nothing.
+git -C "$PRIVATE" config user.email t@example.com
+git -C "$PRIVATE" config user.name Test
+printf 'the read\n' >"$PRIVATE/docs/research/z.md"
+git -C "$PRIVATE" add docs/research/z.md >/dev/null 2>&1
+run_bash B9 0 "the SAME record, committed in the private repository, passes" \
+    "git commit -m 'the read'" "$PRIVATE"
 run_bash B7 0 "a Bash command that is not a commit is silent" "ls -la" "$PUBLIC"
 
 echo ""
