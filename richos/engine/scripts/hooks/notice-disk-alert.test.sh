@@ -292,13 +292,61 @@ try:
 except Exception:
     print("")
 ' 2>/dev/null)"
-if [ "$RC" = "0" ] && printf '%s' "$MSG" | grep -q 'NOTHING WILL EVER COLLECT' \
-   && printf '%s' "$MSG" | grep -q '2934'; then
-    ok "D10  the garbage alarm reaches the ONE-LINE turn-end summary, with its count"
+# AMENDED 2026-09-19, and the amendment is the CEO's own question. This case
+# used to assert that 1.05 GB of OTHER PROGRAMS' temporary files reached the
+# turn-end line, and the line it produced was the one he read out: "MASSIVE
+# ALERT — DISK: ... 13.9 GB in 4122 place(s) NOTHING WILL EVER COLLECT ...".
+# Visual Studio Code's updater and Codex's dot-directories are not ours to
+# delete under any circumstances, so a line about them under every turn is
+# wallpaper by construction — and wallpaper is what makes the next real alert
+# get skipped. It stays in the SessionStart block, where it is information.
+if [ "$RC" = "0" ] && [ -z "$MSG" ]; then
+    ok "D10  other programs' temp does NOT reach the turn-end line (it is not ours)"
 else
-    bad "D10  the garbage alarm was dropped by the summary parser (rc=$RC)"
+    bad "D10  the turn end still reports files nobody may delete (rc=$RC)"
     printf '%s\n' "$MSG" | sed 's/^/        /' | head -4
 fi
+# ...AND THE HALF THAT DOES REACH IT. A campaign root past its retention is
+# OURS, it is never deleted automatically by design, and a person gets the space
+# back by running a command the full reading prints. That is worth a turn-end
+# line, and it must NOT wear the words MASSIVE ALERT: nothing is broken.
+python3 - "$SANDBOX/rstate/scratch-reaper-state.json" <<'PY'
+import json, sys, time
+json.dump({"last_apply": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+           "last_apply_epoch": int(time.time()),
+           "deleted": 0, "freed": 0, "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 2935, "skipped_bytes": 14958789966,
+           "skipped_split": {
+               "by_hand": {"count": 1, "bytes": 13749244608, "paths": [
+                   {"path": "/Users/x/ab/campaign-done", "bytes": 13749244608,
+                    "why": "PAST ITS RETENTION ... a person removes it:  "
+                           "rm -rf /Users/x/ab/campaign-done"}]},
+               "foreign": {"count": 2934, "bytes": 1125454451}},
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
+sleep 1
+OUT="$(run_hook Stop)"; RC=$?
+MSG="$(printf '%s' "$OUT" | python3 -c '
+import json, sys
+try:
+    print((json.load(sys.stdin).get("systemMessage") or ""))
+except Exception:
+    print("")
+' 2>/dev/null)"
+if [ "$RC" = "0" ] && printf '%s' "$MSG" | grep -q 'waits for a person to remove it' \
+   && ! printf '%s' "$MSG" | grep -q 'MASSIVE ALERT'; then
+    ok "D10a OUR by-hand pile DOES reach it, and without the words MASSIVE ALERT"
+else
+    bad "D10a the reclaimable pile is missing, or it is still an alarm (rc=$RC)"
+    printf '%s\n' "$MSG" | sed 's/^/        /' | head -4
+fi
+python3 - "$SANDBOX/rstate/scratch-reaper-state.json" <<'PY'
+import json, sys
+json.dump({"last_apply": "2026-09-18T04:40:00Z", "deleted": 0, "freed": 0,
+           "undecidable": 0, "undecidable_bytes": 0,
+           "skipped": 2934, "skipped_bytes": 1125454451,
+           "failures": 0, "verdict": "decided"}, open(sys.argv[1], "w"))
+PY
 # THE CONTROL: with the pile below its threshold the turn end is silent again.
 sed -i.bak 's/^SCRATCH_SKIPPED_NOTICE_BYTES=.*/SCRATCH_SKIPPED_NOTICE_BYTES="9999999999999"/' "$CFG"
 sleep 1
