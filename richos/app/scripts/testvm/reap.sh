@@ -78,17 +78,22 @@ fi
 
 TOTAL=$(( ${#VICTIMS[@]} + ${#ORPHAN_STATE[@]} ))
 
+# macOS ships bash 3.2, where expanding an EMPTY array under `set -u` is an
+# "unbound variable" error rather than an empty list. The clean-machine case —
+# nothing to reap — is precisely the empty case, so the naive "${arr[@]}" makes
+# this script fail exactly when it has good news. ${arr[@]+"${arr[@]}"} expands
+# to nothing when the array is empty and to the quoted elements otherwise.
 if [ "$NOTICE" -eq 1 ]; then
   [ "$TOTAL" -eq 0 ] && exit 0
-  echo "testvm: $TOTAL leftover item(s) — ${VICTIMS[*]:-} ${ORPHAN_STATE[*]:-} — run richos/app/scripts/testvm/reap.sh --apply"
+  echo "testvm: $TOTAL leftover item(s) — ${VICTIMS[*]+${VICTIMS[*]}} ${ORPHAN_STATE[*]+${ORPHAN_STATE[*]}} — run richos/app/scripts/testvm/reap.sh --apply"
   exit 0
 fi
 
 echo "testvm reap plan  ($(date -u +%FT%TZ))"
 echo "  root: $TESTVM_ROOT"
-for k in "${KEPT[@]}";   do echo "  KEEP   $k"; done
-for v in "${VICTIMS[@]}"; do echo "  DELETE VM $v (stopped clone)"; done
-for o in "${ORPHAN_STATE[@]}"; do echo "  DELETE state $o (no such VM)"; done
+for k in ${KEPT[@]+"${KEPT[@]}"};   do echo "  KEEP   $k"; done
+for v in ${VICTIMS[@]+"${VICTIMS[@]}"}; do echo "  DELETE VM $v (stopped clone)"; done
+for o in ${ORPHAN_STATE[@]+"${ORPHAN_STATE[@]}"}; do echo "  DELETE state $o (no such VM)"; done
 [ "$TOTAL" -eq 0 ] && { echo "  nothing to reclaim."; exit 0; }
 
 if [ "$APPLY" -eq 0 ]; then
@@ -97,11 +102,11 @@ if [ "$APPLY" -eq 0 ]; then
 fi
 
 FAILED=()
-for v in "${VICTIMS[@]}"; do
+for v in ${VICTIMS[@]+"${VICTIMS[@]}"}; do
   tart delete "$v" 2>/dev/null
   vm_exists "$v" 2>/dev/null && FAILED+=("VM $v")
 done
-for o in "${ORPHAN_STATE[@]}"; do
+for o in ${ORPHAN_STATE[@]+"${ORPHAN_STATE[@]}"}; do
   rm -rf "$o" 2>/dev/null
   [ -e "$o" ] && FAILED+=("state $o")
 done
@@ -111,6 +116,6 @@ if [ ${#FAILED[@]} -eq 0 ]; then
   exit 0
 fi
 ALERT="$TESTVM_ROOT/CLEANUP-FAILED-reap-$(date -u +%Y%m%dT%H%M%SZ).txt"
-{ echo "TESTVM REAP FAILED — $(date -u +%FT%TZ)"; for f in "${FAILED[@]}"; do echo "  - $f"; done; } | tee "$ALERT" >&2
+{ echo "TESTVM REAP FAILED — $(date -u +%FT%TZ)"; for f in ${FAILED[@]+"${FAILED[@]}"}; do echo "  - $f"; done; } | tee "$ALERT" >&2
 echo "MASSIVE ALERT: testvm reap could not delete the above. Rich: delete by hand. Record: $ALERT" >&2
 exit 1
