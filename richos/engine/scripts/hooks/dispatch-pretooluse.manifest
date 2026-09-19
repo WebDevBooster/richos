@@ -36,6 +36,7 @@ Bash|guard-row-currency-commits.sh
 Bash|guard-vendoring-commits.sh
 Bash|guard-hook-registration-commits.sh
 Bash|guard-ci-red-lands.sh
+Bash|guard-host-display-power.sh
 
 Write|guard-main-checkout-writes.sh
 Write|scan-secrets.sh
@@ -43,3 +44,4 @@ Write|guard-publication-writes.sh
 Write|guard-named-persons-writes.sh
 Write|guard-dialect.sh
 Write|guard-no-home-network-phone.sh
+Write|guard-host-display-power.sh
