@@ -101,6 +101,25 @@ what the harness did — the build's own output for that case is byte-identical 
 run's — and that the plumbing can no longer produce it. Both causes were removed; neither
 was a guess about the other.
 
+## The whole gates phase, on this branch
+
+Driven through `nightly-local.py`'s own `Runner`, `gates()`, flags, phase timing and
+`summary()` against this worktree — the same 64% of the build zach-opus-buildtime2 measured,
+and everything that broke last night. `nightly-local.py build` itself cannot be pointed at an
+unlanded branch: `Runner.checkout()` fetches `origin/main`.
+
+```
+  gates/core-tests    : -       (skipped: the land already ran it on 62e5affd)
+  gates/updater-tests :    18.6s   41 passed
+  gates/script-suites :    42.9s   10 of 14 — 170 checks — 2 NOT RUN (no screen),
+                                   2 skipped, inputs unchanged
+  gates/privacy-sweep :    20.1s
+  total               :    81.6s   rc=0
+```
+
+`run-tests tests: all 28 passed` inside it. The two skips are the per-worktree proof store
+working: written by this branch's earlier full run, matched by digest, named in the summary.
+
 ## The updater test, asked and answered
 
 The brief asked whether `cargo test -p richos-user-update` takes a machine-global lock that
@@ -173,4 +192,6 @@ session is still refused. And the original reproduction, three rounds of two con
 | `updater-two-concurrent-runs-B.log` | the losing half of two concurrent updater runs |
 | `gates-script-suites-after.log` | all 14 suites through `nightly-local.py`'s gates path, on this branch |
 | `fork-window-red-then-green.log` | the parked-child test, window open and window closed |
+| `gates-whole-phase-after.log` | the WHOLE gates phase on this branch, updater gate included |
+| `gates-whole-phase-timings.log` | its phase table |
 | `updater-two-concurrent-runs-after.log` | three rounds of the original reproduction, repaired |
