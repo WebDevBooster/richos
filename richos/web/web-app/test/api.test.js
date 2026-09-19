@@ -509,3 +509,107 @@ test('a Mac that cannot be reached is UNREACHABLE, and one that answers without 
 	});
 	assert.strictEqual(mute.state.challenge, 'challenge-one');
 });
+
+// ---------------------------------------------------------------------------------------------
+// THE 30-TO-55-SECOND SEND, AND THE ONE THAT NEVER ARRIVED — Ray's nightly `.7` walk, defect 1.
+//
+// The Mac mints a fresh challenge for EVERY response it gives (`phone/listen.rs` `render`) and
+// keeps only the most recent `LIVE_CHALLENGES` of them (`phone/device.rs` `issue_challenge`). The
+// flat static-asset GETs this app is itself served over count, and `sw.js` re-fetches its whole
+// nineteen-entry shell with `cache: 'reload'` on install. So the challenge the phone is holding
+// can be pushed out of that set without the phone making a single request of its own — and the
+// next signed send is refused `UnknownChallenge`, which §2.5 item 4 renders as a flat 404.
+//
+// A flat 404 is classified REFUSED, REFUSED is not retryable, and `queue.js` rule 4 therefore
+// BLOCKS the message: `Not sent.` beside it, and `One message could not be sent. Your Mac did not
+// accept it.` in the banner — the fourth of Ray's four sends, word for word. The three that did
+// arrive arrived only because something flushed the queue again later, and the only thing that
+// does that unprompted is the link reconnecting under a backoff capped at 30 s (`lib/link.js`
+// `MAX_RETRY_MS`). Hence every delay he measured being ≥30 s with a backoff's spread: 30.67 s,
+// 54.47 s, 48.79 s.
+// ---------------------------------------------------------------------------------------------
+
+test('a 404 that hands back a DIFFERENT challenge is a stale credential: the send is re-signed once and goes through', async () => {
+	// Exactly the shape a phone meets after its own service worker reloads the shell: the
+	// credential it holds was issued by this Mac, and has since been pushed out of the live set.
+	const { api, calls, signer, state } = makeApi((url, init, n) =>
+		n === 1
+			? response(404, '', { 'X-RichOS-Challenge': 'challenge-live' })
+			: response(200, { message_id: 'intake_9', cursor: 11, duplicate: false }, { 'X-RichOS-Challenge': 'challenge-next' })
+	);
+
+	const answer = await api.sendText({ clientId: 'c-stale', threadId: 't', text: 'ray r3 pass three', sentAt: 'now' });
+
+	assert.strictEqual(answer.message_id, 'intake_9', 'the message did not reach the Mac');
+	assert.strictEqual(calls.length, 2, 'the refused send was not tried again with the live challenge');
+	assert.strictEqual(api.staleCredentialRetries(), 1);
+	// The SECOND attempt signed the challenge the refusal handed back — not the dead one again.
+	assert.ok(signer.signed[0].startsWith('challenge-one\n'), 'the first attempt signed something other than the held challenge');
+	assert.ok(signer.signed[1].startsWith('challenge-live\n'), 'the retry re-used the dead challenge');
+	assert.strictEqual(state.challenge, 'challenge-next');
+	// The same `client_id` both times, so the Mac's own idempotency covers the repeat.
+	assert.strictEqual(JSON.parse(calls[0].init.body).client_id, 'c-stale');
+	assert.strictEqual(JSON.parse(calls[1].init.body).client_id, 'c-stale');
+});
+
+test('a phone the Mac has genuinely forgotten is still REFUSED, after exactly one retry and never a loop', async () => {
+	// Every answer carries a challenge, including this one, so the retry does fire — and the
+	// second 404, under a challenge the Mac minted itself moments ago, is the answer rather than
+	// a stale credential. Two attempts, then stop: rule 4's "hammering a Mac that has forgotten it".
+	let served = 0;
+	const { api, calls } = makeApi(() => {
+		served += 1;
+		return response(404, '', { 'X-RichOS-Challenge': `challenge-${served}` });
+	});
+	await assert.rejects(
+		() => api.sendText({ clientId: 'c-gone', threadId: 't', text: 'x', sentAt: 'now' }),
+		(err) => {
+			assert.strictEqual(err.reason, REFUSED);
+			assert.strictEqual(err.retryable, false);
+			assert.strictEqual(err.aboutThisMessage, false);
+			return true;
+		}
+	);
+	assert.strictEqual(calls.length, 2, 'the refusal was tried more than twice');
+});
+
+test('a 404 that hands back the SAME challenge is not retried — nothing changed, so a repeat would only be noise', async () => {
+	const { api, calls } = makeApi(() => response(404, '', { 'X-RichOS-Challenge': 'challenge-one' }));
+	await assert.rejects(
+		() => api.sendText({ clientId: 'c-same', threadId: 't', text: 'x', sentAt: 'now' }),
+		(err) => {
+			assert.strictEqual(err.reason, REFUSED);
+			return true;
+		}
+	);
+	assert.strictEqual(calls.length, 1);
+	assert.strictEqual(api.staleCredentialRetries(), 0);
+});
+
+test('an UNCREDENTIALED 404 is never retried: there is no credential to have gone stale', async () => {
+	// The pairing-time state, before a device id exists. `authorization()` returns null, so the
+	// stale-credential reading cannot apply and the flat 404 is the whole answer.
+	const { api, calls } = makeApi(
+		() => response(404, '', { 'X-RichOS-Challenge': 'challenge-live' }),
+		{ deviceId: null }
+	);
+	await assert.rejects(() => api.sendText({ clientId: 'c-none', threadId: 't', text: 'x', sentAt: 'now' }), (err) => {
+		assert.strictEqual(err.reason, REFUSED);
+		return true;
+	});
+	assert.strictEqual(calls.length, 1);
+});
+
+test('the backfill recovers from a stale credential too — the retry lives in `request`, not in one route', async () => {
+	const back = makeApi((url, init, n) =>
+		n === 1
+			? response(404, '', { 'X-RichOS-Challenge': 'challenge-live' })
+			: response(200, { messages: [], reached_beginning: true }, { 'X-RichOS-Challenge': 'challenge-next' })
+	);
+	const page = await back.api.backfill('thr_1', 40, 10);
+	assert.deepStrictEqual(page.messages, []);
+	assert.strictEqual(back.calls.length, 2);
+	// The credential goes in the QUERY on this route, and the retry has to put the NEW one there.
+	assert.ok(back.calls[1].url.includes('auth='), 'the retry dropped the query credential');
+	assert.ok(decodeURIComponent(back.calls[1].url).includes('.challenge-live.'), 'the retry re-used the dead challenge');
+});
