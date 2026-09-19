@@ -733,7 +733,18 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # a person deleting it by hand after the operating system shouted. It resolves
 # no entity root, so it is declared in the probe's R_ROOTLESS_HOOKS; suite:
 # session-start-scratch.test.sh (9 cases, four of them silence).
+# notice-disk-alert.sh, ADDED 2026-09-19 — SessionStart, refuses nothing, and
+# the CEO's own §54: when the disk falls below the declared DISK_CEO_NOTIFY_GB
+# it tells him at session start and keeps telling him until the space is back,
+# because a cleanup that failed must reach a person rather than a log. IT WAS
+# WIRED WITHOUT BEING ADDED HERE, and case 1b has been RED on main ever since:
+# 74 registered against 73 acknowledged. Nothing noticed, because
+# hook-registration-completeness.sh only evaluates this file's unanimity when a
+# NEW hook script appears — so the first person to add a hook inherits it, and
+# on 2026-09-19 that was the §61 home-network guard, whose commit the
+# completeness predicate refused fail-closed until this line existed.
 ACKNOWLEDGED_SCRIPTS="$(LC_ALL=C sort <<'ACK'
+notice-disk-alert.sh
 left-off-report.sh
 guard-brief-scope.sh
 guard-hook-registration-commits.sh
