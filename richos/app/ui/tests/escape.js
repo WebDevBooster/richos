@@ -42,6 +42,7 @@
 //   B5  a permission request is DECLINED by Escape from anywhere on screen
 //   B6  the home screen's own dialog, on a copy with no companies
 //   B7  Escape at the home screen cannot answer a surface painted BEHIND it   [derived]
+//   B8  the machinery itself: a named control is not pressed on a popup nobody can see
 //   C1  Escape with nothing open moves nothing and steals no key
 //   C2  this suite actually checked something
 //
@@ -508,6 +509,125 @@ async function main() {
   });
 
   // =======================================================================================
+  // B8 — THE DISMISSAL MACHINERY ITSELF, NOT A THIRD SURFACE'S GUARD
+  //
+  // THE SAME DEFECT, FOR THE THIRD TIME, AND THIS TIME AT ITS SOURCE. `isOnScreen()` tests
+  // `hidden`, `display` and `visibility` and — its own words — "has no idea what is painted
+  // over what". Two instances were closed AT THEIR OWN SURFACE: the opening curtain
+  // (`splash.js`, `setup.js` case 19, `5bd7d4e5`) and the home screen (`home.js`, B7 above,
+  // `617b4c9e`). Both are guards a surface has to REMEMBER to carry, so the next full-screen
+  // composition somebody writes arrives without one and the defect is back.
+  //
+  // What is measured here is `dismissTopmostPopup` itself: with a popup covered, its declared
+  // control is NOT pressed, whatever the covering thing is and whether or not that thing
+  // thought to guard Escape. The cover planted below is deliberately NOT a popup, carries no
+  // listener and consumes nothing — it is the surface written next month, with nothing
+  // remembered.
+  //
+  // THE SURFACE UNDER IT IS THE ONE THIS COST THE CEO: `#setup-sheet`, declared
+  // `control:#setup-later,#setup-close`. "Pressed a control nobody could see" is not an
+  // abstraction here — it is "Not now" on the one step that puts an engine on a Mac, answered
+  // by a hand that was pointed at something else entirely.
+  //
+  // AND IT NAMES ITS OWN BLIND SPOT, because the instrument has one. The question is asked of
+  // the compositor — `elementFromPoint` at the popup's own center, the derivation B7 settled
+  // on — and that is a HIT TEST, not a paint. A cover with `pointer-events: none` is invisible
+  // to it. The opening curtain is exactly that (`.splash` in `splash.css:22`), which is why
+  // `splash.js` keeps its own guard and why this is a FLOOR under the two surface guards
+  // rather than a replacement for either. The measurement is in the return line.
+  // =======================================================================================
+
+  await run.check("B8  Escape does not press a named control on a popup nobody can see", async () => {
+    const page = await openApp(browser, { setup: "missing-engine" });
+    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+
+    // THE PREMISE, ASSERTED: the offer is up, it declares a control rather than `escape`, and
+    // the two surfaces that carry their own guard are out of the way — so what answers this
+    // key can only be the machinery.
+    const before = await page.evaluate(() => ({
+      declared: document.getElementById("setup-sheet").getAttribute("data-dismiss"),
+      home: !!(window.RichHome && window.RichHome.isOpen()),
+      curtain: !!document.querySelector(".splash"),
+      top: (window.RichDismiss.open()[0] || {}).id || null,
+    }));
+    assertEqual(
+      before.declared,
+      "control:#setup-later,#setup-close",
+      "the offer no longer names its way out, so this check is measuring something else"
+    );
+    assert(!before.home && !before.curtain, "a surface with its own Escape guard is still up");
+    assertEqual(before.top, "setup-sheet", "the offer is not the topmost popup");
+
+    // The surface written next month: full-screen, opaque, ordinary. Not a popup, no
+    // `data-dismiss`, no listener — nothing for its author to have remembered.
+    const covered = await page.evaluate(() => {
+      const cover = document.createElement("div");
+      cover.id = "planted-cover";
+      cover.style.cssText = "position:fixed;inset:0;z-index:500;background:#101010";
+      document.body.appendChild(cover);
+      const box = document.getElementById("setup-sheet").getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return { hit: hit ? hit.id || hit.className : null };
+    });
+    assertEqual(
+      covered.hit,
+      "planted-cover",
+      "the cover is not painted over the offer, so this check is not in the window it is about"
+    );
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    assert(
+      await page.evaluate(() => !document.getElementById("setup-sheet").hidden),
+      "Escape pressed the offer's named way out through an opaque cover — he declined the one " +
+        "step that puts an engine on this Mac without ever seeing the question"
+    );
+    // THE OTHER HALF, and it is the half that keeps this a floor rather than a wall: uncover
+    // it and Escape is the named button again, immediately, with no reload and no second key.
+    await page.evaluate(() => document.getElementById("planted-cover").remove());
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    assert(
+      await page.evaluate(() => document.getElementById("setup-sheet").hidden),
+      "with nothing over it, Escape stopped pressing the offer's named way out"
+    );
+
+    // THE BLIND SPOT, MEASURED RATHER THAN CLAIMED. A `pointer-events: none` cover is not
+    // reported by `elementFromPoint`, so this floor cannot see the curtain and `splash.js`'s
+    // own guard is load-bearing. Asserting it here is what stops a later author deleting that
+    // guard on the belief that this one covers it.
+    const ghost = await page.evaluate(() => {
+      const el = document.getElementById("setup-sheet");
+      el.hidden = false;
+      const cover = document.createElement("div");
+      cover.style.cssText =
+        "position:fixed;inset:0;z-index:900;background:#101010;pointer-events:none";
+      cover.id = "planted-ghost";
+      document.body.appendChild(cover);
+      const box = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      const answer = hit ? hit.id || hit.className : null;
+      cover.remove();
+      el.hidden = true;
+      return answer;
+    });
+    assert(
+      ghost !== "planted-ghost",
+      "a pointer-events:none cover is now reported by elementFromPoint — the blind spot this " +
+        "check documents is gone, and splash.js's own guard can be re-argued"
+    );
+
+    bump(6);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return (
+      "covered: elementFromPoint at the offer's center answers planted-cover and Escape presses " +
+      "nothing; uncovered: Escape presses the named Not now; and a pointer-events:none cover " +
+      'answers "' + ghost + '" — the blind spot splash.js still guards'
+    );
+  });
+
+  // =======================================================================================
   // C — AND IT TAKES NOTHING IT WAS NOT GIVEN
   // =======================================================================================
 
@@ -578,5 +698,12 @@ main().catch((e) => {
 //           which is exactly the published behavior
 // B6   main.js: empty `EXTERNAL_DISMISS`
 //        -> #home-prefs-panel is hidden and its scrim is left over the whole window
+// B8   main.js `dismissTopmostPopup`: drop the `isPainted(top)` guard
+//        -> Escape presses "Not now" on an engine offer under an opaque cover, which is the
+//           shipped behavior at 5f3a1a1e for any full-screen surface that has not been given
+//           a guard of its own
+// B8b  main.js `isPainted`: return `hit === node` without `node.contains(hit)`
+//        -> a popup whose center lands on its own panel reads as covered, and Escape stops
+//           closing every sheet in the window
 // C1   main.js: make `dismissTopmostPopup` return true unconditionally
 //        -> Escape starts eating keystrokes with nothing on screen
