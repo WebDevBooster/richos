@@ -1154,6 +1154,15 @@ if [ "$PROBE_MODE" = "by-reference" ]; then
     # the ruling it carries (ceo-decisions §61) names "any brief, code write or
     # spawn". A brief and code are Writes; a dispatch is an Agent call. It is
     # therefore deliberately NOT in the single-registration list below.
+    #
+    # guard-host-display-power.sh appears FOUR TIMES, which is the most of any
+    # rule here, and the count is the ruling: ceo-decisions §65 says "no agent,
+    # and no brief, MESSAGE or script". So it is registered under `Agent`, under
+    # `SendMessage`, and in BOTH dispatcher chains (Bash and Write). The
+    # SendMessage registration is not symmetry — it is the surface the incident
+    # actually used: the `pmset displaysleepnow` that blacked out the CEO's
+    # monitors reached the teammate through the mailbox, and its spawn prompt
+    # does not contain the word.
     BR_EXPECTED="\
 engine-status.sh|SessionStart
 workspace-lifecycle.sh|SessionStart
@@ -1182,6 +1191,10 @@ guard-named-persons-writes.sh|PreToolUse
 guard-dialect.sh|PreToolUse
 guard-no-home-network-phone.sh|PreToolUse
 guard-no-home-network-phone.sh|PreToolUse
+guard-host-display-power.sh|PreToolUse
+guard-host-display-power.sh|PreToolUse
+guard-host-display-power.sh|PreToolUse
+guard-host-display-power.sh|PreToolUse
 guard-resume-isolation.sh|PreToolUse
 guard-bash-main-writes.sh|PreToolUse
 dispatch-pretooluse.sh|PreToolUse
