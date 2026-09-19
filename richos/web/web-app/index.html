@@ -96,7 +96,12 @@
 	<div class="fingerprint" id="fingerprint-box" hidden>
 		<p class="fingerprint-caption">Your Mac is showing six words. These are the six words this phone sees:</p>
 		<p class="fingerprint-words" id="fingerprint-words"></p>
-		<p class="fingerprint-note">They are the name of the certificate your Mac made for itself. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.</p>
+		<!-- WHAT THE SIX WORDS ARE DEPENDS ON THE WAY IN, and saying the wrong one here is a
+		     contradiction at the exact moment he is asked to make a security decision. The home
+		     path is what ships in the markup, because it is the path with a certificate he was
+		     asked to install; `app.js` replaces this sentence on the Tailscale path, where the
+		     Mac has just told him in bold that there is no certificate to install. -->
+		<p class="fingerprint-note" id="fingerprint-note">They are the name of the certificate your Mac made for itself. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.</p>
 	</div>
 
 	<div class="row" id="pairing-row" hidden>

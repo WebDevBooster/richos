@@ -228,6 +228,7 @@ async function startPairing(existingKeys) {
 	}
 
 	$('pairing-lede').textContent = 'Almost done. One thing to check, and it is the thing that matters.';
+	$('fingerprint-note').textContent = whatTheSixWordsAre();
 	$('fingerprint-words').textContent = words;
 	$('fingerprint-box').hidden = false;
 	$('pairing-row').hidden = false;
@@ -708,6 +709,44 @@ async function sendText() {
 	});
 	render(true);
 	flushQueue();
+}
+
+/// **WHICH WAY IN THIS PHONE CAME, read off the address bar and nothing else.**
+///
+/// The Mac serves this app on exactly two kinds of origin. At home it is
+/// `https://<name>.local:8443` from a certificate authority the Mac made for itself
+/// (`app/src-tauri/src/phone/api_base.rs:13`), and he is asked to install a profile for it. Over
+/// Tailscale it is `https://<name>.ts.net:8443` — *"with a **publicly trusted** certificate, which
+/// is what deletes the"* profile step entirely (`app/src-tauri/src/phone/listen.rs:213`,
+/// `mod.rs:315`). Ray reached the second one on the CEO's Android on 2026-09-18 with no
+/// interstitial at all, which is only possible with a certificate the phone already trusts.
+///
+/// Read from `location.hostname` rather than from the pairing payload because the payload does
+/// not carry it today (`routes.rs:263-274` sends `device_id`, `ca_fingerprint_sha256`,
+/// `vapid_public_key`, `challenge`, `api_base`, `thread_id`, `thread_title`, `threads`) and the
+/// address bar does. Anything that is not a `ts.net` name is treated as the home path, so an
+/// address nobody has thought of gets the sentence that names a certificate he may have
+/// installed — the cautious way round.
+function onTheTailscalePath() {
+	const host = String(location.hostname || '').toLowerCase();
+	return host === 'ts.net' || host.endsWith('.ts.net');
+}
+
+/// The sentence under the six words, for the way in this phone actually came.
+///
+/// **§4.2 of Ray's walk.** On the Tailscale path the phone said *"They are the name of the
+/// certificate your Mac made for itself"* while the Mac had just said, in bold on the same flow:
+/// *"There is no certificate to install on this path. If your phone asks you to install a
+/// profile, something is wrong — tell me."* A careful person reading both concludes something IS
+/// wrong, at the moment he is being asked whether the two screens match.
+///
+/// What is true on both paths is that the words come from a root the Mac made and keeps; what
+/// differs is whether there is a certificate of his to compare them to.
+function whatTheSixWordsAre() {
+	if (onTheTailscalePath()) {
+		return 'They are the name of a key your Mac keeps to itself. Nothing was installed on this phone to get here, and nothing needs to be. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
+	}
+	return 'They are the name of the certificate your Mac made for itself. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
 }
 
 function newClientId() {
