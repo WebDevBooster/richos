@@ -3185,6 +3185,46 @@ impl Spine {
         Ok(())
     }
 
+    /// **THE BINDING AN EVENT MAY BE FENCED WITH, AND IT IS NOT ALWAYS THE LEDGER'S.**
+    ///
+    /// Two revisions exist for one thread and only one of them is on disk:
+    ///
+    ///   * `Ledger::thread_binding` returns the revision written when the thread was BOUND
+    ///     and never rewritten — 1, for the life of a thread nobody re-binds.
+    ///   * `Spine::activate` mints a FRESH, higher one from `Ledger::take_revision`
+    ///     (`rebind_at_new_revision`) for the active context, and deliberately persists
+    ///     nothing. That is the revision `main.js` hands `RichTimeline.bind` — 3 in
+    ///     `phone_intake_tests::the_fence_on_his_phone_message_is_the_one_the_open_window_is_holding`.
+    ///
+    /// `timeline.js accepts()` applies §13's staleness fence — `payload.bindingRevision <
+    /// model.bindingRevision` → reject — so an event fenced from the LEDGER for the thread
+    /// the CEO currently has open is thrown away by the one surface it was written for.
+    ///
+    /// **That is Ray's R3 on candidate .16, and the measurement is the diagnosis.** A message
+    /// typed on his phone took **7,288 ms** to reach the open thread and arrived in the SAME
+    /// PAINT as the finished reply, while the sidebar's dot moved at **+471 ms** — because
+    /// `rich://thread-summary-updated` is handled outside the timeline model and is not
+    /// fenced at all. The events were on time; the fenced ones were discarded, and nothing
+    /// but `turn-completed`'s reload ever drew them.
+    /// (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260919.5-stale-engine-and-phone-audit.md`
+    /// §"R3, phone → Mac".)
+    ///
+    /// A desk message never had the defect: `submit_prompt_inner` fences on
+    /// `ensure_active_thread()`. So this is the intake road being given the same binding the
+    /// desk road already uses, and nothing more — *"from here on the spine does not know or
+    /// care which mouth the CEO used"* is restored to the events as well as to the ledger.
+    ///
+    /// For any OTHER thread the ledger's binding is the right and only answer: no window is
+    /// fenced on it, and a snapshot draws it when he opens it.
+    fn fence_binding(&self, thread_id: &str) -> Result<ThreadBinding, SpineError> {
+        if let Some(active) = &self.active {
+            if active.thread_id() == thread_id {
+                return Ok(active.clone());
+            }
+        }
+        Ok(self.ledger.thread_binding(thread_id)?)
+    }
+
     /// Move durable intake records into the ledger, now that the boundary is clear.
     ///
     /// This is where §9.2's "persisted before delivery" pays out: the CEO's steering was
@@ -3212,7 +3252,7 @@ impl Spine {
                         self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                         continue;
                     }
-                    let binding = self.ledger.thread_binding(&thread_id)?;
+                    let binding = self.fence_binding(&thread_id)?;
                     let turn_id =
                         self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
@@ -3245,11 +3285,21 @@ impl Spine {
                     // only thing that had changed on the Mac was the sidebar's working dot —
                     // which is this arm's OTHER event arriving on time, and is the proof that
                     // the path was live and this one line was missing from it.
+                    //
+                    // **AND EMITTING IT WAS ONLY HALF.** Ray re-measured on candidate .16 with
+                    // the line above in the build: **7,288 ms**, worse than the 5.68 s it was
+                    // meant to fix, the bubble and the whole reply still in one paint, and the
+                    // sidebar's dot still moving at +471 ms. The event was on the wire and the
+                    // WINDOW DISCARDED IT — it was fenced from `Ledger::thread_binding` and the
+                    // open thread is fenced at the ACTIVATION revision, so `timeline.js`
+                    // `accepts()` read it as stale. `fence_binding` below is that fix, and the
+                    // dot is the tell in both halves: it is the one event in this arm that no
+                    // fence is applied to.
                     if self.ledger.turn_for_intake(id).is_some() {
                         self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                         continue;
                     }
-                    let binding = self.ledger.thread_binding(&thread_id)?;
+                    let binding = self.fence_binding(&thread_id)?;
                     let turn_id =
                         self.ledger.record_prompt_received_from_intake(&binding, &text, Source::Text, id)?;
                     self.emit_live(self.turn_status_event(&binding, &turn_id, TurnStatus::Queued, None));
@@ -3269,7 +3319,7 @@ impl Spine {
                         self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
                         continue;
                     }
-                    let binding = self.ledger.thread_binding(&thread_id)?;
+                    let binding = self.fence_binding(&thread_id)?;
                     let turn_id = self.accept_prompt(&binding, &text, Source::Text, None, Some(id))?;
                     self.queue.push_back(Queued { turn_id, binding, text, intake_id: Some(id) });
                     self.control.mark_drained(id).map_err(|e| SpineError::Steering(e.to_string()))?;
@@ -3370,7 +3420,7 @@ impl Spine {
             if !matches!(turn.state, crate::ledger::TurnState::Received | crate::ledger::TurnState::InFlight) {
                 continue;
             }
-            let binding = self.ledger.thread_binding(&turn.thread_id)?;
+            let binding = self.fence_binding(&turn.thread_id)?;
             self.ledger.interrupt_turn_after_restart(&id, "RichOS closed before this request finished. Your message is saved; send it again to retry.")?;
             self.emit_live(self.turn_status_event(&binding, &id, TurnStatus::Failed, None));
             self.emit_live(self.thread_summary_event(&binding, &id, ThreadStatus::Failed));
