@@ -34,6 +34,18 @@
     // went to find his phone, and came back after the sixty seconds were up. Reaching it by
     // waiting a minute is not a test anybody runs, so the harness starts the clock in the past.
     openedAt: window.__RICHOS_MOCK_PRESET__?.phonePairingExpired === true ? now() - 61000 : now(),
+    // THE RECORDED PATH AND PLATFORM (`device.rs`: `paired_via`, `platform`). The default is
+    // the home path on an iPhone, which is what this harness has always modeled; the presets
+    // are how the other three combinations — and the legacy record that recorded neither — are
+    // reached without a Mac, a tailnet and two phones.
+    pairedVia:
+      window.__RICHOS_MOCK_PRESET__?.phonePairedVia === undefined
+        ? "home"
+        : window.__RICHOS_MOCK_PRESET__.phonePairedVia,
+    platform:
+      window.__RICHOS_MOCK_PRESET__?.phonePlatform === undefined
+        ? "ios"
+        : window.__RICHOS_MOCK_PRESET__.phonePlatform,
   };
   // WHERE THIS MAC IS ON THE TAILSCALE PATH, for the harness. The shipped sheet draws its four
   // Tailscale screens from `status.tailnet` and nothing else, so without this the whole of CEO
@@ -66,7 +78,14 @@
     return {
       listening: mockPhone.paired || mockPhone.pairing,
       paired: mockPhone.paired,
-      deviceName: mockPhone.paired ? "iPhone" : null,
+      // WHAT THE PAIRED PHONE IS AND HOW IT GOT HERE — the two fields `PhoneStatus` grew for
+      // Ray's defect 3.2, and the reason the harness can reach all four combinations. The
+      // device NAME follows the platform rather than being pinned to "iPhone", because the
+      // defect was a card reading "Android phone is paired" over iOS instructions and a
+      // harness that could only ever be an iPhone could not have shown it.
+      deviceName: mockPhone.paired ? (mockPhone.platform === "android" ? "Android phone" : "iPhone") : null,
+      pairedVia: mockPhone.paired ? mockPhone.pairedVia : null,
+      platform: mockPhone.paired ? mockPhone.platform : null,
       pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
       trustUrl: mockPhone.paired || mockPhone.pairing ? "http://mm1.local:8444/ca" : null,
       pairUrl: open ? "https://mm1.local:8443/#pair=K7QF2M9X" : null,

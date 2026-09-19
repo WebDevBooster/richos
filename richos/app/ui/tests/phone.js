@@ -403,11 +403,174 @@ async function openSheet(browser, theme, preset) {
       "the screen does not say that forgetting here leaves the profile on his phone: " + text
     );
     assert(
-      /VPN and Device Management/.test(text) && /Remove Profile/.test(text),
+      // "VPN & Device Management" — Apple's own screen name, and the spelling the sixteen
+      // steps above already use. This one paragraph said "VPN and Device Management", which is
+      // a screen name that does not exist on the phone he is holding.
+      /VPN & Device Management/.test(text) && /Remove Profile/.test(text),
       "the screen does not say WHERE on the phone to remove it, which is the whole point: " + text
     );
     return "the paired state names the phone, offers the way out, and says what the Mac cannot undo for him";
   });
+
+  // ---- 9b. DEFECT 3.2 — the card says the same thing on the second open as on the first ----
+
+  await run.check(
+    "9b  the paired card's copy comes from the record: four combinations, and identical on reopen",
+    async () => {
+      // RAY'S CANDIDATE .11 DEFECT 3.2, REPRODUCED AND THEN PINNED.
+      //
+      // What he did: paired his ANDROID phone over Tailscale, read "There is nothing to remove
+      // from your phone", closed the card, reopened it, and was told to open "Settings, then
+      // General, then VPN and Device Management, then the RichOS profile" — an iOS menu, on an
+      // Android phone, for a certificate that path never installs. Reproduced twice.
+      //
+      // The cause is that the copy was keyed off the sheet's `route`, which `open()` resets to
+      // null on every open by design. So the SECOND OPEN is the whole test: same status, same
+      // phone, and the card must say the same words.
+      const combinations = [
+        {
+          via: "tailnet",
+          platform: "android",
+          name: "Android phone",
+          must: [/nothing to remove from your phone/i, /Tailscale name/],
+          mustNot: [/VPN & Device Management/, /Remove Profile/, /Settings, then General/],
+          limit: true,
+        },
+        {
+          via: "tailnet",
+          platform: "ios",
+          name: "iPhone",
+          must: [/nothing to remove from your phone/i],
+          mustNot: [/VPN & Device Management/, /Remove Profile/],
+          limit: true,
+        },
+        {
+          via: "home",
+          platform: "ios",
+          name: "iPhone",
+          must: [/VPN & Device Management/, /Remove Profile/],
+          mustNot: [/nothing to remove from your phone/i],
+          limit: false,
+        },
+        {
+          via: "home",
+          platform: "android",
+          name: "Android phone",
+          // An Android phone on the home path never took a profile: what this Mac serves at the
+          // trust endpoint is an Apple `.mobileconfig` and nothing else. So it must not be sent
+          // to an iOS menu, and it must not be told a menu path nobody here verified either.
+          must: [/nothing RichOS put on your Android phone to remove/i],
+          mustNot: [/VPN & Device Management/, /Remove Profile/, /Settings, then General/],
+          limit: false,
+        },
+        {
+          // THE FIFTH: a record written before either field existed. It must say it does not
+          // know rather than fall back to one of the four — the defect was a default stated as
+          // a fact, and a default in here would be the same defect one layer down.
+          via: "",
+          platform: "",
+          name: "iPhone",
+          must: [/did not record which way it connected/i, /Pair it again/],
+          mustNot: [/VPN & Device Management/, /nothing to remove from your phone/i],
+          limit: false,
+        },
+      ];
+
+      const seen = [];
+      for (const combination of combinations) {
+        const page = await openSheet(browser, "dark", {
+          phonePaired: true,
+          phonePairedVia: combination.via,
+          phonePlatform: combination.platform,
+        });
+        // WHAT IS ON THE SCREEN, NOT WHAT IS IN THE MARKUP. The forget note is read by
+        // gathering every VISIBLE paragraph in the paired card that is about forgetting,
+        // rather than by one element id — so this check measures the copy a person reads and
+        // keeps measuring it whether that copy lives in one node or in two. Run against the
+        // build Ray walked it fails on the words, which is the defect, rather than on a
+        // missing id, which would only be a rename.
+        const read = async () =>
+          page.evaluate(() => {
+            const visible = (node) => node.offsetParent !== null || !node.hidden;
+            const notes = [...document.querySelectorAll("#phone-paired p")]
+              .filter((n) => visible(n) && /Forgetting it here/.test(n.textContent || ""))
+              .map((n) => (n.textContent || "").replace(/\s+/g, " ").trim());
+            const limit = [...document.querySelectorAll("#phone-paired p")].filter(
+              (n) => visible(n) && /signed in to Tailscale/.test(n.textContent || "")
+            );
+            return {
+              heading: document
+                .getElementById("phone-paired")
+                .textContent.replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 40),
+              notes: notes,
+              limitShown: limit.length > 0,
+            };
+          });
+        const first = await read();
+        // CLOSE AND REOPEN — the exact sequence that produced the defect on screen.
+        await page.click("#phone-close");
+        // `state: "hidden"` — the default waits for VISIBLE, and a hidden sheet never is.
+        await page.waitForSelector("#phone-sheet", { state: "hidden" });
+        await page.click("#set-btn");
+        await page.click("#set-phone-open");
+        await page.waitForSelector("#phone-sheet:not([hidden])");
+        const second = await read();
+        await page.close();
+
+        const where = combination.via + ":" + combination.platform;
+        assertEqual(
+          second,
+          first,
+          "reopening the paired card for the SAME phone (" + where + ") changed what it says. " +
+            "That is defect 3.2: the copy is being derived from something the sheet forgets on " +
+            "open instead of from the device record."
+        );
+        // EXACTLY ONE forget paragraph may be on screen. Two visible paragraphs about the
+        // same act is its own defect and the reason this is one node now.
+        assertEqual(
+          first.notes.length,
+          1,
+          where + " shows " + first.notes.length + " visible paragraph(s) about forgetting the " +
+            "phone, and exactly one is the right number: " + JSON.stringify(first.notes)
+        );
+        const note = first.notes[0];
+        for (const pattern of combination.must) {
+          assert(
+            pattern.test(note),
+            where + " is missing " + pattern + " — it says: " + JSON.stringify(note)
+          );
+        }
+        for (const pattern of combination.mustNot) {
+          assert(
+            !pattern.test(note),
+            where + " shows copy that belongs to another combination (" + pattern + "): " +
+              JSON.stringify(note)
+          );
+        }
+        // The name comes last of the three, deliberately: it is the one assertion that
+        // depends on the harness modeling the right phone, and a failure there would mask the
+        // copy failures above, which are the defect.
+        assert(
+          first.heading.startsWith(combination.name + " is paired"),
+          "the card does not name the phone it is talking about (" + where + "): " + first.heading
+        );
+        assertEqual(
+          first.limitShown,
+          combination.limit,
+          "the Tailscale limit line is on the wrong combination (" + where + ")"
+        );
+        seen.push(where + (first.limitShown ? " +limit" : ""));
+      }
+      return (
+        combinations.length + " path x platform combination(s) read off the device record and " +
+        "identical on a second open: " + seen.join(", ") + ". The reopen is the measurement — " +
+        "before this, every reopen drew the home path's iOS profile-removal steps whatever the " +
+        "phone was."
+      );
+    }
+  );
 
   // ---- 11-16. CEO §61.1: the identity trap, made crystal-clear -----------------------------
   //

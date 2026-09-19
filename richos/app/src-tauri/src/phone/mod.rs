@@ -329,6 +329,18 @@ pub struct PhoneStatus {
     /// Is a phone paired? `listening && !paired` means a pairing window is open.
     pub paired: bool,
     pub device_name: Option<String>,
+    /// **WHICH PATH THE PAIRED PHONE PAIRED OVER**, read off its record — `"tailnet"`,
+    /// `"home"`, or `""` for a record written before the field existed. `None` when nothing is
+    /// paired.
+    ///
+    /// The settings card's copy about removing certificates is derived from THIS and from
+    /// [`PhoneStatus::platform`], and from nothing the sheet remembers. The sheet forgets the
+    /// route on every open by design, so keying that copy off it made reopening the card for a
+    /// paired Android phone print iOS profile-removal steps (Ray's candidate .11 defect 3.2).
+    pub paired_via: Option<String>,
+    /// **WHAT KIND OF PHONE IT IS** — `"ios"`, `"android"`, `"other"`, or `""` for a record
+    /// written before the field existed. `None` when nothing is paired.
+    pub platform: Option<String>,
     /// Whether that phone can be pushed to yet — it cannot until he has installed the app to the
     /// Home Screen and allowed notifications, which happens after pairing.
     pub push_ready: bool,
@@ -528,6 +540,8 @@ impl PhoneRuntime {
                 listening: false,
                 paired: false,
                 device_name: None,
+                paired_via: None,
+                platform: None,
                 push_ready: false,
                 trust_url: None,
                 pair_url: None,
@@ -548,6 +562,8 @@ impl PhoneRuntime {
             listening: running.listener.is_running(),
             paired: device.is_some(),
             device_name: device.as_ref().map(|d| d.name.clone()),
+            paired_via: device.as_ref().map(|d| d.paired_via.clone()),
+            platform: device.as_ref().map(|d| d.platform.clone()),
             push_ready: device.as_ref().map(|d| d.push.is_some()).unwrap_or(false),
             trust_url: Some(running.names.trust_url()),
             pair_url: window
@@ -647,6 +663,15 @@ impl PhoneRuntime {
             assets: phone_assets(),
             vapid_public: vapid.application_server_key(),
             fingerprint_hex: fingerprint_hex.clone(),
+            // **THE DECISION `serving_plan` JUST MADE, CARRIED RATHER THAN RE-READ.** A phone
+            // that redeems a code minted now paired over this path, and the card that talks
+            // about removing certificates needs that answer to survive every later change of
+            // this Mac's mind (Ray's candidate .11 defect 3.2).
+            pairing_path: std::sync::Mutex::new(if tailnet_tls.is_some() {
+                device::PairedVia::TAILNET
+            } else {
+                device::PairedVia::HOME
+            }),
         });
 
         // The window opens BEFORE the socket, so a failure to bind leaves nothing half-armed.
@@ -674,6 +699,10 @@ impl PhoneRuntime {
                      the home path only: {e}"
                 );
                 origin = names.origin();
+                // AND THE RECORDED PATH MOVES WITH IT. This is the one place the answer
+                // changes after the channel was built, and a code handed out from here goes
+                // out under `mm1.local` — the home path, certificate and all.
+                *channel.pairing_path.lock().unwrap() = device::PairedVia::HOME;
                 listen::Listener::start(
                     Arc::clone(&channel),
                     tls,

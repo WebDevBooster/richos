@@ -47,18 +47,15 @@
       <!-- SCREEN 6's LIMIT, on the one screen where they live with it. Said on Screen 1 where they
            commit, and here — and on none of the four screens in between, because a limitation
            repeated on every screen is nagging. -->
-      <p class="overlay-note" id="phone-ts-limit" hidden>You can use this away from the office. Both
-        devices have to be signed in to Tailscale for it to connect — including at home.</p>
-      <!-- THE FORGET NOTE IS CONDITIONAL, and that is the point. On the Tailscale route there is no
-           profile, and telling someone to go and remove one that does not exist is the kind of
-           leftover that makes a product feel untended. -->
-      <p class="overlay-note" id="phone-forget-note-home">Forgetting it here stops this Mac answering
-        it, and deletes the keys. It does <strong>not</strong> remove the certificate from your
-        phone. To remove that too, on your phone open Settings, then General, then VPN and Device
-        Management, then the RichOS profile, then Remove Profile.</p>
-      <p class="overlay-note" id="phone-forget-note-ts" hidden>Forgetting it here stops this Mac
-        answering it, deletes the keys, and stops this Mac answering at its Tailscale name. There is
-        nothing to remove from your phone.</p>
+      <p class="overlay-note" id="phone-ts-limit" hidden></p>
+      <!-- ONE FORGET NOTE, FILLED FROM THE DEVICE RECORD. It was two paragraphs, one shown and
+           one hidden, chosen by the sheet's own route variable — which is forgotten on every
+           open by design, so reopening this card for a paired phone always redrew the home
+           path's iOS profile-removal steps. Ray's candidate .11 defect 3.2 caught it on an
+           ANDROID phone that had paired over Tailscale and installed no certificate at all.
+           One node, filled from status.pairedVia and status.platform, is the only shape in
+           which the two cannot disagree — see PAIRED_FORGET_NOTE below. -->
+      <p class="overlay-note" id="phone-forget-note"></p>
       <div class="desk-card-actions">
         <button id="phone-forget" class="desk-btn" type="button">Forget this phone</button>
       </div>
@@ -356,6 +353,87 @@
     }
   }
 
+  /// **THE PAIRED CARD'S COPY, DERIVED FROM THE RECORD AND FROM NOTHING THE SHEET REMEMBERS.**
+  ///
+  /// Ray's candidate .11 walk, defect 3.2: immediately after pairing an ANDROID phone over
+  /// Tailscale the card said *"There is nothing to remove from your phone."* Closing and
+  /// reopening the same card for the same phone said, instead, *"…open Settings, then General,
+  /// then VPN and Device Management, then the RichOS profile, then Remove Profile"* — an iOS
+  /// procedure, on a card whose own first line reads "Android phone is paired", on the one path
+  /// that never installs a certificate. Reproduced twice.
+  ///
+  /// **The cause was not the copy, it was where the copy was keyed from.** `route` below is
+  /// forgotten on every open, on purpose (Urban §1). So on a reopen `route === null`, which is
+  /// not "anywhere", which selected the home path's paragraph — a default presented as a fact.
+  ///
+  /// So the two answers are recorded on the Mac at pairing (`device.rs`'s `paired_via` and
+  /// `platform`) and arrive on every `phone_status`. **Four combinations, and a fifth for a
+  /// record written before those fields existed**, which says it does not know rather than
+  /// picking one of the four.
+  const PAIRED_FORGET_NOTE = {
+    // BOTH PLATFORMS, ONE SENTENCE, on the Tailscale path — because on this path the answer
+    // genuinely does not depend on the phone: no profile is ever installed on it. The flow says
+    // so on the way in ("There is no certificate to install on this path"), and this is the same
+    // fact at the other end of the feature.
+    "tailnet:ios":
+      "Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac " +
+      "answering at its Tailscale name. There is nothing to remove from your phone.",
+    "tailnet:android":
+      "Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac " +
+      "answering at its Tailscale name. There is nothing to remove from your phone.",
+    "tailnet:other":
+      "Forgetting it here stops this Mac answering it, deletes the keys, and stops this Mac " +
+      "answering at its Tailscale name. There is nothing to remove from your phone.",
+    // THE SIXTEEN TAPS' OTHER END, and the only combination this paragraph was ever true of.
+    // Apple's own screen names, in Apple's own order, exactly as the sixteen steps use them —
+    // "VPN &amp; Device Management" is what the phone says, and the flow spelled it "VPN and
+    // Device Management" in this one place.
+    "home:ios":
+      "Forgetting it here stops this Mac answering it, and deletes the keys. It does " +
+      "<strong>not</strong> remove the certificate from your phone. To remove that too, on your " +
+      "phone open Settings, then General, then VPN &amp; Device Management, then the RichOS " +
+      "profile, then Remove Profile.",
+    // AND THE COMBINATION THE OLD COPY WAS ACTUALLY SHOWN FOR. What this Mac serves at the trust
+    // endpoint is an Apple `.mobileconfig` and nothing else (`ca.rs`'s `mobileconfig`, served by
+    // `listen.rs` on TRUST_PORT), so RichOS has never put anything on an Android phone to
+    // remove. It does not name an Android menu path, because it cannot know one it did not use.
+    "home:android":
+      "Forgetting it here stops this Mac answering it, and deletes the keys. There is nothing " +
+      "RichOS put on your Android phone to remove — the certificate step on this path installs " +
+      "an Apple profile, which an Android phone never took. If you added this Mac's certificate " +
+      "to it by hand, remove it in your phone's own security settings.",
+    "home:other":
+      "Forgetting it here stops this Mac answering it, and deletes the keys. If you installed " +
+      "this Mac's certificate on your phone during setup, that stays on the phone until you " +
+      "remove it there — on an iPhone it is under Settings, then General, then VPN &amp; Device " +
+      "Management.",
+  };
+
+  /// The fifth answer: a phone paired by a build that did not write either field down.
+  /// **It says it does not know.** A default here would be the original defect with a longer
+  /// comment on it, and the honest version costs him one re-pair.
+  const FORGET_NOTE_UNKNOWN =
+    "Forgetting it here stops this Mac answering it, and deletes the keys. This phone was " +
+    "paired by an older version of RichOS, which did not record which way it connected, so I " +
+    "cannot tell you whether it has a certificate on it to remove. Pair it again and I will be " +
+    "able to.";
+
+  /// **The one line that is true only of the Tailscale path.** Same source as the note above,
+  /// for the same reason: it was keyed off `route` and vanished on a reopen.
+  const PAIRED_TAILNET_LIMIT =
+    "You can use this away from home. Both devices have to be signed in to Tailscale for it to " +
+    "connect — at home too.";
+
+  /// Which of the five the record selects. `via` and `platform` are the tokens `device.rs`
+  /// writes; an empty string is a record from before they existed, and anything unrecognized is
+  /// treated the same way rather than folded into one of the four.
+  function forgetNoteFor(via, platform) {
+    const key = String(via || "") + ":" + String(platform || "");
+    return Object.prototype.hasOwnProperty.call(PAIRED_FORGET_NOTE, key)
+      ? PAIRED_FORGET_NOTE[key]
+      : FORGET_NOTE_UNKNOWN;
+  }
+
   let ticker = null;
   let busy = false;
   let returnFocus = null;
@@ -578,11 +656,15 @@
       field("phone-push-state").textContent = status.pushReady
         ? "It can reach you with a notification when Rich has something for you."
         : "It cannot send you notifications yet. Add Rich to your phone's Home Screen and allow notifications when it asks.";
-      // Screen 6 against the shipped paired block: the limit appears, and the forget note is the
-      // one that is true of the route he is actually on.
-      field("phone-ts-limit").hidden = !onTailscale;
-      field("phone-forget-note-ts").hidden = !onTailscale;
-      field("phone-forget-note-home").hidden = onTailscale;
+      // **SCREEN 6, DERIVED FROM THE RECORD.** `onTailscale` is deliberately NOT consulted
+      // here: it reads `route`, which this sheet forgets on every open, and a card that
+      // described the path from a forgotten answer is the whole of defect 3.2. What the phone
+      // paired over is a fact the Mac wrote down at pairing, and it is the only thing that
+      // decides these two lines — on the first open and on every reopen alike.
+      const pairedOverTailnet = status.pairedVia === "tailnet";
+      field("phone-ts-limit").textContent = PAIRED_TAILNET_LIMIT;
+      field("phone-ts-limit").hidden = !pairedOverTailnet;
+      field("phone-forget-note").innerHTML = forgetNoteFor(status.pairedVia, status.platform);
       return;
     }
     if (waiting) {

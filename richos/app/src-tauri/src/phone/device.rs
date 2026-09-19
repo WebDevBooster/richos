@@ -104,10 +104,88 @@ pub struct Device {
     /// Web Push rather than replacing it"*. `"web-push"` is the only value this slice writes.
     #[serde(default = "web_push")]
     pub push_transport: String,
+
+    /// **WHICH PATH THIS PHONE ACTUALLY PAIRED OVER**, recorded once, here, at pairing.
+    /// [`PairedVia::TAILNET`], [`PairedVia::HOME`] or [`PairedVia::UNKNOWN`].
+    ///
+    /// **This field exists because the settings card had no durable answer and guessed.** The
+    /// sheet's `route` variable is deliberately forgotten on every open (`ui/phone.js`, Urban
+    /// §1: *"a remembered choice with no visible way to change it is a trap"*), and the paired
+    /// card's copy was keyed off it. So closing and reopening the card for the SAME paired
+    /// phone flipped `route` from `"anywhere"` to `null` and redrew the home path's
+    /// certificate-removal steps — iOS steps, on an Android phone, on the one path that never
+    /// installs a certificate. Ray's candidate .11 walk, defect 3.2, reproduced twice.
+    ///
+    /// The route the user picked in the sheet is a *question*; this is the *answer*, and only
+    /// the answer belongs on disk. `UNKNOWN` is what a record written before this field existed
+    /// deserializes to, and the card has its own honest sentence for it rather than a default
+    /// that happens to be one of the two.
+    #[serde(default)]
+    pub paired_via: String,
+
+    /// **WHAT KIND OF PHONE IT IS**, recorded once, at pairing, from what the phone itself
+    /// said. [`Platform::IOS`], [`Platform::ANDROID`], [`Platform::OTHER`] or
+    /// [`Platform::UNKNOWN`].
+    ///
+    /// Only iOS has a `.mobileconfig` to remove and only iOS has "VPN & Device Management";
+    /// only Chrome on Android calls the install "Install and create shortcut". A card that does
+    /// not know which phone it is talking about cannot say either without guessing.
+    #[serde(default)]
+    pub platform: String,
 }
 
 fn web_push() -> String {
     "web-push".to_string()
+}
+
+/// **The two paths a phone can reach this Mac on**, as the tokens that go on disk and to the
+/// settings sheet. Stable strings rather than an enum on the wire, for the same reason
+/// [`super::TailnetView::state`] is one: the screen switches on them and they are never
+/// translated.
+pub struct PairedVia;
+impl PairedVia {
+    /// `https://<name>.ts.net:8443` — the Tailscale path. No certificate is installed on the
+    /// phone on this path, which is the whole of its promise.
+    pub const TAILNET: &'static str = "tailnet";
+    /// `https://<name>.local:8443` — the home network, which DOES install a profile.
+    pub const HOME: &'static str = "home";
+    /// A record written before this field existed. Never written by this build.
+    pub const UNKNOWN: &'static str = "";
+}
+
+/// **What kind of phone paired**, from the only platform evidence the pairing request carries.
+pub struct Platform;
+impl Platform {
+    pub const IOS: &'static str = "ios";
+    pub const ANDROID: &'static str = "android";
+    /// A phone that named itself but named nothing this Mac recognizes.
+    pub const OTHER: &'static str = "other";
+    /// A record written before this field existed. Never written by this build.
+    pub const UNKNOWN: &'static str = "";
+}
+
+/// **Read the platform off what the phone called itself.**
+///
+/// `web/web-app/app.js:236` (`deviceName()`) sends exactly one of four strings — `"iPad"`,
+/// `"iPhone"`, `"Android phone"`, `"Phone"` — chosen from `navigator.userAgent` on the device
+/// itself. That name is the ONLY platform evidence in the pairing request today: the request
+/// carries no `platform` field and `routes::Incoming` does not keep the `User-Agent` header.
+///
+/// So this reads the name, and [`super::routes`] prefers an explicit `platform` in the body
+/// when one is there — which is what makes the phone page able to start sending one without
+/// this Mac changing. That belongs to `web/web-app/`, which this worktree does not touch.
+///
+/// **It is matched case-insensitively and by substring**, because the value is a human-facing
+/// label: "iPhone" today, "Alex's iPhone" the moment anybody adds a rename box.
+pub fn platform_of_name(name: &str) -> &'static str {
+    let lower = name.to_lowercase();
+    if lower.contains("iphone") || lower.contains("ipad") || lower.contains("ipod") {
+        return Platform::IOS;
+    }
+    if lower.contains("android") {
+        return Platform::ANDROID;
+    }
+    Platform::OTHER
 }
 
 /// An open pairing window. Sixty seconds, one shot (plan §4.1).
@@ -326,11 +404,20 @@ impl DeviceDesk {
 
     /// Complete a pairing. **One shot**: the window is closed here whether the rest succeeds or
     /// not, so a wrong key does not leave a live code behind.
+    ///
+    /// `via` is [`PairedVia::TAILNET`] or [`PairedVia::HOME`] — the path the code that is being
+    /// redeemed went out under, which the caller knows and this desk cannot. It is recorded
+    /// rather than recomputed at read time because the answer can change underneath a paired
+    /// phone: turn Tailscale off on this Mac and the serving plan falls back to the home path,
+    /// and a card that recomputed would then tell an Android phone to remove an iOS profile it
+    /// never had. Ray's defect 3.2.
     pub fn complete_pairing(
         &self,
         code: &str,
         public_key: &PublicKeyForm,
         name: &str,
+        via: &str,
+        platform: &str,
     ) -> Result<Device, Refusal> {
         let point = public_key.to_point().map_err(|e| Refusal::MalformedCredential(e.to_string()))?;
         let mut state = self.state.lock().unwrap();
@@ -353,6 +440,8 @@ impl DeviceDesk {
             push: None,
             delivered_cursor: None,
             push_transport: web_push(),
+            paired_via: via.to_string(),
+            platform: platform.to_string(),
         };
         state.device = Some(device.clone());
         self.write(&state)?;
@@ -701,7 +790,7 @@ pub(crate) mod tests {
         let phone = Phone::new();
         let window = desk.open_pairing().unwrap();
         let device = desk
-            .complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone")
+            .complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS)
             .unwrap();
         let challenge = desk.issue_challenge().unwrap();
         (dir, desk, phone, device, challenge)
@@ -772,13 +861,80 @@ pub(crate) mod tests {
         let id = {
             let desk = DeviceDesk::open(&dir.0).unwrap();
             let w = desk.open_pairing().unwrap();
-            desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone").unwrap().id
+            desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).unwrap().id
         };
         let again = DeviceDesk::open(&dir.0).unwrap();
         let device = again.paired().expect("the paired phone did not survive a relaunch");
         assert_eq!(device.id, id);
         assert_eq!(device.public_key, super::super::b64url(&phone.point));
         assert_eq!(device.push_transport, "web-push");
+    }
+
+    /// **RAY'S DEFECT 3.2, ON THE MAC SIDE: the path and the platform are on the RECORD.**
+    ///
+    /// The card that offers "Forget this phone" was deriving its certificate-removal copy from
+    /// the sheet's `route` variable, which `ui/phone.js` deliberately forgets on every open. So
+    /// reopening it printed iOS profile-removal steps for an Android phone that had paired over
+    /// Tailscale and installed nothing. The fix is that the answer is written down once, here,
+    /// and these are the four combinations the card has to be able to tell apart.
+    #[test]
+    fn what_a_phone_paired_over_and_what_kind_of_phone_it_is_are_both_recorded() {
+        for (via, platform, name) in [
+            (PairedVia::TAILNET, Platform::ANDROID, "Android phone"),
+            (PairedVia::TAILNET, Platform::IOS, "iPhone"),
+            (PairedVia::HOME, Platform::ANDROID, "Android phone"),
+            (PairedVia::HOME, Platform::IOS, "iPhone"),
+        ] {
+            let dir = TempDir::new(&format!("recorded-{via}-{platform}"));
+            let desk = DeviceDesk::open(&dir.0).unwrap();
+            let phone = Phone::new();
+            let w = desk.open_pairing().unwrap();
+            let device = desk
+                .complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), name, via, platform)
+                .unwrap();
+            assert_eq!(device.paired_via, via);
+            assert_eq!(device.platform, platform);
+            // AND IT SURVIVES A RELAUNCH, which is the whole point of putting it on disk: a
+            // fresh desk over the same directory reads the same two answers back.
+            let again = DeviceDesk::open(&dir.0).unwrap().paired().unwrap();
+            assert_eq!(again.paired_via, via, "the path did not survive a reopen");
+            assert_eq!(again.platform, platform, "the platform did not survive a reopen");
+        }
+    }
+
+    /// **A RECORD WRITTEN BEFORE THOSE TWO FIELDS EXISTED IS `UNKNOWN`, NOT ONE OF THE TWO.**
+    ///
+    /// The whole defect was a screen picking a default and stating it as fact. A legacy record
+    /// deserializing to `"home"` would rebuild that defect inside the type instead of inside the
+    /// sheet, so absence stays absence and the card has its own sentence for it.
+    #[test]
+    fn a_record_from_before_these_fields_reads_as_unknown_rather_than_as_a_default() {
+        let legacy = serde_json::json!({
+            "id": "dev_abc123",
+            "name": "Android phone",
+            "public_key": "BA",
+            "paired_at": 1,
+            "push": null,
+            "delivered_cursor": null
+        });
+        let device: Device = serde_json::from_value(legacy).unwrap();
+        assert_eq!(device.paired_via, PairedVia::UNKNOWN);
+        assert_eq!(device.platform, Platform::UNKNOWN);
+        assert_eq!(device.push_transport, "web-push", "the day-one default still applies");
+    }
+
+    /// The only platform evidence the pairing request carries today is the name the phone chose
+    /// for itself — `web/web-app/app.js:236` sends exactly these four.
+    #[test]
+    fn the_platform_is_read_off_the_name_the_phone_sent() {
+        assert_eq!(platform_of_name("iPhone"), Platform::IOS);
+        assert_eq!(platform_of_name("iPad"), Platform::IOS);
+        assert_eq!(platform_of_name("Android phone"), Platform::ANDROID);
+        assert_eq!(platform_of_name("Phone"), Platform::OTHER);
+        // Case and surrounding words do not decide it: the value is a human-facing label, and
+        // the first rename box anybody adds turns "iPhone" into "Alex's iPhone".
+        assert_eq!(platform_of_name("alex's IPHONE"), Platform::IOS);
+        assert_eq!(platform_of_name("HONOR X6b (android)"), Platform::ANDROID);
     }
 
     #[test]
@@ -788,16 +944,16 @@ pub(crate) mod tests {
         let phone = Phone::new();
         let w = desk.open_pairing().unwrap();
         assert!(matches!(
-            desk.complete_pairing("WRONGCOD", &PublicKeyForm::Jwk(phone.jwk()), "iPhone"),
+            desk.complete_pairing("WRONGCOD", &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS),
             Err(Refusal::BadSignature)
         ));
         assert!(desk
-            .complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone")
+            .complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS)
             .is_err());
         assert!(!desk.is_paired());
         // POSITIVE CONTROL: a fresh window with the right code pairs.
         let w2 = desk.open_pairing().unwrap();
-        assert!(desk.complete_pairing(&w2.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone").is_ok());
+        assert!(desk.complete_pairing(&w2.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_ok());
     }
 
     #[test]
@@ -838,7 +994,7 @@ pub(crate) mod tests {
         let w = desk.open_pairing().unwrap();
         assert!(desk.listener_should_run(), "the socket is down during pairing");
         let phone = Phone::new();
-        desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone").unwrap();
+        desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).unwrap();
         assert!(desk.listener_should_run());
         desk.forget().unwrap();
         assert!(!desk.listener_should_run(), "the socket outlived the last paired phone");
