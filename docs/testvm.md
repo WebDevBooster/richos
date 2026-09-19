@@ -243,11 +243,12 @@ the tailnet still lists, because that is the one piece of garbage nothing here c
 
 | Claim | State |
 |---|---|
-| Refusal with no key: one action named, the guest untouched, the VM still usable | **Verified** on a live guest, 2026-09-19 |
-| `tailnet.sh doctor` against a live guest | **Verified** — reports `NeedsLogin`, and names the CLI it found |
+| Refusal with no key: one action named, the guest untouched, the VM still usable | **Verified** on a live guest, 2026-09-19. A full `run.sh` with the join refusing reached a window in **43 s** (`windows=1`, capture 64.2% non-black), and printed `tailnet=not-joined` |
+| Two clones at once, each refusing on its own, neither disturbing the other | **Verified** 2026-09-19 — `richos-test-a` ready in **72 s**, `richos-test-b` in **66 s**, both with a window, both stopped clean |
+| `tailnet.sh doctor` against a live guest | **Verified** — reports `NeedsLogin`, and names the CLI it found (`/opt/homebrew/bin/tailscale -> ../Cellar/tailscale/1.102.4/…`) |
 | Every flag, the key-by-file handling, the name read-back, the refusal classifications | **Verified** by `test/run-tests.sh` (41 tests) against a stub guest |
 | The certificate cache's accept/refuse rules | **Verified** with openssl against generated certificates |
-| A real tailnet accepting a real key; two guests as two nodes; the pairing sheet in a VM | **NOT RUN** — needs the CEO's key. `tailnet.sh doctor <vm>` settles it in one command once the key is in place |
+| A real tailnet accepting a real key; two guests as two **nodes**; the pairing sheet in a VM | **NOT RUN** — needs the CEO's key, which no agent can produce. `tailnet.sh doctor <vm>` settles the first two in one command once the key is in place; the third is a QA walk |
 
 ---
 
