@@ -486,6 +486,69 @@ async function openSheet(browser, theme, preset) {
     return "the paired state names the phone, offers the way out, and says what the Mac cannot undo for him";
   });
 
+  // ---- 9d. DEFECT 4.5 — the Mac names the control the paired phone actually has -------------
+
+  await run.check(
+    "9d  the install instruction names the phone's own control, and is not given where it is wrong",
+    async () => {
+      // RAY'S CANDIDATE .11 DEFECT 4.5. The card said "Add Rich to your phone's Home Screen and
+      // allow notifications when it asks." Chrome on his HONOR X6b offers "Install and create
+      // shortcut" and has no item by the other name at all — the Mac named a control the device
+      // does not have.
+      //
+      // AND ON ANDROID THE INSTRUCTION IS WRONG RATHER THAN MISNAMED: Chrome on Android
+      // subscribes to push from a tab, so nothing has to be installed first. It is iOS Safari
+      // that cannot take a push until the app is on the Home Screen. The phone page draws the
+      // same division (web/web-app/app.js, installControlName / installSentence).
+      const cases = [
+        {
+          platform: "ios",
+          must: [/Share menu/, /Add to Home Screen/],
+          mustNot: [/Install and create shortcut/],
+        },
+        {
+          platform: "android",
+          must: [/does not need Rich installed first/],
+          // The defect, in one pattern: an Android phone must never be sent to look for this.
+          mustNot: [/Add to Home Screen/, /Home Screen and allow/],
+        },
+        {
+          // A phone this Mac cannot name gets what is true of both and names neither as the
+          // one to use — the same "null means say nothing" rule the phone page follows.
+          platform: "",
+          must: [/Allow notifications on your phone/],
+          mustNot: [/Install and create shortcut/],
+        },
+      ];
+
+      const said = [];
+      for (const one of cases) {
+        const page = await openSheet(browser, "dark", {
+          phonePaired: true,
+          phonePlatform: one.platform,
+          phonePairedVia: "tailnet",
+        });
+        const text = (await page.textContent("#phone-push-state")).replace(/\s+/g, " ").trim();
+        await page.close();
+        for (const pattern of one.must) {
+          assert(
+            pattern.test(text),
+            (one.platform || "unknown") + " is missing " + pattern + ": " + JSON.stringify(text)
+          );
+        }
+        for (const pattern of one.mustNot) {
+          assert(
+            !pattern.test(text),
+            (one.platform || "unknown") + " names a control that phone does not have (" +
+              pattern + "): " + JSON.stringify(text)
+          );
+        }
+        said.push((one.platform || "unknown") + ": " + JSON.stringify(text.slice(0, 56) + "…"));
+      }
+      return said.length + " platform(s), each named in its own phone's words — " + said.join("; ");
+    }
+  );
+
   // ---- 9c. DEFECT 3.1 — the first sentence describes the option he chose --------------------
 
   await run.check(

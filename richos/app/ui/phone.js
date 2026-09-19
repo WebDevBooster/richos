@@ -366,6 +366,43 @@
     }
   }
 
+  /// **WHAT THE PAIRED PHONE HAS TO DO BEFORE IT CAN BE REACHED — in that phone's own words.**
+  ///
+  /// Ray's candidate .11 defect 4.5. The card said *"Add Rich to your phone's Home Screen and
+  /// allow notifications when it asks."* On his HONOR X6b, Chrome's menu offers **"Install and
+  /// create shortcut"** and has no item by the other name at all — so the Mac named a control
+  /// the device does not have.
+  ///
+  /// **AND ON ANDROID THE INSTRUCTION IS WRONG, NOT ONLY MISNAMED.** Chrome on Android
+  /// subscribes to push from a tab; nothing has to be installed first. It is iOS Safari that
+  /// cannot take a push until the app is on the Home Screen. The phone page records the same
+  /// division (`web/web-app/app.js`, `installControlName` / `installSentence`), and the two
+  /// surfaces now say the same thing about the same phone.
+  ///
+  /// The menu and item names are exactly the phone page's, so a person reading the Mac and then
+  /// his phone is not reading two names for one control. `null`-equivalent — a phone this Mac
+  /// cannot name — gets the sentence that is true of both and names neither as the one to use.
+  const PUSH_NOT_READY = {
+    ios:
+      "It cannot send you notifications yet. On your phone, open the Share menu in Safari and " +
+      "choose \u201cAdd to Home Screen\u201d, then allow notifications when Rich asks.",
+    android:
+      "It cannot send you notifications yet. Allow notifications on your phone when Rich asks " +
+      "\u2014 Chrome on Android does not need Rich installed first.",
+    other:
+      "It cannot send you notifications yet. Allow notifications on your phone when Rich asks. " +
+      "On an iPhone you have to add Rich to the Home Screen first, from Safari\u2019s Share menu.",
+  };
+
+  /// Which of the three, from the platform on the device record. Anything unrecognized —
+  /// including a record written before the field existed — gets the sentence that is true
+  /// whatever the phone is, rather than a guess at which menu it has.
+  function pushNotReadyFor(platform) {
+    return Object.prototype.hasOwnProperty.call(PUSH_NOT_READY, platform)
+      ? PUSH_NOT_READY[platform]
+      : PUSH_NOT_READY.other;
+  }
+
   /// **THE PAIRED CARD'S COPY, DERIVED FROM THE RECORD AND FROM NOTHING THE SHEET REMEMBERS.**
   ///
   /// Ray's candidate .11 walk, defect 3.2: immediately after pairing an ANDROID phone over
@@ -743,7 +780,7 @@
       field("phone-device-name").textContent = status.deviceName || "Your phone";
       field("phone-push-state").textContent = status.pushReady
         ? "It can reach you with a notification when Rich has something for you."
-        : "It cannot send you notifications yet. Add Rich to your phone's Home Screen and allow notifications when it asks.";
+        : pushNotReadyFor(status.platform);
       // **SCREEN 6, DERIVED FROM THE RECORD.** `onTailscale` is deliberately NOT consulted
       // here: it reads `route`, which this sheet forgets on every open, and a card that
       // described the path from a forgotten answer is the whole of defect 3.2. What the phone

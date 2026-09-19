@@ -4084,10 +4084,22 @@ module.exports = [
     "why": "The paired phone can be pushed to. Nothing to do — this is the state he wanted, said out loud so its absence is legible."
   },
   {
-    "s": "It cannot send you notifications yet. Add Rich to your phone's Home Screen and allow notifications when it asks.",
+    "s": "It cannot send you notifications yet. On your phone, open the Share menu in Safari and choose “Add to Home Screen”, then allow notifications when Rich asks.",
     "c": "ACTIONABLE",
     "control": "#phone-forget",
-    "why": "The one state on this screen he fixes ON THE PHONE rather than here: add Rich to the Home Screen and allow notifications. The sentence says both. The only control this view has for it is the way back out — forgetting the phone and starting again — and naming that rather than a button that does not exist is the honest version."
+    "why": "One of the three sentences the paired card shows while the phone cannot be pushed to yet, chosen by the `platform` on the device record. It was ONE sentence — \"Add Rich to your phone's Home Screen and allow notifications when it asks\" — and Chrome on the CEO's HONOR X6b offers \"Install and create shortcut\" with no item by the other name at all, so the Mac named a control the device does not have (Ray's candidate .11 walk, defect 4.5, verified on the device). The menu and item names are exactly the phone page's own (`web/web-app/app.js`, `installControlName`), so the two surfaces cannot give one control two names. ACTIONABLE, and the control is the same one the old row named: this is the state he fixes ON THE PHONE, and the only thing this view can offer is the way back out. `ui/tests/phone.js` check 9d walks all three. iOS Safari, which genuinely cannot take a push until the app is on the Home Screen."
+  },
+  {
+    "s": "It cannot send you notifications yet. Allow notifications on your phone when Rich asks — Chrome on Android does not need Rich installed first.",
+    "c": "ACTIONABLE",
+    "control": "#phone-forget",
+    "why": "One of the three sentences the paired card shows while the phone cannot be pushed to yet, chosen by the `platform` on the device record. It was ONE sentence — \"Add Rich to your phone's Home Screen and allow notifications when it asks\" — and Chrome on the CEO's HONOR X6b offers \"Install and create shortcut\" with no item by the other name at all, so the Mac named a control the device does not have (Ray's candidate .11 walk, defect 4.5, verified on the device). The menu and item names are exactly the phone page's own (`web/web-app/app.js`, `installControlName`), so the two surfaces cannot give one control two names. ACTIONABLE, and the control is the same one the old row named: this is the state he fixes ON THE PHONE, and the only thing this view can offer is the way back out. `ui/tests/phone.js` check 9d walks all three. Chrome on Android, where the old instruction was WRONG rather than misnamed: Chrome subscribes to push from a tab, so nothing has to be installed first. The phone page records the same division and, for the same reason, shows no install sentence there."
+  },
+  {
+    "s": "It cannot send you notifications yet. Allow notifications on your phone when Rich asks. On an iPhone you have to add Rich to the Home Screen first, from Safari’s Share menu.",
+    "c": "ACTIONABLE",
+    "control": "#phone-forget",
+    "why": "One of the three sentences the paired card shows while the phone cannot be pushed to yet, chosen by the `platform` on the device record. It was ONE sentence — \"Add Rich to your phone's Home Screen and allow notifications when it asks\" — and Chrome on the CEO's HONOR X6b offers \"Install and create shortcut\" with no item by the other name at all, so the Mac named a control the device does not have (Ray's candidate .11 walk, defect 4.5, verified on the device). The menu and item names are exactly the phone page's own (`web/web-app/app.js`, `installControlName`), so the two surfaces cannot give one control two names. ACTIONABLE, and the control is the same one the old row named: this is the state he fixes ON THE PHONE, and the only thing this view can offer is the way back out. `ui/tests/phone.js` check 9d walks all three. A phone this Mac cannot name: it says what is true whatever the phone is and names no menu as the one to use — the phone page's own \"null means say nothing\" rule, because a wrong menu name sends him looking for something that is not there."
   },
   {
     "s": "A code for your phone's camera. The address is written out beside it.",
