@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# stop.sh — quit the app, stop the VM, leave NOTHING behind.
+#
+#   testvm/stop.sh <vm> [--keep-vm]
+#
+# ===========================================================================
+# WHY THIS QUITS BY PID AND NEVER BY KEYSTROKE
+# ===========================================================================
+# 2026-09-19, 18:10Z: a harness quit an app by sending Command-Q through System
+# Events. System Events addresses the FRONTMOST process, the app under test was
+# not frontmost, and the keystroke landed on the CEO's Terminal. A quit that
+# depends on which window happens to be in front is not a quit, it is a coin
+# toss with somebody else's work on the other side.
+#
+# `kill -TERM <pid>` addresses the process that was actually launched. It
+# cannot hit a bystander, and it works whether or not the app has a window,
+# whether or not it is frontmost, and whether or not it is responding.
+#
+# CEO §54: a test instance of the app is garbage, and garbage is always cleaned
+# up. If cleanup fails, this script says so LOUDLY and names what to delete by
+# hand, rather than exiting 0 and leaving a 25 GB surprise.
+# ===========================================================================
+set -uo pipefail   # not -e: cleanup must attempt EVERY step even if one fails
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/lib.sh" 2>/dev/null || { echo "[testvm] cannot source lib.sh"; exit 1; }
+set +e
+
+VM="${1:-}"; [ -n "$VM" ] || die "usage: stop.sh <vm> [--keep-vm]"
+KEEP_VM=0; [ "${2:-}" = "--keep-vm" ] && KEEP_VM=1
+[ "$VM" = "$TESTVM_BASE_VM" ] && die "refusing to delete the base VM (that is the 25 GB template). Use: tart stop $TESTVM_BASE_VM"
+
+STATE="$TESTVM_RUN/$VM"
+PROBLEMS=()
+
+# --- 1. quit the app, by pid --------------------------------------------------
+if vm_running "$VM" 2>/dev/null; then
+  PID="$(cat "$STATE/app.pid" 2>/dev/null || true)"
+  if [ -n "$PID" ]; then
+    log "quitting the app in $VM (pid $PID, TERM)..."
+    guest_ssh "$VM" "kill -TERM $PID 2>/dev/null || true" 2>/dev/null
+    for i in $(seq 1 15); do
+      ALIVE="$(guest_ssh "$VM" "pgrep -f richos-tauri 2>/dev/null | head -1 || true" 2>/dev/null | tr -d '[:space:]')"
+      [ -z "$ALIVE" ] && break
+      sleep 1
+    done
+    # A process that ignored TERM for 15 s is not going to honor it. KILL is
+    # correct here: the guest is about to be destroyed anyway, and an app that
+    # survives the quit is exactly the garbage §54 is about.
+    ALIVE="$(guest_ssh "$VM" "pgrep -f richos-tauri 2>/dev/null | head -1 || true" 2>/dev/null | tr -d '[:space:]')"
+    if [ -n "$ALIVE" ]; then
+      log "app ignored TERM; sending KILL"
+      guest_ssh "$VM" "pkill -KILL -f richos-tauri 2>/dev/null || true" 2>/dev/null
+      sleep 2
+    fi
+  fi
+  # The §54 verification: pgrep must be EMPTY, and we check rather than assume.
+  REMAIN="$(guest_ssh "$VM" "pgrep -fl richos-tauri 2>/dev/null || true" 2>/dev/null)"
+  if [ -n "$REMAIN" ]; then
+    PROBLEMS+=("the app is STILL running in $VM: $REMAIN")
+  else
+    log "verified: pgrep for richos-tauri is empty in $VM"
+  fi
+fi
+
+# --- 2. stop the VM -----------------------------------------------------------
+if vm_running "$VM" 2>/dev/null; then
+  log "stopping VM $VM..."
+  tart stop "$VM" 2>/dev/null
+  for i in $(seq 1 20); do vm_running "$VM" 2>/dev/null || break; sleep 1; done
+  vm_running "$VM" 2>/dev/null && { log "VM did not stop; killing the host process"; tart stop "$VM" --timeout 5 2>/dev/null; }
+fi
+# The host-side `tart run` process is what actually holds the VM's memory.
+# A stopped VM whose runner survives is 7 GB of RAM nobody can see.
+VMPID="$(cat "$STATE/vm.pid" 2>/dev/null || true)"
+if [ -n "$VMPID" ] && kill -0 "$VMPID" 2>/dev/null; then
+  # The recorded pid is `caffeinate`, with `tart run` as its CHILD. Killing the
+  # parent alone would leave the VM running and holding its memory, with
+  # nothing pointing at it any more — the worst kind of leftover. So the
+  # children go first, then the parent.
+  log "reaping the host-side VM runner (caffeinate pid $VMPID and its tart child)"
+  CHILDREN="$(pgrep -P "$VMPID" 2>/dev/null || true)"
+  for c in $CHILDREN; do kill -TERM "$c" 2>/dev/null; done
+  sleep 2
+  for c in $CHILDREN; do kill -0 "$c" 2>/dev/null && kill -KILL "$c" 2>/dev/null; done
+  kill -TERM "$VMPID" 2>/dev/null; sleep 1
+  kill -0 "$VMPID" 2>/dev/null && kill -KILL "$VMPID" 2>/dev/null
+fi
+# Anything still holding this VM by name is a leftover by definition.
+STRAY="$(pgrep -f "tart run $VM\b" 2>/dev/null || true)"
+if [ -n "$STRAY" ]; then
+  log "killing stray tart runner(s) for $VM: $STRAY"
+  for s in $STRAY; do kill -TERM "$s" 2>/dev/null; done
+  sleep 2
+  for s in $STRAY; do kill -0 "$s" 2>/dev/null && kill -KILL "$s" 2>/dev/null; done
+fi
+vm_running "$VM" 2>/dev/null && PROBLEMS+=("VM $VM is still running")
+
+# --- 3. delete the ephemeral clone -------------------------------------------
+if [ "$KEEP_VM" -eq 0 ] && [ -f "$STATE/ephemeral" ]; then
+  log "deleting ephemeral clone $VM..."
+  tart delete "$VM" 2>/dev/null
+  vm_exists "$VM" 2>/dev/null && PROBLEMS+=("could not delete the VM clone '$VM' (tart delete $VM)")
+fi
+rm -rf "$STATE" 2>/dev/null
+[ -e "$STATE" ] && PROBLEMS+=("could not remove run state $STATE")
+
+# --- 4. report ----------------------------------------------------------------
+if [ ${#PROBLEMS[@]} -eq 0 ]; then
+  log "clean: app quit, VM stopped, clone deleted, state removed."
+  exit 0
+fi
+
+# §54: "if the clean-up fails ... then Rich must get a MASSIVE ALERT about it".
+ALERT="$TESTVM_ROOT/CLEANUP-FAILED-$VM-$(date -u +%Y%m%dT%H%M%SZ).txt"
+{
+  echo "TESTVM CLEANUP FAILED — $(date -u +%FT%TZ)"
+  echo "VM: $VM"
+  for p in "${PROBLEMS[@]}"; do echo "  - $p"; done
+  echo
+  echo "DELETE BY HAND:"
+  echo "  export TART_HOME=$TART_HOME"
+  echo "  $TART_BIN stop $VM ; $TART_BIN delete $VM"
+  echo "  rm -rf $STATE"
+} | tee "$ALERT" >&2
+cat >&2 <<EOF
+
+########################################################################
+#  MASSIVE ALERT: testvm cleanup FAILED and left garbage behind.
+#  Rich: delete it by hand using the commands above.
+#  Record: $ALERT
+########################################################################
+EOF
+exit 1
