@@ -1185,13 +1185,48 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     // one — see the block above it. The measurement did not move; it stopped being unique
     // to this line, which is what let six seconds go unattributed on candidate .12.
     let mut spine = take_the_spine(&state.spine);
-    // A configured factory connects inside the tracked turn. This covers first launch,
-    // a later sign-in and replacement of a session retired by Stop.
-    if !spine.has_lease() && !spine.has_lease_factory() {
-        let disk = setup_view::detect(state.boot_engine.as_deref());
+    // ===================================================================================
+    // A FACTORY IS NOT AN ENGINE — Ray's candidate .15, `esc-20260919T152225Z-2e44d112`
+    // ===================================================================================
+    //
+    // **The first-run arm used to live inside the factory gate below, and was therefore
+    // unreachable on every build that has ever shipped.** `set_lease_factory` is called
+    // unconditionally at boot — its own comment says so, *"REGARDLESS of initial boot
+    // success"*, and that is right: a later sign-in or a crash recovery needs a respawn path.
+    // So `has_lease_factory()` is ALWAYS true, `&&` never let the first arm run, and
+    // `SETUP_INCOMPLETE_ENGINE` — the sentence that names the missing piece and reopens the
+    // sheet — has never once reached a screen from here.
+    //
+    // **What the CEO got instead**, measured on his Mac at 16:0x on 2026-09-19 with an engine
+    // installed from `3313945b26b7` against a build pinning `adece4c069e4`: the turn STARTED,
+    // the factory then failed to make a lease, and the failure arrived as a transient
+    // interruption — *"I lost my connection to the part of me that thinks, partway through…
+    // asking again is worth a try."* Asking again could not work. Nothing about that machine
+    // was going to change by being asked twice, and the one thing that would have fixed it in
+    // a single press was never offered. His `app.log` carries the same line four times over.
+    //
+    // **So the question is asked of the DISK, before a turn is started**, which is what the
+    // arm was always written to do. `send()` in `ui/main.js` then re-reads `setup_status` and
+    // reopens the sheet behind this sentence, so the promise it makes — *"I've put the setting
+    // up back on your screen: press Set it up"* — is true rather than a claim.
+    //
+    // **AND IT COSTS NOTHING ON A HEALTHY MAC, which is why it is gated on `boot_engine`.**
+    // `setup_view::detect` calls `engine_is_usable`, which hashes the delivered runtime — 322
+    // MB in 6,530 files, 0.81 s warm and 1.70 s cold (measured 2026-09-17). Paying that in
+    // front of the first send of every launch would be a §55 regression to fix a §19 one.
+    // `boot_engine` is `Some` exactly when this launch RESOLVED a usable, correctly-pinned
+    // engine, and a launch that did cannot be first-run-incomplete — so the disk is read only
+    // on the launches that already know something is wrong, where every candidate is refused
+    // on its stamp and nothing is hashed at all.
+    if !spine.has_lease() && state.boot_engine.is_none() {
+        let disk = setup_view::detect(None);
         if let Some(sentence) = setup_view::incomplete_message(&disk) {
             return Err(refused_send("first-run setup is incomplete", sentence.into()));
         }
+    }
+    // A configured factory connects inside the tracked turn. This covers first launch,
+    // a later sign-in and replacement of a session retired by Stop.
+    if !spine.has_lease() && !spine.has_lease_factory() {
         return Err(refused_send("no compute lease and no factory", LEASE_UNAVAILABLE_MESSAGE.into()));
     }
     if spine.active_thread().is_none() {
@@ -5641,6 +5676,199 @@ mod lease_gate_tests {
             "setup must refresh the factory with the newly installed executable");
         // And the sentence they refuse with is still the one the CEO was written for.
         assert!(LEASE_UNAVAILABLE_MESSAGE.starts_with("I'm not connected to my thinking"));
+    }
+
+    /// INVARIANT: **the first-run arm is never conjoined with `has_lease_factory()`.**
+    ///
+    /// That conjunction is what made it dead code on every build that has ever shipped.
+    /// `set_lease_factory` is called unconditionally at boot — deliberately, so a later sign-in
+    /// or a crash recovery has a respawn path — so `has_lease_factory()` is always true, `&&`
+    /// short-circuited, and [`setup_view::SETUP_INCOMPLETE_ENGINE`] never once reached a
+    /// screen. Ray's candidate .15 typed into a Mac whose engine was stale, watched the turn
+    /// start and die, and read *"I lost my connection to the part of me that thinks"* about a
+    /// machine that needed one press (`esc-20260919T152225Z-2e44d112`).
+    ///
+    /// Asserted on the SOURCE for the same reason as the test above it: the gate takes
+    /// `State<AppState>`, which a unit test cannot build. The behavior the gate then produces
+    /// is asserted for real in `stale_engine_send_gate_tests` below.
+    #[test]
+    fn the_first_run_arm_is_asked_before_a_turn_starts_and_not_behind_the_factory() {
+        let arm = concat!("if !spine.has_lease() && state.boot_", "engine.is_none() {");
+        assert_eq!(
+            SOURCE.matches(arm).count(),
+            1,
+            "send_message must ask the DISK whether the setting up is the reason, on a launch \
+             that resolved no engine, BEFORE it starts a turn that cannot finish"
+        );
+        // The dead shape, by name: the first-run arm inside the factory gate.
+        let factory_gate = concat!("if !spine.has_lease() && !spine.", "has_lease_factory() {");
+        for at in SOURCE.match_indices(factory_gate).map(|(at, _)| at) {
+            let body = &SOURCE[at..(at + 400).min(SOURCE.len())];
+            assert!(
+                !body.contains(concat!("incomplete_", "message")),
+                "the first-run sentence is behind `&& !has_lease_factory()` again, where a \
+                 factory that is always configured means it can never be said"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod stale_engine_send_gate_tests {
+    //! **A MAC WHOSE ENGINE IS STALE IS OFFERED THE REFRESH, NOT A DEAD TURN.**
+    //!
+    //! Ray, candidate .15 (`v1.2.0-nightly.20260919.4`, source `dcebed09`, build `9375f30d`),
+    //! escalation `esc-20260919T152225Z-2e44d112`, 2026-09-19. His scratch HOME carried an
+    //! engine an earlier candidate had installed from `3313945b26b7`; this build pins
+    //! `adece4c069e4`. The boot log was right about every part of it:
+    //!
+    //! ```text
+    //! [richos] first-run setup: the RichOS engine is NOT installed — 3 place(s) looked:
+    //! [richos]   looked in …/RichOS/engine — the engine there carries the right version and
+    //!                      different contents — installed from 3313945b26b7, and this build
+    //!                      pins adece4c069e4
+    //! [richos] first-run setup: this build installs engine 1.2.0.
+    //! ```
+    //!
+    //! And his message started a turn anyway, which then died twice with `turn interrupted
+    //! [transient]` and once with `text turn refused before it started`. On screen: *"I lost my
+    //! connection to the part of me that thinks, partway through… asking again is worth a
+    //! try."* Asking again could not work — nothing about that machine changes by being asked
+    //! twice — and the one press that fixes it was never offered.
+    //!
+    //! This is the DECISION the gate makes, exercised against a real directory on disk: the
+    //! detection and the sentence, in one place, the way `send_message` asks them.
+
+    use super::setup_view;
+    use richos_core::setup::{self, Component, SetupPaths};
+    use std::path::{Path, PathBuf};
+
+    /// The two digests are Ray's, not invented: what was installed, and what .15 pins.
+    const STALE_SOURCE: &str = "3313945b26b7000000000000000000000000000000000000000000000000cafe";
+    const PINNED_SOURCE: &str = "adece4c069e4000000000000000000000000000000000000000000000000beef";
+
+    /// Removed however this test ends — a panic included (CEO §54: every scratch location is
+    /// cleaned up by its maker, or somebody has to go and find it).
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
+        let at = std::env::temp_dir().join(format!(
+            "richos-stale-engine-gate-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&at);
+        std::fs::create_dir_all(&at).unwrap();
+        Scratch(at)
+    }
+
+    /// The shape `engine_looks_valid` asks for, and the stamp `install_engine` writes — the
+    /// writer's own format, so the reader under test is not fed a test's idea of it.
+    fn engine_at(dir: &Path, version: &str, installed_from: &str) {
+        std::fs::create_dir_all(dir.join("scripts/hooks")).unwrap();
+        std::fs::write(dir.join("VERSION"), format!("{version}\n")).unwrap();
+        std::fs::write(
+            dir.join("INSTALLED-FROM"),
+            format!("engine {version}\nsha256 {installed_from}\nbytes 119463136\nfrom https://example.invalid/e.tar.gz\n"),
+        )
+        .unwrap();
+    }
+
+    /// A `claude` that is present, so the only thing missing is the engine and the sentence
+    /// under test is the ENGINE one rather than the both-missing one.
+    fn a_claude(root: &Path) -> PathBuf {
+        let bin = root.join("claude");
+        std::fs::write(&bin, "#!/bin/sh\nexit 0\n").unwrap();
+        bin
+    }
+
+    fn paths(root: &Path) -> SetupPaths {
+        SetupPaths {
+            home: Some(root.join("home")),
+            claude_bin_override: Some(a_claude(root)),
+            // No operator statement: an explicit engine is exempt from the pin by design
+            // (`find_engine_demanded`), so naming one here would test the wrong door.
+            engine_override: None,
+            config_dir: Some(root.join("home/.claude")),
+            exe: None,
+            path_var: None,
+        }
+    }
+
+    /// Whatever a delivered runtime would say — the release/identity decision is what is under
+    /// test, and hashing 322 MB is not something a unit test can or should do.
+    fn always_usable(_: &Path) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[test]
+    fn a_stale_engine_is_answered_with_the_offer_and_not_with_a_lost_connection() {
+        let root = scratch("stale");
+        let home = root.0.join("home");
+        let installed = setup::engine_install_dir(&home);
+        engine_at(&installed, "1.2.0", STALE_SOURCE);
+
+        let pin = setup::pin_from_parts(
+            "1.2.0",
+            "https://example.invalid/richos-engine-1.2.0.tar.gz",
+            PINNED_SOURCE,
+        )
+        .unwrap();
+        let status = setup::detect_with_pin(&paths(&root.0), &[], &always_usable, Some(&pin));
+
+        // The directory is THERE and is refused, which is the state Ray was in.
+        assert!(installed.is_dir(), "the fixture did not write an engine");
+        assert_eq!(status.needs(), vec![Component::Engine], "only the engine is missing");
+        assert!(status.engine_installable, "a pinned build can fix this in one press");
+        assert!(!status.blocked(), "a pinned build must offer the button, not an explanation");
+
+        // AND THE SENTENCE IS THE ONE THAT NAMES THE PIECE AND REOPENS THE SHEET. This is the
+        // value `send_message` returns; `ui/main.js`'s `send()` catch re-reads `setup_status`
+        // behind it and puts the offer back on screen, so the promise in it is true.
+        assert_eq!(
+            setup_view::incomplete_message(&status),
+            Some(setup_view::SETUP_INCOMPLETE_ENGINE),
+            "a stale engine must be answered with the offer"
+        );
+        // NEVER the other no-lease sentence. "Quit RichOS and open it again" is written for a
+        // machine that has everything and is signed out; on this one it is advice that cannot
+        // work, which is the defect `SETUP_INCOMPLETE_*` was written to end (ray-opus-a2).
+        assert!(
+            setup_view::SETUP_INCOMPLETE_ENGINE.contains("nothing to quit and nothing to reopen"),
+            "the arm must close the door on advice that cannot help"
+        );
+    }
+
+    /// THE POSITIVE CONTROL, without which the test above passes for a gate that refuses
+    /// everything: the same machine with the engine this build actually pins says nothing.
+    #[test]
+    fn an_engine_installed_from_the_pinned_asset_is_never_offered_a_refresh() {
+        let root = scratch("current");
+        let home = root.0.join("home");
+        engine_at(&setup::engine_install_dir(&home), "1.2.0", PINNED_SOURCE);
+
+        let pin = setup::pin_from_parts(
+            "1.2.0",
+            "https://example.invalid/richos-engine-1.2.0.tar.gz",
+            PINNED_SOURCE,
+        )
+        .unwrap();
+        let status = setup::detect_with_pin(&paths(&root.0), &[], &always_usable, Some(&pin));
+
+        assert!(status.complete(), "nothing is missing: {:?}", status.needs());
+        assert_eq!(
+            setup_view::incomplete_message(&status),
+            None,
+            "a healthy Mac must not be interrupted — the no-lease cause is the other one"
+        );
     }
 }
 
