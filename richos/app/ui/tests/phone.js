@@ -1948,6 +1948,75 @@ async function openSheet(browser, theme, preset) {
     }
   );
 
+  await run.check(
+    "31  a reopened sheet asks for a fresh code with NO route, and stays on the path it was on",
+    async () => {
+      // THE ONE STRUCTURAL RISK IN N1's SHAPE, pinned before it can bite. `phone_begin_pairing`
+      // now carries the user's answer — and `open()` forgets that answer on every open by design
+      // (Urban §1), so `Show me another code` pressed after a reopen sends `route: null`.
+      //
+      // That is correct, and this check is what makes it more than a claim. The Mac consults the
+      // route when it BUILDS a channel; a channel that is already up returns early from `start`
+      // and keeps the path it came up on, which is what `servingVia` reports. If that were ever
+      // to stop being true, a returning user on the Tailscale route would press the one button on
+      // the screen and be handed a home-path code — Urban's N1 defect pointing the other way, and
+      // reachable from a screen he is already standing on.
+      const page = await takeTheTailscaleRoute("dark", {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      });
+      await page.waitForSelector("#phone-ts-ready:not([hidden])");
+      await page.click("#phone-ts-start");
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+      const started = await page.evaluate(() => window.RichBridge.invoke("phone_status"));
+
+      await page.click("#phone-close");
+      await page.waitForSelector("#phone-sheet", { state: "hidden" });
+      if (!(await page.isVisible("#set-phone-open"))) await page.click("#set-btn");
+      await page.click("#set-phone-open");
+      await page.waitForSelector("#phone-sheet:not([hidden])");
+      await page.waitForSelector("#phone-pairing:not([hidden])");
+      // THE SHEET REALLY HAS FORGOTTEN THE ANSWER at this point, which is what makes the press
+      // below the interesting one rather than a repeat of check 27.
+      await page.click("#phone-refresh");
+      await page.waitForTimeout(250);
+
+      const after = await page.evaluate(async () => {
+        const status = await window.RichBridge.invoke("phone_status");
+        const shown = (id) => {
+          const node = document.getElementById(id);
+          return !!node && node.offsetParent !== null;
+        };
+        return {
+          servingVia: status.servingVia,
+          pairUrl: (document.getElementById("phone-pair-url").textContent || "").trim(),
+          tsSteps: shown("phone-ts-steps"),
+          warnings: shown("phone-home-warnings"),
+          heading: document.getElementById("phone-code-title").textContent.trim(),
+        };
+      });
+      await page.close();
+
+      assertEqual(started.servingVia, "tailnet", "the harness never served over the tailnet, so this proves nothing");
+      assertEqual(
+        after.servingVia,
+        "tailnet",
+        "THE DEFECT: a fresh code asked for after a reopen moved the Mac to the " + after.servingVia + " path"
+      );
+      assert(
+        /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(after.pairUrl),
+        "the fresh code went out under a different origin: " + JSON.stringify(after.pairUrl)
+      );
+      assert(after.tsSteps, "the Tailscale steps went away when the route was forgotten");
+      assert(!after.warnings, "the home path's certificate warnings appeared on the Tailscale route");
+      assertEqual(after.heading, "Point your phone's camera at this", "the screen fell back to the home route's heading");
+      return "reopened with no route, pressed `Show me another code`: servingVia " +
+        started.servingVia + " -> " + after.servingVia + ", " + after.pairUrl.split("/#")[0];
+    }
+  );
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
