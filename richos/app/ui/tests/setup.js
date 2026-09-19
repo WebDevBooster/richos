@@ -872,6 +872,107 @@ async function main() {
     return "three sentences, one wording, no stray spaces";
   });
 
+  // =======================================================================================
+  // 18 — THE OFFER HAS TO REACH THE SCREEN, AND EVERY OTHER CHECK IN THIS FILE STEPPED PAST
+  //      THE ONE SURFACE THAT WAS HIDING IT
+  //
+  // MEASURED ON THE REAL WINDOW, candidate .15 (v1.2.0-nightly.20260919.4, source dcebed09,
+  // build 9375f30d), escalation `esc-20260919T152225Z-2e44d112`. Ray's scratch HOME carried an
+  // engine installed from `3313945b26b7` against a build pinning `adece4c069e4`. The BACK END
+  // was right about all of it — `app.log`, verbatim: *"first-run setup: the RichOS engine is
+  // NOT installed — 3 place(s) looked"* and *"first-run setup: this build installs engine
+  // 1.2.0."* — and across four live captures between 16:08 and 16:4x **no setup sheet ever
+  // appeared**, at entry or afterwards. He typed a job into a Mac that could not answer it and
+  // got "I lost my connection to the part of me that thinks" instead of the offer.
+  //
+  // `openApp` above — and `first-run-sheet.js`, and every other suite here — calls
+  // `leaveHome()`, which is `RichHome.hide()` through the API. A person does not have that
+  // function. He arrives on the HOME SCREEN, and measured under WebKit that screen is
+  // `z-index: 150` over `.overlay`'s `60`, sets `inert` on `#app` (which is where
+  // `#setup-sheet` lives), and pulls focus back to its own door. So the sheet `init()` opened
+  // was in the DOM, `hidden === false`, un-clickable, un-focusable and behind the picture —
+  // and `main.js`'s Escape machinery counted it as on screen and pressed its "Not now" for
+  // him. `RichDismiss.open()` returned `["setup-sheet"]` with the home screen on top of it.
+  //
+  // So this check does what he does: it opens the app and presses the door. Nothing else in
+  // this file would have caught it, because nothing else in this file ever saw the home screen.
+  // =======================================================================================
+
+  await run.check("18  the offer reaches the SCREEN, not just the DOM, on the way a person arrives", async () => {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (m) => {
+      if (m.type() === "error") errors.push("console: " + m.text());
+    });
+    await page.addInitScript((v) => {
+      window.__RICHOS_MOCK_PRESET__ = v;
+    }, { setup: "missing-engine" });
+    await page.goto(APP);
+    // The curtain, and ONLY the curtain — §5.5 says his first input takes it down, so a person
+    // has this much for free. The home screen underneath is his to leave, and is not left here.
+    await page.waitForFunction("typeof window.RichSplash === 'object'", { timeout: 10000 });
+    await page.evaluate(() => window.RichSplash.yieldNow("acceptance-suite"));
+    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+
+    // THE LAYERS ARE STATED, so a future restyle that merely renumbers them is visible here
+    // rather than quietly making this check true for a different reason.
+    const painted = await page.evaluate(() => {
+      const sheet = document.getElementById("setup-sheet");
+      const panel = sheet.querySelector(".overlay-panel");
+      const r = panel.getBoundingClientRect();
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const home = document.getElementById("home");
+      return {
+        homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
+        homeZ: home ? getComputedStyle(home).zIndex : null,
+        sheetZ: getComputedStyle(sheet).zIndex,
+        appInert: document.getElementById("app").hasAttribute("inert"),
+        onTop: top ? top.id || top.className || top.tagName : null,
+        insideSheet: !!(top && top.closest && top.closest("#setup-sheet")),
+        focusInSheet: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest("#setup-sheet")),
+        focusId: (document.activeElement && document.activeElement.id) || null,
+        title: (document.getElementById("setup-title").textContent || "").trim(),
+      };
+    });
+    assert(
+      painted.insideSheet,
+      `the offer is not painted at the middle of its own panel — ${painted.onTop} is (home z-index ${painted.homeZ}, sheet z-index ${painted.sheetZ}, #app inert ${painted.appInert})`
+    );
+    assert(
+      !painted.appInert,
+      "#app is inert, so the one button that puts an engine on this Mac cannot be pressed"
+    );
+    assert(
+      painted.focusInSheet,
+      `the offer is on screen but focus is on ${JSON.stringify(painted.focusId)} — it cannot be answered from the keyboard`
+    );
+    assertEqual(
+      painted.title,
+      "There's one thing I need on this Mac.",
+      "the sheet on screen is not the engine offer"
+    );
+
+    // AND ESCAPE CANNOT ANSWER IT UNSEEN. Case 14 already pins Escape's equivalence to the
+    // named button; what it could not see is that the button was invisible. A person meeting
+    // the home screen has no idea there is a question behind it, and one Escape — the key he
+    // presses to get a curtain or a menu out of the way — spent his only offer.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+    const afterEscape = await page.evaluate(() => ({
+      sheetHidden: document.getElementById("setup-sheet").hidden,
+      homeOpen: !!(window.RichHome && window.RichHome.isOpen()),
+    }));
+    assert(
+      !afterEscape.homeOpen || !afterEscape.sheetHidden,
+      "one Escape answered the engine offer while the home screen was still covering it — he never saw the question he just declined"
+    );
+    bump(5);
+    assert(errors.length === 0, "the shell logged errors: " + errors.join(" | "));
+    await page.close();
+    return `home z-index ${painted.homeZ}, sheet z-index ${painted.sheetZ}; the offer is painted on top and holds focus (${painted.focusId}); Escape is not a way to answer it unseen`;
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
