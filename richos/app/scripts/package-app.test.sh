@@ -89,6 +89,14 @@
 #   E4  an exported key does not turn the Apple-ID refusal into a pass     [shim]
 #   E5  an exported RICHOS_SIGNING_IDENTITY does not reach discovery       [shim]
 #   Z   the operator's real keychain inventory is unchanged by this suite
+#
+# THIS SUITE OPENS NO WINDOW, and it says so because `run-tests.test.sh` case S6 scans this
+# directory for anything that could put one on the operator's Mac and refuses silence. The
+# match here is line 262, `cp /bin/echo "$b/Contents/MacOS/RichOS"` — a bundle FIXTURE whose
+# executable is /bin/echo, copied into place and never run. Nothing in this file executes a
+# bundle, calls `open`, or drives System Events; every `richos-tauri` in it is a string in a
+# Cargo.toml it writes.
+# run-tests: no-host-screen: every bundle here is a fixture whose executable is /bin/echo, copied and never launched
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

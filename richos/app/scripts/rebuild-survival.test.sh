@@ -33,6 +33,13 @@
 #   G15 a requirement printed WITHOUT a leading '# ' is read (the Developer ID form)
 #   G16 a real signature records as 'developer-id', not as 'none'
 #   G17 two UNREAD requirements are INCOMPLETE, never a silent identical
+#
+# THIS SUITE OPENS NO WINDOW, and it says so because `run-tests.test.sh` case S6 scans this
+# directory for anything that could put one on the operator's Mac and refuses silence. The
+# match here is line 59, `cp /bin/echo "$b/Contents/MacOS/RichOS"` — a bundle FIXTURE whose
+# executable is /bin/echo. Every bundle in this file is signed and inspected; not one is
+# launched.
+# run-tests: no-host-screen: its bundles are /bin/echo fixtures that are signed and read, never launched
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

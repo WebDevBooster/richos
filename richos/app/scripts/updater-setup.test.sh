@@ -52,6 +52,14 @@
 #   E1  the signature verifier VERIFIES a good pair against the shipped pubkey
 #   E2  ...REFUSES a tampered artifact, and says so as a signature refusal
 #   E3  ...REFUSES a correctly-formed signature from a different key
+#
+# THIS SUITE OPENS NO WINDOW, and it says so because `run-tests.test.sh` case S6 scans this
+# directory for anything that could put one on the operator's Mac and refuses silence. The
+# matches here are the `Contents/MacOS/...` members it writes into tar fixtures (lines 235,
+# 301-313) to exercise the updater's archive-shape refusals. It runs `cargo run --example
+# verify_update_signature` and `verify_update_manifest`, which are console programs with no
+# webview and no window; the app itself is never built or launched.
+# run-tests: no-host-screen: its bundle paths are tar fixture members, and its two cargo examples are console programs
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
