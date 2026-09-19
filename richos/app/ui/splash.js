@@ -51,6 +51,40 @@
     return window.performance && window.performance.now ? window.performance.now() : Date.now();
   };
 
+  // -------------------------------------------------------------------------------------
+  // THE SPACE KEY'S CLOCK — ONE OFFSET, ON THE ONE CLOCK EVERYTHING HERE ALREADY SHARES
+  // -------------------------------------------------------------------------------------
+  //
+  // CEO §62, 2026-09-19: *"Hitting the space key while the splash screen is shown should
+  // 'pause' the splash screen."* Amended the same day: *"if the animation on the splash
+  // screen can be easily paused without adding too much complexity, then sure the animation
+  // should pause."*
+  //
+  // IT CAN, AND THIS IS WHY IT IS THREE LINES RATHER THAN A STATE MACHINE. Everything that
+  // moves on this surface is driven from ONE reading: `clock()`. The bar's fill is
+  // `clock() - shownAt`, the landing flare is `clock() - bar.landedAt`, and the hold the
+  // ceremony is measured against is `holdMs - (clock() - shownAt)` - the same number, which
+  // is the property `SPLASH_SECONDS`' comment already names ("the bar reaches 100% at
+  // exactly this many seconds"). Stop that one reading and all three stop together, in step,
+  // with no second notion of time to drift against the first.
+  //
+  // `pausedTotal` is how long the surface has been held, in ms, and `pausedSince` is the raw
+  // reading the current hold began at. While a hold is on, `clock()` returns the instant it
+  // began; when the hold ends, the time spent is added to the offset, so the value `clock()`
+  // returns is continuous across the resume and never goes backwards. The RAW clock is still
+  // what a pause is measured with - a paused clock cannot time its own pause.
+  //
+  // The CSS composition (four `splash-rise` stages, the strike and the rule) is not on this
+  // clock and does not need to be: it is paused declaratively by `splash--paused` in
+  // `splash.css`, and the bar track's one Web-Animations fade is paused through the handle
+  // `buildBar` keeps on it. Three mechanisms because there are three kinds of motion, and
+  // each one is paused where it lives.
+  var pausedTotal = 0;
+  var pausedSince = null;
+  function clock() {
+    return (pausedSince === null ? now() : pausedSince) - pausedTotal;
+  }
+
   var KEY_ENABLED = "richos.splash.enabled";
 
   // -------------------------------------------------------------------------------------
@@ -149,7 +183,7 @@
   /// CEO's hand.
   function holdRemaining() {
     if (shownAt === null) return 0;
-    var left = holdMs - (now() - shownAt);
+    var left = holdMs - (clock() - shownAt);
     return left > 0 ? left : 0;
   }
 
@@ -845,7 +879,12 @@
       pitch: b.pitch ? parseFloat(b.pitch) : 0,
       inset: parseFloat(b.pitchInset) || 0,
       landed: false,
-      landedAt: 0
+      landedAt: 0,
+      /// The track's own fade-in, kept rather than fired and forgotten: it is the one piece
+      /// of motion on this surface that is neither a CSS animation (which `splash--paused`
+      /// reaches) nor on `clock()` (which the space key stops), so pausing it needs its
+      /// handle. `null` under reduced motion, where it is never started.
+      enter: null
     };
 
     // The empty track fades in once the plinth has landed, exactly as the mockups do it.
@@ -853,7 +892,7 @@
     // itself still moves under reduced motion, because a loading bar that does not move is
     // a broken loading bar, and that is the mockups' own call.
     if (!reduceMotion() && root.animate) {
-      root.animate([{ opacity: 0 }, { opacity: 1 }], {
+      bar.enter = root.animate([{ opacity: 0 }, { opacity: 1 }], {
         duration: millis(b.enterDuration),
         delay: millis(b.enterDelay),
         easing: "ease",
@@ -944,14 +983,14 @@
     if (!bar) return;
     var span = holdMs - BAR_START_MS;
     if (span < 350) span = 350;
-    var u = (now() - shownAt - BAR_START_MS) / span;
+    var u = (clock() - shownAt - BAR_START_MS) / span;
     if (u < 0) u = 0;
     if (u > 1) u = 1;
     paintBar(u + BAR_SURGE * Math.sin(2 * Math.PI * u) * (1 - u));
 
     if (u >= 1 && !bar.landed) {
       bar.landed = true;
-      bar.landedAt = now();
+      bar.landedAt = clock();
       state.barPasses++;
       retireLeads(!reduceMotion());
       if (reduceMotion()) {
@@ -960,7 +999,7 @@
       }
     }
     if (bar.landed) {
-      var q = (now() - bar.landedAt) / FLARE_MS;
+      var q = (clock() - bar.landedAt) / FLARE_MS;
       if (q >= 1) {
         hideFlares();
         stopTicking();
@@ -1139,7 +1178,19 @@
     /// landing flare went through it completely undetected. These two numbers close that
     /// hole, because a loop cannot leave the loop stopped.
     barPasses: 0,
-    barStopped: false
+    barStopped: false,
+    /// THE SPACE KEY'S OWN ACCOUNT OF ITSELF (CEO §62). `paused` is the state the settings
+    /// button appears in and the state the automatic switch to the home screen is held in;
+    /// `pauses` counts how many times it has been entered, so "he held it once" and "the
+    /// key is toggling on its own" are different readings; `pausedMs` is how long has been
+    /// spent held, which is exactly how much later than its three seconds this screen will
+    /// leave. `deferred` is the automatic caller that asked to go while it was held and was
+    /// refused - reported rather than swallowed, because "the app was ready and waited" and
+    /// "the app never became ready" are two different launches.
+    paused: false,
+    pauses: 0,
+    pausedMs: 0,
+    deferred: null
   };
 
   function removeSelf() {
@@ -1152,22 +1203,150 @@
     node = null;
   }
 
-  /// The CEO's first keystroke or touch gets the curtain out of the way — with ONE
-  /// exception, and it is the settings button.
+  // -------------------------------------------------------------------------------------
+  // THE SPACE KEY — HOLD THE SCREEN, AND ONLY THEN OFFER SETTINGS
+  // -------------------------------------------------------------------------------------
+  //
+  // CEO §62, 2026-09-19, verbatim and in full because it is the whole specification of this
+  // block: *"The splash screen is one of those rare cases where the screen should NOT have a
+  // settings button (because it's only there for 3 seconds by default and 5 seconds in some
+  // cases in the future). However: An additional feature for the splash screen should be
+  // this: Hitting the space key while the splash screen is shown should 'pause' the splash
+  // screen. Not necessarily pause the animation but stop it from automatically switching
+  // from splash screen to home screen. Hitting the space key a second time would 'resume'
+  // it i.e. switch to home screen. AND: while the splash screen is 'paused', THAT'S when the
+  // settings button should show up on the splash screen. Because that's the only time it
+  // would make sense. Otherwise no settings button on the splash screen."*
+  //
+  // THIS REPLACES §15's EXCEPTION ON THIS ONE SURFACE, and the replacement is the ruling's
+  // own: §15 puts the settings button on every screen, and this is the screen he has taken
+  // it off. `splash.css` is where that happens (the button's own CSS is in `style.css` and
+  // is not touched), keyed on the curtain being present, not paused and not yet yielding -
+  // so the button cannot be left hidden by any state this file can end in, including a
+  // throw. The moment the node is gone the rule cannot match.
+  //
+  // WHAT IS PAUSED, AND WHAT IS NOT. The automatic switch to the home screen is: the ceiling
+  // and `main.js`'s `app-ready` yield both stop taking the curtain down (`yieldNow` below).
+  // HIS HAND IS NOT: any other key, and any pointer, still dismisses on first input exactly
+  // as before, held or not - §5.5 forbids anything on this surface that is delaying, and a
+  // hold he can get stuck in would be precisely that. The animation is paused too, per the
+  // same day's amendment, because it could be done in three places rather than a redesign.
+  var paused = false;
+
+  /// The space bar, and only the space bar, and only unmodified. A modified press (⌘, ⌃, ⌥)
+  /// is an app or system shortcut rather than this surface's control, so it falls through to
+  /// the first-input dismissal every other key has always taken.
+  function isSpace(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false;
+    return e.key === " " || e.key === "Spacebar" || e.code === "Space" || e.keyCode === 32;
+  }
+
+  /// HOLD IT. The automatic switch stops; the ceremony stops where it stands; the settings
+  /// button appears.
+  function pauseNow() {
+    if (paused || yielded || !node) return;
+    paused = true;
+    state.paused = true;
+    state.pauses++;
+    // The clock stops FIRST, so the bar and the hold both freeze on the same reading rather
+    // than on two readings taken either side of the work below.
+    pausedSince = now();
+    // The two automatic ways out, disarmed rather than left to fire into a `yieldNow` that
+    // would refuse them. The ceiling is not re-armed on resume because resume IS the yield -
+    // a failsafe against a boot that hangs has nothing to protect while he is holding the
+    // screen open on purpose, and one more keystroke takes it down whatever the app is doing.
+    if (ceiling !== null) {
+      clearTimeout(ceiling);
+      ceiling = null;
+    }
+    if (holdTimer !== null) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      state.deferred = "app-ready";
+    }
+    node.classList.add("splash--paused");
+    if (bar && bar.enter && bar.enter.pause) {
+      try {
+        bar.enter.pause();
+      } catch (_e) {
+        /* an engine that will not pause its own animation still gets a paused surface */
+      }
+    }
+    // The frame loop is put down rather than left spinning on a frozen number: a hold has no
+    // end he is obliged to reach, and a `requestAnimationFrame` that repaints an unchanged
+    // bar for as long as he leaves the screen up is work with no picture to show for it.
+    // `state.barStopped` is deliberately NOT set - the bar has not finished, it is held, and
+    // that flag's whole job is to answer "did the one pass end".
+    if (raf !== null) {
+      cancelAnimationFrame(raf);
+      raf = null;
+    }
+  }
+
+  /// Let it go again. The clock picks up exactly where it stopped, so a screen held at 1.4 s
+  /// still has 1.6 s of ceremony left in it and the bar is where he left it, not ahead of it.
+  function unpause() {
+    if (!paused) return;
+    paused = false;
+    state.paused = false;
+    if (pausedSince !== null) {
+      pausedTotal += now() - pausedSince;
+      pausedSince = null;
+      state.pausedMs = Math.round(pausedTotal);
+    }
+    if (node) node.classList.remove("splash--paused");
+    if (bar && bar.enter && bar.enter.play) {
+      try {
+        bar.enter.play();
+      } catch (_e) {
+        /* see pauseNow */
+      }
+    }
+    if (bar && !state.barStopped && raf === null) raf = requestAnimationFrame(tick);
+  }
+
+  /// The second space: *"resume it i.e. switch to home screen"*. Both halves, in his order -
+  /// the ceremony is let go first so nothing is left frozen behind the fade, and then the
+  /// curtain goes. `yieldNow` pins the composition to where it was going (`splash--settled`)
+  /// as it always has, so what a resumed screen shows on its way out is a finished mark and
+  /// not a frame that ran for 16 ms.
+  function resumeNow() {
+    unpause();
+    yieldNow("resume");
+  }
+
+  /// The CEO's first keystroke or touch gets the curtain out of the way — with TWO
+  /// exceptions now, and both of them are §62's.
   ///
-  /// That button is deliberately drawn ABOVE this curtain (z-index 300 against its 200)
-  /// because §15 requires it on every screen and its floor is "Bust a bug". If reaching it
-  /// counted as first input, the curtain would lift the instant it was touched — and the
-  /// bug report the CEO was opening would start from the shell instead of from the opening
-  /// screen he was actually looking at. That is precisely the outcome the ruling names:
-  /// "reporting a bug must never require navigating away from the screen the bug is on",
-  /// and the screen a first-run user is most likely to be stuck on is this one.
+  /// THE SETTINGS BUTTON. It is drawn ABOVE this curtain (z-index 300 in `style.css:4990`
+  /// against `splash.css:21`'s 200) and, since §62, it is only on this screen while the
+  /// screen is paused. Reaching it must not count as first input: the curtain would lift the
+  /// instant it was touched, and the bug report the CEO was opening would start from the
+  /// shell instead of from the opening screen he was actually looking at. That is precisely
+  /// the outcome §15 names — "reporting a bug must never require navigating away from the
+  /// screen the bug is on" — and it is why he put the button on the paused screen at all.
+  /// The exemption covers the whole `.settings` wrapper, so the menu's own rows, and a space
+  /// pressed on a focused row inside it, belong to the menu and never to this file.
   ///
-  /// Everything else still dismisses on first input, unchanged. The exception is exactly as
-  /// wide as the one control that is meant to float above the curtain.
+  /// THE SPACE KEY. It holds the screen, and a second press resumes and goes. It is consumed
+  /// — `preventDefault` and `stopPropagation` — because it is this surface's control while
+  /// this surface is up: `main.js` has focused the composer by then (`main.js:7669`), and a
+  /// space that paused the opening screen AND typed a character into the thread behind it
+  /// would be one keystroke doing two things. A held-down key repeats; the repeats are
+  /// swallowed rather than toggled on, because holding space is one press to a person.
+  ///
+  /// Everything else still dismisses on first input, unchanged, paused or not.
   function onInput(e) {
     var t = e && e.target;
     if (t && t.closest && t.closest(".settings")) return;
+    if (e.type === "keydown" && isSpace(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      if (paused) resumeNow();
+      else pauseNow();
+      return;
+    }
     yieldNow("first-input");
   }
 
@@ -1175,6 +1354,27 @@
   /// keystroke or touch, and by the ceiling - whichever happens first, and only once.
   function yieldNow(reason) {
     if (yielded) return;
+
+    // THE SPACE KEY'S HOLD, AND THE THREE CALLERS IT APPLIES TO (CEO §62).
+    //
+    // *"stop it from automatically switching from splash screen to home screen"* - so the
+    // three callers that switch BY THEMSELVES are refused while the screen is held, and are
+    // refused by name rather than by a default, because the list is the ruling: `app-ready`
+    // is `main.js` reporting the shell usable, `held` is that same yield coming back after
+    // the remainder of the hold, and `ceiling` is the failsafe. Nothing else is automatic.
+    //
+    // WHAT IS DELIBERATELY NOT IN THE LIST: `first-input` (his hand - §5.5), `resume` (his
+    // hand again, and the whole point of the second press), and any caller a harness invents.
+    // A hold that could swallow an explicit call would be a surface that can wedge, and this
+    // one is `pointer-events: none` over a live app precisely so it never can.
+    if (paused && (reason === "app-ready" || reason === "held" || reason === "ceiling")) {
+      state.deferred = reason;
+      return;
+    }
+    // Any other caller getting through while the screen is held takes the hold off on its
+    // way past, so the clock, the class and `state.paused` cannot be left saying "held" on a
+    // surface that has already decided to go.
+    if (paused) unpause();
 
     // THE HOLD, AND THE ONE CALLER IT APPLIES TO.
     //
@@ -1262,7 +1462,7 @@
     }
     state.shown = true;
     state.variationId = entry.id;
-    shownAt = now();
+    shownAt = clock();
     // ONE PASS OF THE LOADING BAR, STARTING NOW. `shownAt` is the clock it runs on and the
     // clock the hold is measured against, so the bar reaches 100% at exactly the instant the
     // hold is served - the same number, not two numbers that agree.
