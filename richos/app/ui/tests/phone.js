@@ -1574,6 +1574,130 @@ async function openSheet(browser, theme, preset) {
     return "order " + JSON.stringify(screen.order.slice(0, 3)) + ", account in <strong>: " + JSON.stringify(screen.strong);
   });
 
+  // ---- N1: the chooser has two doors, and both of them now lead where they say ------------
+
+  await run.check(
+    "27  the answer he gives is the path the Mac serves: `At home only` on a Mac whose tailnet is ready",
+    async () => {
+      // URBAN'S N1 BLOCKER, signoff 2026-09-19 10.40, his frames 10 -> 11 -> 12. He pressed `At
+      // home only` — *"Your phone talks to this Mac directly, over your own home network …
+      // there is no account to make"* — then `Set my phone up`, and got the **Tailscale**
+      // screen: a `…ts.net` pairing URL, *"Install Tailscale from the store"*, and *"Sign in
+      // with Google as <his account>"*. *"A product that asks a question and ignores the answer
+      // has spent the trust the rest of this flow earned."*
+      //
+      // **THE MAC IN THIS CHECK IS HIS MAC**: `state: "ready"`, an account, a certificate that
+      // would issue. That is the only Mac the defect happens on, and it is the only Mac this
+      // ships against — a fixture with no tailnet would pass on the broken build.
+      //
+      // **BOTH THEMES**, because his acceptance says both.
+      //
+      // **AND BOTH DOORS IN ONE CHECK.** §61 keeps the Tailscale path and puts it first, so a
+      // fix that served the home path to everybody would satisfy the first half of this check
+      // and break the CEO's own priority. The two halves share a fixture and differ in one
+      // thing: which button was pressed.
+      const READY = {
+        state: "ready",
+        name: "mm1.tail9a3b2.ts.net",
+        origin: "https://mm1.tail9a3b2.ts.net:8443",
+        account: "Google as someone@gmail.com",
+      };
+      // What the user can actually READ: `innerText` and not `textContent`, because every
+      // Tailscale node is in the markup on both routes and hidden on one of them. The account
+      // being *in the DOM* is not the defect; the account being *on the screen* is.
+      const readScreen = () =>
+        (async () => {
+          const status = await window.RichBridge.invoke("phone_status");
+          const shown = (id) => {
+            const node = document.getElementById(id);
+            return !!node && node.offsetParent !== null;
+          };
+          return {
+            servingVia: status.servingVia,
+            pairUrl: (document.getElementById("phone-pair-url").textContent || "").trim(),
+            trustUrl: (document.getElementById("phone-trust-url").textContent || "").trim(),
+            steps: document.querySelectorAll("#phone-steps li").length,
+            tsSteps: shown("phone-ts-steps"),
+            warnings: shown("phone-home-warnings"),
+            visibleText: document
+              .getElementById("phone-sheet")
+              .innerText.replace(/\s+/g, " ")
+              .trim(),
+          };
+        })();
+
+      const out = [];
+      for (const theme of ["dark", "light"]) {
+        // ---- the door that was lying ----
+        const home = await openSheet(browser, theme, { phoneTailnet: READY });
+        await home.waitForSelector("#phone-route:not([hidden])");
+        await home.click("#phone-route-home");
+        await home.waitForSelector("#phone-off:not([hidden])");
+        await home.click("#phone-start");
+        await home.waitForSelector("#phone-pairing:not([hidden])");
+        const athome = await home.evaluate(readScreen);
+        await home.close();
+
+        assertEqual(
+          athome.servingVia,
+          "home",
+          "THE BLOCKER: he answered `At home only` and the Mac is serving over " +
+            athome.servingVia + " (" + theme + ")"
+        );
+        assert(
+          /^https:\/\/mm1\.local:8443\/#pair=/.test(athome.pairUrl),
+          "the pairing URL is not on the home name: " + JSON.stringify(athome.pairUrl)
+        );
+        assertEqual(athome.trustUrl, "http://mm1.local:8444/ca", "the trust code is not on the screen that needs it");
+        assert(athome.warnings, "the home path's two warnings are not on the home path");
+        assertEqual(athome.steps, 16, "the sixteen certificate taps are not on the screen");
+        assert(!athome.tsSteps, "THE BLOCKER'S OWN SENTENCE: the four Tailscale steps are on the At-home screen");
+        // **AND THE ACCOUNT IS NAMED NOWHERE**, which is his acceptance in his own words and the
+        // §61.1 half: this is the user who deliberately picked the route with no shared identity.
+        for (const forbidden of [
+          "someone@gmail.com",
+          "Google as",
+          "Install Tailscale from the store",
+          "Tailscale account",
+          "ts.net",
+        ]) {
+          assert(
+            !athome.visibleText.includes(forbidden),
+            "THE BLOCKER: " + JSON.stringify(forbidden) +
+              " is on screen after he chose `At home only` (" + theme + ")"
+          );
+        }
+
+        // ---- and the door that was already right ----
+        const tail = await takeTheTailscaleRoute(theme, READY);
+        await tail.waitForSelector("#phone-ts-ready:not([hidden])");
+        await tail.click("#phone-ts-start");
+        await tail.waitForSelector("#phone-pairing:not([hidden])");
+        const anywhere = await tail.evaluate(readScreen);
+        await tail.close();
+
+        assertEqual(anywhere.servingVia, "tailnet", "`Anywhere` stopped being served over the tailnet (" + theme + ")");
+        assert(
+          /^https:\/\/mm1\.tail9a3b2\.ts\.net:8443\/#pair=/.test(anywhere.pairUrl),
+          "the Tailscale route's code no longer goes out under the tailnet name: " + JSON.stringify(anywhere.pairUrl)
+        );
+        assert(anywhere.tsSteps, "the four Tailscale steps are gone from the Tailscale route");
+        assert(!anywhere.warnings, "the certificate warnings are on the route that installs no certificate");
+        assert(
+          anywhere.visibleText.includes("someone@gmail.com"),
+          "the Tailscale route stopped naming the account, which is the whole of §61.1"
+        );
+
+        out.push(
+          theme + ": At home only -> " + athome.servingVia + " " + athome.pairUrl.split("/#")[0] +
+            ", 16 steps, 0 Tailscale steps, account absent; Anywhere -> " + anywhere.servingVia +
+            " " + anywhere.pairUrl.split("/#")[0]
+        );
+      }
+      return out.join("; ");
+    }
+  );
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;

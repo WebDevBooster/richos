@@ -702,12 +702,25 @@ fn phone_status(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::P
 /// On a first call this mints the certificate authority, issues the leaf, mints the VAPID key and
 /// binds the socket — which is why it can fail in ways he needs to read, and why the error is a
 /// sentence rather than a code.
+///
+/// **`route` IS THE USER'S ANSWER TO "WHERE DO YOU WANT TO USE IT?", AND THIS COMMAND USED TO
+/// TAKE NO ARGUMENT AT ALL** — Urban's N1 blocker, signoff 2026-09-19 10.40. The sheet asked the
+/// question, the answer never crossed this bridge, and `serving_plan` then preferred the tailnet
+/// on every Mac that had one: pressing `Set my phone up` under `At home only` produced the
+/// Tailscale screen, an account to make and a `…ts.net` URL. See [`phone::Route`].
+///
+/// It is `Option<String>` rather than a deserialized enum because the sheet legitimately has no
+/// answer to send in two states — before a choice, and after a reopen, where the route is
+/// forgotten by design and the running channel already holds the decision. `Route::from_token`
+/// turns anything that is not one of the two tokens into `Unstated`, so a spelling mistake in the
+/// webview can never become a refusal the user reads as "the phone channel could not start".
 #[tauri::command(async)]
 fn phone_begin_pairing(
     app: AppHandle,
+    route: Option<String>,
     runtime: State<std::sync::Arc<phone::PhoneRuntime>>,
 ) -> Result<phone::PhoneStatus, String> {
-    runtime.begin_pairing(app).map_err(|e| {
+    runtime.begin_pairing(app, phone::Route::from_token(route.as_deref())).map_err(|e| {
         // THE DETAIL GOES TO THE LOG AND THE SENTENCE GOES TO HIM. `Display` says what failed
         // and is the right thing for whoever can act on it; `ceo_sentence` is what he reads.
         eprintln!("[richos] the phone channel could not start: {e}");

@@ -64,6 +64,15 @@
       window.__RICHOS_MOCK_PRESET__?.phonePlatform === undefined
         ? "ios"
         : window.__RICHOS_MOCK_PRESET__.phonePlatform,
+    // **THE ANSWER THE SHEET SENT WHEN IT ASKED FOR THIS CHANNEL** — Urban's N1, and the field
+    // the Mac does not have because it does not need one: `serving_plan` consumes the route at
+    // the build and what survives is `pairing_path`. The harness has to keep it because its
+    // "channel" is these few lines, and `servingVia` is read from them on every poll.
+    //
+    // `null` at load, including for the presets that start mid-flow: a channel that was already
+    // up when this file loaded is one nobody in this browser answered a question about, and it
+    // falls to detection exactly as a resumed channel does on the Mac.
+    route: null,
   };
   // WHERE THIS MAC IS ON THE TAILSCALE PATH, for the harness. The shipped sheet draws its four
   // Tailscale screens from `status.tailnet` and nothing else, so without this the whole of CEO
@@ -108,6 +117,32 @@
       ? Math.max(0, pinned)
       : Math.max(0, Math.ceil((PAIRING_WINDOW_MS - elapsed) / 1000));
     const open = mockPhone.pairing && !mockPhone.paired && secondsLeft > 0;
+    // **WHICH PATH THE OPEN WINDOW IS BEING SERVED OVER** — `PhoneStatus::serving_via`, and
+    // Urban's blocker `esc-20260919T041857Z-640acd39`. The Mac decides it when the channel
+    // starts (`mod.rs`'s `serving_plan`), and the harness derives it from the same two inputs in
+    // the same order:
+    //
+    //   1. **THE ROUTE THE SHEET SENT**, which used to be nothing at all. `phone_begin_pairing`
+    //      now carries the user's answer (Urban's N1), and `at-home` is served at home even on a
+    //      Mac whose tailnet would certify it — `serving_plan`'s first line, before any
+    //      detection runs.
+    //   2. Detection, for every other answer: a ready tailnet serves the tailnet, anything else
+    //      serves the home path.
+    //
+    // `phoneServingVia` still overrides both, for the one case neither can produce: the Tailscale
+    // addresses failing to bind, which drops a ready Mac back to the home path mid-start.
+    //
+    // It is a local rather than an inline field because the PAIRING URL is drawn from it too —
+    // see `pairUrl` below.
+    const servingVia =
+      mockPhone.paired || mockPhone.pairing
+        ? window.__RICHOS_MOCK_PRESET__?.phoneServingVia ||
+          (mockPhone.route === "at-home"
+            ? "home"
+            : tailnetOf().state === "ready"
+              ? "tailnet"
+              : "home")
+        : null;
     return {
       listening: mockPhone.paired || mockPhone.pairing,
       paired: mockPhone.paired,
@@ -118,22 +153,20 @@
       // harness that could only ever be an iPhone could not have shown it.
       deviceName: mockPhone.paired ? (mockPhone.platform === "android" ? "Android phone" : "iPhone") : null,
       pairedVia: mockPhone.paired ? mockPhone.pairedVia : null,
-      // **WHICH PATH THE OPEN WINDOW IS BEING SERVED OVER** — `PhoneStatus::serving_via`, and
-      // Urban's blocker `esc-20260919T041857Z-640acd39`. The Mac decides it from its own
-      // detection when the channel starts (`mod.rs`'s `serving_plan`), never from anything the
-      // sheet passes in — `phone_begin_pairing` takes no argument — so the harness derives it
-      // the same way: a ready tailnet serves the tailnet, anything else serves the home path.
-      // `phoneServingVia` overrides it for the one case detection cannot produce: the Tailscale
-      // addresses failing to bind, which drops a ready Mac back to the home path mid-start.
-      servingVia:
-        mockPhone.paired || mockPhone.pairing
-          ? window.__RICHOS_MOCK_PRESET__?.phoneServingVia ||
-            (tailnetOf().state === "ready" ? "tailnet" : "home")
-          : null,
+      servingVia,
       platform: mockPhone.paired ? mockPhone.platform : null,
       pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
       trustUrl: mockPhone.paired || mockPhone.pairing ? "http://mm1.local:8444/ca" : null,
-      pairUrl: open ? "https://mm1.local:8443/#pair=K7QF2M9X" : null,
+      // **AND THE CODE GOES OUT UNDER THE ORIGIN THAT IS ACTUALLY SERVING IT.** The Mac builds
+      // this string from `Running::origin`, which is `serving_plan`'s answer — so a window served
+      // over the tailnet carries a `…ts.net` URL, which is what Urban read off his frame 12 and
+      // what a harness pinned to `mm1.local` could never have shown. `TAILNET_ABSENT.origin` is
+      // null, so the home string is the fallback for every state short of `ready`.
+      pairUrl: open
+        ? (servingVia === "tailnet" && tailnetOf().origin
+            ? tailnetOf().origin
+            : "https://mm1.local:8443") + "/#pair=K7QF2M9X"
+        : null,
       fingerprintWords: ["harbor", "candle", "meadow", "lantern", "fossil", "juniper"],
       fingerprintHex: mockPhone.paired || mockPhone.pairing ? "3D:9C:2A:5E:7B:11" : null,
       bound:
@@ -2094,7 +2127,16 @@
         // need. The default is OFF, because that is the state a fresh install actually ships in.
         case "phone_status":
           return phoneStatusOf();
+        // **AND IT TAKES THE USER'S ANSWER NOW** — Urban's N1. The Mac consults it once, when
+        // the channel is BUILT, and a channel that is already up keeps the path it came up on
+        // (`PhoneRuntime::start` returns early). So the harness records the route on the call
+        // that starts serving and ignores it on the calls that only re-open the window — which
+        // is what makes `Show me another code` after a reopen, where the sheet has forgotten
+        // the route and sends `null`, keep the screens it left.
         case "phone_begin_pairing":
+          if (!mockPhone.paired && !mockPhone.pairing) {
+            mockPhone.route = args?.route ?? null;
+          }
           mockPhone.pairing = true;
           mockPhone.openedAt = now();
           return phoneStatusOf();
@@ -2106,6 +2148,11 @@
         // true through the same expression rather than through a second rule that agrees.
         case "phone_stop_pairing":
           mockPhone.pairing = false;
+          // AND THE ROUTE GOES WITH THE CHANNEL, not with the sheet. `stop_pairing` takes the
+          // socket down when nothing is paired, so the next `Set my phone up` builds a fresh
+          // channel and plans it from the answer given then — which is how backing out of
+          // Anywhere and choosing At home only gets the home path rather than the running one.
+          if (!mockPhone.paired) mockPhone.route = null;
           return phoneStatusOf();
         // THE HOW-TO SCREENS' LINKS (§61.1). Recorded rather than only answered: what a test needs
         // to know is WHICH address the control asked for, and `opener.rs` is where the allowlist
@@ -2117,6 +2164,7 @@
         case "phone_forget":
           mockPhone.paired = false;
           mockPhone.pairing = false;
+          mockPhone.route = null;
           return null;
         case "repository_connections":
           return {companies: entities.map(e => ({id:e.id, name:e.display_name, repositories:e.connected_repositories || []}))};

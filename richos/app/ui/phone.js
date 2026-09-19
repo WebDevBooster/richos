@@ -1197,6 +1197,20 @@
   /// `toCode` is TRUE only for "Show me another code", and false for the two controls that
   /// ENTER this screen (`Set my phone up`, on Screen 4 and on the off screen). Entering a screen
   /// scrolled past its own opening sentence would be the same defect pointing the other way.
+  ///
+  /// **AND THE ANSWER HE GAVE GOES WITH THE REQUEST** — Urban's N1. This call used to take no
+  /// argument, so the route chooser's two doors led to one place: `serving_plan` on the Mac
+  /// preferred the tailnet whenever a certificate would issue, and `At home only` — the option
+  /// whose own sentence says *"there is no account to make"* — produced the Tailscale screen,
+  /// with four steps beginning "Install Tailscale from the store" and the Mac's own account
+  /// named in step 2. *"A product that asks a question and ignores the answer has spent the
+  /// trust the rest of this flow earned."*
+  ///
+  /// **`route` IS NULL HERE IN EXACTLY ONE CASE, AND THAT CASE IS RIGHT.** `open()` forgets the
+  /// route on every open (Urban §1), so `Show me another code` pressed after a reopen sends
+  /// nothing — and the Mac wants nothing: its channel is already up, `start` returns early
+  /// without re-planning, and the path it came up on is what `servingVia` keeps reporting. The
+  /// route decides which channel is BUILT; it never re-decides one that is running.
   async function begin(toCode) {
     if (busy) return;
     busy = true;
@@ -1204,7 +1218,7 @@
     field("phone-start").disabled = true;
     field("phone-refresh").disabled = true;
     try {
-      render(await bridge.invoke("phone_begin_pairing"));
+      render(await bridge.invoke("phone_begin_pairing", { route }));
       field("phone-message").textContent = "";
       if (toCode) scrollToCode();
     } catch (error) {
@@ -1223,9 +1237,17 @@
   field("phone-refresh").addEventListener("click", () => begin(true));
   field("phone-close").addEventListener("click", close);
 
-  // THE ROUTE CONTROLS. "At home only" is the shipped flow with nothing changed — it does not even
-  // start pairing, because the shipped `#phone-off` block already has that button and its own
-  // explanation of what is about to happen.
+  // THE ROUTE CONTROLS. Each writes the answer into `route`, and `route` is what `begin()` sends
+  // to the Mac — that is the whole of Urban's N1 fix on this side of the bridge.
+  //
+  // **THE COMMENT THAT USED TO BE HERE WAS TRUE WHEN IT WAS WRITTEN AND IS THE REASON N1
+  // SHIPPED.** It read: *"'At home only' is the shipped flow with nothing changed — it does not
+  // even start pairing, because the shipped `#phone-off` block already has that button."* The
+  // second half is still true: this control moves to `#phone-off`, which carries `Set my phone
+  // up`. The FIRST half stopped being true the moment the Mac learned to prefer the tailnet, and
+  // nothing here noticed, because "with nothing changed" was a claim about a backend this file
+  // could not see. `servingVia` is now the only thing that answers which path is being served,
+  // and `route` is the only thing that decides it.
   field("phone-route-anywhere").addEventListener("click", async () => {
     route = "anywhere";
     identityUnderstood = false;
