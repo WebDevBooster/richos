@@ -78,12 +78,22 @@ LAND_PROVEN_GATE = "gates/core-tests"
 
 # The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
 # its children stream past TimestampedLog, so the split is readable without coupling this
-# script to a child's internals beyond these strings. Matching is armed only while the
-# `build` phase is open, which is why markers that also occur inside the test suites
-# earlier in the log (nightly.test.sh prints its own "Published ..." fixtures) cannot
-# collide. A marker that never appears is reported as "not observed" rather than being
-# folded into the segment beside it, because a silently merged boundary makes one phase
-# look expensive and hides another entirely.
+# script to a child's internals beyond these strings.
+#
+# IN ORDER is the protection that does the work: the first marker gates every later one,
+# so a pattern cannot fire early unless the one ahead of it already has. Measured against
+# the real 3,158-line log of run 20260919T180454Z-ac11d13e, NONE of the eleven patterns
+# matches any of the 2,727 lines before the build step -- so arming the matcher for the
+# duration of that step (phase(), below) changes nothing today, and this comment used to
+# claim a collision it does not have. It is kept as the second condition because the
+# suites' whole job is to drive the scripts these markers come from:
+# `make-engine-asset.test.sh` and `make-release.test.sh` run `make-engine-asset.sh` and
+# `make-release.sh`. The day one of them stops shimming a banner, the first marker fires a
+# thousand lines early and every segment after it is wrong. It costs one boolean.
+#
+# A marker that never appears is reported as "not observed" rather than folded into the
+# segment beside it, because a silently merged boundary makes one phase look expensive and
+# hides another entirely.
 BUILD_MILESTONES = (
     ("build/engine-asset", r"^building the engine asset for "),
     ("build/engine-asset-recheck", r"^=== --check: building a second time"),

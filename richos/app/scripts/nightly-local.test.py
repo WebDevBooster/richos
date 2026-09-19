@@ -487,12 +487,18 @@ class LocalTests(unittest.TestCase):
             self.assertTrue(line.endswith(text), line)
 
     def test_milestones_match_in_order_and_only_while_the_build_step_is_open(self):
-        """Armed only inside `build`, because the suites print the same words first.
+        """In order first; armed inside `build` as the second condition.
 
-        nightly.test.sh prints its own "Published https://github.com/..." fixtures while
-        the gates run, roughly a thousand lines before the real release exists. Matching
-        those would put the engine phase's boundary in the middle of the test suites and
-        report a compile that took nine minutes.
+        Order is what does the work -- the first marker gates every later one. Arming is
+        the belt: on the real log of run 20260919T180454Z-ac11d13e not one of the eleven
+        patterns matches any of the 2,727 lines before the build step, so today it changes
+        nothing. It is kept because `make-engine-asset.test.sh` and `make-release.test.sh`
+        drive the very scripts these markers come from, and the day one of them echoes a
+        real banner instead of a shim's, an unarmed matcher puts the engine boundary in
+        the middle of the suites and reports a compile that took nine minutes.
+
+        This test asserts both: the decoy ahead of the build step is ignored, and a marker
+        arriving after the step closes is ignored too.
         """
         path = self.root / "run.log"
         decoy = "https://github.com/WebDevBooster/richos/releases/tag/v-from-a-test-fixture"
