@@ -34,6 +34,17 @@
 #       was verified
 #   R9  `app` with a good receipt and no signing key refuses
 #   R10 `verify-release` with nothing staged refuses
+#
+# WHAT THIS SUITE READS, declared for `run-tests.sh --skip-unchanged`. Measured at 157.5 s
+# of a 950 s build (2026-09-19); the bulk of it is the four `make-release.sh app` cases,
+# each of which runs the privacy gate over every tracked file before it reaches the refusal
+# it is named after. Its inputs are therefore `make-release.sh` and the scripts it calls
+# (`package-app.sh`, `make-engine-asset.sh`), the app manifest it reads the version out of,
+# the engine VERSION it builds the asset name from, and the privacy gate under
+# `engine/scripts`. A DELIBERATE SUPERSET: `richos/app/scripts` is taken whole rather than
+# the three files named. The line lives here rather than in run-tests.sh because a suite is
+# the only thing that knows what it reads.
+# run-tests: inputs richos/app/scripts richos/app/src-tauri/Cargo.toml richos/engine/VERSION richos/engine/scripts
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

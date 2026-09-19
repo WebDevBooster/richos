@@ -60,6 +60,17 @@
 # before the fix — with 205 ignored files planted and then left alone, all thirteen cases
 # reported green while 208 untracked members sat inside the archive. A determinism check asks
 # whether the bytes are the same twice. Only a CONTENT check asks what the bytes are.
+#
+# WHAT THIS SUITE READS, declared for `run-tests.sh --skip-unchanged`. Measured at 128.7 s
+# of a 950 s build (2026-09-19), and every second of it is L9-L19 building the REAL archive
+# out of the REAL engine tree — twice — and comparing it against the root LICENSE and the
+# third-party notices. So its inputs are everything that can end up inside that archive,
+# plus this directory, which holds the script it drives and the members check that script
+# calls. A DELIBERATE SUPERSET: `richos/app/scripts` is taken whole rather than the three
+# files named, because a helper moving between them must not be invisible to this line.
+# The line lives here, not in run-tests.sh, because a suite is the only thing that knows
+# what it reads, and a second place to edit is the defect run-tests.sh counts five of.
+# run-tests: inputs richos/app/scripts richos/engine LICENSE docs/legal
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
