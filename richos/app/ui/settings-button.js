@@ -165,7 +165,16 @@ window.RichSettings = (function () {
   function buildTechyRow() {
     var row = elem("div", "set-row", { id: "set-techy-row" });
     var label = elem("span", "set-name", { id: "set-techy-label" });
-    label.textContent = "Techy Mode";
+    // **"Technical view", because the gear panel, the chip and the modal all already say
+    // that** — Ray's candidate-.12 defect A. This row said "Techy Mode" while the gear panel
+    // said "Technical view" with a "Show it" checkbox, and clicking THIS toggle opened a modal
+    // headed "Turn off the technical view" (frame 13): one setting, two names, and the person
+    // who turns one off is told they turned off the other. It is also the informal of the two,
+    // in front of an audience of non-technical CEOs.
+    //
+    // The name is not a free choice: §9.1 and the modal's own heading fixed it. `techy` stays
+    // in code identifiers, where nobody reads it.
+    label.textContent = "Technical view";
     var input = elem("input", "set-switch", {
       type: "checkbox",
       id: "set-techy",

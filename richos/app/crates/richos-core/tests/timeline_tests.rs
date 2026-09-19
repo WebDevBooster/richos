@@ -1040,3 +1040,174 @@ fn a_session_id_mismatch_is_reported_rather_than_silently_producing_no_worker() 
     let _ = std::fs::remove_file(&lp);
     let _ = std::fs::remove_file(&sp);
 }
+
+/// **ONE ANSWER PER TURN, EVEN WHEN THE TURN WAS RUN TWICE** — Ray's candidate-.12 row 10 /
+/// defect C: *"the Mac renders the greeting twice, the phone once, same thread, same build,
+/// same moment"* (OCR count Mac 2, phone 1; frames 23 and 25).
+///
+/// # The fixture is the walk's own ledger, copied line for line
+///
+/// From `conversation-ledger.jsonl` of the candidate-.12 run, lines 764-779, one turn:
+///
+/// ```text
+///   TurnStarted   session 06bfcb45-…
+///   TurnStarted   session 25a805fc-…        <- a DIFFERENT session, SAME turn id
+///   PromptReceived  source=internal "[re-prime]"
+///   AssistantDelta seq  7.. 12  "Hi. I've got you. What can I do for you?"
+///   AssistantDelta seq 24.. 26  "Hi. I've got you. What can I do for you?"
+///   TurnCompleted  end_turn
+/// ```
+///
+/// The turn was handed to one lease, the lease was replaced and re-primed under the same turn
+/// id, and the successor answered the same prompt again. `Ledger`'s replay folded both runs
+/// into one turn's text, so the conversation carried the sentence twice.
+///
+/// **This is a projection test, not a log test.** Nothing rewrites the ledger: both runs are
+/// still on disk, which is what makes the file evidence. What the CEO is shown is the answer
+/// from the lease that finished the turn.
+#[test]
+fn a_turn_restarted_on_a_new_session_is_answered_once() {
+    let path = tmp("restarted-turn", ".jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            r#"{"event":"ThreadCreated","thread_id":"thr_fem","title":"Running","at":1,"entity_id":"femcboost","person_id":"ceo-default","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"PromptReceived","turn_id":"turn_x","thread_id":"thr_fem","text":"hello from my phone","source":"text","at":2,"entity_id":"femcboost","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"TurnStarted","turn_id":"turn_x","session_id":"06bfcb45","at":3}"#,
+            "\n",
+            r#"{"event":"TurnStarted","turn_id":"turn_x","session_id":"25a805fc","at":4}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_x","text":"Hi. I've got you. What can I do for you?","at":5,"seq":7}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_x","text":"Hi. I've got you. What can I do for you?","at":6,"seq":24}"#,
+            "\n",
+            r#"{"event":"TurnCompleted","turn_id":"turn_x","stop_reason":"end_turn","at":7}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    // (1) POSITIVE PROBE — the FILE really does carry the sentence twice. Without this the
+    //     assertion below could pass because the fixture only ever said it once, which is the
+    //     negative test that passes for the wrong reason.
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        raw.matches("Hi. I've got you.").count(),
+        2,
+        "the fixture must actually contain both runs, or this test proves nothing"
+    );
+
+    let ledger = Ledger::open(&path).unwrap();
+    let binding = ledger.thread_binding("thr_fem").unwrap();
+    let timeline = Timeline::project(&ledger, &binding, &[]).unwrap();
+    let shown = format!("{:?}", timeline.view(ViewMode::Ceo));
+
+    assert_eq!(
+        shown.matches("Hi. I've got you.").count(),
+        1,
+        "ONE question, ONE answer: the run from the lease that did not finish the turn is \
+         superseded, not added to. Rendered:\n{shown}"
+    );
+    // And the answer he keeps is a whole sentence rather than half of each run.
+    assert!(
+        shown.contains("Hi. I've got you. What can I do for you?"),
+        "the surviving run is not intact:\n{shown}"
+    );
+    // AND NOTHING WAS DELETED. The repeat is still projected — into a visibility that
+    // renders in no mode — so the record of what happened survives the screen being right.
+    let audited = format!("{:?}", timeline.audit_including_internal());
+    assert_eq!(
+        audited.matches("Hi. I've got you.").count(),
+        2,
+        "the second run must be RETAINED, not dropped: {audited}"
+    );
+    // The technical view is not a back door for it either: it is Internal, like a vendor
+    // diagnostic, which renders in no mode at all.
+    let techy = format!("{:?}", timeline.view(ViewMode::Technical));
+    assert_eq!(
+        techy.matches("Hi. I've got you.").count(),
+        1,
+        "the repeat must not reappear in the technical view: {techy}"
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+/// **AND TWO DIFFERENT THINGS SAID IN ONE TURN ARE STILL TWO THINGS.** The negative half, so
+/// the rule above cannot quietly become "a turn renders one paragraph".
+///
+/// The fixture is the ordinary shape it has to survive: Rich says something, a tool call takes
+/// the next few sequence positions, and Rich says something else. That is two runs, two
+/// bubbles, and it is what every turn with a tool call in it looks like.
+#[test]
+fn two_different_runs_in_one_turn_both_render() {
+    let path = tmp("two-runs", ".jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            r#"{"event":"ThreadCreated","thread_id":"thr_fem","title":"Running","at":1,"entity_id":"femcboost","person_id":"ceo-default","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"PromptReceived","turn_id":"turn_x","thread_id":"thr_fem","text":"how is the release","source":"text","at":2,"entity_id":"femcboost","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"TurnStarted","turn_id":"turn_x","session_id":"s1","at":3}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_x","text":"Let me look.","at":4,"seq":0}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_x","text":"It is on track.","at":5,"seq":9}"#,
+            "\n",
+            r#"{"event":"TurnCompleted","turn_id":"turn_x","stop_reason":"end_turn","at":6}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let ledger = Ledger::open(&path).unwrap();
+    let binding = ledger.thread_binding("thr_fem").unwrap();
+    let timeline = Timeline::project(&ledger, &binding, &[]).unwrap();
+    let shown = format!("{:?}", timeline.view(ViewMode::Ceo));
+    assert!(shown.contains("Let me look."), "the first run is gone:\n{shown}");
+    assert!(shown.contains("It is on track."), "the second run is gone:\n{shown}");
+    let _ = std::fs::remove_file(path);
+}
+
+/// **AND THE SAME QUESTION ASKED TWICE IS ANSWERED TWICE.** The rule is per TURN, and this is
+/// the fixture that holds it there: two turns, the same words, both on screen.
+#[test]
+fn the_same_answer_in_a_later_turn_is_still_his_to_see() {
+    let path = tmp("two-turns", ".jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            r#"{"event":"ThreadCreated","thread_id":"thr_fem","title":"Running","at":1,"entity_id":"femcboost","person_id":"ceo-default","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"PromptReceived","turn_id":"turn_a","thread_id":"thr_fem","text":"say hello","source":"text","at":2,"entity_id":"femcboost","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"TurnStarted","turn_id":"turn_a","session_id":"s1","at":3}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_a","text":"Hi. I've got you.","at":4,"seq":0}"#,
+            "\n",
+            r#"{"event":"TurnCompleted","turn_id":"turn_a","stop_reason":"end_turn","at":5}"#,
+            "\n",
+            r#"{"event":"PromptReceived","turn_id":"turn_b","thread_id":"thr_fem","text":"say it again","source":"text","at":6,"entity_id":"femcboost","binding_revision":1}"#,
+            "\n",
+            r#"{"event":"TurnStarted","turn_id":"turn_b","session_id":"s1","at":7}"#,
+            "\n",
+            r#"{"event":"AssistantDelta","turn_id":"turn_b","text":"Hi. I've got you.","at":8,"seq":0}"#,
+            "\n",
+            r#"{"event":"TurnCompleted","turn_id":"turn_b","stop_reason":"end_turn","at":9}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let ledger = Ledger::open(&path).unwrap();
+    let binding = ledger.thread_binding("thr_fem").unwrap();
+    let timeline = Timeline::project(&ledger, &binding, &[]).unwrap();
+    let shown = format!("{:?}", timeline.view(ViewMode::Ceo));
+    assert_eq!(
+        shown.matches("Hi. I've got you.").count(),
+        2,
+        "he asked twice and is entitled to both answers:\n{shown}"
+    );
+    let _ = std::fs::remove_file(path);
+}

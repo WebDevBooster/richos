@@ -385,11 +385,16 @@ richos/app/
     tests/spoken_trigger_tests.rs 9 tests for the completion criterion — speaking a
                               correction records it with no command typed, ordinary
                               conversation stages nothing, internal traffic is never mined
-    tests/timeline_tests.rs  12 typed-timeline tests: the cross-entity machinery NEGATIVE
+    tests/timeline_tests.rs  15 typed-timeline tests: the cross-entity machinery NEGATIVE
                               CONTROL (both clauses proven failing when removed — one leaks
                               a row, one leaks THROUGH the toolCallId merge), the one shared
                               per-turn sequence live and after a restart, the visibility
                               gate, the items that are never invented, and the worker join
+                              — and, since 2026-09-19, that a turn which answers the same thing
+                              TWICE says it once (Ray's candidate-.12 defect C: a lease replaced
+                              mid-turn under the same turn id answered the prompt again, so the
+                              Mac drew the greeting twice where the phone drew it once). Both
+                              runs are retained; the repeat renders in no mode.
                               with its session clause
     tests/live_event_tests.rs 20 additive-family tests (§13): the four original events
                               asserted BYTE-IDENTICAL with and without the new family, the
@@ -474,11 +479,15 @@ richos/app/
                               and the message reaches the lease exactly once, in order, after
                               the prime — never a second prime, never a lost message.
     tests/spare_front_desk_tests.rs
-                             14 tests for THE SPARE FRONT DESK (CEO §55, 2026-09-18): a desk is
+                             17 tests for THE SPARE FRONT DESK (CEO §55, 2026-09-18): a desk is
                               primed before the thread it will serve exists; his first brand-new
                               thread adopts it, so the prime he waits for is zero; a spare is
                               never adopted across an entity boundary, and the company material
-                              travels with the desk.
+                              travels with the desk. Three more since 2026-09-19: the SPAWN and
+                              the PRIMING TURN no longer hold the spine's mutex, with the locked
+                              road as the positive probe (it must still block `try_lock`, or the
+                              claim proves nothing), and a spare primed against a world that
+                              moved while the mutex was down is kept but never called primed.
     tests/front_desk_priming_tests.rs
                              7 tests for PRIMING THE FRONT DESK before he types (`Spine::prime_front_desk`,
                               CEO §55): the priming turn is spent when a thread opens, once per lease,
@@ -1030,7 +1039,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1360 tests + 5 doc-tests (1356 direct, 4 ignored)
+cargo test -p richos-core                       # 1366 tests + 5 doc-tests (1362 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

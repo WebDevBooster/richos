@@ -69,6 +69,7 @@ const CONFIG_RS = fs.readFileSync(
   path.resolve(UI_DIR, "..", "crates", "richos-core", "src", "config.rs"),
   "utf8"
 );
+const MAIN_JS = fs.readFileSync(path.join(UI_DIR, "main.js"), "utf8");
 
 /// A DELIBERATE SLOW RUNNER, on demand: `RICHOS_APPEARANCE_LAG_MS=120 node appearance.js`.
 ///
@@ -702,7 +703,7 @@ async function main() {
 
   // ---- 8. the menu's contents, in §15's order ------------------------------------------
 
-  await run.check("8  the menu is theme, then Text size, then Techy Mode, then the floor", async () => {
+  await run.check("8  the menu is theme, then Text size, then Technical view, then the floor", async () => {
     const page = track(await openApp(browser));
     await openMenu(page);
     const rows = await menuRows(page);
@@ -715,7 +716,11 @@ async function main() {
       // name as governing the second surface and filed a FAIL against a switch that was
       // working. The full argument is beside the control in `index.html`; the check that
       // pins it, with the home screen as its negative control, is `splash.js` 11b.
-      ["Theme", "Text size", "Techy Mode", "Splash screen", "Company", "Home screen", "Connected repositories", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
+      // "Technical view" AND NOT "Techy Mode" SINCE 2026-09-19 — Ray's candidate-.12
+      // defect A. One setting carried two names: this row said "Techy Mode" while the gear
+      // panel said "Technical view" and THIS toggle's own modal is headed "Turn off the
+      // technical view". The ORDER is untouched; only the third row's words changed.
+      ["Theme", "Text size", "Technical view", "Splash screen", "Company", "Home screen", "Connected repositories", "Account connection", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The splash screen's off switch sits below them — that ruling " +
         "governs their order and says nothing about this one — and Bust a bug is always the floor. " +
@@ -745,6 +750,48 @@ async function main() {
   });
 
   // ---- 9-11. one state, two entrances -------------------------------------------------
+
+  // ---- 8a. ONE SETTING, ONE NAME ------------------------------------------------------
+
+  await run.check("8a  the technical view is called the SAME thing in both panels and in its own modal", async () => {
+    // Ray's candidate-.12 defect A, and it is a defect about a PERSON rather than about code:
+    // the gear panel said "Technical view" with a "Show it" checkbox, the settings menu said
+    // "Techy Mode" with a toggle, and clicking that toggle opened a modal headed "Turn off the
+    // technical view" (frame 13). One setting, three surfaces, two names — so a person who
+    // turns off "Techy Mode" is told they turned off something else. "Techy Mode" was also the
+    // informal of the two, in front of an audience of non-technical CEOs.
+    //
+    // THE THREE SURFACES ARE COMPARED WITH EACH OTHER, not each against a literal. Three
+    // pinned literals would pass happily while they drifted apart the next time one of them
+    // was edited, which is exactly how this shipped.
+    const page = track(await openApp(browser));
+    await openMenu(page);
+    const menuRow = (await page.textContent("#set-techy-label")).trim();
+    const gearTitle = await page.evaluate(() => {
+      // The gear panel's own heading for this switch: the nearest preceding `.popover-title`.
+      let node = document.getElementById("techy-default").closest(".popover-option");
+      while (node && !(node.matches && node.matches(".popover-title"))) node = node.previousElementSibling;
+      return node ? node.textContent.trim() : "";
+    });
+    // The third door is the scope modal's heading, written by `renderTechyScope`. It is read
+    // from the source rather than driven, because reaching it needs a live conversation and
+    // this suite runs on the static page; the sentence is the thing under test either way.
+    const modal = MAIN_JS.match(/techyScopeTitleEl\.textContent = on \? "([^"]+)" : "([^"]+)"/);
+
+    assertEqual(menuRow, gearTitle,
+      "the settings row and the gear panel name the same setting differently — defect A");
+    assert(!/techy/i.test(menuRow), `a person-facing name must not be ${JSON.stringify(menuRow)}`);
+    assert(!/techy/i.test(gearTitle), `a person-facing name must not be ${JSON.stringify(gearTitle)}`);
+    assert(modal, "renderTechyScope's two headings were not found in main.js");
+    for (const heading of [modal[1], modal[2]]) {
+      assert(
+        heading.toLowerCase().includes(menuRow.toLowerCase()),
+        `the modal says ${JSON.stringify(heading)} about a control called ${JSON.stringify(menuRow)}`
+      );
+    }
+    await page.close();
+    return `both panels say ${JSON.stringify(menuRow)}; the modal says ${JSON.stringify(modal[2])}`;
+  });
 
   await run.check("9  the accelerator is the APP's — preventDefault, and it moves the stored number", async () => {
     const page = track(await openApp(browser));
@@ -822,7 +869,7 @@ async function main() {
     return "row 100->110 by click, 110->100 by ⌘-, and the row's reading tracked both";
   });
 
-  await run.check("11  Techy Mode: the menu row and the rail preference are ONE state, through the choice §7.1 asks for", async () => {
+  await run.check("11  Technical view: the menu row and the rail preference are ONE state, through the choice §7.1 asks for", async () => {
     // THIS CHECK WAS RED ON MAIN, AND IT WAS THE CHECK THAT WAS WRONG. It asserted that
     // clicking `#set-techy` calls `set_techy_default` — the behavior this row had until
     // `68a91f0e`. Since 2026-09-18 every scope-ambiguous switch goes through

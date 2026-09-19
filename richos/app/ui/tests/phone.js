@@ -334,7 +334,7 @@ async function openSheet(browser, theme, preset) {
     const page = await openSheet(browser, "dark");
     const words = (await page.textContent("#phone-words")).trim().split(/\s+/);
     const said = (await page.textContent("#phone-pairing")).replace(/\s+/g, " ");
-    await page.close();
+    const page2 = page;
     assertEqual(words.length, 6, "the fingerprint is not six words: " + JSON.stringify(words));
     assert(
       words.every((w) => /^[a-z]{3,7}$/.test(w)),
@@ -344,11 +344,27 @@ async function openSheet(browser, theme, preset) {
       /have to be these six, in this order/i.test(said),
       "the screen shows six words without saying they have to match, which makes them decoration"
     );
+    // AND THE CONTROL IT NAMES IS ON THE SCREEN. This used to read "tap Cancel and tell me"
+    // and this check pinned that literal — but there has never been a Cancel button in this
+    // sheet, so the assertion was holding a sentence that named a control nobody could press
+    // (Ray's candidate-.12 defect B, the other half). The needle is now the ACTION plus the
+    // existence of the button, so a future rewording cannot put a phantom control back.
+    const named = /press ([A-Z][a-z]+) and tell me/.exec(said);
     assert(
-      /tap Cancel and tell me/i.test(said),
+      named,
       "he is not told what to do if they do NOT match, which is the only case the comparison exists for"
     );
-    return "six words, each 3-7 lowercase letters, with what to do when they do not match";
+    const buttons = await page2.$$eval(
+      "#phone-sheet button",
+      (els) => els.map((e) => e.textContent.trim())
+    );
+    assert(
+      buttons.includes(named[1]),
+      `the sentence tells him to press ${JSON.stringify(named[1])}, and this sheet's buttons are ` +
+        JSON.stringify(buttons)
+    );
+    await page2.close();
+    return `six words, each 3-7 lowercase letters, and "press ${named[1]}" names a button this sheet has`;
   });
 
   await run.check("8  a live code says how long is left, and an expired one does not look live", async () => {
@@ -1049,6 +1065,125 @@ async function openSheet(browser, theme, preset) {
       seen.push(label + " -> " + target);
     }
     return seen.join("; ");
+  });
+
+  // ---- Urban's blocker: a reopen must land on the path the Mac is SERVING ---------------
+
+  for (const theme of ["dark", "light"]) {
+    for (const [what, preset] of [
+      ["live", { phonePairing: true }],
+      ["expired", { phonePairingExpired: true }],
+    ]) {
+      await run.check(
+        `17  reopening the sheet with a ${what} code on the Tailscale path shows the TAILSCALE screen (${theme})`,
+        async () => {
+          // URBAN'S SIGNOFF BLOCKER, `esc-20260919T041857Z-640acd39`, reproduced twice on the
+          // live candidate-.12 window: choose Anywhere, press Set my phone up, close the sheet,
+          // reopen it while the code is still live — and the HOME path's screen came back. Two
+          // unverified-certificate warnings, a live trust QR at `http://mm1.local:8444/ca` and
+          // the sixteen certificate taps, wrapped around the TAILNET pairing URL, on the one
+          // path that installs no certificate. The tripwire sentence written to catch exactly
+          // that was hidden by the same condition.
+          //
+          // **THIS PRESET IS THE REOPEN.** The sheet is opened with a code already live (or
+          // already expired) and `route === null`, which is precisely the state a reopen is in:
+          // `route` is reset on every open by design, and `choosing` requires `!pairing`. On
+          // `61568ee1` `onTailscale` came from `route`, so it was `false` here and every
+          // Tailscale-only node was hidden and every home-only node shown.
+          const page = await openSheet(browser, theme, Object.assign({ phoneTailnet: {
+          state: "ready",
+          name: "mm1.tail770f6e.ts.net",
+          origin: "https://mm1.tail770f6e.ts.net:8443",
+          account: "Google as someone@gmail.com",
+        } }, preset));
+          await page.waitForSelector("#phone-pairing:not([hidden])");
+
+          const seen = await page.evaluate(() => {
+            const vis = (id) => {
+              const el = document.getElementById(id);
+              return !!el && !el.hidden && el.offsetParent !== null;
+            };
+            return {
+              tailscaleSteps: vis("phone-ts-steps"),
+              homeWarnings: vis("phone-home-warnings"),
+              trustQrUrl: (document.getElementById("phone-trust-url") || {}).textContent || "",
+              lead: (document.getElementById("phone-lead") || {}).textContent || "",
+              panel: (document.querySelector("#phone-sheet .overlay-panel") || {}).innerText || "",
+            };
+          });
+
+          assert(
+            !seen.homeWarnings,
+            "THE BLOCKER: the home path's certificate warnings are on a screen serving the " +
+              "tailnet, which installs no certificate"
+          );
+          assert(
+            !/8444\/ca/.test(seen.trustQrUrl),
+            `THE BLOCKER: the trust URL is on screen on the Tailscale path: ${JSON.stringify(seen.trustQrUrl)}`
+          );
+          assert(
+            !/sixteen|16 taps/i.test(seen.panel),
+            "THE BLOCKER: the sixteen certificate taps are on a path that installs no certificate"
+          );
+          assert(
+            /Tailscale/.test(seen.lead),
+            `the opening sentence still describes the path he did not choose: ${JSON.stringify(seen.lead)}`
+          );
+          if (preset.phonePairing) {
+            assert(seen.tailscaleSteps, "the four phone steps are not on the Tailscale screen");
+            assert(
+              /no certificate to install on this path|Nothing was installed/i.test(seen.panel),
+              "the no-certificate tripwire sentence is hidden — the one sentence written to " +
+                "catch this defect is hidden by the condition that causes it"
+            );
+          }
+          await page.close();
+          return `${what} code, ${theme}: tailnet steps ${seen.tailscaleSteps}, home warnings ` +
+            `${seen.homeWarnings}, trust URL ${JSON.stringify(seen.trustQrUrl)}`;
+        }
+      );
+    }
+  }
+
+  // ---- defect B: the expired card carries no instruction about things that are gone -------
+
+  await run.check("18  an expired code takes its own instructions with it", async () => {
+    // Ray's candidate-.12 defect B, frame 19: after the code ran out the card still read "Your
+    // phone will show six words. They have to be THESE SIX, in this order ... tap Cancel and
+    // tell me" — with no six words under it and no Cancel button anywhere in the sheet. Two
+    // things a person is asked to do that are not there. The heading above it and the words
+    // below it were already cleared with the code; this paragraph was missed.
+    const live = await openSheet(browser, "dark", { phonePairing: true });
+    await live.waitForSelector("#phone-pairing:not([hidden])");
+    const onLive = await live.evaluate(() => {
+      const el = document.getElementById("phone-words-note");
+      return { present: !!el && !el.hidden, text: el ? el.textContent.replace(/\s+/g, " ").trim() : "" };
+    });
+    await live.close();
+
+    const gone = await openSheet(browser, "dark", { phonePairingExpired: true });
+    await gone.waitForSelector("#phone-expired:not([hidden])");
+    const onExpired = await gone.evaluate(() => {
+      const el = document.getElementById("phone-words-note");
+      const panel = document.querySelector("#phone-sheet .overlay-panel");
+      return {
+        shown: !!el && !el.hidden && el.offsetParent !== null,
+        words: (document.getElementById("phone-words") || {}).textContent || "",
+        panel: panel ? panel.innerText : "",
+      };
+    });
+    await gone.close();
+
+    assert(onLive.present, "the sentence has to be there while there IS a code to check");
+    assert(!onExpired.shown, "THE DEFECT: the six-words instruction survived the code it is about");
+    assert(!/these six/i.test(onExpired.panel), "the expired card still says \"these six\"");
+    // AND THE CONTROL IT NAMES EXISTS. The sheet has `Show me another code` and `Close`; there
+    // has never been a Cancel button in it.
+    assert(
+      !/tap Cancel/i.test(onLive.text),
+      `the sentence names a control this sheet does not have: ${JSON.stringify(onLive.text)}`
+    );
+    return `live: ${JSON.stringify(onLive.text.slice(0, 60))}…; expired: the sentence is gone and the words are ${JSON.stringify(onExpired.words)}`;
   });
 
   await run.check("10  nothing on the sheet threw, in either theme", async () => {

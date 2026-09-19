@@ -95,6 +95,18 @@
       // harness that could only ever be an iPhone could not have shown it.
       deviceName: mockPhone.paired ? (mockPhone.platform === "android" ? "Android phone" : "iPhone") : null,
       pairedVia: mockPhone.paired ? mockPhone.pairedVia : null,
+      // **WHICH PATH THE OPEN WINDOW IS BEING SERVED OVER** — `PhoneStatus::serving_via`, and
+      // Urban's blocker `esc-20260919T041857Z-640acd39`. The Mac decides it from its own
+      // detection when the channel starts (`mod.rs`'s `serving_plan`), never from anything the
+      // sheet passes in — `phone_begin_pairing` takes no argument — so the harness derives it
+      // the same way: a ready tailnet serves the tailnet, anything else serves the home path.
+      // `phoneServingVia` overrides it for the one case detection cannot produce: the Tailscale
+      // addresses failing to bind, which drops a ready Mac back to the home path mid-start.
+      servingVia:
+        mockPhone.paired || mockPhone.pairing
+          ? window.__RICHOS_MOCK_PRESET__?.phoneServingVia ||
+            (tailnetOf().state === "ready" ? "tailnet" : "home")
+          : null,
       platform: mockPhone.paired ? mockPhone.platform : null,
       pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
       trustUrl: mockPhone.paired || mockPhone.pairing ? "http://mm1.local:8444/ca" : null,

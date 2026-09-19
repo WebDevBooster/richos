@@ -1418,8 +1418,51 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
     // and renders; that line and everything after it is `Internal`. Nothing is edited or
     // deleted — the ledger keeps the run byte for byte, and both halves are still projected,
     // one of them into a visibility that renders in no mode.
+    // =====================================================================================
+    // SAID ONCE. A run that repeats what this turn has already said is retained, not shown.
+    // =====================================================================================
+    //
+    // **Ray's candidate-.12 row 10 / defect C**, and the evidence is the walk's own ledger
+    // (`conversation-ledger.jsonl` of that run, lines 764-779), one turn:
+    //
+    // ```text
+    //   TurnStarted    session 06bfcb45-…
+    //   TurnStarted    session 25a805fc-…      <- a DIFFERENT session, the SAME turn id
+    //   PromptReceived source=internal "[re-prime]"
+    //   AssistantDelta seq  7.. 12  "Hi. I've got you. What can I do for you?"
+    //   AssistantDelta seq 24.. 26  "Hi. I've got you. What can I do for you?"
+    //   TurnCompleted  end_turn
+    // ```
+    //
+    // The turn was handed to one lease, the lease was replaced and re-primed under the same
+    // turn id, and the successor answered the same prompt again. The seq gap 13..23 is the
+    // second session's own non-text items, so `push_text_run` correctly made TWO runs — and
+    // two runs are two `RichMessage`s. The Mac drew the greeting twice; the phone, whose
+    // rows are built differently, drew it once. *"The Mac and the phone disagree about the
+    // same thread."*
+    //
+    // **The rule is the one this product already applies twice in that same log** — the
+    // register's receipt *"had already been said, so the model's own words after it were
+    // withheld"*, and the checkpoint's closing line likewise. Say it once. Here it is one
+    // clause: inside ONE turn, a run whose kept text is exactly a run already kept is
+    // `Internal` — retained, projected, and rendered in no mode, exactly as the vendor
+    // diagnostic below it is. Nothing is edited and nothing is deleted; the ledger keeps both
+    // runs byte for byte, which is what makes it evidence.
+    //
+    // **It is deliberately EXACT and deliberately per-turn.** Two different paragraphs are
+    // two things said; the same paragraph twice in one answer is one thing said twice. Across
+    // turns it does not apply at all — he may ask the same question again and is entitled to
+    // the same answer again.
+    let mut already_said: Vec<String> = Vec::new();
     for (idx, run) in turn.text_runs.iter().enumerate() {
         let (kept, diagnostic) = crate::upstream::split_at_vendor_diagnostic(&run.text);
+        let repeated = {
+            let trimmed = kept.trim();
+            !trimmed.is_empty() && already_said.iter().any(|said| said == trimmed)
+        };
+        if !kept.trim().is_empty() {
+            already_said.push(kept.trim().to_string());
+        }
         let (phase, slot, tier, visibility) = match turn.source {
             // REAL SIGNAL: a proactive message knows what it is. Tier 3 (Silent) never
             // appears in the conversation (§5.1) — internal, not merely quiet.
@@ -1441,7 +1484,8 @@ fn turn_items(turn: &Turn, entity: &EntityId, revision: u64) -> Vec<TimelineItem
                     run.start_seq,
                     slot,
                     run.at,
-                    vis(visibility),
+                    // Said already in this turn -> `Internal`: kept, and shown in no mode.
+                    vis(if repeated { Visibility::Internal } else { visibility }),
                 ),
                 phase,
                 text: kept.to_string(),
