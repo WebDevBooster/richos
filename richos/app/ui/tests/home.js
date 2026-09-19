@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, UI_DIR, SHOT_DIR } = require("./lib/harness");
+const { loadPlaywright, leaveHome, shot, publishShotFile, createRun, assert, assertEqual, SEED_THEME, UI_DIR, SHOT_DIR } = require("./lib/harness");
 const contrastLib = require("./lib/contrast");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
@@ -117,6 +117,16 @@ async function openApp(browser, viewport) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  // THIS SUITE STATES ITS LIGHTING (CEO §63, 2026-09-19), EVEN THOUGH THE HOME SCREEN IS
+  // CLAMPED DARK. The clamp is real and was re-measured rather than trusted: with the §63
+  // default and a LIGHT operating system, the home screen still reports `data-theme="dark"`,
+  // `RichTheme.forcedDark() === true` and a body ground of rgb(12, 19, 34), identical to the
+  // dark-OS walk. But this file does not stay on the home screen — it leaves it and comes
+  // back (`home-returned`), and `home.js` drops the clamp on the way out. Everything
+  // photographed on the far side of that is the CEO's own preference, which since §63 is
+  // `system` and therefore the host's. Named here so the references keep meaning what they
+  // meant.
+  await page.addInitScript(SEED_THEME, "dark");
   page.__errors = errors;
   await page.goto(APP);
   await waitForFact(page, "window.RichHome is the home screen's export", "typeof window.RichHome === 'object'", 15000);

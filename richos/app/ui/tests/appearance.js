@@ -4,10 +4,22 @@
 // 10.1. Five things are asserted here that nothing else in this directory can assert,
 // because each of them is a claim about the SHIPPING shell rather than about a module:
 //
-//   1. DARK IS THE DEFAULT — "a newly installed app opens dark" — and it is the default
-//      against a LIGHT operating system. That last clause is the whole check: a build that
-//      resolved `system` by default would look correct on the CEO's machine and would hand
-//      a ruling he made to a setting he did not.
+//   1. SYSTEM IS THE DEFAULT (§63, 2026-09-19) — "the app should detect the user's system
+//      preference for dark or light theme and system should be the default for a freshly
+//      installed app" — AND IT IS THE DEFAULT AGAINST BOTH A LIGHT AND A DARK OPERATING
+//      SYSTEM. That second clause is the whole check, and it is the clause this suite got
+//      wrong for the three weeks it asserted the opposite: an app that resolved DARK by
+//      default looks perfectly correct on a dark OS, passes every walk taken on one, and
+//      hands a light-OS user a dark app. One OS setting can only ever half-test a rule
+//      about following the OS, whichever half it is. Both walks, or neither proves
+//      anything. Two more checks stand beside it, because §63 is two sentences and a
+//      default is only the first: 1b is the OS flipping WHILE THE APP IS OPEN, and 1c is
+//      "only if the user switches ... should the app remember that" — remembered across a
+//      relaunch, and System reachable again afterwards.
+//
+//      §15's "a newly installed app opens dark" is not repealed. It moved: the splash and
+//      the home screen are clamped dark and no switch reaches them, which is checks 4, 4b
+//      and 5.
 //   2. THE PREFERENCE IS DURABLE, and config.rs wins any disagreement with the pre-paint
 //      mirror. The mirror exists only because an async read cannot decide the first frame;
 //      the moment it can also DECIDE something, there are two places the answer lives.
@@ -52,6 +64,7 @@ const {
   bootSettled,
   openThread,
   settleOnThread,
+  leaveSplash,
   HOLD_CURTAIN,
   assertCurtainHeld,
   UI_DIR,
@@ -164,6 +177,50 @@ async function overlayOpen(page, selector) {
   await flushFrames(page);
 }
 
+/// `Theme::default()`, read out of the Rust rather than typed here. §63's default lives in
+/// THREE places by necessity — config.rs (the truth), theme-boot.js (the synchronous mirror,
+/// because an async read cannot decide the first frame) and mock.js (the harness's stand-in
+/// for the truth) — and three copies of one decision is exactly the shape that drifts. Check
+/// 1 reads all three off disk and asserts they are the same word, so a change made on one
+/// side arrives here as a failure instead of as a silent flash of the wrong palette.
+function rustDefaultTheme() {
+  const m = CONFIG_RS.match(/impl Default for Theme \{[\s\S]*?Theme::(\w+)\s*\n\s*\}/);
+  assert(m, "no `impl Default for Theme` in config.rs");
+  return m[1].toLowerCase();
+}
+
+/// The pre-paint mirror's own default — the `|| "..."` that decides the FIRST frame.
+function mirrorDefaultTheme() {
+  const src = fs.readFileSync(path.join(UI_DIR, "theme-boot.js"), "utf8");
+  const m = src.match(/validTheme\(read\(THEME_KEY\)\)\s*\|\|\s*"(\w+)"/);
+  assert(m, "no pre-paint theme default in theme-boot.js");
+  return m[1];
+}
+
+/// The browser harness's stand-in for `Theme::default()`.
+function mockDefaultTheme() {
+  const src = fs.readFileSync(path.join(UI_DIR, "mock.js"), "utf8");
+  const m = src.match(/const fresh = \{\s*theme:\s*"(\w+)"/);
+  assert(m, "no fresh-config theme default in mock.js");
+  return m[1];
+}
+
+/// The two grounds the shipped CSS paints, read off `--ground` rather than typed. `:root`
+/// declares the dark one; `:root[data-theme="light"]` overrides it.
+function shippedGrounds() {
+  const css = STYLE_CSS;
+  const hexToRgb = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    return "rgb(" + ((n >> 16) & 255) + ", " + ((n >> 8) & 255) + ", " + (n & 255) + ")";
+  };
+  const light = css.match(
+    /:root\s*\[\s*data-theme\s*=\s*"light"\s*\]\s*\{[\s\S]*?--ground:\s*(#[0-9a-fA-F]{6})/
+  );
+  const dark = css.match(/:root\s*\{[\s\S]*?--ground:\s*(#[0-9a-fA-F]{6})/);
+  assert(light && dark, "style.css must declare --ground for both themes");
+  return { light: hexToRgb(light[1]), dark: hexToRgb(dark[1]) };
+}
+
 /// The steps the control walks, read out of the Rust rather than typed here. A ladder changed
 /// on one side only reaches this file as a failing check instead of as a `+` that lands
 /// somewhere the store will snap away from.
@@ -179,12 +236,26 @@ function rustFontSteps() {
 /// would overwrite it a moment later, which is the product working correctly.
 async function openApp(browser, opts) {
   opts = opts || {};
-  const page = await browser.newPage({
+  // A CALLER-OWNED CONTEXT IS HOW A RELAUNCH IS SPELLED. `browser.newPage()` makes a
+  // fresh context every time, and a fresh context has empty `localStorage` — which is both
+  // the pre-paint mirror AND (through `richos-mock-config`) this harness's stand-in for
+  // config.rs. So two `openApp` calls are two FIRST launches, and a check that needs "he
+  // chose Dark last time" cannot be written with them: it could only seed the answer it
+  // wanted to prove, which is check 2's shape and not check 1c's. A context that already
+  // holds the previous launch's writes is the only way the durability claim is about the
+  // product rather than about the seeding. The context carries the viewport and the OS
+  // scheme, so neither is repeated on the page.
+  const page = opts.context
+    ? await opts.context.newPage()
+    : await browser.newPage({
     viewport: { width: 1400, height: 950 },
-    // A LIGHT operating system, on purpose and in every single walk below. Every "it opened
-    // dark" in this file is therefore a statement about the ruling and not about the host.
+    // A LIGHT operating system unless a walk says otherwise — and since §63 the DEFAULT
+    // preference is `system`, so this is no longer merely a control: for any walk that does
+    // not seed a theme, it is the thing that decides the palette. Every walk below that
+    // asserts a lighting either seeds a preference (checks 2, 3, 4, 17) or names its OS
+    // (checks 1, 1b, 1c); none of them leaves it implicit.
     colorScheme: opts.osScheme || "light",
-  });
+      });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => {
@@ -349,28 +420,246 @@ async function main() {
     return p;
   };
 
-  // ---- 1. dark is the default, and it is the default against a LIGHT OS -----------------
+  // ---- 1. system is the default, against BOTH operating systems -------------------------
 
-  await run.check("1  a fresh install opens DARK, under a light operating system", async () => {
+  await run.check("1  a fresh install follows the SYSTEM — proven against a light OS AND a dark one", async () => {
+    // §63: "the app should detect the user's system preference for dark or light theme and
+    // system should be the default for a freshly installed app."
+    //
+    // THE TWO-OS WALK IS THE CHECK, and a one-OS version of it is worse than none. Until
+    // 2026-09-19 this check asserted DARK against a light OS, which was §15 and was right
+    // then. Its replacement must not be "assert dark against a dark OS": that passes for a
+    // build that ignores the OS entirely and hands every light-OS user a dark app — the
+    // precise defect §63 was given to fix. So both walks run, and the answers must DIFFER.
+    const grounds = shippedGrounds();
+    const walks = [
+      ["light", "light", grounds.light],
+      ["dark", "dark", grounds.dark],
+    ];
+    const seen = [];
+    for (const [osScheme, wanted, ground] of walks) {
+      const page = track(await openApp(browser, { osScheme: osScheme }));
+      assertEqual(
+        await themeOf(page),
+        wanted,
+        "§63: a fresh install under a " + osScheme + " OS must resolve " + wanted
+      );
+      const pref = await page.evaluate(() => window.RichTheme.theme());
+      assertEqual(
+        pref,
+        "system",
+        "and the stored PREFERENCE is 'system' — resolving correctly by coincidence is not " +
+          "following the OS, and only 'system' keeps following it when the OS changes"
+      );
+      assertEqual(
+        await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+        ground,
+        "painted on the shipped --ground for " + wanted + ", not merely labeled it"
+      );
+      // ...and it was right in the FIRST frame, not corrected afterwards. This is the half a
+      // settled sample cannot see: a pre-paint default of `dark` under a light OS gives a
+      // full-screen flash of midnight blue on every launch and then quietly settles ivory.
+      const first = await page.evaluate(() => window.__firstTheme);
+      assertEqual(
+        first,
+        wanted,
+        "the FIRST painted theme under a " + osScheme + " OS was " + first + " — theme-boot.js's " +
+          "synchronous default is not 'system', so every launch flashes the wrong palette " +
+          "before settling"
+      );
+      seen.push(osScheme + " OS -> " + wanted);
+      await page.close();
+    }
+    assert(
+      grounds.light !== grounds.dark,
+      "the two walks would be indistinguishable: style.css paints one ground for both themes"
+    );
+
+    // AND THE DEFAULT IS ONE DECISION, NOT THREE COPIES OF ONE. config.rs holds the truth,
+    // theme-boot.js mirrors it synchronously because an async read cannot decide the first
+    // frame, and mock.js stands in for it in this browser. All three, off disk, same word.
+    const rust = rustDefaultTheme();
+    const mirror = mirrorDefaultTheme();
+    const mock = mockDefaultTheme();
+    assertEqual(rust, "system", "`impl Default for Theme` in config.rs is §63's actual ruling");
+    assertEqual(mirror, rust, "theme-boot.js's pre-paint default has drifted from config.rs");
+    assertEqual(mock, rust, "mock.js's fresh config has drifted from config.rs");
+
+    return (
+      "no stored preference: " + seen.join(", ") + " (" + grounds.light + " / " + grounds.dark +
+      "), first frame and settled frame agree in both; pref='system' in both; and " +
+      "config.rs / theme-boot.js / mock.js all default to '" + rust + "'"
+    );
+  });
+
+  await run.check("1b  the OS flips WHILE THE APP IS OPEN and the app follows — but not over his own choice", async () => {
+    // §63 says "detect", and a default alone detects once, at boot. A build that read
+    // `prefers-color-scheme` at startup and never again passes check 1 completely and
+    // leaves the CEO in the wrong palette every evening his Mac changes under him.
+    //
+    // The negative half is here too and is the more important one: an EXPLICIT choice must
+    // NOT follow the OS. A build whose `resolved()` consulted `prefers-color-scheme`
+    // whatever the preference said would silently overrule the theme he picked — §63's
+    // second sentence failing in the one direction nobody would think to look. That is
+    // mutation 1d at the foot of this file, and it turns both halves of this check red.
+    const grounds = shippedGrounds();
     const page = track(await openApp(browser, { osScheme: "light" }));
-    const theme = await themeOf(page);
-    assertEqual(theme, "dark", "§15: 'a newly installed app opens dark'");
-    const pref = await page.evaluate(() => window.RichTheme.theme());
-    assertEqual(pref, "dark", "and the stored PREFERENCE is dark, not 'system' resolved to dark");
-    const ground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    assertEqual(ground, "rgb(12, 19, 34)", "painted on the §14 ground, not merely labelled dark");
-    // ...and it was dark in the FIRST frame, not corrected into dark afterwards. This is the
-    // half that a settled sample cannot see: a pre-paint default of `system` under a light
-    // OS gives a full-screen flash of ivory on every launch and then quietly settles right.
-    const first = await page.evaluate(() => window.__firstTheme);
+    assertEqual(await themeOf(page), "light", "opened following a light OS");
+
+    await page.emulateMedia({ colorScheme: "dark" });
+    await settledPage(page);
+    assertEqual(await themeOf(page), "dark", "the OS went dark and the app did not");
     assertEqual(
-      first,
+      await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+      grounds.dark,
+      "and the PAINT followed, not only the attribute"
+    );
+    assertEqual(
+      await page.evaluate(() => window.RichTheme.theme()),
+      "system",
+      "and following the OS did not quietly become a stored preference for dark"
+    );
+
+    await page.emulateMedia({ colorScheme: "light" });
+    await settledPage(page);
+    assertEqual(await themeOf(page), "light", "and back again — it follows, it does not latch");
+
+    // Now he CHOOSES dark. From here the OS is not his lighting any more.
+    await openMenu(page);
+    const wrote = await invokeCount(page, "set_theme");
+    await page.click('.theme-opt[data-th="dark"]');
+    await afterInvoke(page, "set_theme", wrote);
+    assertEqual(await themeOf(page), "dark", "his choice took");
+
+    await page.emulateMedia({ colorScheme: "light" });
+    await settledPage(page);
+    assertEqual(
+      await themeOf(page),
       "dark",
-      "the FIRST painted theme was " + first + " — theme-boot.js's synchronous default is not dark, " +
-        "so every launch flashes the wrong palette before settling"
+      "a light OS overruled a preference he set by hand — §63 gives the OS the answer only " +
+        "while nobody has given one"
     );
     await page.close();
-    return "no stored preference + a light OS -> first paint dark, settled dark, pref=dark, body #0C1322";
+    return (
+      "pref='system': light -> dark -> light OS, each followed live and in the paint; after " +
+      "an explicit switch to dark, a light OS no longer moves it"
+    );
+  });
+
+  await run.check("1c  only an explicit switch is remembered — across a real relaunch, and System is reachable again", async () => {
+    // §63's second sentence: "Only if the user switches the theme to some other option, only
+    // then should the app remember that and from now on that would become their default."
+    //
+    // TWO PAGES IN ONE BROWSER CONTEXT, which is what makes this a relaunch and not a seed.
+    // `localStorage` — the pre-paint mirror AND this harness's stand-in for config.rs — is
+    // per-context, so the second page boots on exactly what the first one wrote and on
+    // nothing this test typed. Under a LIGHT operating system throughout, so "it opened
+    // dark" on the second launch can only be his remembered choice.
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, colorScheme: "light" });
+
+    const first = track(await openApp(browser, { context: ctx }));
+    assertEqual(await themeOf(first), "light", "launch 1: nothing chosen, so the light OS decides");
+    await openMenu(first);
+    const wrote = await invokeCount(first, "set_theme");
+    await first.click('.theme-opt[data-th="dark"]');
+    await afterInvoke(first, "set_theme", wrote);
+    assertEqual(await themeOf(first), "dark", "he switched to dark");
+    const stored = await first.evaluate(() => JSON.parse(window.localStorage.getItem("richos-mock-config")));
+    assertEqual(stored.theme, "dark", "and the DURABLE side holds it, not just the mirror");
+    await first.close();
+
+    const second = track(await openApp(browser, { context: ctx }));
+    assertEqual(
+      await second.evaluate(() => window.__firstTheme),
+      "dark",
+      "launch 2 FIRST FRAME: his remembered choice must decide the first paint, or the " +
+        "relaunch flashes the OS's palette at him before settling"
+    );
+    assertEqual(await themeOf(second), "dark", "launch 2: his switch is his default from now on");
+    assertEqual(await second.evaluate(() => window.RichTheme.theme()), "dark", "as a stored preference");
+
+    // ...and System is a choice he can return to. A build that treated `system` as "no
+    // preference" and declined to store it would leave him on dark forever.
+    await openMenu(second);
+    const wrote2 = await invokeCount(second, "set_theme");
+    await second.click('.theme-opt[data-th="system"]');
+    await afterInvoke(second, "set_theme", wrote2);
+    assertEqual(await themeOf(second), "light", "picking System under a light OS returns to the OS");
+    const stored2 = await second.evaluate(() => JSON.parse(window.localStorage.getItem("richos-mock-config")));
+    assertEqual(stored2.theme, "system", "and System itself is stored, not treated as 'unset'");
+    await second.close();
+
+    const third = track(await openApp(browser, { context: ctx }));
+    assertEqual(await themeOf(third), "light", "launch 3: following the OS again, and that survived too");
+    await third.close();
+    await ctx.close();
+    return (
+      "one context, three launches, light OS throughout: unset -> light; switch to dark -> " +
+      "dark, remembered on the next launch's FIRST frame; back to System -> light again, and " +
+      "that survives a relaunch as well"
+    );
+  });
+
+  await run.check("1d  the HOME SCREEN is dark whatever the OS says, and hands the app back to the OS on the way out", async () => {
+    // §63 GAVE THE OS A SURFACE IT MUST NOT REACH, and that is a new risk rather than an old
+    // one. While the default was `dark`, a light-OS launch of the home screen was dark for
+    // two independent reasons — the clamp AND the preference — so the clamp could have been
+    // broken for weeks without anything looking wrong. The default is `system` now, the
+    // preference under a light OS resolves LIGHT, and the clamp is the only thing between
+    // the CEO and an ivory opening screen. Checks 4 and 4b hold the SPLASH to that; this one
+    // is the home screen, which is a different surface with its own `forceDark` owner in
+    // `home.js`, and nothing asserted it.
+    //
+    // The second half is what makes it a hand-off rather than a clamp: leaving the home
+    // screen must drop the clamp and let the preference decide. A clamp that never lowers
+    // looks identical on the surface it protects and takes the whole app with it.
+    const seen = [];
+    for (const [osScheme, afterHome] of [["light", "light"], ["dark", "dark"]]) {
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: osScheme });
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      page.on("console", (m) => {
+        if (m.type() === "error") errors.push("console: " + m.text());
+      });
+      await page.goto(APP);
+      // The curtain is ABOVE the home screen and has its own clamp; clearing it leaves the
+      // home screen up, which is the surface this check is about.
+      await leaveSplash(page);
+      await page.waitForFunction(() => typeof window.RichHome === "object", null, { timeout: 15000 });
+      await page.waitForFunction(() => window.RichHome.isOpen(), null, { timeout: 15000 });
+      await settledPage(page);
+      const onHome = await page.evaluate(() => ({
+        theme: document.documentElement.getAttribute("data-theme"),
+        forced: window.RichTheme.forcedDark(),
+        pref: window.RichTheme.theme(),
+        ground: getComputedStyle(document.body).backgroundColor,
+        themeRow: !!document.querySelector(".theme-opt"),
+      }));
+      assertEqual(onHome.theme, "dark", "§15's clamp: the home screen is dark under a " + osScheme + " OS");
+      assertEqual(onHome.ground, "rgb(12, 19, 34)", "painted on the §14 ground, not merely named dark");
+      assertEqual(onHome.forced, true, "and it is a FORCE, so it cannot be mistaken for a preference");
+      assertEqual(onHome.pref, "system", "his own preference is untouched underneath the clamp");
+      assertEqual(onHome.themeRow, false, "no theme switch reaches the home screen (§15)");
+
+      await leaveHome(page);
+      await page.waitForSelector(".nav-thread", { state: "attached" });
+      await bootSettled(page);
+      await settledPage(page);
+      const afterward = await page.evaluate(() => ({
+        theme: document.documentElement.getAttribute("data-theme"),
+        forced: window.RichTheme.forcedDark(),
+      }));
+      assertEqual(afterward.forced, false, "the clamp must LOWER on the way out, or it is a trap");
+      assertEqual(
+        afterward.theme,
+        afterHome,
+        "and the normal screens take the " + osScheme + " OS's answer, which is what §63 gives them"
+      );
+      assertEqual(errors, [], "no page errors on the " + osScheme + "-OS home walk");
+      seen.push(osScheme + " OS: home dark (forced), then " + afterward.theme);
+      await page.close();
+    }
+    return seen.join("; ") + " — pref stayed 'system' throughout, and the theme row was absent on both home walks";
   });
 
   // ---- 2. durable, and the backend wins ------------------------------------------------
@@ -1376,7 +1665,14 @@ async function main() {
       /id="rail-wordmark"/.test(INDEX_HTML),
       "the wordmark is not in the rail header"
     );
-    const page = track(await openApp(browser));
+    // THE DARK WALK IS SEEDED, NOT INHERITED. This check names its two samples `dark` and
+    // `light` and asserts an exact ink for each, so which theme it opens in is load-bearing
+    // — and since §63 the unseeded default is `system`, which under this harness's light OS
+    // would hand the `dark` sample the light palette. The preference is stated rather than
+    // assumed: a check about the WORDMARK must not also be a check about the default.
+    const page = track(
+      await openApp(browser, { stored: { theme: "dark", font_scale: 100, user_name: null }, mirror: "dark" })
+    );
     const dark = await page.evaluate(() => {
       const w = document.getElementById("rail-wordmark");
       const c = document.getElementById("rail-company");
@@ -1592,12 +1888,54 @@ main().catch((e) => {
 // is a mutation that was actually applied and the checks it actually turned red.
 // ---------------------------------------------------------------------------------------
 //
-//  1   theme-boot.js: the pre-paint default `|| "dark"` -> `|| "system"` -> check 1. This is
-//      the FIRST-FRAME half: under a light OS the launch flashes ivory and then settles to
-//      dark, which no settled sample can see. It is why check 1 captures `data-theme` from a
-//      MutationObserver installed before any page script rather than reading it at the end.
-//  1b  mock.js: the store's shipped default `theme: "dark"` -> `"light"` -> checks 1, 3, 15.
+//  1   theme-boot.js: the pre-paint default `|| "system"` -> `|| "dark"` -> checks 1 and 1c.
+//      This is the FIRST-FRAME half: under a light OS the launch flashes midnight blue and
+//      then settles ivory, which no settled sample can see. It is why check 1 captures
+//      `data-theme` from a MutationObserver installed before any page script rather than
+//      reading it at the end. Since §63 the same mutation is caught a second way, by check
+//      1's three-copies comparison, which reads the `|| "..."` straight off disk.
+//  1b  mock.js: the store's shipped default `theme: "system"` -> `"dark"` -> checks 1, 17.
 //      The SETTLED half, and the one that stands in for `Theme::default()` in config.rs.
+//  1c  config.rs: `impl Default for Theme` -> `Theme::Dark` -> check 1 (its `rustDefaultTheme`
+//      assertion), plus SIX tests in `cargo test -p richos-core`, named in the commit that
+//      made this change. A browser cannot watch config.rs run, so the two gates are
+//      complementary: this check catches the drift, the Rust tests catch the behavior.
+//  1d  theme-boot.js: `resolved()`'s `if (pref === "system")` -> `if (true)`, so the OS is
+//      consulted whatever he chose -> checks 1b ("his choice took"), 1c ("he switched to
+//      dark"), 15 and 17. The app overrules a lighting he set by hand, which is §63's second
+//      sentence failing in the one direction nobody thinks to look.
+//
+//      THE OBVIOUS MUTATION HERE IS A FALSE ONE, and it was written into this ledger before
+//      it was run. Dropping the same `pref === "system"` guard from the `matchMedia` CHANGE
+//      LISTENER instead leaves every check green — correctly, because `paint()` calls
+//      `resolved()`, which guards it a second time, so removing the listener's guard costs
+//      one redundant repaint and changes no answer. A ledger entry nobody executed is a
+//      claim about coverage that the coverage does not support; this one was executed and
+//      the first version of it is recorded here rather than quietly replaced.
+//  1f  home.js: neuter the body of the `RichTheme.onChange` listener that RE-ASSERTS the
+//      clamp (`if (state.open && !t.forcedDark) window.RichTheme.forceDark(true)`)
+//        -> "§15's clamp: the home screen is dark under a light OS", expected "dark",
+//           actual "light".
+//
+//      THE TWO OBVIOUS MUTATIONS HERE ARE BOTH FALSE, and each was run before this entry
+//      was written. Deleting `RichTheme.forceDark(true)` from `show()` leaves every check
+//      green, because this walk never RE-ENTERS the home screen — `tests/home.js` owns that
+//      path. Deleting the one where the home screen first opens ALSO leaves every check
+//      green, and that one is more interesting: the splash drops the clamp when the curtain
+//      yields (`splash.js`, "Drop the always-dark clamp as the curtain goes"), so the
+//      listener puts it straight back and masks the missing raise entirely. home.js's own
+//      comment already says the re-assertion "is NOT belt and braces"; this is that sentence
+//      measured from the outside. All three raises have to go before the light-OS home
+//      screen turns ivory, and the listener is the one that decides.
+//
+//      And it fails under a LIGHT OS only. Under a dark OS the break is invisible, because
+//      the preference resolves dark anyway — which is why this check walks both, and why it
+//      could not have existed before §63: while the default was `dark`, the clamp and the
+//      preference agreed on every surface, and either one alone made the walk look right.
+//  1e  theme-boot.js: neuter the `mq.addEventListener("change", ...)` body -> check 1b
+//      ("the OS went dark and the app did not"). The app detects the OS once, at boot, and
+//      never again — which §63's word "detect" does not survive, and which no check that
+//      only ever looks at boot could see.
 //  2   main.js `syncAppearanceFromBackend`: drop `RichTheme.sync(durable)` -> check 2. The
 //      mirror wins, and a preference set on another launch is silently lost.
 //  3   settings-button.js `applyTheme`: `if (T.setTheme(pref)) saveTheme(pref)` ->
