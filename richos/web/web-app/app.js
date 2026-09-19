@@ -61,6 +61,8 @@ let link = null;
 /// The sentence currently under the header, by name. Read only to keep a retry from flickering it.
 let linkStateNow = null;
 let vapidPublicKey = null;
+// See `refreshPushOffer` — his answer, not his permission state.
+let notificationsDeclined = false;
 let loadingOlder = false;
 let renderQueued = false;
 let pendingPairCode = null;
@@ -113,6 +115,10 @@ async function boot() {
 		deviceId: saved.deviceId || null
 	};
 	vapidPublicKey = saved.vapidPublicKey || null;
+	// He was asked about notifications and did not say yes. Remembered across a relaunch for one
+	// reason: so the banner keeps telling him what that MEANT rather than reverting to the generic
+	// offer, which is a reload asking him a question he has already answered.
+	notificationsDeclined = Boolean(saved.notificationsDeclined);
 	currentThreadId = saved.threadId || null;
 	threads = saved.threads || [];
 
@@ -1234,6 +1240,18 @@ async function refreshPushOffer() {
 	}
 	offer.hidden = false;
 	$('push-on').hidden = false;
+	// **THE ANSWER HE ALREADY GAVE, KEPT ACROSS A RELOAD.** Ray, candidate .11, §5: after he
+	// declined, the banner said the right thing — "Notifications stayed off, so Rich can only
+	// reach you while this app is open" — and a reload put the generic offer back.
+	//
+	// The permission cannot carry this. Both a phone that has never been asked and a phone whose
+	// owner dismissed the system prompt report `Notification.permission === 'default'`, which is
+	// exactly what Ray hit: he allowed Chrome's site prompt and dismissed Android's, and the
+	// browser's state was indistinguishable from never having asked. So what is remembered is HIS
+	// ANSWER, on this phone, and it is cleared the moment the permission is granted.
+	$('push-offer-text').textContent = notificationsDeclined
+		? 'Notifications stayed off, so Rich can only reach you while this app is open.'
+		: 'Notifications are off, so Rich cannot reach you when this app is closed.';
 }
 
 $('push-on').addEventListener('click', async () => {
@@ -1242,9 +1260,15 @@ $('push-on').addEventListener('click', async () => {
 		// The request must be inside the gesture, which this is.
 		const permission = await Notification.requestPermission();
 		if (permission !== 'granted') {
+			notificationsDeclined = true;
+			settings.set('notificationsDeclined', true).catch(() => { /* the sentence is the half that matters now */ });
 			$('push-offer-text').textContent = 'Notifications stayed off, so Rich can only reach you while this app is open.';
 			return;
 		}
+		// He said yes. The earlier no is not his position any more, and a stale one would put the
+		// wrong sentence in front of him the next time the offer is shown for any other reason.
+		notificationsDeclined = false;
+		settings.set('notificationsDeclined', false).catch(() => {});
 		if (!vapidPublicKey) {
 			$('push-offer-text').textContent = 'Your Mac has not sent this phone a notification key yet. Open this again once your Mac is reachable.';
 			return;
