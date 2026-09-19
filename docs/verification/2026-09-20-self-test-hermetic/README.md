@@ -119,12 +119,51 @@ another checkout's test run could hold. **It does not, and here is what it was.*
 - **The same two concurrent processes with `--test-threads 1`: both green.**
 
 So the failure needs several test threads INSIDE one process, and the second process only
-supplies load. That points at the fork window in `probe()`
-(`richos/app/crates/richos-user-update/src/lib.rs`): a child inherits every descriptor until
-its `pre_exec` marks them close-on-exec, so a probe forked by one thread can hold another
-thread's `session.lock` open, and `Lock::acquire_startup` gives up after 5 s. Load widens
-that window. It is product code and not this brief's to change — raised separately rather
-than patched here.
+supplies load. The cause is the fork window in `probe()`
+(`richos/app/crates/richos-user-update/src/lib.rs`): `flock` exclusion belongs to the open
+file description, `fork` hands the child a reference to every description the process holds,
+and `O_CLOEXEC` takes them back only at `exec`. In between, the probe forked by one thread
+holds another thread's `session.lock`, that thread's release releases nothing, and the next
+acquisition can take neither EX nor SH.
+
+Raised as `esc-20260919T232223Z-98784a43`; the lead handed the fix back to this slice, so it
+is fixed here.
+
+**The repair: nothing may observe a lock while a fork window is open.** Every `flock` takes
+the shared side of one `FORK_WINDOW`; the single place this crate forks takes the exclusive
+side and holds it until the child has execed — exactly when `Command::spawn` returns, since
+it waits on the child's close-on-exec error pipe.
+
+Neither of the two repairs put to me was taken, and the reasons are in the source:
+
+- **drop `pre_exec` so `Command` uses `posix_spawn`** — ends the window, and throws away what
+  that closure is for: marking EVERY inherited descriptor close-on-exec before handing
+  control to a staged binary this process has not finished verifying. `posix_spawn` respects
+  the flag; it cannot set it on a descriptor another crate opened without it.
+- **`fcntl` locks** — `F_OFD_SETLK` locks live on the description, which is the very thing
+  `fork` copies, so the bug survives untouched. Classic process-associated locks are not
+  inherited by a child, but they also do not conflict with THEMSELVES inside one process,
+  and two leases in one process is exactly how
+  `stage_does_not_replace_live_bundle_and_shared_sessions_veto_activation` states the
+  product's meaning.
+
+Deterministic red-then-green — a child parked inside the fork window on purpose, reporting
+through a pipe so the test waits on a fact and never on a duration
+(`fork-window-red-then-green.log`):
+
+```
+=== the fork window left open, as at 62e5affd:
+    a released lease was still held by a child parked between fork and exec, so the next
+    session could not take it at all: Resource temporarily unavailable (os error 35)
+    test result: FAILED. 0 passed; 1 failed
+=== the fork window closed, on this branch:
+    test result: ok. 1 passed; 0 failed
+```
+
+A second case holds the line the repair could have bought quiet with: a genuine second
+session is still refused. And the original reproduction, three rounds of two concurrent
+8-thread processes afterwards — 41 passed in all six runs
+(`updater-two-concurrent-runs-after.log`), against one red in two before.
 
 ## Files
 
@@ -133,3 +172,5 @@ than patched here.
 | `environment-leak-red-then-green.log` | the pristine file and the fixed one, same hostile environment |
 | `updater-two-concurrent-runs-B.log` | the losing half of two concurrent updater runs |
 | `gates-script-suites-after.log` | all 14 suites through `nightly-local.py`'s gates path, on this branch |
+| `fork-window-red-then-green.log` | the parked-child test, window open and window closed |
+| `updater-two-concurrent-runs-after.log` | three rounds of the original reproduction, repaired |
