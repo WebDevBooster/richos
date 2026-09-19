@@ -199,3 +199,57 @@ fn the_ready_verdict_says_spawned_only_when_a_child_was_actually_started() {
     }
     let _ = std::fs::remove_file(path);
 }
+
+/// **A DESK WHOSE PRIMING FAILED FOR WANT OF A LEASE IS READY BEFORE HIS NEXT MESSAGE, ONCE
+/// SOMETHING ASKS AGAIN** — Ray's candidate-.11 defect 2.1, as behavior.
+///
+/// The shape he walked, `docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md`
+/// §2: a Mac with no engine on it, so every hook that reaches `spawn_scoped` fails and nothing
+/// is primed; then the engine is installed, which fixes the CAUSE and fires none of those hooks
+/// again; then his first message pays the whole priming turn — his turn starting at ~+11 s and
+/// "On it!" reaching the screen at **+18.3 s**.
+///
+/// **THIS TEST IS THE BEHAVIORAL HALF AND IT IS GREEN ON `05ab7a0c` TOO, WHICH IS THE HONEST
+/// STATEMENT.** Nothing in the spine was broken: priming a desk after the machine is repaired
+/// has always worked, and the positive control on his own walk was his second message starting
+/// its turn at +1.0 s. What was missing is the ASK, and the ask is the shell's
+/// (`src-tauri/src/main.rs`, `run_setup` → `ready_the_front_desk_after_a_repair`), pinned by
+/// `repair_priming_tests` there. This pins what that ask is WORTH: one priming turn spent off
+/// his wait, and a first message that spends none.
+#[test]
+fn a_prime_that_failed_for_want_of_a_lease_is_free_to_his_next_message_once_it_is_asked_again() {
+    let (path, ledger) = tmp_ledger("repaired-after-a-failed-prime");
+    let mut spine = support::spine(ledger);
+    let thread = spine.create_thread("Running", &femcboost()).unwrap();
+    let factory = MockLeaseFactory::new(vec!["On it!", "On it!"]);
+    let spawned = factory.spawned.clone();
+    // THE MACHINE THE OFFER IS SHOWN ON: nothing to start `claude` in, so the spawn fails.
+    factory.fail_next_spawn();
+    spine.set_lease_factory(Box::new(factory));
+
+    match spine.prime_front_desk(&thread) {
+        FrontDeskReady::NotReady(why) => assert!(!why.is_empty(), "the refusal must name the fault"),
+        other => panic!("a machine with nothing to spawn cannot reach a ready desk: {other:?}"),
+    }
+    assert!(spawned.lock().unwrap().is_empty(), "nothing was started, which is the premise");
+
+    // ---- the install happens, and the repair asks again --------------------------------
+    match spine.prime_front_desk(&thread) {
+        FrontDeskReady::Ready { spawned, .. } => assert!(spawned, "there was still no lease to prime"),
+        other => panic!("the repaired machine must reach a ready desk: {other:?}"),
+    }
+    {
+        let log = spawned.lock().unwrap();
+        assert_eq!(log.len(), 1, "exactly one lease was spawned");
+        assert_eq!(log[0].lock().unwrap().len(), 1, "and its priming turn was spent here");
+    }
+
+    // **AND HIS NEXT MESSAGE SPENDS NOTHING.** This is the assertion that makes the +18.3 s
+    // claim answerable: with the desk still unprimed the count below would be 2, and that
+    // second priming turn is what sat in front of his first words on candidate .11.
+    let turn = spine.submit_prompt("Land the pricing branch and get the staging deploy done.", Source::Text).unwrap();
+    assert_eq!(spawned.lock().unwrap()[0].lock().unwrap().len(), 1,
+        "his first message after the repair re-primed a desk that was already ready");
+    assert_eq!(spine.ledger().turn(&turn).unwrap().assistant_text, "On it!");
+    let _ = std::fs::remove_file(&path);
+}
