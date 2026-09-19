@@ -7567,6 +7567,105 @@ window.RichDismiss = {
 };
 
 // ---------------------------------------------------------------------------------------
+// A QUESTION OWNS THE WINDOW UNTIL IT IS ANSWERED — Ray's candidate .16 audit, row B1b
+// ---------------------------------------------------------------------------------------
+//
+// HIS MEASUREMENT: *"With the sheet up, the whole app subtree is still in the AX tree, the
+// composer holds focus and accepts typed characters, and the top-right Settings control is
+// still clickable and takes focus away from the sheet."* Reproduced under WebKit at 1400x950
+// on `setup: "missing-engine"`, curtain gone: `#input`, `#rail-settings` and `#set-btn` each
+// took focus on `.focus()`, and a click on `#set-btn` opened `#set-menu` OVER the sheet
+// (`hidden=false`, `aria-expanded=true`) — so the half of his sentence that says the control
+// "does nothing" is kinder than what the window actually does.
+//
+// `aria-modal="true"` IS A PROMISE AND `inert` IS THE ONLY THING THAT KEEPS IT. The sheet has
+// carried that attribute since it was written; nothing in the window ever made it true.
+//
+// WHY THE TWO OBVIOUS FIXES ARE NOT THE FIX, and both were measured rather than argued:
+//
+//   * MOVING THE SHEET TO BODY LEVEL closes nothing. `.settings` is mounted against
+//     `document.body` (`settings-button.js:748`) at z-index 300 — §15's "on every screen" —
+//     and an `.overlay` is 60 wherever it lives. Measured stack at the button's own center
+//     with the offer up: `set-btn@auto` inside `settings@300`, above `setup-sheet@60`.
+//   * MARKING `#app` INERT cannot be done from inside `#app`: `#setup-sheet` is a child of it
+//     (`index.html:936` against `:100`), so the one attribute would inert the question too.
+//
+// SO WHAT IS MARKED IS THE COMPLEMENT OF THE QUESTION'S OWN ANCESTOR CHAIN: at every level
+// from the sheet up to `<html>`, every sibling that is not on the chain. That needs no opinion
+// about where a sheet lives — a sheet moved to `<body>` tomorrow is covered by the same walk —
+// and it reaches `.settings` precisely because `<body>` is on the chain.
+//
+// WHICH SHEETS, AND WHY NOT ALL SEVEN `aria-modal` OVERLAYS. The trigger is the declaration
+// already on the element: `aria-modal="true"` AND a `data-dismiss` that names a CONTROL rather
+// than `escape`. That pair is "a question with one named way out" — `#setup-sheet` and
+// `#memory-setup`, the two first-run questions, and the two whose backdrop deliberately does
+// not dismiss them (`704b4596`). The other five (`#search-overlay`, `#entity-picker`,
+// `#corrections-overlay`, `#feedback-overlay`, `#techy-scope`) are dismissed from OUTSIDE
+// themselves, so "the outside is unavailable" is not what they mean and enforcing it there is
+// a different change from this one. Their `aria-modal` promise is still unkept, and saying so
+// here is better than quietly widening a fix nobody measured.
+//
+// EVERY MARK IS SIGNED (`data-question-inert`) AND ONLY SIGNED MARKS ARE CLEARED, so a subtree
+// that is inert for its OWN reason — `home.js` holds `#app` inert while the opening screen is
+// up — is never un-inerted by this file on its way past.
+
+/// A modal question: it asks, and the only way out is the control it names.
+const QUESTION_SELECTOR = '.overlay[aria-modal="true"][data-dismiss^="control:"]';
+
+/// The question currently on screen, or null. Topmost is irrelevant here — `init()` asks these
+/// one at a time and holds the next one back, so two are never up together.
+function openQuestion() {
+  for (const node of document.querySelectorAll(QUESTION_SELECTOR)) {
+    if (!node.hidden && isOnScreen(node)) return node;
+  }
+  return null;
+}
+
+function syncQuestionInert() {
+  for (const marked of document.querySelectorAll("[data-question-inert]")) {
+    marked.removeAttribute("inert");
+    marked.removeAttribute("data-question-inert");
+  }
+  const question = openQuestion();
+  if (!question) return null;
+  // A QUESTION THAT IS NOT THE FRONT SURFACE DOES NOT OWN THE WINDOW, and this line is what
+  // stops the two guards in this file fighting each other. An `inert` subtree is removed from
+  // HIT TESTING in WebKit — measured: with a full-screen cover marked inert, `elementFromPoint`
+  // at the covered sheet's center answers the sheet — so inerting whatever is painted in front
+  // of a question would blind `isPainted()` and hand `escape.js` B8's defect straight back.
+  // While something is genuinely in front, nothing is marked; the observer runs again the
+  // moment that thing goes, and the window is claimed then. (The opening curtain is not one of
+  // these: `.splash` is `pointer-events: none`, so it never claims to be in front.)
+  if (!isPainted(question)) return null;
+  for (let node = question; node && node.parentElement; node = node.parentElement) {
+    for (const sibling of node.parentElement.children) {
+      if (sibling === node) continue;
+      // Nothing that is not painted, and nothing already held inert by its own owner.
+      if (sibling.tagName === "SCRIPT" || sibling.tagName === "STYLE" || sibling.tagName === "LINK") continue;
+      if (sibling.hasAttribute("inert")) continue;
+      sibling.setAttribute("inert", "");
+      sibling.setAttribute("data-question-inert", "");
+    }
+  }
+  return question.id;
+}
+
+/// DERIVED FROM THE DOM, NOT FROM CALL SITES. `openSetupSheet`, `closeSetupSheet` and the
+/// memory question's four entrances all move the same attribute, and a list of them is a list
+/// somebody's next sheet is missing from. `childList` as well as `hidden`, because `.settings`
+/// and the curtain are MOUNTED rather than un-hidden, and a control that arrives while a
+/// question is up must arrive inert.
+if (typeof MutationObserver === "function") {
+  new MutationObserver(syncQuestionInert).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["hidden"],
+    childList: true,
+    subtree: true,
+  });
+}
+syncQuestionInert();
+
+// ---------------------------------------------------------------------------------------
 // APPEARANCE AND IDENTITY (CEO ruling §15, and his correction to round 10.1)
 // ---------------------------------------------------------------------------------------
 

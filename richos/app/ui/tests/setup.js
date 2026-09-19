@@ -26,6 +26,9 @@
 //   7. A MACHINE THAT HAS EVERYTHING IS NEVER ASKED.
 //   8. THE BUTTON CANNOT BE PRESSED TWICE. A second press mid-run would start a second
 //      installer.
+//   9. A QUESTION OWNS THE WINDOW UNTIL IT IS ANSWERED. `aria-modal="true"` is a promise that
+//      everything outside the sheet is unavailable; case 20 measures that the window keeps it,
+//      including for the one control that floats above every screen.
 //
 // Run: node setup.js   (or `npm test` for every suite in this directory)
 
@@ -1166,6 +1169,112 @@ async function main() {
     return "Escape takes the curtain and nothing else; space holds it and reaches nothing behind it";
   });
 
+  // =======================================================================================
+  // 20 — A QUESTION OWNS THE WINDOW UNTIL IT IS ANSWERED
+  //
+  // Ray, candidate .16 audit, row B1b: *"With the sheet up, the whole app subtree is still in
+  // the AX tree, the composer holds focus and accepts typed characters, and the top-right
+  // Settings control is still clickable and takes focus away from the sheet."*
+  //
+  // THE SHEET SAYS `aria-modal="true"` AND THE WINDOW DOES NOT MAKE IT TRUE. That attribute is
+  // a promise to assistive technology that everything outside this dialog is unavailable;
+  // `inert` is the only thing that keeps it. Measured at 5f3a1a1e under WebKit at 1400x950 on
+  // `setup: "missing-engine"`, with the offer up and the curtain gone: `#input`, the rail's
+  // `#rail-settings` gear and the top-right `#set-btn` each take focus on `.focus()`, and a
+  // click on `#set-btn` opens `#set-menu` over the sheet — `hidden=false`, `aria-expanded=true`.
+  //
+  // WHICH CORRECTS HALF OF RAY'S SENTENCE AND MAKES THE OTHER HALF WORSE. "It takes focus and
+  // then does nothing" is not what the window does here: it takes focus AND opens the menu, on
+  // top of a question the CEO has not answered.
+  //
+  // WHY NEITHER OF THE TWO OBVIOUS FIXES IS THE FIX, both measured rather than reasoned about:
+  //
+  //   * MOVING THE SHEET TO BODY LEVEL closes nothing. `.settings` is mounted against
+  //     `document.body` by `settings-button.js:748` and painted at z-index 300 by §15's "on
+  //     every screen" rule; the sheet is an `.overlay` at 60 wherever it lives. Measured stack
+  //     at the button's own center, offer up: `set-btn@auto < settings@300 < setup-sheet@60`
+  //     — the control is above the sheet, and a body-level sheet is still at 60.
+  //   * MARKING `#app` INERT cannot be done from inside `#app`: `#setup-sheet` is a child of it
+  //     (`index.html:936` against `:100`), so that one attribute would inert the question too.
+  //
+  // So what is marked is the COMPLEMENT OF THE SHEET'S OWN ANCESTOR CHAIN, which needs no
+  // opinion about where a sheet lives and reaches `.settings` because `<body>` is on that
+  // chain. This check asserts the behavior (what takes focus) rather than the attribute, so a
+  // different implementation of the same promise passes it.
+  // =======================================================================================
+
+  await run.check("20  nothing outside the offer can be reached while the offer is up", async () => {
+    const page = await openApp(browser, { setup: "missing-engine" });
+    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+    await page.waitForFunction(() => !document.querySelector(".splash"), { timeout: 10000 });
+
+    const tryFocus = (id) =>
+      page.evaluate((i) => {
+        const n = document.getElementById(i);
+        if (!n) return "absent";
+        n.focus();
+        return document.activeElement === n ? "took focus" : "refused";
+      }, id);
+
+    // THE WINDOW BEHIND THE QUESTION. Ray's three, by their own ids.
+    assertEqual(await tryFocus("input"), "refused", "the composer takes focus behind the offer");
+    assertEqual(
+      await tryFocus("rail-settings"),
+      "refused",
+      "the rail's gear takes focus behind the offer"
+    );
+    assertEqual(
+      await tryFocus("set-btn"),
+      "refused",
+      "the top-right Settings control takes focus behind the offer — the one control that " +
+        "floats above every screen also floats above a question"
+    );
+
+    // AND A REAL MOUSE CANNOT REACH IT EITHER. `page.mouse.click` at the button's own measured
+    // center, deliberately, rather than `dispatchEvent`: a synthesized `MouseEvent` skips hit
+    // testing entirely and runs the listener on any element, inert or not — measured, it opens
+    // the menu either way — so it models nothing a person can do.
+    const at = await page.evaluate(() => {
+      const b = document.getElementById("set-btn").getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    });
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(300);
+    const clicked = await page.evaluate(() => {
+      const m = document.getElementById("set-menu");
+      return {
+        menuOpen: !!m && !m.hidden,
+        expanded: document.getElementById("set-btn").getAttribute("aria-expanded"),
+      };
+    });
+    assert(
+      !clicked.menuOpen,
+      "the settings menu opened on top of an unanswered question (aria-expanded=" +
+        clicked.expanded + ")"
+    );
+
+    // THE WALL HAS THE QUESTION INSIDE IT, which is the half that keeps this from being a
+    // dead app: both of the sheet's own answers still take the keyboard.
+    assertEqual(await tryFocus("setup-go"), "took focus", "the offer's own Set it up is inert");
+    assertEqual(await tryFocus("setup-later"), "took focus", "the offer's own Not now is inert");
+
+    // ANSWERED, AND THE WINDOW COMES BACK. "Not now" is a real answer and he is entitled to
+    // give it; a wall that outlives the question is a worse defect than the one it closed.
+    await page.click("#setup-later");
+    await page.waitForTimeout(400);
+    assertEqual(await tryFocus("input"), "took focus", "the composer stayed unreachable after the offer was answered");
+    assertEqual(
+      await tryFocus("set-btn"),
+      "took focus",
+      "the Settings control stayed unreachable after the offer was answered"
+    );
+
+    bump(8);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "with the offer up, the composer, the rail gear and the top-right Settings control all refuse focus and the menu will not open; both of the offer's own buttons still take it; answered, the window comes back";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
@@ -1242,3 +1351,12 @@ main().catch((e) => {
 //        -> the first sentence a customer reads names a control that cannot work
 // 13   main.js `refreshVoiceReadiness`: hide ◉ unconditionally
 //        -> voice is deleted rather than withheld, on every machine
+// 20   main.js: delete the `syncQuestionInert` observer
+//        -> the composer, the rail gear and the top-right Settings control all take focus
+//           behind an unanswered engine offer, and the settings menu opens over it — which is
+//           the shipped behavior at 5f3a1a1e and Ray's candidate .16 row B1b
+// 20b  main.js `syncQuestionInert`: drop the `isPainted(question)` line
+//        -> a full-screen surface mounted over the question is marked inert, which removes it
+//           from hit testing, which blinds `isPainted()` — and `escape.js` B8 goes red
+// 20c  main.js `syncQuestionInert`: mark the ancestors instead of their other children
+//        -> the question inerts itself and the app has no way out at all
