@@ -296,6 +296,117 @@ struct SpareFrontDesk {
     context_chars: usize,
 }
 
+/// **What [`Spine::begin_a_spare`] decided, carried across the two steps that run with the
+/// spine's mutex DOWN.** It owns everything those steps need and borrows nothing from the
+/// `Spine`, which is the property that makes the unlocked road possible at all.
+struct SparePlan {
+    entity: EntityId,
+    binding: ThreadBinding,
+    reserved: String,
+    /// A second handle to the same factory, or `None` when this factory cannot hand one out —
+    /// see [`crate::cognition::LeaseFactory::duplicate`]. `None` puts the spawn back under the
+    /// lock and changes nothing else.
+    factory: Option<Box<dyn crate::cognition::LeaseFactory>>,
+    control: crate::steering::TurnControl,
+    /// What `front_desk_generation` read when this was decided. Step 5 compares.
+    generation: u64,
+    started: std::time::Instant,
+}
+
+/// What the detached child is told, and the durable claim that says it was told.
+struct SparePriming {
+    priming: String,
+    onboarding_block: Option<String>,
+    scope: Option<crate::onboarding_tools::OnboardingToolScope>,
+    /// The ledger action, claimed in step 3 and settled in step 5.
+    action: String,
+}
+
+/// **Step 4: the priming turn itself, against a lease nobody else can see.**
+///
+/// A free function and not a method, deliberately — it takes no `&Spine` at all, and that is
+/// the proof that it can run with the mutex down. The machinery it collects is emitted by
+/// step 5, which has the journal and the observer.
+///
+/// **The between-turn residue is drained and DISCARDED**, where the chair's is stamped against
+/// its thread. A fresh child announces its commands on the between-turn lane at session start;
+/// `pump_between_turn_stamped` would refuse the reserved binding and leave those records
+/// sitting in the lease, where the CEO's FIRST REAL TURN would drain them and stamp them
+/// against a turn he is watching. That is the rotation-tell shape §1.5 exists to exclude,
+/// arriving by a new road. They belong to a desk he has never seen, so they are read off and
+/// dropped here.
+fn run_a_spare_priming_turn(
+    lease: &mut dyn Cognition,
+    plan: &SparePlan,
+    priming: &SparePriming,
+    machinery: &mut Vec<crate::machinery::MachineryRecord>,
+) -> Result<(), SpineError> {
+    if let Some(scope) = &priming.scope {
+        lease.set_onboarding_scope(plan.binding.entity_id(), &scope.central_root, &scope.record_path)?;
+    }
+    let mut on_item = |item: TurnItem| {
+        if let TurnItem::Machinery(record) = item {
+            machinery.push(record);
+        }
+    };
+    lease.reprime(&priming.priming, &mut on_item)?;
+    let _ = lease.drain_between_turn();
+    Ok(())
+}
+
+/// **Ready a spare WITHOUT holding the spine across the spawn and the priming turn** — the
+/// CEO's §55, and the shape the shell takes.
+///
+/// The same five steps [`Spine::ready_a_spare_front_desk`] runs, in the same order, with the
+/// mutex taken for steps 1, 3 and 5 and DOWN for 2 and 4. Nothing about what is produced
+/// differs; what differs is that a window command arriving in the middle is served in
+/// microseconds instead of waiting out a model turn.
+///
+/// **Step 2 falls back under the lock when the factory cannot be duplicated**
+/// ([`crate::cognition::LeaseFactory::duplicate`] answering `None`) — today that is every test
+/// double and nothing that ships. The fallback is the old behavior exactly, which is correct
+/// and merely slower.
+///
+/// **A poisoned mutex is not a verdict about the spare.** It is reported as `NotReady` and
+/// nothing is left in flight: the flag lives inside the spine, so a poisoned spine has already
+/// lost the flag with everything else.
+pub fn ready_a_spare_front_desk_without_the_spine(
+    spine: &std::sync::Mutex<Spine>,
+    entity: &EntityId,
+) -> SpareReady {
+    macro_rules! hold {
+        () => {
+            match spine.lock() {
+                Ok(guard) => guard,
+                Err(_) => return SpareReady::NotReady("the spine's mutex is poisoned".into()),
+            }
+        };
+    }
+    let plan = match hold!().begin_a_spare(entity) {
+        Ok(plan) => plan,
+        Err(verdict) => return verdict,
+    };
+    // ---- step 2, with the mutex down whenever the factory allows it ----------------------
+    let spawned = match &plan.factory {
+        Some(factory) => factory.spawn_scoped(&plan.binding, &plan.control),
+        None => hold!().spawn_a_spare_here(&plan),
+    };
+    let mut lease = match spawned {
+        Ok(lease) => lease,
+        Err(e) => return hold!().abandon_a_spare(plan, None, e.to_string()),
+    };
+    let priming = match hold!().priming_for_a_spare(&plan, lease.as_ref()) {
+        Ok(priming) => priming,
+        Err(e) => return hold!().abandon_a_spare(plan, None, e.to_string()),
+    };
+    // ---- step 4, ALWAYS with the mutex down. This is the model turn. ---------------------
+    let mut machinery = Vec::new();
+    if let Err(e) = run_a_spare_priming_turn(lease.as_mut(), &plan, &priming, &mut machinery) {
+        return hold!().abandon_a_spare(plan, Some(priming), e.to_string());
+    }
+    hold!().install_the_spare(plan, lease, priming, machinery)
+}
+
 /// **What happened when the app asked for a spare front desk** —
 /// [`Spine::ready_a_spare_front_desk`]'s answer, and a deliberate mirror of [`FrontDeskReady`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -399,6 +510,19 @@ pub struct Spine {
     /// sequence of clicks can produce. `MAX_RESIDENT_FRONT_DESKS` bounds desks he HAS used and
     /// answers a different question.
     spare: Option<SpareFrontDesk>,
+    /// **A spare's spawn and priming turn are in flight, and for part of that time this mutex
+    /// is DOWN** — see [`ready_a_spare_front_desk_without_the_spine`]. The slot is reserved by
+    /// step 1 and released by step 5, so a second ask arriving in the gap is answered
+    /// `AlreadyReady` instead of spawning a second child for one slot.
+    spare_in_flight: bool,
+    /// **Bumped every time the app stops believing in what its desks were primed with.**
+    ///
+    /// [`Spine::unprime_every_front_desk`] can now run BETWEEN the steps of a spare's priming,
+    /// because those steps no longer hold one lock end to end. Without a generation the finished
+    /// spare would be installed `primed: true` carrying material the app had already discarded —
+    /// silently, until it rotated on its own watermark, which is the exact defect that method's
+    /// own documentation exists to prevent.
+    front_desk_generation: u64,
     /// THE ACTIVE CONTEXT (ECS §3.3): person + entity + thread + binding revision. Not a
     /// bare thread id — holding the full binding is what lets every downstream call be
     /// scoped without re-deriving (or re-guessing) the entity.
@@ -619,6 +743,8 @@ impl Spine {
             lease: None,
             resident: std::collections::HashMap::new(),
             spare: None,
+            spare_in_flight: false,
+            front_desk_generation: 0,
             active: None,
             registry: EntityRegistry::empty(),
             turn_in_progress: false,
@@ -1018,6 +1144,13 @@ impl Spine {
     /// a parked desk comes back with `primed: true` and would serve the CEO from material
     /// the app has stopped believing in, silently, until it rotated on its own watermark.
     fn unprime_every_front_desk(&mut self) {
+        // **AND THE ONE THAT IS NOT HERE YET.** A spare being primed right now holds no place
+        // in `self.spare` — its steps run with this mutex down — so there is nothing here to
+        // set `primed: false` on. The generation is how it is caught: step 5 compares what it
+        // read at step 1 against this, and installs the finished child UN-PRIMED when they
+        // differ. Without it, the one desk most likely to be holding discarded material is the
+        // one desk this method cannot reach.
+        self.front_desk_generation = self.front_desk_generation.wrapping_add(1);
         self.lease_primed = false;
         for resident in self.resident.values_mut() {
             resident.primed = false;
@@ -1067,26 +1200,77 @@ impl Spine {
     /// `lease_primed`, the resident map and the active context are all untouched: a spare is a
     /// child standing beside the app, not a front desk in the chair, until `create_thread`
     /// adopts it.
+    ///
+    /// # THIS ROAD HOLDS THE MUTEX FOR THE WHOLE OF IT, AND THE APP NO LONGER TAKES IT
+    ///
+    /// The caller holds the spine's mutex across the spawn AND the priming turn — seconds,
+    /// both of them — which is what a test wants and what the CEO cannot afford. The shell
+    /// takes [`ready_a_spare_front_desk_without_the_spine`] instead. The two are the SAME five
+    /// steps in the same order; only which of them run under the lock differs, so there is one
+    /// behavior and no second implementation to drift.
     pub fn ready_a_spare_front_desk(&mut self, entity: &EntityId) -> SpareReady {
+        let plan = match self.begin_a_spare(entity) {
+            Ok(plan) => plan,
+            Err(verdict) => return verdict,
+        };
+        let mut lease = match self.spawn_a_spare_here(&plan) {
+            Ok(lease) => lease,
+            Err(e) => return self.abandon_a_spare(plan, None, e.to_string()),
+        };
+        let priming = match self.priming_for_a_spare(&plan, lease.as_ref()) {
+            Ok(priming) => priming,
+            Err(e) => return self.abandon_a_spare(plan, None, e.to_string()),
+        };
+        let mut machinery = Vec::new();
+        if let Err(e) = run_a_spare_priming_turn(lease.as_mut(), &plan, &priming, &mut machinery) {
+            return self.abandon_a_spare(plan, Some(priming), e.to_string());
+        }
+        self.install_the_spare(plan, lease, priming, machinery)
+    }
+
+    // -----------------------------------------------------------------------------------
+    // THE FIVE STEPS, SPLIT SO THE TWO SLOW ONES CAN RUN WITH THE MUTEX DOWN
+    // -----------------------------------------------------------------------------------
+    //
+    // Steps 1, 3 and 5 are ledger and configuration work and take microseconds. Steps 2 and 4
+    // — the child's spawn and its priming turn — are SECONDS, and they touch nothing but the
+    // detached lease. Until 2026-09-19 all five ran under one lock, and that is where the
+    // CEO's whole wait was: `create_thread_in` starts this work microseconds before the window
+    // issues eight more bridge calls, and every one of them queued behind the priming turn.
+    // Measured on the real window that day — `a window command waited 18314 ms for the spine`
+    // on a debug build, the turn's own header starting its clock 18.6 s after the keystroke;
+    // on the shipped candidate the same shape is Ray's 5378 ms spare and ~6 s of pre-turn
+    // overhead.
+
+    /// **Step 1 (locked): decide, and reserve the slot.** Everything that reads or writes the
+    /// spine happens here, so that steps 2 and 4 can run against nothing but the plan.
+    fn begin_a_spare(&mut self, entity: &EntityId) -> Result<SparePlan, SpareReady> {
         if self.turn_in_progress {
-            return SpareReady::TurnInProgress;
+            return Err(SpareReady::TurnInProgress);
         }
         if !self.registry.contains(entity) {
-            return SpareReady::NotReady(SpineError::UnknownEntity(entity.to_string()).to_string());
+            return Err(SpareReady::NotReady(SpineError::UnknownEntity(entity.to_string()).to_string()));
         }
         if self.spare.as_ref().is_some_and(|spare| &spare.entity == entity && spare.primed) {
-            return SpareReady::AlreadyReady;
+            return Err(SpareReady::AlreadyReady);
+        }
+        // **ONE ATTEMPT AT A TIME, and this is the flag that makes the unlocked road safe.**
+        // With the mutex down between the steps, a second ask can arrive and find no spare
+        // standing — because the first one has not installed it yet. Two spawns would then
+        // race for one slot and the loser's child would be killed after it had been paid for.
+        if self.spare_in_flight {
+            return Err(SpareReady::AlreadyReady);
         }
         // Anything else standing here is for the wrong entity, or was un-primed by a change
         // the whole app made (`unprime_every_front_desk`). Either way it is retired BEFORE the
         // replacement is spawned, so two spare children never exist at once.
         self.discard_spare();
         if self.control.stop_claim().is_some() {
-            return SpareReady::NotReady("a stop is claimed".into());
+            return Err(SpareReady::NotReady("a stop is claimed".into()));
         }
-        let Some(factory) = self.lease_factory.as_ref() else {
-            return SpareReady::NotReady(SpineError::NoLeaseFactory.to_string());
-        };
+        if self.lease_factory.is_none() {
+            return Err(SpareReady::NotReady(SpineError::NoLeaseFactory.to_string()));
+        }
         // **THE ID IS MINTED HERE AND WRITTEN NOWHERE** (UX §3.3). The binding built around it
         // is for SPAWN SCOPING only — `EngineProfile::scope_to` and nothing else — and it is
         // deliberately unable to pass `Ledger::verify_binding`: the thread does not exist, so
@@ -1099,56 +1283,46 @@ impl Spine {
             &reserved,
             self.ledger.take_revision(),
         );
-        let started = std::time::Instant::now();
-        let lease = match factory.spawn_scoped(&binding, &self.control) {
-            Ok(lease) => lease,
-            Err(e) => return SpareReady::NotReady(e.to_string()),
-        };
-        let context_chars = 0;
-        self.spare = Some(SpareFrontDesk {
-            lease,
+        self.spare_in_flight = true;
+        Ok(SparePlan {
             entity: entity.clone(),
-            reserved_thread: reserved,
-            primed: false,
-            onboarding_block: None,
-            context_chars,
-        });
-        match self.prime_the_spare(&binding) {
-            Ok(()) => SpareReady::Ready { millis: started.elapsed().as_millis() as u64 },
-            Err(e) => {
-                // **A SPARE THAT COULD NOT BE PRIMED IS KEPT, NOT KILLED.** Its child is alive
-                // and correctly scoped; what it lacks is the priming turn, which his first
-                // message will then take exactly as it does today. Throwing it away would turn
-                // a failed optimization into a spawn he also has to wait for.
-                SpareReady::NotReady(e.to_string())
-            }
-        }
+            binding,
+            reserved,
+            // `None` is not a failure: it means this factory cannot hand out a second handle,
+            // so step 2 runs under the caller's lock the way it always did.
+            factory: self.lease_factory.as_ref().and_then(|f| f.duplicate()),
+            control: self.control.clone(),
+            generation: self.front_desk_generation,
+            started: std::time::Instant::now(),
+        })
     }
 
-    /// The priming turn itself — [`Spine::prime_lease_if_needed`]'s counterpart for a desk
-    /// whose thread has no record.
+    /// **Step 2, the locked spelling.** Used by [`Spine::ready_a_spare_front_desk`], and by the
+    /// unlocked road when the factory cannot be duplicated.
+    fn spawn_a_spare_here(&self, plan: &SparePlan) -> Result<Box<dyn Cognition>, crate::cognition::CognitionError> {
+        let factory = self.lease_factory.as_ref().ok_or(crate::cognition::CognitionError::Protocol(
+            SpineError::NoLeaseFactory.to_string(),
+        ))?;
+        factory.spawn_scoped(&plan.binding, &plan.control)
+    }
+
+    /// **Step 3 (locked): what the detached child will be told.**
     ///
-    /// **Three things differ from the chair's priming, and each is forced by the absence of a
-    /// record rather than chosen.**
+    /// [`RePrimePayload::assemble_for_a_reserved_thread`] is infallible because a reserved id
+    /// provably has no turns — see its own documentation.
     ///
-    /// 1. The payload comes from [`RePrimePayload::assemble_for_a_reserved_thread`], which is
-    ///    infallible because a reserved id provably has no turns — see its own documentation.
-    /// 2. **No `record_prompt_received`.** That call verifies the binding and would fail
-    ///    closed, correctly: there is no thread to file an Internal turn against. The durable
-    ///    record that this happened is the ACTION below, which is thread-agnostic.
-    /// 3. **The between-turn residue is drained and DISCARDED**, where the chair's is stamped
-    ///    against its thread. A fresh child announces its commands on the between-turn lane at
-    ///    session start; `pump_between_turn_stamped` would refuse the reserved binding and
-    ///    leave those records sitting in the lease, where the CEO's FIRST REAL TURN would drain
-    ///    them and stamp them against a turn he is watching. That is the rotation-tell shape
-    ///    §1.5 exists to exclude, arriving by a new road. They belong to a desk he has never
-    ///    seen, so they are read off and dropped here.
-    fn prime_the_spare(&mut self, binding: &ThreadBinding) -> Result<(), SpineError> {
+    /// **No `record_prompt_received`.** That call verifies the binding and would fail closed,
+    /// correctly: there is no thread to file an Internal turn against. The durable record that
+    /// this happened is the ACTION claimed here, which is thread-agnostic.
+    fn priming_for_a_spare(
+        &mut self,
+        plan: &SparePlan,
+        lease: &dyn Cognition,
+    ) -> Result<SparePriming, SpineError> {
+        let binding = &plan.binding;
         let onboarding_block = self.company_block(binding);
-        let (session, workers) = match self.spare.as_ref() {
-            Some(spare) => (spare.lease.session_id().to_string(), spare.lease.worker_status()),
-            None => return Err(SpineError::NoLease),
-        };
+        let session = lease.session_id().to_string();
+        let workers = lease.worker_status();
         let mut payload = RePrimePayload::assemble_for_a_reserved_thread(
             &self.ledger, binding, DEFAULT_TAIL_TURNS, Some(session.as_str()),
         );
@@ -1163,7 +1337,7 @@ impl Spine {
         // **"The spare WAS primed" is the fact the whole saving rests on**, so it is durable
         // even though the thread it names does not exist yet — and naming the reserved id is
         // what lets a later reader join this line to the thread it became.
-        let reprime_action = self.ledger.record_action_with(
+        let action = self.ledger.record_action_with(
             None,
             "spare_front_desk_reprime",
             &format!(
@@ -1173,41 +1347,60 @@ impl Spine {
             ActionVisibility::Internal,
             ActionStatus::Claimed,
         )?;
-        let scope = self.onboarding_tool_scope(binding);
-        let journal = self.machinery_journal.as_ref();
-        let machinery_observer = self.machinery_observer.as_deref();
-        let thread_id = binding.thread_id().to_string();
-        let Some(spare) = self.spare.as_mut() else { return Err(SpineError::NoLease) };
-        let scoped = match &scope {
-            Some(scope) => spare.lease.set_onboarding_scope(binding.entity_id(), &scope.central_root, &scope.record_path),
-            None => Ok(()),
-        };
-        let primed = {
-            let mut on_item = |item: TurnItem| {
-                if let TurnItem::Machinery(record) = item {
-                    // `internal: true` and `turn_id: None`, like every priming turn's machinery.
-                    // The thread id is the reserved one: it is the conversation these records
-                    // will belong to the moment the CEO sends into it.
-                    let record = record.stamp(&thread_id, None, true);
-                    Self::retain_and_emit_machinery(journal, machinery_observer, record);
-                }
-            };
-            scoped.and_then(|_| spare.lease.reprime(&priming, &mut on_item))
-        };
-        if let Err(e) = primed {
-            self.ledger.update_action(&reprime_action, ActionStatus::Failed)?;
-            return Err(e.into());
+        Ok(SparePriming { priming, onboarding_block, scope: self.onboarding_tool_scope(binding), action })
+    }
+
+    /// **Step 5 (locked): stand the primed desk up, or decide the world moved under it.**
+    fn install_the_spare(
+        &mut self,
+        plan: SparePlan,
+        lease: Box<dyn Cognition>,
+        priming: SparePriming,
+        machinery: Vec<crate::machinery::MachineryRecord>,
+    ) -> SpareReady {
+        self.spare_in_flight = false;
+        // THE MACHINERY OF A TURN NOBODY WATCHED, emitted here rather than as it arrived,
+        // because step 4 has no `self` to emit through. `internal: true` and `turn_id: None`,
+        // like every priming turn's machinery; the thread id is the reserved one, which is the
+        // conversation these records will belong to the moment the CEO sends into it.
+        for record in machinery {
+            let record = record.stamp(&plan.reserved, None, true);
+            Self::retain_and_emit_machinery(self.machinery_journal.as_ref(), self.machinery_observer.as_deref(), record);
         }
-        // See (3) in this function's documentation.
-        let _ = spare.lease.drain_between_turn();
-        spare.primed = true;
-        // **WHAT IT WAS PRIMED WITH, kept on the desk**, so the chair it is adopted into
-        // compares his thread's company material against THIS desk's rather than against the
-        // previous occupant's. Run H is what its absence cost.
-        spare.onboarding_block = onboarding_block;
-        spare.context_chars = priming.len();
-        self.ledger.update_action(&reprime_action, ActionStatus::Completed)?;
-        Ok(())
+        let _ = self.ledger.update_action(&priming.action, ActionStatus::Completed);
+        // **DID THE WORLD MOVE WHILE THE MUTEX WAS DOWN?** The child is correctly scoped and
+        // paid for either way, so it is kept — but a desk primed against material the app has
+        // since stopped believing in must not be handed to him as primed. `primed: false` is
+        // the same honest degrade `unprime_every_front_desk` already applies to a standing
+        // spare: it is adopted and primes at his first send, which is what every thread did
+        // before spares existed.
+        let stale = plan.generation != self.front_desk_generation || !self.registry.contains(&plan.entity);
+        self.spare = Some(SpareFrontDesk {
+            lease,
+            entity: plan.entity,
+            reserved_thread: plan.reserved,
+            primed: !stale,
+            onboarding_block: priming.onboarding_block,
+            context_chars: priming.priming.len(),
+        });
+        if stale {
+            return SpareReady::NotReady(
+                "the app un-primed every front desk while this one was being primed; it is kept, \
+                 un-primed, and his first message primes it the way it did before".into(),
+            );
+        }
+        SpareReady::Ready { millis: plan.started.elapsed().as_millis() as u64 }
+    }
+
+    /// The failure end of the same five steps. **A spare that could not be spawned or primed
+    /// is not a disaster and is not hidden**: the slot is released, the claimed action is
+    /// failed, and his first message primes the way it does today.
+    fn abandon_a_spare(&mut self, _plan: SparePlan, priming: Option<SparePriming>, why: String) -> SpareReady {
+        self.spare_in_flight = false;
+        if let Some(priming) = priming {
+            let _ = self.ledger.update_action(&priming.action, ActionStatus::Failed);
+        }
+        SpareReady::NotReady(why)
     }
 
     /// Retire the spare: its `Box<dyn Cognition>` is dropped, whose `Drop` kills the child.

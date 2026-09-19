@@ -370,6 +370,32 @@ pub struct PhoneStatus {
     /// route on every open by design, so keying that copy off it made reopening the card for a
     /// paired Android phone print iOS profile-removal steps (Ray's candidate .11 defect 3.2).
     pub paired_via: Option<String>,
+    /// **WHICH PATH THE OPEN PAIRING WINDOW IS BEING SERVED OVER** — `"tailnet"` or `"home"`,
+    /// and `None` when nothing is listening.
+    ///
+    /// # Urban's blocker, and why this is the same shape as `paired_via`
+    ///
+    /// `esc-20260919T041857Z-640acd39`, reproduced twice on candidate .12: choose *Anywhere*,
+    /// press *Set my phone up*, close the sheet, reopen it while the code is still live — and
+    /// the HOME path's screen comes back, two unverified-certificate warnings and a trust QR at
+    /// `http://mm1.local:8444/ca` and the sixteen certificate taps, wrapped around the TAILNET
+    /// pairing URL, on the one path that installs no certificate. The sentence meant to catch
+    /// exactly that (*"There is no certificate to install on this path"*) is hidden by the same
+    /// condition.
+    ///
+    /// The cause is that the sheet derived the path from `route`, which is `null` on every open
+    /// by design (Urban §1: the choice is never remembered), while `choosing` requires
+    /// `!pairing` — so a live OR expired code drops it straight onto the pairing screen with
+    /// `onTailscale === false`. **Which path the open window was started for is a fact the Mac
+    /// holds, not a thing the sheet may remember**, and `paired_via` is the same ruling one
+    /// state later.
+    ///
+    /// **Nothing new is recorded to answer it.** `Channel::pairing_path` has held this since the
+    /// path was first distinguished — it is what a redeeming phone's record is stamped from, and
+    /// it already follows the one case where the answer changes after the channel was built (the
+    /// Tailscale addresses failing to bind, which drops the whole channel back to the home path).
+    /// This field is that value, surfaced.
+    pub serving_via: Option<String>,
     /// **WHAT KIND OF PHONE IT IS** — `"ios"`, `"android"`, `"other"`, or `""` for a record
     /// written before the field existed. `None` when nothing is paired.
     pub platform: Option<String>,
@@ -573,6 +599,8 @@ impl PhoneRuntime {
                 paired: false,
                 device_name: None,
                 paired_via: None,
+                // Nothing is listening, so no window is being served over anything.
+                serving_via: None,
                 platform: None,
                 push_ready: false,
                 trust_url: None,
@@ -590,11 +618,19 @@ impl PhoneRuntime {
         };
         let device = running.channel.devices.paired();
         let window = running.channel.devices.pairing_window();
+        // Read out of the lock before the struct literal: a temporary guard inside it
+        // would outlive the borrow of `running`.
+        let serving_via = (*running.channel.pairing_path.lock().unwrap()).to_string();
         PhoneStatus {
             listening: running.listener.is_running(),
             paired: device.is_some(),
             device_name: device.as_ref().map(|d| d.name.clone()),
             paired_via: device.as_ref().map(|d| d.paired_via.clone()),
+            // THE MAC'S OWN ANSWER ABOUT THE OPEN WINDOW — see the field's documentation for
+            // Urban's blocker. Read off the channel that is actually serving, so it is right
+            // after a reopen, right after an expiry, and right when the Tailscale addresses
+            // failed to bind and the whole channel fell back to the home path.
+            serving_via: Some(serving_via),
             platform: device.as_ref().map(|d| d.platform.clone()),
             push_ready: device.as_ref().map(|d| d.push.is_some()).unwrap_or(false),
             trust_url: Some(running.names.trust_url()),
