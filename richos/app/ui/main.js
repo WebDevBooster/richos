@@ -3940,9 +3940,26 @@ Bridge.listen("rich://voice-transcript", ({ payload }) => {
   scheduleRender();
 });
 
-Bridge.listen("rich://voice-error", ({ payload }) => {
-  if (!voiceMode) return;
-  richVoiceSays(payload.message);
+/// **VOICE STOPPED — and if the setting up is why, the offer comes back with the sentence.**
+///
+/// The backend's spoken arm now refuses a turn on a stale or missing engine with
+/// `setup_view::SETUP_INCOMPLETE_*`, whose own words are *"I've put the setting up back on
+/// your screen: press Set it up"*. This line is what makes that true rather than a claim —
+/// exactly as `send()` does it for the typed path, one layer down.
+///
+/// **THE DISK IS ASKED; THE SENTENCE IS NEVER MATCHED.** Reading the refusal's text to decide
+/// what it meant would be a second copy of a decision the backend already made, and the two
+/// would drift the first time a word changed. `setup_status` is the same question `init()`
+/// asks at boot, so there is one answer and one place it comes from.
+///
+/// **AND THE REOPEN IS NOT GATED ON `voiceMode`**, unlike the sentence above it. The panel can
+/// close between an utterance being submitted and its refusal arriving; a promise that the
+/// offer is back on screen must not depend on that race. The cost is one `setup_status` call
+/// on an error path, and only on an error path.
+Bridge.listen("rich://voice-error", async ({ payload }) => {
+  if (voiceMode) richVoiceSays(payload.message);
+  const setupNow = await refreshSetup();
+  if (setupNow && setupNow.ask && setupNow.ask.items.length) maybeAskAboutSetup();
 });
 
 /// Voice is WORKING, and something about how it is working is worth him knowing — today, that
