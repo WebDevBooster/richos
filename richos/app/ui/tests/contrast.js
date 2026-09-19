@@ -759,8 +759,17 @@ const SURFACES = [
     name: "setup-account-connect",
     what: "first-run setup reopened to connect an Anthropic account: the account-type select, its text and its custom chevron",
     drive: async (p) => {
-      await p.click("#set-btn");
-      await p.click("#set-account-open");
+      // BY WHICHEVER DOOR IS OPEN, and on this preset the sheet is already through it.
+      // `init()` -> `maybeAskAboutSetup()` finds nothing to install and an account that is
+      // not connected, so it calls `openAccountConnection` — the SAME function the settings
+      // menu's Account row calls, painting the same surface. This driver used to reach it
+      // through that menu unconditionally, and since a question started holding the window
+      // (`main.js` `syncQuestionInert`) the top-right control is inert while a sheet is up,
+      // so the menu is not a door on this preset. The walked surface is unchanged.
+      if (await p.isHidden("#setup-sheet")) {
+        await p.click("#set-btn");
+        await p.click("#set-account-open");
+      }
       await p.waitForSelector("#setup-sheet:not([hidden])");
       await p.waitForSelector("#provider-account-kind:not([hidden])");
       await overlaySettled(p, "#setup-sheet");
@@ -2724,6 +2733,167 @@ async function main() {
     );
   });
 
+  // =======================================================================================
+  // 16c — A FOCUS RING IS A DIFFERENT PAINT FROM THE CONTROL IT RINGS
+  //
+  // THE SHIPPED DEFECT, AND IT IS ON THE ONE SCREEN A CUSTOMER CANNOT GET PAST.
+  // `.desk-btn--confirm` fills itself with `--accent` and `.desk-btn:focus-visible` drew its
+  // ring in `--accent`:
+  //
+  //     dark   #c2a35c ring on #c2a35c fill    1.00:1
+  //     light  #9c7c34 ring on #9c7c34 fill    1.00:1
+  //
+  // `Set it up`, focused, differed from `Set it up`, unfocused, by a 1px hairline of panel.
+  //
+  // WHY THE SURFACE WALK ABOVE COULD NOT SEE IT, which is the same shape as 16 and 16b: the
+  // walk measures what is PAINTED AT REST. A focus ring exists only while a control has the
+  // keyboard, so no resting frame in this suite has ever contained one. This check focuses
+  // the control first, which is the whole of what it adds.
+  //
+  // AND THE NOTE IN `style.css` WAS NOT WRONG, WHICH IS THE INSTRUCTIVE PART. It quotes 6.36:1
+  // dark and 3.83:1 light for that ring and both are correct — against the PANEL. A filled
+  // button has a second neighbor the plain one does not: its own fill. A ratio is never a
+  // property of a color, only of a pair, and the pair that was never computed is the one the
+  // CEO was looking at.
+  //
+  // THE RULE, and it is derived rather than a list: a focused control's ring must clear 3:1
+  // against the paint on EACH SIDE of it — its own fill on the inside, whatever is behind the
+  // control on the outside. A two-tone ring answers each side with its own band, so the inner
+  // band (a `box-shadow` of 0 blur filling the `outline-offset` gap) is measured against the
+  // fill and the outline against the ground, plus the boundary between the two.
+  //
+  // THE SWEEP IS WHAT MAKES IT A FLOOR. Every visible focusable control in an ordinary window
+  // is focused and measured, so the next filled button is covered the day it is written and
+  // nobody has to remember this.
+  // =======================================================================================
+
+  await run.check("16c  a focus ring is a different paint from the control it rings — the offer's primary was 1.00:1", async () => {
+    const RING_FLOOR = 3;
+
+    /// Focus a control and read the three colors its ring actually touches. Returned as
+    /// numbers computed IN THE PAGE by the same arithmetic the rest of this suite ships there.
+    const RING_PROBE = function (selector) {
+      const M = window.__contrastMath;
+      const opaqueBehind = function (node) {
+        for (let n = node; n; n = n.parentElement) {
+          const c = M.parseCssColor(getComputedStyle(n).backgroundColor);
+          if (c && c.a >= 0.999) return c;
+        }
+        return null;
+      };
+      const node = typeof selector === "string" ? document.querySelector(selector) : selector;
+      if (!node) return { state: "absent" };
+      node.focus();
+      if (document.activeElement !== node) return { state: "refused focus" };
+      const cs = getComputedStyle(node);
+      const width = parseFloat(cs.outlineWidth) || 0;
+      if (cs.outlineStyle === "none" || width === 0) return { state: "no ring" };
+      const ring = M.parseCssColor(cs.outlineColor);
+      const fill = opaqueBehind(node);
+      const ground = opaqueBehind(node.parentElement);
+      if (!ring || !fill || !ground) return { state: "unresolvable" };
+      // The computed `box-shadow` leads with its color in WebKit. Only a shadow with no blur
+      // is a RING; a blurred one is a glow and has no edge to measure.
+      const shadow = cs.boxShadow && cs.boxShadow !== "none" ? cs.boxShadow : "";
+      const shadowColor = shadow.match(/rgba?\([^)]+\)/);
+      const numbers = shadow.replace(/rgba?\([^)]+\)/g, "").trim().split(/\s+/).map(parseFloat);
+      const isRing = shadowColor && numbers.length >= 4 && numbers[2] === 0 && numbers[3] > 0;
+      const inner = isRing ? M.parseCssColor(shadowColor[0]) : null;
+      const r = function (a, b) {
+        return M.round2(M.contrastRatio(a, b));
+      };
+      return {
+        state: "measured",
+        id: node.id || node.className,
+        ring: M.hex(ring),
+        fill: M.hex(fill),
+        ground: M.hex(ground),
+        inner: inner ? M.hex(inner) : null,
+        // The three boundaries of the composite, outside in.
+        ringVsGround: r(ring, ground),
+        innerVsFill: inner ? r(inner, fill) : r(ring, fill),
+        ringVsInner: inner ? r(ring, inner) : null,
+      };
+    };
+
+    const lines = [];
+    for (const theme of ["light", "dark"]) {
+      // THE OFFER'S OWN TWO ANSWERS, on the surface they are asked on. `setup: "missing-engine"`
+      // is the customer's Mac, and `#setup-go` is the control that holds the keyboard at entry.
+      const offer = await openApp(browser, theme, false, { setup: "missing-engine" });
+      await offer.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+      await offer.evaluate(C.pageScript());
+      for (const id of ["#setup-go", "#setup-later"]) {
+        const m = await offer.evaluate(RING_PROBE, id);
+        assertEqual(m.state, "measured", theme + ": " + id + " — " + m.state);
+        assert(
+          m.innerVsFill >= RING_FLOOR,
+          theme + ": " + id + "'s ring touches its own fill at " + m.innerVsFill + ":1 (" +
+            (m.inner || m.ring) + " on " + m.fill + "), under the " + RING_FLOOR +
+            ":1 floor a non-text indicator owes. A gold ring around a gold button is 1.00:1."
+        );
+        assert(
+          m.ringVsGround >= RING_FLOOR,
+          theme + ": " + id + "'s ring is " + m.ringVsGround + ":1 against the panel behind it (" +
+            m.ring + " on " + m.ground + ")"
+        );
+        if (m.ringVsInner !== null) {
+          assert(
+            m.ringVsInner >= RING_FLOOR,
+            theme + ": " + id + "'s two ring bands are " + m.ringVsInner + ":1 apart, so the " +
+              "composite reads as one band and the inner one buys nothing"
+          );
+        }
+        lines.push(
+          theme + " " + id + " " + (m.inner ? m.inner + "/" : "") + m.ring + ": " +
+            m.innerVsFill + ":1 on its fill, " + m.ringVsGround + ":1 on the panel"
+        );
+      }
+      await offer.close();
+
+      // THE SWEEP. An ordinary window, every visible focusable control, same rule. Controls
+      // that refuse focus, carry no ring, or sit on a translucent ground are reported rather
+      // than counted — an unmeasurable control is not a passing one.
+      const page = await openApp(browser, theme);
+      await page.evaluate(C.pageScript());
+      const swept = await page.evaluate((probeSource) => {
+        const probe = eval("(" + probeSource + ")");
+        const FOCUSABLE =
+          "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
+          'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const out = { measured: 0, skipped: 0, failures: [] };
+        for (const node of document.querySelectorAll(FOCUSABLE)) {
+          if (node.offsetParent === null && getComputedStyle(node).position !== "fixed") continue;
+          const m = probe(node);
+          if (m.state !== "measured") {
+            out.skipped++;
+            continue;
+          }
+          out.measured++;
+          if (m.innerVsFill < 3 || m.ringVsGround < 3 || (m.ringVsInner !== null && m.ringVsInner < 3)) {
+            out.failures.push(
+              m.id + " ring " + m.ring + " fill " + m.fill + " ground " + m.ground +
+                " -> " + m.innerVsFill + ":1 inside, " + m.ringVsGround + ":1 outside"
+            );
+          }
+        }
+        return out;
+      }, RING_PROBE.toString());
+      assertEqual(
+        swept.failures.length,
+        0,
+        theme + ": " + swept.failures.length + " focused control(s) ring themselves in their " +
+          "own paint or their ground's — " + swept.failures.join(" | ")
+      );
+      assert(swept.measured >= 5, theme + ": the sweep measured only " + swept.measured + " controls");
+      lines.push(theme + " sweep " + swept.measured + " measured, " + swept.skipped + " without a ring of their own");
+      assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+      await page.close();
+    }
+
+    return "floor " + RING_FLOOR + ":1 on each side of the ring — " + lines.join("; ");
+  });
+
   await run.check("17  the technical view's own labels, DECLARED and RENDERED — the surface walk sees neither", async () => {
     // AUDIT-10 ROW 4, AND TWO REASONS THIRTY-NINE GREEN SURFACES DID NOT HOLD IT.
     //
@@ -3063,3 +3233,11 @@ main().catch((e) => {
 //           as covering it"
 //  15  index.html: `<svg><text x=0 y=9>hi</text></svg>` inside the conversation pane
 //        -> 20 svg text nodes across the walks, named as unmeasured rather than passed over
+// 16c  style.css: delete the `.desk-btn--confirm:focus-visible` rule
+//        -> "light: #setup-go's ring touches its own fill at 1:1 (#9c7c34 on #9c7c34), under
+//           the 3:1 floor a non-text indicator owes." RUN, not reasoned about: the rule was
+//           taken out, `node contrast.js` exited 1 on exactly that line, and it was put back.
+// 16d  style.css: `box-shadow: 0 2px 0 2px var(--on-gold)` on the same rule (a shadow with
+//      an OFFSET is not a ring)
+//        -> the inner band is no longer counted, and the check falls back to the outline
+//           against the fill: 1.00:1 again

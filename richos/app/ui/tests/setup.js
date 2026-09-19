@@ -26,6 +26,9 @@
 //   7. A MACHINE THAT HAS EVERYTHING IS NEVER ASKED.
 //   8. THE BUTTON CANNOT BE PRESSED TWICE. A second press mid-run would start a second
 //      installer.
+//   9. A QUESTION OWNS THE WINDOW UNTIL IT IS ANSWERED. `aria-modal="true"` is a promise that
+//      everything outside the sheet is unavailable; case 20 measures that the window keeps it,
+//      including for the one control that floats above every screen.
 //
 // Run: node setup.js   (or `npm test` for every suite in this directory)
 
@@ -1166,6 +1169,227 @@ async function main() {
     return "Escape takes the curtain and nothing else; space holds it and reaches nothing behind it";
   });
 
+  // =======================================================================================
+  // 20 — A QUESTION OWNS THE WINDOW UNTIL IT IS ANSWERED
+  //
+  // Ray, candidate .16 audit, row B1b: *"With the sheet up, the whole app subtree is still in
+  // the AX tree, the composer holds focus and accepts typed characters, and the top-right
+  // Settings control is still clickable and takes focus away from the sheet."*
+  //
+  // THE SHEET SAYS `aria-modal="true"` AND THE WINDOW DOES NOT MAKE IT TRUE. That attribute is
+  // a promise to assistive technology that everything outside this dialog is unavailable;
+  // `inert` is the only thing that keeps it. Measured at 5f3a1a1e under WebKit at 1400x950 on
+  // `setup: "missing-engine"`, with the offer up and the curtain gone: `#input`, the rail's
+  // `#rail-settings` gear and the top-right `#set-btn` each take focus on `.focus()`, and a
+  // click on `#set-btn` opens `#set-menu` over the sheet — `hidden=false`, `aria-expanded=true`.
+  //
+  // WHICH CORRECTS HALF OF RAY'S SENTENCE AND MAKES THE OTHER HALF WORSE. "It takes focus and
+  // then does nothing" is not what the window does here: it takes focus AND opens the menu, on
+  // top of a question the CEO has not answered.
+  //
+  // WHY NEITHER OF THE TWO OBVIOUS FIXES IS THE FIX, both measured rather than reasoned about:
+  //
+  //   * MOVING THE SHEET TO BODY LEVEL closes nothing. `.settings` is mounted against
+  //     `document.body` by `settings-button.js:748` and painted at z-index 300 by §15's "on
+  //     every screen" rule; the sheet is an `.overlay` at 60 wherever it lives. Measured stack
+  //     at the button's own center, offer up: `set-btn@auto < settings@300 < setup-sheet@60`
+  //     — the control is above the sheet, and a body-level sheet is still at 60.
+  //   * MARKING `#app` INERT cannot be done from inside `#app`: `#setup-sheet` is a child of it
+  //     (`index.html:936` against `:100`), so that one attribute would inert the question too.
+  //
+  // So what is marked is the COMPLEMENT OF THE SHEET'S OWN ANCESTOR CHAIN, which needs no
+  // opinion about where a sheet lives and reaches `.settings` because `<body>` is on that
+  // chain. This check asserts the behavior (what takes focus) rather than the attribute, so a
+  // different implementation of the same promise passes it.
+  // =======================================================================================
+
+  await run.check("20  nothing outside the offer can be reached while the offer is up", async () => {
+    const page = await openApp(browser, { setup: "missing-engine" });
+    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+    await page.waitForFunction(() => !document.querySelector(".splash"), { timeout: 10000 });
+
+    const tryFocus = (id) =>
+      page.evaluate((i) => {
+        const n = document.getElementById(i);
+        if (!n) return "absent";
+        n.focus();
+        return document.activeElement === n ? "took focus" : "refused";
+      }, id);
+
+    // THE WINDOW BEHIND THE QUESTION. Ray's three, by their own ids.
+    assertEqual(await tryFocus("input"), "refused", "the composer takes focus behind the offer");
+    assertEqual(
+      await tryFocus("rail-settings"),
+      "refused",
+      "the rail's gear takes focus behind the offer"
+    );
+    assertEqual(
+      await tryFocus("set-btn"),
+      "refused",
+      "the top-right Settings control takes focus behind the offer — the one control that " +
+        "floats above every screen also floats above a question"
+    );
+
+    // AND A REAL MOUSE CANNOT REACH IT EITHER. `page.mouse.click` at the button's own measured
+    // center, deliberately, rather than `dispatchEvent`: a synthesized `MouseEvent` skips hit
+    // testing entirely and runs the listener on any element, inert or not — measured, it opens
+    // the menu either way — so it models nothing a person can do.
+    const at = await page.evaluate(() => {
+      const b = document.getElementById("set-btn").getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    });
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(300);
+    const clicked = await page.evaluate(() => {
+      const m = document.getElementById("set-menu");
+      return {
+        menuOpen: !!m && !m.hidden,
+        expanded: document.getElementById("set-btn").getAttribute("aria-expanded"),
+      };
+    });
+    assert(
+      !clicked.menuOpen,
+      "the settings menu opened on top of an unanswered question (aria-expanded=" +
+        clicked.expanded + ")"
+    );
+
+    // THE WALL HAS THE QUESTION INSIDE IT, which is the half that keeps this from being a
+    // dead app: both of the sheet's own answers still take the keyboard.
+    assertEqual(await tryFocus("setup-go"), "took focus", "the offer's own Set it up is inert");
+    assertEqual(await tryFocus("setup-later"), "took focus", "the offer's own Not now is inert");
+
+    // ANSWERED, AND THE WINDOW COMES BACK. "Not now" is a real answer and he is entitled to
+    // give it; a wall that outlives the question is a worse defect than the one it closed.
+    await page.click("#setup-later");
+    await page.waitForTimeout(400);
+    assertEqual(await tryFocus("input"), "took focus", "the composer stayed unreachable after the offer was answered");
+    assertEqual(
+      await tryFocus("set-btn"),
+      "took focus",
+      "the Settings control stayed unreachable after the offer was answered"
+    );
+
+    bump(8);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+    return "with the offer up, the composer, the rail gear and the top-right Settings control all refuse focus and the menu will not open; both of the offer's own buttons still take it; answered, the window comes back";
+  });
+
+  // =======================================================================================
+  // 21 — A SPOKEN SENTENCE ON A STALE ENGINE GETS THE OFFER, NOT A LOST CONNECTION
+  //
+  // THE TYPED PATH WAS FIXED ON 2026-09-19 (`05735cac`) AND THE SPOKEN PATH WAS NOT. Identical
+  // dead conjunction in `src-tauri/src/main.rs` — `!spine.has_lease() && !spine.has_lease_
+  // factory()`, with a factory that is configured unconditionally at boot — so a spoken turn
+  // on a Mac whose engine is stale started a turn that could not finish and came back as
+  // `turn interrupted [transient]`: *"I lost my connection to the part of me that thinks…
+  // asking again is worth a try."* Asking again cannot work.
+  //
+  // THE BACKEND HALF IS ASSERTED IN RUST (`cargo test --bin richos-tauri`,
+  // `the_first_run_arm_is_asked_before_a_turn_starts_and_not_behind_the_factory`, which now
+  // requires the arm at BOTH sites and refuses one). THIS IS THE WINDOW HALF, and without it
+  // the backend's own sentence is a lie: `SETUP_INCOMPLETE_*` says "I've put the setting up
+  // back on your screen: press Set it up", and nothing in the window was reopening it on
+  // `rich://voice-error`.
+  //
+  // THE WINDOW ASKS THE DISK RATHER THAN READING THE SENTENCE, which is why this check emits a
+  // message the handler has no way to recognize. Matching on a refusal's text would be a
+  // second copy of a decision the backend already made; `setup_status` is one question with
+  // one answer. The negative control is the other half: the same event on a machine that has
+  // everything must open nothing at all.
+  // =======================================================================================
+
+  await run.check("21  a spoken turn refused for the setting up puts the offer back on screen", async () => {
+    // The listener tap: every `Bridge.listen` callback `main.js` registers, so a backend
+    // event can be delivered through the SAME path a real one takes.
+    const TAP = `
+      window.__TAP = { listeners: {} };
+      let _rb;
+      Object.defineProperty(window, "RichBridge", {
+        configurable: true,
+        get() { return _rb; },
+        set(v) {
+          const ol = v.listen.bind(v);
+          v.listen = (name, cb) => { (window.__TAP.listeners[name] = window.__TAP.listeners[name] || []).push(cb); return ol(name, cb); };
+          _rb = v;
+        }
+      });
+      window.__emit = (name, payload) => (window.__TAP.listeners[name] || []).forEach((cb) => cb({ payload }));
+    `;
+    const open = async (preset) => {
+      const p = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+      const errors = [];
+      p.on("pageerror", (e) => errors.push(String(e)));
+      p.on("console", (m) => {
+        if (m.type() === "error") errors.push("console: " + m.text());
+      });
+      await p.addInitScript(TAP);
+      await p.addInitScript((v) => {
+        window.__RICHOS_MOCK_PRESET__ = v;
+      }, preset);
+      await p.goto(APP);
+      await leaveHome(p);
+      await p.waitForSelector(".nav-thread", { state: "attached" });
+      p.__errors = errors;
+      return p;
+    };
+
+    // A MACHINE WITH A STALE ENGINE, with the question already declined once — which is the
+    // state a spoken sentence is actually said in. "Not now" is a real answer and writes
+    // nothing, so the disk still says the engine is missing.
+    const page = await open({ setup: "missing-engine" });
+    await page.waitForSelector("#setup-sheet:not([hidden])", { timeout: 10000 });
+    await page.click("#setup-later");
+    await page.waitForFunction(() => document.getElementById("setup-sheet").hidden, { timeout: 5000 });
+
+    // The refusal, on voice's own channel, exactly as `start_voice_capture`'s submit closure
+    // emits it. The text is the shipped sentence and the window never looks at it.
+    await page.evaluate(() => {
+      window.__emit("rich://voice-error", {
+        message:
+          "I can't take that on yet — the RichOS engine isn't on this Mac, and that's the " +
+          "part of me that knows how I work. I've put the setting up back on your screen: " +
+          "press Set it up and I'll fetch it. There's nothing to quit and nothing to reopen.",
+        at: Date.now(),
+      });
+    });
+    await page.waitForFunction(() => !document.getElementById("setup-sheet").hidden, { timeout: 5000 })
+      .catch(() => {});
+    assert(
+      await page.evaluate(() => !document.getElementById("setup-sheet").hidden),
+      "a spoken turn was refused for the setting up and the offer did not come back — the " +
+        "backend's own sentence promises it is on screen"
+    );
+    assert(
+      await page.evaluate(() => !!document.getElementById("setup-go") && !document.getElementById("setup-go").hidden),
+      "the sheet came back without the control its sentence names"
+    );
+    bump(2);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    await page.close();
+
+    // THE NEGATIVE CONTROL. Voice can stop for reasons that have nothing to do with the
+    // setting up — a device lost, a recognizer that failed — and on a machine that has
+    // everything, this event must open nothing.
+    const healthy = await open({});
+    await healthy.evaluate(() => {
+      window.__emit("rich://voice-error", {
+        message: "My ears stopped working just now.",
+        at: Date.now(),
+      });
+    });
+    await healthy.waitForTimeout(600);
+    assert(
+      await healthy.evaluate(() => document.getElementById("setup-sheet").hidden),
+      "a voice error on a machine that has everything opened the first-run offer"
+    );
+    bump(1);
+    assert(healthy.__errors.length === 0, "the shell logged errors: " + healthy.__errors.join(" | "));
+    await healthy.close();
+
+    return "the offer is back with Set it up on it after a spoken refusal, and a voice error on a healthy machine opens nothing";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
@@ -1242,3 +1466,22 @@ main().catch((e) => {
 //        -> the first sentence a customer reads names a control that cannot work
 // 13   main.js `refreshVoiceReadiness`: hide ◉ unconditionally
 //        -> voice is deleted rather than withheld, on every machine
+// 20   main.js: delete the `syncQuestionInert` observer
+//        -> the composer, the rail gear and the top-right Settings control all take focus
+//           behind an unanswered engine offer, and the settings menu opens over it — which is
+//           the shipped behavior at 5f3a1a1e and Ray's candidate .16 row B1b
+// 20b  main.js `syncQuestionInert`: drop the `isPainted(question)` line
+//        -> a full-screen surface mounted over the question is marked inert, which removes it
+//           from hit testing, which blinds `isPainted()` — and `escape.js` B8 goes red
+// 20c  main.js `syncQuestionInert`: mark the ancestors instead of their other children
+//        -> the question inerts itself and the app has no way out at all
+// 21   main.js: restore `Bridge.listen("rich://voice-error", ({payload}) => { if (!voiceMode)
+//        return; richVoiceSays(payload.message); })`
+//        -> RUN, not reasoned about: the old handler was put back, `node setup.js` reported
+//           "a spoken turn was refused for the setting up and the offer did not come back",
+//           and it was taken out again. The backend's own sentence promises the sheet is on
+//           screen, and nothing was putting it there.
+// 21b  main.js: drop the `items.length` condition and call `maybeAskAboutSetup()` on every
+//        voice error
+//        -> the negative control goes red: a lost microphone opens the first-run offer on a
+//           machine that has everything

@@ -3715,6 +3715,46 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
         Arc::new(move |text: String, rich_audible: bool| {
             let state = submit_app.state::<AppState>();
             let Some(mut spine) = take_the_spine_or_give_up(&state.spine) else { return };
+            // ===========================================================================
+            // A FACTORY IS NOT AN ENGINE — the spoken half of the same arm
+            // ===========================================================================
+            //
+            // **The typed path got this on 2026-09-19 (`05735cac`) and the spoken path did
+            // not.** Identical conjunction, identical consequence: `set_lease_factory` is
+            // called unconditionally at boot, so `has_lease_factory()` is always true, `&&`
+            // short-circuits, and the arm below can only ever be reached on a machine that
+            // has no factory at all. A spoken sentence on a Mac whose engine is stale
+            // therefore started a turn that could not finish and came back as
+            // `turn interrupted [transient]` — *"I lost my connection to the part of me that
+            // thinks… asking again is worth a try."* Asking again cannot work. Nothing about
+            // that machine changes by being asked twice, and the one press that fixes it was
+            // never offered.
+            //
+            // **VOICE AND TEXT ARE ONE CONVERSATION, so they are one answer.** The whole
+            // design of this closure is that a recognized utterance takes the SAME path typed
+            // text takes; a refusal that differs between the two is the place that promise
+            // breaks. This is `send_message`'s arm, word for word, emitting on voice's own
+            // channel because that is the only difference between the two paths.
+            //
+            // **AND IT COSTS NOTHING ON A HEALTHY MAC**, for the same reason: `boot_engine` is
+            // `Some` exactly when this launch resolved a usable, correctly-pinned engine, so
+            // the 322 MB hash `setup_view::detect` pays for is only ever paid on a launch that
+            // already knows something is wrong.
+            if !spine.has_lease() && state.boot_engine.is_none() {
+                let disk = setup_view::detect(None);
+                if let Some(sentence) = setup_view::incomplete_message(&disk) {
+                    drop(spine);
+                    eprintln!("[richos] spoken turn refused before it started (first-run setup is incomplete)");
+                    let _ = submit_app.emit(
+                        richos_voice::event::EVENT_VOICE_ERROR,
+                        serde_json::json!({
+                            "message": sentence,
+                            "at": richos_voice::controller::now_millis(),
+                        }),
+                    );
+                    return;
+                }
+            }
             // THE LIVE LEASE, for the reason `send_message` reads it live — a spoken sentence
             // must not be refused by a boot-time snapshot that a completed first-run setup has
             // already made false. Same question, same moment, one answer.
@@ -5694,12 +5734,32 @@ mod lease_gate_tests {
     #[test]
     fn the_first_run_arm_is_asked_before_a_turn_starts_and_not_behind_the_factory() {
         let arm = concat!("if !spine.has_lease() && state.boot_", "engine.is_none() {");
+        // TWO SITES, AND THE SECOND ONE IS WHY THIS NUMBER IS ASSERTED RATHER THAN >= 1.
+        // `send_message` got this arm on 2026-09-19 and `start_voice_capture`'s submit
+        // closure did not, so a SPOKEN sentence on a Mac with a stale engine still started a
+        // turn that could not finish and came back as a transient interruption. Voice and
+        // text are one conversation; a refusal that differs between them is where that
+        // promise breaks. One is a regression in the typed path, three is a copy nobody
+        // needed.
         assert_eq!(
             SOURCE.matches(arm).count(),
-            1,
-            "send_message must ask the DISK whether the setting up is the reason, on a launch \
-             that resolved no engine, BEFORE it starts a turn that cannot finish"
+            2,
+            "the typed AND spoken paths must each ask the DISK whether the setting up is the \
+             reason, on a launch that resolved no engine, BEFORE starting a turn that cannot \
+             finish"
         );
+        // And each of the two is the FIRST thing its path does with the spine, ahead of the
+        // factory gate — the ordering is the whole fix, not the presence of the line.
+        for at in SOURCE.match_indices(arm).map(|(at, _)| at) {
+            let gate = concat!("if !spine.has_lease() && !spine.", "has_lease_factory() {");
+            let after = &SOURCE[at..];
+            let next_gate = after.find(gate).expect("a first-run arm with no factory gate after it");
+            assert!(
+                next_gate < 1200,
+                "a first-run arm is more than 1,200 bytes from the factory gate it must \
+                 precede — one of the two paths has drifted"
+            );
+        }
         // The dead shape, by name: the first-run arm inside the factory gate.
         let factory_gate = concat!("if !spine.has_lease() && !spine.", "has_lease_factory() {");
         for at in SOURCE.match_indices(factory_gate).map(|(at, _)| at) {
