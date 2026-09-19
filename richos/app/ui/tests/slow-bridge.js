@@ -221,7 +221,7 @@ async function withUpdateWaiting(browser, lag) {
 }
 
 async function main() {
-  const run = createRun("slow-bridge — the two interactions that were correct only at zero latency");
+  const run = createRun("slow-bridge — the interactions that were correct only at zero latency");
   const { webkit } = loadPlaywright();
   const browser = await webkit.launch();
 
@@ -495,6 +495,160 @@ async function main() {
         `in the opening window the composer reads "${during.placeholder}" and is editable; three Returns ` +
         `produced exactly 1 message, on the right thread, with the box emptied; an edited sentence is ` +
         `left in the box and never sent`
+      );
+    });
+  }
+
+  // ---- 6. the send that CREATES the thread never empties the screen ----------------------
+  //
+  // THE FOURTH DEFECT OF THIS EXACT SHAPE, and Ray measured this one frame by frame on the
+  // real window (candidate .11, §2, frames 04 and 05,
+  // `docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md`):
+  //
+  //     +0.28 s  message posted — the send itself is instant
+  //     +5.6 s   still fine
+  //     +6.3 s → +10.2 s  THE THREAD IS GONE. Replaced by the empty-thread greeting
+  //              "I'm Rich — your chief of staff…". His message and the card have vanished.
+  //     +10.9 s  message and card are back
+  //
+  // His words for it: *"Four and a half seconds is long enough to press things."* It is the
+  // data-flash failure in its plainest form, and it is worse than a flash: what takes his
+  // sentence's place is the screen a person sees when nothing has ever happened here.
+  //
+  // IT BELONGS IN THIS FILE because it is the same class as the three above — code that is
+  // only correct when the bridge is instant. `send()`'s new-thread branch puts a DISPOSABLE
+  // bubble in a throwaway model and awaits `openThread`, which builds a fresh model whose
+  // `loadTimeline` clears it; from that moment until `send()` resumes AFTER `openThread`
+  // returns, the model on screen is empty and `flushRender` draws the greeting over it. At
+  // 0 ms the window is a frame or two; the 4.6 s Ray measured is `renderFirstRunNotice` and
+  // `drainWorkNotices` waiting on a spine that the pre-prime holds for a whole model turn.
+  //
+  // The sampler is the assertion. A check that read the screen once, afterwards, would pass
+  // against the defect every time — the end state was never wrong.
+  //
+  // PROVEN TO CATCH IT, measured rather than assumed. `app/ui/main.js` was restored to
+  // `05ab7a0c` with this file left exactly as it stands:
+  //
+  //     PASS  … (0ms bridge)     the greeting on 0 of 150 frames
+  //     FAIL  … (120ms bridge)   the first-run greeting was on screen for 8 of 223 frames
+  //     FAIL  … (400ms bridge)   the first-run greeting was on screen for 24 of 391 frames
+  //
+  // **0 ms is the control case and it is supposed to pass**, exactly as the thread-press
+  // check's 0 ms case is: the window is the length of the awaits, so with no bridge latency
+  // there is nothing to see. And the mock's 130 ms and 400 ms are the floor rather than the
+  // measurement — Ray's 4.6 s is those same awaits behind a spine mutex the pre-prime holds
+  // for a whole model turn, which no in-page fixture has.
+  for (const lag of LATENCIES) {
+    await run.check(`the thread never empties to the first-run greeting while his message is in flight (${lag}ms bridge)`, async () => {
+      const page = await open(browser, lag);
+      await page.waitForSelector(".nav-thread", { state: "attached" });
+      await bootDone(page);
+
+      // The §3.3 flow a person takes: "+ New thread", pick the company, type, Return. The
+      // picker is skipped when the install knows exactly one company, so its presence is
+      // checked rather than assumed.
+      await page.evaluate(() => document.getElementById("rail-new-thread").click());
+      const picked = await page.evaluate(() => {
+        const picker = document.getElementById("entity-picker");
+        if (picker.hidden) return false;
+        const first = picker.querySelector(".picker-item");
+        if (!first) return false;
+        first.click();
+        return true;
+      });
+      await page.waitForSelector("#entity-view:not([hidden])", { timeout: 6 * lag + 8000 });
+
+      const SENTENCE = "add a line to notes.txt in the QA fixture repository and land it";
+      await page.evaluate((sentence) => {
+        window.__frames = [];
+        const messages = document.getElementById("messages");
+        const sample = () => {
+          const visible = !!(messages && messages.offsetParent !== null);
+          const text = messages ? messages.textContent : "";
+          window.__frames.push({
+            greeting: visible && text.includes("chief of staff"),
+            mine: Array.from(document.querySelectorAll(".tl-user-text")).filter(
+              (n) => n.textContent.trim() === sentence
+            ).length,
+          });
+          if (window.__sampling) requestAnimationFrame(sample);
+        };
+        window.__sampling = true;
+        const i = document.getElementById("input");
+        i.focus();
+        i.value = sentence;
+        i.dispatchEvent(new Event("input", { bubbles: true }));
+        // PRESSED IN THE SAME BLOCK THE SAMPLER STARTS IN, so the first frame after Return is
+        // recorded. Ray's blank opens 6 s in; a sampler that started late would be measuring
+        // the recovery rather than the gap.
+        i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        // **THE FIRST SAMPLE IS AN ANIMATION FRAME, NOT THIS TICK, AND THAT IS A CORRECTION
+        // RATHER THAN A CONVENIENCE.** Reading the DOM synchronously here measured a state the
+        // browser never presented: `send()` runs `showConversationView()` (which unhides
+        // `#messages`) and `scheduleRender()` in this same tick, and the renderer's own
+        // `requestAnimationFrame` lands before the next paint — so the synchronous read sees
+        // the PREVIOUS thread's DOM under a container that has just been unhidden, for zero
+        // painted frames. Measured: exactly 1 greeting frame at 0, 120 and 400 ms, always
+        // index 0, always at t+0 ms with the composer still reading `idle`. Sampling from a
+        // frame callback registered after the renderer's makes every reading below a statement
+        // about a frame that was actually put on screen, which is the only thing Ray could see.
+        requestAnimationFrame(sample);
+      }, SENTENCE);
+
+      // Long enough to cover the whole chain the old code blanked across: create_thread_in,
+      // refreshNavigation, openThread (switch_thread + active_context + get_timeline), plus
+      // renderFirstRunNotice and the send itself — ten bridge round trips and a floor for 0 ms.
+      await observe(page, 10 * lag + 2500, "the whole create-thread-and-send chain");
+      const out = await page.evaluate((sentence) => {
+        window.__sampling = false;
+        return {
+          frames: window.__frames,
+          greetingNow: document.getElementById("messages").textContent.includes("chief of staff"),
+          copies: Array.from(document.querySelectorAll(".tl-user-text")).filter(
+            (n) => n.textContent.trim() === sentence
+          ).length,
+        };
+      }, SENTENCE);
+
+      const frames = out.frames;
+      assert(frames.length > 10, `the sampler ran: ${frames.length} frame(s)`);
+      assertEqual(page.__errors, [], "the shell logged errors while the thread was created");
+
+      // (a) THE GREETING IS NEVER DRAWN. This is the defect itself.
+      const blank = frames.filter((f) => f.greeting).length;
+      assertEqual(
+        blank,
+        0,
+        `the first-run greeting was on screen for ${blank} of ${frames.length} sampled frames — ` +
+          `his message was replaced by the screen a person sees when nothing has ever happened ` +
+          `here (Ray's candidate-.11 §2.2: 4.6 s of it, and long enough to press things)`
+      );
+
+      // (b) AND HIS SENTENCE NEVER LEAVES ONCE IT HAS ARRIVED. The greeting is what he saw;
+      // the loss of his own words is what made it frightening, and a fix that drew nothing at
+      // all in that window would pass (a) while leaving him looking at an empty conversation.
+      const appeared = frames.findIndex((f) => f.mine > 0);
+      assert(appeared >= 0, "his sentence never appeared at all during the send");
+      const vanished = frames.slice(appeared).filter((f) => f.mine === 0).length;
+      assertEqual(
+        vanished,
+        0,
+        `his sentence was on screen and then gone again for ${vanished} of ` +
+          `${frames.length - appeared} frames after it first appeared`
+      );
+
+      // (c) ONE COPY, NEVER TWO. The fix carries the bubble across the model replacement, and
+      // a carry that also re-added it would draw the CEO's one sentence twice (§25).
+      assertEqual(out.copies, 1, `his sentence is on screen ${out.copies} times after the send`);
+      assertEqual(out.greetingNow, false, "the first-run greeting is on screen after his send landed");
+      const doubled = frames.filter((f) => f.mine > 1).length;
+      assertEqual(doubled, 0, `his sentence was drawn twice on ${doubled} sampled frames`);
+
+      await page.close();
+      return (
+        `${frames.length} frames sampled across the create-thread-and-send chain` +
+        `${picked ? " (company picked from the §3.3 dialog)" : " (one company, so no dialog)"}: ` +
+        `the greeting on 0 of them, his sentence present on every frame from ${appeared} onward, one copy`
       );
     });
   }

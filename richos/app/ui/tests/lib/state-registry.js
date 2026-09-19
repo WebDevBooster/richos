@@ -883,7 +883,7 @@ module.exports = [
   { s: "How much should Rich interrupt you?", c: "CONTROL", why: "Assertiveness popover title over its radios." },
   { s: "Only when it's urgent", c: "CONTROL", why: "Assertiveness radio label." },
   { s: "Show it when RichOS starts", c: "CONTROL", why: "The opening screen's off switch — a checkbox label, and the control IS the state." },
-  { s: "Which entity is this work in?", c: "CONTROL", why: "Entity picker title over its list." },
+  { s: "Which company is this work in?", c: "CONTROL", why: "Entity picker title over its list. \"company\", never \"entity\" — Ray candidate-.11 §3.5." },
   { s: "Search entities, threads and conversations…", c: "CONTROL", why: "#search-input placeholder." },
   { s: "Talk to Rich", c: "CONTROL", why: "#talk-toggle title." },
   {
@@ -3425,6 +3425,11 @@ module.exports = [
     "s": "saved work records",
     "c": "FRAGMENT",
     "why": "A numeric record-count suffix in the saved-work disclosure."
+  },
+  {
+    "s": "saved work record",
+    "c": "FRAGMENT",
+    "why": "The same suffix at a count of one. Ray candidate-.11 \u00a71.2 read \"1 saved work records\"; the chip now picks its noun from its count."
   },
   // -------------------------------------------------------------------------------------
   // GETTING THE SPEECH MODEL (2026-09-17)

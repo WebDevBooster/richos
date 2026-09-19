@@ -568,6 +568,31 @@ impl richos_core::cognition::LeaseFactory for ProbeLeaseFactory {
     }
 }
 
+/// **THE MACHINE THE ENGINE OFFER IS SHOWN ON: nothing to start `claude` in.**
+///
+/// `RICHOS_PROBE_REPAIR`'s precondition, and it is the real failure rather than a stand-in for
+/// it: with no engine directory, `NativeCognition::start_with_engine` cannot spawn, every
+/// priming hook that reaches it fails, and `Spine::ready_a_spare_front_desk` answers
+/// `SpareReady::NotReady`. That is the state Ray's Mac was in at 23:23Z on candidate .11.
+struct NoEngineFactory;
+
+impl richos_core::cognition::LeaseFactory for NoEngineFactory {
+    fn spawn(&self) -> Result<Box<dyn Cognition>, richos_core::cognition::CognitionError> {
+        Err(richos_core::cognition::CognitionError::Io(
+            "there is no engine on this machine yet".into(),
+        ))
+    }
+    fn spawn_scoped(
+        &self,
+        _binding: &richos_core::entity::ThreadBinding,
+        _control: &richos_core::steering::TurnControl,
+    ) -> Result<Box<dyn Cognition>, richos_core::cognition::CognitionError> {
+        Err(richos_core::cognition::CognitionError::Io(
+            "there is no engine on this machine yet".into(),
+        ))
+    }
+}
+
 /// **What the spare's child costs while it sits there** — RSS and CPU of the whole process tree
 /// under this probe, sampled with `ps`.
 ///
@@ -754,6 +779,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bin: resolve_claude_bin(), executable: std::env::current_exe()?,
             bridge: bridge.clone(),
         }));
+
+        // ================================================================================
+        // `RICHOS_PROBE_REPAIR=1` — THE MESSAGE AFTER THE ENGINE REFRESH (Ray candidate-.11 §2.1)
+        // ================================================================================
+        //
+        // **The premise, measured on the real window and not assumed here.** On candidate .11 the
+        // Mac had no engine, so every priming hook reached `spawn_scoped` and failed; the CEO
+        // pressed "Set it up", the engine installed cleanly at 23:23:40Z, and nothing re-primed.
+        // His first message at 23:27:41.06Z then paid the whole priming turn: the turn did not
+        // start until ~+11 s and "On it!" reached the screen at **+18.3 s**
+        // (`docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md` §2).
+        //
+        // This mode reproduces that sequence in order, and it costs NO extra model turn: the
+        // failed attempt spawns nothing.
+        //
+        //   1. a factory that cannot spawn — the machine the offer is shown on;
+        //   2. ask for a spare, and REQUIRE `NotReady` (a run where step 1 quietly worked would
+        //      be measuring the ordinary primed shape while printing this one);
+        //   3. the install: the real factory is installed, which is what `run_setup` does when
+        //      it rewrites `AppState::engine_dir`;
+        //   4. ask again, which is `ready_the_front_desk_after_a_repair` — and then the ordinary
+        //      PRIMED sequence below, unchanged, so the two runs are comparable term by term.
+        if std::env::var_os("RICHOS_PROBE_REPAIR").is_some() {
+            let mut before_the_install = Spine::new(Ledger::open(&data.join("repair-probe.jsonl"))?);
+            before_the_install.set_entity_registry(spine.entity_registry().clone());
+            before_the_install.set_lease_factory(Box::new(NoEngineFactory));
+            let refused = before_the_install.ready_a_spare_front_desk(&entity);
+            match refused {
+                richos_core::spine::SpareReady::NotReady(ref why) => {
+                    eprintln!("---");
+                    eprintln!("RICHOS_PROBE_REPAIR: before the install, the spare was refused: {why}");
+                    eprintln!("  (nothing was spawned and no model turn was spent — this is the state");
+                    eprintln!("   his Mac was in when the engine offer was on screen)");
+                }
+                ref other => {
+                    return Err(format!(
+                        "the pre-install attempt must be refused, and it answered {other:?} — this run                          would be the ordinary primed shape wearing the repair's name"
+                    )
+                    .into())
+                }
+            }
+            eprintln!("RICHOS_PROBE_REPAIR: the install completes; the desk is asked for again, now.");
+        }
 
         let spare_started = Instant::now();
         let spare_verdict = spine.ready_a_spare_front_desk(&entity);

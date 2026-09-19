@@ -1904,6 +1904,88 @@ async function main() {
     return "#unbound-new-thread opens the §3.3 picker with " + n + " entities, defaulting to none";
   });
 
+  // ---- Ray's candidate-.11 defect 3.5: the word, and the question with one answer --------
+  //
+  // §3.5, verbatim: *"'entity' is schema vocabulary in front of a non-technical CEO
+  // (everything else in the app says company), and the dialog is shown when there is exactly
+  // one choice."* Two faults in one small dialog, and they are checked together because the
+  // fix is one flow.
+  //
+  // THE SINGLE-COMPANY HALF NEEDS A SINGLE-COMPANY INSTALL, which `mock.js` deliberately is
+  // not — it carries six, because several suites assert positions in a six-long row. So this
+  // check wraps the bridge and filters `navigation_tree` down to one group, which is the
+  // shape of a real first install. It does that rather than editing the mock for the reason
+  // the mock's own comment gives for holding six.
+  await run.check("the company picker says \"company\", and does not ask when there is one answer", async () => {
+    // (a) THE WORD, on the install the rest of this suite runs on — six companies, so the
+    //     dialog opens and its title can be read off the screen.
+    const many = await openApp(browser);
+    await dismissEntityPicker(many);
+    await many.click("#rail-new-thread");
+    await many.waitForSelector("#entity-picker:not([hidden])");
+    const title = (await many.textContent("#entity-picker-title")).trim();
+    assertEqual(title, "Which company is this work in?", "the picker speaks the schema's language");
+    assert(!title.toLowerCase().includes("entity"), `"entity" is in front of him: ${title}`);
+    await many.keyboard.press("Escape");
+    await many.close();
+
+    // (b) THE QUESTION WITH ONE ANSWER.
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.addInitScript(() => {
+      let real = null;
+      Object.defineProperty(window, "RichBridge", {
+        configurable: true,
+        get: () => real,
+        set(v) {
+          real = v;
+          const invoke = v.invoke.bind(v);
+          v.invoke = async (cmd, args) => {
+            const out = await invoke(cmd, args);
+            if (cmd === "navigation_tree" && out && out.groups && out.groups.length > 1) {
+              return Object.assign({}, out, { groups: out.groups.slice(0, 1) });
+            }
+            return out;
+          };
+        },
+      });
+    });
+    await page.goto(APP);
+    await leaveHome(page);
+    await page.waitForSelector(".nav-thread", { state: "attached" });
+    await dismissEntityPicker(page);
+    // The app's OWN count of companies, not a count of rail sections: the rail draws a group
+    // for unbound threads too, and the number this check is about is `navTree.groups.length`.
+    const only = await page.evaluate(async () => (await window.RichBridge.invoke("navigation_tree")).groups.length);
+
+    await page.click("#rail-new-thread");
+    // He is on the new-thread screen for the only company he has, with NO dialog in between.
+    // BOUNDED, AND THE FAILURE IS NAMED RATHER THAN A TIMEOUT: with the skip removed this wait
+    // can never be satisfied, and "Timeout 10000ms exceeded waiting for #entity-view" is true
+    // and useless to whoever has to read it. The state is read and asserted instead.
+    const landed = await page
+      .waitForSelector("#entity-view:not([hidden])", { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
+    const after = await page.evaluate(() => ({
+      picker: !document.getElementById("entity-picker").hidden,
+      rows: document.querySelectorAll("#entity-picker .picker-item").length,
+      canType: !document.getElementById("input").disabled,
+    }));
+    assertEqual(
+      after.picker,
+      false,
+      `the dialog was shown for a choice that has one option — ${after.rows} row(s) in it, and ` +
+        `the only thing pressing that row can do is close the dialog`
+    );
+    assert(landed, "he never reached the new-thread screen at all");
+    assert(after.canType, "he reached the new-thread screen but cannot type into it");
+    assertEqual(errors, [], "the shell logged errors on the one-company path");
+    await page.close();
+    return `with ${only} company on the install the picker is skipped and he lands on its new-thread screen; with six it opens, titled "${title}"`;
+  });
+
   // ---- the company setting, which the string inventory cannot see ------------------------
   //
   // `UI_SOURCES` is index.html, main.js and timeline.js, so the row this pass added to

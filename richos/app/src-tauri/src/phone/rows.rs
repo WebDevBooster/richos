@@ -117,6 +117,43 @@ pub fn event_from_live(name: &str, payload: &Value, cursor: u64) -> Option<(&'st
     let thread_id = payload.get("threadId").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let at = payload.get("at").and_then(|v| v.as_u64()).unwrap_or(0);
     match name {
+        // **WHAT THE CEO HIMSELF SAID, LIVE** — `esc-20260919T003541Z-6885f74b`, and the half of
+        // defect 4.1 that could not be fixed on the page.
+        //
+        // He types on the Mac; the phone is looking at the same thread. Until
+        // `LiveEvent::CeoMessage` existed there was no event in this family about his own
+        // message, so the phone learned about it only by asking the Mac for the rows again —
+        // which it does after a reply settles, and which never happens at all on a turn that
+        // produces no reply. His own sentence then stayed off the phone until the next reload.
+        //
+        // **THE ID IS THE PROJECTION'S**, `{turn}:user`, and `created_at` is the turn's own. So
+        // the row this builds and the row a backfill builds for the same message are ONE row to
+        // a phone that merges on `id`, which is the property that stops this becoming a
+        // duplicate-message defect instead of a missing-message one.
+        "rich://ceo-message" => {
+            // The same rule `row_from_item` applies to a projected user message, in the same
+            // words: `jam` is a spoken turn, anything else is typed.
+            let spoken = payload.get("source").and_then(|v| v.as_str()) == Some("jam");
+            Some((
+                "message",
+                json!({
+                    "id": message_id,
+                    "thread_id": thread_id,
+                    "cursor": cursor,
+                    "role": "ceo",
+                    "kind": if spoken { "voice" } else { "text" },
+                    "text": payload.get("text").and_then(|v| v.as_str()).unwrap_or(""),
+                    // The TURN's instant, not this event's: the projected row carries the same
+                    // one, and two timestamps for one message is two orderings for one thread.
+                    "created_at": iso8601(payload.get("createdAt").and_then(|v| v.as_u64()).unwrap_or(at)),
+                    "client_id": Value::Null,
+                    "has_audio": false,
+                    "from_microphone": spoken,
+                    "state": "sent",
+                    "complete": true,
+                }),
+            ))
+        }
         // A run of Rich's prose opens. The row goes out empty and incomplete; the deltas fill
         // it. This is what lets the phone show the reply arriving rather than appearing.
         "rich://message-started" => Some((
@@ -173,8 +210,14 @@ pub fn event_from_live(name: &str, payload: &Value, cursor: u64) -> Option<(&'st
 }
 
 /// Does this live event open a new message row — that is, does it consume a cursor?
+///
+/// **`rich://ceo-message` is one, and forgetting it would have been silent.** A cursor is a
+/// position among the kept rows of the projection, and the projection counts his message: a
+/// live family that emitted his row without consuming a cursor would put every Rich row after
+/// it one position ahead of where a reload puts it, and `before=`/`since=` would stop agreeing
+/// across a restart — which is the drift the module doc says a `hello` exists to repair.
 pub fn opens_a_row(name: &str) -> bool {
-    name == "rich://message-started"
+    name == "rich://message-started" || name == "rich://ceo-message"
 }
 
 /// Milliseconds since the epoch as an ISO-8601 instant in UTC, e.g. `2026-09-18T12:34:56.789Z`.
@@ -385,11 +428,49 @@ mod tests {
         assert!(event_from_live("rich://message-started", &payload, 1).is_some());
         assert!(event_from_live("rich://message-delta", &payload, 1).is_some());
         assert!(event_from_live("rich://message-completed", &payload, 1).is_some());
+        assert!(event_from_live("rich://ceo-message", &payload, 1).is_some());
+    }
+
+    #[test]
+    fn his_own_message_crosses_as_a_ceo_row_carrying_the_turn_s_own_instant() {
+        // `esc-20260919T003541Z-6885f74b`. The two fields the phone merges on are `id` and
+        // `created_at`, and both are the PROJECTION'S — `{turn}:user` and the turn's own
+        // instant — so a backfill of the same message is the same row rather than a second one.
+        let payload = json!({
+            "threadId": "thr_5c1e", "messageId": "turn_9:user", "text": "land the pricing branch",
+            "source": "text", "createdAt": 1_758_200_400_000u64, "at": 1_758_200_400_500u64,
+            "visibility": "ceo"
+        });
+        let (kind, row) = event_from_live("rich://ceo-message", &payload, 7).expect("his row");
+        assert_eq!(kind, "message");
+        assert_eq!(row["role"], "ceo");
+        assert_eq!(row["kind"], "text");
+        assert_eq!(row["from_microphone"], false);
+        assert_eq!(row["text"], "land the pricing branch");
+        assert_eq!(row["id"], "turn_9:user");
+        assert_eq!(row["cursor"], 7);
+        assert_eq!(row["state"], "sent");
+        assert_eq!(row["complete"], true);
+        // The TURN's instant, not the event's: two timestamps for one message is two orderings.
+        assert_eq!(row["created_at"], "2025-09-18T13:00:00.000Z");
+
+        // A SPOKEN turn takes the microphone marker, by the same rule `row_from_item` applies
+        // to a projected one — `jam` and nothing else.
+        let spoken = json!({
+            "threadId": "thr_5c1e", "messageId": "turn_9:user", "text": "land it",
+            "source": "jam", "createdAt": 1u64, "at": 1u64, "visibility": "ceo"
+        });
+        let (_, voice) = event_from_live("rich://ceo-message", &spoken, 1).expect("his spoken row");
+        assert_eq!(voice["kind"], "voice");
+        assert_eq!(voice["from_microphone"], true);
     }
 
     #[test]
     fn only_an_opening_message_consumes_a_cursor() {
         assert!(opens_a_row("rich://message-started"));
+        // His OWN message opens one too — a row in the projection is a row here, or the live
+        // and reloaded orderings drift by one from the first thing he ever says.
+        assert!(opens_a_row("rich://ceo-message"));
         assert!(!opens_a_row("rich://message-delta"));
         assert!(!opens_a_row("rich://message-completed"));
         assert!(!opens_a_row("rich://turn-status"));

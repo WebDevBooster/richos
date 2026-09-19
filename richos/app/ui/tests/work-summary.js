@@ -26,6 +26,51 @@ async function main() {
     assertEqual(errors.length,0,"renderer errors"); await page.close();
     return "scoped receipts, explicit outcomes, escaped content and visible read failure";
   });
+  // **RAY'S CANDIDATE-.11 DEFECT 1.2 — "1 saved work records".**
+  //
+  // §1.2 of `docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md`,
+  // screenshots 06 and 08: a singular count with a plural noun, in the status line he reads
+  // most often. The check above waits on the TWO-record form and would have passed for ever
+  // with the one-record form broken, which is the whole reason this is a separate check: the
+  // fixture that shows the defect is a fixture with exactly one receipt in it.
+  //
+  // Asserted over the WHOLE chip and not only the saved-work part, because the defect is that
+  // the rule existed at three of its four sites. The chip now prints every count through one
+  // `counted(n, singular, plural)`, so this check is what notices a fifth part that does not.
+  await run.check("every count on the status line agrees with its own noun, at one and at more than one", async () => {
+    const page = await browser.newPage({viewport: {width:1280, height:900}});
+    const errors = []; page.on("pageerror", e => errors.push(String(e)));
+    await page.addInitScript(() => window.__RICHOS_MOCK_PRESET__ = {workSummaries: {
+      hiring: {items:[{title:"Reviewed change", role:"worker", repository:"/fictional/one", state:"integrated", detail:"Reviewed commit integrated locally. Whole assignment remains open."}], omitted:0}
+    }});
+    await page.goto("file://" + path.join(UI_DIR,"index.html")); await leaveHome(page);
+    await openThread(page,"hiring");
+    await page.waitForFunction(() => document.getElementById("drill-chip-zone").textContent.includes("saved work record"));
+    const one = await page.textContent("#drill-chip-zone");
+    assert(one.includes("1 saved work record"), `the chip reads ${JSON.stringify(one.trim())}`);
+    assert(!one.includes("1 saved work records"), `singular count, plural noun: ${JSON.stringify(one.trim())}`);
+
+    assertEqual(errors.length,0,"renderer errors"); await page.close();
+
+    // POSITIVE CONTROL, on its own page: the plural must still be plural. Without it, "fix the
+    // noun" could pass by printing the singular everywhere — the same defect facing the other
+    // way, and a check that only ever sees one receipt cannot tell the two apart.
+    const many = await browser.newPage({viewport: {width:1280, height:900}});
+    await many.addInitScript(() => window.__RICHOS_MOCK_PRESET__ = {workSummaries: {
+      hiring: {items:[
+        {title:"Reviewed change", role:"worker", repository:"/fictional/one", state:"integrated", detail:"Reviewed commit integrated locally. Whole assignment remains open."},
+        {title:"Second change", role:"worker", repository:"/fictional/two", state:"integrated", detail:"Reviewed commit integrated locally. Whole assignment remains open."}
+      ], omitted:0}
+    }});
+    await many.goto("file://" + path.join(UI_DIR,"index.html")); await leaveHome(many);
+    await openThread(many,"hiring");
+    await many.waitForFunction(() => document.getElementById("drill-chip-zone").textContent.includes("saved work record"));
+    const two = await many.textContent("#drill-chip-zone");
+    assert(two.includes("2 saved work records"), `two receipts read ${JSON.stringify(two.trim())}`);
+    await many.close();
+    return `one receipt reads ${JSON.stringify(one.trim())}; two read ${JSON.stringify(two.trim())}`;
+  });
+
   await browser.close(); process.exit(run.report()?1:0);
 }
 main().catch(e=>{console.error(e);process.exit(1);});

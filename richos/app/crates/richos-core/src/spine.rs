@@ -766,6 +766,32 @@ impl Spine {
         }]
     }
 
+    /// `rich://ceo-message` — his own sentence, read back OUT of the ledger for the reason
+    /// [`Spine::turn_status_event`] is: the wire must carry what survived the write.
+    ///
+    /// **THE ID AND THE INSTANT ARE THE PROJECTION'S**, `{turn_id}:user` and `turn.created_at`,
+    /// which is what makes a consumer that merges on `id` see one row rather than two — see
+    /// [`LiveEvent::CeoMessage`]. They are derived from the same turn record `timeline.rs`
+    /// derives them from, so a change in `timeline.rs` that moved either would be caught by
+    /// `tests/live_event_tests.rs`'s wire-and-reload agreement rather than by a phone.
+    ///
+    /// Returns nothing at all for a turn with no CEO text — a proactive turn has none by
+    /// construction, and the projection contributes no user item for one either.
+    fn ceo_message_event(&self, binding: &ThreadBinding, turn_id: &str) -> Vec<LiveEvent> {
+        let Some(turn) = self.ledger.turn(turn_id) else { return Vec::new() };
+        if turn.user_text.is_empty() || turn.source == Source::Proactive {
+            return Vec::new();
+        }
+        vec![LiveEvent::CeoMessage {
+            fence: EventFence::for_turn(binding, turn_id),
+            message_id: format!("{turn_id}:user"),
+            text: turn.user_text.clone(),
+            source: turn.source,
+            created_at: turn.created_at,
+            at: now_millis(),
+        }]
+    }
+
     /// §13 `rich://turn-status`, read back OUT of the ledger rather than assembled from
     /// the values in hand: `started_at` and the MEASURED `active_ms` are whatever survived
     /// the write, so the wire cannot report a span the ledger does not hold.
@@ -2107,6 +2133,14 @@ impl Spine {
         // delivered immediately still shows queued -> working rather than appearing
         // mid-flight. Nothing on `stream.rs` changes here.
         self.emit_live(self.turn_status_event(binding, &turn_id, TurnStatus::Queued, None));
+        // **AND WHAT HE ACTUALLY SAID** — `esc-20260919T003541Z-6885f74b`. Every other event in
+        // this family is about Rich; until today the CEO's own sentence reached a surface only
+        // by being PROJECTED, which was enough while the one surface was a webview that had
+        // already drawn it itself. The phone subscribes to this family and drew nothing, so a
+        // message typed on the Mac did not appear there until something asked for the rows
+        // again. Emitted HERE, beside the queued status, because this is the one function every
+        // CEO utterance passes through and the message is durable one statement above.
+        self.emit_live(self.ceo_message_event(binding, &turn_id));
         self.emit_live(self.thread_summary_event(binding, &turn_id, ThreadStatus::Queued));
 
         // (1b) THE FLYWHEEL'S AUTOMATIC TRIGGER. Here, and not in the shell, because this

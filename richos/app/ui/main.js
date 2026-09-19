@@ -1079,6 +1079,27 @@ async function openThread(threadId, opts) {
   await loadTimeline();
   if (stale()) return;
   if (mainView !== "opening") return; // loadTimeline fell into the unbound state
+  // **HIS SENTENCE IS PUT BACK INTO THE MODEL THAT REPLACED THE ONE IT WAS IN** — Ray's
+  // candidate-.11 defect 2.2, and the reason it has to happen HERE.
+  //
+  // Measured on his walk (§2, frames 04 and 05): he typed into a brand-new thread, his message
+  // appeared at +0.28 s, and from **+6.3 s to +10.9 s the thread was replaced by the first-run
+  // greeting** — "I'm Rich — your chief of staff…" — with his message and the card gone.
+  //
+  // The cause is two lines of this file rather than anything in the renderer. `send()`'s
+  // `draftEntityId` branch puts a DISPOSABLE bubble in a throwaway model, then awaits
+  // `openThread`, which builds a fresh model above and whose `loadTimeline` clears `items` and
+  // `pendingUser` wholesale. From `showConversationView()` below until `send()` resumes after
+  // this function RETURNS, the model on screen is empty — and `flushRender`'s empty test then
+  // draws the greeting. The 4.6 s width is the awaits still ahead of that return
+  // (`renderFirstRunNotice` takes the spine's lock, which the pre-prime holds for a model turn).
+  //
+  // So the bubble is carried across the replacement instead of being re-added after it. One
+  // bubble, never two: `send()` adopts this id rather than adding its own.
+  if (opts.pendingUser) {
+    carriedPendingUserId = window.RichTimeline.addPendingUserMessage(
+      timelineModel, opts.pendingUser.text, opts.pendingUser.at);
+  }
   drafts.set(threadId, inputEl.value); // typing while opening belongs to this destination
   showConversationView();
   renderRail();
@@ -1116,6 +1137,28 @@ async function openThread(threadId, opts) {
 /// for never filing the CEO's first sentence somewhere he did not choose.
 function startNewThreadFlow() {
   openEntityPicker((entityId) => showEntityView(entityId, "new"));
+}
+
+/// **A QUESTION WITH ONE ANSWER IS NOT A QUESTION** — Ray's candidate-.11 defect 3.5:
+/// *"the dialog is shown when there is exactly one choice."*
+///
+/// **This is narrower than it looks, and the narrowness is the point.** §21's rule is "Never
+/// default to the LAST entity", and the comment on [`startNewThreadFlow`] reads *"one keystroke
+/// is a cheap price for never filing the CEO's first sentence somewhere he did not choose."*
+/// Both are about CHOOSING between companies he has. With exactly one company on the install
+/// there is nothing to choose between: filing the thread there is not a default, a guess or a
+/// memory of what he did last — it is the only place the thread can go, and the picker's own
+/// list has one row whose only effect is to close the dialog.
+///
+/// **It applies to the THREAD question only.** The first-run question — *"Which company is this
+/// copy of Rich for?"* — keeps its dialog at one company, because that screen is not only a
+/// list: it carries the add-a-company form ("Not one of these? Add it here."), the account note
+/// and the "Not now" deferral, and it is the answer to a question he is being asked once and
+/// remembered by. `forCompany` is the flag that already decides all three of those, so it
+/// decides this too and the four cannot come apart.
+function theOnlyCompany() {
+  const groups = (navTree && navTree.groups) || [];
+  return groups.length === 1 ? groups[0].entity.id : null;
 }
 
 /// §3.3 step 4: a provisional title from the first message, replaced later by a concise
@@ -1340,7 +1383,22 @@ function flushRender() {
   markSelectedChip();
   if (turns.some((t) => t.stream.some((i) => i.kind === "rich_message"))) sessionAvatarShown = true;
 
-  if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0) renderFirstRun();
+  // **THE FIRST-RUN GREETING IS THE "NOTHING HAS EVER HAPPENED HERE" STATE, AND A MESSAGE IN
+  // FLIGHT MEANS SOMETHING HAS** — Ray's candidate-.11 defect 2.2.
+  //
+  // He sent into a brand-new thread and watched his message be replaced by "I'm Rich — your
+  // chief of staff…" for 4.6 s (§2, frames 04 and 05). `openThread`'s carry above is what keeps
+  // this model from being empty in that window; this is the floor under it, and it is the
+  // statement rather than the mechanism: while a send he made is still in flight for what is on
+  // screen, an empty timeline is a model being rebuilt, not a conversation that has never been
+  // used, and the one thing it must never do is tell him it is the latter.
+  //
+  // `visiblePendingSend()` is the app's own existing answer to "is a send in flight for what he
+  // is looking at" — the same predicate the wait band is drawn from — so there is no second
+  // idea of it here to drift from the first.
+  if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0 && !visiblePendingSend()) {
+    renderFirstRun();
+  }
 
   if (focusId) {
     const again = messagesEl.querySelector('[id="' + focusId.replace(/(["\\])/g, "\\$1") + '"]');
@@ -1555,6 +1613,15 @@ function restoreUnsentText(text, threadId) {
 /// dropped. See the note in `send()` below — audit-7 row 10.
 let sendHeldWhileOpening = null;
 
+/// **The bubble `openThread` carried across the model it replaced** — Ray's candidate-.11
+/// defect 2.2, and the handover between the two halves of that fix.
+///
+/// `openThread(threadId, { pendingUser })` adds his message to the FRESH model before the
+/// conversation is shown, so the screen is never empty and the greeting is never reachable.
+/// `send()` then adopts this id instead of adding a second bubble for the same sentence.
+/// Consumed exactly once, and cleared by whoever reads it.
+let carriedPendingUserId = null;
+
 /// Replay the send he already made, now that there is somewhere for it to go.
 ///
 /// THE HOLD IS DROPPED RATHER THAN GUESSED AT in all three cases where it would be a guess: a
@@ -1718,7 +1785,10 @@ async function send(explicitText) {
     pendingSends.get(optimisticId).threadId = newId;
     draftEntityId = null;
     await refreshNavigation();
-    await openThread(newId);
+    // AND HIS SENTENCE TRAVELS WITH THE OPEN. See `openThread`'s own note at the line that
+    // reads `opts.pendingUser` — the model this bubble lives in is about to be thrown away,
+    // and without this the screen holds the first-run greeting until this call returns.
+    await openThread(newId, { pendingUser: { text, at: Date.now() } });
     pendingSends.delete(optimisticId);
   }
 
@@ -1728,7 +1798,21 @@ async function send(explicitText) {
   // sentence is never drawn twice.
   const sentModel = timelineModel;
   const sentThreadId = activeThreadId;
-  const pendingId = window.RichTimeline.addPendingUserMessage(sentModel, text, Date.now());
+  // ADOPTED, NOT ADDED AGAIN. `openThread` has already put this sentence in this model when
+  // the send created the thread (defect 2.2); a second `addPendingUserMessage` here would draw
+  // the CEO's one sentence twice, which is the defect §25 names by name.
+  // The carried bubble is adopted only when it is THIS sentence, still pending, in THIS model,
+  // and a send that does not match LEAVES IT for the one that does. `replayHeldSend` can
+  // re-enter `send()` from inside `openThread` with a different sentence — the one he typed
+  // while the thread was opening — and both adopting it (his first sentence drawn twice, his
+  // second lost) and consuming it (the outer send adding a second bubble for a sentence already
+  // on screen) are wrong. Not matching is not the same as not being wanted.
+  const carriedItem = carriedPendingUserId !== null ? sentModel.items.get(carriedPendingUserId) : null;
+  const adopt = carriedItem && carriedItem.pending && carriedItem.text === text;
+  const pendingId = adopt
+    ? carriedPendingUserId
+    : window.RichTimeline.addPendingUserMessage(sentModel, text, Date.now());
+  if (adopt) carriedPendingUserId = null;
   const request = { model: sentModel, threadId: sentThreadId, turnId: null, startedAt: Date.now() };
   pendingSends.set(pendingId, request);
   startOrStopWaitTimer();
@@ -2965,6 +3049,20 @@ window.setInterval(async () => {
   try { await pollWorkerStatus(); } finally { workStatusBusy = false; }
 }, 3000);
 
+/// **A COUNTED NOUN, PLURALIZED BY ITS COUNT — one rule, used by every part of the chip.**
+///
+/// Ray's candidate-.11 defect 1.2: the status line he reads most often said **"1 saved work
+/// records"** (§1.2, screenshots 06 and 08). Three of this chip's parts already chose their
+/// noun from their own count, inline; the fourth did not, and a rule copied three times is a
+/// rule with a fourth site nobody wrote. So it is a function, and the chip has no other way to
+/// print a count.
+///
+/// `${n} working`, `${n} done` and `${n} I can't see` take no noun at all and are left alone:
+/// they are adjectival and read correctly at any count.
+function counted(n, singular, plural) {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
 function renderDrillChip() {
   drillChipEl.innerHTML = "";
   // `active` comes from the view's own authoritative field, not from counting item labels:
@@ -2976,7 +3074,7 @@ function renderDrillChip() {
   const parts = [];
   if (active) parts.push(`${active} working`);
   if (done) parts.push(`${done} done`);
-  if (savedWork.items?.length) parts.push(`${savedWork.items.length} saved work records`);
+  if (savedWork.items?.length) parts.push(counted(savedWork.items.length, "saved work record", "saved work records"));
   if (savedWork.error) parts.push("Saved work unavailable");
   // THE ASSIGNMENTS, AND THE REASON THEY ARE ON THIS CHIP AT ALL (background-work spec §7's
   // observability note, §7.8). This chip is the only way to open the pane the assignments
@@ -3024,9 +3122,9 @@ function renderDrillChip() {
   const starting = rows.filter((row) => row.state === "registered" || row.state === "preparing").length;
   const running = rows.filter((row) => row.state === "running").length;
   if (awaiting) parts.push(`${awaiting} waiting for you`);
-  if (forScreen) parts.push(`${forScreen} ${forScreen === 1 ? "assignment" : "assignments"} waiting for the screen`);
-  if (starting) parts.push(`${starting} ${starting === 1 ? "assignment" : "assignments"} starting`);
-  if (running) parts.push(`${running} ${running === 1 ? "assignment" : "assignments"} running`);
+  if (forScreen) parts.push(counted(forScreen, "assignment", "assignments") + " waiting for the screen");
+  if (starting) parts.push(counted(starting, "assignment", "assignments") + " starting");
+  if (running) parts.push(counted(running, "assignment", "assignments") + " running");
   // Plain language for the state the design calls `not_found`. "1 unknown" reads like an
   // error code; this says what actually happened.
   if (unknown) parts.push(`${unknown} I can't see`);
@@ -4175,7 +4273,12 @@ let entityPickerResolve = null;
 /// for. `COMPANY` is the launch-time question that had no surface at all until this pass —
 /// which company is this COPY of Rich for — and it is the one a double-clicked bundle is
 /// always in, because a Finder launch has working directory `/`, which owns no entity.
-const PICKER_TITLE_THREAD = "Which entity is this work in?";
+/// **"company", never "entity"** — Ray's candidate-.11 defect 3.5. `entity` is this codebase's
+/// own schema word (`EntityId`, `entities.json`, `ThreadBinding::entity_id`) and every other
+/// string the CEO reads says *company*: the picker's own other title, the settings row, the
+/// add-a-company form, the rail. One dialog spoke the schema's language, to a non-technical
+/// CEO, about the one decision this flow exists to ask him.
+const PICKER_TITLE_THREAD = "Which company is this work in?";
 const PICKER_TITLE_COMPANY = "Which company is this copy of Rich for?";
 const PICKER_NOTE_COMPANY =
   "I'll keep everything you tell me under the company you pick, and I'll remember it — " +
@@ -4238,6 +4341,15 @@ const FIRST_RUN_ORDER = ["engine", "corpus", "company"];
 
 function openEntityPicker(onPick, opts) {
   const forCompany = !!(opts && opts.forCompany);
+  // ASKED ONLY WHEN THERE IS SOMETHING TO ASK. See `theOnlyCompany` for why this is the thread
+  // question and not the first-run one, and why it does not contradict §21.
+  if (!forCompany) {
+    const only = theOnlyCompany();
+    if (only) {
+      onPick(only);
+      return;
+    }
+  }
   entityPickerResolve = onPick;
   entityPickerTitleEl.textContent = forCompany ? PICKER_TITLE_COMPANY : PICKER_TITLE_THREAD;
   entityPickerNoteEl.textContent = forCompany ? PICKER_NOTE_COMPANY : "";

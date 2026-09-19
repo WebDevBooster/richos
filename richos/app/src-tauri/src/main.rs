@@ -4502,7 +4502,69 @@ fn run_setup(app: tauri::AppHandle, state: State<AppState>) -> Result<serde_json
             *state.correction.lock().unwrap() = install_correction_desk(&mut spine, &app, &state.data_dir, writer);
         }
     } else { *state.correction.lock().unwrap() = None; }
-    installed.map(|status| setup_view::view(&status))
+    // **WHICH CONVERSATION IS ON SCREEN**, read while the guard is still in hand so the answer
+    // is the one this replacement happened under. Used after the two locks are released.
+    let on_screen = spine.active_thread().map(|thread| thread.to_string());
+    let repaired = installed.is_ok();
+    let view = installed.map(|status| setup_view::view(&status));
+    // ===================================================================================
+    // AND THE DESK IS MADE READY NOW, NOT ON HIS NEXT MESSAGE (CEO §55)
+    // ===================================================================================
+    //
+    // **Ray's candidate-.11 defect 2.1, measured on the real window.** He pressed "Set it up",
+    // the engine installed cleanly at 23:23:40Z, and the log carried NO priming line between
+    // that install and his first message at 23:27:41Z — the two `ready_*` lines appear only
+    // AFTER it. The back end did not start his turn until ~+11 s and "On it!" reached the
+    // screen at +18.3 s. His SECOND message started its turn at +1.0 s, which is the positive
+    // control: priming works, it had simply never been asked for.
+    //
+    // The cause is structural rather than a missed call. `ready_the_front_desk` is hooked to
+    // `get_timeline` — the read that opens a thread — and `ready_a_spare_front_desk` to the
+    // boot and to thread creation. Before the install there is no engine, so every one of
+    // those hooks reached `spawn_scoped` and failed; the install fixes the CAUSE and fires
+    // none of the hooks again. So the person who does exactly what the app asked him to do
+    // pays the full prime on his very next message.
+    //
+    // **The two locks are released FIRST, and that is load-bearing** for the reason
+    // `create_thread_in` drops its guard before the same call: readying a desk is a MODEL TURN
+    // that begins by taking the spine's mutex, and starting it under this function's guard
+    // would hold the spine for the install AND the prime with his Send arriving in the middle.
+    //
+    // **Only on a successful run.** A failed install leaves the same machine it found, and a
+    // priming turn against an engine that is still missing is a spawn that fails again.
+    drop(held_desk);
+    drop(spine);
+    if repaired {
+        match on_screen {
+            // A thread is open: its own desk, and then — inside `ready_the_front_desk` — the
+            // spare for the company that thread is filed under.
+            Some(thread) => ready_the_front_desk_after_a_repair(&app, &thread),
+            // No conversation open yet, which is the FIRST-RUN shape and the one Ray walked:
+            // the offer appears on entry, he answers it, and the first thing he does next is
+            // type into a brand-new thread. A spare is the only desk that can be ready for a
+            // thread that does not exist yet (`ready_a_spare_front_desk`).
+            None => {
+                if let Some(entity) = state.entity.lock().unwrap().clone() {
+                    ready_a_spare_front_desk(&app, entity);
+                }
+            }
+        }
+    }
+    view
+}
+
+/// **A REPAIR ASKS FOR THE DESK AGAIN, AND THE MEMO MUST NOT REFUSE IT** — the CEO's §55.
+///
+/// `ready_the_front_desk` asks once per thread and remembers it in `front_desk_primed_for`.
+/// That memo is right for its own purpose — a thread opened three times must not spend three
+/// model turns — and it is exactly wrong here: the ask it remembers is the one that FAILED,
+/// because the engine it needed was not on the machine yet. Clearing it is what makes the
+/// call below do anything at all.
+fn ready_the_front_desk_after_a_repair(app: &AppHandle, thread_id: &str) {
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.front_desk_primed_for.lock().unwrap() = None;
+    }
+    ready_the_front_desk(app, thread_id);
 }
 
 #[tauri::command(async)]
@@ -5179,6 +5241,124 @@ mod send_wait_tests {
             "the spare must be asked for by entity: {}",
             &call[..80]
         );
+    }
+}
+
+#[cfg(test)]
+mod repair_priming_tests {
+    //! **THE FIRST MESSAGE AFTER THE ENGINE REFRESH STILL PAID THE FULL PRIME** — Ray's
+    //! candidate-.11 defect 2.1, and the CEO's §55.
+    //!
+    //! Measured on the real window, `docs/verification/2026-09-19-nightly-1.2.0-nightly.20260918.6-mac-and-android-audit.md`
+    //! §2: the engine installed cleanly at 23:23:40Z, his first message went in at 23:27:41.06Z,
+    //! his turn did not start until ~+11 s and "On it!" reached the screen at **+18.3 s**. The
+    //! log carried no priming line at all between the install and that message; the two
+    //! [`super::ready_the_front_desk`] / [`super::ready_a_spare_front_desk`] lines appear only
+    //! after it. His SECOND message started its turn at +1.0 s — priming works; it had simply
+    //! never been asked for.
+    //!
+    //! **THESE ARE SCRAPES OF THIS FILE, for the reason `send_wait_tests` gives at length.**
+    //! The property is an ORDERING and a side effect on another thread: a `run_setup` that
+    //! readied the desk while still holding the spine's guard, or that never cleared the memo,
+    //! compiles, returns the same value, and passes every behavioral test in `richos-core`
+    //! while doing nothing. There is no return value that distinguishes them. The BEHAVIOR the
+    //! wiring reaches — a desk whose priming failed for want of a lease is ready before his
+    //! next message once it can be primed — is pinned on a real spine in
+    //! `crates/richos-core/tests/front_desk_priming_tests.rs`.
+    //!
+    //! The needles are assembled rather than written, for the reason `lease_gate_tests` gives:
+    //! `SOURCE` is this file, and a literal needle would match itself.
+    //!
+    //! NOT IN A CI GATE — the Tauri shell is a deliberately detached workspace. Run it with
+    //! `cargo test --manifest-path app/src-tauri/Cargo.toml`.
+
+    const SOURCE: &str = include_str!("main.rs");
+
+    fn run_setup_body() -> &'static str {
+        let start = SOURCE.find(concat!("fn run_", "setup(app: tauri::AppHandle")).unwrap();
+        let end = SOURCE[start..].find(concat!("fn ready_the_front_desk_after_a_", "repair(")).unwrap() + start;
+        &SOURCE[start..end]
+    }
+
+    /// INVARIANT: a completed repair readies the front desk, and it does so only AFTER both
+    /// guards it was holding are released.
+    ///
+    /// Readying a desk is a model turn whose first act is `state.spine.lock()`. Asked for
+    /// under this function's own guard it would hold the spine for the install AND the prime,
+    /// with his Send arriving in the middle — the same defect `create_thread_in` drops its
+    /// guard to avoid, which is why that one has a test of its own directly above.
+    #[test]
+    fn a_completed_repair_readies_the_desk_after_it_lets_go_of_the_spine() {
+        let body = run_setup_body();
+
+        let release = concat!("drop(", "spine)");
+        let ready = concat!("ready_the_front_desk_after_a_", "repair(&app");
+        let spare = concat!("ready_a_spare_front_", "desk(&app");
+
+        let release_at = body.find(release).expect(
+            "run_setup must let go of the spine explicitly — the guard lives to the end of the \
+             function otherwise, and the priming turn would start under it",
+        );
+        let ready_at = body.find(ready).expect(
+            "run_setup must ready this thread's front desk after the install — without it the \
+             install fixes the cause and nothing primes, which is Ray's candidate-.11 §2.1",
+        );
+        let spare_at = body.find(spare).expect(
+            "run_setup must ready a SPARE when no thread is open — the first-run shape, where \
+             the next thing he does is type into a thread that does not exist yet",
+        );
+        assert!(release_at < ready_at, "the spine must be released BEFORE the desk is readied");
+        assert!(release_at < spare_at, "the spine must be released BEFORE the spare is readied");
+
+        // The correction desk's guard too: it is held across the same replacement, and
+        // `install_correction_desk` runs on the spine.
+        let release_desk = concat!("drop(held_", "desk)");
+        let desk_at = body.find(release_desk).expect("run_setup must let go of the writer's guard");
+        assert!(desk_at < ready_at, "the writer's guard must be released before the priming turn");
+    }
+
+    /// INVARIANT: nothing is readied when the install FAILED, and the thread it readies is the
+    /// one that was on screen.
+    #[test]
+    fn a_failed_install_readies_nothing_and_the_thread_is_the_one_on_screen() {
+        let body = run_setup_body();
+
+        let repaired = body
+            .find(concat!("if ", "repaired {"))
+            .expect("the readying must be conditional on the install having succeeded");
+        let ready_at = body.find(concat!("ready_the_front_desk_after_a_", "repair(&app")).unwrap();
+        assert!(
+            repaired < ready_at,
+            "a failed install leaves the machine it found; priming against an engine that is \
+             still missing is a spawn that fails again"
+        );
+        assert!(
+            body.contains(concat!("spine.active_", "thread()")),
+            "the thread readied must be the one on screen, read while the guard is still held"
+        );
+    }
+
+    /// INVARIANT: the repair CLEARS the "already asked" memo before asking again.
+    ///
+    /// **Without this line the fix is inert and looks correct.** `ready_the_front_desk`
+    /// returns immediately when `front_desk_primed_for` already names the thread — and after a
+    /// failed prime it does name it, because the memo records the ASK and not the outcome. So
+    /// the call would be made, the guard would swallow it, and the log would be as silent as
+    /// it was on candidate .11.
+    #[test]
+    fn the_repair_forgets_the_ask_that_failed_before_it_asks_again() {
+        let start = SOURCE
+            .find(concat!("fn ready_the_front_desk_after_a_", "repair("))
+            .expect("the repair's own entry point must exist");
+        let body = &SOURCE[start..];
+        let end = body.find("\n}\n").unwrap();
+        let body = &body[..end];
+
+        let memo = concat!("front_desk_primed_", "for");
+        let cleared = body.find(memo).expect("the memo must be cleared by name");
+        let asked = body.find(concat!("ready_the_front_", "desk(app")).expect("and then the desk asked for");
+        assert!(cleared < asked, "the memo must be cleared BEFORE the ask, or the ask does nothing");
+        assert!(body.contains("= None"), "the memo is cleared, not rewritten: {body}");
     }
 }
 
