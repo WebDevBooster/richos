@@ -577,7 +577,15 @@ print_result() {
       || echo "    run-tests.sh: could not write the gui proof to $PROOF_OUT"
     echo "    gui proof written to $PROOF_OUT"
   fi
-  if [ "$code" -eq 2 ] && printf '%s\n' "$out" | grep -q '^  FAIL  '; then
+  # A HERE-STRING, NEVER A PIPE INTO `grep -q`. `set -o pipefail` is on (line 216), and
+  # `grep -q` exits the instant it matches — so with a pipe, the writer on the left can be
+  # killed by SIGPIPE AFTER the match, the pipeline reports 141, and this test reads FALSE
+  # over output that DID contain a failed case. Measured on this Mac, 2026-09-20, on this
+  # exact idiom: 400 of 400 iterations reported "no match" for a 400 KB payload whose first
+  # line was the needle, and 14 of 200 for `gui-boot.test.sh` through the scanner in
+  # `run-tests.test.sh` case S6. Here that false reading would file a suite that FAILED a
+  # case as a tolerated host gap — the concealment this harness exists to refuse.
+  if [ "$code" -eq 2 ] && grep -q '^  FAIL  ' <<<"$out"; then
     # A GAP IS A CLAIM ABOUT THE HOST, AND THIS SUITE ALREADY FOUND SOMETHING WRONG.
     # See the header. Counted as a failure, which no declaration tolerates.
     echo "    run-tests.sh: $rel exited 2 (\"this host cannot answer\") after failing a case of its own."
