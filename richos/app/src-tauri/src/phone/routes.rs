@@ -424,6 +424,15 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
             .clamp(1, 200);
         let Ok(payload) = channel.bridge.snapshot(Some(&thread_id)) else { return Outcome::NotFound };
         let all = rows_from_payload(&payload);
+        // **RE-SEEDED HERE TOO, AND NOT ONLY IN `hello`.** The hub takes one cursor per streamed
+        // reply; the projection counts one per MESSAGE. A turn the CEO starts at the Mac moves the
+        // projection by two rows and the hub by one, because no live event in this build carries a
+        // CEO turn (`rows::event_from_live`) — so the live sequence falls one behind the
+        // projection per desk turn, and a phone that is reading both at once sees two orderings.
+        // `seed_cursor` only ever raises, so this is the same correction `hello_frame` makes, at
+        // the other place the projection is counted, and it lands after every reply rather than
+        // only on a reconnection.
+        channel.hub.seed_cursor(all.len() as u64);
         let earlier: Vec<Value> =
             all.iter().filter(|r| r["cursor"].as_u64().unwrap_or(0) < before).cloned().collect();
         let start = earlier.len().saturating_sub(limit);
@@ -1263,6 +1272,36 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn a_backfill_re_seeds_the_live_cursor_from_the_projection_so_the_two_orderings_agree() {
+        // **THE LIVE SEQUENCE FALLS BEHIND THE PROJECTION, ONE PER DESK TURN.** The hub takes a
+        // cursor per streamed REPLY (`opens_a_row` is `rich://message-started` and nothing else);
+        // the projection counts one per MESSAGE. A turn the CEO starts at his Mac therefore adds
+        // two rows to the projection and one to the hub, because no live event in this build
+        // carries a CEO turn — so a phone reading the stream and the backfill at once is reading
+        // two different orderings of one conversation.
+        //
+        // `hello_frame` already re-seeds. This is the OTHER place the projection is counted, and
+        // it is the one a phone reaches after every reply rather than only on a reconnection.
+        let f = fixture_with("reseed", false, true, 10);
+        assert_eq!(f.channel.hub.cursor_now(), 0, "the fixture's hub starts at zero");
+
+        let out = dispatch(&f.channel, &signed_stream(&f, "thread_id=thr_5c1e&before=8&limit=3"));
+        assert!(matches!(out, Outcome::Json { status: 200, .. }), "{out:?}");
+        assert_eq!(
+            f.channel.hub.cursor_now(),
+            10,
+            "the backfill read ten rows out of the projection and left the live sequence behind them"
+        );
+
+        // `seed_cursor` only ever raises, so a backfill can never drag a live sequence backwards
+        // over frames it has already issued.
+        f.channel.hub.publish("message", 40, "{}".to_string());
+        let out = dispatch(&f.channel, &signed_stream(&f, "thread_id=thr_5c1e&before=8&limit=3"));
+        assert!(matches!(out, Outcome::Json { status: 200, .. }), "{out:?}");
+        assert_eq!(f.channel.hub.cursor_now(), 40, "a backfill rewound the live cursor");
     }
 
     #[test]

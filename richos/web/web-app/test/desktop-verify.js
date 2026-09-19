@@ -72,9 +72,10 @@ const WANT = process.argv.includes('--webkit') ? ['webkit']
 const SHOTS_DIR = process.env.PHONE_SHOTS_DIR
 	|| path.join(__dirname, '..', '..', '..', '..', 'docs', 'verification', 'phone-app-2026-09-18');
 
-// iPhone widths that matter: the smallest phone still on iOS 16 (SE, 320), his iPhone X (375), the
-// modern base (390) and the Max (430).
-const WIDTHS = [320, 375, 390, 430];
+// Phone widths that matter: the smallest phone still on iOS 16 (SE, 320), the CEO's HONOR X6b
+// (360 — the width that rendered "Runni / ng", audit §4.3), his iPhone X (375), the modern base
+// (390) and the Max (430).
+const WIDTHS = [320, 360, 375, 390, 430];
 const HIS_PHONE = { width: 375, height: 812 };
 
 let failures = 0;
@@ -575,7 +576,83 @@ async function runEngine(playwright, engine) {
 		await page.emulateMedia({ colorScheme: 'dark' });
 
 		// ---------------------------------------------------------------------------------------
-		section(`${engine}: no horizontal scroll, at four phone widths, in both themes`);
+		section(`${engine}: the header at 360 px, with a picker on screen (audit §4.3)`);
+		// ---------------------------------------------------------------------------------------
+		//
+		// The defect needed two threads to reproduce: with one, the picker is hidden and the title
+		// had the row anyway. So the stub is given a second thread and the app is reloaded, which
+		// is what puts the picker on screen, and then the title is MEASURED rather than reasoned
+		// about — the widest word in it against the width of the box it is in. If the widest word
+		// fits, no word can break inside itself, which is the whole of §4.3.
+
+		const titleBefore = mac.state.threads;
+		mac.state.threads = [
+			{ id: mac.threadId, title: 'Running' },
+			{ id: `${mac.threadId}-2`, title: 'The proposal' }
+		];
+		await page.reload();
+		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
+		await page.waitForSelector('#thread-picker-label:not([hidden])', { timeout: 15000 });
+
+		for (const width of [320, 360, 375]) {
+			await page.setViewportSize({ width, height: 812 });
+			await sleep(120);
+			// EVERY WORD, AND THE NUMBER OF LINE BOXES IT OCCUPIES. A `Range` over one word returns
+			// one client rect per line the word is laid out on, so two rects IS the break — the
+			// word has been split across lines.
+			//
+			// The first draft of this check measured the word's bounding box against the element's
+			// width instead, and the negative control caught it being wrong: a word already broken
+			// across two lines has a bounding box as wide as its WIDEST FRAGMENT, which is
+			// narrower than the word. It measured "Running" at 69.4px in a 70.4px box and called
+			// it a pass, on the very CSS that produced "Runni / ng". A check that is fooled by the
+			// defect it is for is worse than no check.
+			const title = await page.evaluate(() => {
+				const el = document.getElementById('thread-title');
+				const node = el.firstChild;
+				if (!node || node.nodeType !== 3) return null;
+				const text = node.textContent;
+				const range = document.createRange();
+				const split = [];
+				let at = 0;
+				for (const word of text.split(/\s+/)) {
+					if (!word) { at += 1; continue; }
+					const start = text.indexOf(word, at);
+					range.setStart(node, start);
+					range.setEnd(node, start + word.length);
+					const lines = range.getClientRects().length;
+					if (lines > 1) split.push(`${word} (${lines} lines)`);
+					at = start + word.length;
+				}
+				return { text, split, box: el.getBoundingClientRect().width };
+			});
+			check(`${engine}: ${width}px — no word in the title is broken in half`,
+				title !== null && title.split.length === 0,
+				title === null ? 'the title has no text node' :
+					title.split.length
+						? `broken: ${title.split.join(', ')} — in a ${title.box.toFixed(1)}px box ("${title.text}")`
+						: `"${title.text}" in a ${title.box.toFixed(1)}px box`);
+		}
+
+		// And the picker is BELOW it rather than beside it — the arrangement that made 67 px out
+		// of 328.
+		const stacked = await page.evaluate(() => {
+			const title = document.getElementById('thread-title').getBoundingClientRect();
+			const picker = document.getElementById('thread-picker-label').getBoundingClientRect();
+			return { titleBottom: title.bottom, pickerTop: picker.top, titleWidth: title.width };
+		});
+		check(`${engine}: the picker is under the title, not beside it`,
+			stacked.pickerTop >= stacked.titleBottom - 0.5,
+			`title ends at ${stacked.titleBottom.toFixed(1)}px, picker starts at ${stacked.pickerTop.toFixed(1)}px`);
+
+		await noHorizontalScroll(page, `${engine}: the header with a picker, 375px`);
+		await shoot(page, `${engine}-header-picker`);
+
+		mac.state.threads = titleBefore;
+		await page.setViewportSize(HIS_PHONE);
+
+		// ---------------------------------------------------------------------------------------
+		section(`${engine}: no horizontal scroll, at five phone widths, in both themes`);
 		// ---------------------------------------------------------------------------------------
 
 		for (const theme of ['dark', 'light']) {

@@ -61,6 +61,8 @@ let link = null;
 /// The sentence currently under the header, by name. Read only to keep a retry from flickering it.
 let linkStateNow = null;
 let vapidPublicKey = null;
+// See `refreshPushOffer` — his answer, not his permission state.
+let notificationsDeclined = false;
 let loadingOlder = false;
 let renderQueued = false;
 let pendingPairCode = null;
@@ -113,6 +115,10 @@ async function boot() {
 		deviceId: saved.deviceId || null
 	};
 	vapidPublicKey = saved.vapidPublicKey || null;
+	// He was asked about notifications and did not say yes. Remembered across a relaunch for one
+	// reason: so the banner keeps telling him what that MEANT rather than reverting to the generic
+	// offer, which is a reload asking him a question he has already answered.
+	notificationsDeclined = Boolean(saved.notificationsDeclined);
 	currentThreadId = saved.threadId || null;
 	threads = saved.threads || [];
 
@@ -228,6 +234,7 @@ async function startPairing(existingKeys) {
 	}
 
 	$('pairing-lede').textContent = 'Almost done. One thing to check, and it is the thing that matters.';
+	$('fingerprint-note').textContent = whatTheSixWordsAre();
 	$('fingerprint-words').textContent = words;
 	$('fingerprint-box').hidden = false;
 	$('pairing-row').hidden = false;
@@ -358,6 +365,28 @@ function makeLink() {
 				// What this Mac can actually be asked for, before anything else in this handler:
 				// the screen should never be one frame ahead of what the Mac has said it can do.
 				applyCapabilities();
+				// **BOTH SIDES OF THE CONVERSATION, AND THIS IS WHERE ONE OF THEM WENT.**
+				//
+				// The Mac puts the whole gated projection in every `hello` — *"The rows
+				// themselves ride along, so the first paint needs no second request"*
+				// (`app/src-tauri/src/phone/routes.rs:492-494`) — and it puts BOTH roles in it:
+				// `rows_from_payload` keeps `user_message` and `rich_message` and drops only
+				// machinery (`phone/rows.rs:49-109`, proved by its own
+				// `only_the_conversation_reaches_the_phone_and_no_machinery_does`). This handler
+				// read `vapid_public_key` and `threads` out of that frame and dropped
+				// `data.messages` on the floor.
+				//
+				// What that looked like on his phone, on 2026-09-18: a list of answers with no
+				// questions. The live stream can only ever open a `role: "rich"` row
+				// (`phone/rows.rs:115-173`), so Rich's replies arrived and nothing he wrote ever
+				// did — not from this phone, not from the Mac. It is the one frame that carries
+				// his own words, and it is merged before anything else in this handler touches
+				// the screen.
+				if (Array.isArray(data.messages) && data.messages.length) {
+					thread.merge(data.messages);
+					messageCache.put(data.messages).catch(() => {});
+					scheduleRender();
+				}
 				if (data.vapid_public_key) {
 					vapidPublicKey = data.vapid_public_key;
 					settings.set('vapidPublicKey', vapidPublicKey).catch(() => {});
@@ -373,6 +402,7 @@ function makeLink() {
 				thread.merge(row);
 				messageCache.put(row).catch(() => {});
 				scheduleRender();
+				if (row && row.role === 'rich' && row.complete) askForTheQuestion(row);
 			},
 			delta(data) { thread.applyDelta(data); scheduleRender(); },
 			state(data) { thread.applyState(data); scheduleRender(); }
@@ -430,8 +460,24 @@ function render(forceBottom) {
 		empty.className = 'msg msg-rich';
 		const p = document.createElement('p');
 		p.className = 'msg-text';
+		// **THE SENTENCE NAMES WHAT IS ON SCREEN, AND IT READS THE SCREEN TO FIND OUT.**
+		//
+		// It used to say "or hold the button and speak" unconditionally, on a phone whose composer
+		// is a text field and a Send button and nothing else (Ray, candidate .11, §4.4). The
+		// control it names is hidden unless the Mac's `hello` lists `voice` in `capabilities`, and
+		// this build's Mac answers every voice note 503 and advertises `["text"]`
+		// (`app/src-tauri/src/phone/routes.rs` `CAPABILITIES`) — so the sentence pointed at
+		// something that was never going to be there.
+		//
+		// It asks `hold.hidden` rather than `api.offers('voice')` on purpose. `applyCapabilities`
+		// stays the ONE place that decides whether the control is on screen (`test/controls.test.js`
+		// holds that property); this reads the answer rather than deciding it a second time, so the
+		// sentence cannot disagree with the screen it is describing.
+		const canSpeak = !$('hold').hidden;
 		p.textContent = streamIsOpen()
-			? 'Nothing here yet. Write to Rich, or hold the button and speak.'
+			? (canSpeak
+				? 'Nothing here yet. Write to Rich, or hold the button and speak.'
+				: 'Nothing here yet. Write to Rich.')
 			: 'Nothing here yet. When your Mac is reachable, this is where the conversation appears.';
 		empty.appendChild(p);
 		list.appendChild(empty);
@@ -576,6 +622,54 @@ $('thread').addEventListener('scroll', () => {
 	loadOlder(oldest);
 });
 
+/// **A REPLY WITH NO QUESTION IN FRONT OF IT — the fallback, named as one.**
+///
+/// A message the CEO types ON HIS MAC never reaches this phone live. There is no live event in
+/// this build that carries a CEO turn: `LiveEvent` is `TurnStatus`, `MessageStarted`,
+/// `MessageDelta`, `MessageCompleted`, `ActivityUpserted`, `WorkerUpserted` and
+/// `ThreadSummaryUpdated`, and not one of them carries his words
+/// (`app/crates/richos-core/src/live.rs:306-381`); `event_from_live` therefore translates
+/// `rich://message-*` and nothing else (`app/src-tauri/src/phone/rows.rs:115-173`). So while he
+/// watches the phone and types on the Mac, Rich answers a question the phone never saw.
+///
+/// **The fix at the cause is a CEO-turn live event in `richos-core`, and it is NOT built here.**
+/// This file cannot reach the spine, and the Mac-side emitter cannot read the projection mid-turn
+/// either: `PhoneBridge::snapshot` `try_lock`s the spine and, while a turn holds it, serves a
+/// cache from BEFORE that turn (`app/src-tauri/src/phone/bridge.rs:141-162`). What is built here
+/// is the honest fallback — when a reply settles and the phone is holding nothing of his in front
+/// of it, the phone asks the Mac for the rows before it, on the backfill route it already has and
+/// already signs.
+///
+/// Bounded on purpose: at most one request per reply (`reconciled`), and five rows — the question,
+/// its answer, and room for the turn before them.
+const reconciled = new Set();
+
+async function askForTheQuestion(row) {
+	if (!api || !currentThreadId || !row || !row.id) return;
+	if (reconciled.has(row.id)) return;
+	const shown = thread.view([]);
+	const at = shown.findIndex((seen) => seen.id === row.id);
+	if (at > 0 && shown[at - 1].role === 'ceo') return;
+	reconciled.add(row.id);
+	// The Mac's own numbering is the only ordering, and the LIVE sequence can sit behind it: the
+	// hub takes one cursor per streamed reply and the projection counts one per message, so a turn
+	// he starts on the Mac moves the projection by two and the hub by one. Asking from one past the
+	// highest cursor either side knows is what makes the answer include his row rather than stop
+	// just short of it.
+	const from = Math.max(row.cursor || 0, thread.latestCursor() || 0) + 1;
+	try {
+		const page = await api.backfill(currentThreadId, from, 5);
+		thread.prependOlder(page);
+		messageCache.put(page.messages || []).catch(() => {});
+		scheduleRender();
+	} catch (err) {
+		// Never a screen of its own: the reply he is reading is real and already on screen, and the
+		// row in front of it arrives with the next `hello` whatever happens here.
+		reconciled.delete(row.id);
+		handleApiError(err);
+	}
+}
+
 async function loadOlder(beforeCursor) {
 	loadingOlder = true;
 	render(false);
@@ -639,6 +733,91 @@ async function sendText() {
 	flushQueue();
 }
 
+/// **WHICH WAY IN THIS PHONE CAME, read off the address bar and nothing else.**
+///
+/// The Mac serves this app on exactly two kinds of origin. At home it is
+/// `https://<name>.local:8443` from a certificate authority the Mac made for itself
+/// (`app/src-tauri/src/phone/api_base.rs:13`), and he is asked to install a profile for it. Over
+/// Tailscale it is `https://<name>.ts.net:8443` — *"with a **publicly trusted** certificate, which
+/// is what deletes the"* profile step entirely (`app/src-tauri/src/phone/listen.rs:213`,
+/// `mod.rs:315`). Ray reached the second one on the CEO's Android on 2026-09-18 with no
+/// interstitial at all, which is only possible with a certificate the phone already trusts.
+///
+/// Read from `location.hostname` rather than from the pairing payload because the payload does
+/// not carry it today (`routes.rs:263-274` sends `device_id`, `ca_fingerprint_sha256`,
+/// `vapid_public_key`, `challenge`, `api_base`, `thread_id`, `thread_title`, `threads`) and the
+/// address bar does. Anything that is not a `ts.net` name is treated as the home path, so an
+/// address nobody has thought of gets the sentence that names a certificate he may have
+/// installed — the cautious way round.
+function onTheTailscalePath() {
+	const host = String(location.hostname || '').toLowerCase();
+	return host === 'ts.net' || host.endsWith('.ts.net');
+}
+
+/// The sentence under the six words, for the way in this phone actually came.
+///
+/// **§4.2 of Ray's walk.** On the Tailscale path the phone said *"They are the name of the
+/// certificate your Mac made for itself"* while the Mac had just said, in bold on the same flow:
+/// *"There is no certificate to install on this path. If your phone asks you to install a
+/// profile, something is wrong — tell me."* A careful person reading both concludes something IS
+/// wrong, at the moment he is being asked whether the two screens match.
+///
+/// What is true on both paths is that the words come from a root the Mac made and keeps; what
+/// differs is whether there is a certificate of his to compare them to.
+function whatTheSixWordsAre() {
+	if (onTheTailscalePath()) {
+		return 'They are the name of a key your Mac keeps to itself. Nothing was installed on this phone to get here, and nothing needs to be. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
+	}
+	return 'They are the name of the certificate your Mac made for itself. If they match what is on your Mac, this phone is talking to your Mac and to nothing else.';
+}
+
+/// **WHAT THIS PHONE CALLS THE CONTROL THAT PUTS THE APP ON ITS HOME SCREEN.**
+///
+/// The Mac's card says *"Add Rich to your phone's Home Screen"*. On the CEO's HONOR X6b, Chrome's
+/// menu offers **"Install and create shortcut"** and there is no item by the other name at all
+/// (Ray, candidate .11, §4.5, verified on the device). On his iPhone X, Safari's Share menu does
+/// say "Add to Home Screen". One instruction cannot be right for both, and an instruction that
+/// names a control the device does not have is one he cannot follow.
+///
+/// Returns `{ menu, item }` in the device's own words, or `null` when this app cannot say which
+/// browser it is in. **`null` means SAY NOTHING**, not "guess": a wrong menu name sends him
+/// looking for something that is not there, which is worse than the silence this replaced.
+///
+/// The user agent is the only thing that can answer this, and it is a string a browser is free to
+/// lie in — which is survivable here because the cost of being wrong is a sentence, not a
+/// decision. Nothing else in this app reads it.
+function installControlName() {
+	const ua = String(navigator.userAgent || '');
+	// iPadOS reports itself as a Mac and gives itself away with touch points; iPhone and iPod say
+	// what they are.
+	const iOS = /iPad|iPhone|iPod/.test(ua)
+		|| (/Macintosh/.test(ua) && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1);
+	if (iOS) return { menu: 'the Share menu', item: 'Add to Home Screen' };
+	// Chrome on Android. Every other Chromium browser on Android puts its own token in the same
+	// string and has its own wording, so they are not claimed.
+	if (/Android/.test(ua) && /Chrome\//.test(ua) && !/EdgA|OPR\/|SamsungBrowser|Firefox|DuckDuckGo/.test(ua)) {
+		return { menu: "your browser's menu", item: 'Install and create shortcut' };
+	}
+	return null;
+}
+
+/// Is this app already on his home screen and running as one?
+function alreadyInstalled() {
+	if (navigator.standalone === true) return true;               // iOS, all versions
+	return Boolean(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+
+/// The sentence for a browser that cannot take a push at all until the app is installed — which
+/// is iOS Safari in a tab, and is the case that used to be told NOTHING.
+///
+/// Android Chrome is deliberately not this case: it subscribes from a tab, which is why the page
+/// needs no install instruction there and why §4.5 was only ever about the Mac's card.
+function installSentence() {
+	const control = installControlName();
+	if (!control) return null;
+	return `Rich can only reach you while this app is open. To let him reach you when it is closed, open ${control.menu} and choose \u201c${control.item}\u201d.`;
+}
+
 function newClientId() {
 	if (crypto.randomUUID) return crypto.randomUUID();
 	const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -656,6 +835,8 @@ async function flushQueue() {
 	flushing = true;
 	try {
 		const result = await queue.flush(api);
+		// His own message, where he put it, from the Mac's own answer. See `thread.confirm`.
+		(result.accepted || []).forEach(({ item, answer }) => thread.confirm(item, answer));
 		if (result.reason === 'revoked') { await goRevoked(); return; }
 		if (result.sent > 0 && result.waiting === 0 && result.blocked === 0) setLinkState('connected');
 		if (result.reason === 'unreachable') setLinkState('away');
@@ -1028,6 +1209,18 @@ async function hearIt(messageId, button) {
 async function refreshPushOffer() {
 	const offer = $('push-offer');
 	if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+		// THIS BROWSER CANNOT TAKE A PUSH AT ALL, and on iOS that is not a dead end — it is an app
+		// that has not been installed yet. Saying nothing, which is what this used to do, left him
+		// with no way to find out. The control is named in the device's own words or not at all.
+		const sentence = installSentence();
+		if (sentence && !alreadyInstalled()) {
+			offer.hidden = false;
+			$('push-offer-text').textContent = sentence;
+			// There is no control this app can offer that does this: the item is in the browser's
+			// own menu, so the sentence says where it is instead of pretending to be a button.
+			$('push-on').hidden = true;
+			return;
+		}
 		offer.hidden = true;
 		return;
 	}
@@ -1047,6 +1240,18 @@ async function refreshPushOffer() {
 	}
 	offer.hidden = false;
 	$('push-on').hidden = false;
+	// **THE ANSWER HE ALREADY GAVE, KEPT ACROSS A RELOAD.** Ray, candidate .11, §5: after he
+	// declined, the banner said the right thing — "Notifications stayed off, so Rich can only
+	// reach you while this app is open" — and a reload put the generic offer back.
+	//
+	// The permission cannot carry this. Both a phone that has never been asked and a phone whose
+	// owner dismissed the system prompt report `Notification.permission === 'default'`, which is
+	// exactly what Ray hit: he allowed Chrome's site prompt and dismissed Android's, and the
+	// browser's state was indistinguishable from never having asked. So what is remembered is HIS
+	// ANSWER, on this phone, and it is cleared the moment the permission is granted.
+	$('push-offer-text').textContent = notificationsDeclined
+		? 'Notifications stayed off, so Rich can only reach you while this app is open.'
+		: 'Notifications are off, so Rich cannot reach you when this app is closed.';
 }
 
 $('push-on').addEventListener('click', async () => {
@@ -1055,9 +1260,15 @@ $('push-on').addEventListener('click', async () => {
 		// The request must be inside the gesture, which this is.
 		const permission = await Notification.requestPermission();
 		if (permission !== 'granted') {
+			notificationsDeclined = true;
+			settings.set('notificationsDeclined', true).catch(() => { /* the sentence is the half that matters now */ });
 			$('push-offer-text').textContent = 'Notifications stayed off, so Rich can only reach you while this app is open.';
 			return;
 		}
+		// He said yes. The earlier no is not his position any more, and a stale one would put the
+		// wrong sentence in front of him the next time the offer is shown for any other reason.
+		notificationsDeclined = false;
+		settings.set('notificationsDeclined', false).catch(() => {});
 		if (!vapidPublicKey) {
 			$('push-offer-text').textContent = 'Your Mac has not sent this phone a notification key yet. Open this again once your Mac is reachable.';
 			return;

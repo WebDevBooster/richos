@@ -31,6 +31,9 @@
 		const rows = new Map();
 		// Every `client_id` the Mac has confirmed it holds, so a pending bubble for it can go.
 		const acknowledgedClientIds = new Set();
+		// clientId -> the row for a message the Mac has ACCEPTED and not yet projected back.
+		// See `confirm` for why this exists and for the one rule that retires it.
+		const confirmedByClientId = new Map();
 		let oldestKnownCursor = null;
 		let reachedTheBeginning = false;
 
@@ -82,6 +85,50 @@
 				return this;
 			},
 
+			/// HIS OWN MESSAGE, FROM THE MAC'S OWN ANSWER TO THE SEND — and the narrow reason it
+			/// is not just the pending bubble.
+			///
+			/// The Mac answers `POST /api/messages` with `{message_id, cursor, thread_id,
+			/// accepted_at}` (`app/src-tauri/src/phone/routes.rs:370-376`) and the send queue then
+			/// drops the item, because the Mac has it and nothing durable is owed any more
+			/// (`queue.js`, rule 3). Until this existed, that left NOTHING on the screen where his
+			/// message had been: the Mac's own row for it does not arrive on the live stream —
+			/// `event_from_live` translates `rich://message-*` and nothing else
+			/// (`phone/rows.rs:115-173`), so no live frame in this build carries a CEO turn — and
+			/// the projected row only reaches the phone with the next `hello` or backfill.
+			///
+			/// So this is the bubble AFTER the Mac has taken it: ordered by the cursor the Mac
+			/// itself promised, so it sits where his message will sit rather than at the bottom.
+			///
+			/// **IT RETIRES ON THE MAC'S OWN ROW, AND THE MATCH IS THE TEXT.** The de-duplication
+			/// key the contract names is `client_id`, and the Mac's projected rows carry
+			/// `client_id: null` for every row (`phone/rows.rs:82`, `:97`) because the id never
+			/// reaches the ledger — so there is nothing to match on but his words, and his words
+			/// are what is on the screen. **A CEO row in this thread is always the Mac's**: the
+			/// live stream can only ever open a `role: "rich"` row, so anything `role: "ceo"` in
+			/// `rows` came from a `hello`, a backfill or a push, all of which are the projection.
+			/// Two identical messages in a row therefore retire together on the first of the two
+			/// rows and the second reappears with the next merge — a repaint, never a loss, and
+			/// said here rather than discovered.
+			confirm(item, answer) {
+				if (!item || !item.clientId || !answer) return this;
+				if (typeof answer.cursor !== 'number') return this;
+				confirmedByClientId.set(item.clientId, {
+					id: `confirmed:${item.clientId}`,
+					clientId: item.clientId,
+					cursor: answer.cursor,
+					role: 'ceo',
+					kind: item.kind === 'voice' ? 'voice' : 'text',
+					text: item.text || '',
+					seconds: item.seconds,
+					created_at: answer.accepted_at || null,
+					state: 'sent',
+					complete: true,
+					confirmed: true
+				});
+				return this;
+			},
+
 			/// Older messages, fetched behind a scroll to the top. `more === false` means the
 			/// beginning of the thread, which is a real end and is rendered as one.
 			prependOlder(page) {
@@ -96,7 +143,18 @@
 			/// has confirmed are dropped here rather than in the caller, so no screen can show his
 			/// message twice.
 			view(pending) {
-				const server = Array.from(rows.values()).sort((a, b) => a.cursor - b.cursor);
+				const server = Array.from(rows.values());
+				// The words the Mac has actually projected back as HIS. See `confirm`.
+				const projected = new Set(
+					server.filter((row) => row.role === 'ceo').map((row) => row.text || '')
+				);
+				const standIns = [];
+				confirmedByClientId.forEach((row, clientId) => {
+					if (acknowledgedClientIds.has(clientId)) return;
+					if (projected.has(row.text || '')) return;
+					standIns.push(row);
+				});
+				const settled = server.concat(standIns).sort((a, b) => a.cursor - b.cursor);
 				const waiting = (pending || [])
 					.filter((item) => !acknowledgedClientIds.has(item.clientId))
 					.map((item) => ({
@@ -112,7 +170,7 @@
 						reason: item.lastReason,
 						attempts: item.attempts
 					}));
-				return server.concat(waiting);
+				return settled.concat(waiting);
 			},
 
 			get(id) { return rows.get(id) || null; },
@@ -130,6 +188,7 @@
 			reset() {
 				rows.clear();
 				acknowledgedClientIds.clear();
+				confirmedByClientId.clear();
 				oldestKnownCursor = null;
 				reachedTheBeginning = false;
 				return this;
