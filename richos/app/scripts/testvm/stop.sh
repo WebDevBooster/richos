@@ -73,9 +73,25 @@ fi
 # A stopped VM whose runner survives is 7 GB of RAM nobody can see.
 VMPID="$(cat "$STATE/vm.pid" 2>/dev/null || true)"
 if [ -n "$VMPID" ] && kill -0 "$VMPID" 2>/dev/null; then
-  log "reaping the host-side tart runner (pid $VMPID)"
-  kill -TERM "$VMPID" 2>/dev/null; sleep 2
+  # The recorded pid is `caffeinate`, with `tart run` as its CHILD. Killing the
+  # parent alone would leave the VM running and holding its memory, with
+  # nothing pointing at it any more — the worst kind of leftover. So the
+  # children go first, then the parent.
+  log "reaping the host-side VM runner (caffeinate pid $VMPID and its tart child)"
+  CHILDREN="$(pgrep -P "$VMPID" 2>/dev/null || true)"
+  for c in $CHILDREN; do kill -TERM "$c" 2>/dev/null; done
+  sleep 2
+  for c in $CHILDREN; do kill -0 "$c" 2>/dev/null && kill -KILL "$c" 2>/dev/null; done
+  kill -TERM "$VMPID" 2>/dev/null; sleep 1
   kill -0 "$VMPID" 2>/dev/null && kill -KILL "$VMPID" 2>/dev/null
+fi
+# Anything still holding this VM by name is a leftover by definition.
+STRAY="$(pgrep -f "tart run $VM\b" 2>/dev/null || true)"
+if [ -n "$STRAY" ]; then
+  log "killing stray tart runner(s) for $VM: $STRAY"
+  for s in $STRAY; do kill -TERM "$s" 2>/dev/null; done
+  sleep 2
+  for s in $STRAY; do kill -0 "$s" 2>/dev/null && kill -KILL "$s" 2>/dev/null; done
 fi
 vm_running "$VM" 2>/dev/null && PROBLEMS+=("VM $VM is still running")
 
