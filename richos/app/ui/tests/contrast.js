@@ -1232,9 +1232,17 @@ async function openApp(browser, theme, holdSplash, preset) {
   //
   // Until 2026-08-31 the app shipped ONE palette, so `colorScheme` on the page was a
   // reasonable stand-in for "the other theme": there was no other theme, and check 10 said
-  // so out loud. Now there are two, and they are chosen by the CEO and stored in
-  // `config.rs` — `:root[data-theme="light"]`, not `@media (prefers-color-scheme: dark)`.
-  // An OS preference decides NOTHING about which palette this app paints.
+  // so out loud. Now there are two, and which one paints is a STORED PREFERENCE in
+  // `config.rs` applied as `:root[data-theme="light"]` — never `@media (prefers-color-scheme:
+  // dark)`, which appears nowhere in the shipped CSS and is what check 10 counts.
+  //
+  // THE SENTENCE THAT USED TO BE HERE WAS "An OS preference decides NOTHING about which
+  // palette this app paints", AND SINCE §63 (2026-09-19) IT IS FALSE. The stored preference
+  // can now BE `system`, which is the default a fresh install gets, and `theme-boot.js`
+  // resolves it against `prefers-color-scheme` on every change. The OS decides the palette
+  // whenever the user has not — which is most users, most of the time. What is still true,
+  // and is the part this seeding depends on, is that the OS cannot OVERRULE a preference he
+  // set: seed `light` or `dark` here and `colorScheme` is inert, whatever it says.
   //
   // So had this line stayed as it was, both "themes" would have walked the DARK palette,
   // the light half of every check above would have been a re-run of the dark half, and the
@@ -2004,9 +2012,11 @@ async function main() {
     //
     // It used to count `@media (prefers-color-scheme: dark)` blocks and, finding none,
     // assert the two runs were IDENTICAL — which was true and honest while the app shipped
-    // one palette. Then dark mode landed, and it landed as `:root[data-theme="light"]` with
-    // dark as the shipped default (§15: "a newly installed app opens dark"), because the
-    // theme is the CEO's stored choice and not his operating system's.
+    // one palette. Then dark mode landed, and it landed as `:root[data-theme="light"]`
+    // driven by a stored preference rather than by a media query. The shipped DEFAULT for
+    // that preference was dark (§15) until 2026-09-19 and is `system` now (§63), which
+    // changes nothing about the mechanism this check counts and everything about the
+    // fresh-install walk at the bottom of it.
     //
     // Left alone, this check would have kept passing — zero `prefers-color-scheme` blocks,
     // two identical runs — and would have kept PRINTING "THE APP SHIPS ONE THEME" over an
@@ -2060,24 +2070,33 @@ async function main() {
         grounds.dark + ") — the theme is not reaching the elements, so half of every check above " +
         "is a fiction"
     );
-    const fresh = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: "light" });
-    await fresh.goto(APP);
-    await fresh.waitForSelector(".nav-thread", { state: "attached" });
-    const virgin = await fresh.evaluate(() => document.documentElement.getAttribute("data-theme"));
-    await fresh.close();
+    // AND A FRESH INSTALL FOLLOWS THE OPERATING SYSTEM — §63, 2026-09-19, and it takes BOTH
+    // walks to say so. This assertion read `virgin === "dark"` under a light OS until that
+    // date, which was §15 and was right; its replacement cannot be "dark under a dark OS",
+    // because that is also what a build ignoring the OS entirely produces. The claim is that
+    // the two answers DIFFER and each matches its host, and only the pair can carry it.
+    const virgins = {};
+    for (const os of ["light", "dark"]) {
+      const fresh = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: os });
+      await fresh.goto(APP);
+      await fresh.waitForSelector(".nav-thread", { state: "attached" });
+      virgins[os] = await fresh.evaluate(() => document.documentElement.getAttribute("data-theme"));
+      await fresh.close();
+    }
     assertEqual(
-      virgin,
-      "dark",
-      "a install with NO stored preference, under a LIGHT operating system, must still open " +
-        "dark — CEO ruling §15. It opened " + virgin + ", which means the OS is deciding a " +
-        "question the ruling gives to the CEO"
+      [virgins.light, virgins.dark],
+      ["light", "dark"],
+      "an install with NO stored preference must take its lighting from the operating system " +
+        "— CEO ruling §63. It opened " + virgins.light + " under a light OS and " + virgins.dark +
+        " under a dark one, so the OS is not deciding a question the ruling gives it"
     );
 
     return (
       themed + " second-theme rule(s) shipped (" + attrBlocks + " `:root[data-theme=]`, " +
       mediaBlocks + " `prefers-color-scheme`), and both walks exercise them: the two runs " +
       "differ, the body ground differs (" + grounds.dark + " vs " + grounds.light + "), and a " +
-      "fresh install under a light OS still opens dark."
+      "fresh install follows the OS both ways (light OS -> " + virgins.light + ", dark OS -> " +
+      virgins.dark + ")."
     );
   });
 
@@ -2937,6 +2956,13 @@ main().catch((e) => {
 //           fiction". This is the mutation that matters most for check 10: the branch that
 //           reports today's single-theme reality is easy, and the one that catches a dark
 //           mode nobody is actually testing is the one worth proving
+//      theme-boot.js's pre-paint default `|| "system"` -> `|| "dark"`, with mock.js and
+//      `Theme::default()` moved to match
+//        -> "an install with NO stored preference must take its lighting from the operating
+//           system — CEO ruling §63. It opened dark under a light OS and dark under a dark
+//           one". The fresh-install walk at the foot of check 10 asserted `"dark"` under one
+//           OS until 2026-09-19; one OS can only half-test a rule about following the OS,
+//           and the half it tested was the half that agreed with the old default
 // 10c  NOT A MUTATION — IT RAN RED ON THE SHIPPED SOURCE, first time, which is a stronger
 //      result than a mutation and is why it exists. The panel probe named TEN panels in
 //      `index.html` that no driver opened, and three of them were not gaps at all:
