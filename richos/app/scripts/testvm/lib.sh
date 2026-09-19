@@ -80,6 +80,45 @@ TESTVM_GUEST_PASS="${TESTVM_GUEST_PASS:-admin}"
 
 TESTVM_SSH_KEY="${TESTVM_SSH_KEY:-$TESTVM_ROOT/id_testvm}"
 
+# --- The tailnet. What makes the PHONE path walkable in here. -----------------
+# The app refuses to open a pairing code unless `serving_plan` returns Some
+# (src-tauri/src/phone/mod.rs:563), which needs a tailnet name, an origin and a
+# certificate the control plane will issue. A guest with Tailscale signed out
+# has none of the three, so until today every phone proof was a window on the
+# CEO's Mac. The auth key below is the one thing an agent cannot produce — the
+# account is his — so it lives OUTSIDE every repository, is read and never
+# echoed, and its absence refuses ONE step rather than the whole run.
+TESTVM_AUTHKEY="${TESTVM_AUTHKEY:-$TESTVM_ROOT/tailscale.authkey}"
+
+# Where a cert issued for a test node is kept between runs, per DNS name.
+# Let's Encrypt caps DUPLICATE certificates — the same exact name set — at a
+# handful per week, and a fresh ephemeral node asks for its name's certificate
+# from an empty cache every single time. Reusing the one already issued is what
+# keeps "run it again" from becoming "wait until next week".
+# `unverified:` — the cap's exact number is Let's Encrypt's, not measured here;
+# what IS measured is that a fresh clone starts with an empty daemon cert store
+# (/Library/Tailscale on a guest, probed 2026-09-19).
+TESTVM_CERTCACHE="${TESTVM_CERTCACHE:-$TESTVM_ROOT/certs}"
+
+# The guest's Tailscale command line. Homebrew on Apple silicon, which is
+# candidate 3 of the four the app itself looks at (phone/tailnet.rs:82). MEASURED
+# in a booted guest 2026-09-19: /opt/homebrew/bin/tailscale -> ../Cellar/
+# tailscale/1.102.4/bin/tailscale, and `is_file()` follows the symlink, so the
+# app finds it. If this ever moves, the app stops finding it too.
+TESTVM_GUEST_TS="${TESTVM_GUEST_TS:-/opt/homebrew/bin/tailscale}"
+
+# The same 720h the app asks `tailscale cert` for — phone/mod.rs:119
+# (TAILNET_MIN_VALIDITY). Warming the cache with a SHORTER validity than the app
+# demands would hand it a cached certificate it then refuses, which is the
+# quietest possible way to fail.
+TESTVM_MIN_VALIDITY="${TESTVM_MIN_VALIDITY:-720h}"
+
+# How long to wait for the daemon to reach Running. `tailscale up`'s own default
+# is 0s, documented as "blocks forever" — in a harness with no terminal that is
+# not a wait, it is a hang nobody sees. 90s is generous for a join that normally
+# takes ten.
+TESTVM_TAILNET_TIMEOUT="${TESTVM_TAILNET_TIMEOUT:-90s}"
+
 # ssh options: no host-key prompt or pollution — a guest is disposable and its
 # key changes every clone, so StrictHostKeyChecking=no plus a THROWAWAY known
 # hosts file keeps the CEO's ~/.ssh/known_hosts untouched.
@@ -162,4 +201,185 @@ guest_scp() {
 require_vm_running() {
   vm_exists "$1" || die "no such VM: $1"
   vm_running "$1" || die "VM $1 is not running — start it with testvm/run.sh"
+}
+
+# ============================================================================
+# THE TAILNET — pure helpers, so the decisions can be tested without a tailnet
+# ============================================================================
+
+# The node name a VM joins the tailnet under, or refusal.
+#
+# REFUSES rather than sanitizes. Tailscale would happily mangle an unusable
+# hostname into something legal and different, and a node whose name does not
+# match its VM is a node reap.sh cannot recognize as ours — the exact garbage
+# §54 forbids. The `richos-test-` prefix is load-bearing for the same reason:
+# it is reap.sh's WALL 2, and now the tailnet's marker too.
+tailnet_node_name() {
+  local vm="${1:-}" name
+  [ -n "$vm" ] || return 1
+  # LOWERCASED FIRST, THEN PREFIXED, and the order is the whole point: a VM
+  # called `RichOS-Test-C` is the already-prefixed case, and prefixing before
+  # folding the case would have made it `richos-test-richos-test-c` — a second
+  # node, under a name nothing else in the harness would recognize. Found by
+  # the test of the same name, which is why it is a test and not a comment.
+  name="$(printf '%s' "$vm" | tr '[:upper:]' '[:lower:]')"
+  case "$name" in
+    richos-test-*) ;;
+    *)             name="richos-test-$name" ;;
+  esac
+  case "$name" in *[!a-z0-9-]*) return 1 ;; esac
+  case "$name" in -*|*-)        return 1 ;; esac
+  [ "${#name}" -le 63 ] || return 1   # DNS label ceiling
+  printf '%s\n' "$name"
+}
+
+# Never let a key reach a log, a terminal or a commit. Used on EVERY stream that
+# came back from a command that was handed one.
+redact_keys() {
+  sed -E 's/tskey-[A-Za-z0-9_-]+/tskey-<redacted>/g'
+}
+
+# What is wrong with the auth-key file, in the CEO's terms — or nothing.
+#
+# Prints ONE action he can take, and exits nonzero. It never prints the file's
+# contents, not even a prefix: a key fragment in a transcript is a key in a
+# transcript.
+authkey_problem() {
+  local path="${1:-$TESTVM_AUTHKEY}" mode first lines
+  if [ ! -e "$path" ]; then
+    echo "there is no Tailscale auth key at $path"
+    return 1
+  fi
+  if [ ! -f "$path" ]; then
+    echo "$path is not a regular file"
+    return 1
+  fi
+  mode="$(stat -f '%Lp' "$path" 2>/dev/null || echo '???')"
+  case "$mode" in
+    600|400) ;;
+    *) echo "$path is mode $mode — a key readable by anything else is not a secret (chmod 600 '$path')"; return 1 ;;
+  esac
+  # `grep -c .` counts NON-EMPTY lines and exits 1 when there are none. The
+  # `|| echo 0` that used to be here appended a second line to its own output,
+  # so the empty-file case compared "0\n0" against an integer, errored, fell
+  # through, and refused the file for the WRONG reason — a key that was simply
+  # empty was reported as "not a Tailscale key". Found by the test named
+  # "an empty file is refused", which is what a test of a refusal is for.
+  lines="$(grep -c . "$path" 2>/dev/null)"
+  lines="${lines:-0}"
+  if [ "$lines" -eq 0 ]; then
+    echo "$path is empty"
+    return 1
+  fi
+  if [ "$lines" -gt 1 ]; then
+    echo "$path has $lines non-empty lines — it must hold the key and nothing else"
+    return 1
+  fi
+  first="$(grep -m1 . "$path" 2>/dev/null || true)"
+  case "$first" in
+    tskey-*) ;;
+    *) echo "$path does not start with 'tskey-', so it is not a Tailscale auth key"; return 1 ;;
+  esac
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# the certificate cache
+# ---------------------------------------------------------------------------
+# WHY ONE EXISTS. Every clone is a fresh node with an empty certificate store,
+# so every run would ask the control plane to issue a NEW certificate for the
+# same name. Public CAs rate-limit exactly that — the duplicate-certificate
+# limit is single digits per week for one name set — and the failure would land
+# days later, on somebody else's run, looking like a broken harness. Keeping
+# the certificate that was already issued turns "run it again" back into a
+# local operation.
+#
+# IT IS A PRIVATE KEY ON DISK, and that cost is taken deliberately: mode 0600,
+# inside the one declared testvm root, never in a repository, for a throwaway
+# node reachable only from inside the CEO's own tailnet. reap.sh prunes it the
+# moment it stops being usable.
+cert_cache_dir() { printf '%s/%s\n' "$TESTVM_CERTCACHE" "$1"; }
+
+# Is this cached certificate usable for this exact name, for as long as the app
+# demands? Answered on the HOST, with openssl, BEFORE anything is pushed into a
+# guest: a cache that hands over a certificate for the wrong name, or one
+# expiring inside the app's own 720h floor, is worse than an empty cache —
+# it fails at the phone instead of here.
+cert_cache_usable() {
+  local name="$1" dir cert hours seconds
+  dir="$(cert_cache_dir "$name")"
+  cert="$dir/cert.pem"
+  [ -s "$cert" ] && [ -s "$dir/key.pem" ] || return 1
+  command -v openssl >/dev/null 2>&1 || return 1
+  # Read from TESTVM_MIN_VALIDITY so this cannot drift from the app's own
+  # TAILNET_MIN_VALIDITY on its own.
+  hours="${TESTVM_MIN_VALIDITY%h}"
+  case "$hours" in ''|*[!0-9]*) hours=720 ;; esac
+  seconds=$(( hours * 3600 ))
+  openssl x509 -in "$cert" -noout -checkend "$seconds" >/dev/null 2>&1 || return 1
+  # `-checkhost` asks the question a browser asks — the name must be in the
+  # certificate's subject alternative names — rather than grepping the text
+  # form, which would match a name that merely appears in an issuer field.
+  openssl x509 -in "$cert" -noout -checkhost "$name" >/dev/null 2>&1 || return 1
+  return 0
+}
+
+# Store a PEM bundle (certificate chain + key, concatenated, as `tailscale cert`
+# emits them) under the cached name. Split by PEM LABEL rather than by order,
+# for the same reason `fetch_cert` does: both streams arrive on one descriptor
+# and nothing promises which comes first.
+cert_cache_store() {
+  local name="$1" pem="$2" dir
+  dir="$(cert_cache_dir "$name")"
+  mkdir -p "$dir" || return 1
+  chmod 700 "$dir" 2>/dev/null
+  rm -f "$dir/cert.pem.new" "$dir/key.pem.new"
+  printf '%s\n' "$pem" | awk -v certf="$dir/cert.pem.new" -v keyf="$dir/key.pem.new" '
+    /^-----BEGIN / { inblock=1; out = ($0 ~ /PRIVATE KEY/) ? keyf : certf }
+    inblock        { print >> out }
+    /^-----END /   { inblock=0 }
+  '
+  if [ ! -s "$dir/cert.pem.new" ] || [ ! -s "$dir/key.pem.new" ]; then
+    rm -f "$dir/cert.pem.new" "$dir/key.pem.new"
+    return 1
+  fi
+  mv "$dir/cert.pem.new" "$dir/cert.pem" || return 1
+  mv "$dir/key.pem.new"  "$dir/key.pem"  || return 1
+  chmod 600 "$dir/cert.pem" "$dir/key.pem"
+  # Stored, then re-read and validated. A cache entry that cannot pass the
+  # check its reader will apply is not a cache entry, it is a trap.
+  cert_cache_usable "$name" || { rm -rf "$dir"; return 1; }
+  return 0
+}
+
+# The node name out of `tailnet.sh join`'s output, or nothing.
+#
+# A FUNCTION rather than a line of sed inside run.sh, because run.sh's summary
+# and tailnet.sh's output are a contract between two files, and a contract with
+# no test drifts. `join` prints `tailnet=<name>` on success and
+# `tailnet=<name> certificates=off` when the tailnet will not certify the node,
+# and the name is wanted in both cases.
+tailnet_name_from_join_output() {
+  sed -n 's/.*tailnet=\([^ ]*\).*/\1/p' | tail -1
+}
+
+# The Tailscale command line on the HOST, in the same order the app looks
+# (phone/tailnet.rs:82) — so "what the harness sees" and "what the app sees"
+# cannot drift apart.
+host_ts_cli() {
+  local candidate
+  # One override, and it exists so the tests can drive `nodes` against a
+  # recorded status document instead of the CEO's live tailnet.
+  if [ -n "${TESTVM_HOST_TS:-}" ]; then
+    [ -x "$TESTVM_HOST_TS" ] || return 1
+    printf '%s\n' "$TESTVM_HOST_TS"; return 0
+  fi
+  for candidate in /usr/local/bin/tailscale \
+                   /Applications/Tailscale.app/Contents/MacOS/Tailscale \
+                   /opt/homebrew/bin/tailscale \
+                   /usr/bin/tailscale; do
+    [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+  done
+  command -v tailscale 2>/dev/null && return 0
+  return 1
 }

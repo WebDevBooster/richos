@@ -62,6 +62,21 @@ if vm_running "$VM" 2>/dev/null; then
   fi
 fi
 
+# --- 1b. leave the tailnet, while there is still a guest to leave it from -----
+# ORDER MATTERS, and this is the only place it can go: a signed-in node can
+# only sign itself out, and in two lines' time this guest stops existing.
+#
+# The node is EPHEMERAL, so a guest that dies without ever reaching this line
+# still disappears from the tailnet on the control plane's own clock — that is
+# what ephemeral means and it is the reason the key is created that way. This
+# call makes the disappearance immediate and, more to the point, makes it
+# something the harness DID rather than something it assumed. §54 again: the
+# node is garbage, and garbage is cleaned up by whoever made it.
+if vm_running "$VM" 2>/dev/null; then
+  "$HERE/tailnet.sh" logout "$VM" 2>/dev/null \
+    || PROBLEMS+=("$VM may still be signed in to the tailnet — check: $HERE/tailnet.sh nodes")
+fi
+
 # --- 2. stop the VM -----------------------------------------------------------
 if vm_running "$VM" 2>/dev/null; then
   log "stopping VM $VM..."

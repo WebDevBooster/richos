@@ -3,10 +3,11 @@
 #          caller how to drive it.
 #
 #   testvm/run.sh --bundle <RichOS.app.zip|RichOS.app> --home <fixture-home-dir>
-#                 [--vm <name>] [--keep] [--engine <engine.tar.gz>]
+#                 [--vm <name>] [--keep] [--engine <engine.tar.gz>] [--no-tailnet]
 #
 # Prints, on success:
 #   vm=<name> ip=<guest ip> pid=<app pid IN THE GUEST> ssh=<user@ip> elapsed=<s>
+#   tailnet=<dnsname|not-joined>
 #
 # Each --vm name is an INDEPENDENT guest cloned from the provisioned base, so
 # two agents can each run.sh with different names and get a window each, at the
@@ -16,7 +17,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib.sh"
 
-BUNDLE=""; FIXTURE_HOME=""; VM="richos-test-1"; ENGINE=""; KEEP=0
+BUNDLE=""; FIXTURE_HOME=""; VM="richos-test-1"; ENGINE=""; KEEP=0; TAILNET=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --bundle) BUNDLE="$2"; shift 2 ;;
@@ -24,6 +25,12 @@ while [ $# -gt 0 ]; do
     --vm)     VM="$2"; shift 2 ;;
     --engine) ENGINE="$2"; shift 2 ;;
     --keep)   KEEP=1; shift ;;
+    # The tailnet join is ON by default because the phone path is the reason
+    # this VM exists at all (CEO §61: there is one path, and it is Tailscale).
+    # It is also the only step that can refuse without failing the run, so
+    # --no-tailnet is for a proof that has nothing to do with the phone and
+    # would rather not spend twenty seconds and a node on one.
+    --no-tailnet) TAILNET=0; shift ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -85,6 +92,25 @@ for i in $(seq 1 30); do
   [ "$i" -eq 30 ] && die "ssh into $VM never came up"
   sleep 2
 done
+
+# --- 2b. the tailnet ----------------------------------------------------------
+# BEFORE the app launches, not after: the app asks Tailscale where it is on
+# startup and caches the answer (phone/mod.rs `tailnet_now`), so a guest that
+# joins afterwards shows the user "this Mac is not set up yet" until the cache
+# ages out. Joining first means the first screen he reads is the true one.
+#
+# A refusal here is NOT fatal — see tailnet.sh's `refuse_tailnet`. Without the
+# CEO's key there is no phone path, and everything else about this VM still
+# works, so the run continues and says so in its summary.
+TAILNET_NAME="not-joined"
+if [ "$TAILNET" -eq 1 ]; then
+  JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && true
+  printf '%s\n' "$JOIN_OUT" >&2
+  case "$JOIN_OUT" in
+    *tailnet=*) TAILNET_NAME="$(printf '%s\n' "$JOIN_OUT" | tailnet_name_from_join_output)" ;;
+  esac
+  [ -n "$TAILNET_NAME" ] || TAILNET_NAME="not-joined"
+fi
 
 # --- 3. stage the payload -----------------------------------------------------
 PAYLOAD="/Users/$TESTVM_GUEST_USER/testvm/$VM"
@@ -173,6 +199,10 @@ fi
 
 log "ready in ${ELAPSED}s"
 echo "vm=$VM ip=$IP pid=$PID ssh=$TESTVM_GUEST_USER@$IP windows=${WINDOWS:-0} elapsed=${ELAPSED}s"
+echo "tailnet=$TAILNET_NAME"
+if [ "$TAILNET_NAME" != "not-joined" ]; then
+  echo "phone: https://$TAILNET_NAME:8443/  (from this Mac: curl -sk https://$TAILNET_NAME:8443/)"
+fi
 echo "shot:  $HERE/shot.sh $VM <out.png> [--ocr]"
 echo "ax:    $HERE/ax.sh $VM '<applescript>'"
 echo "stop:  $HERE/stop.sh $VM      # ALWAYS, before you report (CEO §54)"
