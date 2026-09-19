@@ -107,7 +107,20 @@ preflight_tart() {
 
 tart() { "$TART_BIN" "$@"; }
 
-vm_exists() { tart list --format json 2>/dev/null | grep -q "\"Name\":\"$1\""; }
+# Parsed, never grepped. tart pretty-prints its JSON as `"Name" : "value"`, so
+# a grep for "Name":"value" silently finds nothing and every caller concludes
+# the VM does not exist — which is exactly what happened the first time this
+# ran. Source is checked too: an OCI row is the downloaded IMAGE, not a local
+# VM, and the two share a name space.
+vm_exists() {
+  tart list --format json 2>/dev/null | python3 -c "
+import json,sys
+want=sys.argv[1]
+try: rows=json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if any(r.get('Name')==want and r.get('Source')=='local' for r in rows) else 1)
+" "$1"
+}
 
 vm_running() {
   tart list --format json 2>/dev/null \
@@ -116,7 +129,7 @@ import json,sys
 want=sys.argv[1]
 try: rows=json.load(sys.stdin)
 except Exception: sys.exit(1)
-sys.exit(0 if any(r.get('Name')==want and r.get('Running') for r in rows) else 1)
+sys.exit(0 if any(r.get('Name')==want and r.get('Source')=='local' and r.get('Running') for r in rows) else 1)
 " "$1"
 }
 
