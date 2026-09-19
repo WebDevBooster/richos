@@ -1170,6 +1170,25 @@
     await refresh();
     const first = sheet.querySelector("button:not([disabled])");
     if (first) first.focus();
+    // **AND THE SHEET OPENS WHERE THE SCREEN BEGINS, NOT WHERE HE LEFT IT** — Urban's N2.
+    //
+    // G12's "reset the scroll on open" was applied to the Settings panel and not to this sheet,
+    // so the reopen G1 is about — close the sheet mid-pairing, go and find your phone, come back
+    // — landed at the BOTTOM of a two-viewport screen, a page below the live code he came back
+    // for (his frames 05 and 06).
+    //
+    // **`hidden` DOES NOT FORGET A SCROLL OFFSET, MEASURED RATHER THAN ASSUMED.** Probed on this
+    // build in the WebKit Tauri ships: the panel came back at 708 of 708 at 1400x950 and at 928
+    // of 928 at 1024x700 — the app's own minimum and the size Urban walked — each exactly where
+    // it was left. A `display: none` box reports 0 while it is hidden, which is what makes this
+    // easy to talk yourself out of.
+    //
+    // Two branches, and the live one is the same helper `Show me another code` uses, so the two
+    // doors into this screen cannot land in different places. `scrollToCode` no-ops when the code
+    // block is hidden, so the order below is: top first, then the code if there is one.
+    const panel = sheet.querySelector(".overlay-panel");
+    if (panel) panel.scrollTop = 0;
+    scrollToCode();
   }
 
   /// **PUT THE CODE BACK IN FRONT OF HIM** — Urban's G4.

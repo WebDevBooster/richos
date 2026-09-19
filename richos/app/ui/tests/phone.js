@@ -1698,6 +1698,126 @@ async function openSheet(browser, theme, preset) {
     }
   );
 
+  await run.check(
+    "28  reopening the sheet with a live code lands on the code, not at the bottom of the screen",
+    async () => {
+      // URBAN'S N2 (HIGH), his frame 05 versus 06. G12's "reset the scroll on open" was applied
+      // to the SETTINGS PANEL and not to the phone sheet, so the reopen that G1 was about — close
+      // the sheet mid-pairing, go and get your phone, come back — lands at the BOTTOM of a
+      // two-viewport screen, past the live code the user came back for. *"This is G3 and G4's own
+      // principle failing on the third door into the same screen."*
+      //
+      // **THE STATE IS PRODUCED THE WAY A PERSON PRODUCES IT**: scroll down, close, reopen. It is
+      // not injected by setting `scrollTop` after the open, which would test the assignment
+      // rather than the behavior.
+      const reopen = async (page) => {
+        await page.click("#phone-close");
+        // `state: "hidden"` rather than a `[hidden]` selector: the default wait is for a VISIBLE
+        // match, which a hidden sheet can never be, and the check would time out at 30 s green-
+        // looking-red rather than saying what it saw.
+        await page.waitForSelector("#phone-sheet", { state: "hidden" });
+        if (!(await page.isVisible("#set-phone-open"))) await page.click("#set-btn");
+        await page.waitForSelector("#set-phone-open");
+        await page.click("#set-phone-open");
+        await page.waitForSelector("#phone-sheet:not([hidden])");
+        // The open is `async` (it awaits `phone_status`), so the screen it draws — and the scroll
+        // it sets on the back of that draw — is one turn later than the click.
+        await page.waitForTimeout(250);
+      };
+      const where = (page) =>
+        page.evaluate(() => {
+          const panel = document.querySelector("#phone-sheet .overlay-panel");
+          const code = document.getElementById("phone-code-block");
+          const p = panel.getBoundingClientRect();
+          const c = code.getBoundingClientRect();
+          return {
+            scrollTop: Math.round(panel.scrollTop),
+            scrollable: Math.round(panel.scrollHeight - panel.clientHeight),
+            codeHidden: code.hidden,
+            codeTopInPanel: Math.round(c.top - p.top),
+            panelHeight: Math.round(p.height),
+          };
+        });
+
+      // **THE SCROLL SURVIVES THE HIDE, MEASURED BEFORE THIS CHECK WAS WRITTEN.** `sheet.hidden`
+      // makes the panel `display: none`, and it would have been reasonable to assume WebKit
+      // forgets a scroll offset it cannot render. It does not: probed on this build, the panel
+      // came back at **708 of 708** at 1400x950 and at **928 of 928** at 1024x700, both exactly
+      // where they were left. So the defect is reproducible here and this check can go red.
+      //
+      // **AND IT IS WALKED ON THE TAILSCALE ROUTE, WHICH IS URBAN'S OWN.** On the home route the
+      // code block sits low enough that the bottom of the scroll still has it in view (codeTop
+      // 344 of an 812px panel, measured) — so a check written there would have passed on the
+      // broken build, for a reason that is about G3's one-node-two-positions and nothing to do
+      // with N2. Both routes are walked; only the second could have caught this.
+      //
+      // The assertion is the same on both, and it is check 21's: the code is IN VIEW. It is not
+      // "at the top", because on the home route **the top is unreachable** — the code block sits
+      // inside the last viewport of that document, so the maximum scroll and `scrollToCode()`
+      // land in the same place, 344px into an 812px panel. That is the same number check 21
+      // reports for `Show me another code`, and it is why the home half of this check passes on
+      // the broken build: it is a non-regression, and the Tailscale half is the proof.
+      const out = [];
+      for (const route of ["home", "tailnet"]) {
+        const page =
+          route === "tailnet"
+            ? await takeTheTailscaleRoute("dark", {
+                state: "ready",
+                name: "mm1.tail9a3b2.ts.net",
+                origin: "https://mm1.tail9a3b2.ts.net:8443",
+                account: "Google as someone@gmail.com",
+              })
+            : await openSheet(browser, "dark", { phonePairing: true });
+        if (route === "tailnet") {
+          await page.waitForSelector("#phone-ts-ready:not([hidden])");
+          await page.click("#phone-ts-start");
+        }
+        await page.waitForSelector("#phone-pairing:not([hidden])");
+        await page.evaluate(() => {
+          const panel = document.querySelector("#phone-sheet .overlay-panel");
+          panel.scrollTop = panel.scrollHeight;
+        });
+        const before = await where(page);
+        await reopen(page);
+        const after = await where(page);
+        await page.close();
+
+        assert(before.scrollable > 40, route + ": the panel does not scroll in this window, so this check proves nothing");
+        assert(before.scrollTop > 40, route + ": the walk never reached the bottom, so the reopen has nothing to undo");
+        assert(!after.codeHidden, route + ": the code went away across the reopen, which is a different defect");
+        assert(
+          after.codeTopInPanel >= 0 && after.codeTopInPanel < after.panelHeight - 40,
+          "THE DEFECT (" + route + "): after reopening, the live code sits at " +
+            after.codeTopInPanel + "px in a " + after.panelHeight + "px panel — he came back for " +
+            "the code and the sheet gave him the place he left"
+        );
+        out.push(
+          route + ": left at " + before.scrollTop + "px of " + before.scrollable +
+            ", reopened with the code " + after.codeTopInPanel + "px from the top"
+        );
+      }
+
+      // ---- and with NO live code the other branch runs: the top of the screen, never the middle
+      // of a screen he has never seen. The expired screen is one viewport by design (Urban's G7),
+      // so this half is a guard on the branch rather than a geometry measurement, and it says so.
+      const expired = await openSheet(browser, "dark", { phonePairingExpired: true });
+      await expired.waitForSelector("#phone-expired:not([hidden])");
+      await expired.evaluate(() => {
+        const panel = document.querySelector("#phone-sheet .overlay-panel");
+        panel.scrollTop = panel.scrollHeight;
+      });
+      await reopen(expired);
+      const rest = await where(expired);
+      await expired.close();
+      assertEqual(rest.scrollTop, 0, "a reopen with no live code did not land at the top of the sheet");
+      out.push(
+        "no live code: reopened at scrollTop 0 (that screen scrolls " + rest.scrollable +
+          "px in this window)"
+      );
+      return out.join("; ");
+    }
+  );
+
   await run.check("10  nothing on the sheet threw, in either theme", async () => {
     const errors = [];
     let combinations = 0;
