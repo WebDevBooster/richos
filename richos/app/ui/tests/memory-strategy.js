@@ -42,7 +42,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, SEED_THEME, UI_DIR } = require("./lib/harness");
+const { leaveHome, loadPlaywright, shot, publishShotFile, createRun, assert, assertEqual, awaitWorkerChipSettled, pinClock, unpinClock, SEED_THEME, UI_DIR } = require("./lib/harness");
 
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -59,7 +59,41 @@ const ANCHOR_SUB_SECOND = 700; // 100ms of elapsed time: §6.1's under-one-secon
 
 const shots = [];
 async function evidence(page, name, note) {
-  const s = await shot(page, name); // throws unless the pixels are a real render
+  // THE CHROME OF THIS SURFACE IS STILL MOVING WHEN THE WALK HAS FINISHED DRIVING IT. The shell
+  // polls `get_worker_status` every 3,000ms (`main.js:3098`) and rebuilds the drill chip from
+  // the answer, so a shot taken between a step this suite APPLIED and the next tick shows the
+  // step before it. Measured over five same-source runs on 2026-09-19: `ms-05` alternated
+  // between `· 1 I can't see` and `· 1 done · 1 I can't see`, 962 pixels at delta 131, with
+  // `ms-03` and `ms-04` moving in the same box. The wait is on the product's own re-render
+  // agreeing with itself twice, not on a duration — see `lib/harness.js`.
+  const settled = await awaitWorkerChipSettled(page);
+  if (!settled.settled) {
+    throw new Error(
+      `${name}: the work chip was still changing after the budget (${settled.renders} re-renders, ` +
+        `last text ${JSON.stringify(settled.text)}). A shot of a surface that is still moving is ` +
+        `evidence of a moment, not of a state.`
+    );
+  }
+  // AND THE LIVE COUNTER IN THE TURN ROW COUNTS THIS SUITE, NOT THE SCENARIO. §26's clock is
+  // injected so the row reads `Working for 18s` (check 2 above proves it, measured), and then
+  // `main.js:1437` keeps ticking it for as long as the row is live — so by shot 4 it read 34s
+  // in one run and 35s in the next, and five of these nine shots moved between two same-source
+  // runs for no reason other than how long the walk took. The pin puts every shot at the
+  // fixture's own instant, `startedAt + 18,600 ms`, which is the state check 2 asserts; the
+  // recompute goes through the product's own visibility handler, so nothing here re-implements
+  // the formatter. Restored in the `finally`, so the walk that follows has the clock it drove.
+  const pinAt = await page.evaluate(() => {
+    const m = window.__RICHOS_MOCK__;
+    const s = m && typeof m.activeMemoryStrategy === "function" ? m.activeMemoryStrategy() : null;
+    return s && typeof s.startedAt === "number" ? s.startedAt + 18600 : null;
+  });
+  if (pinAt !== null) await pinClock(page, pinAt);
+  let s;
+  try {
+    s = await shot(page, name); // throws unless the pixels are a real render
+  } finally {
+    if (pinAt !== null) await unpinClock(page);
+  }
   fs.mkdirSync(SHOTS_26, { recursive: true });
   publishShotFile(s.file, path.join(SHOTS_26, name + ".png"));
   shots.push({ name, note, distinct: s.distinct, bytes: s.bytes });

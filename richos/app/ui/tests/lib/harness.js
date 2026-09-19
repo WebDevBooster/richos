@@ -181,15 +181,12 @@ function publishShot(buf, file) {
   if (existing && png.samePicture(existing, buf)) {
     return { file, written: false, bytes: existing.length };
   }
+  // A COMMITTED shot changed. `.shots/` is per-run scratch and gitignored; saying anything
+  // about it every run would be the noise this whole change exists to remove.
   if (existing && !file.startsWith(SHOT_DIR + path.sep)) {
-    // A COMMITTED shot changed. `.shots/` is per-run scratch and gitignored; saying anything
-    // about it every run would be the noise this whole change exists to remove.
-    console.log(
-      "  shot changed: " +
-        path.relative(path.resolve(__dirname, ".."), file) +
-        " — " +
-        png.describeDifference(existing, buf)
-    );
+    const rel = path.relative(path.resolve(__dirname, ".."), file);
+    const difference = png.describeDifference(existing, buf);
+    console.log("  shot changed: " + rel + " — " + difference);
   }
   fs.writeFileSync(file, buf);
   return { file, written: true, bytes: buf.length };
@@ -285,6 +282,180 @@ async function awaitSettled(page, timeoutMs) {
     .catch(() => 0);
 }
 
+// ---------------------------------------------------------------------------------------
+// WHERE THE POINTER HAPPENS TO BE LYING IS NOT PART OF THE SURFACE
+// ---------------------------------------------------------------------------------------
+//
+// A walk drives a surface by clicking it, and the pointer STAYS where the last click left it.
+// If the state the click produced puts a different control under that point, the control is
+// drawn hovered — and whether WebKit has re-run the hit test by the time the shutter opens is
+// a race with the layout, not a fact about the screen.
+//
+// MEASURED, 2026-09-19, five consecutive same-source runs at `5f3a1a1e`:
+// `shots-contrast/voice-model-progress.png` alternated between two pictures on every run,
+// differing in 1,200 pixels at a worst channel delta of 109 — the whole rounded-rect outline
+// and label of `Stop the download`. `style.css:1628` is the entire cause:
+//
+//     .voice-retry:hover { color: var(--ink-soft); border-color: var(--ink-soft); }
+//
+// and `contrast.js`'s walk reaches that state by clicking `#voice-model-get`, which the stop
+// button then replaces under the same pointer. Two runs, two different buttons in the record,
+// and nothing in the suite is about hovering.
+//
+// SO THE POINTER IS PARKED, AND THE CONDITION IS THE HOVER CHAIN ITSELF. Moving the mouse is
+// not enough — the move and the hit test are separate, and `waitForTimeout` after it would be
+// the same bet on the machine this directory keeps losing. What is waited for is the page
+// agreeing: the deepest `:hover` element is the element actually under the pointer, or nothing
+// is hovered at all.
+//
+// OPT-IN, NEVER AUTOMATIC. A suite that photographs a hover ON PURPOSE must keep it, so this
+// is `opts.parkPointer` at the call site and not something `shot()` does behind every caller's
+// back.
+async function parkPointer(page, at) {
+  const x = at && typeof at.x === "number" ? at.x : 0;
+  const y = at && typeof at.y === "number" ? at.y : 0;
+  await page.mouse.move(x, y).catch(() => {});
+  await page
+    .waitForFunction(
+      ([px, py]) => {
+        const hovered = document.querySelectorAll(":hover");
+        if (!hovered.length) return true;
+        const under = document.elementFromPoint(px, py);
+        return under === hovered[hovered.length - 1];
+      },
+      [x, y],
+      { timeout: 2000 }
+    )
+    .catch(() => {});
+}
+
+// ---------------------------------------------------------------------------------------
+// A THREE-SECOND BACKGROUND POLL WRITES INTO THE CHROME OF EVERY CONVERSATION SURFACE
+// ---------------------------------------------------------------------------------------
+//
+// `main.js:3098` polls `get_worker_status` every 3,000 ms and calls `renderDrillChip`, which
+// begins `drillChipEl.innerHTML = ""` and rebuilds the chip from the answer — every tick,
+// whether or not the answer moved. A surface photographed between a state the walk DROVE and
+// the next tick therefore shows the previous answer, and two runs land on opposite sides of
+// that boundary.
+//
+// MEASURED, 2026-09-19, five consecutive same-source runs at `5f3a1a1e`:
+// `shots-26/ms-05-worker-detail-beside-thread.png` differed between runs in 962 pixels inside
+// one 139x13 box — `· 1 I can't see` in one run, `· 1 done · 1 I can't see` in the next, at a
+// worst channel delta of 131. `ms-03` and `ms-04` moved in the same box by 292 and 432 pixels.
+// That is a difference in what the picture SAYS, in the chrome, and no suite in this directory
+// was waiting for it.
+//
+// THE CONDITION IS THE PRODUCT'S OWN RENDER. Two consecutive re-renders of the zone carrying
+// identical text prove the poll has caught up: the first is a tick that happened after this
+// call, the second is the tick after it agreeing. If the zone is never re-rendered at all
+// within one full poll period plus a margin, it is not being rewritten and the surface is
+// already still — which is the answer on every page where no thread is open.
+//
+// NEVER THROWS. This is a shutter helper; it returns what it found, including "still changing",
+// and the caller decides. A helper that could fail a suite on its own would be a second thing
+// to debug on the day a real defect makes the chip flicker.
+const WORKER_POLL_MS = 3000; // main.js:3098 — the interval this waits on, named rather than guessed
+async function awaitWorkerChipSettled(page, budgetMs) {
+  const budget = budgetMs || 9000;
+  return page
+    .evaluate(
+      ({ budget: cap, quiet }) =>
+        new Promise((resolve) => {
+          const zone = document.getElementById("drill-chip-zone");
+          if (!zone) return resolve({ settled: true, renders: 0, why: "no drill chip on this surface" });
+          // SEEDED WITH WHAT IS ON SCREEN NOW, so the FIRST re-render that agrees with it
+          // settles this rather than the second. The walk drives its state and then calls
+          // here, so a tick that lands after this line has already read the state the walk
+          // set; requiring two ticks proved the same thing at twice the price, and this
+          // suite is the cheapest in the directory and should stay that way.
+          let last = zone.textContent;
+          let renders = 0;
+          let quietTimer = null;
+          let capTimer = null;
+          const finish = (r) => {
+            obs.disconnect();
+            clearTimeout(quietTimer);
+            clearTimeout(capTimer);
+            resolve(r);
+          };
+          const armQuiet = () => {
+            clearTimeout(quietTimer);
+            quietTimer = setTimeout(
+              () => finish({ settled: true, renders, why: "no re-render for " + quiet + "ms", text: zone.textContent }),
+              quiet
+            );
+          };
+          const obs = new MutationObserver(() => {
+            renders++;
+            const text = zone.textContent;
+            if (last !== null && text === last) {
+              return finish({ settled: true, renders, why: "two consecutive re-renders agreed", text });
+            }
+            last = text;
+            armQuiet();
+          });
+          obs.observe(zone, { childList: true, subtree: true, characterData: true, attributes: true });
+          capTimer = setTimeout(
+            () => finish({ settled: false, renders, why: "still changing after " + cap + "ms", text: zone.textContent }),
+            cap
+          );
+          armQuiet();
+        }),
+      { budget, quiet: WORKER_POLL_MS + 400 }
+    )
+    .catch((e) => ({ settled: false, renders: 0, why: "could not observe the chip: " + String(e).split("\n")[0] }));
+}
+
+// ---------------------------------------------------------------------------------------
+// A LIVE COUNTER IN THE PICTURE COUNTS THE HARNESS, NOT THE SCENARIO
+// ---------------------------------------------------------------------------------------
+//
+// `main.js:1437` ticks `updateTimers(..., Date.now())` once a second for as long as any row is
+// live, so a turn that is still working renders an elapsed time that keeps going up. A suite
+// that photographs such a turn photographs ITS OWN RUNTIME: the §26 fixture anchors the clock
+// so the row reads `Working for 18s`, and by the fourth screenshot the same row read 34s in one
+// run and 35s in the next, purely because this directory's own walk takes a slightly different
+// number of milliseconds every time.
+//
+// MEASURED, 2026-09-19 at `5f3a1a1e`: five of `shots-26`'s nine shots moved between two
+// same-source runs, 176 to 617 pixels each at a worst channel delta of 135, every one of them
+// inside the two text runs that carry that counter. The number in those pictures was never
+// evidence of anything — it was the stopwatch on the harness.
+//
+// SO THE CLOCK IS PINNED FOR THE LENGTH OF THE CAPTURE, TO A VALUE THE FIXTURE DEFINES, and the
+// row is recomputed THROUGH THE PRODUCT'S OWN PATH rather than by this file working out what
+// the text should say. `main.js:1446` recomputes every timer from its timestamps the instant
+// the document becomes visible — that handler is the recompute, so dispatching the event is how
+// a pinned clock reaches the screen without a second implementation of the formatter and
+// without waiting out a 1,000 ms tick.
+//
+// NARROW ON PURPOSE. It is a capture-length pin at ONE call site, restored in a `finally`, and
+// it is not something `shot()` does to every caller: a suite whose subject IS the clock must
+// keep the clock it drove.
+async function pinClock(page, atMs) {
+  return page
+    .evaluate((at) => {
+      if (!window.__richosRealDateNow) window.__richosRealDateNow = Date.now.bind(Date);
+      Date.now = () => at;
+      document.dispatchEvent(new Event("visibilitychange"));
+      return at;
+    }, atMs)
+    .catch(() => null);
+}
+
+async function unpinClock(page) {
+  return page
+    .evaluate(() => {
+      if (!window.__richosRealDateNow) return false;
+      Date.now = window.__richosRealDateNow;
+      window.__richosRealDateNow = null;
+      document.dispatchEvent(new Event("visibilitychange"));
+      return true;
+    })
+    .catch(() => false);
+}
+
 async function releaseLoops(page) {
   await page
     .evaluate(() => {
@@ -314,6 +485,7 @@ async function captureSettled(page, opts) {
   // settled some other way and is working against a clock. `splash.js` is the one: it waits for
   // the curtain's own bar to report it has landed, and then has exactly the one second of
   // ceiling grace to take the picture in.
+  if (opts.parkPointer) await parkPointer(page, opts.parkPointer === true ? null : opts.parkPointer);
   await awaitSettled(page, opts.settleMs);
   await pinLoops(page);
   try {
@@ -335,6 +507,7 @@ async function shot(page, name, opts) {
     screenshot: { fullPage: opts.fullPage !== false },
     settleMs: opts.settleMs,
     onShutter: opts.onShutter,
+    parkPointer: opts.parkPointer,
   });
   const bytes = publishShot(buf, file).bytes;
 
@@ -1055,6 +1228,10 @@ module.exports = {
   leaveHome,
   leaveSplash,
   awaitSettled,
+  parkPointer,
+  awaitWorkerChipSettled,
+  pinClock,
+  unpinClock,
   flushFrames,
   bootSettled,
   shellSettled,
