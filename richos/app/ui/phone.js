@@ -143,8 +143,17 @@
       </div>
 
       <h3 class="phone-step-title" id="phone-words-title">3. Check the six words match</h3>
-      <p class="overlay-note">Your phone will show six words. They have to be these six, in this
-        order. If they are not, something other than this Mac answered — tap Cancel and tell me.</p>
+      <!-- IT GOES WITH THE CODE, AND IT NAMES A CONTROL THAT IS ON THE SCREEN. Ray's
+           candidate-.12 defect B: after the code ran out this paragraph stayed, telling him to
+           compare against "these six" with no six words under it and to "tap Cancel" with no
+           Cancel button anywhere in the sheet (frame 19). Two things a person is asked to do
+           that are not there. The heading above it and the words below it were already cleared
+           with the code; this one was missed, so it is now hidden by the same live test they
+           are — and the control it names is Close, which is the button this sheet actually has
+           (id phone-close, and the sheet's own data-dismiss). -->
+      <p class="overlay-note" id="phone-words-note">Your phone will show six words. They have to
+        be these six, in this order. If they are not, something other than this Mac answered —
+        press Close and tell me.</p>
       <p class="phone-words" id="phone-words"></p>
 
       <!-- THE ONE FAILURE THIS PATH ACTUALLY DIES OF, named where it happens. Sage's §2.3 failure
@@ -904,6 +913,9 @@
     // screen telling him to do something that is not there.
     field("phone-code-title").hidden = !live;
     field("phone-words-title").hidden = !live;
+    // AND THE SENTENCE UNDER THAT HEADING, which is the half defect B found: it survived the
+    // expiry telling him to check "these six" with nothing to check them against.
+    field("phone-words-note").hidden = !live;
     field("phone-expired").hidden = !expired;
     if (expired) {
       field("phone-expired-note").textContent = EXPIRED_NOTE;
