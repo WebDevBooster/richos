@@ -156,6 +156,11 @@ impl StopSwitch {
 
     /// **Nothing owns this channel**, which is true of every route-table fixture in this file:
     /// there is no listener to stop and no runtime to tell. A pull is a no-op and says so.
+    ///
+    /// `cfg(test)` because it has no production caller and should not acquire one: a shipped
+    /// channel with no owner is the defect this type exists to close, and a constructor for it
+    /// sitting in the release binary is an invitation to build one by accident.
+    #[cfg(test)]
     pub fn unwired() -> Self {
         StopSwitch(Mutex::new(None))
     }
