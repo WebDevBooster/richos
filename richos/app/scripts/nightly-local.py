@@ -30,15 +30,19 @@ import threading
 import time
 import uuid
 
-# Gate ceilings include rebuilds, not just reuse of successful receipts. Keep
-# explicit headroom beside each ceiling below; timings are recorded privately.
+# Gate ceilings include rebuilds, not just reuse of successful receipts. Cargo
+# uses fivefold cold/warm headroom rounded up to a minute. The script envelope
+# adds cold Cargo runs and the generated-command integration to a full no-reuse
+# reference before doubling it. Script/UI ceilings round up to five minutes.
+# Measurements and model assumptions are recorded in the private handoff.
+# Gates skipped by a land proof do not spawn a command or spend a deadline.
 GATE_BUDGETS = {
-    "gates/release-smoke": 60,   # Fixture-only Python work; includes interpreter startup.
-    "gates/core-tests": 1200,   # Includes a cold dependency build, not just test execution.
-    "gates/updater-tests": 600, # Separate workspace: budget its own cold compilation.
-    "gates/script-suites": 1800, # Includes full execution with receipt reuse disabled.
-    "gates/ui-suite": 1200,    # Fresh browser contexts over four shards; no compile step.
-    "gates/privacy-sweep": 120, # Full tracked-tree scan even when other gates are reused.
+    "gates/release-smoke": 60,   # One-minute startup floor for fixture-only Python work.
+    "gates/core-tests": 300,    # At least 5x the worst cold/warm Cargo sample.
+    "gates/updater-tests": 360, # At least 5x its separate workspace's cold/warm sample.
+    "gates/script-suites": 1800, # At least 2x the full-execution envelope, without reuse.
+    "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
+    "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
 CLEANUP_TIMEOUT = 30
 TERM_GRACE = 2
