@@ -71,7 +71,7 @@ while True: time.sleep(1)
             with patch('driver.rust.tauri_inputs', return_value='first') as inputs, \
                  patch('driver.rust.lint_rules', return_value={'fixture': 'blocking'}), \
                  patch('driver.rust.collect', side_effect=lambda *a: (calls.append(a) or ({}, []))), \
-                 patch('driver.enforce'), patch('driver.checked', return_value='revision'):
+                 patch('driver.enforce'), patch('driver.checked', return_value='a' * 40):
                 driver.tauri(root, args, rows, {}, {})
                 driver.tauri(root, args, rows, {}, {})
                 self.assertEqual(len(calls), 1)
@@ -81,6 +81,11 @@ while True: time.sleep(1)
                 self.assertEqual(len(calls), 5)
                 path = directory / 'lint-tauri-green.json'
                 before = path.read_bytes()
+                invalid = json.loads(before)
+                del invalid['revision']
+                path.write_text(json.dumps(invalid))
+                self.assertFalse(state.green(path, 'lint-changed'))
+                path.write_bytes(before)
                 inputs.return_value = 'timeout-inputs'
                 with patch('driver.rust.collect', side_effect=subprocess.TimeoutExpired('cargo', 180)), self.assertRaises(subprocess.TimeoutExpired):
                     driver.tauri(root, args, rows, {}, {})

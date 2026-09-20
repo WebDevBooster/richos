@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from common import Refusal
 
@@ -9,7 +10,10 @@ from common import Refusal
 def green(path, fingerprint):
     try:
         data = json.loads(path.read_text())
-        return data.get("schema") == 1 and data.get("fingerprint") == fingerprint and data.get("green") is True
+        return (data.get("schema") == 1 and data.get("fingerprint") == fingerprint
+                and data.get("green") is True
+                and isinstance(data.get("revision"), str)
+                and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", data["revision"]) is not None)
     except (OSError, ValueError, AttributeError):
         return False
 
