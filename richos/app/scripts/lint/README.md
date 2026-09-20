@@ -88,25 +88,15 @@ JavaScript ceiling. It names shell-only rules that do not cover JavaScript.
 ## Build integration
 
 The script runner discovers `lint.test.sh`, which runs the refusal/acceptance
-fixtures and the fast lint. The nightly then invokes the conditional Tauri check
-with its own state directory and current suite receipt. If receipt reuse skipped
-the fast suite, the nightly invocation runs fast lint before the Tauri decision.
+fixtures and the fast lint. The nightly then invokes `lint.sh --all` with its
+current suite receipt. Tauri Clippy runs every time. A passed fast-suite receipt
+from the same nightly run avoids repeating fast lint. A missing, invalid or
+skipped receipt runs fast lint again before Tauri Clippy. Receipt reuse requires
+the nightly's execution marker; standalone `--all` runs both sets.
 The lint never probes the parent's release lock or waits for the parent's load.
 Scheduling standalone measurements is an operator responsibility.
 
-Cargo metadata discovers local crate dependencies. The Tauri fingerprint covers
-their source bytes, workspace manifests and lockfiles, declared build-script
-inputs, lint implementation/configuration, recorded tool versions and compiler
-environment. Uncommitted changes and new untracked source files are included.
-Dynamic build-script declarations conservatively cover the app and web trees.
-
-The last-green record lives in the supplied nightly state directory, outside the
-checkout. Missing, invalid or changed state causes a run. A matching record can
-skip only the conditional nightly check; manual `--all` always runs it. State is
-written atomically after success and an unchanged-input recheck. Failure or
-timeout never advances it.
-
-The Tauri deadline is 180 seconds, including metadata and Cargo lock waiting.
+The Tauri deadline is 180 seconds, including Cargo lock waiting.
 Timeout cleanup terminates the process group created for the command, escalating
 to a kill if needed. It never selects processes by name. Descendants that
 deliberately detach into another session are outside process-group ownership.
