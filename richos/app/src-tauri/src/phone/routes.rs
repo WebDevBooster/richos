@@ -117,9 +117,76 @@ pub trait Bridge: Send + Sync {
     fn threads(&self) -> Vec<(String, String)>;
 }
 
+/// **THE HANDLE A REQUEST HANDLER DOES NOT OTHERWISE HAVE — the one that ends the channel it is
+/// running on.**
+///
+/// Ray's nightly `.8` walk in the test VM, defect 1 (HIGH),
+/// `docs/verification/2026-09-20-nightly-1.2.0-nightly.20260919.8-phone-path-in-the-vm-audit.md`:
+/// pressing `They do not match` on the phone dropped the device record — the security-critical
+/// half, and it worked — while **the Mac kept answering on 8443 at t+10, 20, 30, 40, 50 and 60 s
+/// and two minutes later**, with the pairing card still on screen as though nothing had been
+/// said. The Mac-side `Forget this phone` ([`super::PhoneRuntime::forget`]) stops the listener,
+/// takes the hub off live and deletes the authority; the rejection path did only the device
+/// record, because a route has `channel.devices` and no handle on the listener at all. That
+/// missing handle is this type.
+///
+/// # It CANNOT do the teardown itself, and that is arithmetic rather than taste
+///
+/// [`super::listen::Listener::stop`] ends with `thread.join()` on the `richos-phone-channel`
+/// thread, and **every route in this file runs on that thread** — inside the
+/// `runtime.block_on(serve_all(..))` that [`super::listen::Listener::start`] spawns. A handler
+/// that called `stop()` would join its own thread and hang there forever, holding the response
+/// it was about to write. So this is a doorbell and nothing else: it hands one `()` to whoever
+/// owns the listener and returns immediately. The owner does the stopping, from its own thread,
+/// with its own single copy of the sequence — the same rule the reconnect work already follows
+/// (`t3code-mobile-vs-richos-phone-2026-09-18` §1 item 6: the connection owner owns its own
+/// teardown).
+///
+/// # It fires once
+///
+/// The sender is taken out on the first pull, so a phone that posts the rejection twice — a
+/// retry, a double tap — rings the bell once. The second pull returns `false` and does nothing.
+pub struct StopSwitch(Mutex<Option<std::sync::mpsc::Sender<()>>>);
+
+impl StopSwitch {
+    /// Wired to an owner. [`super::PhoneRuntime::start`] holds the other end.
+    pub fn to(owner: std::sync::mpsc::Sender<()>) -> Self {
+        StopSwitch(Mutex::new(Some(owner)))
+    }
+
+    /// **Nothing owns this channel**, which is true of every route-table fixture in this file:
+    /// there is no listener to stop and no runtime to tell. A pull is a no-op and says so.
+    ///
+    /// `cfg(test)` because it has no production caller and should not acquire one: a shipped
+    /// channel with no owner is the defect this type exists to close, and a constructor for it
+    /// sitting in the release binary is an invitation to build one by accident.
+    #[cfg(test)]
+    pub fn unwired() -> Self {
+        StopSwitch(Mutex::new(None))
+    }
+
+    /// Ring it. `true` if an owner was there to hear it.
+    ///
+    /// **Never blocks and never waits for the teardown to finish.** The response to the phone
+    /// goes out on this thread; the socket it goes out on is about to be closed by the owner.
+    /// That race is harmless and it is checked rather than assumed: the phone ignores the
+    /// outcome of this request entirely — `richos/web/web-app/app.js:287`,
+    /// `try { await api.confirmFingerprint(false); } catch { /* said locally either way */ }` —
+    /// because it has already thrown its own key away on the same press.
+    pub fn pull(&self) -> bool {
+        match self.0.lock().unwrap().take() {
+            Some(owner) => owner.send(()).is_ok(),
+            None => false,
+        }
+    }
+}
+
 /// Everything a dispatch needs, assembled once when the listener starts.
 pub struct Channel {
     pub devices: Arc<DeviceDesk>,
+    /// **The way out of this channel, for the one request that has to end it** — see
+    /// [`StopSwitch`]. `StopSwitch::unwired()` in the route tests, which have no listener.
+    pub rejected: StopSwitch,
     pub api_base: Arc<ApiBaseDesk>,
     pub hub: Arc<PhoneHub>,
     pub bridge: Arc<dyn Bridge>,
@@ -263,9 +330,25 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             }
         } else {
             eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
+            // **THE CREDENTIAL GOES HERE, SYNCHRONOUSLY, AND IT STAYS HERE.** The owner's
+            // teardown calls this again a moment later and `DeviceDesk::forget` is idempotent
+            // (`device.rs`: `take()`, then a `remove_file` whose failure is ignored), so this
+            // line is not the second copy of anything. It is the one part of the sequence that
+            // must not depend on a thread being alive to hear a doorbell: if the watcher failed
+            // to spawn, this Mac still has no device record.
             if let Err(e) = channel.devices.forget() {
                 eprintln!("[richos] could not forget the phone after a rejected fingerprint: {e}");
                 return Outcome::NotFound;
+            }
+            // **AND THE REST OF THE SEQUENCE IS THE OWNER'S** — Ray's nightly `.8` defect 1. The
+            // socket, the hub and the certificate authority all belong to `PhoneRuntime`, which
+            // is the only thing that may put them down and the only place that sequence is
+            // written. See [`StopSwitch`] for why a route cannot do it on this thread.
+            if !channel.rejected.pull() {
+                eprintln!(
+                    "[richos] nothing owns this channel, so it keeps serving after a rejected \
+                     fingerprint - the device record is gone either way"
+                );
             }
         }
     }
@@ -793,6 +876,10 @@ mod tests {
         hub.set_live(true);
         let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, rows });
         let channel = Channel {
+            // No listener behind these tests, so there is nothing to ring. The route's own
+            // behavior on a rejection — the device record going — is asserted here; that the
+            // bell reaches an owner and the port closes is asserted over real TLS in `listen.rs`.
+            rejected: StopSwitch::unwired(),
             devices,
             api_base: Arc::new(ApiBaseDesk::only("https://mm1.tail9a3b2.ts.net:8443")),
             hub,

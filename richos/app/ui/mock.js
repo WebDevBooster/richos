@@ -63,6 +63,18 @@
       window.__RICHOS_MOCK_PRESET__?.phonePlatform === undefined
         ? "ios"
         : window.__RICHOS_MOCK_PRESET__.phonePlatform,
+    // **THE PERSON PRESSED `They do not match` ON THE PHONE** — `PhoneStatus::rejected`, Ray's
+    // nightly `.8` defect 1.
+    //
+    // It is STATE here and not a preset read at answer time, because on the Mac it is state:
+    // `PhoneRuntime::rejected` is set when the channel stops and cleared by
+    // `begin_pairing` and by nothing else. A harness that read the preset every time could not
+    // model the one transition off this screen.
+    //
+    // Deliberately INDEPENDENT of `phonePaired` and `phonePairing`: a Mac that has stopped is
+    // not listening and has nothing paired, which is character for character the status that
+    // draws `This Mac is ready`. Telling those two apart is the whole point of the field.
+    rejected: window.__RICHOS_MOCK_PRESET__?.phoneRejected === true,
   };
   // WHERE THIS MAC IS ON THE TAILSCALE PATH, for the harness. The shipped sheet draws its four
   // Tailscale screens from `status.tailnet` and nothing else, so without this the whole of CEO
@@ -164,6 +176,15 @@
           : [],
       pairingSecondsLeft: open ? secondsLeft : null,
       tailnet: tailnetOf(),
+      // **THE PERSON PRESSED `They do not match` ON THE PHONE** — `PhoneStatus::rejected`.
+      //
+      // Ray's nightly `.8` defect 1. The real Mac reaches this state by stopping: the listener
+      // goes, the device record goes, the authority goes, and this is the only thing left
+      // saying why. So the preset is deliberately INDEPENDENT of `phonePaired` and
+      // `phonePairing` — a Mac that has stopped is not listening and has nothing paired, which
+      // is character for character the status that draws `This Mac is ready`, and telling those
+      // two apart is the whole point of the field.
+      rejected: mockPhone.rejected,
     };
   }
 
@@ -2122,6 +2143,10 @@
         case "phone_begin_pairing":
           mockPhone.pairing = true;
           mockPhone.openedAt = now();
+          // **AND IT IS WHAT LEAVES THE SCREEN THAT SAYS THE MAC STOPPED** — the Mac clears
+          // `rejected` here and nowhere else (`PhoneRuntime::begin_pairing`), including when the
+          // start itself fails, because he has read the sentence and moved on.
+          mockPhone.rejected = false;
           return phoneStatusOf();
         // **"STOP AND GO BACK" ON THE PAIRING SCREEN** — Urban's G2, and it stops serving.
         // The Mac's own rule, `PhoneRuntime::stop_pairing`: close the window, then take the

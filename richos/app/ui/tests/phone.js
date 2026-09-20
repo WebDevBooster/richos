@@ -676,6 +676,151 @@ async function openSheet(browser, theme, preset) {
     }
   );
 
+  // ---- 9f. DEFECT 1 — the Mac shows that it heard the alarm button ------------------------
+
+  await run.check(
+    "9f  `They do not match` leaves the Mac saying what it did, in one sentence, AA in both themes",
+    async () => {
+      // RAY'S NIGHTLY `.8` WALK IN THE TEST VM, DEFECT 1 (HIGH). He pressed `They do not match`
+      // on the phone; the credential really was dropped, and the sheet in front of him did not
+      // change at all. The card still read `It has reached this Mac. Check that the six words on
+      // it are the six words below…` with the six words underneath, and the Mac went on answering
+      // `curl` on 8443 at t+10, 20, 30, 40, 50 and 60 s and two minutes later. *"He has no way to
+      // know the Mac heard him."*
+      //
+      // The socket half is proved over real TLS in
+      // `phone::listen::tests::they_do_not_match_over_the_wire_stops_the_listener`. This is the
+      // other half: what the person is looking at.
+      //
+      // **THE HARD PART OF THIS STATE IS THAT IT LOOKS LIKE SUCCESS.** A Mac that has stopped is
+      // not listening, has nothing paired and has no code — which is character for character the
+      // status that draws `This Mac is ready`. So the first two assertions are that the ready
+      // screen and the paired card are BOTH off: without them a green here would be a sheet that
+      // had quietly gone back to the beginning.
+      const { parseCssColor, compositeOver, contrastRatio, round2, isLargeText, hex } =
+        require("./lib/contrast");
+      const out = [];
+      let sentence = "";
+      for (const theme of ["dark", "light"]) {
+        const page = await openSheet(browser, theme, {
+          phoneRejected: true,
+          phoneTailnet: READY_TAILNET,
+        });
+        await page.waitForSelector("#phone-rejected:not([hidden])");
+
+        const seen = await page.evaluate(() => {
+          const vis = (id) => {
+            const el = document.getElementById(id);
+            return !!(el && !el.hidden && el.offsetParent !== null);
+          };
+          return {
+            note: document.getElementById("phone-rejected-note").textContent.trim(),
+            heading: document.querySelector("#phone-rejected .phone-step-title").textContent.trim(),
+            again: document.getElementById("phone-rejected-again").textContent.trim(),
+            againUsable:
+              vis("phone-rejected-again") &&
+              !document.getElementById("phone-rejected-again").disabled,
+            ready: vis("phone-ts-ready"),
+            paired: vis("phone-paired"),
+            pairing: vis("phone-pairing"),
+            words: vis("phone-words") || vis("phone-paired-words"),
+            closeThere: vis("phone-close"),
+          };
+        });
+
+        assert(!seen.ready, "the sheet went back to `This Mac is ready` as though nothing happened");
+        assert(!seen.paired, "the paired card is still up after the phone was forgotten");
+        assert(!seen.pairing, "the pairing screen is still up after the Mac stopped");
+        assert(
+          !seen.words,
+          "the six words are still on screen after the person said they did not match"
+        );
+        assert(
+          /did not match/.test(seen.note),
+          "the Mac does not say what the phone told it: " + seen.note
+        );
+        assert(
+          /stopped answering/.test(seen.note) &&
+            /forgot the phone/.test(seen.note) &&
+            /deleted the certificate/.test(seen.note),
+          "the Mac does not say what it DID about it, which is the half he cannot see: " + seen.note
+        );
+        // ONE SENTENCE. Ray's ask, and the reason this is a screen rather than a paragraph.
+        assertEqual(
+          (seen.note.match(/\.\s|\.$/g) || []).length,
+          1,
+          "the report is more than one sentence: " + seen.note
+        );
+        // AND A WAY OFF IT. The flag lives on the Mac and only `phone_begin_pairing` clears it,
+        // so a screen without this control would be a screen he cannot leave.
+        assert(seen.againUsable, "the screen that says the Mac stopped has no way forward");
+        assert(seen.closeThere, "Close is not on the screen");
+
+        // THE CONTRAST, COMPUTED FROM THE RENDERED STYLES RATHER THAN EYEBALLED. Both themes,
+        // 4.5:1 for this size — it is a sentence a person is expected to read, so no exemption
+        // is available and none is claimed.
+        const measured = await page.evaluate(() => {
+          const el = document.getElementById("phone-rejected-note");
+          const cs = getComputedStyle(el);
+          let node = el;
+          let ground = "rgba(0, 0, 0, 0)";
+          while (node) {
+            const bg = getComputedStyle(node).backgroundColor;
+            if (bg && !/rgba\([^)]*,\s*0\s*\)/.test(bg) && bg !== "transparent") {
+              ground = bg;
+              break;
+            }
+            node = node.parentElement;
+          }
+          return {
+            color: cs.color,
+            ground,
+            size: parseFloat(cs.fontSize),
+            weight: cs.fontWeight,
+          };
+        });
+        const ink = parseCssColor(measured.color);
+        const ground = parseCssColor(measured.ground);
+        const composited = ink.a < 1 ? compositeOver(ink, ground) : ink;
+        const ratio = round2(contrastRatio(composited, ground));
+        const floor = isLargeText(measured.size, measured.weight) ? 3 : 4.5;
+        assert(
+          ratio >= floor,
+          "the sentence that tells him the Mac heard him is " + ratio + ":1 in " + theme +
+            " (" + hex(composited) + " on " + hex(ground) + ") against a " + floor + ":1 floor"
+        );
+        out.push(
+          theme + " " + ratio + ":1 (" + hex(composited) + " on " + hex(ground) + ", " +
+            measured.size + "px)"
+        );
+        sentence = seen.note;
+        await page.close();
+      }
+
+      // AND THE CONTROL THAT LEAVES IT REALLY LEAVES IT. Pressing it asks the Mac to pair again,
+      // which is the one call that clears the flag — the harness answers with a Mac that is no
+      // longer rejected, so the screen must go.
+      const page = await openSheet(browser, "dark", {
+        phoneRejected: true,
+        phoneTailnet: READY_TAILNET,
+      });
+      await page.waitForSelector("#phone-rejected:not([hidden])");
+      // Nothing is poked: the harness clears its own flag inside `phone_begin_pairing`, which
+      // is where the Mac clears it, so this press exercises the real transition.
+      await page.click("#phone-rejected-again");
+      // `waitForSelector` defaults to waiting for VISIBLE, so a hidden node is asked for as a
+      // predicate rather than a selector.
+      await page.waitForFunction(() => document.getElementById("phone-rejected").hidden, null, {
+        timeout: 5000,
+      });
+      const left = await page.isVisible("#phone-pairing");
+      await page.close();
+      assert(left, "`Set my phone up again` did not reach the pairing screen");
+
+      return '"' + sentence + '" — ' + out.join("; ");
+    }
+  );
+
   // ---- 9d. DEFECT 4.5 — the Mac names the control the paired phone actually has -------------
 
   await run.check(

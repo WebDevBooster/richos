@@ -386,6 +386,30 @@ const SURFACES = [
     },
   },
   {
+    // THE SCREEN THE ALARM BUTTON LEAVES BEHIND — Ray's nightly `.8` defect 1. It is its own
+    // surface rather than a state of another because it shares no words with any of them: one
+    // heading, one sentence and one control, on a Mac that has just stopped serving.
+    name: "phone-rejected",
+    what: "what the Mac says after the phone reported that the six words did not match",
+    preset: {phoneRejected: true, phoneTailnet: {
+      state: "ready",
+      name: "mm1.tail9a3b2.ts.net",
+      origin: "https://mm1.tail9a3b2.ts.net:8443",
+      account: "Google as someone@gmail.com",
+    }},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-phone-open");
+      // The sentence is the last thing this screen paints, so its presence is the signal that
+      // the state is up rather than a guess at a delay.
+      await p.waitForFunction(() => {
+        const note = document.getElementById("phone-rejected-note");
+        return note && note.textContent.trim().length > 0;
+      });
+      await overlaySettled(p, "#phone-sheet");
+    },
+  },
+  {
     name: "phone-tailscale-ready",
     what: "this Mac's tailnet name, the account it signed in with, and what the phone has not done yet",
     preset: {phoneTailnet: {

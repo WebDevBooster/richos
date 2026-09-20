@@ -1159,6 +1159,7 @@ mod tests {
         let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
         let channel = Arc::new(Channel {
+            rejected: crate::phone::routes::StopSwitch::unwired(),
             devices: Arc::clone(&devices),
             api_base: Arc::new(ApiBaseDesk::only(origin.clone())),
             hub: Arc::clone(&hub),
@@ -1303,6 +1304,7 @@ mod tests {
         let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
         let channel = Arc::new(Channel {
+            rejected: crate::phone::routes::StopSwitch::unwired(),
             devices: Arc::clone(&devices),
             api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
             hub: Arc::clone(&hub),
@@ -1547,6 +1549,7 @@ mod tests {
         let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
         let vapid = crate::phone::push::VapidKey::generate().unwrap();
         let channel = Arc::new(Channel {
+            rejected: crate::phone::routes::StopSwitch::unwired(),
             devices: Arc::clone(&devices),
             api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
             hub: Arc::clone(&hub),
@@ -1700,4 +1703,262 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
+    // -----------------------------------------------------------------------------------
+    // "THEY DO NOT MATCH", OVER THE WIRE, AND THE PORT GOES WITH IT
+    // -----------------------------------------------------------------------------------
+    //
+    // **The defect this is the red/green for.** Ray's nightly `.8` walk in the test VM, defect 1
+    // (HIGH), `docs/verification/2026-09-20-nightly-1.2.0-nightly.20260919.8-phone-path-in-the-vm-audit.md`:
+    // pressing `They do not match` on the phone dropped the device record and left the Mac
+    // answering on 8443 at t+10, 20, 30, 40, 50 and 60 s, and two minutes later. The route had
+    // `channel.devices` and no handle on the listener at all.
+    //
+    // **What is real here and what is not**, so the coverage claim is honest:
+    //
+    //   * REAL certificate authority and leaf, a REAL `rustls` client validating one against the
+    //     other, the REAL `hyper` listener on a real socket, the REAL route table and the REAL
+    //     signature check — the rejection arrives the way a phone sends it;
+    //   * REAL `phone::watch_for_rejection`, the shipped watcher, on its own thread;
+    //   * the OWNER is this test rather than `PhoneRuntime`, because building one far enough to
+    //     start a channel needs a `tauri::AppHandle`, the login Keychain and a working tailnet.
+    //     The owner's body here is the first two lines of `PhoneRuntime::forget`; the shipped
+    //     closure calls `forget()` itself and is one line long.
+    //
+    // **The positive control is step 2**: the same connect, on the same port, a moment earlier,
+    // succeeding. Without it a refused connection proves nothing — a listener that never started
+    // refuses just as convincingly.
+    //
+    // **It serves the tailnet name and no other**, because that is the one path there is (CEO
+    // §61) — which is also why it does not use `TlsClient` above, whose server name is pinned to
+    // the Mac's own leaf.
+    #[test]
+    fn they_do_not_match_over_the_wire_stops_the_listener() {
+        const TAILNET: &str = "mm1.tail7f4e2d.ts.net";
+
+        /// The same drop guard the SNI test uses, for the same CEO §54 reason: a trailing
+        /// `remove_dir_all` is skipped by the very panic that makes somebody run the test.
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        /// The rejection is answered inside the route table and never reaches the bridge, so
+        /// this exists to satisfy the type rather than to be called.
+        struct NoBridge;
+        impl Bridge for NoBridge {
+            fn submit_text(&self, _: Option<&str>, _: &str) -> Result<Accepted, String> {
+                Err("this test never sends a message".into())
+            }
+            fn snapshot(&self, _: Option<&str>) -> Result<Value, String> {
+                Err("this test never reads a timeline".into())
+            }
+            fn current_thread(&self) -> Option<(String, String)> {
+                None
+            }
+            fn threads(&self) -> Vec<(String, String)> {
+                Vec::new()
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "richos-phone-reject-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _scratch = Scratch(dir.clone());
+
+        // A MEMORY SECRET STORE, NEVER THE LOGIN KEYCHAIN. A test may not write to his.
+        let secrets = MemorySecrets::default();
+        let names = LocalNames {
+            host: "MM1".into(),
+            bonjour: TAILNET.into(),
+            // Loopback, so the leaf covers the address the client actually connects to.
+            addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        };
+        let ca = PhoneCa::open(&dir, &secrets, names).unwrap();
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let hub = PhoneHub::new();
+        let vapid = crate::phone::push::VapidKey::generate().unwrap();
+
+        // --- the handle the route did not have, and the owner on the other end of it ----------
+        let (doorbell, rejections) = std::sync::mpsc::channel::<()>();
+        let channel = Arc::new(Channel {
+            rejected: crate::phone::routes::StopSwitch::to(doorbell),
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
+            hub: Arc::clone(&hub),
+            bridge: Arc::new(NoBridge) as Arc<dyn Bridge>,
+            assets: crate::phone::assets::PhoneApp::embedded(),
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: ca.fingerprint_hex(),
+            pairing_path: std::sync::Mutex::new(crate::phone::device::PairedVia::TAILNET),
+        });
+
+        devices.open_pairing().unwrap();
+        let code = devices.pairing_window().unwrap().code;
+        let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
+        let https_port = free_port();
+        let listener = Listener::start(
+            Arc::clone(&channel),
+            tls,
+            &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            https_port,
+        )
+        .expect("the listener did not start");
+        assert!(hub.is_live(), "starting a listener did not put the hub live");
+
+        // **THE OWNER HOLDS THE LISTENER AND NOTHING ELSE MAY.** `Listener::stop` joins the
+        // serving thread, so a route reaching it would join its own thread and hang there — the
+        // whole reason the switch is a doorbell rather than a teardown.
+        let held = Arc::new(StdMutex::new(Some(listener)));
+        let owner_listener = Arc::clone(&held);
+        let owner_hub = Arc::clone(&hub);
+        let torn_down = Arc::new(StdMutex::new(false));
+        let owner_torn_down = Arc::clone(&torn_down);
+        crate::phone::watch_for_rejection(rejections, move || {
+            // `PhoneRuntime::forget`'s first two lines. In production they are reached through
+            // `forget()` itself — one call, one copy of the sequence.
+            if let Some(mut listener) = owner_listener.lock().unwrap().take() {
+                listener.stop();
+            }
+            owner_hub.set_live(false);
+            *owner_torn_down.lock().unwrap() = true;
+        });
+
+        // A real TLS client for the tailnet name, validating our leaf against our own root.
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(rustls::pki_types::CertificateDer::from(ca.ca_der.clone())).unwrap();
+        let client_config = Arc::new(
+            rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth(),
+        );
+        let request = |method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]| {
+            let server_name =
+                rustls::pki_types::ServerName::try_from(TAILNET).unwrap().to_owned();
+            let mut connection =
+                rustls::ClientConnection::new(Arc::clone(&client_config), server_name).unwrap();
+            let mut socket =
+                std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, https_port)).expect("connect");
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(20))).unwrap();
+            let mut tls = rustls::Stream::new(&mut connection, &mut socket);
+            let mut head =
+                format!("{method} {path} HTTP/1.1\r\nHost: {TAILNET}\r\nConnection: close\r\n");
+            for (name, value) in headers {
+                head.push_str(&format!("{name}: {value}\r\n"));
+            }
+            head.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
+            tls.write_all(head.as_bytes()).expect("write request");
+            tls.write_all(body).expect("write body");
+            tls.flush().ok();
+            let mut raw = Vec::new();
+            let _ = tls.read_to_end(&mut raw);
+            parse_response(&raw)
+        };
+
+        // --- 1. a phone pairs, over real TLS ---------------------------------------------------
+        let phone = crate::phone::device::tests::Phone::new();
+        let pair_body = serde_json::json!({
+            "code": code,
+            "public_key_jwk": phone.jwk(),
+            "device_name": "iPhone",
+        })
+        .to_string();
+        let (status, _headers, body) = request(
+            "POST",
+            "/api/pair",
+            &[("Content-Type", "application/json")],
+            pair_body.as_bytes(),
+        );
+        assert_eq!(status, 200, "pairing was refused: {}", String::from_utf8_lossy(&body));
+        let paired: Value = serde_json::from_slice(&body).unwrap();
+        let device_id = paired["device_id"].as_str().unwrap().to_string();
+        let challenge = paired["challenge"].as_str().unwrap().to_string();
+        assert!(devices.is_paired(), "the desk does not think a phone is paired");
+
+        // --- 2. THE POSITIVE CONTROL: the port answers, right now ------------------------------
+        //
+        // A refused connection at the end means nothing unless the same connection succeeded
+        // first. This is Ray's `curl` on 8443, in the shape this test can assert.
+        assert!(
+            std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, https_port)).is_ok(),
+            "the port was not answering BEFORE the rejection, so a refusal after it proves nothing"
+        );
+
+        // --- 3. `They do not match` ------------------------------------------------------------
+        //
+        // The same route and the same field the phone sends — `web/web-app/lib/api.js`,
+        // `confirmFingerprint(false)`.
+        //
+        // **THE RESPONSE TO THIS REQUEST IS DELIBERATELY NOT ASSERTED.** The socket it would be
+        // written on is the socket being closed, and the two race: connections are spawned tasks
+        // on the serving thread's runtime, so when `serve_all` returns the runtime is dropped and
+        // an in-flight write goes with it. That costs nothing, and it is checked rather than
+        // assumed — the phone has already thrown its own key away on the same press and ignores
+        // the outcome (`richos/web/web-app/app.js:287`:
+        // `try { await api.confirmFingerprint(false); } catch { }`). Closing sooner is the safe
+        // side of this race.
+        let reject = serde_json::json!({
+            "device_id": device_id,
+            "fingerprint_confirmed": false,
+        })
+        .to_string();
+        let signature = super::super::b64url(&phone.sign(&signing_string(
+            &challenge,
+            "POST",
+            "/api/pair",
+            reject.as_bytes(),
+        )));
+        let authorization = format!("RichOS-Device {device_id}.{challenge}.{signature}");
+        let sent_at = std::time::Instant::now();
+        let _ = request(
+            "POST",
+            "/api/pair",
+            &[("Content-Type", "application/json"), ("Authorization", authorization.as_str())],
+            reject.as_bytes(),
+        );
+
+        // --- 4. THE PORT GOES, AND THE CRITERION IS RAY'S ---------------------------------------
+        //
+        // His measurement was `curl` on 8443 from outside the guest, refused within seconds.
+        // Five seconds is the ceiling; what is actually measured is printed, so a regression that
+        // merely gets slower is visible rather than silently passing.
+        let deadline = sent_at + std::time::Duration::from_secs(5);
+        let mut refused_after = None;
+        while std::time::Instant::now() < deadline {
+            match std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, https_port)) {
+                Ok(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                Err(e) => {
+                    assert_eq!(
+                        e.kind(),
+                        std::io::ErrorKind::ConnectionRefused,
+                        "the port failed for some reason other than being closed: {e}"
+                    );
+                    refused_after = Some(sent_at.elapsed());
+                    break;
+                }
+            }
+        }
+        let refused_after = refused_after.expect(
+            "the Mac was still answering five seconds after the phone said the six words did not \
+             match - this is Ray's nightly .8 defect 1",
+        );
+        eprintln!(
+            "[test] the port stopped answering {} ms after the rejection went out",
+            refused_after.as_millis()
+        );
+
+        // --- 5. AND THE REST OF THE STATE MATCHES `Forget this phone` ---------------------------
+        assert!(!devices.is_paired(), "a rejected phone is still paired");
+        assert!(
+            !hub.is_live(),
+            "the hub is still live, so the surface would still be told a phone is there"
+        );
+        assert!(
+            held.lock().unwrap().is_none() && *torn_down.lock().unwrap(),
+            "the shipped watcher never ran the owner's teardown, so something else closed the port"
+        );
+    }
 }
