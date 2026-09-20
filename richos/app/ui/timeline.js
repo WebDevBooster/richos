@@ -767,6 +767,11 @@
   /// its `startedAt`, because the snapshot's `working` row carries no information about
   /// whether the lease is alive right now — only this session knows that.
   function applySnapshot(model, snapshot) {
+    const previousItems = model.items;
+    const sameView = snapshot &&
+      (snapshot.entityId == null || snapshot.entityId === model.entityId) &&
+      (snapshot.threadId == null || snapshot.threadId === model.threadId) &&
+      (snapshot.mode === "technical") === model.technical;
     const liveTurns = new Map();
     for (const [id, t] of model.turns) if (t.live) liveTurns.set(id, t);
     // **LOCAL NOTICES SURVIVE THE SNAPSHOT, and until 2026-09-17 they did not — which
@@ -821,7 +826,12 @@
         }
         continue;
       }
-      putItem(model, raw);
+      // Rendering signs items by object identity. A fresh wire object with exactly
+      // the same content must not replace an active control in the same view.
+      // Rebuild membership from the snapshot regardless: removals and changed values
+      // remain authoritative, with no partial merge of the previous item.
+      const previous = sameView && previousItems.get(raw.id);
+      putItem(model, previous && JSON.stringify(previous) === JSON.stringify(raw) ? previous : raw);
     }
     // A turn that contributed only a duration row still needs its place in the order.
     for (const raw of snapshot.items) if (raw.turnId) turnRecord(model, raw.turnId);
@@ -2684,7 +2694,8 @@
   // signature below is what "unchanged" means, and it is deliberately built from OBJECT
   // IDENTITY rather than a field list: every write to an item goes through `putItem` (or,
   // since this commit, the delta path), both of which REPLACE the object, so a new field on
-  // any item kind invalidates its turn without anyone remembering to add it here. A field
+  // any item kind invalidates its turn without anyone remembering to add it here. Equivalent
+  // same-view snapshots retain the old item object; actual changes still replace it. A field
   // list is the thing that rots.
   //
   // THE ONE CONTRACT THIS PLACES ON CALLERS: the `opts` callbacks (`copy`, `retry`,
