@@ -44,6 +44,21 @@ case "$CMD" in
   *"2>/dev/null"*) exec 2>/dev/null ;;
 esac
 
+# --- the accessibility read, for ax.sh --------------------------------------
+# ax.sh sends the PROGRAM on stdin (a `var AX_PARAMS = {...};` block followed by
+# ax.js) and expects NDJSON back. The stub keeps what arrived on stdin so a test
+# can assert what was ASKED — the mode, the title, the process — separately from
+# what was answered, and answers with a fixture.
+#   STUB_AX_SCRIPT=<path>    where to keep the program that arrived on stdin
+#   STUB_AX_FIXTURE=<path>   the NDJSON to answer with
+#   STUB_AX_RC=<n>           what the read exits with (default 0)
+case "$CMD" in
+  *"osascript -l JavaScript"*)
+    cat > "${STUB_AX_SCRIPT:-/dev/null}"
+    [ -n "${STUB_AX_FIXTURE:-}" ] && [ -f "${STUB_AX_FIXTURE:-}" ] && cat "$STUB_AX_FIXTURE"
+    exit "${STUB_AX_RC:-0}" ;;
+esac
+
 # --- is there a daemon on the other end of the socket? ----------------------
 # A guest whose `tailscaled` is not up yet fails EVERY tailscale call the same
 # way, `up` exactly as much as `status` — which is the whole reason the join

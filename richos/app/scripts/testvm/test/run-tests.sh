@@ -875,6 +875,258 @@ t "claude login: run.sh copies the login in after the keychain exists, and print
 t_done
 
 # ===========================================================================
+# ax.sh tree / find / click — the guest's screen, as text
+# ===========================================================================
+# WHAT THESE ARE FOR. Three walks wrote roughly fourteen versions of this one
+# job (`axdump.js`, `axpress{,2,3}.js`, `axproc.js`, `axsafari.js`, `axmac.js`,
+# `axdialog.js`, `findsafari.sh`, `findmac.sh`, `findphone.sh` …), and the two
+# defects that cost the most time are the two asserted hardest here:
+#
+#   1. GEOMETRY. AppleScript renders {1024, 700} as "1024700", so a fused token
+#      looks like a number and gets quoted in an audit. The fix is structural
+#      (ax.js is JavaScript and returns arrays) and the renderer REFUSES a fused
+#      token anyway, because a silent wrong number is the failure mode.
+#   2. MATCHING. `axpress.js` matched AXTitle, `axpress2.js` added a role and
+#      still found nothing, and `axpress3.js` — the third rewrite — added
+#      AXDescription, where an aria-label actually lands.
+#
+# The guest is the stub: ax.sh sends the program on stdin and the stub keeps it,
+# so what was ASKED is asserted separately from what was answered.
+# ===========================================================================
+AXVM="richos-test-ax"
+mkdir -p "$TESTVM_RUN/$AXVM"
+echo 717 > "$TESTVM_RUN/$AXVM/app.pid"
+
+cat > "$TMP/ax-tree.ndjson" <<'AXTREE'
+{"meta":true,"app":"RichOS","pid":717,"windows":1,"nodes":4,"truncated":false,"mode":"tree","matches":null}
+{"d":0,"role":"AXWindow","sub":"AXStandardWindow","title":"RichOS","desc":"","value":"","enabled":null,"x":0,"y":25,"w":1024,"h":700}
+{"d":1,"role":"AXGroup","sub":"","title":"","desc":"","value":"","enabled":null,"x":0,"y":25,"w":1024,"h":700}
+{"d":2,"role":"AXButton","sub":"","title":"Settings","desc":"","value":"","enabled":true,"x":974,"y":43,"w":32,"h":32}
+{"d":2,"role":"AXButton","sub":"","title":"","desc":"Dark theme","value":"","enabled":true,"x":900,"y":43,"w":32,"h":32}
+AXTREE
+
+# The same window, as an AppleScript dump would have delivered it: the two
+# numbers already fused into one token by list coercion.
+cat > "$TMP/ax-fused.ndjson" <<'AXFUSED'
+{"meta":true,"app":"RichOS","pid":717,"windows":1,"nodes":1,"truncated":false,"mode":"tree","matches":null}
+{"d":0,"role":"AXWindow","sub":"","title":"RichOS","desc":"","value":"","enabled":null,"x":0,"y":25,"w":"1024700","h":null}
+AXFUSED
+
+cat > "$TMP/ax-find.ndjson" <<'AXFIND'
+{"meta":true,"app":"RichOS","pid":717,"windows":1,"nodes":312,"truncated":false,"mode":"find","matches":1}
+{"d":2,"role":"AXButton","sub":"","title":"Settings","desc":"","value":"","enabled":true,"x":974,"y":43,"w":32,"h":32}
+AXFIND
+
+cat > "$TMP/ax-click-ok.ndjson" <<'AXCLICK'
+{"meta":true,"app":"RichOS","pid":717,"windows":1,"nodes":312,"truncated":false,"mode":"click","matches":1}
+{"clicked":true,"action":"AXPress","matches":1,"node":{"d":2,"role":"AXButton","sub":"","title":"Settings","desc":"","value":"","enabled":true,"x":974,"y":43,"w":32,"h":32}}
+AXCLICK
+
+cat > "$TMP/ax-click-none.ndjson" <<'AXNONE'
+{"meta":true,"app":"RichOS","pid":717,"windows":1,"nodes":312,"truncated":false,"mode":"click","matches":0}
+{"error":"notfound","detail":"nothing matched","matches":0}
+AXNONE
+
+cat > "$TMP/ax-click-noaction.ndjson" <<'AXNOACT'
+{"meta":true,"app":"RichOS","pid":717,"windows":1,"nodes":312,"truncated":false,"mode":"click","matches":1}
+{"error":"noaction","detail":"the matched element has no AXPress","actions":["AXShowMenu"],"matches":1,"node":{"role":"AXGroup"}}
+AXNOACT
+
+cat > "$TMP/ax-notfront.ndjson" <<'AXNF'
+{"error":"notfrontmost","detail":"frontmost pid is 401, the target (RichOS) is 717 — a click at a point would land in another process","frontmost":401,"target":717}
+AXNF
+
+cat > "$TMP/ax-truncated.ndjson" <<'AXTRUNC'
+{"meta":true,"app":"Safari","pid":880,"windows":1,"nodes":4000,"truncated":true,"mode":"tree","matches":null}
+{"d":0,"role":"AXWindow","sub":"","title":"RichOS","desc":"","value":"","enabled":null,"x":0,"y":0,"w":1680,"h":1050}
+AXTRUNC
+
+axrun() {  # axrun <fixture> <args...> — run ax.sh against the stub guest
+  local fixture="$1"; shift
+  STUB_AX_FIXTURE="$fixture" STUB_AX_SCRIPT="$TMP/ax-sent.js" STUB_LOG="$TMP/ax.log" \
+    "$TESTVM_DIR/ax.sh" "$AXVM" "$@" 2>"$TMP/ax.err"
+}
+
+t "ax tree: geometry is FOUR numbers, and the fused AppleScript token never appears"
+  out="$(axrun "$TMP/ax-tree.ndjson" tree)"; ok $? "$(cat "$TMP/ax.err")"
+  has   "$out" "size=1024 700"
+  has   "$out" "pos=974 43"
+  has   "$out" "size=32 32"
+  hasnt "$out" "1024700"
+t_done
+
+t "ax tree: the shape of the screen survives — one indent level per depth"
+  out="$(axrun "$TMP/ax-tree.ndjson" tree)"
+  eq "$(printf '%s\n' "$out" | grep -c '^AXWindow/AXStandardWindow ')" "1"
+  eq "$(printf '%s\n' "$out" | grep -c '^  AXGroup ')" "1"
+  eq "$(printf '%s\n' "$out" | grep -c '^    AXButton ')" "2"
+t_done
+
+t "ax tree: role, title, description, value and enabled are all on the line"
+  out="$(axrun "$TMP/ax-tree.ndjson" tree)"
+  has "$out" "title='Settings'"
+  has "$out" "desc='Dark theme'"
+  has "$out" "enabled=yes"
+  has "$out" "# app=RichOS pid=717 windows=1 nodes=4 mode=tree"
+t_done
+
+t "ax tree: a FUSED geometry token is refused, not printed as a plausible number"
+  # The whole reason the renderer checks: "1024700" is six characters that look
+  # like a measurement. A walk would quote it and nobody could tell.
+  out="$(axrun "$TMP/ax-fused.ndjson" tree)"; no $? "a fused token must not be a success"
+  hasnt "$out" "1024700"
+  has   "$out" "size=? -"
+  has   "$(cat "$TMP/ax.err")" "REFUSED to print a geometry value"
+  has   "$(cat "$TMP/ax.err")" "1024700"
+t_done
+
+t "ax tree: a walk that hit its node cap says so — an incomplete tree is not a tree"
+  out="$(axrun "$TMP/ax-truncated.ndjson" tree)"; ok $?
+  has "$(cat "$TMP/ax.err")" "hit its node cap"
+t_done
+
+t "ax tree: --json hands the guest's own lines through untouched"
+  out="$(axrun "$TMP/ax-tree.ndjson" tree --json)"; ok $?
+  has "$out" '"role":"AXButton","sub":"","title":"Settings"'
+  hasnt "$out" "pos="
+t_done
+
+t "ax tree: --app names the process to read, and the parameters travel on STDIN"
+  axrun "$TMP/ax-tree.ndjson" tree --app Safari --depth 18 >/dev/null; ok $?
+  sent="$(cat "$TMP/ax-sent.js")"
+  has "$sent" '"app": "Safari"'
+  has "$sent" '"mode": "tree"'
+  has "$sent" '"depth": 18'
+  # ...and NOT in the command line the guest was handed.
+  hasnt "$(cat "$TMP/ax.log")" "Safari"
+  has   "$(cat "$TMP/ax.log")" "osascript -l JavaScript -"
+t_done
+
+t "ax: the read carries a deadline — a wedged app cannot hang the harness"
+  axrun "$TMP/ax-tree.ndjson" tree >/dev/null
+  has "$(cat "$TMP/ax.log")" "alarm shift"
+t_done
+
+t "ax: what is sent to the guest is a VALID JavaScript program, parameters and all"
+  # The params block and ax.js are concatenated on this Mac and parsed in the
+  # guest; a syntax error would otherwise surface only as an osascript failure
+  # inside a VM, which is the slowest place to find one.
+  axrun "$TMP/ax-tree.ndjson" find --title "it's \"quoted\" & {braced}" >/dev/null 2>&1
+  # The captured program is kept under a `.js` name because `node --check`
+  # refuses an unknown extension before it ever looks at the syntax — which is
+  # a check that passes for the wrong reason waiting to happen.
+  if command -v node >/dev/null 2>&1; then
+    node --check "$TMP/ax-sent.js" >/dev/null 2>&1; ok $? "the generated program must parse"
+    # The title is DATA in the program, escaped by json.dumps — a quote, a brace
+    # and an apostrophe in a button's label are ordinary and must not be able to
+    # end the string or the program.
+    has "$(cat "$TMP/ax-sent.js")" 'it'"'"'s \"quoted\" & {braced}'
+  else
+    printf '       (no node on PATH — the parse check did not run)\n'
+  fi
+t_done
+
+t "ax find: the criteria reach the guest and the hit comes back with its box"
+  out="$(axrun "$TMP/ax-find.ndjson" find --title Settings --role AXButton)"; ok $?
+  sent="$(cat "$TMP/ax-sent.js")"
+  has "$sent" '"mode": "find"'
+  has "$sent" '"text": "Settings"'
+  has "$sent" '"role": "AXButton"'
+  has "$out" "matches=1"
+  has "$out" "pos=974 43 size=32 32"
+t_done
+
+t "ax find: --contains asks for a substring, not an equality"
+  axrun "$TMP/ax-find.ndjson" find --title Sett --contains >/dev/null; ok $?
+  has "$(cat "$TMP/ax-sent.js")" '"contains": true'
+t_done
+
+t "ax find: something to match is required — an unfiltered find is a tree"
+  axrun "$TMP/ax-find.ndjson" find >/dev/null 2>&1; no $?
+  has "$(cat "$TMP/ax.err")" "needs something to match"
+t_done
+
+t "ax matcher: text matches AXDescription as well as AXTitle — axpress3's lesson"
+  # Driven directly, in node, because this rule cost three rewrites of the same
+  # script and a grep of the source would prove only that a word is present.
+  if command -v node >/dev/null 2>&1; then
+    cat > "$TMP/axmatch.js" <<'MATCHJS'
+const fs = require("fs");
+const src = fs.readFileSync(process.argv[2], "utf8");
+const mod = { exports: {} };
+new Function("module", "exports", src)(mod, mod.exports);
+const { axMatches } = mod.exports;
+const node = (o) => Object.assign(
+  { d: 0, role: "AXButton", sub: "", title: "", desc: "", value: "", enabled: true }, o);
+const P = (o) => Object.assign(
+  { role: null, sub: null, text: null, value: null, contains: false }, o);
+const checks = [
+  ["title",           axMatches(P({ text: "Dark" }), node({ title: "Dark" })) === true],
+  ["description",     axMatches(P({ text: "Dark" }), node({ desc: "Dark" })) === true],
+  ["neither",         axMatches(P({ text: "Dark" }), node({ title: "Light" })) === false],
+  ["exact by default",axMatches(P({ text: "Dark" }), node({ desc: "Dark theme" })) === false],
+  ["contains",        axMatches(P({ text: "Dark", contains: true }), node({ desc: "Dark theme" })) === true],
+  ["role filters",    axMatches(P({ text: "Dark", role: "AXGroup" }), node({ desc: "Dark" })) === false],
+  ["value",           axMatches(P({ value: "42" }), node({ value: "42" })) === true],
+  ["no criteria",     axMatches(P({}), node({})) === true],
+];
+const bad = checks.filter(([, ok]) => !ok).map(([n]) => n);
+if (bad.length) { console.log("FAILED: " + bad.join(", ")); process.exit(1); }
+console.log("all " + checks.length + " matcher cases hold");
+MATCHJS
+    mout="$(node "$TMP/axmatch.js" "$TESTVM_DIR/ax.js" 2>&1)"; ok $? "$mout"
+    has "$mout" "all 8 matcher cases hold"
+  else
+    printf '       (no node on PATH — the matcher cases did not run)\n'
+  fi
+t_done
+
+t "ax click: presses by AXPress and reports what it pressed, with the box"
+  out="$(axrun "$TMP/ax-click-ok.ndjson" click --title Settings)"; ok $?
+  has "$(cat "$TMP/ax-sent.js")" '"mode": "click"'
+  has "$out" "pressed AXButton"
+  has "$out" "title='Settings'"
+  has "$out" "pos=974 43 size=32 32"
+t_done
+
+t "ax click: nothing matched is a FAILURE with a count, never a quiet success"
+  out="$(axrun "$TMP/ax-click-none.ndjson" click --title Nope)"; no $?
+  has "$(cat "$TMP/ax.err")" "notfound"
+  has "$out" "matches=0"
+t_done
+
+t "ax click: an element with no AXPress says so, and lists what it CAN do"
+  axrun "$TMP/ax-click-noaction.ndjson" click --title Something >/dev/null; no $?
+  has "$(cat "$TMP/ax.err")" "no AXPress"
+  has "$(cat "$TMP/ax.err")" "AXShowMenu"
+t_done
+
+t "ax click --at: a coordinate click carries the frontmost refusal, like --key"
+  axrun "$TMP/ax-notfront.ndjson" click --at 974,43 >/dev/null; no $?
+  has "$(cat "$TMP/ax-sent.js")" '"mode": "clickat"'
+  has "$(cat "$TMP/ax-sent.js")" '"atx": 974'
+  has "$(cat "$TMP/ax.err")" "would land in another process"
+t_done
+
+t "ax click --at: x,y or a refusal — never a guess"
+  axrun "$TMP/ax-click-ok.ndjson" click --at 974 >/dev/null 2>&1; no $?
+  has "$(cat "$TMP/ax.err")" "--at takes x,y"
+t_done
+
+t "ax: an unknown flag is refused rather than silently ignored"
+  axrun "$TMP/ax-tree.ndjson" tree --window-title Home >/dev/null 2>&1; no $?
+  has "$(cat "$TMP/ax.err")" "unknown argument"
+t_done
+
+t "ax: --windows still punctuates the list items by hand"
+  # The old AppleScript path is the one place a fused token could still be born,
+  # and it is kept correct here rather than by memory.
+  src="$(cat "$TESTVM_DIR/ax.sh")"
+  has   "$src" "(item 1 of sz)"
+  hasnt "$src" "(size of w as string)"
+t_done
+
+# ===========================================================================
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "$PASS passed, 0 failed."

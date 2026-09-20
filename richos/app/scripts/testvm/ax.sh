@@ -1,11 +1,34 @@
 #!/usr/bin/env bash
-# ax.sh — run an AppleScript inside the guest: read the accessibility tree, or
-#         send a key to the app under test.
+# ax.sh — the guest's screen, as text: read the accessibility tree, find a node
+#         in it, press one, or send a key to the app under test.
 #
-#   testvm/ax.sh <vm> '<applescript>'
+#   testvm/ax.sh <vm> tree  [--app <name>] [--depth N] [--window N] [--json]
+#   testvm/ax.sh <vm> find  --title <text> | --role <role> | --value <text>
+#                           [--contains] [--app <name>] [--depth N] [--json]
+#   testvm/ax.sh <vm> click --title <text> [--role <role>] [--nth N] [--contains]
+#   testvm/ax.sh <vm> click --at <x>,<y>
 #   testvm/ax.sh <vm> --focused              # what has focus right now
 #   testvm/ax.sh <vm> --windows              # window names and sizes
 #   testvm/ax.sh <vm> --key <keycode>        # a special key, to the app's pid
+#   testvm/ax.sh <vm> '<applescript>'        # anything else, by hand
+#
+# ===========================================================================
+# WHY tree / find / click ARE COMMITTED AND NOT WRITTEN PER WALK
+# ===========================================================================
+# The CEO, 2026-09-20: *"How many times does Ray build the same scripts or
+# checks from scratch (for the same type of job)? And how much time does that
+# waste in every one of his runs?"*
+#
+# For the guest's screen the answer was: roughly fourteen times across three
+# walks — `axdump.js`, `axpress.js`, `axpress2.js`, `axpress3.js`, `axproc.js`,
+# `axsafari.js`, `axmac.js`, `axdialog.js`, `axunlock.js`, `findsafari.sh`,
+# `findmac.sh`, `findphone.sh`, and more. Every one of them was the same walk of
+# the same tree, and the SEQUENCE of them is the cost: `axpress.js` matched on
+# AXTitle, `axpress2.js` added a role filter, and `axpress3.js` — the third
+# rewrite, after the second had reported NOTFOUND on buttons that were plainly
+# on the screen — added AXDescription, because an aria-label surfaces there and
+# not in the title. That lesson is now in ax.js's matcher, once, where the next
+# walk gets it for free instead of rediscovering it.
 #
 # ===========================================================================
 # EVERY SYNTHETIC KEY IS ADDRESSED TO A PID, AND REFUSED IF IT IS NOT FRONTMOST
@@ -16,6 +39,12 @@
 # the app's pid, verify THAT pid is frontmost, and only then send. A key that
 # lands somewhere unintended invalidates the test it was part of.
 #
+# `click --title` needs none of that, and that is the point of preferring it:
+# an AXPress goes to the ELEMENT, so it works on a window that is not frontmost,
+# that has moved, or that something is drawn over. `click --at x,y` is the
+# fallback for controls that expose no AXPress, and it carries the same
+# frontmost refusal as --key, for the same reason.
+#
 # Note --key sends a KEYCODE, never Command-Q. Quitting is stop.sh's job and it
 # does it by pid (see that script's header for why).
 set -euo pipefail
@@ -23,11 +52,276 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/lib.sh"
 
 VM="${1:-}"; shift || true
-[ -n "$VM" ] || die "usage: ax.sh <vm> '<applescript>' | --focused | --windows | --key <code>"
-preflight_tart
-require_vm_running "$VM"
+[ -n "$VM" ] || die "usage: ax.sh <vm> tree|find|click|--focused|--windows|--key <code>|'<applescript>'"
+
+# ONE indirection to the guest, the same shape `tailnet.sh`, `keychain.sh` and
+# `claude-sync.sh` use, so every decision in here is testable against a guest
+# that is a text file rather than a 25 GB image.
+ag() {  # ag <shell command string>   — stdin is passed through untouched
+  if [ -n "${TESTVM_GUEST_EXEC:-}" ]; then
+    "$TESTVM_GUEST_EXEC" "$VM" "$@"
+  else
+    guest_ssh "$VM" "$@"
+  fi
+}
+
+# tart's opinion about a VM of this name is not the authority on whether there
+# is a guest to talk to when the caller has supplied its own reach.
+if [ -z "${TESTVM_GUEST_EXEC:-}" ]; then
+  preflight_tart
+  require_vm_running "$VM"
+fi
 
 PID="$(cat "$TESTVM_RUN/$VM/app.pid" 2>/dev/null || true)"
+
+# The deadline on every accessibility read. A tree walk of a wedged app is the
+# one call in here that can sit forever, and a harness that hangs is worse than
+# one that refuses. `perl -e alarm` because macOS ships no `timeout(1)`.
+AX_TIMEOUT="${TESTVM_AX_TIMEOUT:-120}"
+REMOTE_OSA="perl -e 'alarm shift; exec @ARGV' $AX_TIMEOUT osascript -l JavaScript -"
+
+# ===========================================================================
+# tree / find / click — the JXA path
+# ===========================================================================
+ax_walk() {  # ax_walk <mode> <args...>
+  local mode="$1"; shift
+  local app="" depth="" window="" maxn="" role="" subrole="" text="" value=""
+  local nth="" contains="" atx="" aty="" json=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --app)      app="${2:-}";      shift 2 ;;
+      --depth)    depth="${2:-}";    shift 2 ;;
+      --window)   window="${2:-}";   shift 2 ;;
+      --max)      maxn="${2:-}";     shift 2 ;;
+      --role)     role="${2:-}";     shift 2 ;;
+      --subrole)  subrole="${2:-}";  shift 2 ;;
+      --title)    text="${2:-}";     shift 2 ;;
+      --value)    value="${2:-}";    shift 2 ;;
+      --nth)      nth="${2:-}";      shift 2 ;;
+      --contains) contains=1;        shift ;;
+      --json)     json=1;            shift ;;
+      --at)
+        case "${2:-}" in
+          *,*) atx="${2%%,*}"; aty="${2##*,}" ;;
+          *)   die "--at takes x,y (for example --at 1200,80)" ;;
+        esac
+        shift 2 ;;
+      *) die "unknown argument to $mode: $1" ;;
+    esac
+  done
+
+  if [ -n "$atx" ]; then
+    [ "$mode" = "click" ] || die "--at belongs to click"
+    mode="clickat"
+  fi
+
+  case "$mode" in
+    find|click)
+      [ -n "$text$role$value$subrole" ] \
+        || die "$mode needs something to match: --title, --role, --value or --subrole" ;;
+  esac
+
+  # The target is the app under test unless a name is given. A named process is
+  # how the PHONE half of a walk is read — the phone is Safari in the guest.
+  if [ -z "$app" ] && [ -z "$PID" ]; then
+    die "no app pid recorded for $VM — was it started by run.sh? (or name a process with --app)"
+  fi
+
+  # The parameter block is built by python3 so a title with a quote, a brace or
+  # a newline in it cannot become part of the program. It is PREPENDED to ax.js
+  # and travels on stdin; nothing is interpolated into a remote command line.
+  local params
+  params="$(AX_MODE="$mode" AX_APP="$app" AX_PID="${PID:-0}" AX_WINDOW="$window" \
+            AX_DEPTH="$depth" AX_MAX="$maxn" AX_ROLE="$role" AX_SUBROLE="$subrole" \
+            AX_TEXT="$text" AX_VALUE="$value" AX_NTH="$nth" AX_CONTAINS="$contains" \
+            AX_ATX="$atx" AX_ATY="$aty" \
+            python3 -c '
+import json, os, sys
+
+def opt(name):
+    v = os.environ.get(name, "")
+    return v if v != "" else None
+
+def num(name, default=None):
+    v = os.environ.get(name, "")
+    if v == "":
+        return default
+    try:
+        return int(v)
+    except ValueError:
+        sys.stderr.write("[testvm] ERROR: %s must be a whole number, got %r\n" % (name, v))
+        raise SystemExit(2)
+
+p = {
+    "mode":     os.environ["AX_MODE"],
+    "app":      opt("AX_APP"),
+    "pid":      num("AX_PID", 0),
+    "window":   num("AX_WINDOW"),
+    "depth":    num("AX_DEPTH", 16),
+    "max":      num("AX_MAX", 4000),
+    "role":     opt("AX_ROLE"),
+    "sub":      opt("AX_SUBROLE"),
+    "text":     opt("AX_TEXT"),
+    "value":    opt("AX_VALUE"),
+    "nth":      num("AX_NTH", 0),
+    "contains": os.environ.get("AX_CONTAINS") == "1",
+    "atx":      num("AX_ATX"),
+    "aty":      num("AX_ATY"),
+}
+print("var AX_PARAMS = %s;" % json.dumps(p))
+')" || die "could not build the parameter block (see above)"
+
+  local errf raw rc=0
+  # §54: this scratch file goes however this function ends.
+  errf="$(mktemp "${TMPDIR:-/tmp}/testvm-ax.XXXXXX")"
+  raw="$( { printf '%s\n' "$params"; cat "$HERE/ax.js"; } | ag "$REMOTE_OSA" 2>"$errf" )" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    cat "$errf" >&2
+    rm -f "$errf"
+    echo "[testvm] the accessibility read failed (exit $rc)." >&2
+    echo "         If the error mentions 'not allowed assistive access', the Accessibility" >&2
+    echo "         TCC grant did not take — re-run testvm/setup.sh --reprovision." >&2
+    echo "         If it produced nothing at all, the read hit its ${AX_TIMEOUT}s deadline" >&2
+    echo "         (raise it with TESTVM_AX_TIMEOUT)." >&2
+    return 1
+  fi
+  cat "$errf" >&2
+  rm -f "$errf"
+
+  printf '%s\n' "$raw" | AX_RENDER_JSON="$json" python3 -c '
+import json, os, sys
+
+# ===========================================================================
+# THE RENDERER, AND THE ONE THING IT REFUSES TO PRINT
+# ===========================================================================
+# ax.js emits real numbers, so a fused geometry token cannot arrive from it.
+# This check is here for the day something else feeds this renderer — an
+# AppleScript dump, a hand-made fixture, a future guest-side rewrite — because
+# the failure it catches is SILENT: "1024700" is a plausible-looking number and
+# a walk would quote it. A measurement that cannot be trusted is not printed
+# and not reported as a success.
+# ===========================================================================
+
+as_json = os.environ.get("AX_RENDER_JSON") == "1"
+fused = []
+err = None
+truncated = False
+
+def geom(v, where):
+    if v is None:
+        return "-"
+    if isinstance(v, bool):
+        fused.append((where, repr(v)))
+        return "?"
+    if isinstance(v, (int, float)):
+        return str(int(v)) if float(v).is_integer() else str(v)
+    fused.append((where, str(v)))
+    return "?"
+
+lines = []
+for raw_line in sys.stdin.read().splitlines():
+    line = raw_line.strip()
+    if not line:
+        continue
+    try:
+        rec = json.loads(line)
+    except ValueError:
+        sys.stderr.write("[testvm] ax: unparseable line from the guest: %s\n" % line[:200])
+        continue
+    if not isinstance(rec, dict):
+        continue
+
+    if rec.get("meta"):
+        truncated = bool(rec.get("truncated"))
+        if not as_json:
+            bits = ["# app=%s" % rec.get("app", "?"), "pid=%s" % rec.get("pid", "?"),
+                    "windows=%s" % rec.get("windows", "?"), "nodes=%s" % rec.get("nodes", "?"),
+                    "mode=%s" % rec.get("mode", "?")]
+            if rec.get("matches") is not None:
+                bits.append("matches=%s" % rec["matches"])
+            lines.append(" ".join(bits))
+        else:
+            lines.append(line)
+        continue
+
+    if rec.get("error"):
+        err = rec
+        if as_json:
+            lines.append(line)
+        continue
+
+    if rec.get("clicked"):
+        if as_json:
+            lines.append(line)
+        elif rec.get("at"):
+            lines.append("clicked at %s %s" % (rec.get("x"), rec.get("y")))
+        else:
+            n = rec.get("node") or {}
+            lines.append("pressed %s title=%r desc=%r pos=%s %s size=%s %s (matches=%s)" % (
+                n.get("role", "?"), n.get("title", ""), n.get("desc", ""),
+                geom(n.get("x"), "pos.x"), geom(n.get("y"), "pos.y"),
+                geom(n.get("w"), "size.w"), geom(n.get("h"), "size.h"),
+                rec.get("matches")))
+        continue
+
+    # a node
+    if as_json:
+        lines.append(line)
+        for k, where in (("x", "pos.x"), ("y", "pos.y"), ("w", "size.w"), ("h", "size.h")):
+            geom(rec.get(k), where)
+        continue
+
+    depth = rec.get("d", 0)
+    if not isinstance(depth, int) or depth < 0:
+        depth = 0
+    enabled = rec.get("enabled")
+    enabled = "-" if enabled is None else ("yes" if enabled else "no")
+    sub = rec.get("sub") or ""
+    lines.append("%s%s%s title=%r desc=%r value=%r enabled=%s pos=%s %s size=%s %s" % (
+        "  " * depth,
+        rec.get("role", "?"),
+        ("/" + sub) if sub else "",
+        rec.get("title", ""), rec.get("desc", ""), rec.get("value", ""),
+        enabled,
+        geom(rec.get("x"), "pos.x"), geom(rec.get("y"), "pos.y"),
+        geom(rec.get("w"), "size.w"), geom(rec.get("h"), "size.h"),
+    ))
+
+for line in lines:
+    print(line)
+
+if truncated:
+    sys.stderr.write("[testvm] ax: the walk hit its node cap and STOPPED — this tree is "
+                     "incomplete. Narrow it (--window N, --role, --depth) or raise --max.\n")
+
+if fused:
+    where, value = fused[0]
+    sys.stderr.write(
+        "[testvm] REFUSED to print a geometry value: %s arrived as the text %r, not as a "
+        "number.\n"
+        "         That is the AppleScript list-coercion shape: {1024, 700} renders as "
+        "\"1024700\", so a 1024x700 box and a 102x4700 one are the same six characters.\n"
+        "         %d value(s) in this read. The numbers above marked ? were NOT measured.\n"
+        % (where, value, len(fused)))
+    raise SystemExit(4)
+
+if err:
+    sys.stderr.write("[testvm] ax: %s — %s\n" % (err.get("error"), err.get("detail", "")))
+    if err.get("actions") is not None:
+        sys.stderr.write("         the element does offer: %s\n" %
+                         (", ".join(err["actions"]) or "no actions at all"))
+    raise SystemExit(1)
+'
+}
+
+case "${1:-}" in
+  tree|find|click)
+    SUB="$1"; shift
+    ax_walk "$SUB" "$@"
+    exit $?
+    ;;
+esac
 
 case "${1:-}" in
   --focused)
@@ -64,7 +358,8 @@ case "${1:-}" in
         -- AppleScript renders a list as a string by CONCATENATING it, so
         -- {1024, 700} becomes \"1024700\" and a 1024x700 window is
         -- indistinguishable from a 102x4700 one. The items are pulled out and
-        -- punctuated by hand for that reason.
+        -- punctuated by hand for that reason. (\`tree\` sidesteps this
+        -- entirely by being JavaScript — see ax.js's header.)
         set sz to size of w
         set ps to position of w
         set out to out & (name of w) & \" \" & (item 1 of sz) & \"x\" & (item 2 of sz) & \" at (\" & (item 1 of ps) & \",\" & (item 2 of ps) & \")\" & linefeed
@@ -75,7 +370,7 @@ case "${1:-}" in
   --key)
     CODE="${2:-}"; [ -n "$CODE" ] || die "--key needs a keycode"
     [ -n "$PID" ] || die "no app pid recorded for $VM"
-    FRONT="$(guest_ssh "$VM" "osascript -e 'tell application \"System Events\" to unix id of first process whose frontmost is true' 2>/dev/null || echo 0" | tr -d '[:space:]')"
+    FRONT="$(ag "osascript -e 'tell application \"System Events\" to unix id of first process whose frontmost is true' 2>/dev/null || echo 0" | tr -d '[:space:]')"
     [ "$FRONT" = "$PID" ] || die "refusing to send a key: frontmost pid is $FRONT, the app under test is $PID. A key sent now would land in another process."
     SCRIPT="tell application \"System Events\" to key code $CODE"
     ;;
@@ -85,7 +380,7 @@ esac
 
 # The script goes in over stdin, never interpolated into a remote command line:
 # AppleScript is full of quotes and newlines and a shell would shred it.
-printf '%s' "$SCRIPT" | guest_ssh "$VM" "osascript -" 2>&1 || {
+printf '%s' "$SCRIPT" | ag "osascript -" 2>&1 || {
   echo "[testvm] osascript failed. If the error mentions 'not allowed assistive access',"  >&2
   echo "         the Accessibility TCC grant did not take — re-run testvm/setup.sh --reprovision." >&2
   exit 1
