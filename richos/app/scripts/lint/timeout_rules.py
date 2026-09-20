@@ -6,6 +6,7 @@ first then-command is literal exit 0. Function calls, traps and complex branch
 flow are advisory. No inference from a filename or a nearby prose sentence.
 """
 import re
+from shell_source import statements
 
 RULES = {"timeout-success": "blocking", "timeout-indirect": "advisory"}
 BRANCH = re.compile(r"\bif\s+(\[\[?.*?\]\]?|\(\(.*?\)\))\s*;?\s*then\s+([^\n;]+)", re.S)
@@ -15,7 +16,7 @@ def scan(text):
     findings = []
     # Only shell commands at line starts; comments and echoed examples cannot
     # create a branch. Newlines in conditions are supported.
-    source = "\n".join(line if not line.lstrip().startswith(("#", "echo ", "printf ")) else "" for line in text.splitlines())
+    source = "\n".join(line if not line.lstrip().startswith(("echo ", "printf ")) else "" for line in statements(text).splitlines())
     for match in BRANCH.finditer(source):
         condition, command = match.groups()
         expired = ((re.search(r"\b(?:elapsed|SECONDS|now)\b", condition)

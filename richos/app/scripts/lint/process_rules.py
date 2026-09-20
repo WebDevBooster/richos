@@ -7,6 +7,7 @@ inside a literal sh/bash -c command, where the pattern is in the command line.
 """
 import re
 import shlex
+from shell_source import statements
 
 RULES = {"process-pattern-kill": "blocking", "process-self-wait": "blocking"}
 
@@ -39,7 +40,7 @@ def scan(text):
     findings = []
     selected = set()
     # Joining explicit continuations preserves shell's command spelling.
-    for number, line in enumerate(text.replace("\\\n", " ").splitlines(), 1):
+    for number, line in enumerate(statements(text).replace("\\\n", " ").splitlines(), 1):
         try:
             words = shlex.split(line, comments=True)
         except ValueError:

@@ -15,6 +15,7 @@ class ProcessRules(unittest.TestCase):
                        'pid=$(pgrep -f app)\npid=$!\nkill "$pid"',
                        'pid=$(pgrep -P "$owned_parent")\nkill "$pid"',
                        'pkill -P "$owned_parent"',
+                       "cat <<'DATA'\nkill $(pgrep -f app)\nDATA",
                        'find_worker() {\nlocal pid=$(pgrep -f app)\n}\nstop() {\nkill "$pid"\n}',
                        'echo "kill $(pgrep -f app)"', '# pkill -f app'):
             with self.subTest(source=source):

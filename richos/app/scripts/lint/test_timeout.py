@@ -13,6 +13,7 @@ class TimeoutRules(unittest.TestCase):
     def test_refusal_and_success_condition(self):
         for source in ('if [ "$elapsed" -ge "$TIMEOUT" ]; then exit 1; fi',
                        'if [ "$ready" = yes ]; then exit 0; fi',
+                       "cat <<'DATA'\nif [ \"$remaining\" -le 0 ]; then exit 0; fi\nDATA",
                        '# if [ "$remaining" -le 0 ]; then exit 0; fi'):
             self.assertEqual(scan(source), [])
 
