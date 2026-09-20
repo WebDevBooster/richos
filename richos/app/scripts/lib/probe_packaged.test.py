@@ -2,6 +2,7 @@
 """Defeat the filesystem guard through real file resolution, without a GUI."""
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import unittest
 
@@ -9,6 +10,18 @@ import probe_packaged as probe
 
 
 class IsolationTests(unittest.TestCase):
+    def test_failed_reap_preserves_the_process_workspace(self):
+        root = None
+        try:
+            with self.assertRaisesRegex(probe.ProbeCleanupError, "staging retained"):
+                with probe.staging('probe-cleanup-test-') as root:
+                    (root / 'in-use').write_text('fixture')
+                    raise probe.ProbeCleanupError('fixture process did not reap')
+            self.assertEqual((root / 'in-use').read_text(), 'fixture')
+        finally:
+            if root and root.exists():
+                shutil.rmtree(root)
+
     def test_intact_external_substitution_and_restored(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp)

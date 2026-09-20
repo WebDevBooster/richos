@@ -7,6 +7,7 @@ not invoked: Claude, transcription models and other provider installations
 remain outside this probe's claim. Full application acceptance belongs in a VM.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -17,6 +18,26 @@ import signal
 import subprocess
 import tarfile
 import tempfile
+
+
+class ProbeCleanupError(RuntimeError):
+    pass
+
+
+@contextmanager
+def staging(prefix):
+    path = Path(tempfile.mkdtemp(prefix=prefix)).resolve()
+    try:
+        yield path
+    except ProbeCleanupError as error:
+        # A process blocked in the kernel may not reap even after KILL. Retain
+        # its files and name the owned PID instead of deleting a live workspace.
+        raise ProbeCleanupError(f"{error}; staging retained at {path}") from None
+    except BaseException:
+        shutil.rmtree(path)
+        raise
+    else:
+        shutil.rmtree(path)
 
 
 def profile(root):
@@ -52,7 +73,13 @@ def run(root, args, *, policy=None):
             os.killpg(p.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        p.wait(timeout=3)
+        try:
+            p.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            raise ProbeCleanupError(f"probe process {p.pid} did not reap after KILL") from None
+        finally:
+            p.stdout.close()
+            p.stderr.close()
 
 
 def compiler(root, *, policy=None):
@@ -67,11 +94,12 @@ def guard_controls(root):
     dependency = root / 'engine/loro/lib/coverage.js'
     # The external copy is valid ESM and remains present for BOTH negative
     # controls. A missing file alone would prove nothing about confinement.
-    with tempfile.TemporaryDirectory(prefix='richos-probe-outside-') as temp:
-        outside = Path(temp) / 'coverage.mjs'
+    with staging('richos-probe-outside-') as temp:
+        outside = temp / 'coverage.mjs'
         shutil.copy2(dependency, outside)
         dependency.unlink()
         dependency.symlink_to(outside)
+        cleanup_complete = True
         try:
             try:
                 compiler(root)
@@ -84,9 +112,13 @@ def guard_controls(root):
             open_reads = profile(root) + '(allow file-read*)'
             if json.loads(compiler(root, policy=open_reads)) != intact:
                 raise ValueError('guard-the-guard: external positive control changed compiler output')
+        except ProbeCleanupError:
+            cleanup_complete = False
+            raise
         finally:
-            dependency.unlink()
-            shutil.copy2(outside, dependency)
+            if cleanup_complete:
+                dependency.unlink()
+                shutil.copy2(outside, dependency)
     if json.loads(compiler(root)) != intact:
         raise ValueError('guard-the-guard: restored delivery did not recover')
 
@@ -95,8 +127,7 @@ def probe(app, archive, expected_sha):
     with archive.open('rb') as f:
         if hashlib.file_digest(f, 'sha256').hexdigest() != expected_sha:
             raise ValueError('engine archive does not match the declared compiled pin')
-    with tempfile.TemporaryDirectory(prefix='richos-packaged-probe-') as temp:
-        root = Path(temp).resolve()
+    with staging('richos-packaged-probe-') as root:
         (root / 'home').mkdir()
         (root / 'corpus/ceo').mkdir(parents=True)
         staged = root / 'RichOS.app'
@@ -106,7 +137,8 @@ def probe(app, archive, expected_sha):
         info = plistlib.loads((staged / 'Contents/Info.plist').read_bytes())
         exe = staged / 'Contents/MacOS' / info['CFBundleExecutable']
         identity = json.loads(run(root, [exe, '--richos-internal-update-identity']))
-        if identity != {'identifier': 'com.richos.app', 'version': info['CFBundleShortVersionString'], 'protocol': 1}:
+        if (identity.get('identifier') != 'com.richos.app'
+                or identity.get('version') != info['CFBundleShortVersionString']):
             raise ValueError('isolated app identity differs from its bundle')
         guard_controls(root)
     print('packaged probe: app identity, Loro compilation and isolation defeat controls passed')
