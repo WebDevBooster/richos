@@ -461,6 +461,60 @@ const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "richos-ui-evidence-"));
 const ledgerFile = path.join(ledgerDir, "evidence.jsonl");
 fs.writeFileSync(ledgerFile, "");
 
+// A RUN THAT IS KILLED LEAVES NOTHING BEHIND — SWEPT AT STARTUP, NOT CAUGHT AT EXIT.
+//
+// The normal path removes this directory once the records have been read, which covers a
+// pass and a failure and covered nothing on the two ways a run actually ends early: a
+// Ctrl-C, and a build gate terminating its shards. MEASURED 2026-09-20: `$TMPDIR` held
+// fourteen `richos-ui-evidence-*` directories, ten of them from 2026-09-19, every one the
+// residue of a run somebody stopped. Cleaning up is not conditional on finishing (CEO §54).
+//
+// A SIGNAL HANDLER IS THE OBVIOUS FIX AND IT IS THE WRONG ONE. It was written, measured and
+// removed within the hour: this file runs its suites with `spawnSync`, so the event loop is
+// blocked for the whole of a suite — up to 150 s — and a queued SIGTERM is not delivered
+// until that suite returns. Registering a handler therefore does not clean up promptly, it
+// makes the shard UNKILLABLE for the length of a suite. Measured: `kill -TERM` left the
+// process alive and running, and it took `kill -9`. A cleanup that hangs the thing it is
+// cleaning up after is worse than the leak it fixes.
+//
+// So the sweep happens at startup, where there is nothing to block it, and it is precise
+// rather than time-based: each directory records the pid that owns it, and a directory
+// whose owner is gone is residue by definition. Never a heuristic about age — a long
+// legitimate run must not have its ledger deleted out from under it by the next one.
+fs.writeFileSync(path.join(ledgerDir, "owner.pid"), String(process.pid));
+(function sweepAbandonedLedgers() {
+  for (const entry of fs.readdirSync(os.tmpdir())) {
+    if (!entry.startsWith("richos-ui-evidence-")) continue;
+    const dir = path.join(os.tmpdir(), entry);
+    if (dir === ledgerDir) continue;
+    let owner;
+    try {
+      owner = Number(fs.readFileSync(path.join(dir, "owner.pid"), "utf8").trim());
+    } catch (_e) {
+      // Written before this file recorded an owner, or a directory that never got one:
+      // nothing claims it, so nothing is lost by removing it.
+      owner = null;
+    }
+    if (owner) {
+      // ONLY `ESRCH` MEANS GONE, and the first version of this treated every throw as gone.
+      // `process.kill(pid, 0)` also throws `EPERM` — the process EXISTS and this user may
+      // not signal it — so "any error means dead" deletes the live ledger of a run started
+      // by another user. Measured: a directory owned by pid 1 was swept away while launchd
+      // was plainly running. Anything that is not a definite "no such process" is treated
+      // as alive, because the cost of keeping residue one run longer is a directory, and
+      // the cost of the other mistake is a live run losing its evidence mid-flight.
+      let gone = false;
+      try {
+        process.kill(owner, 0); // Signal 0 tests for existence; it delivers nothing.
+      } catch (e) {
+        gone = e.code === "ESRCH";
+      }
+      if (!gone) continue;
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})();
+
 if (SHARD) {
   console.log(
     `${SUITES.length} suite(s) discovered; shard ${SHARD.index}/${SHARD.total} runs ` +
