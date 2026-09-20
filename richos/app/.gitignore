@@ -1,5 +1,10 @@
 # Rust build output
 target/
+# the same path as a SYMLINK. `scripts/shared-build-cache.sh` points this workspace's
+# target/ at ONE cache every checkout on the machine shares, exactly as `src-tauri/target`
+# below has been pointed at the external volume since 2026-09-17; a trailing-slash rule
+# matches directories only, so the link would otherwise show as untracked.
+/target
 
 # `Cargo.lock` IS TRACKED — do not add an ignore rule for it.
 #

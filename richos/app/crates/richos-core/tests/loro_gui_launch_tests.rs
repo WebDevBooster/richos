@@ -36,11 +36,59 @@ use std::path::{Path, PathBuf};
 /// (`docs/verification/installed-app-2026-09-01/raw/first-send-launchd-environment.txt`).
 const LAUNCHD_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 
+/// The fixtures, under a directory THIS PROCESS OWNS.
+///
+/// The name used to be `$TMPDIR/richos-gui-launch-{name}` — one fixed path per case, shared
+/// by every `cargo test` process on the machine, and `remove_dir_all`d on the way in. Two
+/// concurrent runs of this crate therefore deleted each other's fixtures mid-test. It was
+/// invisible for as long as each checkout built its own `target/`, because the two long
+/// private builds staggered the runs; the moment they share one build cache both test phases
+/// start together and it fails. Measured 2026-09-20 with everything else held identical:
+/// private target dirs 3 runs green, one shared target dir 3 runs red, and shared target
+/// dirs WITH a private `TMPDIR` each 3 runs green — which is what names the cause.
+///
+/// This is the rule `app/scripts/lib/worktree-resource.sh` already states for ports and
+/// state directories, applied to a fixture path: *"Anything this repository names with a
+/// FIXED string is therefore shared by all of them, and two runs that start a minute apart
+/// fight over it. The symptom is never 'two runs collided'."*
+///
+/// GARBAGE IS CLEANED UP (CEO §54). A per-run unique name would fix the collision and leave
+/// a directory behind for every run this machine ever does, which trades one defect for a
+/// slower one. So the unique part is the PROCESS ID under one shared parent: the set stays
+/// as small as the machine's live test processes, each run clears its own on the way in, and
+/// any sibling left by a crashed run is swept below.
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("richos-gui-launch-{name}"));
+    let parent = std::env::temp_dir().join("richos-gui-launch");
+    let mine = parent.join(std::process::id().to_string());
+    sweep_abandoned(&parent, &mine);
+    let dir = mine.join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch dir");
     dir
+}
+
+/// Delete sibling process directories nothing is using any more. A process id is reused by
+/// the operating system, so an old directory under a live pid would otherwise be adopted by
+/// an unrelated run; and a run killed mid-test leaves its own behind forever. Age is the
+/// test rather than liveness because it needs no platform call and cannot be wrong in the
+/// dangerous direction: no test process in this crate runs for an hour.
+fn sweep_abandoned(parent: &Path, mine: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    let hour = std::time::Duration::from_secs(3600);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == mine {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|t| t.elapsed().map(|age| age > hour).unwrap_or(false))
+            .unwrap_or(false);
+        if stale {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
 }
 
 /// A loro checkout: BOTH entry points, because `LoroTools::locate` requires both and a

@@ -18,6 +18,11 @@
 // so the harness also runs from an existing install on the machine via NODE_PATH or
 // RICHOS_PLAYWRIGHT — installing a browser engine into every worktree is not free.
 //
+// AND SINCE 2026-09-20 A WORKTREE NEEDS NOTHING AT ALL: when neither of those resolves,
+// `loadPlaywright` DERIVES the main checkout's install from git and uses it. One install per
+// machine, no environment variable to remember, no `node_modules` copied by hand. See
+// `mainCheckoutPlaywright` below for why git can answer this and a spawner cannot.
+//
 // `npm install` HAS TO INSTALL THE ENGINE TOO, and for a while it did not. Playwright 1.61
 // ships no `postinstall` script (its installed package.json has no `scripts` key at all), so
 // `npm install` here produced the JS API and zero browsers, and the only thing that made the
@@ -39,10 +44,48 @@ const stability = require("./shot-stability");
 const UI_DIR = path.resolve(__dirname, "..", "..");
 const SHOT_DIR = path.resolve(__dirname, "..", ".shots");
 
+/// The MAIN CHECKOUT's install of this same directory, DERIVED rather than configured.
+///
+/// A linked git worktree shares one `.git` with the checkout it came from, so
+/// `--git-common-dir` names that checkout from anywhere inside any worktree, and the parent
+/// of it is the main checkout's root. The path below is then this directory's OWN position
+/// inside its own checkout, re-rooted there — nothing about the repository's layout is
+/// typed here, so the answer survives the tree being rearranged.
+///
+/// This is why a worktree does not need its own 17 MB copy of `node_modules`. Until
+/// 2026-09-20 every engineer who ran a UI suite in a fresh worktree either ran `npm install`
+/// again or made a symlink by hand, and a step done by hand more than twice is a step that
+/// gets done differently each time. The browser ENGINE was never the cost: Playwright keeps
+/// WebKit in `~/Library/Caches/ms-playwright`, which is already shared by every checkout on
+/// the machine.
+function mainCheckoutPlaywright() {
+  const git = (args) => {
+    try {
+      return require("child_process")
+        .execFileSync("git", args, { cwd: __dirname, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+        .trim();
+    } catch (_e) {
+      return "";
+    }
+  };
+  const commonDir = git(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const myRoot = git(["rev-parse", "--path-format=absolute", "--show-toplevel"]);
+  if (!commonDir || !myRoot) return null;
+  const mainRoot = path.dirname(commonDir);
+  if (path.resolve(mainRoot) === path.resolve(myRoot)) return null; // already there
+  const here = path.relative(myRoot, path.resolve(__dirname, ".."));
+  const candidate = path.join(mainRoot, here, "node_modules", "playwright");
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
 function loadPlaywright() {
   const candidates = [];
+  // An explicit path always wins — the same rule `app/scripts/lib/worktree-resource.sh`
+  // states for every shared resource: a human who names one has a reason.
   if (process.env.RICHOS_PLAYWRIGHT) candidates.push(process.env.RICHOS_PLAYWRIGHT);
   candidates.push("playwright");
+  const derived = mainCheckoutPlaywright();
+  if (derived) candidates.push(derived);
   for (const c of candidates) {
     try {
       return require(c);
@@ -50,9 +93,32 @@ function loadPlaywright() {
       /* keep looking */
     }
   }
+  // NAME THE FIX, not the symptom. The message this replaced offered three options and
+  // left the reader to work out which one applied to the directory they were standing in.
+  const mainRoot = path.dirname(
+    (() => {
+      try {
+        return require("child_process")
+          .execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+            cwd: __dirname,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          })
+          .trim();
+      } catch (_e) {
+        return "";
+      }
+    })()
+  );
   throw new Error(
-    "playwright not found. Run `npm install` in app/ui/tests (its postinstall fetches WebKit too), " +
-      "or point RICHOS_PLAYWRIGHT at an existing install."
+    "playwright not found, and neither is the main checkout's copy.\n" +
+      "  Looked for: RICHOS_PLAYWRIGHT (" +
+      (process.env.RICHOS_PLAYWRIGHT || "unset") +
+      "), ./node_modules/playwright, and the main checkout's own install.\n" +
+      "  FIX: run `npm install` once in the MAIN checkout's ui/tests — " +
+      (mainRoot && mainRoot !== "." ? mainRoot + "/richos/app/ui/tests" : "<main checkout>/richos/app/ui/tests") +
+      " — and every worktree on this machine will use it.\n" +
+      "  Do NOT copy or symlink node_modules into this worktree by hand; that is the step this resolution removed."
   );
 }
 

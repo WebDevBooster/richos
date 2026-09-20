@@ -1143,6 +1143,24 @@ npm install && npm test                         # every suite, discovered from d
 node restart-scope.js                           # one suite, while you are working on it
 ```
 
+**A worktree never builds its own caches, and never installs its own Playwright.** Both live
+once per machine, outside any checkout, and a new worktree is pointed at them the moment it
+is created — `.richos/worktree-setup` runs
+[`scripts/shared-build-cache.sh`](scripts/shared-build-cache.sh), which symlinks this
+workspace's `target/` and `src-tauri/target` at the shared cargo cache
+(`/Volumes/E1TB/caches/cargo-target`, or `~/.cache/richos/cargo-target` when that volume is
+not mounted; `$RICHOS_BUILD_CACHE` overrides both). Playwright needs nothing at all:
+`ui/tests/lib/harness.js` derives the main checkout's install from git when this directory has
+no `node_modules`, so the commands above work in a fresh worktree with nothing installed in it.
+Run `bash .richos/worktree-setup` by hand in a checkout that predates this, and
+`scripts/shared-build-cache.sh --check` to see where a checkout's caches actually point. The
+nightly release build is deliberately excluded and shares nothing. Measured on a fresh
+checkout, 2026-09-20: the desktop shell's first `cargo build` went 58s with its own `target/`
+to 19s against the shared cache; `cargo test -p richos-voice --no-run` 18s to 13s;
+`cargo test -p richos-core --no-run` 21s to 19s — the spine has little to share, because its
+cost is its own code rather than its dependencies, and a checkout compiles that itself either
+way. **Never copy or symlink either cache by hand**; that is the step this replaced.
+
 Contract and rules: [`richos/app/ui/tests/README.md`](ui/tests/README.md). Two notes that belong
 here rather than there:
 
