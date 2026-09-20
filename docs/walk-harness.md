@@ -11,7 +11,7 @@ scenario. Keep those measurements in a private handoff with the raw evidence.
 From `richos/app/scripts/testvm`:
 
 ```sh
-./ax.sh VM find --title Settings --in sidebar --first
+./ax.sh VM find --title Settings --first
 ./ax.sh VM focus --role AXTextArea --in composer --first
 ./ax.sh VM type 'fixture text' --role AXTextArea --in composer --first --replace
 ./ax.sh VM type 'fixture text' --app Safari --role AXTextArea --first --replace
@@ -28,14 +28,16 @@ require exactly one match. A node or depth cap is an incomplete result and fails
 Scopes select the first matching dialog, sidebar or composer subtree. `--in window`
 selects windows by exact title. An absent scope fails. A composer is its form group,
 with a text area's parent as a fallback. `focus` verifies focus before returning;
-`type` verifies focus before sending and checks the resulting value. The text may
+`type` verifies focus before sending and briefly polls for WebKit's asynchronous
+value update without resending text. The text may
 contain newlines; no Send/Return is issued automatically. A coordinate click uses
 AppleScript and requires the intended process to be frontmost.
 
 The default 20-second deadline includes host preflight, SSH, guest execution and
 rendering. The guest gets a shorter allowance for diagnostics and cleanup. Timeouts
 return 124 with partial output preserved; the owned command group is killed.
-`SecurityAgent` windows produce `blocked`, distinct from `notfound`. Process errors
+`SecurityAgent` windows and a modal hiding the requested control produce `blocked`,
+distinct from `notfound`. Process errors
 retain their exit status. `TESTVM_AX_TIMEOUT` can select a different total bound for
 a controlled comparison, but increasing it is not a recovery strategy.
 
@@ -90,9 +92,14 @@ gate. After inspection, delete the caller-owned scratch and caches.
 
 `scenarios/delta.json` specifies order, dependencies, limits and outcomes. Five Mac
 turns supply typed-to-phone and first-word samples. One phone turn supplies
-phone-to-Mac and the thread-switch capture. Send attempts count before sending;
+phone-to-Mac and the thread-switch capture. That turn requests a 12-second terminal
+wait before its reply so the eight-second switch has an active-work interval to
+observe. Both clients explicitly select the same named conversation. Send attempts count before sending;
 there is no automatic retry and recovery cannot exceed six total attempts. A missing
 reply is a measured failure, not a reason to keep sending diagnostic prompts.
+On a shared host, `--admission-wait-seconds 120` allows a bounded wait for load below
+8 before each attempt. This wait is recorded separately from capture time and is
+included in the complete scenario duration. It sends nothing while load is too high.
 
 Each prompt contains spaced characters; the requested reply joins them. Thus the
 reply token is absent from the prompt. Desktop and phone OCR streams stay separate.
@@ -103,9 +110,10 @@ window alongside the result when interpreting subsecond numbers.
 
 Captures use fixed desktop and Safari rectangles. Check the supplied band boundary
 and chip rectangles against a guest frame before acceptance. Band coordinates are
-relative to the phone crop by default (`--band-side mac` changes this); chip
+relative to the desktop crop by default (`--band-side phone` changes this); chip
 coordinates are relative to the desktop crop. The band check examines every
-band-visible frame and requires an actual boundary color measurement. The old detail
+band-visible frame and requires an exact boundary color measurement, without a
+tolerance that could also match the surrounding background. The old detail
 line is searched across both complete frame streams. A switch at eight seconds only
 qualifies if work is visible immediately before it; otherwise the chip check reports
 `prerequisite unavailable`. AX must also confirm that the destination is selected.

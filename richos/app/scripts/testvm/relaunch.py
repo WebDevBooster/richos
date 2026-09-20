@@ -45,12 +45,20 @@ def relaunch(vm, app=None, environment=None):
     args=['open','-n','-a',app]
     for key,value in env.items(): args.extend(['--env',key+'='+value])
     args.extend(['--stdout',logfile,'--stderr',logfile])
+    existing={line.split(None,1)[0] for line in guest(vm,'ps -axo pid=,comm=').splitlines()}
     guest(vm,shlex.join(args))
     # Follow launcher redirects into the user-installed bundle as well.
     for _ in range(50):
-        rows=guest(vm,'ps -axo pid=,comm=')
-        pids=[line.strip().split(None,1)[0] for line in rows.splitlines()
-              if '/richos-tauri' in line and payload in line]
+        rows=guest(vm,'ps -axo pid=,ppid=,comm=')
+        # The same executable also runs MCP helpers. LaunchServices owns the
+        # GUI process; an existing helper must never become the recorded app.
+        pids=[]
+        for line in rows.splitlines():
+            parts=line.split(None,2)
+            if len(parts)!=3:continue
+            pid,parent,exe=parts
+            if pid not in existing and parent=='1' and payload in exe and exe.endswith('/richos-tauri'):
+                pids.append(pid)
         if pids:
             pid=pids[-1];(state/'app.pid').write_text(pid+'\n')
             return {'pid':int(pid),'log':logfile,'app':app}

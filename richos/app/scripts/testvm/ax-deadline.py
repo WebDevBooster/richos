@@ -47,7 +47,7 @@ def run(command, source, seconds, host=False):
                         print(line, file=sys.stderr)
             except subprocess.TimeoutExpired:
                 pass
-            print('AX timeout: owned command group terminated; check modal/process state above', file=sys.stderr)
+            print('AX timeout: owned command group %d terminated; check modal/process state above' % child.pid, file=sys.stderr)
             return 124
     finally:
         for s, handler in previous.items():

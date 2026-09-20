@@ -94,12 +94,13 @@ function axMatches(P, n) {
 // every message. Matching reads only the attributes actually requested.
 function axSearch(roots, P, api) {
   var queue = roots.map(function(e) { return {el:e, d:0, parent:null}; });
-  var head = 0, count = 0, hits = [], truncated = false;
+  var head = 0, count = 0, hits = [], shallow = [], truncated = false, stoppedEarly = false;
   var limit = P.first ? 1 : (P.nth !== null && P.nth !== undefined ? P.nth + 1 : null);
   var scoped = !P.scope || P.scope === "window";
   while (head < queue.length) {
     if (count >= P.max) { truncated = true; break; }
     var q = queue[head++]; count++;
+    if (q.d <= 5 && shallow.length < 64) shallow.push(q);
     if (!scoped) {
       if (api.scope(q.el, P.scope)) {
         // A composer is its containing group, including adjacent controls.
@@ -108,7 +109,7 @@ function axSearch(roots, P, api) {
       }
     } else if (P.mode === "tree" || api.matches(q.el)) {
       hits.push(q);
-      if (limit !== null && hits.length >= limit) break;
+      if (limit !== null && hits.length >= limit) { stoppedEarly = true; break; }
     }
     if (q.d < P.depth) {
       var kids = api.children(q.el);
@@ -117,8 +118,8 @@ function axSearch(roots, P, api) {
       truncated = true;
     }
   }
-  return {hits:hits, count:count, truncated:truncated, scoped:scoped,
-          exhaustive:head >= queue.length && !truncated};
+  return {hits:hits, shallow:shallow, count:count, truncated:truncated, scoped:scoped,
+          exhaustive:head >= queue.length && !truncated && !stoppedEarly};
 }
 
 function run() {
@@ -163,9 +164,9 @@ function run() {
   }
   function scope(el, which) {
     var role = get(el,"role","");
-    if (which === "dialog") return role === "AXSheet" || get(el,"subrole","") === "AXApplicationDialog";
-    if (which === "composer") return attr(el,"AXDOMIdentifier","") === "composer" || role === "AXTextArea";
-    if (which === "sidebar") return get(el,"description","") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail";
+    if (which === "dialog") return role === "AXSheet" || (role === "AXGroup" && get(el,"subrole","") === "AXApplicationDialog");
+    if (which === "composer") return role === "AXTextArea" || (role === "AXGroup" && attr(el,"AXDOMIdentifier","") === "composer");
+    if (which === "sidebar") return role === "AXGroup" && (get(el,"description","") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail");
     return false;
   }
   function full(q) {
@@ -174,14 +175,37 @@ function run() {
       desc:get(el,"description",""),value:String(get(el,"value","")).slice(0,203),enabled:get(el,"enabled",null),current:attr(el,"AXARIACurrent",null),selected:get(el,"selected",null),
       x:pos[0],y:pos[1],w:size[0],h:size[1]};
   }
+  function missing(detail) {
+    // A modal web dialog hides the underlying composer from the AX tree.
+    // Inspect the focused element's ancestors only on a miss, avoiding an
+    // extra attribute read on every transcript node during successful lookups.
+    var focused=attr(proc,"AXFocusedUIElement",null);
+    for (var level=0; focused && level<10; level++) {
+      if (get(focused,"subrole","") === "AXApplicationDialog" ||
+          get(focused,"role","") === "AXSheet") {
+        return error("blocked", "target="+name+" modal="+get(focused,"title",get(focused,"description","dialog"))+"; "+detail);
+      }
+      focused=attr(focused,"AXParent",null);
+    }
+    // A background webview may have no AXFocusedUIElement. Its dialog is a
+    // shallow ancestor of the visible controls already visited by the search.
+    for (var i=0; i<result.shallow.length; i++) {
+      var q=result.shallow[i];
+      if (get(q.el,"subrole","") === "AXApplicationDialog" ||
+          (q.d<=1 && get(q.el,"role","") === "AXSheet")) {
+        return error("blocked", "target="+name+" modal="+get(q.el,"title","dialog")+"; "+detail);
+      }
+    }
+    return error("notfound",detail);
+  }
   var result = axSearch(roots, P, {matches:match, scope:scope, scopeRoot:function(el,parent,which) { return which === "composer" && get(el,"role","") === "AXTextArea" && parent ? parent : el; }, children:function(el) { return get(el,"uiElements",[]); }});
   var hits = result.hits;
   var meta = JSON.stringify({meta:true,app:name,pid:P.pid,windows:wins.length,nodes:result.count,
     truncated:result.truncated,mode:P.mode,matches:hits.length,exhaustive:result.exhaustive});
-  if (!result.scoped) return meta+"\n"+error("notfound", "scope is absent: "+P.scope);
+  if (!result.scoped) return meta+"\n"+missing("scope is absent: "+P.scope);
   if (result.truncated) return meta+"\n"+error("incomplete", "node/depth cap reached; absence or uniqueness is not established");
   if (P.mode === "tree") return meta+"\n"+hits.map(function(q) { return JSON.stringify(full(q)); }).join("\n");
-  if (!hits.length) return meta+"\n"+error("notfound", "nothing matched");
+  if (!hits.length) return meta+"\n"+missing("nothing matched");
   if (P.mode === "find") {
     if (P.nth !== null) hits = hits.slice(P.nth,P.nth+1);
     if (!hits.length) return meta+"\n"+error("notfound", "requested match index is absent");
@@ -196,8 +220,9 @@ function run() {
     if (P.mode === "click") {
       var actions=el.actions().map(function(a) { return a.name(); });
       if (actions.indexOf("AXPress") < 0) return meta+"\n"+error("noaction", "element has no AXPress; actions="+actions.join(","));
+      var pressedNode=full(target); // A dismissal can invalidate this AX node.
       el.actions.byName("AXPress").perform();
-      return meta+"\n"+JSON.stringify({clicked:true,node:full(target),matches:hits.length});
+      return meta+"\n"+JSON.stringify({clicked:true,node:pressedNode,matches:hits.length});
     }
     proc.frontmost = true;
     el.focused = true;
@@ -205,8 +230,17 @@ function run() {
     if (P.mode === "type") {
       if (P.replace) se.keystroke("a", {using:"command down"});
       se.keystroke(P.input);
-      var value=String(get(el,"value",""));
-      if ((P.replace && value !== P.input) || (!P.replace && value.indexOf(P.input) < 0)) return meta+"\n"+error("typefailed", "field value does not contain the requested text");
+      // WebKit updates AXValue asynchronously after System Events returns.
+      // Observe the effect without resending text; the outer deadline still
+      // bounds this entire operation, including these short verification polls.
+      var value, verified=false;
+      for (var attempt=0; attempt<20; attempt++) {
+        value=String(get(el,"value",""));
+        verified=P.replace ? value === P.input : value.indexOf(P.input) >= 0;
+        if (verified) break;
+        delay(0.05);
+      }
+      if (!verified) return meta+"\n"+error("typefailed", "field value does not contain the requested text");
     }
     return meta+"\n"+JSON.stringify({action:P.mode,verified:true,node:full(target)});
   } catch(e) { return meta+"\n"+error(P.mode+"failed", e); }

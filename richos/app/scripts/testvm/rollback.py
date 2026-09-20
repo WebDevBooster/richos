@@ -66,7 +66,8 @@ def exercise(vm,previous,current,endpoint,previous_app=None,check_only=False):
     record=receipts(vm,home)
     if record!={'current':current,'previous':previous}:raise Failure('product failure','real update did not produce the expected history: '+str(record))
     boot=guest(vm,'cat '+shlex.quote(activated['log']))
-    if current not in boot or previous not in boot:raise Failure('product failure','update boot log does not name both versions')
+    if '[richos] update activated: '+previous+' -> '+current not in boot:
+        raise Failure('product failure','update boot log does not name the exact activation direction')
     result['steps'].append({'action':'activate','receipts':record,'log':boot})
     started=relaunch(vm,dest,{**env,'RICHOS_UPDATE_SELFTEST':'rollback'})
     log=wait_log(vm,started['log'],'RICHOS-UPDATE-SELFTEST exit=')
@@ -75,7 +76,8 @@ def exercise(vm,previous,current,endpoint,previous_app=None,check_only=False):
     boot=guest(vm,'cat '+shlex.quote(activated['log']))
     record=receipts(vm,home)
     if record!={'current':previous,'previous':current}:raise Failure('product failure','rollback did not exchange the expected releases')
-    if current not in boot or previous not in boot:raise Failure('product failure','rollback boot log does not name both versions')
+    if '[richos] rollback activated: '+current+' -> '+previous not in boot:
+        raise Failure('product failure','rollback boot log does not name the exact activation direction')
     result['steps'].append({'action':'rollback','receipts':record,'log':boot})
     started=relaunch(vm,dest,{**env,'RICHOS_UPDATE_SELFTEST':'check'})
     log=wait_log(vm,started['log'],'RICHOS-UPDATE-SELFTEST exit=')

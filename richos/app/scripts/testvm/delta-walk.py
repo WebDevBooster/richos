@@ -52,15 +52,15 @@ class Walk:
         if app:argv+=['--app',app]
         out=command(argv,25)
         return [json.loads(s) for s in out.splitlines() if s.startswith('{')]
-    def press(self,title,app=None):
-        return self.ax('click','--title',title,'--contains','--first',app=app)
+    def press(self,title,app=None,role='AXButton'):
+        return self.ax('click','--title',title,'--role',role,'--contains','--first',app=app)
     def optional_press(self,title):
         try:self.press(title)
         except Failure as exc:
             if 'notfound' not in str(exc):raise
     def tree(self,app=None):return self.ax('tree',app=app)
     def strings(self,rows):return '\n'.join(str(row.get(k,'')) for row in rows for k in ('title','desc','value'))
-    def settings(self):self.press('Settings')
+    def settings(self):self.press('Settings',role='AXPopUpButton')
     def phone_prerequisite(self,step,budget):
         pid=(self.state/'app.pid').read_text().strip()
         if not pid.isdigit():raise Failure('harness failure','recorded app PID is invalid')
@@ -75,7 +75,7 @@ class Walk:
     def pairing_url(self):
         end=time.monotonic()+25
         while time.monotonic()<end:
-            text=self.strings(self.tree())
+            text=self.strings(self.ax('tree','--in','dialog'))
             m=re.search(r'https://[^\s\"<>]+(?:pair=)[A-Z0-9]+',text)
             if m:return m.group(0)
             code=re.search(r'(?m)^[A-Z2-9]{8}$',text)
@@ -87,7 +87,7 @@ class Walk:
             time.sleep(.5)
         raise Failure('product failure','no pairing URL/code rendered within 25 seconds')
     def pair(self,step,budget):
-        self.settings();self.press('Use Rich from your phone');self.press('Set my phone up')
+        self.settings();self.press('Use Rich from your phone',role='AXMenuItem');self.press('Set my phone up')
         self.url=self.pairing_url()
         guest(self.vm,shlex.join(['open','-a','Safari',self.url]))
         time.sleep(2);self.press('They match',app='Safari')
@@ -96,19 +96,30 @@ class Walk:
         script='tell application "System Events"\n tell process "richos-tauri"\n set position of window 1 to {0,25}\n set size of window 1 to {1024,700}\n end tell\n tell process "Safari"\n set position of window 1 to {1024,25}\n set size of window 1 to {656,700}\n end tell\nend tell'
         guest(self.vm,shlex.join(['osascript','-e',script]))
         self.press(self.a.thread_a)
+        # The phone keeps its own selection and initially chooses the first
+        # server row, which need not be the Mac's selected conversation.
+        self.press('Conversation',app='Safari',role='AXPopUpButton')
+        self.press(self.a.thread_a,app='Safari',role='AXMenuItem')
+        self.ax('find','--title','Conversation','--value',self.a.thread_a,
+                '--role','AXPopUpButton','--first',app='Safari')
         return {'paired':True,'layout':{'mac':[0,25,1024,700],'phone':[1024,25,656,700]}}
     def capture(self,label,origin,budget,switch=False):
+        admission=time.monotonic()
+        while os.getloadavg()[0]>=8 and time.monotonic()-admission<self.a.admission_wait_seconds:
+            time.sleep(2)
+        admission_wait=time.monotonic()-admission
         load=os.getloadavg()[0]
         if load>=8:raise Failure('prerequisite unavailable','load %.2f is above timing admission limit; no send issued' % load)
         number=budget.take() # Counts the attempt even if the send later fails.
         token='probe'+uuid.uuid4().hex[:10]
         prompt='Reply with these characters joined without spaces: '+' '.join(token)
+        if switch:prompt+=' Before replying, use your terminal tool to run sleep 12.'
         app='Safari' if origin=='phone' else None
         selector=['--role','AXTextArea','--first']
         self.ax('type',prompt,*selector,'--replace',*(['--in','composer'] if not app else []),app=app)
         action=['--key','36']
         if origin=='phone':
-            nodes=self.ax('find','--title','Send','--first',app=app)
+            nodes=self.ax('find','--title','Send','--role','AXButton','--first',app=app)
             button=next(x for x in nodes if x.get('role')=='AXButton')
             action=['--click','%d,%d' % (button['x']+button['w']/2,button['y']+button['h']/2)]
         remote=self.remote+'/'+label
@@ -130,6 +141,7 @@ class Walk:
         # Transfer the immutable sequence once, then perform all analysis locally.
         command([HERE/'guest.sh',self.vm,'--pull',remote,self.out/label],120)
         row={'number':number,'token':token,'prompt':prompt,'directory':str(self.out/label),'origin':origin,'load':load,
+             'admission_wait_seconds':admission_wait,
              'capture':output,'switch':switched}
         (self.out/(label+'.json')).write_text(json.dumps(row,indent=2))
         return row
@@ -169,7 +181,7 @@ class Walk:
         if len(visible)<2:raise Failure('prerequisite unavailable','fewer than two band-visible frames')
         boxes=[]
         for frame in visible:
-            result=command([sys.executable,QA/'frame.py','box',frame,*map(str,self.a.band_box),self.a.band_color])
+            result=command([sys.executable,QA/'frame.py','box',frame,*map(str,self.a.band_box),self.a.band_color,'--tol','0'])
             match=re.search(r'x (\d+)\.\.(\d+) .* y (\d+)\.\.(\d+)',result)
             if not match:raise Failure('harness failure','boundary color was not measured')
             boxes.append(tuple(map(int,match.groups())))
@@ -184,12 +196,26 @@ class Walk:
         if not self.phone or not self.switch or 'failure' in self.switch:raise Failure('prerequisite unavailable','no successful mid-turn switch capture')
         meta,frames=timeline._read_meta(self.phone['directory'])
         before=self.switch['before'];after=self.switch['after']
-        preceding=[(n,t) for n,t in frames if before-1500<=t<=before]
-        if not preceding:raise Failure('harness failure','no frame immediately before the switch')
-        last=Path(self.phone['directory'])/('%04d.png'%preceding[-1][0])
+        # AX lookup and dispatch can take several seconds. Date the visible
+        # destination header, not the start of the command that seeks it. The
+        # sidebar already contains both names, so a whole-frame token is invalid.
+        observed=None
+        for index,(n,when) in enumerate(frames):
+            if when<before:continue
+            path=Path(self.phone['directory'])/('%04d.png'%n)
+            img=qaimg.load(str(path));x,y,w,h=self.a.header_box
+            crop=self.out/('switch-header-%04d.png'%n)
+            qaimg.save(img.crop(x,y,x+w,y+h),str(crop))
+            if re.search(re.escape(self.a.thread_b),qaocr.text(crop),re.I):
+                observed=(index,when);break
+        if observed is None:raise Failure('harness failure','destination header never appeared in the switch capture')
+        index,switched_at=observed
+        if index==0 or switched_at-frames[index-1][1]>1500:
+            raise Failure('harness failure','no frame immediately before the visible switch')
+        last=Path(self.phone['directory'])/('%04d.png'%frames[index-1][0])
         if not re.search(r'Working|Writing the reply',qaocr.text(last),re.I):
             raise Failure('prerequisite unavailable','work was not visibly active immediately before the switch')
-        chosen=[n for n,t in frames if after<=t<=after+3000]
+        chosen=[n for n,t in frames if switched_at<=t<=switched_at+3000]
         if not chosen:raise Failure('harness failure','capture does not cover post-switch interval')
         # The destination must be selected in AX, not just present in the sidebar.
         selected=self.ax('find','--title',self.a.thread_b,'--contains','--role','AXButton','--in','sidebar')
@@ -199,11 +225,11 @@ class Walk:
             path=Path(self.phone['directory'])/('%04d.png'%n)
             img=qaimg.load(str(path));x,y,w,h=self.a.chip_box
             crop=self.out/('chip-%04d.png'%n);qaimg.save(img.crop(x,y,x+w,y+h),str(crop))
-            if re.search(r'\d+\s+(working|waiting|ready)',qaocr.text(crop),re.I):
+            if re.search(r"\d+\s+(working|waiting|ready|done|saved work records?|I can.t see)",qaocr.text(crop),re.I):
                 raise Failure('product failure','destination chip shows work counts from another thread')
-        return {'post_switch_frames':len(chosen),'stale_counts':0,'switch':self.switch}
+        return {'post_switch_frames':len(chosen),'stale_counts':0,'switch':self.switch,'visible_switch_ms':switched_at}
     def rejected_phone(self,step,budget):
-        self.settings();self.press('Use Rich from your phone');self.press('Forget this phone')
+        self.settings();self.press('Use Rich from your phone',role='AXMenuItem');self.press('Forget this phone')
         self.press('Set my phone up');url=self.pairing_url()
         guest(self.vm,shlex.join(['open','-a','Safari',url]));time.sleep(2)
         self.press('They do not match',app='Safari')
@@ -212,8 +238,8 @@ class Walk:
         started=relaunch(self.vm);time.sleep(2)
         after=guest(self.vm,'shasum -a 256 '+shlex.quote(rejected)).split()[0]
         if before!=after:raise Failure('product failure','rejected-phone record changed across relaunch')
-        self.settings();self.press('Use Rich from your phone')
-        text=self.strings(self.tree())
+        self.settings();self.press('Use Rich from your phone',role='AXMenuItem')
+        text=self.strings(self.ax('tree','--in','dialog'))
         if 'Your phone said the six words did not match' not in text:
             raise Failure('product failure','persisted rejection message absent after relaunch')
         listeners=guest(self.vm,'lsof -nP -a -p %d -iTCP:8443 -sTCP:LISTEN -t 2>/dev/null || true'%started['pid'])
@@ -230,11 +256,15 @@ def main():
     p.add_argument('--current',required=True);p.add_argument('--previous',required=True);p.add_argument('--endpoint',required=True)
     p.add_argument('--keychain-endurance',action='store_true',help='pair then idle/relaunch for 30 minutes; no model turns')
     p.add_argument('--previous-app');p.add_argument('--thread-a',default='Scenario A');p.add_argument('--thread-b',default='Scenario B')
-    p.add_argument('--band-side',choices=['mac','phone'],default='phone')
+    p.add_argument('--admission-wait-seconds',type=float,default=0,
+                   help='bounded wait for load below 8 before each attempt; counted separately from capture')
+    p.add_argument('--band-side',choices=['mac','phone'],default='mac')
     p.add_argument('--band-box',nargs=4,type=int,required=True,help='x0 y0 x1 y1 enclosing a stable band boundary')
     p.add_argument('--band-color',required=True,help='measured boundary color')
     p.add_argument('--chip-box',nargs=4,type=int,required=True,help='x y width height of work summary chip')
+    p.add_argument('--header-box',nargs=4,type=int,default=[300,28,650,55],help='desktop crop containing only the selected conversation header')
     a=p.parse_args()
+    if not 0<=a.admission_wait_seconds<=300:p.error('--admission-wait-seconds must be between 0 and 300')
     manifest=json.loads((HERE/'scenarios/delta.json').read_text())
     walk=Walk(a)
     if a.keychain_endurance:

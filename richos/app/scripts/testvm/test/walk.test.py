@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 HERE=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(HERE))
 import fixture
@@ -77,6 +78,43 @@ class WalkTests(unittest.TestCase):
     def test_deadline_preserves_stdout_stderr_and_status(self):
         r=subprocess.run([sys.executable,str(HERE/'ax-deadline.py'),'3',sys.executable,'-c','import sys;print("partial");print("cause",file=sys.stderr);sys.exit(17)'],input=b'',capture_output=True)
         self.assertEqual(r.returncode,17);self.assertIn(b'partial',r.stdout);self.assertIn(b'cause',r.stderr)
+    def test_relaunch_records_new_gui_process_instead_of_mcp_helpers(self):
+        launch=module('relaunch')
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,TESTVM_ROOT=tmp):
+            state=Path(tmp)/'run/demo';state.mkdir(parents=True)
+            payload='/Users/admin/testvm/demo';app=payload+'/RichOS.app'
+            exe=app+'/Contents/MacOS/richos-tauri'
+            (state/'payload').write_text(payload);(state/'app.pid').write_text('123')
+            calls=[]
+            def guest(vm,command,*args):
+                calls.append(command)
+                if command.startswith('ps -p '):return exe
+                if command=='ps -axo pid=,comm=':return '9 '+exe
+                if command=='ps -axo pid=,ppid=,comm=':
+                    return '9 1 '+exe+'\n456 1 '+exe+'\n567 456 '+exe
+                return ''
+            with patch.object(launch,'guest',side_effect=guest):result=launch.relaunch('demo',app)
+            self.assertEqual(result['pid'],456)
+            self.assertEqual((state/'app.pid').read_text().strip(),'456')
+            self.assertEqual([c for c in calls if c.startswith('kill -TERM')],['kill -TERM 123 2>/dev/null || true'])
+    def test_switch_uses_visible_header_and_requires_work_before_actual_switch(self):
+        driver=module('delta-walk');w=object.__new__(driver.Walk)
+        with tempfile.TemporaryDirectory() as tmp:
+            w.out=Path(tmp);w.phone={'directory':tmp};w.switch={'before':200,'after':500}
+            w.a=SimpleNamespace(thread_b='Scenario B',header_box=[300,28,650,55],chip_box=[320,500,670,145])
+            w.ax=lambda *args:[{'current':'true'}]
+            frames=[(n,n*100) for n in range(1,8)]
+            img=SimpleNamespace(crop=lambda *args:None)
+            def read(path,active=True):
+                name=Path(path).name
+                if name.startswith('switch-header-'):return 'Scenario B' if int(name[-8:-4])>=4 else 'Scenario A'
+                if name=='0003.png':return 'Working' if active else 'Done'
+                return ''
+            with patch.object(driver.timeline,'_read_meta',return_value=({},frames)),patch.object(driver.qaimg,'load',return_value=img),patch.object(driver.qaimg,'save'),patch.object(driver.qaocr,'text',side_effect=read):
+                self.assertEqual(w.work_chip({},None)['visible_switch_ms'],400)
+            with patch.object(driver.timeline,'_read_meta',return_value=({},frames)),patch.object(driver.qaimg,'load',return_value=img),patch.object(driver.qaimg,'save'),patch.object(driver.qaocr,'text',side_effect=lambda p:read(p,False)):
+                with self.assertRaises(Failure) as raised:w.work_chip({},None)
+                self.assertEqual(raised.exception.outcome,'prerequisite unavailable')
 
 
 if __name__=='__main__':unittest.main()
