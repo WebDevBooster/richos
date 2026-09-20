@@ -319,6 +319,50 @@ else
   notrun "H  the cargo target names" "no cargo on this machine or on PATH"
 fi
 
+# Execute exactly the generated engine command. Other selections are syntax
+# checks only, so a selection containing this suite can never recurse.
+run_pf "$WORK/engine.out" --paths richos/app/scripts/make-engine-asset.test.sh
+if python3 - "$ROOT" "$WORK/engine.out" <<'PYTEST'
+import os, signal, subprocess, sys
+from pathlib import Path
+lines = Path(sys.argv[2]).read_text().splitlines()
+commands = [line.strip() for line in lines if line.startswith("  cd ")]
+for command in commands:
+    subprocess.run(["bash", "-n", "-c", command], check=True)
+selected = [c for c in commands if c.endswith("&& bash scripts/make-engine-asset.test.sh")]
+assert len(selected) == 1, selected
+assert "RICHOS_RUNTIME_DIR" in "\n".join(lines)
+command = selected[0]
+assert "proof-for.test.sh" not in command
+missing = dict(os.environ)
+missing.pop("RICHOS_RUNTIME_DIR", None)
+result = subprocess.run(["bash", "-c", command], cwd=sys.argv[1], env=missing,
+                        capture_output=True, text=True, timeout=15)
+assert result.returncode == 2 and "Prerequisite: set RICHOS_RUNTIME_DIR" in result.stderr
+# This nested deadline owns a group too. Forward outer-gate cancellation into
+# its finally block so the generated command cannot outlive the test runner.
+def cancel(signum, frame):
+    raise SystemExit(128 + signum)
+signal.signal(signal.SIGTERM, cancel)
+signal.signal(signal.SIGINT, cancel)
+p = subprocess.Popen(["bash", "-c", command], cwd=sys.argv[1], start_new_session=True)
+try:
+    assert p.wait(timeout=600) == 0, "generated real-archive command failed"
+finally:
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    p.wait(timeout=5)
+PYTEST
+then
+  ok "I1 generated engine command runs with its prerequisite and refuses without it; other commands parse"
+else
+  bad "I1 generated engine command and prerequisite contract"
+fi
+
 echo
 TAIL=""
 [ "$NOTRUN" -gt 0 ] && TAIL=", $NOTRUN NOT RUN"

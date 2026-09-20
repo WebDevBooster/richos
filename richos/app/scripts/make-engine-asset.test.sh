@@ -91,6 +91,17 @@ bad() { printf '  FAIL  %s\n         %s\n' "$1" "${2:-}"; FAIL=$((FAIL + 1)); }
 [ -f "$SCRIPT" ]  || { echo "make-engine-asset.test.sh: no $SCRIPT — refusing to report a result." >&2; exit 2; }
 [ -f "$MEMBERS" ] || { echo "make-engine-asset.test.sh: no $MEMBERS — refusing to report a result." >&2; exit 2; }
 
+# Real archive cases use the same verified delivery as a release. Synthetic
+# version-1.0.0 cases below deliberately clear this variable.
+if [ -z "${RICHOS_RUNTIME_DIR:-}" ]; then
+    echo 'Prerequisite: set RICHOS_RUNTIME_DIR to a prepared, verified runtime before running make-engine-asset.test.sh.' >&2
+    exit 2
+fi
+if ! python3 "$DIR/verify-runtime.py" "$RICHOS_RUNTIME_DIR" "$DIR/runtime-sources.json" >/dev/null; then
+    echo 'Prerequisite: RICHOS_RUNTIME_DIR must match the tracked runtime recipe. No runtime was downloaded.' >&2
+    exit 2
+fi
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/engine-asset-test.XXXXXX")" || exit 2
 trap 'rm -rf "$WORK"' EXIT
 
