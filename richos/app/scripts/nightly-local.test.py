@@ -171,8 +171,20 @@ class LocalTests(unittest.TestCase):
         self.assertIn("HOME", env)
         # And the property in general, not one specimen of it: nothing in the returned
         # environment came from the shell except by being named in the allowlist.
-        self.assertEqual(sorted(set(env) - set(m.GATE_SET_BY_BUILD)),
-                         sorted(n for n in m.GATE_PASSTHROUGH if n in os.environ))
+        #
+        # BOTH SIDES SUBTRACT GATE_SET_BY_BUILD, and the first version of this case
+        # subtracted it from only the left -- which passed in a terminal and failed inside
+        # a build, the exact shape of defect this file's allowlist exists to end. The
+        # cause is that RICHOS_NAMED_PERSONS_FILE is in BOTH tuples: the operator may set
+        # it, and the build sets it regardless. So in a terminal it is absent from
+        # os.environ and the asymmetry is invisible; inside a gate it is present and the
+        # two sides disagree about a name that never came from a shell at all. A name
+        # this script sets is not evidence about what the shell got through, whichever
+        # tuple also lists it.
+        from_shell = sorted(set(env) - set(m.GATE_SET_BY_BUILD))
+        self.assertEqual(from_shell,
+                         sorted(n for n in m.GATE_PASSTHROUGH
+                                if n in os.environ and n not in m.GATE_SET_BY_BUILD))
 
     def test_the_allowlist_is_the_only_door_and_e1_derives_its_list_from_it(self):
         """`gate-environment` is what run-tests.test.sh case E1 reads instead of copying.
