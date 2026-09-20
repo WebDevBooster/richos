@@ -459,11 +459,33 @@ def stable_plan(nightly_tag, record_text, now=None):
         raise ValueError(f"v{base} already exists; {nightly_tag} was built from a commit "
                          f"whose version has already shipped. Bump the version on main and "
                          "promote a nightly built after the bump.")
+    # THE COMMIT IS REBUILT BY ITS OWN RELEASE TOOLING, which is what makes it a rebuild
+    # of that commit rather than a build of something adjacent to it. `nightly-local.py`
+    # moves the dedicated worktree to `source` and runs the `nightly.py` it finds THERE,
+    # so a commit predating the stable channel cannot build a stable release: its
+    # `release_files` has never heard of one. Refused here, by reading that commit's own
+    # copy, rather than discovered as an AttributeError forty minutes into a build.
+    try:
+        tooling = git("show", f"{source}:{APP / 'scripts/nightly.py'}")
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f"{source[:12]} carries no {APP / 'scripts/nightly.py'}, so it has "
+                         "no release tooling to rebuild itself with") from error
+    if "CHANNEL_ENDPOINTS" not in tooling:
+        raise ValueError(
+            f"{nightly_tag} was built from {source[:12]}, whose release tooling predates the "
+            "stable channel, so that commit cannot build a stable release of itself.\n"
+            "  Promote a nightly built from a commit that carries the stable channel; the "
+            "first of those is the first nightly published after this landed.")
     identity()
     return {"build": True, "version": base, "tag": f"v{base}", "source_commit": source,
             "created_at": now.isoformat(),
             "run_id": os.environ.get("RICHOS_NIGHTLY_RUN_ID", "manual"), "run_attempt": "1",
             "channel": "stable", "platform": built["platform"],
+            # Carried rather than respelled by the caller. `make-release.sh:173` reads the
+            # nightly endpoint out of this module for the same reason: a second spelling of
+            # one URL is a second thing to forget, and a check comparing a file against its
+            # own copy of a value checks nothing.
+            "endpoint": CHANNEL_ENDPOINTS["stable"],
             # The provenance of the promotion itself, carried into the release's own
             # `nightly-build.json` and its committed provenance: which nightly this is a
             # rebuild of, and the record of the decision that allowed it.

@@ -4,9 +4,12 @@
 The publishing tests substitute build/upload commands. No release, signing identity
 or installed app is touched by this suite.
 """
+import contextlib
 from datetime import datetime, timezone
 import importlib.util
 import hashlib
+import inspect
+import io
 import json
 import os
 from pathlib import Path
@@ -38,7 +41,13 @@ class VersionTests(unittest.TestCase):
 
 
 
-class GitTests(unittest.TestCase):
+class GitFixture(unittest.TestCase):
+    """The fixture repository and remote. NO test methods live here.
+
+    Split out from `GitTests` when `StableChannelTests` needed the same fixture:
+    subclassing a class that holds test methods re-runs every one of them, which cost
+    this suite 28 duplicate cases and ~50 s on a gate that runs in every build.
+    """
     FIXTURE_IDENT = "Fixture <fixture@example.invalid>"
 
     def setUp(self):
@@ -83,6 +92,11 @@ class GitTests(unittest.TestCase):
             n.LOCK: 'version = 3\n\n[[package]]\nname = "richos-tauri"\nversion = "5.1.0"\n\n[[package]]\nname = "dependency"\nversion = "1.0.0"\n',
             n.CONFIG: n.json_text({"plugins": {"updater": {"endpoints": ["https://stable.invalid/latest.json"]}}}),
             Path("richos/engine/VERSION"): "1.2.0\n",
+            # A stand-in for the commit's own release tooling. `stable_plan` refuses a
+            # commit whose `nightly.py` predates the stable channel, because that commit
+            # cannot build a stable release of itself -- so the fixture carries the marker
+            # that check looks for.
+            n.APP / "scripts/nightly.py": "CHANNEL_ENDPOINTS = {}  # fixture tooling\n",
         }.items():
             file = self.repo / name
             file.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +120,8 @@ class GitTests(unittest.TestCase):
     def author_and_committer(self, commit):
         return n.git("show", "-s", "--format=%an <%ae>|%cn <%ce>", commit)
 
+
+class GitTests(GitFixture):
     def test_release_commits_carry_the_checkouts_configured_identity(self):
         # The release is the operator's act, from the operator's checkout. A commit
         # saying otherwise is false, and the machine's push guard refuses it.
@@ -484,6 +500,176 @@ class GitTests(unittest.TestCase):
                          self.manifest(fused_info))
         self.assertEqual(json.loads(n.git("show", f"{split_oid}:latest.json")),
                          self.manifest(split_info))
+
+
+class OneCodePathTests(unittest.TestCase):
+    """The smoke and the release run the SAME functions, and that is not a convention.
+
+    T3 Code has the same smoke in spirit and it has already drifted from the release it
+    claims to exercise -- `release.yml:795` passes two positional arguments in one order,
+    `release-smoke.ts:328-331` passes them in the other. Nothing told them. These cases
+    are what tells us.
+    """
+
+    def smoke(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()) as out:
+            n.release_smoke(Path(tmp))
+            # The fixtures are gone before the directory that held them is (CEO §54).
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+        return out.getvalue()
+
+    def test_the_smoke_reaches_every_registered_release_only_step(self):
+        self.smoke()
+        unreached = sorted(name for name, calls in n.RELEASE_STEP_CALLS.items() if not calls)
+        self.assertEqual(unreached, [])
+        self.assertTrue(n.RELEASE_STEPS, "no release-only step is registered at all")
+
+    def test_a_registered_step_the_smoke_never_calls_turns_the_gate_red(self):
+        """PROVED BY DEFEAT, which is the only way a guarantee like this is worth stating.
+
+        Everything else here asserts the mechanism's answer today. This asserts it would
+        NOTICE -- register a release-only step, do not smoke it, and the build fails
+        naming the function. Without this case, the completeness check could be deleted
+        and every other case in this class would still pass.
+        """
+        @n.release_step
+        def decoy_step_nothing_smokes(value):
+            return value
+
+        self.addCleanup(n.RELEASE_STEPS.pop, "decoy_step_nothing_smokes", None)
+        self.addCleanup(n.RELEASE_STEP_CALLS.pop, "decoy_step_nothing_smokes", None)
+        with self.assertRaises(ValueError) as caught:
+            self.smoke()
+        self.assertIn("decoy_step_nothing_smokes", str(caught.exception))
+        self.assertIn("never reached", str(caught.exception))
+
+    def test_the_real_release_path_calls_the_steps_rather_than_copying_them(self):
+        """Every registered step is named in the body of the code a real release runs.
+
+        The failure this prevents is not a rename -- Python catches that with a
+        NameError. It is the one T3 has: somebody re-implements a step inline "just for
+        this path", the smoke keeps exercising the old function, and both are green.
+        A step no real release entry point mentions is a step the smoke is alone with.
+        """
+        real = "".join(inspect.getsource(f) for f in
+                       (n.plan, n.prepare, n.promote, n.build, n.finish, n.stable_plan))
+        for name in n.RELEASE_STEPS:
+            with self.subTest(step=name):
+                self.assertIn(name, real,
+                              f"{name} is registered as a release-only step but no real "
+                              "release path calls it")
+
+    def test_the_smoke_exercises_refusals_and_not_only_happy_paths(self):
+        """A step that only ever sees valid input proves its refusals compile."""
+        refused = [line for line in self.smoke().splitlines() if "refused:" in line]
+        self.assertGreaterEqual(len(refused), 20, refused)
+
+
+class StableChannelTests(GitFixture):
+    """Stable is a REBUILD of a published nightly's commit, never its bytes re-tagged.
+
+    T3's sentence, which is the thing being copied (`release.yml:44-47`): *"Manual stable
+    releases build the commit of the latest published nightly, so stable only ever ships
+    a build that nightly users have already run."*
+    """
+
+    def setUp(self):
+        super().setUp()
+        # The base fixture compiles in a deliberately wrong endpoint so the nightly cases
+        # can assert it gets replaced. A STABLE release keeps the checked-in one, so for
+        # these cases the fixture carries what the real tree carries.
+        (self.repo / n.CONFIG).write_text(n.json_text(
+            {"plugins": {"updater": {"endpoints": [n.STABLE_ENDPOINT]}}}))
+        n.git("add", ".")
+        n.git("commit", "-qm", "stable endpoint")
+        n.git("push", "-q", "origin", "main")
+        self.source = n.git("rev-parse", "HEAD")
+
+    DECISION = [{"tag": "v5.1.0-nightly.20260911.1", "decided_on": "2026-09-20",
+                 "words": "fixture standing in for his sentence"}]
+
+    def publish_a_nightly(self):
+        """A published nightly in the fixture remote, with its provenance in its tag."""
+        info = n.prepare(self.plan())
+        n.git("checkout", "-q", "main")
+        return info
+
+    def test_a_stable_release_rebuilds_the_nightlys_commit_with_its_own_version(self):
+        info = self.publish_a_nightly()
+        plan = n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW)
+        self.assertEqual(plan["source_commit"], self.source)
+        self.assertEqual(plan["channel"], "stable")
+        # The tree's own version, NOT the nightly's prerelease version.
+        self.assertEqual(plan["version"], "5.1.0")
+        self.assertEqual(plan["tag"], "v5.1.0")
+        self.assertEqual(plan["endpoint"], n.STABLE_ENDPOINT)
+        self.assertEqual(plan["promoted_from"], info["tag"])
+        self.assertEqual(plan["promoted_from_version"], info["version"])
+        # His decision travels into the release's provenance, so the record of why this
+        # shipped is inside the thing that shipped.
+        self.assertEqual(plan["promotion_words"], self.DECISION[0]["words"])
+
+    def test_the_stable_build_compiles_in_the_stable_endpoint_and_no_prerelease_version(self):
+        """The two facts that make re-tagging a nightly's bytes a broken stable release."""
+        info = self.publish_a_nightly()
+        plan = n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW)
+        files = n.release_files(plan, (self.repo / n.MANIFEST).read_text(),
+                                (self.repo / n.LOCK).read_text(),
+                                (self.repo / n.CONFIG).read_text())
+        compiled = json.loads(files[str(n.CONFIG)])["plugins"]["updater"]["endpoints"]
+        self.assertEqual(compiled, [n.STABLE_ENDPOINT])
+        self.assertNotIn("nightly", compiled[0])
+        self.assertIn('version = "5.1.0"\n', files[str(n.MANIFEST)])
+        self.assertNotIn("-nightly.", files[str(n.MANIFEST)])
+        self.assertNotIn("-nightly.", files[str(n.LOCK)])
+
+    def test_no_decision_of_his_means_no_stable_release(self):
+        """CEO §69, and the substitutes it names are each refused here by construction."""
+        info = self.publish_a_nightly()
+        with self.assertRaisesRegex(ValueError, "no promotion decision"):
+            n.stable_plan(info["tag"], "[]", now=NOW)
+        # A decision about a DIFFERENT nightly is not a decision about this one.
+        other = n.json_text([{**self.DECISION[0], "tag": "v5.1.0-nightly.20260911.9"}])
+        with self.assertRaisesRegex(ValueError, "no promotion decision"):
+            n.stable_plan(info["tag"], other, now=NOW)
+
+    def test_a_tag_that_is_not_one_of_our_nightlies_is_refused(self):
+        self.publish_a_nightly()
+        n.git("tag", "v9.9.9-nightly.20260911.1", "main")
+        n.git("push", "-q", "origin", "v9.9.9-nightly.20260911.1")
+        decision = n.json_text([{**self.DECISION[0], "tag": "v9.9.9-nightly.20260911.1"}])
+        with self.assertRaises(ValueError):
+            n.stable_plan("v9.9.9-nightly.20260911.1", decision, now=NOW)
+
+    def test_a_version_that_already_shipped_cannot_ship_again(self):
+        info = self.publish_a_nightly()
+        n.git("tag", "v5.1.0", "main")
+        n.git("push", "-q", "origin", "v5.1.0")
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW)
+
+    def test_publishing_stable_flips_the_release_and_leaves_the_nightly_channel_alone(self):
+        """The channel move for stable is GitHub's own `latest` pointer, nothing else.
+
+        Assets go up while the release is still a PRERELEASE -- invisible to every
+        installed copy however long that takes -- and one `gh release edit` is the flip.
+        The nightly channel must not move: promoting a build to stable says nothing about
+        what nightly users should receive.
+        """
+        info = self.publish_a_nightly()
+        plan = n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW)
+        before, _ = n.channel()
+        with patch.object(n, "execute") as execute:
+            n.promote_stable(plan)
+        flips = [call.args for call in execute.call_args_list]
+        self.assertEqual(len(flips), 1, flips)
+        self.assertEqual(flips[0][:3], ("gh", "release", "edit"))
+        self.assertIn("--latest", flips[0])
+        self.assertIn("--prerelease=false", flips[0])
+        self.assertIn("v5.1.0", flips[0])
+        self.assertEqual(n.channel()[0], before, "the nightly channel must not move")
+        # And the rule that keeps branches off the public repository is re-read first.
+        self.assertTrue(self.stub_verify_repository_rules.called)
 
 
 class RepositoryRuleTests(unittest.TestCase):
