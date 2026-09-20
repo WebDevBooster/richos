@@ -10,6 +10,9 @@ RULES = {"test-positive-control": "advisory", "test-retry": "advisory", "ui-abse
 
 def scan(text, role, language):
     findings = []
+    # Keep line numbers but do not turn prose about a past defect into a live
+    # assertion or UI string. Inline and complex block comments remain candidates.
+    text = "\n".join("" if line.lstrip().startswith(("#", "//", "/*", "*")) else line for line in text.splitlines())
     if role == "suite":
         refusal = re.search(r"assert[^\n]*(?:refus|reject|denied|is_err|not\.ok)|(?:refus|reject)[^\n]*assert", text, re.I)
         accepting = re.search(r"assert[^\n]*(?:accept|success|is_ok|allowed)|(?:accept|success)[^\n]*assert", text, re.I)
@@ -20,6 +23,6 @@ def scan(text, role, language):
                 findings.append(("test-retry", number))
     if language == "javascript" and role == "production":
         for number, line in enumerate(text.splitlines(), 1):
-            if re.search(r"['\"`](?:No |Nothing |You have no |There (?:is|are) no )[^'\"`]+['\"`]", line):
+            if re.search(r"['\"`](?:No (?!thanks\b)|Nothing |You have no |There (?:is|are) no )[^'\"`]+['\"`]", line):
                 findings.append(("ui-absence", number))
     return findings
