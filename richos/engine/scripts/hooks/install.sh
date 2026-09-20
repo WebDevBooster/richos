@@ -621,6 +621,18 @@ HOOK_FILES+=(
     # changing one line of the guard.
     "$REPO_ROOT/scripts/lib/stop-live-work.py"
     "$REPO_ROOT/scripts/stop-work-ack.sh"
+    # scripts/stop.sh and scripts/lib/stop.py — the CEO's stop as one command
+    # (ceo-decisions §67) — are deliberately NOT here, and the reason is this
+    # engine's own standard rather than an oversight. Every entry in this list
+    # is compared by a NAMED probe layer (R, MT, MC, AL, Q, BR4...); there is no
+    # generic sweep over sidecars, so a file hashed here with no layer to read
+    # its sidecar gets a hash nobody compares — the integrity theater the
+    # paragraphs above refuse by name. The other half of the argument is what
+    # the file is: stop.sh destroys nothing itself (no script can call TaskStop)
+    # and PRINTS every decision it makes, per name, before Rich makes the calls,
+    # so a tampered copy shows up in its own output. A guard's tampering looks
+    # like silence; this one's does not. If it is ever to be hashed, it wants a
+    # named layer to compare it, which is a round of its own.
     # The ownership ledger (an advisory record several reporters read; it
     # decides nothing about a workspace now), the TaskCompleted delivery check,
     # and the one command that creates and registers a cc/ workspace.
