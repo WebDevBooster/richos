@@ -1009,6 +1009,35 @@ async function openThread(threadId, opts) {
   activeThreadId = threadId;
   savedWork = {items: [], omitted: 0};
   ++workStatusRead;
+  // **AND THE OTHER TWO THINGS THE CHIP IS BUILT FROM, which were NOT being cleared.**
+  // `renderDrillChip` reads exactly four pieces of state: `workerCounts`, `drillItems`,
+  // `savedWork` and `assignments.rows`. Two of them were reset here and two were not, so
+  // until the three-second poll below came back with this thread's answer the chip went on
+  // printing the PREVIOUS conversation's counts — "2 working", "1 waiting for you",
+  // "3 assignments running" — over the conversation he had just switched to. That is one
+  // entity's work beside another entity's conversation, which is what the
+  // `closeWorkerInspector()` call fourteen lines down calls "the exact shape of leak every
+  // guard in this build exists to stop", and it was arriving through a different door.
+  //
+  // **WHAT THIS FIXES AND WHAT IT DELIBERATELY DOES NOT.** It makes a WRONG chip
+  // impossible at any width: from this line the chip carries nothing rather than another
+  // conversation's counts. It does NOT make the right counts arrive any sooner — the
+  // interval below still fires first at t+3000ms, never at t+0, so the chip is now EMPTY for
+  // up to three seconds after a switch or a launch instead of false for up to three seconds.
+  //
+  // That second half is a real defect and it is measured, but it is NOT fixed here and the
+  // reason is named rather than left as an omission: a leading `pollWorkerStatus()` puts the
+  // chip on screen before the first tick, and doing so moves two text nodes onto 32 of the 43
+  // surfaces `ui/tests/contrast.js` walks — which re-calibrates that suite's whole floor
+  // table and turns its 9z negative control red on seven surfaces. Measured both ways on one
+  // host, same tree: bare shell 92 of 562 without it, 94 of 564 with it. Raised as
+  // esc-20260920T075635Z-0f2cba02, with the per-surface deltas.
+  //
+  // EMPTY IS STRICTLY BETTER THAN FALSE, which is why this half lands on its own: a chip that
+  // says nothing for three seconds tells him nothing, and a chip that says "2 working · 1
+  // waiting for you" about the conversation he just left tells him something untrue.
+  workerCounts = { active: 0, livenessUnknown: 0 };
+  assignments = {rows: []};
   // The previous company's offer must not remain clickable while activation is pending.
   el("first-run").hidden = true;
   firstRunState = null;
