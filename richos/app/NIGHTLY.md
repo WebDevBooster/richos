@@ -147,6 +147,82 @@ this point; only `build` does (it is the step that signs and notarizes), and
 `~/.richos-nightly/runs/<run-id>.json`, which just points at the staged
 candidate directory `build` already produced — nothing is copied or rebuilt.
 
+## Stable: a rebuild of a nightly the CEO has tested himself
+
+A stable release is **never** a fresh build of today's `main`, and it is **never** a
+published nightly's bytes re-tagged. It is a **rebuild of the commit a published
+nightly was built from** — copied from T3 Code, whose release workflow says it in one
+sentence: *"Manual stable releases build the commit of the latest published nightly,
+so stable only ever ships a build that nightly users have already run."*
+
+```sh
+python3 richos/app/scripts/nightly-local.py stable --from-nightly v1.2.0-nightly.20260920.1 --dry-run
+python3 richos/app/scripts/nightly-local.py stable --from-nightly v1.2.0-nightly.20260920.1
+```
+
+`--dry-run` prints exactly what would be built and published — the source commit, the
+version, the endpoint that would be compiled in, and his recorded decision — and does
+nothing else. No tag is created, nothing is built, uploaded or published.
+
+### Only the CEO promotes a nightly
+
+**The command refuses unless his own decision to promote that exact nightly is
+recorded.** His words, 2026-09-20 (`ceo-decisions.md` §69): *"Stable can ONLY EVER be
+build from a nightly if I have extensively tested that nightly and deemed it good
+enough to be promoted to stable."*
+
+A READY verdict, a gui-boot proof, a green gate and an Urban signoff are preconditions
+for **publishing a nightly**. **None of them promotes anything**, and none of them is
+accepted here. "Extensively tested" is his own use of that nightly, for as long as he
+chooses; nobody else's test counts toward it. There is no override flag and no
+environment variable — a decision a stray export could make would not be his.
+
+The record is `richos/app/stable-promotions.json`, written by Rich from his words:
+
+```json
+[
+  {
+    "tag": "v1.2.0-nightly.20260920.1",
+    "decided_on": "2026-09-20",
+    "words": "<his sentence, verbatim>"
+  }
+]
+```
+
+It is committed empty. An entry naming a different tag, missing his words, or dated
+malformed is refused, and so are two entries for one nightly.
+
+### Why a rebuild and not the bytes
+
+Re-tagging a nightly's bytes as stable would ship a broken stable release, and two of
+the three reasons are properties of the bytes that re-tagging cannot fix:
+
+- **The update endpoint is compiled into the binary.** A promoted copy would fetch
+  from the nightly channel forever, silently — and as this document says elsewhere, an
+  endpoint cannot be changed by an update that copy can no longer fetch.
+- **The version string would be `1.2.0-nightly.N`** — a prerelease, superseded by the
+  real `1.2.0` it was meant to be.
+
+The guarantee worth having is *no stable ships a commit nobody ran*. That is a property
+of the **commit**, never of the bytes.
+
+### What it does
+
+1. Reads his promotion decision for that tag. This is first, and it costs nothing.
+2. Resolves the nightly's **source commit** from that nightly's own tagged provenance.
+3. Takes the version from **that commit's** `Cargo.toml` — a stable release of commit
+   X ships X's own version, whatever `main` has since bumped to.
+4. Moves the dedicated worktree to that commit and runs **every gate** there. Nothing
+   is skipped: skipping is for candidates nobody can install.
+5. Builds, signs and notarizes with the **stable** endpoint compiled in.
+6. Uploads every asset while the release is still a **prerelease** — so nothing
+   installed can see a partial release, however long the upload takes or however badly
+   it fails — then flips it to `--latest --prerelease=false`. That flip *is* the
+   channel move, which is why stable needs no rolling tag.
+
+A commit whose release tooling predates the stable channel is refused at step 1, because
+it cannot build a stable release of itself.
+
 ## Version numbers
 
 The base is the next release version in `src-tauri/Cargo.toml`:
@@ -337,6 +413,44 @@ within the channel, it does not change which endpoint this copy fetches.
 Proven end to end by `scripts/updater-e2e.sh` case R, on a fixture release
 directory with two published tags and a moving channel tag.
 
+## The release smoke: release-only steps run on every build
+
+Every step a release performs and an ordinary day does not — the version written into
+the manifest, the endpoint compiled into the binary, the candidate's recorded digests,
+the updater metadata, his promotion record — runs on **every build**, against a
+throwaway directory, before a single crate is compiled.
+
+```sh
+python3 richos/app/scripts/nightly.py release-smoke --out /tmp/some-throwaway-dir
+```
+
+It is `gates/release-smoke`, and it is **first** because it is the cheapest refusal in
+the build: **0.2 s** against roughly 950 s. The class it catches — a release-only step
+that rotted since the last release — is otherwise found forty minutes in, by the
+release that needed it. It is never skipped for a candidate and cannot be dropped by
+`--checks-done-at-land`.
+
+**One function, two callers.** The smoke does not re-implement anything. Each
+release-only step is a single function that both the real release path and the smoke
+call, marked `@release_step`. This is deliberately *not* how T3 Code does it: their
+smoke duplicates their release workflow's inline bash, and the two have already drifted
+— `release.yml:795` passes two positional arguments in one order and
+`release-smoke.ts:328-331` passes them in the other, so their smoke does not execute
+the text their release executes.
+
+**And the part that holds the line:** the smoke refuses unless **every** registered
+step was reached during it. Add a release-only step and forget to smoke it, and the
+build fails naming your function. Without that check, this mechanism would decay into
+T3's position one commit at a time with nothing red to show for it.
+
+**Not in it, with the numbers.** Engine-asset packaging: `make-engine-asset.test.sh` is
+112 s in the same build's `gates/script-suites`, and the real build phase runs
+`make-release.sh engine` for every candidate anyway — it is neither release-only nor
+unexercised. Signing, notarization and upload need credentials and the network, and a
+gate gets neither by construction.
+
+Its fixtures are removed however it ends, including when it refuses.
+
 ## Tests
 
 ```sh
@@ -365,3 +479,29 @@ records a run id and never calls the publishing subcommand; `publish` loads
 the recorded candidate and calls only `finish`, without a signing credential;
 `candidate` prints without running any command; and both `publish` and
 `candidate` refuse a missing or unrecorded `--run <run-id>`.
+
+For the release smoke and the stable channel: `nightly.test.py`'s `OneCodePathTests`
+asserts that the smoke reaches every registered release-only step, that each of those
+steps is named in the body of the code a real release runs (the failure it prevents is
+not a rename — Python catches that — but a step re-implemented inline "just for this
+path" while the smoke keeps exercising the old function), and that the smoke exercises
+refusals rather than only happy paths. **The case that matters is the one that proves
+the mechanism by defeat:** it registers a release-only step the smoke never calls and
+requires the gate to turn red naming it. Without that case the completeness check could
+be deleted and every other assertion would still pass.
+
+`StableChannelTests` asserts that a stable plan resolves the nightly's source commit and
+**that commit's** version rather than today's; that the build compiles in the stable
+endpoint and carries no prerelease version anywhere (the two facts that make re-tagging a
+nightly's bytes a broken stable release); that no decision of his — and a decision naming
+a *different* nightly — means no stable release; that a version which already shipped
+cannot ship again; and that publishing stable flips the release to `latest` in exactly
+one call while leaving the nightly channel exactly where it was.
+
+`nightly-local.test.py` asserts that `gates/release-smoke` is first in the gate order,
+that `--checks-done-at-land` cannot drop it, and that the gate environment is an
+allowlist — including a case that plants a variable **no list in this repository
+mentions** and requires no gate to see it. That case is the only one here that can tell
+an allowlist from the deny-list it replaced; every other environment case names a
+variable somebody already knew was dangerous, and all of them passed against the
+deny-list that broke the build on 2026-09-19.

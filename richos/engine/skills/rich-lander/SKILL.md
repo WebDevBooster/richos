@@ -78,6 +78,14 @@ git -C "$WT" status --short                     # must be empty
 - **Derive `Touches`** from the changed paths (which of your source trees,
   `docs-only`, `scripts-only`, or an explicit mix). Never guess — read the
   paths; guessing is how work ships to the wrong deploy target.
+- **On a QA handoff (ray, urban, kai, quint), count what the walk wrote from
+  scratch:** `scripts/qa-throwaways.sh <transcript>` — the agent's JSONL under
+  `~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl`, which
+  the session's scratch `tasks/<id>.output` also points at. `workspaces.sh
+  land` prints the same count on its own, so this is for reading it BEFORE the
+  land. It is information, not a gate: a repeated helper is a missing row in
+  `app/scripts/qa/README.md`, and the answer is to add the tool there, never to
+  send the walk back.
 
 ### 2b. Validate publication completeness on the candidate tree
 

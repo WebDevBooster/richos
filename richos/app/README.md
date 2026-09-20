@@ -755,6 +755,26 @@ richos/app/
                               writes the proof `publish` demands of a --no-host-screen
                               candidate. `suite=shipped-bundle-boot`, never gui-boot.test.sh:
                               fewer assertions than that suite, and the true artifact
+    nightly-local.py         the OPERATOR's release command — check / build / candidate /
+                              publish / release / stable. It runs the gates, holds the lock,
+                              and hands a plan to nightly.py. `gate-environment` prints the
+                              ALLOWLIST a gate may see of the operator's shell: 47 exported
+                              names reach 15, and a variable nobody thought about is excluded
+                              by construction rather than included by construction. See
+                              NIGHTLY.md
+    nightly.py               the PUBLISHER — version allocation, the release commit, the
+                              candidate manifest, the channel move, and the branch-ruleset
+                              read-back before anything is published. Every step that runs
+                              ONLY when something is released is marked `@release_step`, and
+                              `release-smoke` runs all of them against a throwaway directory
+                              in 0.2 s. It REFUSES if any registered step was not reached, so
+                              a release-only step added and not smoked turns the build red
+                              naming the function — the drift T3 Code's own smoke has
+    stable-promotions.json   the record of the CEO's own decision to promote a nightly to
+                              stable (§69). `stable --from-nightly` refuses without an entry
+                              naming that exact tag. A READY verdict, a gui-proof and a green
+                              gate are preconditions for publishing a NIGHTLY and none of
+                              them promotes anything. Committed empty; Rich writes his words
     *.test.sh                fourteen at this commit, counted with `ls scripts/*.test.sh |
                               wc -l` rather than by reading this line — which said "nine"
                               until 2026-09-18, when it was three behind before the tenth

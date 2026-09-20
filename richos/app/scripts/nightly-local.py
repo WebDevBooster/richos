@@ -614,9 +614,15 @@ class Runner:
             raise RuntimeError(f"{Path(str(args[0])).name} failed (exit {result.returncode}); see the run log")
         return result.stdout.strip() if capture else None
 
-    def checkout(self):
+    def checkout(self, sha=None):
+        """Put the dedicated worktree on `sha`, or on `origin/main` when none is given.
+
+        `stable` is the only caller that names one: it rebuilds the commit a published
+        nightly was built from, which is by definition not the tip.
+        """
         self.command("git", "fetch", "origin", "main", cwd=self.repo, timeout=120)
-        sha = self.command("git", "rev-parse", "FETCH_HEAD", cwd=self.repo, capture=True)
+        if sha is None:
+            sha = self.command("git", "rev-parse", "FETCH_HEAD", cwd=self.repo, capture=True)
         if self.source.exists():
             common = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", capture=True)
             expected = self.command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=self.repo, capture=True)
@@ -719,6 +725,50 @@ class Runner:
         self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "plan",
                      *(["--force"] if force else []), "--output", path)
         return path, json.loads(path.read_text())
+
+    def stable_plan(self, nightly_tag):
+        """Resolve a STABLE release as a rebuild of the commit `nightly_tag` was built from.
+
+        Read at MAIN, deliberately, and before the worktree is moved to the older commit:
+        the CEO's promotion record is a fact about today, written after the nightly he
+        tested was published, so it does not exist in that nightly's own commit.
+        """
+        path = self.state / "stable-plan.json"
+        self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "stable-plan",
+                     "--from-nightly", nightly_tag, "--output", path, timeout=300)
+        return path, json.loads(path.read_text())
+
+    def describe_stable(self, info):
+        """Exactly what `stable` would build and publish, and nothing it would not.
+
+        A dry run whose output is a summary is a dry run nobody can check. Every value
+        below is the one the real path would use, read from the plan it just resolved --
+        the version from the source commit's own Cargo.toml, the endpoint from the
+        channel table, his words from the promotion record.
+        """
+        print("")
+        print(f"  Stable release        : {info['tag']}  (version {info['version']})")
+        print(f"  Rebuilt from          : {info['promoted_from']} "
+              f"(version {info['promoted_from_version']})")
+        print(f"  Source commit         : {info['source_commit']}")
+        print(f"  Compiled-in endpoint  : {info['endpoint']}")
+        print("")
+        print("  HIS DECISION, which is the only thing that allows this (ceo-decisions §69):")
+        print(f"    decided on {info['promotion_decided_on']}")
+        print(f"    \"{info['promotion_words']}\"")
+        print("")
+        print("  WOULD THEN:")
+        print(f"    1. move the dedicated worktree to {info['source_commit'][:12]} and run "
+              "every gate there")
+        print(f"    2. build, sign and notarize {info['tag']} from that commit, with the "
+              "stable endpoint and the stable version compiled in")
+        print(f"    3. upload every asset to {info['tag']} while it is still a PRERELEASE, "
+              "so nothing installed can see a partial release")
+        print("    4. flip that release to `--latest --prerelease=false`, which is the "
+              "whole channel move")
+        print("")
+        print("  Nothing above has been done. No tag was created, nothing was built, "
+              "uploaded or published.")
 
     def runtime(self, override):
         path = override or self.state / "runtime"
@@ -887,6 +937,22 @@ class Runner:
         # notary key answers questions the suites ask precisely because the answer
         # should be absent. See split_credentials() and package-app.test.sh section E.
         self.announce("Running core, updater and packaging checks...")
+        # FIRST, AND IT COSTS A QUARTER OF A SECOND. Every step a release performs and an
+        # ordinary day does not -- the version written into the manifest, the endpoint
+        # compiled into the binary, the candidate's digests, the updater metadata, the
+        # CEO's promotion record -- exercised against a throwaway directory before a
+        # single crate is compiled. See `nightly.py`'s `release_smoke` for what is in it
+        # and what is deliberately not.
+        #
+        # AHEAD OF `cargo test` DELIBERATELY. The gates below already put the cheap
+        # refusals first; this is the cheapest refusal there is, and the class it catches
+        # -- a release-only step that rotted since the last release -- would otherwise be
+        # found forty minutes in, by the release that needed it. It is NEVER skipped for a
+        # candidate: skipping is for work whose inputs are unchanged, and this gate's
+        # input is the release path itself.
+        with self.phase("gates/release-smoke"):
+            self.command(sys.executable, self.source / SCRIPTS / "nightly.py",
+                         "release-smoke", "--out", self.state / "release-smoke")
         if checks_done_at_land:
             self.skip(LAND_PROVEN_GATE,
                       f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "
@@ -1105,7 +1171,47 @@ class Runner:
         return source
 
     def perform(self, command, force=False, runtime=None, run_id=None,
-                checks_done_at_land=None, no_host_screen=False, gui_proof=None):
+                checks_done_at_land=None, no_host_screen=False, gui_proof=None,
+                from_nightly=None, dry_run=False):
+        if command == "stable":
+            # THE COMMIT, NOT THE BYTES. T3 Code's sentence, which is what is being copied
+            # (`t3code:.github/workflows/release.yml:44-47`): *"Manual stable releases
+            # build the commit of the latest published nightly, so stable only ever ships
+            # a build that nightly users have already run."*
+            #
+            # The worktree starts at main because that is where his promotion record and
+            # this tooling live; only once the plan is resolved does it move to the older
+            # commit, which is then built by its own release scripts.
+            with self.phase("fetch"):
+                self.checkout()
+            with self.phase("stable-plan"):
+                plan_path, info = self.stable_plan(from_nightly)
+            if dry_run:
+                print(f"DRY RUN -- {from_nightly} would be rebuilt as a stable release.",
+                      flush=True)
+                self.describe_stable(info)
+                self.summary()
+                return
+            with self.phase("source"):
+                self.checkout(info["source_commit"])
+            with self.phase("preflight"):
+                self.preflight()
+            with self.phase("runtime-verify"):
+                self.runtime(runtime)
+            # EVERY GATE, EVERY TIME. `release` does the same and for the same reason:
+            # skipping is for candidates nobody can install, and this is the command that
+            # makes a build the one every stable user receives.
+            self.gates(no_host_screen=no_host_screen)
+            out = self.state / "releases" / info["tag"]
+            self.announce(f"Building and publishing {info['tag']} from "
+                          f"{info['source_commit'][:12]}...")
+            with self.phase("build"):
+                self.command(sys.executable, self.source / SCRIPTS / "nightly.py", "run",
+                             "--plan", plan_path, "--out", out, credentials=True)
+            print(f"Published https://github.com/{REPO}/releases/tag/{info['tag']}",
+                  flush=True)
+            self.summary()
+            return
         if command == "candidate":
             out, info = self.load_candidate(run_id)
             self.print_candidate(info, out)
@@ -1225,7 +1331,7 @@ class Runner:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["check", "build", "publish", "candidate",
-                                           "release", "gate-environment"])
+                                           "release", "stable", "gate-environment"])
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--state-dir", type=Path, default=Path.home() / ".richos-nightly")
     parser.add_argument("--runtime-dir", type=Path, help="existing verified runtime cache")
@@ -1240,6 +1346,12 @@ def main():
                         help="hold back every suite that boots the app on this Mac's screen; "
                              "the candidate is still built and walkable, and publish will "
                              "refuse it until --gui-proof names a boot taken elsewhere")
+    parser.add_argument("--from-nightly", metavar="TAG",
+                        help="the published nightly whose SOURCE COMMIT `stable` rebuilds; "
+                             "refused unless the CEO's own promotion decision for that exact "
+                             "tag is recorded (ceo-decisions §69)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print exactly what `stable` would build and publish, and stop")
     parser.add_argument("--gui-proof", metavar="PATH",
                         help="a gui-boot proof taken against this candidate's commit, required "
                              "to publish a candidate built with --no-host-screen")
@@ -1265,6 +1377,18 @@ def main():
         parser.error("--no-host-screen is for `build`. `release` publishes in one motion with "
                      "no publish step to refuse an unproven boot, so it always runs the whole "
                      "gate; the screenless path is build -> walk -> publish --gui-proof.")
+    if args.command == "stable" and not args.from_nightly:
+        parser.error("stable requires --from-nightly <tag>: a stable release is a rebuild "
+                     "of the commit a published nightly was built from, and it is refused "
+                     "unless the CEO has himself tested that nightly and his decision to "
+                     "promote it is recorded (ceo-decisions §69)")
+    if args.from_nightly and args.command != "stable":
+        parser.error("--from-nightly names the nightly `stable` rebuilds; it means nothing "
+                     "to any other command")
+    if args.dry_run and args.command != "stable":
+        parser.error("--dry-run is implemented for `stable`. For a nightly, `build` already "
+                     "produces the whole train without publishing anything: nobody's "
+                     "existing install can see or fetch what it makes.")
     if args.gui_proof and args.command != "publish":
         parser.error("--gui-proof is evidence `publish` demands; it means nothing to any other "
                      "command")
@@ -1281,7 +1405,8 @@ def main():
         with TimestampedLog(log_path, BUILD_MILESTONES) as log:
             Runner(args.repo.resolve(), state, env, log, credentials).perform(
                 args.command, args.force, args.runtime_dir.resolve() if args.runtime_dir else None,
-                args.run, args.checks_done_at_land, args.no_host_screen, args.gui_proof)
+                args.run, args.checks_done_at_land, args.no_host_screen, args.gui_proof,
+                args.from_nightly, args.dry_run)
 
 
 if __name__ == "__main__":
