@@ -6,6 +6,7 @@
                       [--click X,Y | --key CODE | --wait-only]
                       [--baseline SECONDS] [--interval SECONDS]
   timeline.py report  <outdir> [--tol N] [--step N]
+  timeline.py at      <outdir> <frame> [<frame> ...]
   timeline.py stats   <label=ms> [<label=ms> ...]
   timeline.py --help
 
@@ -56,6 +57,20 @@ answers. `report <outdir>` and `report <outdir>/b` then read normally.
 Both loops call `screencapture` concurrently, so the per-loop frame gap is
 wider than a single loop's. `capture` prints the median gap of each, and
 that number is the resolution of the answer — quote it beside the answer.
+
+===========================================================================
+`at` — DATING A FRAME SOMETHING ELSE CHOSE
+===========================================================================
+`report` answers "when did this region first change". It cannot answer "when
+did Rich's words appear", because a counter ticking in the same region
+changes the pixels every second. That frame is found by reading — usually
+`ocr-find.sh <text> <dir> --first` — and then it has to be dated.
+
+`at <outdir> <frame>` is that step: it turns a frame number, or the path
+`ocr-find.sh` printed, into its offset from the action, off the same
+meta.tsv clock. It was done by hand with awk in every walk that used OCR to
+pick a frame, and a hand-rolled subtraction is exactly where an off-by-one
+baseline creeps in.
 
 ===========================================================================
 WHY `capture` REFUSES TO RUN WITHOUT BEING TOLD
@@ -345,6 +360,44 @@ def cmd_report(args):
 
 
 # ---------------------------------------------------------------------------
+# at — what is this frame's offset from the action?
+# ---------------------------------------------------------------------------
+def cmd_at(args):
+    if len(args) < 2:
+        qaimg.die("usage: timeline.py at <outdir> <frame> [<frame> ...]\n"
+                  "A frame is a number (139) or the path ocr-find.sh printed.")
+    out, rest = args[0], args[1:]
+    meta, frames = _read_meta(out)
+    if not frames:
+        qaimg.die("meta.tsv lists no frames")
+    try:
+        t_before = float(meta["t_action_before"])
+        t_after = float(meta["t_action_after"])
+    except (KeyError, ValueError):
+        qaimg.die("meta.tsv has no action timestamps")
+    by_n = dict(frames)
+
+    print("action          : %s" % meta.get("action", "?"))
+    print("region          : %s" % meta.get("region", "?"))
+    for a in rest:
+        stem = os.path.basename(a)
+        if stem.endswith(".png"):
+            stem = stem[:-4]
+        try:
+            n = int(stem)
+        except ValueError:
+            qaimg.die("%r is not a frame number and not a frame's filename" % a)
+        if n not in by_n:
+            qaimg.die("frame %04d is not in %s/meta.tsv — that clock does not "
+                      "cover it, and a frame from another capture cannot be "
+                      "dated against this one." % (n, out))
+        t = by_n[n]
+        print("frame %04d      : +%.1f ms after the action started "
+              "(+%.1f ms after it finished)" % (n, t - t_before, t - t_after))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # stats
 # ---------------------------------------------------------------------------
 def cmd_stats(args):
@@ -373,7 +426,8 @@ def cmd_stats(args):
     return 0
 
 
-COMMANDS = {"capture": cmd_capture, "report": cmd_report, "stats": cmd_stats}
+COMMANDS = {"capture": cmd_capture, "report": cmd_report, "at": cmd_at,
+            "stats": cmd_stats}
 
 
 def main(argv):

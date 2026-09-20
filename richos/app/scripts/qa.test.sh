@@ -391,6 +391,12 @@ expect "T6 capture refuses to photograph this machine's screen" 1 "never a test 
 run env -u RICHOS_QA_CAPTURE "$QA/ocr-watch.sh" "$TMP/watch" --region 0,0,10,10 --count 1
 expect "T7 ocr-watch refuses to photograph this machine's screen" 2 "never a test surface"
 
+run "$QA/timeline.py" at "$TMP/tl" 0007.png
+expect "T10 a frame chosen by reading is dated off the capture's own clock" 0 "+450.0 ms"
+
+run "$QA/timeline.py" at "$TMP/tl" 99
+expect "T11 a frame that clock does not cover is refused, not dated anyway" 1 "not in"
+
 run "$QA/timeline.py" capture "$TMP/cap2" 1 --region 0,0,10,10 --also-region 1,2,3 --wait-only
 expect "T8 --also-region without a full rectangle is refused, not silently dropped" 1 "takes a rectangle"
 
