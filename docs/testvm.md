@@ -28,6 +28,8 @@ cd <repo>/richos/app/scripts/testvm
 ./stop.sh    <vm>
 ./tailnet.sh join|name|logout|nodes|doctor [<vm>]
 ./keychain.sh prepare|check <vm> <guest-home-path>
+./claude-sync.sh  [--check] <vm>
+./claude-login.sh host-check | push|check <vm> <guest-home-path>
 ./test/run-tests.sh
 ```
 
@@ -115,11 +117,16 @@ Disk left afterwards on this Mac: 175 GiB of 460 GiB.
 | # | Action | Why it cannot be automated |
 |---|---|---|
 | 1 | **Save one Tailscale auth key.** Five minutes, once, and every future guest joins the tailnet by itself — full steps in *The phone path in a VM* below. | It needs the CEO's Tailscale account. No agent may hold or borrow those credentials. |
-| 2 | **`claude` sign-in in the guest**, only if model turns are wanted there. `ssh admin@<guest-ip> 'claude /login'`. | The `claude` session lives in the **login keychain**, which macOS resolves through `HOME`. It cannot be copied from the host, and copying a credential is not something an agent does. See "Model turns" below. |
+
+That is the whole list. It used to have a second row — *"`claude` sign-in in the guest,
+only if model turns are wanted there: `ssh admin@<guest-ip> 'claude /login'`"* — and that
+row is **gone since 2026-09-20**: the login is copied from this Mac at every run, like
+the binary. See *The claude binary and the claude login* below.
 
 Action 1 replaces what used to be here — *"`tailscale up` prints a URL; open it once"*.
 A URL sign-in authorizes **one** guest, and a guest is deleted at the end of every run,
 so that was a human errand per proof. An auth key is the same five minutes spent once.
+The `claude /login` row went the same way and for the same reason.
 
 Nothing else needs a person. In particular **no host permission is required** — the
 harness grants Screen Recording and Accessibility *inside the guest*, never on the host,
@@ -375,7 +382,7 @@ All verified on 2026-09-19 against candidate `.5` unless marked otherwise.
 | Two VMs at once | **Yes** — both booted, both rendered, both captured, 32% host memory still free |
 | Works with the host screen **locked/asleep** | **Yes** — the completion proof was captured with the host display asleep. The guest runs its own WindowServer; the host's screen state is irrelevant to it |
 | WebGL splash / Metal rendering | Untested in this pass — the fixture home boots straight past the splash into the home screen. See "Graphics" |
-| **Model turns (`claude`)** | **No, not without a one-time human sign-in** — see below |
+| **Model turns (`claude`)** | **Yes, since 2026-09-20** — the binary and the login are both copied from this Mac at every run. It was *"no, not without a one-time human sign-in"* until then; see *The claude binary and the claude login* |
 | Audio | Out of scope. CEO §53 stands: the Mac's speakers cannot stand in for a person, and a VM's virtual audio device does not change that. Do not test barge-in here. |
 | Tailscale as its own node | **Yes, with the auth key** — the guest joins as `richos-test-<vm>`, which is what makes the phone path reachable in here. Without the key it stays signed out and only the phone path is unavailable. See *The phone path in a VM* |
 
@@ -386,19 +393,138 @@ the host, or treat the guest's smaller screen as the input it is.
 
 ### Model turns — the honest answer
 
-The app's spine shells out to `claude`. `setup.sh` copies the **binary** into the guest
-so the app can find it, and copies **no credentials at all**.
+**CHANGED 2026-09-20.** What this section used to say was:
 
-With a scratch `HOME`, `claude` answers *"Not logged in · Please run /login"*. The thing
-`HOME` takes away is the **login keychain** — macOS Security resolves it through the home
-directory, and this was proved on the host by three probes in order: `CLAUDE_CONFIG_DIR`
-alone → not logged in; plus a copied `~/.claude.json` and a `~/.claude` symlink → still
-not logged in; plus `~/Library/Keychains` symlinked → ok.
+> With a scratch `HOME`, `claude` answers *"Not logged in · Please run /login"*. The thing
+> `HOME` takes away is the **login keychain** — macOS Security resolves it through the
+> home directory … A guest has no such keychain to symlink. **So: no model turns in the
+> guest until a human runs `claude /login` in it, once.**
 
-A guest has no such keychain to symlink. **So: no model turns in the guest until a human
-runs `claude /login` in it, once.** That is a finding, not a failure — and it does not
-block the work this harness is for. The home screen, the engine-offer sheet, the splash,
-window geometry, focus, theme and layout all render without a single model turn.
+The diagnosis was right and the conclusion was one step short. The missing piece was never
+the *login* — it was a **login keychain to put one in**, and `keychain.sh` now makes one in
+the fixture home at every run. So the credential is copied into that keychain from this
+Mac's own, by `claude-login.sh`, over ssh, with the value on stdin only.
+
+That cost of it — *"no agent may copy or borrow the CEO's credentials"* — is answered by
+where the copy goes and how long it lives, not by refusing to make it: a keychain inside a
+disposable guest, destroyed with the clone at `stop.sh`, never written to a file, never
+printed, never in a command line, never in a log. The full reasoning and the exact
+mechanism are in *The claude binary and the claude login* above.
+
+**What this cost before it was fixed:** Ray's `.8` walk of the phone path in the VM
+(`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260919.8-phone-path-in-the-vm-audit.md`)
+could measure **phone → Mac** and not **Mac → phone**, because a desk message in the guest
+was refused before it became a message at all. Half a round trip, twice in a row, for a
+sign-in that is now part of the run.
+
+Everything that needs no model turn — the home screen, the engine-offer sheet, the splash,
+window geometry, focus, theme and layout — still renders without one, exactly as before.
+
+### The claude binary and the claude login
+
+**The CEO, 2026-09-20:** *"What happens with the Claude binary in the VM? Will it always
+stay on the same version regardless of any updates?"* and *"What happens when the Claude
+login expires in the VM?"*
+
+Both used to have the same bad answer — *it is whatever was copied in once, and nothing
+ever looks at it again* — and both now have the same structural one: **the guest gets
+this Mac's binary and this Mac's login at the start of every run, and keeps neither
+beyond it.**
+
+#### The binary: compared at every run, and the two versions printed
+
+`setup.sh` copied `~/.local/bin/claude` into the base image once, when the image was
+built. `run.sh` never looked at it again. Meanwhile Claude Code updates itself: **2.1.274 and
+2.1.275 on the 17th, 2.1.276 and 2.1.277 on the 18th** — four versions in two days, read
+from the mtimes of `~/.local/share/claude/versions/*`. So the VM drifted a little further
+from his Mac every day, and nothing in the output ever said so.
+
+`claude-sync.sh`, called by `run.sh` before the app starts:
+
+```
+claude: host 2.1.277 guest 2.1.277
+```
+
+* **sha256 of the RESOLVED host binary**, never of the path. `~/.local/bin/claude` is a
+  **symlink** into `~/.local/share/claude/versions/<version>` — 48 bytes of text whose
+  target changes at every update. Hashing the link would compare equal forever.
+* **Copied only when the bytes differ**, to a side path and then moved into place, so a
+  half-written 217 MB binary is never sitting where the app launches from.
+* **Re-measured after the copy.** `scp` returning 0 and the file being right are two
+  different claims.
+* **A run that still disagrees is REFUSED** and the clone it created is cleaned up (§54).
+  A guest holding a different build is not the Mac he uses, and a model turn measured in
+  it would be measuring a version nobody ships.
+
+Ask it without booting anything: `./claude-sync.sh --check <vm>`.
+
+#### Why the auto-updater is pinned with an env var and not a setting
+
+`claude` updates ITSELF, so a guest that started the run in sync could leave it behind
+mid-walk. The pin is `DISABLE_AUTOUPDATER=1`, on the launch and in the guest's shell
+environment — **not** the `autoUpdates: false` config key, and that is measured rather
+than preferred. The check, read out of the 2.1.277 binary, in its own order:
+
+```js
+if (DISABLE_UPDATES) …
+if (DISABLE_AUTOUPDATER) …
+if (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) …
+if (config.autoUpdates === false &&
+    (config.installMethod !== "native" || config.autoUpdatesProtectedForNative !== true)) …
+```
+
+The last line is the trap. The host's `claude` is a **native** install, so the copy in the
+guest is one too, and the native updater writes `installMethod:"native"` with
+`autoUpdatesProtectedForNative:true` itself — from that moment `autoUpdates:false` is
+ignored. A config pin would have **looked set and done nothing**, which is the worst shape
+a pin can have.
+
+#### The login: copied per run, so it cannot go stale
+
+`claude-login.sh push`, called by `run.sh` after `keychain.sh prepare` and before the app
+launches:
+
+```
+claude login: guest logged in
+```
+
+**What "expires" means in here.** The guest never holds a login longer than one run. The
+fixture home is a fresh copy each run and the clone is destroyed at `stop.sh`, so an
+expired token in the guest is impossible *across* runs; within a run, the guest holds
+exactly what this Mac holds, because it was copied from it minutes earlier. If **this
+Mac** is not signed in, `run.sh` stops before booting anything:
+*"host claude is not logged in — /login on the host first"*.
+
+**The value is only ever on a pipe.** `security -i` reads its commands from **stdin**,
+which is how Claude Code itself writes this item — from the same binary:
+
+```js
+i = `add-generic-password -U -a "${account}" -s "${service}" -X "${hex}"\n`
+if (i.length <= 4032) security -i     // the command arrives on STDIN
+else … argv …                          // their fallback; NOT taken here
+```
+
+Measured here on 2026-09-20: the credential is **524 bytes**, so the line is ~1.1 kB,
+comfortably inside that limit. Past it this **refuses** rather than taking the argv
+fallback — a secret on a command line is in the guest's process table and in every log
+that records one, the same rule the Tailscale key already follows.
+
+**Two service names are written, with one value.** `claude` builds the keychain service
+name as `Claude Code` + `OAUTH_FILE_SUFFIX` + `-credentials` + a scope, where the scope is
+empty when `CLAUDE_CONFIG_DIR` is unset and `-<sha256(configDir)[0:8]>` when it is set;
+the account is `process.env.USER`. `run.sh` launches the app **with**
+`CLAUDE_CONFIG_DIR=<fixture home>/.claude`, so the app resolves the scoped name while a
+`claude` a tester starts by hand over ssh resolves the bare one. Writing two rows of a
+throwaway keychain costs nothing; predicting which one the process under test will ask
+for, and being wrong, costs a whole walk. The account written is the **guest's** user,
+never the host's — an item filed under `alex` would never be found by an app running as
+`admin`.
+
+**The one open question, and it is not answered yet.** Whether a token *refresh* performed
+inside the guest rotates the credential and invalidates the copy this Mac holds — i.e.
+whether a long walk in the VM can log the host out — is **unverified**. Nothing here has
+been observed doing it, and no run so far has been long enough to force a refresh. It is
+the first thing to check the next time a walk in the guest outlives an access token.
 
 ### Graphics
 
@@ -527,6 +653,9 @@ pid, verifies that pid is frontmost, and refuses to send otherwise.
 | ssh | `BatchMode=yes` | without it, failed key auth falls back to a password prompt: a hang, or an askpass **window** on his screen |
 | `caffeinate` | `-is`, never `-dimsu` | `-d`/`-u` would keep his display lit and unlocked for the length of every test |
 | Guest staging dir | `$HOME`, not `/tmp` | Homebrew's tesseract cannot read the guest's `/tmp` |
+| `claude` auto-updates in the guest | **`DISABLE_AUTOUPDATER=1`** | the `autoUpdates:false` CONFIG key is ignored for a native install once `autoUpdatesProtectedForNative` is set, which the native updater sets itself — a config pin would look set and do nothing |
+| The guest's `claude` version | **the host's, re-checked every run** | a binary copied once into the base image is a snapshot; the host's updates four times in two days, and the VM is supposed to be his Mac |
+| Writing the credential into the guest | **`security -i` on stdin** | `add-generic-password -w <secret>` puts it in the process table and in every log of the command line; `security -i` is the mode Claude Code itself uses for the same item |
 | `tailscale up --auth-key` | `file:<path>`, never the key inline | an inline key is in the guest's process table and in every log that records a command line |
 | `tailscale up --timeout` | **90s** | the flag's own default is `0s`, documented as *"blocks forever"* — a hang with no terminal to notice it |
 | `tailscale up --operator` | the guest's console user | the app is not root, and `tailscale cert` is a mutating call it makes itself |

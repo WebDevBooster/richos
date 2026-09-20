@@ -21,8 +21,9 @@
 #
 # It did. `setup.sh` copied the host's binary into the BASE IMAGE once, when
 # the image was built, and `run.sh` never looked at it again — while the host's
-# Claude Code kept auto-updating underneath it (2.1.274 on the 17th, .275 and
-# .276 on the 18th, .277 that evening). Every day after a setup, the VM tested
+# Claude Code kept auto-updating underneath it (2.1.274 and 2.1.275 on the
+# 17th, 2.1.276 and 2.1.277 on the 18th, by the mtimes of
+# ~/.local/share/claude/versions/*). Every day after a setup, the VM tested
 # the app against a `claude` the CEO no longer ran, the gap grew, and no line
 # of output ever said so. A harness whose whole purpose is "what he will see"
 # cannot hold a different version of the one binary the app shells out to.
