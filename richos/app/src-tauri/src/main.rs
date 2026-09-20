@@ -2462,12 +2462,6 @@ fn main() {
                 Box::new(events::TauriLiveEmitter { app: app.handle().clone() }),
                 phone_emitter,
             ])));
-            // A PHONE THAT IS ALREADY PAIRED GETS ITS CHANNEL BACK WITHOUT HIM ASKING. Without
-            // this line a relaunch would take his phone offline until he next opened Settings,
-            // and the only symptom would be a phone saying "waiting to send" while the Mac sat
-            // two rooms away doing nothing. It opens no pairing window.
-            phone_runtime.resume_if_paired(app.handle().clone());
-            app.manage(phone_runtime);
 
             // THE WORKER-LIFECYCLE STREAM (UX §7), 2026-08-29.
             //
@@ -3010,6 +3004,14 @@ fn main() {
                 claude_bin: claude_bin_cell,
                 boot_engine,
             });
+
+            // Resume only after AppState exists: PhoneBridge::new immediately reads
+            // the spine to prime the paired phone's conversation. The window was
+            // created above for first paint, but setup has not returned to the event
+            // loop yet. Its commands cannot use the app until this setup completes.
+            // A persisted pairing resumes without opening a new pairing window.
+            phone_runtime.resume_if_paired(app.handle().clone());
+            app.manage(phone_runtime);
 
             // ================================================================
             // THE UPDATE PATH — last in setup, and last for a reason
