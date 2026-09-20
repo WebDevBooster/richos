@@ -1,6 +1,6 @@
 # `.richos/` — this repository's declarations
 
-Four files here, and each one is an **adoption switch**. Its presence is the
+Five files here, and each one is an **adoption switch**. Its presence is the
 whole decision: no flag, no config key, no code change.
 
 | File | What its presence declares |
@@ -9,6 +9,7 @@ whole decision: no flag, no config key, no code change.
 | `publication-completeness` | The reviewed exemptions the completeness contract honors. Carries no adoption switch of its own. |
 | `row-currency` | Landings here are checked against a working record, which lives in another repository. |
 | `vendored-material` | Where every piece of other people's work in this tree came from. Switches on `guard-vendoring-commits.sh`, which refuses a commit adding unrecorded material under a redistributable path, and tells `guard-dialect.sh` which bytes are not ours to edit. |
+| `worktree-setup` | What every worktree of this repository needs and none of them should build for itself. `richos/engine/mega-lander/create-teammate-worktree.sh` runs it inside each new workspace, bounded and never fatally. |
 
 Every one of them is a commented file. Open it: the argument for the mechanism
 is written at the top, above the settings.

@@ -1,0 +1,33 @@
+# WHAT EVERY WORKTREE OF THIS REPOSITORY NEEDS, AND NONE OF THEM SHOULD BUILD ITSELF.
+#
+# The presence of this file is the declaration, in the same spirit as the four beside it:
+# `richos/engine/mega-lander/create-teammate-worktree.sh` runs it, with the new worktree as
+# the working directory, immediately after creating and seeding that worktree. It is never
+# fatal — a worktree whose setup failed is a worktree that works and rebuilds more — and it
+# is killed if it runs longer than two minutes, so a bad edit here cannot hang every spawn
+# on the machine.
+#
+# WHY THIS EXISTS. This Mac holds many checkouts of this repository at once, and cargo puts
+# its output in `target/` beside the workspace, so each one compiled the same dependency
+# graph from scratch the first time anybody built in it. Measured on a fresh checkout,
+# 2026-09-20: the Tauri shell's first `cargo build` was 58s with its own target/ and 19s
+# against the shared cache. The line below is what makes the second number the one a
+# teammate actually gets, without anybody remembering to do anything.
+#
+# It is deliberately a SHELL SCRIPT and not a list of paths. What a repository needs per
+# worktree is not one shape — today it is two symlinks, tomorrow it could be a generated
+# file — and a config format invented for one caller becomes a second thing to keep true.
+#
+# Run it by hand in any checkout that predates this file:
+#     bash .richos/worktree-setup
+
+set -uo pipefail
+
+# The cargo build cache. Its own header carries the argument for the mechanism, the refusals
+# it makes, and the measurements. It is idempotent, and it never touches a target/ that
+# already holds build output.
+bash richos/app/scripts/shared-build-cache.sh .
+
+# Playwright needs nothing here. `richos/app/ui/tests/lib/harness.js` derives the main
+# checkout's install from git at the moment it is needed, so a worktree carries no copy and
+# no symlink of `node_modules` at all.

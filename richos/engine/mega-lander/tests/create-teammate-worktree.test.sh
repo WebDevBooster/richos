@@ -257,6 +257,69 @@ else
     bad "C28  finished agent (rc=$rc): $OUT"
 fi
 
+# --- 4b, the repository's own per-worktree setup ----------------------------
+# Three cases, because the interesting half is what happens when it goes wrong:
+# a setup that fails, and one that hangs, must BOTH leave a usable workspace.
+# A repository that shares a build cache this way cannot be allowed to cost a
+# teammate its place to stand.
+REPO3="$SANDBOX/repo3"
+mkdir -p "$REPO3/.richos"
+git -C "$REPO3" init -q -b main
+printf 'seed\n' >"$REPO3/seed.txt"
+printf 'echo "$PWD" > setup-ran.txt\n' >"$REPO3/.richos/worktree-setup"
+git -C "$REPO3" add -A
+git -C "$REPO3" commit -q -m seed
+python3 "$WS_PY" --entity "$REPO3" --session "$RICHOS_SESSION_ID" integration \
+    --repo "$REPO3" --branch main --why "the worktree-setup cases" >/dev/null
+
+OUT="$("$HELPER" "$REPO3" zach-opus-ct40 2>&1)"; rc=$?
+WT3="$SANDBOX/repo3-wt/zach-opus-ct40"
+if [ "$rc" -eq 0 ] && [ -f "$WT3/setup-ran.txt" ] \
+   && [ "$(cat "$WT3/setup-ran.txt" 2>/dev/null)" = "$WT3" ] \
+   && printf '%s' "$OUT" | grep -q "^setup: *ok"; then
+    ok "C40  .richos/worktree-setup RUNS, with the new worktree as its working directory, and is reported"
+else
+    bad "C40  setup did not run in $WT3 (rc=$rc): $OUT"
+fi
+
+# NEGATIVE HALF ONE: a setup that fails is loud and costs nothing.
+git -C "$REPO3" checkout -q -b failing main
+printf 'echo "the cache volume is not mounted" >&2\nexit 7\n' >"$REPO3/.richos/worktree-setup"
+git -C "$REPO3" commit -q -am "a setup that fails"
+OUT="$("$HELPER" "$REPO3" zach-opus-ct41 --base failing 2>&1)"; rc=$?
+WT3B="$SANDBOX/repo3-wt/zach-opus-ct41"
+if [ "$rc" -eq 0 ] && [ -d "$WT3B" ] \
+   && printf '%s' "$OUT" | grep -q "FAILED (exit 7)" \
+   && printf '%s' "$OUT" | grep -q "the cache volume is not mounted"; then
+    ok "C41  a FAILING setup still leaves a usable workspace (exit 0), and its output is reported"
+else
+    bad "C41  failing setup (rc=$rc), workspace present=$([ -d "$WT3B" ] && echo yes || echo no): $OUT"
+fi
+
+# NEGATIVE HALF TWO: a setup that hangs is killed, not waited on forever. One
+# bad commit must not be able to hang every spawn on the machine.
+git -C "$REPO3" checkout -q -b hanging main
+# 20s, not 600: long enough that the 2s bound below must do the killing, short
+# enough that the `setup-unbounded` mutant — which removes that bound — goes red
+# in twenty seconds rather than holding the whole suite for ten minutes.
+printf 'sleep 20\n' >"$REPO3/.richos/worktree-setup"
+git -C "$REPO3" commit -q -am "a setup that hangs"
+OUT="$(WORKTREE_SETUP_TIMEOUT=2 "$HELPER" "$REPO3" zach-opus-ct42 --base hanging 2>&1)"; rc=$?
+WT3C="$SANDBOX/repo3-wt/zach-opus-ct42"
+if [ "$rc" -eq 0 ] && [ -d "$WT3C" ] && printf '%s' "$OUT" | grep -q "TIMED OUT after 2s"; then
+    ok "C42  a HANGING setup is killed at the bound and the workspace is still created"
+else
+    bad "C42  hanging setup (rc=$rc): $OUT"
+fi
+
+# And a repository with no setup file says so rather than inventing a status.
+OUT="$("$HELPER" "$REPO" zach-opus-ct43 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$OUT" | grep -q "^setup: *none$"; then
+    ok "C43  a repository with no .worktree-setup reports none, and nothing is run"
+else
+    bad "C43  no-setup repository (rc=$rc): $OUT"
+fi
+
 if ! grep -qE 'worktree (remove|prune)|branch -D|rm -rf' "$HELPER"; then
     ok "C23  the helper contains no deletion: land and discard are the only deleters (points 4, 7)"
 else

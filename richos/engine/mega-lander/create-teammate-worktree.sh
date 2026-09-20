@@ -35,6 +35,14 @@
 #      checkout (resolved through `git worktree list`, never guessed).
 #   4. Seeds every gitignored file matching a `.worktreeinclude` pattern from
 #      the main checkout — the same contract native isolation honors.
+#  4b. Runs the repository's own `.worktree-setup`, if it has one, inside the
+#      new workspace. That is where a repository puts the things every one of
+#      its worktrees needs and none of them should build for itself — richos
+#      points its cargo target/ at the one shared build cache there. NEVER
+#      FATAL: a workspace whose setup failed is a workspace that works and
+#      rebuilds more, which is not a reason to refuse a teammate a place to
+#      stand. It is reported, loudly, and it is bounded — a setup script that
+#      hangs would otherwise hang every spawn on the machine.
 #   5. Confirms the registration: created. If creation failed, the
 #      registration records that instead; the agent was never spawned, so it
 #      counts as finished, and whatever git left behind (a branch) is deleted
@@ -207,6 +215,46 @@ PY
 )"
 fi
 
+# --- 4b. the repository's own per-worktree setup ----------------------------
+# Resolved in `.richos/` first and at the repository root second, which is the
+# order scripts/lib/declaration-path.sh established and the order every other
+# declaration in this engine is found in. Read from the NEW WORKTREE, not from
+# the main checkout: it is tracked content, so the worktree has the version its
+# own base commit carries, and a setup script must match the tree it sets up.
+SETUP_STATUS="none"
+: "${WORKTREE_SETUP_DECLARATION:=.worktree-setup}"
+SETUP="$DIR/.richos/${WORKTREE_SETUP_DECLARATION#.}"
+[ -f "$SETUP" ] || SETUP="$DIR/$WORKTREE_SETUP_DECLARATION"
+[ -f "$SETUP" ] || SETUP=""
+if [ -n "$SETUP" ]; then
+    SETUP_LOG="$(mktemp -t worktree-setup)"
+    ( cd "$DIR" && bash "$SETUP" ) > "$SETUP_LOG" 2>&1 &
+    SETUP_PID=$!
+    # Bounded. 120s is many times what any setup here takes and still finite;
+    # an unbounded child would make one bad commit hang every spawn after it.
+    # The bound is a variable so the suite can prove the kill without waiting
+    # two minutes for it — never so a caller can switch it off.
+    : "${WORKTREE_SETUP_TIMEOUT:=120}"
+    SETUP_WAITED=0
+    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$WORKTREE_SETUP_TIMEOUT" ]; do
+        sleep 1
+        SETUP_WAITED=$((SETUP_WAITED + 1))
+    done
+    if kill -0 "$SETUP_PID" 2>/dev/null; then
+        kill -9 "$SETUP_PID" 2>/dev/null
+        SETUP_STATUS="TIMED OUT after ${SETUP_WAITED}s and was killed"
+    elif wait "$SETUP_PID"; then
+        SETUP_STATUS="ok"
+    else
+        SETUP_STATUS="FAILED (exit $?)"
+    fi
+    if [ "$SETUP_STATUS" != "ok" ]; then
+        echo "create-teammate-worktree.sh: $SETUP $SETUP_STATUS. The workspace is fine and the teammate can work in it; whatever that script shares between worktrees is simply not shared here. Output:" >&2
+        sed 's/^/    /' "$SETUP_LOG" >&2
+    fi
+    rm -f "$SETUP_LOG"
+fi
+
 # --- 5. confirm -------------------------------------------------------------
 if ! python3 "$WS_PY" ${SESS_ARGS[@]+"${SESS_ARGS[@]}"} confirm-cc --name "$NAME" --path "$DIR" >/dev/null 2>&1; then
     echo "create-teammate-worktree.sh: created $DIR but its registration could not be confirmed — the spawn guard will refuse to spawn into it; it is finished work of this session (point 3) and the page's land deletes it." >&2
@@ -217,6 +265,7 @@ fi
 echo "created:    $DIR"
 echo "branch:     $BRANCH  (from $BASE in $MAIN)"
 echo "seeded:     $SEEDED file(s) from .worktreeinclude"
+echo "setup:      $SETUP_STATUS${SETUP:+  ($SETUP)}"
 echo "registered: teammate=$NAME ($(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("w",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.state_dir())' "$WS_PY" 2>/dev/null))"
 echo ""
 echo "Spawn with isolation: \"worktree\" in the session repo; add this prompt line:"

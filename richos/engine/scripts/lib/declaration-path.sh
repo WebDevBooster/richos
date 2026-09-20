@@ -99,7 +99,13 @@ _DECLARATION_PATH_SH_SOURCED=1
 # The declarations that RESOLVE through this file, by stem (the name without
 # its leading dot). A declaration adopting the directory adds its stem here in
 # the same edit that makes it call decl_find.
-DECL_ADOPTED_STEMS="publication-boundary publication-completeness row-currency vendored-material"
+#
+# `worktree-setup` resolves from the directory FIRST and the repository root
+# second, which is this file's order — but its reader is a shell script, not a
+# library call: mega-lander/create-teammate-worktree.sh does the two-line
+# lookup inline, because it runs before any of this engine's libraries are on
+# a path it can source from inside a brand-new worktree.
+DECL_ADOPTED_STEMS="publication-boundary publication-completeness row-currency vendored-material worktree-setup"
 
 # The declarations this engine ships that do NOT resolve from the directory.
 # One of them appearing in `.richos/` is a contract somebody believes is live

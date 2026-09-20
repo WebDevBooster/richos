@@ -54,4 +54,17 @@ mutant failure-not-recorded "C22" "$F" \
     '    :' \
     "a registration whose creation failed would sit as a workspace nobody can tell was never made."
 
+# Step 4b. Two properties, and the second is the one that matters at 3 a.m.:
+# a repository's setup script must never be able to cost a teammate its
+# workspace, whether it fails or simply never returns.
+mutant setup-never-run "C40" "$F" \
+    'if [ -n "$SETUP" ]; then' \
+    'if false; then' \
+    "a repository's own .worktree-setup would be ignored — every worktree would build for itself whatever the repository says it shares."
+
+mutant setup-unbounded "C42" "$F" \
+    '    while kill -0 "$SETUP_PID" 2>/dev/null && [ "$SETUP_WAITED" -lt "$WORKTREE_SETUP_TIMEOUT" ]; do' \
+    '    while kill -0 "$SETUP_PID" 2>/dev/null; do' \
+    "a setup script that hangs would hang the creation, and therefore every spawn into that repository, forever."
+
 mutation_end
