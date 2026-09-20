@@ -1202,6 +1202,16 @@ body.bp-narrow .first-run {
   font-size: 1rem; /* 16px — §15's floor for text meant to be easily read */
   color: var(--ink-soft);
   line-height: 1.4;
+  /* THE ROW IS RESERVED WHETHER OR NOT THERE IS A SENTENCE IN IT. Since 2026-09-20 the
+     detail is EMPTY on a young turn with nothing back yet (`main.js`, "NOTHING YET IS SAID
+     BY SAYING NOTHING"), so this element goes non-empty -> empty -> non-empty across one
+     ordinary turn: "Waiting to start", then nothing, then whatever the first signal is.
+     Without a reserved line the band would grow and shrink by a full 22.4px row twice,
+     directly over the box he is typing in. 1.4em is the line box this element produces when
+     it does have a sentence: 1.4 (line-height) x 16px (1rem) = 22.4px, so the reserved
+     height and the occupied height are the same number by construction rather than by a
+     magic constant that can drift away from the type scale. */
+  min-height: 1.4em;
 }
 
 /* THE PACED BAR — the CEO's own design for a wait whose length is unknown, 2026-09-06.

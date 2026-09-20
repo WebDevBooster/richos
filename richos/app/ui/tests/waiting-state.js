@@ -22,6 +22,13 @@
 //      the band; the turn's own failure treatment is what is left, and it stays that way.
 //   4. IT CLEARS WCAG AA IN BOTH THEMES, computed from the REAL DOM with the shipping
 //      checker's arithmetic (`lib/contrast.js`) — 4.5:1 for its text, 3:1 for the mark.
+//   5. IT DOES NOT REPORT ABSENCE AT THE LINE THE EYE SETTLES ON. Added 2026-09-20 from a
+//      measurement, not from an opinion: Ray's `.20260920.1` walk held "Nothing has come
+//      back yet" on the real window for 10.5-14.5 s across five HEALTHY turns
+//      (`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`,
+//      defect 2), which is property 2's failure wearing property 1's clothes — honest about
+//      progress, and reading as a stall. The band is silent about the silence until
+//      QUIET_AFTER_MS, and names it plainly after.
 //
 // HOW IT DRIVES A TURN. Through the callbacks `main.js` registered with
 // `window.RichBridge.listen`, captured by wrapping the bridge as mock.js assigns it, with
@@ -180,6 +187,10 @@ async function band(page) {
       role: b.getAttribute("role"),
       ariaLive: b.getAttribute("aria-live"),
       onScreen: r.width > 0 && r.height > 0 && r.top < innerHeight && r.bottom > 0,
+      // The band's own painted height, for the ONE thing an empty detail could break that a
+      // sentence comparison cannot see: the row collapsing and the band jumping under his
+      // eyes the moment the first signal arrives (`style.css`, `.wait-detail`'s min-height).
+      height: r.height,
       markFlashing: !!(mark && mark.classList.contains("wait-mark--flash")),
       markAnimation: mark ? getComputedStyle(mark).animationIterationCount : null,
       markIsIndicator: !!(mark && mark.getAttribute("data-contrast-role") === "indicator"),
@@ -229,10 +240,14 @@ async function main() {
     assertEqual(b.detail, "Waiting to start", "queued detail");
     assert(b.onScreen, "the band is off screen");
 
+    // THE SETTLING LINE IS NOT A REPORT OF ABSENCE — see property 5 in this file's header.
+    // Until 2026-09-20 these three instants each read "Nothing has come back yet", and Ray
+    // measured what that sentence does on a real window: 10.8 / 10.5 / 12.7 / 14.5 / 13.0 s
+    // of it on five healthy turns.
     await goWorking(page, fence, "t_silent");
     b = await band(page);
     assertEqual(b.head, "Rich is working", "working headline");
-    assertEqual(b.detail, "Nothing has come back yet", "with zero events, the honest detail");
+    assertEqual(b.detail, "", "with zero events there is nothing true to add to the headline, so nothing is said");
 
     // 10s: an elapsed number, derived from the ledger's `startedAt` through the SAME
     // `durationRow` the timeline's own row uses.
@@ -240,7 +255,9 @@ async function main() {
     await tick(page);
     b = await band(page);
     assertEqual(b.time, "10s", "elapsed at +10s");
-    assertEqual(b.detail, "Nothing has come back yet", "still nothing, still said plainly");
+    // 10s is the instant Ray measured. The headline and the ticking clock carry the turn;
+    // nothing reports the absence, because at 10s the absence is an ordinary young turn.
+    assertEqual(b.detail, "", "still nothing, and still not said");
     assertEqual(b.tone, "working", "10s is inside the measured healthy-gap range (max 20.7s)");
 
     // Past the measured threshold: the silence becomes the thing worth reporting.
@@ -250,8 +267,8 @@ async function main() {
     assertEqual(b.time, "30s", "elapsed at +30s");
     assertEqual(
       b.detail,
-      "Nothing has come back yet",
-      "30s is INSIDE the wire's own 30.002s heartbeat cadence, so the band must not call it quiet"
+      "",
+      "30s is INSIDE the wire's own 30.002s heartbeat cadence, so the band must neither call it quiet nor report the absence"
     );
     assertEqual(b.tone, "working", "and must not raise the attention tone on a turn a heartbeat is about to reach");
 
@@ -267,6 +284,97 @@ async function main() {
     assertNoFabrication(b.detail, "the 60s detail");
 
     await page.close();
+  });
+
+  // =====================================================================================
+  // 1b. THE SETTLING LINE IS NEVER A REPORT OF ABSENCE — Ray's defect 2, as an assertion
+  // =====================================================================================
+  //
+  // WHAT THIS IS FOR, and it is not "the detail is empty". It is the property the empty
+  // detail buys, walked across the exact window Ray measured on the real app.
+  //
+  // `.20260920.1`, in the VM, five live turns
+  // (`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`,
+  // defect 2): the block read `Rich is working / Nothing has come back yet` and HELD, with
+  // the counter ticking, for **10.8 s (m1), 10.5 s (m2), 12.7 s (m3), 14.5 s (m4), 13.0 s
+  // (m5)** — every one of them a healthy turn that then answered. His words: *"Two sentences
+  // are competing and one of them is discouraging … 'Nothing has come back yet' is a report
+  // of absence, and it is the last line, which is where the eye settles."*
+  //
+  // So the rule is walked over 0 -> 15 s at one-second resolution rather than at the three
+  // instants check 1 samples, because the defect was a sentence HELD rather than a sentence
+  // rendered once, and a three-point check could pass on a band that showed it at 11 s.
+  //
+  // THE SECOND HALF IS THE LAYOUT, and it is the one thing an empty string can break that no
+  // sentence comparison would see: the detail's row collapsing, the band shrinking by a whole
+  // 22.4px line, and then jumping back the instant the first signal lands — directly over the
+  // box he types in. `style.css` reserves the line; this measures that it did.
+
+  await run.check("nothing is reported as absent while a young turn is simply working, and the band does not jump", async () => {
+    const page = await openApp(browser, "dark");
+    const fence = await startTurn(page, "t_absence");
+    await goWorking(page, fence, "t_absence");
+
+    // 0 -> 15 s, one second at a time. 15 s is past m4's 14.5 s, the longest Ray measured.
+    const seen = [];
+    let heightWhileSilent = null;
+    for (let s = 0; s <= 15; s += 1) {
+      if (s > 0) {
+        await advance(page, 1000);
+        await tick(page);
+      }
+      const b = await band(page);
+      assertEqual(b.head, "Rich is working", "at +" + s + "s the headline must still carry the turn");
+      assertEqual(b.tone, "working", "at +" + s + "s the tone must stay working — nothing here is quiet");
+      assertEqual(b.detail, "", "at +" + s + "s the band must add nothing to the headline: it has nothing true to add");
+      assert(b.onScreen, "at +" + s + "s the band left the screen, which is the 2026-09-06 report itself");
+      if (heightWhileSilent === null) heightWhileSilent = b.height;
+      assertEqual(
+        b.height,
+        heightWhileSilent,
+        "at +" + s + "s the band's height changed while nothing changed but the clock"
+      );
+      seen.push(b.detail);
+    }
+
+    // THE POSITIVE PROBE. A check that only ever asserts `""` would pass on a band that had
+    // stopped rendering a detail at all, which would be a different and worse defect. So the
+    // first signal arrives and the SAME element must carry the backend's sentence — and the
+    // band must be exactly as tall as it was while silent.
+    const SUMMARY = "Read the Q3 board pack";
+    await page.evaluate((o) => {
+      window.__emit("rich://activity-upserted", Object.assign({}, o.fence, {
+        kind: "activity", id: "mach_absence", turnId: "t_absence", createdAt: Date.now(), sequence: 1,
+        slot: "stream", visibility: "ceo", activityType: "command", state: "running",
+        summary: o.summary, at: Date.now(),
+      }));
+    }, { fence, summary: SUMMARY });
+    let b = await band(page);
+    assertEqual(b.detail, SUMMARY, "the detail element is alive and relays the backend's own sentence");
+    assertEqual(
+      b.height,
+      heightWhileSilent,
+      "the band changed height when the first signal arrived — the reserved line in style.css is not holding"
+    );
+
+    // AND THE SILENCE IS STILL NAMED, past QUIET_AFTER_MS. Dropping the absence report before
+    // the threshold must not have dropped the report that matters: two missed 30-second
+    // heartbeats is a turn worth telling him about, and it is still told, in the attention
+    // tone. Without this arm the change would read as "the band stopped saying anything".
+    await advance(page, 40000);
+    await tick(page);
+    b = await band(page);
+    assertEqual(b.tone, "quiet", "past 35s of silence the band must raise the attention tone");
+    assert(
+      /^Nothing new for /.test(b.detail),
+      'past 35s the band must name the silence, and it said "' + b.detail + '"'
+    );
+    assertNoFabrication(b.detail, "the quiet detail");
+
+    assertEqual(seen.length, 16, "the walk must have sampled every second from 0 to 15");
+    await page.close();
+    return "0-15s: detail empty at all 16 samples, band " + heightWhileSilent.toFixed(1) +
+      "px throughout and unchanged when the first signal landed";
   });
 
   // =====================================================================================
@@ -445,6 +553,19 @@ async function main() {
 
       const fence = await startTurn(page, "t_contrast_" + theme);
       await goWorking(page, fence, "t_contrast_" + theme);
+
+      // ONE SIGNAL FIRST, so `.wait-detail` is measured with a SENTENCE IN IT. Since
+      // 2026-09-20 a turn with nothing back renders an empty detail, and a ratio computed off
+      // an element with no text is a statement about a CSS declaration rather than about
+      // anything he can read. The floor is a floor on rendered text, so the text is put there
+      // before it is measured.
+      await page.evaluate((o) => {
+        window.__emit("rich://activity-upserted", Object.assign({}, o.fence, {
+          kind: "activity", id: "mach_contrast_" + o.theme, turnId: "t_contrast_" + o.theme,
+          createdAt: Date.now(), sequence: 1, slot: "stream", visibility: "ceo",
+          activityType: "command", state: "running", summary: "Read the Q3 board pack", at: Date.now(),
+        }));
+      }, { fence, theme });
 
       // Both tones, because they use different inks: `working` and, past the threshold,
       // `quiet`.

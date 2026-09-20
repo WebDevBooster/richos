@@ -296,6 +296,107 @@ mod tests {
         assert!(first_reply_faults(&[], Some(2.4), FIRST_WORDS_BUDGET).is_empty());
     }
 
+    /// **Ray's five answer-me turns on `.20260920.1`, scored by the rule that was supposed to
+    /// be watching them — and the rule says the BUDGET, not a missing "On it!".**
+    ///
+    /// The walk is
+    /// `docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`.
+    /// Its own §55 step reported *"the first rendered change after send arrives in 43–504 ms —
+    /// fast"* and *"`"On it!"` appeared zero times"* across 210 OCR'd states, and left the
+    /// verdict open: *"Whether §55's sentence is meant to cover that path is a design call, not
+    /// mine"* (audit line 288-290). This test settles the half that is not a design call.
+    ///
+    /// # The absence of "On it!" on these five turns is the doctrine, not a defect
+    ///
+    /// The six sends were `reply with exactly: ray nine one`..`five` and `ray nine phone six`
+    /// (audit lines 551, 301) — every one of them a message the front desk can answer itself.
+    /// `doctrine/front-desk.md`, QUESTION case 1: *"You know the answer. Answer him. Nothing is
+    /// written down, nothing is handed over, and no timer runs. Most of his questions are this,
+    /// and this is the fast, good case."* `assignment_tools`'s own suite asserts the same thing
+    /// from the other side — *"a question got the task reply"* is a FAULT there. So a desk that
+    /// had said "On it!" to `reply with exactly: ray nine one` would have been the defect, and
+    /// `first_reply_faults` is right to name nothing about it: an answered turn carries no
+    /// register, so there is no receipt to be missing.
+    ///
+    /// # What the rule DOES say about that walk, and it was never scored
+    ///
+    /// | turn | first content event | vs the 9 s budget |
+    /// |---|---|---|
+    /// | m1 | 10.820 s | over by 1.820 s |
+    /// | m2 | 10.497 s | over by 1.497 s |
+    /// | m3 | 12.735 s | over by 3.735 s |
+    /// | m4 | 14.525 s | over by 5.525 s |
+    /// | m5 | 12.960 s | over by 3.960 s |
+    ///
+    /// **Those instants are a LOWER bound on his first words, and that is why they can be used
+    /// here.** The audit's own table gives them as the frame in which the reply was OCR'd on the
+    /// Mac, which on its own is an UPPER bound and would settle nothing. The second half of the
+    /// audit closes it: defect 2 records the band reading `Nothing has come back yet` and
+    /// HOLDING, with the counter ticking, for **10.8 / 10.5 / 12.7 / 14.5 / 13.0 s** — the same
+    /// five numbers. That sentence is `ui/main.js`'s `t.signals === 0` arm, and `signals` is
+    /// incremented by `rich://message-started` (`main.js`'s listener, which hands
+    /// `noteTurnSignal` the words "Writing the reply"). So the band cannot have been saying it
+    /// unless NO message-started had arrived — his first words had not started. The two
+    /// measurements are independent, they agree to the tenth of a second, and together they
+    /// pin first-words at those instants rather than below them.
+    ///
+    /// **The cause is NOT established and this test does not claim one.** The host carried load
+    /// average 12–27 throughout (audit, step 6) and the app was in a VM. What is established is
+    /// that §55's own budget was red on five of five turns and nothing in the walk scored it —
+    /// which is what this test is for.
+    #[test]
+    fn rays_five_answer_me_turns_are_red_on_the_budget_and_clean_on_everything_else() {
+        // Seconds from the press, `.20260920.1`, audit §"Rich's reply, Mac window -> phone page".
+        let measured = [("m1", 10.8203), ("m2", 10.4972), ("m3", 12.7351), ("m4", 14.5254), ("m5", 12.9599)];
+
+        for (turn, first_words) in measured {
+            // NO TOOL CALL AT ALL. These turns handed nothing over, which is the whole point:
+            // the front desk answered him itself, exactly as case 1 of the doctrine asks.
+            let faults = first_reply_faults(&[], Some(first_words), FIRST_WORDS_BUDGET);
+
+            // EXACTLY ONE FAULT, and it is the budget. A second fault here would mean the rule
+            // had invented something about a turn whose only measured problem is that it was
+            // slow — and inventing a missing-"On it!" fault for an answered turn is the precise
+            // misreading this test exists to hold shut.
+            assert_eq!(faults.len(), 1, "{turn}: {faults:#?}");
+            assert!(
+                faults[0].contains(&format!("{first_words:.3} s, over the 9 s budget")),
+                "{turn}: {faults:#?}"
+            );
+            assert!(
+                !faults.iter().any(|f| f.contains("register") || f.contains("On it")),
+                "{turn}: an answered turn has no register, so the rule must say nothing about one: {faults:#?}"
+            );
+        }
+
+        // THE NEGATIVE PROBE, so the block above is not passing because everything is red.
+        // The same shape inside the budget is CLEAN — which is also the statement that this
+        // test is about the seconds and not about the words. Ray's own first-repaint figures
+        // (43.1-504.2 ms) are what the app was already doing well.
+        for (turn, first_words) in [("fast-m5", 0.0431), ("fast-m1", 0.5042), ("warm-run-A", 6.358)] {
+            assert!(
+                first_reply_faults(&[], Some(first_words), FIRST_WORDS_BUDGET).is_empty(),
+                "{turn} at {first_words} s is inside the budget and must be clean"
+            );
+        }
+
+        // AND UNDER THE COLD BUDGET, THREE OF THE FIVE ARE STILL RED: m3 at 12.735 s, m4 at
+        // 14.525 s and m5 at 12.960 s against FIRST_TURN_BUDGET's 11 s. m1 (10.820 s) and m2
+        // (10.497 s) sit under it, so a lease's FIRST visible turn would forgive those two.
+        //
+        // **This assertion was WRONG when it was first written and the test caught it**, which
+        // is the reason it is spelled out rather than summarized: it said "only m4", on nothing
+        // better than m4 being the largest number in the table. Three of these five exceed 11 s
+        // and 14.525 is merely the worst of them. A claim about which measurements cross a
+        // threshold is arithmetic, and arithmetic gets run.
+        let cold: Vec<&str> = measured
+            .iter()
+            .filter(|(_, s)| !first_reply_faults(&[], Some(*s), FIRST_TURN_BUDGET).is_empty())
+            .map(|(t, _)| *t)
+            .collect();
+        assert_eq!(cold, vec!["m3", "m4", "m5"], "three of the five exceed the 11 s first-visible-turn budget");
+    }
+
     #[test]
     fn the_measured_defect_of_2026_09_18_is_red() {
         // **THE POSITIVE CONTROL, AND IT IS NOT SYNTHETIC.** These are the twelve frames of the

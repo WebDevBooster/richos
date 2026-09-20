@@ -1009,6 +1009,35 @@ async function openThread(threadId, opts) {
   activeThreadId = threadId;
   savedWork = {items: [], omitted: 0};
   ++workStatusRead;
+  // **AND THE OTHER TWO THINGS THE CHIP IS BUILT FROM, which were NOT being cleared.**
+  // `renderDrillChip` reads exactly four pieces of state: `workerCounts`, `drillItems`,
+  // `savedWork` and `assignments.rows`. Two of them were reset here and two were not, so
+  // until the three-second poll below came back with this thread's answer the chip went on
+  // printing the PREVIOUS conversation's counts — "2 working", "1 waiting for you",
+  // "3 assignments running" — over the conversation he had just switched to. That is one
+  // entity's work beside another entity's conversation, which is what the
+  // `closeWorkerInspector()` call fourteen lines down calls "the exact shape of leak every
+  // guard in this build exists to stop", and it was arriving through a different door.
+  //
+  // **WHAT THIS FIXES AND WHAT IT DELIBERATELY DOES NOT.** It makes a WRONG chip
+  // impossible at any width: from this line the chip carries nothing rather than another
+  // conversation's counts. It does NOT make the right counts arrive any sooner — the
+  // interval below still fires first at t+3000ms, never at t+0, so the chip is now EMPTY for
+  // up to three seconds after a switch or a launch instead of false for up to three seconds.
+  //
+  // That second half is a real defect and it is measured, but it is NOT fixed here and the
+  // reason is named rather than left as an omission: a leading `pollWorkerStatus()` puts the
+  // chip on screen before the first tick, and doing so moves two text nodes onto 32 of the 43
+  // surfaces `ui/tests/contrast.js` walks — which re-calibrates that suite's whole floor
+  // table and turns its 9z negative control red on seven surfaces. Measured both ways on one
+  // host, same tree: bare shell 92 of 562 without it, 94 of 564 with it. Raised as
+  // esc-20260920T075635Z-0f2cba02, with the per-surface deltas.
+  //
+  // EMPTY IS STRICTLY BETTER THAN FALSE, which is why this half lands on its own: a chip that
+  // says nothing for three seconds tells him nothing, and a chip that says "2 working · 1
+  // waiting for you" about the conversation he just left tells him something untrue.
+  workerCounts = { active: 0, livenessUnknown: 0 };
+  assignments = {rows: []};
   // The previous company's offer must not remain clickable while activation is pending.
   el("first-run").hidden = true;
   firstRunState = null;
@@ -2489,7 +2518,39 @@ function waitBandCopy(t, nowMs) {
   let detail;
   if (quiet) detail = "Nothing new for " + gap;
   else if (t.status === "queued") detail = "Waiting to start";
-  else if (t.signals === 0 && t.fromStart) detail = "Nothing has come back yet";
+  // NOTHING YET IS SAID BY SAYING NOTHING — the absence report is gone, and it was measured
+  // out rather than argued out. Ray's `.20260920.1` walk in the VM
+  // (`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`,
+  // defect 2) put "Nothing has come back yet" on the real window for **10.8 s (m1), 10.5 s
+  // (m2), 12.7 s (m3), 14.5 s (m4), 13.0 s (m5)** on five turns that were all perfectly
+  // healthy, and named what that costs: *"Two sentences are competing and one of them is
+  // discouraging. 'Rich is working' with a live timer is the reassuring half. 'Nothing has
+  // come back yet' is a report of absence, and it is the last line, which is where the eye
+  // settles. After ten seconds of reading that a reasonable person concludes something is
+  // stuck."* That is the 2026-09-06 report — *"it looks like a crashed application"* — being
+  // reproduced by the very band written to answer it.
+  //
+  // **Why the line is dropped rather than reworded.** There is genuinely nothing true left to
+  // put here. The headline already says the turn is alive and the timer already says how long,
+  // so every candidate sentence is either a second copy of those two or an invented phase —
+  // and `phase` is `unknown` on every message this runtime emits, which is the one thing this
+  // suite's FABRICATION list exists to stop. An empty detail states the same fact as the old
+  // sentence, in the only register that adds no discouragement: it says nothing, because
+  // nothing is what has happened.
+  //
+  // **Nothing is lost at the end that matters.** The silence still gets named — by the `quiet`
+  // branch above, at QUIET_AFTER_MS (35 s), which is where the wire's own two 30-second
+  // heartbeats have already failed to arrive and the absence is finally evidence rather than
+  // an ordinary young turn. Before that instant the absence is not news; after it, it is, and
+  // it is still reported in the attention tone exactly as before.
+  //
+  // **`fromStart` only.** A turn this window JOINED LATE keeps "Nothing new for <gap>": there
+  // the age of the silence is information he does not otherwise have, because the window did
+  // not watch the turn's first seconds and its timer cannot stand in for them.
+  //
+  // `.wait-detail` reserves its line height in `style.css` so the band does not jump by a
+  // whole 22.4px row the moment the first signal arrives.
+  else if (t.signals === 0 && t.fromStart) detail = "";
   else if (t.signals === 0) detail = "Nothing new for " + (gap || "a moment");
   else if (t.lastWhat) {
     const age = window.RichTimeline.formatDuration(nowMs - t.whatAt);
