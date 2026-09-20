@@ -90,188 +90,128 @@ function axMatches(P, n) {
   return true;
 }
 
-function run() {
-  var P = (typeof AX_PARAMS !== "undefined") ? AX_PARAMS : {};
-  var out = [];
-  var se = Application("System Events");
-
-  function emit(o) { out.push(JSON.stringify(o)); }
-  function fail(code, detail, extra) {
-    var o = { error: code, detail: String(detail || "") };
-    if (extra) { for (var k in extra) { o[k] = extra[k]; } }
-    emit(o);
-    return out.join("\n");
-  }
-
-  // --- the target process ---------------------------------------------------
-  var proc = null, procName = "", procPid = 0;
-  try {
-    if (P.app) {
-      proc = se.processes.byName(P.app);
-      procName = proc.name();               // forces the lookup to fail HERE
-    } else {
-      proc = se.processes.whose({ unixId: P.pid })[0];
-      procName = proc.name();
-    }
-    procPid = proc.unixId();
-  } catch (e) {
-    return fail("noprocess",
-                P.app ? ("no process named " + P.app) : ("no process with pid " + P.pid),
-                { app: P.app || "", pid: P.pid || 0 });
-  }
-
-  // --- the roots: every window, or one -------------------------------------
-  // A menu, a sheet or a system dialog is a window of its own, so the default
-  // is EVERY window rather than window 1 — which is what each throwaway that
-  // only looked at window 1 had to be rewritten for.
-  var wins = [];
-  try { wins = proc.windows(); } catch (e) { wins = []; }
-  var roots = [];
-  if (P.window) {
-    if (wins.length < P.window) {
-      return fail("nowindow", "process " + procName + " has " + wins.length + " window(s)",
-                  { windows: wins.length });
-    }
-    roots = [wins[P.window - 1]];
-  } else {
-    roots = wins;
-  }
-
-  // --- reading one node -----------------------------------------------------
-  function readNode(el, depth) {
-    var n = { d: depth, role: "", sub: "", title: "", desc: "", value: "",
-              enabled: null, x: null, y: null, w: null, h: null };
-    try { n.role = String(el.role() || ""); } catch (e) {}
-    try { n.sub = String(el.subrole() || ""); } catch (e) {}
-    try { n.title = String(el.title() || ""); } catch (e) {}
-    try { n.desc = String(el.description() || ""); } catch (e) {}
-    try {
-      var v = el.value();
-      if (v !== null && v !== undefined) {
-        n.value = String(v);
-        if (n.value.length > 200) { n.value = n.value.slice(0, 200) + "..."; }
+// Breadth-first search reaches controls beside a long transcript before walking
+// every message. Matching reads only the attributes actually requested.
+function axSearch(roots, P, api) {
+  var queue = roots.map(function(e) { return {el:e, d:0, parent:null}; });
+  var head = 0, count = 0, hits = [], truncated = false;
+  var limit = P.first ? 1 : (P.nth !== null && P.nth !== undefined ? P.nth + 1 : null);
+  var scoped = !P.scope || P.scope === "window";
+  while (head < queue.length) {
+    if (count >= P.max) { truncated = true; break; }
+    var q = queue[head++]; count++;
+    if (!scoped) {
+      if (api.scope(q.el, P.scope)) {
+        // A composer is its containing group, including adjacent controls.
+        queue = [{el:api.scopeRoot ? api.scopeRoot(q.el,q.parent,P.scope) : q.el, d:0, parent:null}];
+        head = 0; scoped = true; continue;
       }
-    } catch (e) {}
-    try { n.enabled = !!el.enabled(); } catch (e) {}
-    // position() and size() are ARRAYS here. This is the whole reason the file
-    // is JavaScript; see the header.
-    try { var p = el.position(); if (p) { n.x = p[0]; n.y = p[1]; } } catch (e) {}
-    try { var s = el.size();     if (s) { n.w = s[0]; n.h = s[1]; } } catch (e) {}
-    return n;
-  }
-
-  // --- matching -------------------------------------------------------------
-  // axMatches lives at the top of this file, and is tested there; see its
-  // header for why the description is matched as well as the title.
-  function matches(n) { return axMatches(P, n); }
-
-  // --- the walk -------------------------------------------------------------
-  var maxDepth = P.depth || 16;
-  var maxNodes = P.max || 4000;
-  var count = 0, truncated = false;
-  var hits = [];          // elements, for click
-  var hitNodes = [];      // their read form, for the report
-  var selecting = (P.mode === "find" || P.mode === "click");
-
-  function walk(el, depth) {
-    if (truncated) return;
-    if (count >= maxNodes) { truncated = true; return; }
-    var n = readNode(el, depth);
-    count++;
-    if (selecting) {
-      if (matches(n)) { hits.push(el); hitNodes.push(n); }
-    } else {
-      emit(n);
+    } else if (P.mode === "tree" || api.matches(q.el)) {
+      hits.push(q);
+      if (limit !== null && hits.length >= limit) break;
     }
-    if (depth >= maxDepth) return;
-    var kids = [];
-    try { kids = el.uiElements(); } catch (e) { return; }
-    for (var i = 0; i < kids.length; i++) {
-      walk(kids[i], depth + 1);
-      if (truncated) return;
+    if (q.d < P.depth) {
+      var kids = api.children(q.el);
+      for (var i=0; i<kids.length; i++) queue.push({el:kids[i], d:q.d+1, parent:q.el});
+    } else if (api.children(q.el).length) {
+      truncated = true;
     }
   }
-
-  // --- the coordinate fallback, which refuses unless it can be sure ---------
-  if (P.mode === "clickat") {
-    var frontPid = -1;
-    try { frontPid = se.processes.whose({ frontmost: true })[0].unixId(); } catch (e) {}
-    if (frontPid !== procPid) {
-      return fail("notfrontmost",
-                  "frontmost pid is " + frontPid + ", the target (" + procName + ") is " +
-                  procPid + " — a click at a point would land in another process",
-                  { frontmost: frontPid, target: procPid });
-    }
-    try {
-      se.click({ at: [P.atx, P.aty] });
-    } catch (e) {
-      return fail("clickfailed", e, { x: P.atx, y: P.aty });
-    }
-    emit({ meta: true, app: procName, pid: procPid, windows: wins.length, nodes: 0,
-           truncated: false, mode: P.mode, matches: null });
-    emit({ clicked: true, at: true, x: P.atx, y: P.aty });
-    return out.join("\n");
-  }
-
-  for (var r = 0; r < roots.length; r++) {
-    walk(roots[r], 0);
-    if (truncated) break;
-  }
-
-  // The meta line is built AFTER the walk — it carries the counts — and is put
-  // FIRST in the stream, because a reader that has to reach the end of a 4000
-  // line dump to learn what it is reading is a reader that will not.
-  var meta = JSON.stringify({ meta: true, app: procName, pid: procPid,
-                              windows: wins.length, nodes: count,
-                              truncated: truncated, mode: P.mode,
-                              matches: selecting ? hits.length : null });
-
-  if (P.mode === "find") {
-    var found = [];
-    for (var f = 0; f < hitNodes.length; f++) { found.push(JSON.stringify(hitNodes[f])); }
-    return meta + (found.length ? "\n" + found.join("\n") : "");
-  }
-
-  if (P.mode === "click") {
-    var nth = P.nth || 0;
-    if (hits.length <= nth) {
-      return meta + "\n" + JSON.stringify({
-        error: "notfound",
-        detail: "nothing matched" + (hits.length ? " at index " + nth : ""),
-        matches: hits.length
-      });
-    }
-    var target = hits[nth], node = hitNodes[nth];
-    var names = [];
-    try {
-      var acts = target.actions();
-      for (var a = 0; a < acts.length; a++) { try { names.push(acts[a].name()); } catch (e) {} }
-    } catch (e) {}
-    if (names.indexOf("AXPress") < 0) {
-      // Named rather than swallowed: "it did not press" and "it cannot be
-      // pressed, and here is what it CAN do" are different findings, and only
-      // the second one tells the caller what to do next.
-      return meta + "\n" + JSON.stringify({
-        error: "noaction", detail: "the matched element has no AXPress",
-        actions: names, matches: hits.length, node: node
-      });
-    }
-    try {
-      target.actions["AXPress"].perform();
-    } catch (e) {
-      return meta + "\n" + JSON.stringify({
-        error: "pressfailed", detail: String(e), matches: hits.length, node: node
-      });
-    }
-    return meta + "\n" + JSON.stringify({ clicked: true, action: "AXPress",
-                                          matches: hits.length, node: node });
-  }
-
-  return meta + (out.length ? "\n" + out.join("\n") : "");
+  return {hits:hits, count:count, truncated:truncated, scoped:scoped,
+          exhaustive:head >= queue.length && !truncated};
 }
 
-// Under osascript there is no module system and this is a no-op; under node,
-// which is where test/run-tests.sh drives the matcher, it is the entry point.
+function run() {
+  var P = AX_PARAMS, se = Application("System Events"), proc, wins;
+  function get(el, attr, fallback) { try { return el[attr](); } catch(e) { return fallback; } }
+  function attr(el, name, fallback) { try { return el.attributes.byName(name).value(); } catch(e) { return fallback; } }
+  function error(code, detail) { return JSON.stringify({error:code, detail:String(detail)}); }
+  try {
+    proc = P.app ? se.processes.byName(P.app) : se.processes.whose({unixId:P.pid})[0];
+    P.pid = proc.unixId();
+  } catch(e) { return error("noprocess", "target process is absent"); }
+  var name = proc.name();
+  // Diagnose the common blocking system dialog before entering the app's tree.
+  if (name !== "SecurityAgent") {
+    try {
+      var security = se.processes.byName("SecurityAgent");
+      if (security.exists() && security.windows().length) return error("blocked", "SecurityAgent has a keychain dialog; target="+name+" pid="+P.pid);
+    } catch(e) {}
+  }
+  try { wins = proc.windows(); } catch(e) { return error("blocked", e); }
+  var roots = wins;
+  if (P.window) roots = wins.length >= P.window ? [wins[P.window-1]] : [];
+  if (P.windowTitle) roots = roots.filter(function(w) { return get(w,"name","") === P.windowTitle; });
+  if (!roots.length) return error("nowindow", "target="+name+" pid="+P.pid+" windows="+wins.length);
+
+  function front() { try { return se.processes.whose({frontmost:true})[0].unixId() === P.pid; } catch(e) { return false; } }
+  if (P.mode === "clickat") {
+    if (!front()) return error("notfrontmost", "coordinate click would land in another process");
+    // JXA's click({at:...}) cannot coerce this command's direct parameter.
+    // Run the supported AppleScript form with numeric data only.
+    var app = Application.currentApplication(); app.includeStandardAdditions = true;
+    try { app.doShellScript("osascript -e 'tell application \"System Events\" to click at {"+P.atx+", "+P.aty+"}'"); }
+    catch(e) { return error("clickfailed", e); }
+    return JSON.stringify({clicked:true, at:true, x:P.atx, y:P.aty});
+  }
+  function match(el) {
+    if (P.role && get(el,"role","") !== P.role) return false;
+    if (P.sub && get(el,"subrole","") !== P.sub) return false;
+    if (P.text !== null && !axTextHit(P, get(el,"title",""), P.text) && !axTextHit(P, get(el,"description",""), P.text)) return false;
+    if (P.value !== null && !axTextHit(P, String(get(el,"value","")), P.value)) return false;
+    return true;
+  }
+  function scope(el, which) {
+    var role = get(el,"role","");
+    if (which === "dialog") return role === "AXSheet" || get(el,"subrole","") === "AXApplicationDialog";
+    if (which === "composer") return attr(el,"AXDOMIdentifier","") === "composer" || role === "AXTextArea";
+    if (which === "sidebar") return get(el,"description","") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail";
+    return false;
+  }
+  function full(q) {
+    var el=q.el, pos=get(el,"position",[]), size=get(el,"size",[]);
+    return {d:q.d,role:get(el,"role",""),sub:get(el,"subrole",""),title:get(el,"title",""),
+      desc:get(el,"description",""),value:String(get(el,"value","")).slice(0,203),enabled:get(el,"enabled",null),current:attr(el,"AXARIACurrent",null),selected:get(el,"selected",null),
+      x:pos[0],y:pos[1],w:size[0],h:size[1]};
+  }
+  var result = axSearch(roots, P, {matches:match, scope:scope, scopeRoot:function(el,parent,which) { return which === "composer" && get(el,"role","") === "AXTextArea" && parent ? parent : el; }, children:function(el) { return get(el,"uiElements",[]); }});
+  var hits = result.hits;
+  var meta = JSON.stringify({meta:true,app:name,pid:P.pid,windows:wins.length,nodes:result.count,
+    truncated:result.truncated,mode:P.mode,matches:hits.length,exhaustive:result.exhaustive});
+  if (!result.scoped) return meta+"\n"+error("notfound", "scope is absent: "+P.scope);
+  if (result.truncated) return meta+"\n"+error("incomplete", "node/depth cap reached; absence or uniqueness is not established");
+  if (P.mode === "tree") return meta+"\n"+hits.map(function(q) { return JSON.stringify(full(q)); }).join("\n");
+  if (!hits.length) return meta+"\n"+error("notfound", "nothing matched");
+  if (P.mode === "find") {
+    if (P.nth !== null) hits = hits.slice(P.nth,P.nth+1);
+    if (!hits.length) return meta+"\n"+error("notfound", "requested match index is absent");
+    return meta+"\n"+hits.map(function(q) { return JSON.stringify(full(q)); }).join("\n");
+  }
+  if (!P.first && P.nth === null && hits.length !== 1) return meta+"\n"+error("ambiguous", "multiple matches; specify --first or --nth (zero based)");
+  var target = hits[P.nth || 0];
+  if (!target) return meta+"\n"+error("notfound", "requested match index is absent");
+  var el=target.el;
+  try {
+    if (!get(el,"enabled",false)) return meta+"\n"+error("disabled", "matched element is disabled");
+    if (P.mode === "click") {
+      var actions=el.actions().map(function(a) { return a.name(); });
+      if (actions.indexOf("AXPress") < 0) return meta+"\n"+error("noaction", "element has no AXPress; actions="+actions.join(","));
+      el.actions.byName("AXPress").perform();
+      return meta+"\n"+JSON.stringify({clicked:true,node:full(target),matches:hits.length});
+    }
+    proc.frontmost = true;
+    el.focused = true;
+    if (!front() || !get(el,"focused",false)) return meta+"\n"+error("focusfailed", "target did not receive focus; no text sent");
+    if (P.mode === "type") {
+      if (P.replace) se.keystroke("a", {using:"command down"});
+      se.keystroke(P.input);
+      var value=String(get(el,"value",""));
+      if ((P.replace && value !== P.input) || (!P.replace && value.indexOf(P.input) < 0)) return meta+"\n"+error("typefailed", "field value does not contain the requested text");
+    }
+    return meta+"\n"+JSON.stringify({action:P.mode,verified:true,node:full(target)});
+  } catch(e) { return meta+"\n"+error(P.mode+"failed", e); }
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { axMatches: axMatches, axTextHit: axTextHit };
+  module.exports = {axMatches:axMatches, axTextHit:axTextHit, axSearch:axSearch, run:run};
 }
