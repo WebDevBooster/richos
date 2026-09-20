@@ -136,10 +136,12 @@ a nonzero scenario exit alone cannot distinguish a defect from a missing prerequ
 unlock state and no-timeout settings. Its prerequisite probe uses the default search
 list with normal access controls. It does not use `-A` or broaden actual app-key ACLs.
 
-Add `--keychain-endurance` to the delta command for a separate zero-model-turn run:
+Add `--keychain-endurance` to the delta command for a separate run with no test sends:
 initial pairing, over 30 minutes idle, relaunch and existing-key reuse. Alternatively,
 run `keychain-verify.py VM --output REPORT` against an already paired owned guest
 inside the reservation. `--idle-seconds` must exceed 300; the default is 1801.
+The app can still make automatic initialization turns at boot or relaunch. Report
+those separately from test sends; a zero-send run is not necessarily zero model use.
 It fingerprints the app's three actual accounts under the service derived from its
 guest data directory. Secrets never leave the guest. A listening channel after
 relaunch and unchanged keys provide the reuse evidence. SecurityAgent is sampled

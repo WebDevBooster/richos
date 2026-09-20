@@ -254,7 +254,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('vm');p.add_argument('--out',type=Path,required=True)
     p.add_argument('--current',required=True);p.add_argument('--previous',required=True);p.add_argument('--endpoint',required=True)
-    p.add_argument('--keychain-endurance',action='store_true',help='pair then idle/relaunch for 30 minutes; no model turns')
+    p.add_argument('--keychain-endurance',action='store_true',help='pair then idle/relaunch for 30 minutes; no test sends (app initialization may use the model)')
     p.add_argument('--previous-app');p.add_argument('--thread-a',default='Scenario A');p.add_argument('--thread-b',default='Scenario B')
     p.add_argument('--admission-wait-seconds',type=float,default=0,
                    help='bounded wait for load below 8 before each attempt; counted separately from capture')
