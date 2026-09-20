@@ -194,3 +194,14 @@ base64 = "0.22"
 # is already a `semver::Version`. Comparing those two as strings is the defect this avoids:
 # "0.1.10" sorts below "0.1.9" and the release nobody is offered looks perfect.
 semver = "1"
+
+# Check ignored outcomes and asynchronous work at the lint entry point.
+# Timeout refusal regression: a0b51998. These warn on related Rust mistakes;
+# shell timeout control flow is covered by the project rule, not by Clippy.
+[lints.rust]
+unused_must_use = "warn"
+
+[lints.clippy]
+let_underscore_future = "warn"
+let_underscore_must_use = "warn"
+await_holding_lock = "warn"

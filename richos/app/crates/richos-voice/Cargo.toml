@@ -80,3 +80,6 @@ path = "examples/aec_capture.rs"
 [[example]]
 name = "bargein_score"
 path = "examples/bargein_score.rs"
+
+[lints]
+workspace = true
