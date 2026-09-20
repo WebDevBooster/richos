@@ -87,7 +87,7 @@ class LocalTests(unittest.TestCase):
 
         with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
-        self.assertEqual(len(seen), 4)
+        self.assertEqual(len(seen), 6)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
@@ -396,13 +396,26 @@ class LocalTests(unittest.TestCase):
 
     def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
         r, seen = self.gate_commands()
-        self.assertEqual(len(seen), 4)
+        self.assertEqual(len(seen), 6)
         self.assertEqual(r.skipped, {})
         self.assertEqual([name for name, _, _ in r.timings],
                          ["gates/core-tests", "gates/updater-tests",
-                          "gates/script-suites", "gates/privacy-sweep"])
+                          "gates/script-suites", m.UI_SUITE_GATE, "gates/privacy-sweep"])
+        # THE UI SUITE IS ONE SUBPROCESS, not a fan-out written beside `command()`. If this
+        # ever counts more than one `run.js`, the shards have been hoisted back into this
+        # file and every assertion in this class about a gate's argv and environment has
+        # quietly stopped covering four of the five gates.
+        ui = [argv for argv in seen if "run.js" in " ".join(argv)]
+        self.assertEqual(len(ui), 1, seen)
+        self.assertIn(f"--shards={m.UI_SHARDS}", ui[0])
+        # THE SUITE WRITES TO ITS OWN CHECKOUT (lib/harness.js:publishShot rewrites a
+        # committed screenshot whose picture changed), and `checkout()` refuses a dirty
+        # worktree on the NEXT build. So the gate asks git what moved. Losing this call
+        # would not fail anything today; it would refuse to start tomorrow.
+        self.assertTrue([argv for argv in seen if argv[:3] == ["git", "status", "--porcelain"]],
+                        seen)
 
-    def test_the_land_proven_gate_is_the_only_one_the_flag_drops(self):
+    def test_the_flag_drops_only_what_a_land_proved_and_the_ui_suite_needs_a_proof(self):
         """`--checks-done-at-land` may drop what a land ran and NOTHING else.
 
         The land runs `cargo test -p richos-core`, `cargo test --bin richos-tauri` and the
@@ -410,9 +423,14 @@ class LocalTests(unittest.TestCase):
         updater crate, the fourteen script suites or the privacy sweep, so those stay on
         the candidate path no matter what the flag says. A flag that grew to cover them
         would be trading a gate for time nobody measured.
+
+        THE TWO SKIPS ARE NOT THE SAME STRENGTH, and that asymmetry is the case below. The
+        core tests go on the sha alone, because the land ALWAYS runs them. The UI suite
+        additionally needs the coverage proof its own run writes, because "the land ran it"
+        is a claim about something that may not have happened -- and the safe direction for
+        a missing file to fail in is "run the suite anyway", which is what this asserts.
         """
         r, seen = self.gate_commands("a" * 40)
-        self.assertEqual(len(seen), 3)
         joined = [" ".join(argv) for argv in seen]
         self.assertFalse([c for c in joined if "-p richos-core" in c], joined)
         self.assertTrue([c for c in joined if "richos-user-update" in c], joined)
@@ -420,6 +438,55 @@ class LocalTests(unittest.TestCase):
         self.assertTrue([c for c in joined if "named-persons.sh" in c], joined)
         self.assertIn(m.LAND_PROVEN_GATE, r.skipped)
         self.assertIn("a" * 40, r.skipped[m.LAND_PROVEN_GATE])
+        # NO PROOF ON THIS MACHINE: the UI suite runs, and is NOT recorded as skipped.
+        self.assertEqual(len(seen), 5)
+        self.assertTrue([c for c in joined if "run.js" in c], joined)
+        self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
+
+    def test_a_ui_coverage_proof_for_this_sha_drops_the_ui_suite_and_a_wrong_one_refuses(self):
+        """The proof is read the way every other proof in this file is: by its commit.
+
+        A file named after the right sha whose CONTENTS name a different tree is the most
+        useful lie available here -- it would buy 378 s by certifying a run over something
+        else -- so both are checked, and disagreement raises rather than silently running
+        the suite.
+        """
+        sha = "a" * 40
+        r = m.Runner(self.root, self.root / "state",
+                     {"PATH": "/usr/bin", "RICHOS_NAMED_PERSONS_FILE": "/fixture/list"},
+                     io.StringIO())
+        proof_path = r.ui_proof_path(sha)
+        proof_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # No file at all: nothing is accepted and nothing is raised.
+        self.assertIsNone(r.accept_ui_proof(sha))
+
+        proof_path.write_text(json.dumps(
+            {"proof": "ui-suite-coverage", "commit": sha, "ran": 55, "checks": 863,
+             "at": "2026-09-20T00:00:00Z"}))
+        self.assertEqual(r.accept_ui_proof(sha)["ran"], 55)
+
+        seen = []
+
+        def record(args, **kwargs):
+            seen.append([str(a) for a in args])
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with patch.object(m.subprocess, "run", side_effect=record), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.gates(sha)
+        self.assertFalse([c for c in seen if "run.js" in " ".join(c)], seen)
+        self.assertIn(m.UI_SUITE_GATE, r.skipped)
+
+        # A proof whose contents name a different tree proves nothing about this one.
+        proof_path.write_text(json.dumps(
+            {"proof": "ui-suite-coverage", "commit": "b" * 40, "ran": 55, "checks": 863}))
+        with self.assertRaises(ValueError):
+            r.accept_ui_proof(sha)
+
+        # And a file that is not a coverage proof at all is not one.
+        proof_path.write_text(json.dumps({"proof": "gui-boot", "commit": sha}))
+        self.assertIsNone(r.accept_ui_proof(sha))
 
     def test_a_sha_that_is_not_this_runs_source_is_refused(self):
         """The whole safety of the flag is this comparison.
@@ -454,6 +521,11 @@ class LocalTests(unittest.TestCase):
         r.checkout = Mock(return_value="4f2d57c9f9519409427b86c7502b9a7588216bf1")
         r.command = Mock(side_effect=lambda *a, **k: self.write_candidate(
             Path(a[a.index("--out") + 1])))
+        # `checks_skipped` is now read off the runner's OWN record of its skips rather than
+        # being a literal, so the stand-in for gates() has to record one. That is the point
+        # of the change: the plan cannot claim a skip that did not happen, or miss one that
+        # did, the next time a gate becomes skippable.
+        r.gates.side_effect = lambda *a, **k: r.skip(m.LAND_PROVEN_GATE, "fixture skip")
         with contextlib.redirect_stdout(io.StringIO()):
             r.perform("build", checks_done_at_land="4f2d57c9")
         recorded = json.loads(plan_path.read_text())
@@ -705,7 +777,7 @@ class LocalTests(unittest.TestCase):
         r.state.mkdir(parents=True, exist_ok=True)
         (r.state / m.SUITE_RESULTS).write_text(json.dumps(
             {"jobs": 3, "suites": [{"name": "gui-boot.test.sh", "state": "not-run"}]}))
-        r.command = Mock()
+        r.command = Mock(return_value="")
         with contextlib.redirect_stdout(io.StringIO()):
             report = r.gates(no_host_screen=True, skip_unchanged=True)
         argvs = [" ".join(str(a) for a in call.args) for call in r.command.call_args_list]
