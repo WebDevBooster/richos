@@ -43,7 +43,7 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QA="$DIR/qa"
 FIX="$QA/fixtures"
-TMP="$(mktemp -d -t qa-toolkit-test.XXXXXX)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/qa-toolkit-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 PASS=0; FAIL=0; SKIP=0
@@ -431,6 +431,9 @@ else
 fi
 
 echo ""
+run python3 "$QA/ocr-cache.test.py"
+expect "OCR cache invalidation, reader failure, fresh control and multi-pattern timeline" 0 "OK"
+
 echo "=== X. the fixtures are still the fixtures ==="
 
 if [ "$HAVE_PIL" = 0 ]; then

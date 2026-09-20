@@ -446,11 +446,11 @@ t "keychain: every security call is bounded, because an unbounded one HANGS"
   # MEASURED 2026-09-20: against a home with no keychain, `security` raises
   # SecurityAgent's Keychain Not Found dialog inside the guest and waits for a
   # click nothing can give it. The first version of check hung for over ten
-  # minutes on that case. macOS ships no timeout(1); perl's alarm is the bound.
+  # minutes on that case. The supervisor must terminate the whole owned group.
   log="$(cat "$TMP/log.kc")"
   security_calls="$(printf '%s\n' "$log" | grep -c "security ")"
-  bounded_calls="$(printf '%s\n' "$log" | grep "security " | grep -c "alarm shift")"
-  eq "$bounded_calls" "$security_calls" "every security call must carry the alarm"
+  bounded_calls="$(printf '%s\n' "$log" | grep "security " | grep -c "start_new_session=True")"
+  eq "$bounded_calls" "$security_calls" "every security call must carry the process-group supervisor"
   [ "$security_calls" -ge 6 ]; ok $? "and there must be some to bound ($security_calls found)"
 t_done
 
@@ -981,7 +981,7 @@ t "ax tree: a FUSED geometry token is refused, not printed as a plausible number
 t_done
 
 t "ax tree: a walk that hit its node cap says so — an incomplete tree is not a tree"
-  out="$(axrun "$TMP/ax-truncated.ndjson" tree)"; ok $?
+  out="$(axrun "$TMP/ax-truncated.ndjson" tree)"; no $? "incomplete traversal must not claim success"
   has "$(cat "$TMP/ax.err")" "hit its node cap"
 t_done
 
@@ -998,13 +998,13 @@ t "ax tree: --app names the process to read, and the parameters travel on STDIN"
   has "$sent" '"mode": "tree"'
   has "$sent" '"depth": 18'
   # ...and NOT in the command line the guest was handed.
-  hasnt "$(cat "$TMP/ax.log")" "Safari"
+  hasnt "$(cat "$TMP/ax.log")" '"app": "Safari"'
   has   "$(cat "$TMP/ax.log")" "osascript -l JavaScript -"
 t_done
 
 t "ax: the read carries a deadline — a wedged app cannot hang the harness"
   axrun "$TMP/ax-tree.ndjson" tree >/dev/null
-  has "$(cat "$TMP/ax.log")" "alarm shift"
+  has "$(cat "$TMP/ax.log")" "start_new_session=True"
 t_done
 
 t "ax: what is sent to the guest is a VALID JavaScript program, parameters and all"
@@ -1257,6 +1257,28 @@ t "guest.sh: a guest with no recorded address refuses by name"
     >/dev/null 2>"$TMP/guest.err"
   no $?
   has "$(cat "$TMP/guest.err")" "no address for richos-test-nosuch"
+t_done
+
+t "AX search avoids history before first hit and keeps explicit matching semantics"
+  node "$HERE/ax-search.test.js" >"$TMP/search.log" 2>&1; ok $? "$(cat "$TMP/search.log")"
+t_done
+
+t "keychain: a GUI setting that did not take is a failed prerequisite"
+  out="$(STUB_KEYCHAIN_SETTINGS='lock-on-sleep timeout=300s' "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"
+  no $?; has "$out" "did not retain no-timeout"
+t_done
+
+t "keychain: no-timeout does not excuse a remaining lock-on-sleep flag"
+  out="$(STUB_KEYCHAIN_SETTINGS='lock-on-sleep no-timeout' "$TESTVM_DIR/keychain.sh" check richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"
+  no $?; has "$out" "lock-on-sleep"
+t_done
+
+t "walk fixtures, receipt prerequisites, event clocks and actual-key access boundaries"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/walk.test.py" >"$TMP/walk.log" 2>&1; ok $? "$(cat "$TMP/walk.log")"
+t_done
+
+t "scenario outcomes, turn budgets, held reservation and owned timeout cleanup"
+  python3 "$HERE/scenario.test.py" >"$TMP/scenario.log" 2>&1; ok $? "$(cat "$TMP/scenario.log")"
 t_done
 
 # ===========================================================================

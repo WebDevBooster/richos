@@ -62,6 +62,11 @@ class Walk:
     def strings(self,rows):return '\n'.join(str(row.get(k,'')) for row in rows for k in ('title','desc','value'))
     def settings(self):self.press('Settings')
     def phone_prerequisite(self,step,budget):
+        pid=(self.state/'app.pid').read_text().strip()
+        if not pid.isdigit():raise Failure('harness failure','recorded app PID is invalid')
+        code="import pathlib,plistlib,subprocess,sys; exe=subprocess.check_output(['ps','-p',sys.argv[1],'-o','comm='],text=True).strip(); print(plistlib.loads(pathlib.Path(exe.split('/Contents/MacOS/')[0]+'/Contents/Info.plist').read_bytes())['CFBundleShortVersionString'])"
+        actual=guest(self.vm,shlex.join(['python3','-c',code,pid]))
+        if actual!=self.a.current:raise Failure('prerequisite unavailable','running build '+actual+' differs from pinned '+self.a.current)
         try:command([HERE/'keychain.sh','check',self.vm,self.home],90)
         except Failure as exc:raise Failure('prerequisite unavailable',str(exc)) from exc
         self.optional_press('Not now')
