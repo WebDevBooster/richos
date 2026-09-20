@@ -29,6 +29,8 @@ class WalkTests(unittest.TestCase):
             rows.append({'event':'MessageAdded','text':'old'})
             ledger=data/'conversation-ledger.jsonl';ledger.write_text(''.join(json.dumps(x)+'\n' for x in rows));original=ledger.read_bytes()
             (source/'.claude').symlink_to('/nonexistent/credentials')
+            retired=source/'Library/Application Support/RichOS/engine.previous.fixture/runtime/bin'
+            retired.mkdir(parents=True);(retired/'node').symlink_to('../node/bin/node')
             delta=Path(tmp)/'delta';long=Path(tmp)/'long'
             fixture.prepare(source,delta,'delta');fixture.prepare(source,long,'long-history')
             self.assertEqual(ledger.read_bytes(),original)
@@ -36,6 +38,7 @@ class WalkTests(unittest.TestCase):
             cooked=[json.loads(x) for x in (delta/'Library/Application Support/com.richos.app/conversation-ledger.jsonl').read_text().splitlines()]
             self.assertEqual([r['title'] for r in cooked],['Scenario A','Scenario B'])
             self.assertFalse((delta/'.claude').exists())
+            self.assertFalse((delta/'Library/Application Support/RichOS/engine.previous.fixture').exists())
     def test_fixture_refuses_links_before_editing_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             source=Path(tmp)/'source';source.mkdir();outside=Path(tmp)/'original';outside.write_text('untouched')

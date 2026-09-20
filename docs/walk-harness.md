@@ -45,7 +45,8 @@ Use synthetic fixture homes. `fixture.py --source HOME --out NEW_HOME --kind del
 keeps two bound thread definitions named `Scenario A` and `Scenario B`, removes old
 turns, drafts and runtime journals, and retains entity/configuration data. The
 `long-history` kind preserves the conversation history for a separate AX benchmark.
-Both exclude copied keys, Claude credentials and installed update state. Inputs stay
+Both exclude copied keys, Claude credentials, installed update state and retired
+engine copies. The pinned engine is supplied separately to `run.sh`. Inputs stay
 unchanged; unexpected symbolic links are refused. The output `fixture.json` records
 the source and resulting ledger hashes. The caller owns deletion of these copies.
 

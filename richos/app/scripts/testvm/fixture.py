@@ -16,7 +16,11 @@ def prepare(source,dest,kind):
     excluded={Path('Library/Keychains'),Path('Applications'),Path('.claude'),Path('Library/Application Support/com.richos.app/phone')}
     def ignore(directory,names):
         relative=Path(directory).relative_to(source)
-        skipped=[name for name in names if relative/name in excluded]
+        # The pinned engine is supplied separately by run.sh. Retired installed
+        # runtimes contain legitimate symlinks and are not conversation history.
+        installed_engine=Path('Library/Application Support/RichOS')
+        skipped=[name for name in names if relative/name in excluded or
+                 (relative==installed_engine and (name=='engine' or name.startswith('engine.previous.')))]
         for name in names:
             if name not in skipped and (Path(directory)/name).is_symlink():
                 raise ValueError('fixture contains a link outside excluded install state: '+str(relative/name))
