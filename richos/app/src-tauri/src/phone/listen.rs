@@ -71,6 +71,8 @@ impl Listener {
     /// this file stands a REAL listener up on an ephemeral port so it can prove the handshake and
     /// the routes against a real TLS client, and a test that fought the shipped app for port 8443
     /// would be a test that fails when he has the app open.
+    /// Pass zero to let the OS assign a port while keeping the socket bound; `bound` reports
+    /// the assigned address so clients never need a bind-and-release port probe.
     /// **[`super::PhoneRuntime::start`] is the only production caller and it passes
     /// [`HTTPS_PORT`].**
     ///
@@ -95,7 +97,7 @@ impl Listener {
             let listener = StdTcpListener::bind(socket)
                 .map_err(|e| PhoneError::Io(format!("could not listen on {socket}: {e}")))?;
             listener.set_nonblocking(true)?;
-            bound.push(socket);
+            bound.push(listener.local_addr()?);
             https.push(listener);
         }
 
@@ -1145,15 +1147,6 @@ mod tests {
     /// origin the product hands out (CEO §61).
     const TEST_API_BASE: &str = "https://mm1.tail9a3b2.ts.net:8443";
 
-    /// An ephemeral port, taken by binding and releasing — so the test never fights the
-    /// shipped app for 8443. It was a PAIR until CEO §61 took the trust listener away.
-    fn free_port() -> u16 {
-        let a = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = a.local_addr().unwrap().port();
-        drop(a);
-        port
-    }
-
     /// **THE LIVE PROOF: this Mac, its real tailnet name, a publicly trusted certificate, and
     /// `curl` with no `-k` and no `--cacert`.**
     ///
@@ -1412,14 +1405,14 @@ mod tests {
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;
         let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
-        let https_port = free_port();
         let mut listener = Listener::start(
             Arc::clone(&channel),
             tls,
             &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
-            https_port,
+            0,
         )
         .expect("the listener did not start");
+        let https_port = listener.bound[0].port();
 
         // --- the phone -----------------------------------------------------------------------
         let client = TlsClient::new(&ca.ca_der, https_port, &names.bonjour);
@@ -1718,14 +1711,14 @@ mod tests {
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;
         let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
-        let https_port = free_port();
         let mut listener = Listener::start(
             Arc::clone(&channel),
             tls,
             &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
-            https_port,
+            0,
         )
         .expect("the listener did not start");
+        let https_port = listener.bound[0].port();
 
         // --- the phone pairs ----------------------------------------------------------------
         let client = TlsClient::new(&ca.ca_der, https_port, &names.bonjour);
@@ -2111,14 +2104,14 @@ mod tests {
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;
         let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
-        let https_port = free_port();
         let mut listener = Listener::start(
             Arc::clone(&channel),
             tls,
             &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
-            https_port,
+            0,
         )
         .unwrap();
+        let https_port = listener.bound[0].port();
 
         let base = format!("https://mm1.local:{https_port}");
         let resolve = format!("mm1.local:{https_port}:127.0.0.1");
@@ -2345,14 +2338,14 @@ mod tests {
         devices.open_pairing().unwrap();
         let code = devices.pairing_window().unwrap().code;
         let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
-        let https_port = free_port();
         let listener = Listener::start(
             Arc::clone(&channel),
             tls,
             &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
-            https_port,
+            0,
         )
         .expect("the listener did not start");
+        let https_port = listener.bound[0].port();
         assert!(hub.is_live(), "starting a listener did not put the hub live");
 
         // **THE OWNER HOLDS THE LISTENER AND NOTHING ELSE MAY.** `Listener::stop` joins the
