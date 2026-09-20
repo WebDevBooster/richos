@@ -95,6 +95,57 @@ case "$CMD" in
     exit 0 ;;
 esac
 
+# --- the claude binary, for claude-sync.sh ----------------------------------
+# The guest's copy is two facts and nothing else: its sha256 and what it says
+# when asked its version. Both are FILES under $STUB_GUEST_FS when a copy has
+# happened, so a test can drive the real cycle — measure, copy, MEASURE AGAIN —
+# rather than a single canned answer that would make the re-measure untestable.
+#   STUB_CLAUDE_SHA=<sha|"">   what the guest's binary hashes to before any copy
+#   STUB_CLAUDE_VERSION=<v>    what it answers to --version before any copy
+STUB_CLAUDE_STATE="${STUB_GUEST_FS:-/tmp}/claude-state"
+stub_claude_sha() {
+  if [ -f "$STUB_CLAUDE_STATE.sha" ]; then cat "$STUB_CLAUDE_STATE.sha"; return; fi
+  printf '%s' "${STUB_CLAUDE_SHA:-}"
+}
+stub_claude_version() {
+  if [ -f "$STUB_CLAUDE_STATE.version" ]; then cat "$STUB_CLAUDE_STATE.version"; return; fi
+  printf '%s' "${STUB_CLAUDE_VERSION:-}"
+}
+case "$CMD" in
+  *"shasum -a 256"*)
+    s="$(stub_claude_sha)"
+    [ -n "$s" ] || exit 1
+    printf '%s\n' "$s"
+    exit 0 ;;
+  *"--version"*)
+    v="$(stub_claude_version)"
+    [ -n "$v" ] || exit 1
+    printf '%s (Claude Code)\n' "$v"
+    exit 0 ;;
+esac
+
+# --- the claude login, for claude-login.sh ----------------------------------
+# `security -i` READS ITS COMMANDS FROM STDIN, which is the whole point of the
+# mechanism: the credential is never in a command line. The stub keeps what
+# arrived on stdin, separately from the command it was given, so a test can
+# assert both halves of that sentence — the value IS on stdin, and it is NOT in
+# the command string this guest was handed.
+#   STUB_SECURITY_STDIN=<path>      where to keep what arrived on stdin
+#   STUB_CLAUDE_LOGIN=present|absent  what a read-back finds
+case "$CMD" in
+  *"security -i"*)
+    cat > "${STUB_SECURITY_STDIN:-/dev/null}"
+    printf 'password has been added.\n'
+    exit 0 ;;
+  *"find-generic-password"*"Claude Code-credentials"*)
+    if [ "${STUB_CLAUDE_LOGIN:-absent}" = "present" ]; then
+      printf 'keychain: "login.keychain-db"\n    "acct"<blob>="admin"\n    "svce"<blob>="Claude Code-credentials"\n'
+      exit 0
+    fi
+    printf 'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.\n'
+    exit 44 ;;
+esac
+
 # --- the keychain, for keychain.sh ------------------------------------------
 # STUB_KEYCHAIN=present|absent — whether a login keychain file is at the path
 # `keychain.sh` was given. `absent` is Ray's fixture on .8, and the case where

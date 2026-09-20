@@ -612,6 +612,224 @@ t "summary: the join's exit status survives set -e, so the refusal block is reac
   no $? "the plain form must die under set -e — that is the whole reason for the compound one"
 t_done
 
+
+# ===========================================================================
+# claude-sync.sh — the guest runs the binary this Mac runs, at EVERY run
+# ===========================================================================
+# The defect these are about is not a crash: it is a harness that keeps
+# working while quietly testing last week's `claude`. So every one of these
+# asserts a COMPARISON and what was printed, never an exit code alone.
+
+# A fake host binary: a shell script that answers --version like the real one.
+# Its sha256 is a real sha256 of a real file, which is what the sync compares.
+make_host_claude() {  # make_host_claude <version>
+  mkdir -p "$TMP/hostbin"
+  printf '#!/bin/sh\necho "%s (Claude Code)"\n' "$1" > "$TMP/hostbin/claude"
+  chmod 755 "$TMP/hostbin/claude"
+}
+# The copy, stubbed: it records that it was called and moves the guest's state
+# to the copied file's sha and version, so the re-measure after a copy is the
+# real thing rather than a canned answer.
+cat > "$TMP/guest-put.sh" <<'PUT'
+#!/usr/bin/env bash
+printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "${PUT_LOG:-/dev/null}"
+[ -n "${PUT_REFUSES:-}" ] && exit 1
+shasum -a 256 "$2" | awk '{print $1}' > "$STUB_GUEST_FS/claude-state.sha"
+"$2" --version 2>/dev/null | awk '{print $1}' > "$STUB_GUEST_FS/claude-state.version"
+exit 0
+PUT
+chmod 755 "$TMP/guest-put.sh"
+sync_env() {  # the fixed half of every claude-sync invocation
+  printf '%s\n' \
+    "TESTVM_HOST_CLAUDE=$TMP/hostbin/claude" \
+    "TESTVM_GUEST_PUT=$TMP/guest-put.sh"
+}
+reset_guest_claude() { rm -f "$STUB_GUEST_FS/claude-state.sha" "$STUB_GUEST_FS/claude-state.version"; }
+
+t "claude verdict: identical bytes and equal versions is the only in-sync there is"
+  eq "$(claude_sync_verdict abc abc 2.1.277 2.1.277)" "in-sync"
+t_done
+
+t "claude verdict: different bytes means copy, whatever the versions say"
+  eq "$(claude_sync_verdict abc def 2.1.277 2.1.277)" "copy"
+  eq "$(claude_sync_verdict abc "" "" "")" "copy"
+t_done
+
+t "claude verdict: same bytes but a version that cannot be read is REFUSED, not assumed"
+  # A guest binary that will not answer --version cannot serve a model turn
+  # either. Assuming the host's version here is exactly the lie this file exists
+  # to stop being told.
+  eq "$(claude_sync_verdict abc abc 2.1.277 "")" "refuse"
+  eq "$(claude_sync_verdict abc abc "" "")" "refuse"
+t_done
+
+t "claude verdict: no host binary is a refusal, never an in-sync by coincidence"
+  eq "$(claude_sync_verdict "" "" "" "")" "refuse"
+t_done
+
+t "claude line: always the same shape, and says unknown rather than nothing"
+  eq "$(claude_version_line 2.1.277 2.1.277)" "claude: host 2.1.277 guest 2.1.277"
+  eq "$(claude_version_line 2.1.277 "")"      "claude: host 2.1.277 guest unknown"
+t_done
+
+t "claude sync: a guest already holding the same binary copies NOTHING"
+  make_host_claude 2.1.277
+  reset_guest_claude
+  HSHA="$(shasum -a 256 "$TMP/hostbin/claude" | awk '{print $1}')"
+  out="$(env $(sync_env) PUT_LOG="$TMP/put.none" STUB_CLAUDE_SHA="$HSHA" STUB_CLAUDE_VERSION=2.1.277 \
+         "$TESTVM_DIR/claude-sync.sh" richos-test-a 2>/dev/null)"; ok $? "in sync must succeed"
+  eq "$out" "claude: host 2.1.277 guest 2.1.277"
+  [ -s "$TMP/put.none" ]; no $? "nothing should have been copied"
+t_done
+
+t "claude sync: a STALE guest binary is replaced, and the new version is the one printed"
+  # This is the CEO's question in one test: the host updated, the guest did not,
+  # and the guest must not be left on the old build.
+  make_host_claude 2.1.277
+  reset_guest_claude
+  out="$(env $(sync_env) PUT_LOG="$TMP/put.stale" STUB_CLAUDE_SHA=deadbeef STUB_CLAUDE_VERSION=2.1.274 \
+         "$TESTVM_DIR/claude-sync.sh" richos-test-a 2>/dev/null)"; ok $? "a copy that lands must succeed"
+  eq "$out" "claude: host 2.1.277 guest 2.1.277"
+  # The RESOLVED host path, which is the point: ~/.local/bin/claude is a symlink
+  # into ~/.local/share/claude/versions/<v> and it is the target that gets copied.
+  has "$(cat "$TMP/put.stale")" "hostbin/claude"
+  has "$(cat "$TMP/put.stale")" ".local/bin/claude.new"
+t_done
+
+t "claude sync: a guest with NO claude gets one"
+  make_host_claude 2.1.277
+  reset_guest_claude
+  out="$(env $(sync_env) PUT_LOG="$TMP/put.empty" STUB_CLAUDE_SHA="" STUB_CLAUDE_VERSION="" \
+         "$TESTVM_DIR/claude-sync.sh" richos-test-a 2>/dev/null)"; ok $?
+  eq "$out" "claude: host 2.1.277 guest 2.1.277"
+t_done
+
+t "claude sync: a copy that does not take is a REFUSAL that names both versions"
+  make_host_claude 2.1.277
+  reset_guest_claude
+  out="$(env $(sync_env) PUT_LOG="$TMP/put.fail" PUT_REFUSES=1 \
+         STUB_CLAUDE_SHA=deadbeef STUB_CLAUDE_VERSION=2.1.274 \
+         "$TESTVM_DIR/claude-sync.sh" richos-test-a 2>"$TMP/sync.err")"; no $? "a failed copy must not exit 0"
+  eq "$out" "claude: host 2.1.277 guest 2.1.274"
+  has "$(cat "$TMP/sync.err")" "REFUSED"
+t_done
+
+t "claude sync: no host binary refuses BEFORE it touches the guest"
+  out="$(env TESTVM_HOST_CLAUDE="$TMP/hostbin/not-installed" STUB_LOG="$TMP/log.nohost" \
+         "$TESTVM_DIR/claude-sync.sh" richos-test-a 2>"$TMP/nohost.err")"; no $?
+  has "$(cat "$TMP/nohost.err")" "no claude binary on this host"
+  [ -s "$TMP/log.nohost" ]; no $? "the guest must not have been asked anything"
+t_done
+
+t "claude sync: --check reports and copies nothing, whatever it finds"
+  make_host_claude 2.1.277
+  reset_guest_claude
+  out="$(env $(sync_env) PUT_LOG="$TMP/put.check" STUB_CLAUDE_SHA=deadbeef STUB_CLAUDE_VERSION=2.1.274 \
+         "$TESTVM_DIR/claude-sync.sh" --check richos-test-a 2>/dev/null)"; no $? "out of sync must be non-zero"
+  eq "$out" "claude: host 2.1.277 guest 2.1.274"
+  [ -s "$TMP/put.check" ]; no $? "--check must copy nothing"
+t_done
+
+t "claude sync: the auto-updater pin is the ENV VAR, because the config key is ignored for a native install"
+  # Read out of the 2.1.277 binary: `autoUpdates:false` is skipped when
+  # installMethod==="native" && autoUpdatesProtectedForNative===true — which the
+  # native updater sets ITSELF. A config pin would look set and do nothing.
+  eq "$TESTVM_CLAUDE_PIN_VAR" "DISABLE_AUTOUPDATER"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" '--env $TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE'
+t_done
+
+t "claude sync: run.sh prints both versions at EVERY run, and refuses when they differ"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" 'CLAUDE_RC=0 || CLAUDE_RC=$?'
+  has "$src" 'echo "$CLAUDE_LINE"'
+  has "$src" "IS NOT RUNNING THE CLAUDE BINARY THIS MAC RUNS"
+t_done
+
+# ===========================================================================
+# claude-login.sh — the guest is signed in as this Mac is, and the value is
+#                   only ever on a pipe
+# ===========================================================================
+# A `security` for the HOST side that is not the CEO's. The tests never read,
+# and never could read, his real keychain item.
+FAKE_CRED='{"claudeAiOauth":{"accessToken":"not-a-real-token-0123456789","refreshToken":"also-not-real-9876543210"}}'
+cat > "$TMP/host-security.sh" <<PLACEHOLDER
+#!/usr/bin/env bash
+# find-generic-password [-s svc] [-a acct] [-w]
+WANT_W=0
+for a in "\$@"; do [ "\$a" = "-w" ] && WANT_W=1; done
+[ -n "\${HOST_SECURITY_LOGGED_OUT:-}" ] && exit 44
+[ "\$WANT_W" -eq 1 ] && printf '%s\n' '$FAKE_CRED'
+exit 0
+PLACEHOLDER
+chmod 755 "$TMP/host-security.sh"
+login_env() {
+  printf '%s\n' "TESTVM_HOST_SECURITY=$TMP/host-security.sh"
+}
+
+t "claude login: the host being signed out is a refusal that names the one action"
+  err="$(env $(login_env) HOST_SECURITY_LOGGED_OUT=1 "$TESTVM_DIR/claude-login.sh" host-check 2>&1)"; no $?
+  has "$err" "/login on the host first"
+t_done
+
+t "claude login: a signed-in host passes host-check without reading the value"
+  env $(login_env) "$TESTVM_DIR/claude-login.sh" host-check >/dev/null 2>&1; ok $?
+t_done
+
+t "claude login: the credential reaches the guest ON STDIN, and is in no command line"
+  # THE WHOLE POINT OF THE FILE. The stub records the command string it was
+  # handed separately from what arrived on stdin, so both halves are asserted:
+  # the value IS in the pipe, and it is NOT in anything a process table or a log
+  # would show.
+  : > "$TMP/login.log"
+  out="$(env $(login_env) STUB_LOG="$TMP/login.log" STUB_SECURITY_STDIN="$TMP/login.stdin" \
+         STUB_CLAUDE_LOGIN=present \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>/dev/null)"
+  ok $? "a present readback must report logged in"
+  eq "$out" "claude login: guest logged in"
+  HEXCRED="$(printf '%s' "$FAKE_CRED" | xxd -p | tr -d '\n')"
+  has   "$(cat "$TMP/login.stdin")" "$HEXCRED"
+  hasnt "$(cat "$TMP/login.log")"   "$HEXCRED"
+  hasnt "$(cat "$TMP/login.log")"   "not-a-real-token"
+  hasnt "$out" "not-a-real-token"
+t_done
+
+t "claude login: the item is written under BOTH names the guest could look up"
+  # `run.sh` launches the app WITH CLAUDE_CONFIG_DIR, which makes claude scope
+  # the keychain service name by a hash of that directory; a `claude` started by
+  # hand over ssh has no such variable and asks for the bare name.
+  payload="$(cat "$TMP/login.stdin")"
+  has "$payload" '-s "Claude Code-credentials"'
+  scoped="Claude Code-credentials-$(printf '%s' "/Users/admin/testvm/richos-test-a/home/.claude" | shasum -a 256 | awk '{print substr($1,1,8)}')"
+  has "$payload" "-s \"$scoped\""
+  has "$payload" '-a "admin"'
+  hasnt "$payload" '-a "alex"'
+t_done
+
+t "claude login: a read-back that finds nothing says NOT logged in and does not pretend"
+  out="$(env $(login_env) STUB_LOG=/dev/null STUB_SECURITY_STDIN="$TMP/login.stdin2" \
+         STUB_CLAUDE_LOGIN=absent \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>/dev/null)"
+  no $? "an absent item must not exit 0"
+  eq "$out" "claude login: guest NOT logged in"
+t_done
+
+t "claude login: a home that is not the guest's is refused before anything is read"
+  err="$(env $(login_env) "$TESTVM_DIR/claude-login.sh" push richos-test-a "$HOME" 2>&1)"; no $?
+  has "$err" "not under the guest user's home"
+t_done
+
+t "claude login: run.sh copies the login in after the keychain exists, and prints the line"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" 'claude-login.sh" push "$VM" "$GUEST_HOME"'
+  has "$src" 'echo "$CLAUDE_LOGIN_LINE"'
+  has "$src" 'host-check'
+  # order: the keychain is prepared BEFORE the login is pushed into it
+  kc="$(printf '%s\n' "$src" | grep -n 'keychain.sh" prepare' | head -1 | cut -d: -f1)"
+  lg="$(printf '%s\n' "$src" | grep -n 'claude-login.sh" push' | head -1 | cut -d: -f1)"
+  [ -n "$kc" ] && [ -n "$lg" ] && [ "$kc" -lt "$lg" ]; ok $? "keychain prepare must come first"
+t_done
+
 # ===========================================================================
 echo
 if [ "$FAIL" -eq 0 ]; then
