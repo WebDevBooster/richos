@@ -69,6 +69,7 @@ while True: time.sleep(1)
             rows = {'src.rs': {'language': 'rust', 'role': 'production'}}
             calls = []
             with patch('driver.rust.tauri_inputs', return_value='first') as inputs, \
+                 patch('driver.rust.lint_rules', return_value={'fixture': 'blocking'}), \
                  patch('driver.rust.collect', side_effect=lambda *a: (calls.append(a) or ({}, []))), \
                  patch('driver.enforce'), patch('driver.checked', return_value='revision'):
                 driver.tauri(root, args, rows, {}, {})
