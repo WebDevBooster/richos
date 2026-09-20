@@ -95,6 +95,29 @@ case "$CMD" in
     exit 0 ;;
 esac
 
+# --- the keychain, for keychain.sh ------------------------------------------
+# STUB_KEYCHAIN=present|absent — whether a login keychain file is at the path
+# `keychain.sh` was given. `absent` is Ray's fixture on .8, and the case where
+# the real `security` does not return an error but raises a dialog and waits.
+STUB_KEYCHAIN="${STUB_KEYCHAIN:-present}"
+case "$CMD" in
+  *"test -f "*)
+    [ "$STUB_KEYCHAIN" = "present" ] && exit 0
+    exit 1 ;;
+  *"create-keychain"*)
+    [ "$STUB_KEYCHAIN" = "present" ] && { echo "security: SecKeychainCreate: A keychain with the same name already exists."; exit 1; }
+    exit 0 ;;
+  *"find-generic-password"*)
+    # The probe reads back what the add wrote. A stub guest is always unlocked;
+    # what the tests here are about is WHICH CALLS ARE MADE and in what shape.
+    echo "probe"; exit 0 ;;
+  *"default-keychain -d user -s"*) exit 0 ;;
+  *"default-keychain -d user"*)
+    printf '    "%s"\n' "$(printf '%s' "$CMD" | sed -n "s|.*HOME='\([^']*\)'.*|\1|p")/Library/Keychains/login.keychain-db"
+    exit 0 ;;
+  *"list-keychains"*|*"set-keychain-settings"*|*"unlock-keychain"*) exit 0 ;;
+esac
+
 case "$CMD" in
   *"tailscale up"*)
     case "$STUB_MODE" in

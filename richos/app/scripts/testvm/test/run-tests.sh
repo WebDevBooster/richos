@@ -406,6 +406,92 @@ t "join: no certificate means a loud warning — the app would refuse to pair"
 t_done
 
 # ===========================================================================
+# keychain.sh — the fixture's login keychain (Ray .7 defect 4, .8 defect 5)
+# ===========================================================================
+GUEST_HOME_UNDER_TEST="/Users/$TESTVM_GUEST_USER/testvm/richos-test-a/home"
+
+t "keychain: a path outside the guest's home is REFUSED, never sanitized"
+  # THE ONE THING THIS FILE MUST NEVER DO. `.7` defect 4 was the fixture's
+  # Library/Keychains symlinked at the CEO's real keychain directory. A check
+  # that tried to normalize a host path into a guest one would be a check that
+  # sometimes guesses; this one refuses and says which prefix it wanted.
+  : > "$TMP/log.kcbad"
+  for bad in "$HOME/Library/Keychains" "/Users/alex/testvm/x/home" "../../../etc" ""; do
+    out="$(env STUB_LOG="$TMP/log.kcbad" "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$bad" 2>&1)"
+    no $? "must refuse: $bad"
+  done
+  eq "$(wc -l < "$TMP/log.kcbad" | tr -d ' ')" "0" "a refused path must not reach the guest at all"
+t_done
+
+t "keychain: prepare issues the search list, the default, the no-timeout setting and BOTH unlocks"
+  : > "$TMP/log.kc"
+  env STUB_LOG="$TMP/log.kc" "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$GUEST_HOME_UNDER_TEST" >/dev/null 2>&1
+  log="$(cat "$TMP/log.kc")"
+  has "$log" "security create-keychain"
+  has "$log" "security list-keychains -d user -s"          # or `security` finds nothing
+  has "$log" "security default-keychain -d user -s"        # or the app's default is nothing
+  has "$log" "security set-keychain-settings"              # the 300s default would re-lock mid-walk
+  hasnt "$log" "set-keychain-settings -t"                  # a timeout is the thing being removed
+  has "$log" "launchctl asuser"                            # THE unlock that is load-bearing
+  eq "$(printf '%s\n' "$log" | grep -c "unlock-keychain")" "2" "both sessions, ssh and the app's"
+t_done
+
+t "keychain: every path it touches is under the guest's payload home"
+  log="$(cat "$TMP/log.kc")"
+  eq "$(printf '%s\n' "$log" | grep -c "/Users/alex/")" "0" "no host path may appear in any guest command"
+  has "$log" "$GUEST_HOME_UNDER_TEST/Library/Keychains/login.keychain-db"
+t_done
+
+t "keychain: every security call is bounded, because an unbounded one HANGS"
+  # MEASURED 2026-09-20: against a home with no keychain, `security` raises
+  # SecurityAgent's Keychain Not Found dialog inside the guest and waits for a
+  # click nothing can give it. The first version of check hung for over ten
+  # minutes on that case. macOS ships no timeout(1); perl's alarm is the bound.
+  log="$(cat "$TMP/log.kc")"
+  security_calls="$(printf '%s\n' "$log" | grep -c "security ")"
+  bounded_calls="$(printf '%s\n' "$log" | grep "security " | grep -c "alarm shift")"
+  eq "$bounded_calls" "$security_calls" "every security call must carry the alarm"
+  [ "$security_calls" -ge 6 ]; ok $? "and there must be some to bound ($security_calls found)"
+t_done
+
+t "keychain: a missing keychain is answered WITHOUT calling security at all"
+  # The anti-hang guarantee, as a fact rather than a bound: the case that hangs
+  # never reaches the command that hangs.
+  : > "$TMP/log.kcabsent"
+  out="$(env STUB_LOG="$TMP/log.kcabsent" STUB_KEYCHAIN=absent \
+             "$TESTVM_DIR/keychain.sh" check richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"; no $?
+  has "$out" "no keychain at that path"
+  has "$out" "Keychain Not Found"
+  eq "$(grep -c "generic-password" "$TMP/log.kcabsent" | tr -d ' ')" "0" \
+     "the probe that hangs must not be issued"
+t_done
+
+t "keychain: check answers for the APP's session, not the ssh one"
+  # The measurement that decided the design, reproduced here as a contract: the
+  # answer that matters is the one from the session `open -n -a` launches into.
+  # In a real guest (2026-09-20, zach-kc3) an ssh-only unlock gave
+  # gui-session=UNUSABLE while the file existed and was the default — exactly
+  # what Ray saw as "it then prompted for its password twice more".
+  : > "$TMP/log.kccheck"
+  out="$(env STUB_LOG="$TMP/log.kccheck" "$TESTVM_DIR/keychain.sh" check richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"; ok $?
+  has "$out" "gui-session=usable"
+  has "$(printf '%s\n' "$(grep "generic-password" "$TMP/log.kccheck" | head -1)")" "launchctl asuser"
+t_done
+
+t "keychain: run.sh prepares it after the fixture home lands and before the app launches"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" "keychain.sh"
+  # The ordering, read off the file: the home is copied, the keychain is made,
+  # THEN the app is launched with the same HOME. Any other order prepares a
+  # keychain the app will never look at.
+  home_in="$(printf '%s\n' "$src" | grep -n "copying the fixture home in" | head -1 | cut -d: -f1)"
+  kc_at="$(printf '%s\n' "$src" | grep -n 'keychain.sh" prepare' | head -1 | cut -d: -f1)"
+  launch="$(printf '%s\n' "$src" | grep -n "launching the app in the guest" | head -1 | cut -d: -f1)"
+  [ "$home_in" -lt "$kc_at" ] && [ "$kc_at" -lt "$launch" ]
+  ok $? "order must be: fixture home ($home_in) -> keychain ($kc_at) -> launch ($launch)"
+t_done
+
+# ===========================================================================
 # logout — §54 at the tailnet
 # ===========================================================================
 t "logout: it signs the guest out and then CHECKS that it is signed out"

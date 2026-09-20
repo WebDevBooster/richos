@@ -27,6 +27,7 @@ cd <repo>/richos/app/scripts/testvm
 ./ax.sh      <vm> '<applescript>' | --focused | --windows | --key <code>
 ./stop.sh    <vm>
 ./tailnet.sh join|name|logout|nodes|doctor [<vm>]
+./keychain.sh prepare|check <vm> <guest-home-path>
 ./test/run-tests.sh
 ```
 
@@ -38,8 +39,12 @@ vm=richos-test-1 ip=192.168.64.4 pid=717 ssh=admin@192.168.64.4 windows=1 elapse
 tailnet=richos-test-1.tail770f6e.ts.net
 ```
 
-The `tailnet=` line is either the guest's own name on the tailnet or `not-joined`, and
-it is what makes the **phone path** testable in here — see *The phone path in a VM*.
+The `tailnet=` line is the guest's own name on the tailnet, and it is what makes the
+**phone path** testable in here — see *The phone path in a VM*. **Since 2026-09-20 there
+is no `tailnet=not-joined` on a successful run**: a join that was asked for and did not
+happen stops `run.sh` with a `REFUSED` block naming the cause, because two nightlies
+were walked against guests that could not serve a pairing code. `--no-tailnet` is how to
+say the proof is not about the phone.
 
 **Measured, 2026-09-19.** First VM: `run.sh` to a window on screen in **100 s**
 (guest boot 11 s, bundle copy 7 s, 1.8 GB fixture home 58 s, launch 3 s). Second VM
@@ -198,6 +203,81 @@ deliberately, so the private key never touches a disk. What the guest needs is a
 a daemon that answers the app's user. Measured in a guest: the Homebrew install is
 `/opt/homebrew/bin/tailscale`, which is candidate 3 and a symlink `is_file()` follows.
 
+### It waits for `tailscaled`, and a join that fails STOPS the run
+
+**Both halves are fixes for the same defect, raised by Ray on `.7`, again on `.8`
+(defect 3) and reproduced by Echo on `.9`.** `run.sh` joined as soon as ssh answered —
+about nine to eleven seconds after the guest reported an IP — and Homebrew's launch
+daemon was not up yet:
+
+```
+failed to connect to local tailscaled … /var/run/tailscaled.socket: no such file or directory
+tailnet=not-joined
+```
+
+The run then carried on. *"A tester who misses that line walks the whole path against a
+Mac that cannot serve."*
+
+* **The wait is on a fact, not a clock.** `tailnet.sh join` polls `tailscale status
+  --json` until the daemon produces a `BackendState` — which is exactly the capability
+  `tailscale up` needs one line later. Bounded by `TESTVM_DAEMON_POLLS` ×
+  `TESTVM_DAEMON_POLL_SECONDS` (60 × 1 s). Measured in a real guest 2026-09-20: the
+  daemon answered on the **second** read, so the race is live and this is what catches
+  it. A fixed sleep could not: Ray's guest was ready 4 s after the failed join, Echo's
+  took 37 s.
+* **A failed join is now a refusal.** `run.sh` prints a `REFUSED` block naming the cause
+  in one line, the guest's own `tailnet.sh doctor` output taken while there is still a
+  guest to ask, and then **exits 1** and deletes the clone it created. A guest that was
+  already running when you called `run.sh` is left alone and named.
+
+If the proof has nothing to do with the phone, say so and it costs nothing:
+
+```sh
+./run.sh --bundle <bundle> --home <home> --vm <name> --no-tailnet
+```
+
+### The fixture's login keychain
+
+**Ray, `.7` defect 4 and `.8` defect 5.** The fixture home's `Library/Keychains` used to
+be a symlink to the CEO's real keychain directory. That was removed, and what replaced it
+is an **empty directory** — which is not a keychain. `Set my phone up` then raises
+`Keychain Not Found`, and `.8` defect 2 measured **120 seconds of "Getting this Mac
+ready…"** with that dialog sitting behind the sheet.
+
+`run.sh` step 3b now makes one, in the guest, in **this run's** fixture home, after the
+home is copied in and before the app launches:
+
+```sh
+./keychain.sh prepare <vm> /Users/admin/testvm/<vm>/home    # run.sh does this for you
+./keychain.sh check   <vm> /Users/admin/testvm/<vm>/home    # if you want to ask again
+```
+
+**The unlock has to happen in the app's own session, and that is measured rather than
+assumed.** Keychain lock state is held by `securityd`, and an ssh login is its own
+security session — not the Aqua session `open -n -a` launches the app into. Three fixture
+homes in one guest, 2026-09-20 (`zach-kc3`):
+
+| what was done | what the app's session sees |
+|---|---|
+| nothing — the fixture as Ray met it | `UNUSABLE (no keychain at that path)` |
+| `create-keychain` + unlock **over ssh** — the documented workaround, applied literally | `UNUSABLE (no answer within 20s)` — the file is there and is the default, and the app still gets the password dialog |
+| the same, plus an unlock through `launchctl asuser` | **`usable`** |
+
+So the middle row is Ray's *"it then prompted for its password twice more, once per
+pairing"*. `keychain.sh` does both unlocks and reports `gui-session=` as the verdict; the
+`ssh-session=` line beside it is a different securityd session and is frequently
+`UNUSABLE` on a perfectly healthy guest.
+
+**Every `security` call in that script is bounded by a `perl` alarm, and that is not
+caution.** Against a home with no keychain, `security` does not return an error — it
+raises `SecurityAgent`'s dialog inside the guest and waits for a click nothing can give
+it. The first version of `check` hung for over ten minutes on exactly that case. macOS
+ships no `timeout(1)`. The missing-keychain case is now answered from `test -f`, without
+calling `security` at all.
+
+It is never the host's keychain: `prepare` refuses any path that is not under
+`/Users/<guest user>/`, rather than trying to normalize one.
+
 ### Reaching it
 
 ```sh
@@ -259,16 +339,25 @@ the tailnet still lists, because that is the one piece of garbage nothing here c
 ./test/run-tests.sh 'cert'     # only the tests whose names match
 ```
 
-41 tests, against a **stub guest**: `tailnet.sh` reaches its VM through one indirection,
-so pointing that at a script exercises every decision in the join without booting
-anything. They assert the things a screenshot cannot show — that the key never appears in
-a command line or in output, that a missing key refuses exactly one step without touching
-the guest, that the name is read back from the daemon, that `stop.sh`'s sign-out actually
-signs out.
+56 tests, against a **stub guest**: `tailnet.sh` and `keychain.sh` each reach their VM
+through one indirection, so pointing that at a script exercises every decision without
+booting anything. They assert the things a screenshot cannot show — that the key never
+appears in a command line or in output, that a missing key refuses exactly one step
+without touching the guest, that the name is read back from the daemon, that the join
+waits for the daemon and does not merely sleep, that no path `keychain.sh` touches is
+ever outside the guest, that `stop.sh`'s sign-out actually signs out.
 
 They found four real defects on their first run, including a certificate cache that
 could never hit (written under the daemon's FQDN, read under the short name) whose only
-symptom would have been a rate-limit refusal weeks later on somebody else's run.
+symptom would have been a rate-limit refusal weeks later on somebody else's run. The
+2026-09-20 additions found two more **in the changes being made**: an unbounded
+`security` call that would have hung, and a `VAR=$(cmd)` under `set -e` that would have
+killed `run.sh` silently at exactly the failure it was being taught to shout about.
+
+**A new test here is checked against the UNFIXED code before it is trusted.** The
+2026-09-20 batch was run with the new `test/` against pristine `049d8790`'s scripts:
+42 passed, 7 failed, and the seven were the seven that were new. A new test that passes
+against unfixed code is testing nothing.
 
 ---
 

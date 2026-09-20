@@ -171,6 +171,9 @@ fi
 
 # --- 3. stage the payload -----------------------------------------------------
 PAYLOAD="/Users/$TESTVM_GUEST_USER/testvm/$VM"
+# Named here rather than at the launch, because step 3b below prepares this
+# home's keychain and the launch must use the same path it was prepared for.
+GUEST_HOME="$PAYLOAD/home"
 guest_ssh "$VM" "rm -rf '$PAYLOAD' && mkdir -p '$PAYLOAD'"
 
 log "copying the bundle in..."
@@ -199,6 +202,32 @@ log "copying the fixture home in..."
 tar -C "$FIXTURE_HOME" -cf - . \
   | guest_ssh "$VM" "mkdir -p '$PAYLOAD/home' && tar -C '$PAYLOAD/home' -xf -"
 
+# --- 3b. a login keychain that exists and is unlocked -------------------------
+# AFTER the fixture home is in and BEFORE the app launches, because the keychain
+# belongs to this run's home and the app reads it on its first pairing.
+#
+# Ray, .8 defect 5: the fixture's `Library/Keychains` is a real EMPTY directory,
+# so `security` finds no keychain and `Set my phone up` raises `Keychain Not
+# Found` — and .8 defect 2 measured 120 s of "Getting this Mac ready…" behind
+# that dialog. On the CEO's Mac the login keychain exists and is unlocked at
+# login; this makes the guest match, in the guest, never with his.
+#
+# NOT fatal. A guest whose keychain could not be prepared still renders, still
+# screenshots, and still proves everything that is not a stored secret — but it
+# says so HERE rather than letting a tester discover it 120 seconds into a
+# pairing, which is the whole lesson of the tailnet line above.
+KEYCHAIN_STATE="$("$HERE/keychain.sh" prepare "$VM" "$GUEST_HOME" 2>&1)" && KEYCHAIN_RC=0 || KEYCHAIN_RC=$?
+printf '%s\n' "$KEYCHAIN_STATE" >&2
+if [ "$KEYCHAIN_RC" -ne 0 ]; then
+  cat >&2 <<EOF
+[testvm] WARNING: $VM has no usable login keychain in this run's fixture home.
+         'Set my phone up' will raise 'Keychain Not Found' and the sheet will
+         sit on "Getting this Mac ready..." for two minutes behind it (Ray .8,
+         defects 2 and 5). Everything that stores no secret still works.
+         Diagnose:  $HERE/keychain.sh check $VM $GUEST_HOME
+EOF
+fi
+
 if [ -n "$ENGINE" ] && [ -e "$ENGINE" ]; then
   log "copying the engine payload in..."
   scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" "$ENGINE" \
@@ -210,7 +239,8 @@ fi
 # RICHOS_ACTIVATION=regular asks for the front: Dock icon, key window, focus.
 # On the host that is an intrusion and needs a CEO ruling (§45). In here it is
 # free — the only screen it can take is the guest's.
-GUEST_HOME="$PAYLOAD/home"
+# GUEST_HOME is set at step 3, where the payload path is named, so the keychain
+# prepared at 3b and the HOME handed to the app below cannot drift apart.
 LOGFILE="$PAYLOAD/app.log"
 
 # `open -a` rather than executing the binary: a GUI app started directly from
