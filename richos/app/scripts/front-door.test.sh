@@ -189,6 +189,7 @@
 # macOS only.
 
 # run-tests: inputs richos/app/scripts/front-door.test.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/package-app.sh richos/app/src-tauri richos/app/crates richos/app/ui
+# run-tests: covers richos/app/ui/main.js richos/app/src-tauri/src/activation.rs
 set -uo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

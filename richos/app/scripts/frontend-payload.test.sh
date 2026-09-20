@@ -41,6 +41,7 @@
 #   P9  if a staged tree exists on this machine, it carries no excluded directory
 #   P10 ...and it carries the product: index.html reached the staged tree
 # run-tests: inputs richos/app/scripts/frontend-payload.test.sh richos/app/scripts/package-app.sh richos/app/src-tauri/build.rs richos/app/src-tauri/tauri.conf.json richos/app/ui
+# run-tests: covers richos/app/src-tauri/tauri.conf.json
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

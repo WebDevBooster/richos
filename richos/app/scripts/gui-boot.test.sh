@@ -175,6 +175,7 @@
 # so a suite that never adopts `host_gap_exit` cannot hide behind a declaration either.
 
 # run-tests: inputs richos/app/scripts/gui-boot.test.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/package-app.sh richos/app/scripts/make-engine-asset.sh richos/app/src-tauri richos/app/crates richos/app/ui richos/engine
+# run-tests: covers richos/app/scripts/lib/gui-launch.sh richos/app/src-tauri/src/main.rs richos/app/src-tauri/src/engine.rs
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

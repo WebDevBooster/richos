@@ -71,6 +71,7 @@
 # The line lives here, not in run-tests.sh, because a suite is the only thing that knows
 # what it reads, and a second place to edit is the defect run-tests.sh counts five of.
 # run-tests: inputs richos/app/scripts richos/engine LICENSE docs/legal
+# run-tests: covers richos/app/scripts/make-engine-asset.sh richos/app/scripts/verify-engine-asset-members.sh
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

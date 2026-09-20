@@ -46,11 +46,15 @@
 # WHAT EACH FAMILY'S MAP IS BUILT FROM, AND WHICH PART IS MEASURED
 # =========================================================================================
 #
-#   SCRIPT SUITES   the suite's own `# run-tests: inputs <paths>` line — the SAME
-#                   declaration `run-tests.sh` reads for its skip digest. One declaration,
-#                   two consumers, no second place to edit. The declaration is a deliberate
-#                   superset, so it can name a suite that did not need running (harmless)
-#                   and can never fail to name one that did.
+#   SCRIPT SUITES   `# run-tests: inputs <paths>` selects suites and feeds the runner's
+#                   skip digest. Directory inputs deliberately include future files.
+#                   `# run-tests: covers <files>` separately claims behavioral coverage
+#                   for exact repository-relative paths, never a scanned tree. Write
+#                   `# run-tests: covers -` explicitly when there is no such claim.
+#                   Both rows are required exactly once. Each covered file must also
+#                   select its suite through inputs; coverage alone cannot select tests.
+#                   Adding an input never silences UNCOVERED. Claims describe assertions
+#                   in the suite, not full correctness of every behavior in the file.
 #
 #   UI SUITES       four rules, three of them derived off disk:
 #                     * `ui/tests/<x>.js`        -> that suite (it IS the suite);
@@ -127,6 +131,7 @@ APP_REL="$(git -C "$APP" rev-parse --show-prefix 2>/dev/null | sed 's:/$::')"
 # watch it REFUSE. A reconciliation nobody has seen fail is a reconciliation nobody has
 # tested.
 UI_DECL="${PROOF_FOR_UI_INPUTS:-$DIR/proof-for.ui-inputs}"
+SCRIPT_DECL_DIR="${PROOF_FOR_SCRIPT_DIR:-$DIR}"
 CI_AFFECTED="$ROOT/richos/engine/scripts/ci-affected-units.sh"
 
 die() { echo "ERROR: proof-for.sh: $1" >&2; exit "${2:-2}"; }
@@ -196,8 +201,8 @@ mv "$WORK/c2" "$CHANGED"
 
 # --- inventories, read off disk once ------------------------------------------------------
 SCRIPT_SUITES="$WORK/script-suites"
-find "$DIR" -maxdepth 1 -type f -name '*.test.sh' 2>/dev/null \
-  | sed "s:^$DIR/::" | LC_ALL=C sort > "$SCRIPT_SUITES" || true
+find "$SCRIPT_DECL_DIR" -maxdepth 1 -type f -name '*.test.sh' 2>/dev/null \
+  | sed "s:^$SCRIPT_DECL_DIR/::" | LC_ALL=C sort > "$SCRIPT_SUITES" || true
 
 UI_TESTS="$APP/ui/tests"
 UI_SUITES="$WORK/ui-suites"
@@ -260,12 +265,8 @@ expand_alias() {  # $1 = a row's token list; prints repo-relative paths, one per
 # greps 55 suites per path is 6,050 processes — a targeting tool slower than the suite it
 # targets is not a targeting tool. Each of the three expensive relations is precomputed or
 # memoized below, and the answer is identical either way.
-DECLS="$WORK/decls"; : > "$DECLS"
-while IFS= read -r s; do
-  [ -n "$s" ] || continue
-  d="$(sed -n 's/^# run-tests: inputs[[:space:]][[:space:]]*//p' "$DIR/$s" | head -1)"
-  [ -n "$d" ] && printf '%s\t%s\n' "$s" "$d" >> "$DECLS"
-done < "$SCRIPT_SUITES"
+DECLS="$WORK/decls"
+python3 "$DIR/lib/proof_declarations.py" "$ROOT" "$SCRIPT_DECL_DIR" > "$DECLS" || exit 2
 
 SHOTSDIR="$WORK/shots"; LIBDIR="$WORK/libs"; mkdir -p "$SHOTSDIR" "$LIBDIR"
 
@@ -390,14 +391,18 @@ while IFS= read -r p; do
       fi ;;
   esac
 
-  while IFS="$TAB" read -r s decl; do
-    [ -n "$s" ] || continue
-    [ -n "$decl" ] || continue
-    for d in $decl; do
-      case "$p" in
-        "$d"|"$d"/*) printf '%s\n' "$s" >> "$WORK/script"; MATCHED=1; note "declared by $s ($d)"; break ;;
-      esac
-    done
+  while IFS="$TAB" read -r kind s decl; do
+    if [ "$kind" = covers ]; then
+      if [ "$p" = "$decl" ]; then
+        MATCHED=1; note "behavior covered by $s ($decl)"
+      fi
+    else
+      for d in $decl; do
+        case "$p" in
+          "$d"|"$d"/*) printf '%s\n' "$s" >> "$WORK/script"; note "input of $s ($d)"; break ;;
+        esac
+      done
+    fi
   done < "$DECLS"
 
   # ---- UI ----

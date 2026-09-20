@@ -52,6 +52,7 @@
 #   G10 no PKCS#12 is built at all, so no passphrase has to travel anywhere
 #   Z   the operator's real keychain inventory is unchanged by this suite
 # run-tests: inputs richos/app/scripts/signing-setup.test.sh richos/app/scripts/make-signing-csr.sh richos/app/scripts/install-signing-cert.sh richos/app/src-tauri/Entitlements.plist
+# run-tests: covers richos/app/scripts/make-signing-csr.sh richos/app/scripts/install-signing-cert.sh
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
