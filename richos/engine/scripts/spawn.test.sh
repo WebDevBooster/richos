@@ -796,6 +796,164 @@ else
          "no $SCOPE_GUARD on this machine — that guard lives in the governed repository, not in this one, so no runner can execute it. It DID NOT RUN."
 fi
 
+# ---------------------------------------------------------------------------
+echo "  the QA toolkit's index rides with a QA dispatch (scripts/lib/qa-toolkit.py)"
+# ---------------------------------------------------------------------------
+# The CEO, 2026-09-20: "what else must be done to ensure the QA toolkit
+# actually gets used?" A QA-type teammate's payload carries the toolkit
+# README's OWN table, read from the governed repository at spawn time. The
+# TYPE decides — never the brief's prose, never his words.
+#
+# HERMETIC ON PURPOSE: the sandbox grows its own toolkit at the declared path
+# inside the target repository, which `locate()` prefers over the engine's real
+# sibling tree. A case that asserted the nine real tools would fail the day a
+# tenth landed, which is the opposite of what this mechanism is for.
+mkdir -p "$PROJECT/.claude/agents"
+cat >"$PROJECT/.claude/agents/ray.md" <<'DEF'
+---
+name: ray
+description: functional QA
+model: sonnet
+tools: Read, Write, Edit, Bash
+---
+Functional QA.
+DEF
+QA_KIT="$TARGET/richos/app/scripts/qa"
+mkdir -p "$QA_KIT"
+cat >"$QA_KIT/README.md" <<'KIT'
+# `scripts/qa/` — the walk toolkit
+
+## The rule
+
+**A QA brief names the tool from this directory. A walker who needs a helper
+that is not here ADDS it here and commits it.**
+
+## The tools
+
+| Tool | The job |
+|---|---|
+| `contrast.py` | WCAG ratio of two colors, or of a region of a frame. |
+| `wait-for.sh` | Wait for a ref, a log line, a file. Exit 1 on timeout. |
+
+## Adding a tool
+
+One job per file.
+KIT
+git -C "$TARGET" add -A
+git -C "$TARGET" commit -q -m "the walk toolkit"
+KIT_SHA="$(git -C "$TARGET" log -1 --format=%h -- richos/app/scripts/qa)"
+
+PAYLOAD_QA="$SANDBOX/payload-qa.json"
+run "ray-sonnet-kit1" --repo "$TARGET" --type ray --brief "$BRIEF" --dry-run \
+    --payload-out "$PAYLOAD_QA"
+QA_PROMPT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["prompt"])' "$PAYLOAD_QA" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && printf '%s' "$QA_PROMPT" | grep -q '^## Your committed tools' \
+   && printf '%s' "$QA_PROMPT" | grep -q '| `contrast.py` |' \
+   && printf '%s' "$QA_PROMPT" | grep -q '| `wait-for.sh` |'; then
+    ok "a QA type's payload carries the toolkit table"
+else
+    bad "a QA type's payload carries the toolkit table" "rc=$RC prompt=$QA_PROMPT"
+fi
+
+# The README's rule sentence, in the README's words. The table alone says what
+# the tools are and not what the walker is being asked to do with them.
+if printf '%s' "$QA_PROMPT" | grep -q 'ADDS it here and commits it'; then
+    ok "the README's own rule sentence travels with the table"
+else
+    bad "the README's own rule sentence travels with the table" "$QA_PROMPT"
+fi
+
+# IDENTITY, NOT A CLAIM OF FRESHNESS (docs/freshness-contract.md): the commit
+# the table was read at is in the payload, so a stale attachment is detectable
+# rather than merely unlikely.
+if [ -n "$KIT_SHA" ] && printf '%s' "$QA_PROMPT" | grep -q "$KIT_SHA"; then
+    ok "the toolkit's commit is named in the payload"
+else
+    bad "the toolkit's commit is named in the payload" "sha=$KIT_SHA prompt=$QA_PROMPT"
+fi
+
+# A TENTH TOOL APPEARS WITHOUT ANYBODY EDITING THE ENGINE. This is the whole
+# reason the table is read at spawn time instead of copied into a brief.
+python3 - "$QA_KIT/README.md" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p, encoding="utf-8").read()
+t = t.replace("| `wait-for.sh` | Wait for a ref, a log line, a file. Exit 1 on timeout. |",
+              "| `wait-for.sh` | Wait for a ref, a log line, a file. Exit 1 on timeout. |\n"
+              "| `settle.py` | The tenth tool, added after the first dispatch. |")
+open(p, "w", encoding="utf-8").write(t)
+PY
+git -C "$TARGET" add -A
+git -C "$TARGET" commit -q -m "a tenth tool"
+run "ray-sonnet-kit2" --repo "$TARGET" --type ray --brief "$BRIEF" --dry-run \
+    --payload-out "$SANDBOX/payload-qa2.json"
+QA_PROMPT2="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["prompt"])' "$SANDBOX/payload-qa2.json" 2>/dev/null)"
+if printf '%s' "$QA_PROMPT2" | grep -q '`settle.py`'; then
+    ok "a tool added to the README is in the next dispatch, with no engine edit"
+else
+    bad "a tool added to the README is in the next dispatch" "$QA_PROMPT2"
+fi
+
+# NON-QA TYPES GET NOTHING, byte for byte. An engineer, an architect and a
+# researcher are not walkers, and a section in every payload is noise that
+# teaches everyone to skip the end of the brief.
+PAYLOAD_NONQA="$SANDBOX/payload-nonqa.json"
+run "zach-sonnet-kit3" --repo "$TARGET" --type zach --brief "$BRIEF" --dry-run \
+    --payload-out "$PAYLOAD_NONQA"
+NONQA_PROMPT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["prompt"])' "$PAYLOAD_NONQA" 2>/dev/null)"
+if [ "$RC" -eq 0 ] && ! printf '%s' "$NONQA_PROMPT" | grep -q 'Your committed tools' \
+   && ! printf '%s' "$NONQA_PROMPT" | grep -q 'contrast.py'; then
+    ok "a non-QA type's payload carries none of it"
+else
+    bad "a non-QA type's payload carries none of it" "rc=$RC prompt=$NONQA_PROMPT"
+fi
+
+# IT CANNOT FLIP A GATE THAT THE BRIEF DID NOT ALREADY TRIP. The data-contract
+# gate's LOCAL_APP_CONTEXT_RE half is the one thing a QA-type dispatch has no
+# other protection from (QA_ROLE_AGENTS satisfies its evidence half by role
+# alone), so appended text carrying one of those tokens would refuse briefs
+# that were fine before. The regex is READ from the declaration, never retyped.
+LAC_RE="$(sed -n "s/^LOCAL_APP_CONTEXT_RE='\(.*\)'$/\1/p" "$SCRIPT_DIR/../orchestration.config" | head -1)"
+QA_ONLY="$(python3 - "$PAYLOAD_QA" "$BRIEF" <<'PY'
+import json, sys
+prompt = json.load(open(sys.argv[1]))["prompt"]
+brief = open(sys.argv[2], encoding="utf-8").read()
+i = prompt.find("## Your committed tools")
+sys.stdout.write(prompt[i:] if i >= 0 else "")
+PY
+)"
+if [ -z "$LAC_RE" ]; then
+    bad "the appended section introduces no data-contract trigger" "could not read LOCAL_APP_CONTEXT_RE"
+elif printf '%s' "$QA_ONLY" | grep -qE "$LAC_RE"; then
+    bad "the appended section introduces no data-contract trigger" \
+        "the section matches $LAC_RE and would refuse briefs that passed before"
+else
+    ok "the appended section introduces no data-contract trigger"
+fi
+
+# A BRIEF THAT ALREADY CARRIES THE SECTION IS LEFT ALONE — no second copy.
+BRIEF_OWN="$SANDBOX/brief-own-tools.md"
+{ cat "$BRIEF"; printf '\n## Your committed tools\n\nthe brief wrote its own.\n'; } >"$BRIEF_OWN"
+run "ray-sonnet-kit4" --repo "$TARGET" --type ray --brief "$BRIEF_OWN" --dry-run \
+    --payload-out "$SANDBOX/payload-own.json"
+OWN_PROMPT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["prompt"])' "$SANDBOX/payload-own.json" 2>/dev/null)"
+OWN_N="$(printf '%s\n' "$OWN_PROMPT" | grep -c 'Your committed tools' || true)"
+if [ "$OWN_N" = "1" ]; then
+    ok "a brief that already has the section is not given a second one"
+else
+    bad "a brief that already has the section is not given a second one" "n=$OWN_N"
+fi
+
+# A TOOLKIT IT CANNOT FIND IS A NOTE, NEVER A DEAD SPAWN. Nothing about
+# starting a walker should depend on a README being where it was last week.
+QA_TOOLKIT_DIR="nowhere/at/all" run "ray-sonnet-kit5" --repo "$TARGET" --type ray \
+    --brief "$BRIEF" --dry-run --payload-out "$SANDBOX/payload-gone.json"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "NOT ATTACHED"; then
+    ok "a toolkit that cannot be found is reported and the spawn still goes"
+else
+    bad "a toolkit that cannot be found is reported and the spawn still goes" "rc=$RC $OUT"
+fi
+
 echo ""
 if [ "$SKIP" -gt 0 ]; then
     echo "  NOT RUN HERE — these are SKIPS, not passes:"

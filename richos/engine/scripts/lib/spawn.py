@@ -115,6 +115,7 @@ SCOPE = _load("richos_brief_scope",
               os.path.join(ENGINE, "ass-kicker", "brief-scope.py"))
 AUDIENCE = _load("richos_spawn_guard_audience",
                  os.path.join(HERE, "spawn-guard-audience.py"))
+QATOOLS = _load("richos_qa_toolkit", os.path.join(HERE, "qa-toolkit.py"))
 
 # `--audience app` — WHO IS THIS DISPATCH FOR, AND THEREFORE WHOSE GUARDS JUDGE
 # IT. The RichOS desktop app dispatches background work on a non-technical
@@ -835,6 +836,19 @@ def main(argv):
         payload["prompt"], stamp_notes = SCOPE.annotate(payload["prompt"], repos[0])
         for _n in stamp_notes:
             notes.append("design:      %s" % _n)
+        # THE TOOLKIT'S INDEX, for a QA-type teammate only. The CEO, 2026-09-20:
+        # "what else must be done to ensure the QA toolkit actually gets used?"
+        # Its README's rule is that a QA brief names the tool from it, and that
+        # rule fails in one way — the brief does not, because whoever wrote it
+        # did not have the list in front of them. So the list rides with the
+        # dispatch, read from the governed repository at spawn time so it can
+        # never be a stale copy. The TYPE decides (QA_TOOLKIT_AGENTS), never the
+        # prose. Given EVERY repository, not just the first: the toolkit lives
+        # in one of them, which need not be the one this work is primarily in.
+        # It never refuses; a toolkit it cannot read is a note, not a dead spawn.
+        payload["prompt"], qa_notes = QATOOLS.annotate(payload["prompt"], args["type"], repos)
+        for _n in qa_notes:
+            notes.append("qa tools:    %s" % _n)
     except Refusal as exc:
         report_problems("refused", [{"headline": str(exc), "detail": ""}])
         return 1
