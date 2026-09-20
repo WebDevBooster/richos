@@ -679,6 +679,22 @@ class StableChannelTests(GitFixture):
         with self.assertRaisesRegex(ValueError, "already exists"):
             n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW)
 
+    def test_a_stable_release_never_calls_itself_a_nightly(self):
+        """The label was hard-coded "Nightly" and reached two public surfaces.
+
+        The releases page title and notes, and the `--notes` string `make-release.sh`
+        puts in the bundle. A stable release announcing itself as "Nightly 1.2.0" is the
+        kind of defect nobody finds in a test of the version number, because the version
+        number is right.
+        """
+        info = self.publish_a_nightly()
+        self.assertEqual(n.describe_release(info), f"Nightly {info['version']}")
+        plan = n.stable_plan(info["tag"], n.json_text(self.DECISION), now=NOW)
+        label = n.describe_release(plan)
+        self.assertEqual(label, "RichOS 5.1.0")
+        self.assertNotIn("Nightly", label)
+        self.assertNotIn("nightly", label)
+
     def test_publishing_stable_flips_the_release_and_leaves_the_nightly_channel_alone(self):
         """The channel move for stable is GitHub's own `latest` pointer, nothing else.
 

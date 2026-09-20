@@ -689,6 +689,12 @@ def verify_source_is_current(source_commit):
     git("merge-base", "--is-ancestor", source_commit, current_main)
 
 
+def describe_release(info):
+    """How a release names itself: "Nightly 1.2.0-nightly.20260920.1", "RichOS 1.2.0"."""
+    return (f"Nightly {info['version']}" if info["channel"] == "nightly"
+            else f"RichOS {info['version']}")
+
+
 def build(info, out):
     """Produce the signed, notarized, engine-pinned candidate under `out`, and stop.
 
@@ -708,8 +714,16 @@ def build(info, out):
     out.mkdir(parents=True, exist_ok=False)
     (out / "build-info.json").write_text(json_text(info))
     notes = out / "notes.txt"
-    notes.write_text(f"Nightly {info['version']}\n\nSource: {info['source_commit']}\n"
+    # WHAT THIS RELEASE IS, in its own words. Hard-coded as "Nightly" until the stable
+    # channel existed, which would have labeled a stable release "Nightly 1.2.0" on the
+    # public releases page and in the bundle's own notes.
+    label = describe_release(info)
+    notes.write_text(f"{label}\n\nSource: {info['source_commit']}\n"
                      f"Build: {info['build_commit']}\nRun: {info['run_id']} / {info['run_attempt']}\n")
+    if info["channel"] == "stable":
+        notes.write_text(notes.read_text() +
+                         f"Rebuild of: {info['promoted_from']}\n"
+                         f"Promoted by the CEO on {info['promotion_decided_on']}\n")
     # Publish the engine first: the app embeds its verified public URL and digest.
     execute("bash", release, "engine", "--out", str(out))
     execute("gh", "release", "create", info["tag"], "--repo", REPO, "--verify-tag",
@@ -720,7 +734,7 @@ def build(info, out):
     execute("gh", "release", "upload", info["tag"], "--repo", REPO,
             str(out / f"richos-engine-{engine_version}.tar.gz"))
     execute("bash", release, "verify-engine", "--out", str(out))
-    execute("bash", release, "app", "--out", str(out), "--notes", f"Nightly {info['version']}")
+    execute("bash", release, "app", "--out", str(out), "--notes", label)
     if git("rev-parse", "HEAD") != info["build_commit"] or git("status", "--porcelain"):
         raise ValueError("build changed the tagged source tree; refusing artifact publication")
     write_candidate_manifest(info, out)
