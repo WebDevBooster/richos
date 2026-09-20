@@ -35,7 +35,7 @@
 mod timeline_view;
 
 use richos_core::cognition::CancellableMockCognition;
-use richos_core::entity::EntityId;
+use richos_core::entity::{Entity, EntityId, EntityRegistry};
 use richos_core::ledger::{Ledger, Source, TurnState};
 use richos_core::spine::Spine;
 use richos_core::steering::{StopOutcome, TurnControl};
@@ -50,6 +50,9 @@ fn main() {
 
     let ledger = Ledger::open(dir.join("ledger.jsonl")).expect("open ledger");
     let mut spine = Spine::new(ledger);
+    spine.set_entity_registry(EntityRegistry::new(vec![
+        Entity::new("richos", "RichOS", &["/fixture/richos"]).expect("entity"),
+    ]).expect("entity registry"));
     let entity = EntityId::parse("richos").expect("entity");
     let thread = spine.create_thread("Stop payload proof", &entity).expect("thread");
     spine.switch_thread(&thread).expect("switch");
@@ -94,7 +97,7 @@ fn main() {
 
     let guard = spine.lock().unwrap();
     let turn = guard.ledger().turn(&turn_id).expect("turn").clone();
-    let payload = timeline_payload(&guard, &thread).expect("payload");
+    let payload = timeline_payload(&*guard, &thread).expect("payload");
     drop(guard);
 
     if json_only {
