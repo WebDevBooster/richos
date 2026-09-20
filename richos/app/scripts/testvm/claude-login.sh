@@ -220,8 +220,14 @@ if [ "$LONGEST" -gt "$TESTVM_SECURITY_STDIN_MAX" ]; then
 fi
 
 log "copying this Mac's claude login into $VM (value on stdin only, never argv)"
+# The unlock is repeated here rather than trusted. `keychain.sh prepare` unlocked
+# this keychain, but in ITS ssh session; lock state is securityd's and an
+# already-unlocked keychain makes this a no-op that costs nothing. The
+# alternative is a write that fails for a reason the read-back below can only
+# call "not logged in".
 printf '%s\n' "$PAYLOAD" | cg_stdin "env HOME='$GUEST_HOME' perl -e 'alarm shift; exec @ARGV' \
-  $TESTVM_CLAUDE_LOGIN_SECONDS security -i" >/dev/null 2>&1
+  $TESTVM_CLAUDE_LOGIN_SECONDS sh -c \"security unlock-keychain -p '$TESTVM_KEYCHAIN_PHRASE' \
+  '$GUEST_HOME/Library/Keychains/login.keychain-db' >/dev/null 2>&1; security -i\"" >/dev/null 2>&1
 PUSH_RC=$?
 # Gone from this process the moment it is no longer needed.
 HEX=""; PAYLOAD=""
