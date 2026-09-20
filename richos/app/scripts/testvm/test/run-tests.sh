@@ -1127,6 +1127,139 @@ t "ax: --windows still punctuates the list items by hand"
 t_done
 
 # ===========================================================================
+# guest.sh — one word into the guest
+# ===========================================================================
+# Eleven wrappers around `guest_ssh` were written across three walks because
+# `guest_ssh` is a shell FUNCTION in a sourced file and nothing on a command
+# line could call it. These cases drive the real script against a fake `ssh` on
+# PATH, so what is asserted is the CALL IT BUILDS — the options, the address,
+# the command string, the exit code — rather than a mock of it.
+# ===========================================================================
+GVM="richos-test-g"
+mkdir -p "$TMP/bin" "$TESTVM_RUN/$GVM"
+echo "10.0.0.9" > "$TESTVM_RUN/$GVM/ip"
+: > "$TESTVM_SSH_KEY"
+
+cat > "$TMP/bin/ssh" <<'FAKESSH'
+#!/usr/bin/env bash
+# One argument per line, so a test can assert an exact argument rather than
+# a substring of a joined string.
+printf '%s\n' "$@" >> "${FAKE_SSH_LOG:-/dev/null}"
+[ -n "${FAKE_SSH_STDIN:-}" ] && cat > "$FAKE_SSH_STDIN"
+exit "${FAKE_SSH_RC:-0}"
+FAKESSH
+cat > "$TMP/bin/scp" <<'FAKESCP'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "${FAKE_SCP_LOG:-/dev/null}"
+exit "${FAKE_SCP_RC:-0}"
+FAKESCP
+chmod 755 "$TMP/bin/ssh" "$TMP/bin/scp"
+
+grun() {  # grun <args...> — guest.sh with the fake ssh first on PATH
+  : > "$TMP/ssh.log"
+  PATH="$TMP/bin:$PATH" FAKE_SSH_LOG="$TMP/ssh.log" \
+    "$TESTVM_DIR/guest.sh" "$GVM" "$@" 2>"$TMP/guest.err"
+}
+
+t "guest.sh: the ssh call carries the harness's own options, key and guest user"
+  grun 'uname -a' >/dev/null; ok $? "$(cat "$TMP/guest.err")"
+  log="$(cat "$TMP/ssh.log")"
+  has "$log" "BatchMode=yes"
+  has "$log" "StrictHostKeyChecking=no"
+  has "$log" "UserKnownHostsFile=/dev/null"
+  has "$log" "$TESTVM_SSH_KEY"
+  has "$log" "admin@10.0.0.9"
+t_done
+
+t "guest.sh: ONE argument is the guest's shell command, passed through verbatim"
+  # Pipes and redirections belong to the GUEST. Quoting them here would break
+  # `guest.sh vm 'cat > /tmp/x'`, which is how a secret is written.
+  grun 'ls -la /tmp | wc -l' >/dev/null; ok $?
+  eq "$(tail -1 "$TMP/ssh.log")" "ls -la /tmp | wc -l"
+t_done
+
+t "guest.sh: SEVERAL arguments are quoted, so a path with a space stays one path"
+  # ssh joins its arguments with spaces and lets the guest re-split them, which
+  # is how `ls '/a b'` silently becomes two arguments.
+  grun ls -la '/a b' >/dev/null; ok $?
+  eq "$(tail -1 "$TMP/ssh.log")" 'ls -la /a\ b'
+t_done
+
+t "guest.sh: -- forces the literal reading even for a single argument"
+  grun -- 'my file.txt' >/dev/null; ok $?
+  eq "$(tail -1 "$TMP/ssh.log")" 'my\ file.txt'
+t_done
+
+t "guest.sh: the exit code is the guest command's, untouched"
+  PATH="$TMP/bin:$PATH" FAKE_SSH_LOG=/dev/null FAKE_SSH_RC=7 \
+    "$TESTVM_DIR/guest.sh" "$GVM" 'exit 7' >/dev/null 2>&1
+  eq "$?" "7"
+t_done
+
+t "guest.sh: stdin goes through, and the value it carries is in NO command line"
+  : > "$TMP/ssh.log"
+  printf '%s' "$FAKE_KEY" | PATH="$TMP/bin:$PATH" FAKE_SSH_LOG="$TMP/ssh.log" \
+    FAKE_SSH_STDIN="$TMP/ssh.stdin" "$TESTVM_DIR/guest.sh" "$GVM" \
+    "cat > '/tmp/x'" >/dev/null 2>&1
+  ok $?
+  eq    "$(cat "$TMP/ssh.stdin")" "$FAKE_KEY"
+  hasnt "$(cat "$TMP/ssh.log")"   "notarealkeyatall"
+t_done
+
+t "guest.sh: ssh's own 255 is explained and still returned as 255"
+  PATH="$TMP/bin:$PATH" FAKE_SSH_LOG=/dev/null FAKE_SSH_RC=255 \
+    "$TESTVM_DIR/guest.sh" "$GVM" true >/dev/null 2>"$TMP/guest.err"
+  eq "$?" "255"
+  has "$(cat "$TMP/guest.err")" "ssh's own failure code"
+t_done
+
+t "guest.sh --pull: the legacy scp protocol, and the guest side is the source"
+  : > "$TMP/scp.log"
+  PATH="$TMP/bin:$PATH" FAKE_SCP_LOG="$TMP/scp.log" \
+    "$TESTVM_DIR/guest.sh" "$GVM" --pull /Users/admin/app.log "$TMP/app.log" >/dev/null 2>&1
+  ok $?
+  log="$(cat "$TMP/scp.log")"
+  has "$log" "-O"
+  has "$log" "admin@10.0.0.9:/Users/admin/app.log"
+  has "$log" "$TMP/app.log"
+t_done
+
+t "guest.sh --push: the host side is the source, and it must exist here first"
+  : > "$TMP/scp.log"
+  echo hello > "$TMP/payload.txt"
+  PATH="$TMP/bin:$PATH" FAKE_SCP_LOG="$TMP/scp.log" \
+    "$TESTVM_DIR/guest.sh" "$GVM" --push "$TMP/payload.txt" /Users/admin/payload.txt >/dev/null 2>&1
+  ok $?
+  has "$(cat "$TMP/scp.log")" "admin@10.0.0.9:/Users/admin/payload.txt"
+
+  PATH="$TMP/bin:$PATH" FAKE_SCP_LOG=/dev/null \
+    "$TESTVM_DIR/guest.sh" "$GVM" --push "$TMP/not-here.txt" /Users/admin/x >/dev/null 2>"$TMP/guest.err"
+  no $? "pushing a file that is not on this Mac must refuse"
+  has "$(cat "$TMP/guest.err")" "no such file on this Mac"
+t_done
+
+t "guest.sh: a copy with one path is refused, and names both"
+  PATH="$TMP/bin:$PATH" "$TESTVM_DIR/guest.sh" "$GVM" --pull /only/one >/dev/null 2>"$TMP/guest.err"
+  no $?
+  has "$(cat "$TMP/guest.err")" "needs two paths"
+t_done
+
+t "guest.sh: nothing to run is refused rather than opening an interactive shell"
+  # A bare `ssh host` would hand back a login shell no agent can drive, and the
+  # call would simply hang.
+  PATH="$TMP/bin:$PATH" "$TESTVM_DIR/guest.sh" "$GVM" >/dev/null 2>"$TMP/guest.err"
+  no $?
+  has "$(cat "$TMP/guest.err")" "nothing to run"
+t_done
+
+t "guest.sh: a guest with no recorded address refuses by name"
+  PATH="$TMP/bin:$PATH" "$TESTVM_DIR/guest.sh" richos-test-nosuch --pull /a /b \
+    >/dev/null 2>"$TMP/guest.err"
+  no $?
+  has "$(cat "$TMP/guest.err")" "no address for richos-test-nosuch"
+t_done
+
+# ===========================================================================
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "$PASS passed, 0 failed."
