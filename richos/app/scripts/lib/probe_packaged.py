@@ -60,26 +60,37 @@ def run(root, args, *, policy=None):
     env = {'HOME': str(root / 'home'), 'TMPDIR': str(root / 'home'),
            'PATH': str(root / 'engine/runtime/bin'), 'NODE_PATH': '', 'LC_ALL': 'C'}
     command = ['/usr/bin/sandbox-exec', '-p', policy or profile(root), *map(str, args)]
-    p = subprocess.Popen(command, cwd=root, env=env, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                         start_new_session=True)
+    def cancel(signum, frame):
+        raise SystemExit(128 + signum)
+    previous = {sig: signal.signal(sig, cancel) for sig in (signal.SIGTERM, signal.SIGINT)}
+    p = None
     try:
+        p = subprocess.Popen(command, cwd=root, env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             start_new_session=True)
         out, err = p.communicate(timeout=15)
         if p.returncode:
             raise ValueError(f'packaged component refused inside isolation (exit {p.returncode}): ' + err[-1000:])
         return out
     finally:
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
         try:
-            os.killpg(p.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            p.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            raise ProbeCleanupError(f"probe process {p.pid} did not reap after KILL") from None
+            if p is not None:
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    p.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    raise ProbeCleanupError(f"probe process {p.pid} did not reap after KILL") from None
+                finally:
+                    p.stdout.close()
+                    p.stderr.close()
         finally:
-            p.stdout.close()
-            p.stderr.close()
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
 
 def compiler(root, *, policy=None):
