@@ -3319,6 +3319,11 @@ module.exports = [
       "statically here and `#rail-new-thread` is asserted present on every shell walk.",
   },
   { s: "Waiting for its saved messages", c: "INFORMATIONAL", why: "The selected conversation has not finished loading." },
+  { s: "No messages in this conversation yet.", c: "INFORMATIONAL", why: "An empty cached destination while its ordered activation is pending." },
+  { s: "invalid P-256 private key encoding", c: "NOT-RENDERED", why: "Internal PhoneError::Crypto detail; phone commands map it through ceo_sentence before returning to the webview." },
+  { s: "This conversation is still working. Press Stop to stop that work.", c: "ACTIONABLE", control: "#stop", fixture: "returning-conversation", why: "Returning to the working thread preserves its Stop while activation is queued." },
+  { s: "I couldn't stop this conversation. Press Stop again.", c: "ACTIONABLE", control: "#stop", fixture: "returning-stop-failed", why: "A failed Stop remains retryable when returning to the working thread." },
+  { s: "Stopping work in this conversation", c: "INFORMATIONAL", why: "A durable Stop receipt targets the selected working thread." },
   { s: "The previous conversation is still working. Press Stop to stop that work.", c: "ACTIONABLE", control: "#stop", fixture: "opening-conversation", why: "The previous live model keeps its actual Stop control while navigation waits for its lock." },
   { s: "I couldn't stop the previous conversation. Press Stop again.", c: "ACTIONABLE", control: "#stop", fixture: "opening-stop-failed", why: "A failed stop remains visible in the opening band beside the retryable Stop control." },
 

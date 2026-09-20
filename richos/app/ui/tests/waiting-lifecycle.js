@@ -26,6 +26,47 @@ async function main() {
   const run = createRun("waiting lifecycle: acceptance, failure, evidence and accessibility");
   const browser = await loadPlaywright().webkit.launch();
   try {
+    await run.check("returning to the working thread names this conversation while activation waits", async () => {
+      for (const theme of ["dark", "light"]) {
+        const page = await openApp(browser, theme);
+        try {
+          const fence = await startTurn(page, "returning_work");
+          await goWorking(page, fence, "returning_work");
+          await page.evaluate(() => {
+            const original = window.RichBridge.invoke.bind(window.RichBridge);
+            window.__stopTargets = [];
+            window.RichBridge.invoke = (cmd, args) => {
+              if (cmd === "switch_thread") return new Promise(() => {});
+              if (cmd === "stop_turn") {
+                window.__stopTargets.push(args.expectedTurnId);
+                return window.__allowStop
+                  ? Promise.resolve({ stopped: true, turnId: "returning_work", reachedLease: true })
+                  : Promise.reject("temporary disk error");
+              }
+              return original(cmd, args);
+            };
+          });
+          await page.click('.nav-thread[data-thread-id="acme"]');
+          assert((await band(page)).detail.includes("previous conversation"));
+          await page.locator(`.nav-thread[data-thread-id="${fence.threadId}"]`).click();
+          assertEqual((await band(page)).detail, "This conversation is still working. Press Stop to stop that work.");
+          assert(await page.isDisabled("#send"), "returning does not bypass ordered activation");
+          await page.click("#stop");
+          assertEqual((await band(page)).detail, "I couldn't stop this conversation. Press Stop again.");
+          await page.evaluate(() => { window.__allowStop = true; });
+          await page.click("#stop");
+          assertEqual((await band(page)).detail, "Stopping work in this conversation");
+          assertEqual(await page.evaluate(() => window.__stopTargets.join(",")), "returning_work,returning_work");
+          assert(await page.isDisabled("#stop"));
+          await page.evaluate(fence => window.__emit("rich://turn-status", {
+            ...fence, turnId: "returning_work", status: "stopped", at: Date.now(), visibility: "ceo",
+          }), fence);
+          assert(await page.isHidden("#stop"));
+          assert(!(await band(page)).detail.includes("still working"));
+          assertEqual(page.__errors.length, 0, page.__errors.join("\n"));
+        } finally { await page.close(); }
+      }
+    });
     await run.check("opening another company hides old messages, fences Send and keeps Stop usable", async () => {
       for (const theme of ["dark", "light"]) {
         const page = await openApp(browser, theme);
@@ -48,7 +89,8 @@ async function main() {
         });
         await page.click('.nav-thread[data-thread-id="acme"]');
         await page.waitForFunction(() => !!window.__finishOpeningSwitch);
-        assert(await page.isHidden("#conversation"), "previous company's messages are hidden immediately");
+        assert(!(await page.locator("#messages").innerText()).includes("Draft the Q4 board memo"),
+          "previous company's messages are hidden while the destination pane paints");
         assertEqual((await band(page)).head, "Opening conversation");
         assert((await band(page)).detail.includes("previous conversation"));
         assert(await page.isDisabled("#send"));
