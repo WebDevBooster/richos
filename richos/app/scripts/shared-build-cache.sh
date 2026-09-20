@@ -76,6 +76,16 @@
 #  * It will not replace a real directory that has anything in it. Say `--adopt` to move an
 #    existing cache into the shared location, and only when the shared one is not there yet.
 #
+# THE ONE INTERACTION TO KNOW ABOUT, recorded rather than fixed. `make-engine-asset.sh`
+# writes `app/target/engine-asset/` by NAME rather than through cargo, so two checkouts
+# building the release asset at the same moment would write one directory — and that script
+# proves determinism by building twice, which a second writer could make wrong. It is a
+# RELEASE step, and the release worktree is excluded above, so the exposure is two
+# developers running it simultaneously. Left alone deliberately: the fix is a per-checkout
+# output path (`scripts/lib/worktree-resource.sh` already derives one), and moving a release
+# tool's documented output path is not a thing to do as a side effect of a build-cache
+# change. If that collision is ever seen, that is the fix.
+#
 # USAGE
 #   shared-build-cache.sh [<checkout>]           link this checkout to the shared cache
 #   shared-build-cache.sh --check [<checkout>]   report, change nothing; exit 1 if not linked
