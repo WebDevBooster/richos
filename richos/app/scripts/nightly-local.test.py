@@ -467,6 +467,9 @@ class LocalTests(unittest.TestCase):
         self.assertEqual([name for name, _, _ in r.timings],
                          ["gates/release-smoke", "gates/core-tests", "gates/updater-tests",
                           "gates/script-suites", "gates/lint-tauri", m.UI_SUITE_GATE, "gates/privacy-sweep"])
+        lint = [argv for argv in seen if any(a.endswith('/lint.sh') for a in argv)]
+        self.assertEqual(lint, [["bash", str(r.source / m.SCRIPTS / "lint.sh"), "--all",
+                                 "--suite-results", str(r.state / m.SUITE_RESULTS)]])
         smoke = [argv for argv in seen if "release-smoke" in " ".join(argv)]
         self.assertEqual(len(smoke), 1, seen)
         self.assertTrue([a for a in smoke[0] if a.endswith("nightly.py")], smoke)

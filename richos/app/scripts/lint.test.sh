@@ -5,4 +5,4 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 python3 -m unittest discover -s "$DIR/lint" -p 'test_*.py'
 bash "$DIR/lint.sh" --fast
-echo '  PASS  lint fixtures and Rust/shell ratchets'
+echo '  PASS  unconditional Tauri fixtures and Rust/shell fast ratchets'

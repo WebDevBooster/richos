@@ -18,7 +18,6 @@ import dialect
 import process_rules
 import ratchet
 import rust
-import state
 import suite_rules
 import timeout_rules
 
@@ -114,7 +113,7 @@ def js_report(root, rows):
 
 def fast_was_run(path, run_id):
     """A script-suite skip cannot bypass the every-build fast lint requirement."""
-    if path is None:
+    if path is None or not run_id:
         return False
     try:
         data = json.loads(path.read_text())
@@ -129,15 +128,6 @@ def fast_was_run(path, run_id):
 def tauri(root, args, rows, tools, report):
     started = time.monotonic()
     deadline = started + 180
-    fingerprint = rust.tauri_inputs(root, tools, deadline)
-    green_path = args.state_dir / "lint-tauri-green.json"
-    if green_path.resolve().is_relative_to(root.resolve()):
-        raise Refusal("last-green state must be outside the source checkout")
-    # A baseline edit invalidates the fingerprint before the skip decision.
-    if args.nightly and state.green(green_path, fingerprint):
-        print("Tauri Clippy skipped: inputs unchanged since its last green check", flush=True)
-        report["tauri"] = {"skipped": True, "seconds": time.monotonic() - started}
-        return
     print("Tauri Clippy running (180-second cap, including Cargo lock waiting)", flush=True)
     counts, diagnostics = rust.collect(root, rust.TAURI, deadline)
     report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)
@@ -145,15 +135,8 @@ def tauri(root, args, rows, tools, report):
     actual = record({"clippy": rust.TAURI}, tools, rust.lint_rules(root),
                     {p: r for p, r in rows.items() if r["language"] == "rust"}, counts)
     enforce(root, "tauri", actual, args)
-    # Do not bless inputs changed during the check, even by another checkout or
-    # an editor. Bootstrap/lower changes a fingerprint input and needs a rerun.
-    if not (args.bootstrap or args.lower):
-        if rust.tauri_inputs(root, tools, deadline) != fingerprint:
-            raise Refusal("Tauri inputs changed during Clippy; last-green unchanged")
-        if time.monotonic() >= deadline:
-            raise TimeoutError("Tauri Clippy deadline expired")
-        revision = checked(["git", "rev-parse", "HEAD"], root).strip()
-        state.save(green_path, fingerprint, revision, root)
+    if time.monotonic() >= deadline:
+        raise TimeoutError("Tauri Clippy deadline expired")
     report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)
 
 
@@ -162,14 +145,12 @@ def main(argv=None):
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--fast", action="store_true", help="Rust fast set, shell and custom checks (default)")
     modes.add_argument("--all", action="store_true", help="fast set plus unconditional Tauri Clippy")
-    modes.add_argument("--nightly", action="store_true", help="conditional Tauri check inside the owning nightly")
     modes.add_argument("--static", action="store_true", help="shell and custom checks only; not the full build gate")
     modes.add_argument("--js-report", action="store_true", help="report advisory JavaScript candidates only")
     updates = parser.add_mutually_exclusive_group()
     updates.add_argument("--lower", action="store_true", help="propose lower baselines as a working-tree diff")
     updates.add_argument("--bootstrap", action="store_true", help="create initial baselines only when absent on integration")
     parser.add_argument("--trusted-ref", default="refs/heads/main")
-    parser.add_argument("--state-dir", type=Path, default=Path.home() / ".richos-nightly")
     parser.add_argument("--suite-results", type=Path, help="current nightly script-suite receipt")
     parser.add_argument("--json-out", type=Path, help="write detailed measurement output to the named file")
     args = parser.parse_args(argv)
@@ -189,14 +170,12 @@ def main(argv=None):
             report.update(js_report(ROOT, rows))
             print(json.dumps(report, indent=2))
             return 0
-        if args.nightly and not os.environ.get("RICHOS_NIGHTLY_RUN_ID"):
-            raise Refusal("--nightly requires the nightly's execution marker")
         # Standalone measurement scheduling belongs to the operator. The lint
         # never probes release.lock or host load, including inside a nightly
         # that already owns that lock. Cargo arbitrates its own cache lock.
         tool_versions = versions(ROOT, cargo=not args.static)
         report["versions"] = tool_versions
-        if not args.nightly or not fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):
+        if not args.all or not fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):
             tick = time.monotonic()
             print("ShellCheck and custom rules running", flush=True)
             counts, diagnostics = shellcheck(ROOT, rows)
@@ -223,13 +202,13 @@ def main(argv=None):
                 summarize("Rust fast set", counts, diagnostics)
                 enforce(ROOT, "rust-fast", record({"clippy": rust.FAST}, tool_versions,
                         rust.lint_rules(ROOT), {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
-        if args.all or args.nightly:
+        if args.all:
             tauri(ROOT, args, rows, tool_versions, report)
         print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)
         return 0
     except (Refusal, OSError, ValueError, subprocess.TimeoutExpired, TimeoutError) as exc:
         if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
-            message = "lint deadline refused: Tauri cap 180 seconds (including Cargo lock waiting); launched work stopped" if args.all or args.nightly else "lint command deadline expired; launched work stopped"
+            message = "lint deadline refused: Tauri cap 180 seconds (including Cargo lock waiting); launched work stopped" if args.all else "lint command deadline expired; launched work stopped"
         else:
             message = str(exc)
         report["refusal"] = message
