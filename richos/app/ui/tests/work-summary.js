@@ -1,6 +1,30 @@
 "use strict";
 const path = require("path");
 const {loadPlaywright, createRun, assert, assertEqual, UI_DIR, leaveHome, openThread} = require("./lib/harness");
+
+/// Wait for a line to reach the chip, then RETURN what the chip says — and on failure name
+/// what was actually on screen. Playwright's own `TimeoutError: page.waitForFunction: Timeout
+/// 8000ms exceeded` says nothing about the defect this is here to catch, and the difference
+/// between "the chip was empty" and "the chip said something else" is the whole diagnosis.
+async function chipWithin(page, needle, where) {
+  try {
+    await page.waitForFunction(
+      (n) => ((document.getElementById("drill-chip-zone") || {}).textContent || "").includes(n),
+      needle,
+      {timeout: 8000}
+    );
+  } catch (_e) {
+    const text = await page.textContent("#drill-chip-zone");
+    assert(
+      false,
+      where + ": the chip never carried " + JSON.stringify(needle) + " with the 3,000 ms refill " +
+        "blocked — it reads " + JSON.stringify(((text || "")).trim()) + ". With that interval gone, " +
+        "openThread's leading pollWorkerStatus() is the only thing that can fill it."
+    );
+  }
+  return page.textContent("#drill-chip-zone");
+}
+
 async function main() {
   const run = createRun("saved work in the shipping renderer");
   const browser = await loadPlaywright().webkit.launch();
@@ -124,6 +148,71 @@ async function main() {
     assert(two.includes("2 saved work records"), `two receipts read ${JSON.stringify(two.trim())}`);
     await many.close();
     return `one receipt reads ${JSON.stringify(one.trim())}; two read ${JSON.stringify(two.trim())}`;
+  });
+
+  // **THE CHIP IS RIGHT IN THE FIRST RENDERED STATE — at launch and after a switch.**
+  //
+  // The two checks above prove the chip is never the PREVIOUS conversation's. This one proves
+  // it is THIS conversation's straight away, which is the other half of the same defect: the
+  // refill used to be a free-running 3,000 ms interval with no leading call, so after every
+  // launch and every switch the status line he reads most often was empty for up to three
+  // seconds while work was already running. `techy.js`'s own shutter note measured it — the
+  // line absent at the shutter and present 1.6 s later.
+  //
+  // **THE CONTROL IS THE INIT SCRIPT, NOT THE WAIT.** A `waitForFunction` on a chip that a
+  // 3,000 ms interval is about to fill would go green with or without the fix; it would time
+  // nothing and prove nothing. So the interval is TAKEN AWAY before a line of the app runs,
+  // and what remains is the leading `pollWorkerStatus()` in `openThread` and nothing else. If
+  // that call is removed, every assertion below times out with an empty chip.
+  //
+  // 3,000 ms IS UNIQUE TO THE WORKER POLL in the shipping UI — `main.js` also creates a
+  // 1,000 ms timer tick and a 1,000 ms wait band, `phone.js` a 2,000 ms poller and
+  // `permissions.js` a 500 ms one — so the filter hits exactly one interval, and the run
+  // ASSERTS that rather than assuming it. A future `WORKER_POLL_MS` that stops being 3,000
+  // fails here loudly instead of quietly disarming the control.
+  await run.check("the work chip carries this conversation's work in the FIRST rendered state — at launch and after a switch, with the 3,000 ms refill taken away", async () => {
+    const page = await browser.newPage({viewport: {width:1280, height:900}});
+    const errors = []; page.on("pageerror", e => errors.push(String(e)));
+    await page.addInitScript(() => {
+      window.__RICHOS_BLOCKED_INTERVALS__ = [];
+      const realSetInterval = window.setInterval.bind(window);
+      window.setInterval = function (fn, ms) {
+        if (ms === 3000) { window.__RICHOS_BLOCKED_INTERVALS__.push(ms); return 0; }
+        return realSetInterval.apply(null, arguments);
+      };
+      window.__RICHOS_MOCK_PRESET__ = {assignments: {
+        hiring: [{
+          id: "first-second", title: "landing the three branches", state: "running",
+          detail: "Running.", repositories: [], registeredAtMs: 1, canStop: true,
+          onTheConnection: true, awaitingYou: null,
+        }],
+      }};
+    });
+
+    // LAUNCH. Nothing is clicked: `init()` restores `active_thread` and opens it itself, which
+    // is the path every double-clicked launch takes.
+    const t0 = Date.now();
+    await page.goto("file://" + path.join(UI_DIR,"index.html")); await leaveHome(page);
+    const atLaunch = await chipWithin(page, "1 working", "at launch");
+    const launchMs = Date.now() - t0;
+
+    // AND AFTER A SWITCH, to a conversation whose work is its own: `hiring` has an assignment
+    // and the restored thread does not, so the line that has to arrive here cannot be left
+    // over from the surface before it.
+    assert(!atLaunch.includes("assignment running"), "the restored thread already showed hiring's assignment: " + JSON.stringify(atLaunch));
+    const t1 = Date.now();
+    await openThread(page, "hiring");
+    const onHiring = await chipWithin(page, "1 assignment running", "after the switch to hiring");
+    const switchMs = Date.now() - t1;
+
+    // THE CONTROL PROVED, not assumed: exactly one interval was refused, and it was the
+    // worker poll's.
+    assertEqual(await page.evaluate(() => window.__RICHOS_BLOCKED_INTERVALS__), [3000],
+      "the 3,000 ms refill was not the only interval taken away, or was not taken away at all — the control this check rests on did not hold");
+
+    assertEqual(errors.length,0,"renderer errors"); await page.close();
+    return "with the refill blocked: launch showed " + JSON.stringify(atLaunch.trim()) + " " + launchMs +
+      "ms after goto; the switch showed " + JSON.stringify(onHiring.trim()) + " " + switchMs + "ms after the press";
   });
 
   await browser.close(); process.exit(run.report()?1:0);
