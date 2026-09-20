@@ -405,5 +405,8 @@ if [ "$TAILNET_NAME" != "not-joined" ]; then
   echo "phone: https://$TAILNET_NAME:8443/  (from this Mac: curl -sk https://$TAILNET_NAME:8443/)"
 fi
 echo "shot:  $HERE/shot.sh $VM <out.png> [--ocr]"
+echo "tree:  $HERE/ax.sh $VM tree            # the screen as text, with real geometry"
+echo "click: $HERE/ax.sh $VM click --title '<button>'"
+echo "guest: $HERE/guest.sh $VM '<shell command>'   # --pull/--push to move a file"
 echo "ax:    $HERE/ax.sh $VM '<applescript>'"
 echo "stop:  $HERE/stop.sh $VM      # ALWAYS, before you report (CEO §54)"
