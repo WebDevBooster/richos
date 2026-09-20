@@ -22,7 +22,9 @@ impl Cognition for HeldTurn {
 #[test]
 fn window_reads_finish_before_an_unfinished_turn_releases() {
     let path = std::env::temp_dir().join(format!("window-read-gate-{}.jsonl", std::process::id()));
-    let _ = std::fs::remove_file(&path);
+    if let Err(error) = std::fs::remove_file(&path) {
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
     let mut spine = Spine::new(Ledger::open(&path).unwrap());
     spine.set_entity_registry(EntityRegistry::new(vec![
         Entity::new("alpha", "Alpha", &["/fixture/alpha"]).unwrap(),

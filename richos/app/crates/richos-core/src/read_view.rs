@@ -115,7 +115,9 @@ mod tests {
     #[test]
     fn published_versions_stay_consistent_across_writes_and_switches() {
         let path = std::env::temp_dir().join(format!("read-view-{}.jsonl", std::process::id()));
-        let _ = std::fs::remove_file(&path);
+        if let Err(error) = std::fs::remove_file(&path) {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        }
         let mut spine = Spine::new(Ledger::open(&path).unwrap());
         let reader = spine.reader();
         let empty = reader.snapshot();

@@ -768,10 +768,12 @@ impl HistoryHealth {
     }
 }
 
+type ReadObserver = std::sync::Arc<dyn Fn(&Event) + Send + Sync>;
+
 pub struct Ledger {
     path: PathBuf,
     file: Option<File>,
-    read_observer: Option<std::sync::Arc<dyn Fn(&Event) + Send + Sync>>,
+    read_observer: Option<ReadObserver>,
     threads: Vec<Thread>,
     turns: Vec<Turn>,
     actions: Vec<Action>,
@@ -812,7 +814,7 @@ impl Ledger {
         }
     }
 
-    pub(crate) fn observe_reads(&mut self, observer: std::sync::Arc<dyn Fn(&Event) + Send + Sync>) {
+    pub(crate) fn observe_reads(&mut self, observer: ReadObserver) {
         self.read_observer = Some(observer);
     }
 
