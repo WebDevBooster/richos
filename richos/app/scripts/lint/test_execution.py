@@ -34,9 +34,12 @@ class Execution(unittest.TestCase):
 
     def test_nested_gate_never_probes_parent_lock_or_load(self):
         with patch.dict(os.environ, {'RICHOS_NIGHTLY_RUN_ID': 'fixture'}), \
-             patch('driver.fcntl.flock', side_effect=AssertionError('parent lock probe')), \
-             patch('driver.os.getloadavg', side_effect=AssertionError('parent load probe')):
-            driver.external_preflight(Path('/nonexistent-state'))
+             patch('fcntl.flock', side_effect=AssertionError('parent lock probe')), \
+             patch('os.getloadavg', side_effect=AssertionError('parent load probe')), \
+             patch('driver.inventory', return_value={}), patch('driver.versions', return_value={}), \
+             patch('driver.fast_was_run', return_value=True), patch('driver.tauri') as check:
+            self.assertEqual(driver.main(['--nightly']), 0)
+            check.assert_called_once()
 
     def test_deadline_stops_owned_child(self):
         with tempfile.TemporaryDirectory(prefix='lint-owned-') as tmp:
