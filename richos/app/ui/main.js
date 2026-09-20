@@ -1098,6 +1098,12 @@ async function openThread(threadId, opts) {
   composerScopeEl.hidden = true;
   setMainView("opening");
   renderScopeHeader();
+  // A newly created thread already has a locally published message. Carry it before
+  // this first paint, not only after the awaited snapshot read below. The initial
+  // snapshot replaces this temporary item; the post-read carry gives send() its ID.
+  if (opts.pendingUser) {
+    window.RichTimeline.addPendingUserMessage(timelineModel, opts.pendingUser.text, opts.pendingUser.at);
+  }
   // Paint the destination in this animation frame, before any activation/read completes.
   flushRender();
   syncComposerMode();
