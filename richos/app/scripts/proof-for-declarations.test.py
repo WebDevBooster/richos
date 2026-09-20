@@ -80,6 +80,35 @@ class Declarations(unittest.TestCase):
         result = self.select("docs/a-file-that-is-only-prose.md")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_directory_coverage_refuses_but_directory_dependency_passes(self):
+        for suite in SCRIPTS.glob("*.test.sh"):
+            shutil.copy2(suite, self.suites / suite.name)
+        suite = self.suites / "lint.test.sh"
+        original = suite.read_text()
+        lines = original.splitlines()
+        number = next(i for i, line in enumerate(lines, 1)
+                      if line.startswith("# run-tests: covers "))
+        lines[number - 1] = "# run-tests: covers richos/app"
+        suite.write_text("\n".join(lines) + "\n")
+        result = self.select("richos/app/.proof-for-probe/orphan.sh", self.suites)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(f"lint.test.sh:{number}: covers richos/app", result.stderr)
+        self.assertIn("directory coverage would hide an orphan", result.stderr)
+        # Same tree remains an input: it still selects lint, but cannot prove the orphan.
+        suite.write_text(original)
+        result = self.select("richos/app/.proof-for-probe/orphan.sh", self.suites)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("lint.test.sh", result.stdout)
+        self.assertIn("UNCOVERED", result.stderr)
+
+    def test_narrower_directories_cannot_replace_a_blanket_claim(self):
+        for directory in ["src", "src/nested"]:
+            with self.subTest(directory=directory):
+                (self.root / directory).mkdir(exist_ok=True)
+                self.write(f"# run-tests: inputs src\n# run-tests: covers {directory}\n")
+                with self.assertRaisesRegex(InvalidDeclaration, "directory coverage"):
+                    read_declarations(self.root, self.suites)
+
     def test_selector_refuses_inputs_without_coverage(self):
         for suite in SCRIPTS.glob("*.test.sh"):
             shutil.copy2(suite, self.suites / suite.name)

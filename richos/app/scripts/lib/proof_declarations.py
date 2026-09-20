@@ -35,7 +35,9 @@ def read_declarations(root, directory):
                     or PurePosixPath(path).is_absolute()
                     or any(part in {"", ".", ".."} for part in path.split("/"))):
                 raise InvalidDeclaration(f"{where}: expected a literal repository-relative path")
-            if not (root / path).exists():
+            if (root / path).is_dir():
+                raise InvalidDeclaration(f"{where}: directory coverage would hide an orphan; list tested files instead")
+            if not (root / path).is_file():
                 raise InvalidDeclaration(f"{where}: path is not in the tree")
             if not any(path == dep or path.startswith(dep + "/") for dep in inputs):
                 raise InvalidDeclaration(f"{where}: not selected by this suite's inputs")
