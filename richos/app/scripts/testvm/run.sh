@@ -41,12 +41,15 @@ done
 [ "$VM" != "$TESTVM_BASE_VM" ] || die "refusing to run in the base VM — it is the template every clone comes from"
 
 # --- 0. what this host can give the guest, asked BEFORE anything boots --------
-# A property of THIS Mac, so it is answered before a 25 GB clone exists to clean
-# up. The guest gets the host's claude binary at every run (claude-sync.sh); a
-# host that has none cannot hand one over, and finding that out after a boot
-# costs a minute and leaves a VM behind.
+# Both of these are properties of THIS Mac, so they are answered before a 25 GB
+# clone exists to clean up. A guest gets the host's claude binary and the host's
+# claude login at every run (see claude-sync.sh / claude-login.sh); a host that
+# has neither cannot hand over either, and finding that out after a boot costs a
+# minute and leaves a VM behind.
 host_claude_path >/dev/null 2>&1 \
   || die "no claude binary on this host at $TESTVM_HOST_CLAUDE — the app shells out to it; install Claude Code first"
+"$HERE/claude-login.sh" host-check >/dev/null 2>&1 \
+  || die "host claude is not logged in — /login on the host first"
 
 START=$(date +%s)
 preflight_tart
@@ -277,6 +280,20 @@ if [ "$KEYCHAIN_RC" -ne 0 ]; then
 EOF
 fi
 
+# --- 3c. the claude login -----------------------------------------------------
+# AFTER the keychain exists and is unlocked, BEFORE the app launches. The guest
+# is signed in as this Mac is, from this Mac's own keychain item, at every run —
+# so the CEO's second question of 2026-09-20 ("what happens when the Claude
+# login expires in the VM?") has a structural answer: the guest never holds a
+# login longer than one run. The value travels on stdin and exists in no file,
+# no log and no command line; see claude-login.sh's header.
+#
+# NOT fatal, for the same reason the keychain step is not: everything that needs
+# no model turn still renders, still screenshots and still proves what it was
+# asked to. It says so here rather than at the first model turn.
+CLAUDE_LOGIN_LINE="$("$HERE/claude-login.sh" push "$VM" "$GUEST_HOME")" || true
+printf '%s\n' "$CLAUDE_LOGIN_LINE" >&2
+
 if [ -n "$ENGINE" ] && [ -e "$ENGINE" ]; then
   log "copying the engine payload in..."
   scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" "$ENGINE" \
@@ -348,6 +365,7 @@ echo "tailnet=$TAILNET_NAME"
 # nobody prints is a number nobody checks, and these two silently drifted apart
 # for as long as the harness existed.
 echo "$CLAUDE_LINE"
+echo "$CLAUDE_LOGIN_LINE"
 if [ "$TAILNET_NAME" != "not-joined" ]; then
   echo "phone: https://$TAILNET_NAME:8443/  (from this Mac: curl -sk https://$TAILNET_NAME:8443/)"
 fi
