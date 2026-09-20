@@ -1115,7 +1115,16 @@ fn hold_the_spine<'a>(
 /// very turn it is meant to interrupt — the stop would be structurally impossible no
 /// matter how the rest of the plumbing is written.
 #[tauri::command(async)]
-fn send_message(state: State<AppState>, text: String, thread_id: String) -> Result<Vec<Message>, String> {
+fn send_message(
+    state: State<AppState>,
+    // **THE PHONE, INJECTED RATHER THAN REACHED FOR.** It is managed unconditionally at boot
+    // (`app.manage(phone_runtime)`) and is inert until a phone is paired, so this costs a Mac
+    // with no phone nothing at all and saves this function an `AppHandle` it has no other use
+    // for.
+    phone: State<std::sync::Arc<phone::PhoneRuntime>>,
+    text: String,
+    thread_id: String,
+) -> Result<Vec<Message>, String> {
     // ===================================================================================
     // HOW LONG HE WAITED BEFORE HIS TURN EVEN STARTED — and why this line exists
     // ===================================================================================
@@ -1144,43 +1153,76 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     // AND THE ROAD THAT DOES NOT WAIT FOR IT
     // ===================================================================================
     //
-    // `TurnControl::defer_send` answers `Some` only while `prime_front_desk` has this
-    // thread's road open, and it makes that decision and its `fsync` under ONE guard — the
-    // same guard the priming turn needs in order to close the road. So there is no ordering
-    // in which a record is accepted here and nobody drains it (`steering.rs` has the two
-    // cases). `None` means nothing is priming, which is the overwhelming majority of sends,
-    // and the line below takes the lock exactly as it always did.
+    // **THIS USED TO BE `defer_send`, WHICH ANSWERED `Some` ONLY WHILE THE FRONT DESK WAS
+    // BEING PRIMED. It is taken for every typed sentence now, and Ray's `.20260920.1` walk
+    // is why.**
     //
-    // **The seconds themselves are not recovered by this and nothing here claims they are.**
-    // The priming turn is a model turn and the lease is serial (continuity §3.1), so his
-    // prompt reaches the provider when the prime ends either way. What changes is that his
-    // sentence is on disk the instant he presses Send — before this, it lived only in the
-    // webview for the length of the prime and quitting in that window lost it — and that the
-    // Send itself is instant.
+    // He typed on the Mac with his phone beside the keyboard. His own message reached the
+    // phone **1.3-6.1 s later on four of five turns**, while Rich's REPLY to the same message
+    // crossed in under a second
+    // (`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`,
+    // step 3). Two legs of one turn, so it was never the network.
     //
-    // A failure to write is NOT a refusal of his message: it falls through to the blocking
-    // path, which is what this function did before the road existed. The only thing lost is
-    // the wait.
-    match state.control.defer_send(&thread_id, state.entity.lock().unwrap().clone(), &text) {
-        Ok(Some(record)) => {
-            eprintln!(
-                "[richos] his Send was taken while the front desk was still being primed \
-                 (intake {}) — durable now, and handed over the moment the prime ends (CEO §55)",
-                record.id()
-            );
-            // NO SNAPSHOT, AND NO CALLER WANTS ONE. This return has always been advisory —
-            // `ui/main.js` discards it and renders from the live stream (its own comment at
-            // the send path says so), because the command may not return for hours. The
-            // deferred branch could only produce a snapshot by taking the very lock it just
-            // declined to wait for, so it returns none rather than a stale or invented one.
-            return Ok(Vec::new());
+    // **THE CAUSE, MEASURED RATHER THAN REASONED** (`phone::listen`'s two timing tests, over
+    // real TLS through the shipped listener):
+    //
+    //   * his row and Rich's reply leave the Mac on ONE path, and it costs **5 ms**;
+    //   * with the spine held for 1,500 ms, that same 5 ms leg becomes **1,507 ms**.
+    //
+    // His sentence cannot reach a phone until it reaches the ledger, and it cannot reach the
+    // ledger until this function owns the spine: `Ledger::record_prompt_received` is
+    // `&mut self` over in-memory projections. Meanwhile `ui/main.js` has ALREADY painted his
+    // bubble from its own model (`:1814-1821`, before it calls this command at `:1824`), so
+    // the wait is invisible on the Mac and is the whole of what the phone shows. The biggest
+    // holder of that mutex is an ordinary turn, which this function keeps holding well past
+    // the moment the window is told the turn is over and the composer goes live again.
+    //
+    // **So his words stop waiting for the spine at all.** They go to the durable intake log —
+    // one `fsync`, no lock, the road the PHONE's own messages have taken since `bridge.rs` —
+    // and the spine picks them up with `poll_intake` below, in order, through the same
+    // `accept_prompt` the direct road uses (`spine.rs`'s `IntakeRecord::Desk` arm). Nothing
+    // about the turn changes; only WHEN his sentence becomes a durable fact.
+    //
+    // **AND IT IS ONLY TAKEN WHEN NOTHING CAN REFUSE HIM.** Every refusal below hinges on
+    // `spine.has_lease()`, and `control.lease_session()` answers that question WITHOUT the
+    // lock. With no lease session this falls through to the old road untouched, so the
+    // first-run sentences Ray fought for in candidate .15 are reached exactly as before — and
+    // a phone can never be shown a sentence the Mac then refuses, which is plan §6's refusal
+    // and the one shape this must not have.
+    //
+    // A write that FAILS is not a refusal of his message either: it falls through to the same
+    // old road, and the only thing lost is the wait.
+    let his_words_are_on_the_log = if state.control.lease_session().is_some() {
+        match state.control.submit_from_desk(&thread_id, state.entity.lock().unwrap().clone(), &text)
+        {
+            Ok(record) => {
+                // THE PHONE, BEFORE THE LOCK. Inert when nothing is paired, so this costs a
+                // Mac with no phone one atomic read.
+                let announced = phone.announce_his_words(
+                    &thread_id,
+                    &format!("intake_{}", record.id()),
+                    &text,
+                );
+                if announced {
+                    eprintln!(
+                        "[richos] his Send is durable (intake {}) and is on his phone before \
+                         the spine has been asked for anything",
+                        record.id()
+                    );
+                }
+                Some(record.id())
+            }
+            Err(e) => {
+                eprintln!(
+                    "[richos] his Send could not be written to the intake log ({e}); it takes \
+                     the blocking road the way it did before, which is the only cost"
+                );
+                None
+            }
         }
-        Ok(None) => {}
-        Err(e) => eprintln!(
-            "[richos] his Send could not be taken off the spine ({e}); it waits for the front \
-             desk the way it did before, which is the only cost"
-        ),
-    }
+    } else {
+        None
+    };
     // `take_the_spine` is what writes the wait down now, for THIS site and for every other
     // one — see the block above it. The measurement did not move; it stopped being unique
     // to this line, which is what let six seconds go unattributed on candidate .12.
@@ -1229,7 +1271,14 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     if !spine.has_lease() && !spine.has_lease_factory() {
         return Err(refused_send("no compute lease and no factory", LEASE_UNAVAILABLE_MESSAGE.into()));
     }
-    if spine.active_thread().is_none() {
+    // **AND IT IS NOT ASKED OF THE ROAD THAT DOES NOT NEED IT.** This gate is about
+    // `submit_prompt_to` below, which submits to whatever is active after it activates.
+    // `drain_intake` resolves the thread from the RECORD instead (`spine.rs`'s
+    // `IntakeRecord::Desk` arm: `fence_binding(&thread_id)`), so a Mac with a lease, a
+    // durable record and no active thread is a case that road handles and this one cannot.
+    // Asking it there would refuse a sentence that is already on disk and already on his
+    // phone, which is the one shape the road above must not have.
+    if his_words_are_on_the_log.is_none() && spine.active_thread().is_none() {
         return Err(refused_send("no active thread", "Open a conversation first.".into()));
     }
     // ===================================================================================
@@ -1247,9 +1296,25 @@ fn send_message(state: State<AppState>, text: String, thread_id: String) -> Resu
     // his message is durably recorded and queued with ITS OWN binding, and the turn
     // boundary delivers it on its own thread — the front desk that answers it is that
     // thread's own, still alive from the last time he spoke to it (`spine.rs`'s `Resident`).
-    spine
-        .submit_prompt_to(&thread_id, &text, Source::Text)
-        .map_err(|e| refused_send("the spine refused the prompt", e.to_string()))?;
+    //
+    // **AND WHEN HIS WORDS ARE ALREADY ON THE LOG, THE SPINE TAKES THEM OFF IT INSTEAD** — the
+    // same call the phone's drain makes, so there is one road out of the log and not two.
+    // `drain_intake` goes through `accept_prompt` for a `Desk` record, which is the whole of
+    // the acceptance `submit_prompt_inner` performs (corrections staged, his row emitted, the
+    // turn queued), then `drain_queue` runs it. Records ahead of his are drained first, which
+    // is the ORDER he typed things in and is exactly what a second road would have broken.
+    if let Some(intake_id) = his_words_are_on_the_log {
+        spine.poll_intake().map_err(|e| {
+            refused_send(
+                &format!("the spine could not take intake {intake_id} off the log"),
+                e.to_string(),
+            )
+        })?;
+    } else {
+        spine
+            .submit_prompt_to(&thread_id, &text, Source::Text)
+            .map_err(|e| refused_send("the spine refused the prompt", e.to_string()))?;
+    }
     // "no active thread" used to be the whole sentence here, and it went straight onto the
     // CEO's screen through `send()`'s `String(e)`. Machinery, and it named neither an action
     // nor an actor. The prompt IS already submitted by this line, so the sentence must not
@@ -5455,30 +5520,49 @@ mod send_wait_tests {
     #[test]
     fn the_send_asks_for_the_deferred_road_before_it_takes_the_spine() {
         const SOURCE: &str = include_str!("main.rs");
-        let start = SOURCE.find(concat!("fn send_", "message(state: State<AppState>")).unwrap();
+        let start = SOURCE.find(concat!("fn send_", "message(")).unwrap();
         let end = SOURCE[start..].find(concat!("fn refused_", "send(")).unwrap() + start;
         let body = &SOURCE[start..end];
 
-        let defer = concat!("state.control.defer_", "send(");
+        // **THE NEEDLE MOVED ON 2026-09-20 AND THE INVARIANT DID NOT.** It read
+        // `state.control.defer_send(` — the road that answered only while the front desk was
+        // being primed. Ray's `.20260920.1` walk measured his own typed message reaching his
+        // phone 1.3-6.1 s after he pressed Send while Rich's reply to it crossed in under a
+        // second, and a prime was never the cause: an ordinary turn holds the same mutex, and
+        // his row cannot be built until his words are in the ledger behind it. So the window
+        // takes `submit_from_desk` for EVERY typed sentence now. Same order, same reason, wider
+        // door.
+        let durable = concat!("state.control.submit_from_", "desk(");
         // The one door to the spine since 2026-09-19 (`take_the_spine`) — the needle follows
         // the spelling, because the ORDER is the property and a needle that stopped matching
         // would pass this test over a send that had started blocking first.
         let lock = concat!("take_the_", "spine(&state.spine)");
-        let defer_at = body.find(defer).expect("send_message must offer the deferred road at all");
+        let durable_at = body.find(durable).expect("send_message must write his words down at all");
         let lock_at = body.find(lock).expect("send_message still takes the spine on the ordinary path");
         assert!(
-            defer_at < lock_at,
-            "the deferred road must be asked for BEFORE the mutex — after it, it can only run \
-             once the wait it exists to avoid has already been paid"
+            durable_at < lock_at,
+            "his words must be written down BEFORE the mutex — after it, the write can only \
+             happen once the wait it exists to avoid has already been paid"
         );
 
-        // The thread he typed into, not the active one. A deferral filed against whatever
-        // thread happened to be active would launder his words across an entity boundary,
-        // which is the thing `IntakeRecord::Steer`'s own comment refuses.
-        let call = &body[defer_at..];
+        // **AND THE PHONE IS TOLD IN THE SAME WINDOW.** This is the half Ray measured. The
+        // announcement is built from the durable record and published to a hub that is inert
+        // with no phone paired, so it costs nothing and cannot precede the record.
+        let announce = concat!("phone.announce_his_", "words(");
+        let announce_at = body.find(announce).expect("nothing tells his phone what he just typed");
+        assert!(
+            durable_at < announce_at && announce_at < lock_at,
+            "the phone must be told AFTER his words are durable and BEFORE the mutex: durable \
+             at {durable_at}, announced at {announce_at}, lock at {lock_at}"
+        );
+
+        // The thread he typed into, not the active one. A record filed against whatever thread
+        // happened to be active would launder his words across an entity boundary, which is the
+        // thing `IntakeRecord::Steer`'s own comment refuses.
+        let call = &body[durable_at..];
         assert!(
             call[..call.find(')').unwrap()].contains("&thread_id"),
-            "the deferral must name the thread he typed into: {}",
+            "the durable record must name the thread he typed into: {}",
             &call[..80]
         );
     }

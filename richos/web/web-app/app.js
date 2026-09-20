@@ -396,11 +396,17 @@ function makeLink() {
 				// `data.messages` on the floor.
 				//
 				// What that looked like on his phone, on 2026-09-18: a list of answers with no
-				// questions. The live stream can only ever open a `role: "rich"` row
-				// (`phone/rows.rs:115-173`), so Rich's replies arrived and nothing he wrote ever
-				// did — not from this phone, not from the Mac. It is the one frame that carries
-				// his own words, and it is merged before anything else in this handler touches
-				// the screen.
+				// questions. At the time the live stream could only open a `role: "rich"` row, so
+				// Rich's replies arrived and nothing he wrote ever did — not from this phone, not
+				// from the Mac, and this was the one frame that carried his own words.
+				//
+				// **THAT LAST CLAUSE IS NO LONGER TRUE AND THIS HANDLER IS NO LESS NECESSARY.**
+				// `rich://ceo-message` has existed since `102b7c07` (`phone/rows.rs`
+				// `event_from_live`), so his own row arrives live as well — but only for turns
+				// this stream was open for. `hello` is what a phone that was asleep, out of
+				// range, or opened for the first time is caught up by, and it is still the only
+				// frame that can carry a message from before the socket existed. So the rows are
+				// merged before anything else in this handler touches the screen.
 				if (Array.isArray(data.messages) && data.messages.length) {
 					thread.merge(data.messages);
 					messageCache.put(data.messages).catch(() => {});

@@ -37,6 +37,14 @@
 		let oldestKnownCursor = null;
 		let reachedTheBeginning = false;
 
+		/// Is this row the Mac's stand-in for a sentence it has taken but not yet turned into a
+		/// turn? Its id is the intake id — `intake_<n>`, the id `POST /api/messages` answers a
+		/// phone with, and the id the Mac announces a DESK message under before the spine has
+		/// been asked for anything (`app/src-tauri/src/phone/stream.rs` `announce_his_words`).
+		function isAStandIn(row) {
+			return Boolean(row) && row.role === 'ceo' && typeof row.id === 'string' && row.id.indexOf('intake_') === 0;
+		}
+
 		function remember(row) {
 			if (!row || !row.id) return;
 			if (typeof row.cursor !== 'number') {
@@ -48,6 +56,25 @@
 			rows.set(row.id, existing ? Object.assign({}, existing, row) : Object.assign({}, row));
 			if (row.client_id) acknowledgedClientIds.add(row.client_id);
 			if (oldestKnownCursor === null || row.cursor < oldestKnownCursor) oldestKnownCursor = row.cursor;
+
+			// **THE STAND-IN RETIRES ON THE MAC'S OWN ROW, AND THE MATCH IS THE TEXT** — the same
+			// rule `confirm`/`view` have used for a phone's pending bubble since the send queue
+			// was written, and for the same reason: the projected row carries `client_id: null`
+			// and the id it carries is the projection's (`{turn}:user`), so his words are the
+			// only thing the two have in common.
+			//
+			// Both rows are the Mac's, which is what makes this a repaint rather than a
+			// reconciliation: the stand-in came from a record the Mac had already fsynced, and
+			// the row replacing it is that record having become a turn.
+			//
+			// TWO IDENTICAL MESSAGES IN A ROW retire together on the first of the two and the
+			// second reappears with the next merge — a repaint, never a loss. Said here rather
+			// than discovered, exactly as `confirm` says it.
+			if (row.role === 'ceo' && !isAStandIn(row)) {
+				rows.forEach((held, id) => {
+					if (isAStandIn(held) && (held.text || '') === (row.text || '')) rows.delete(id);
+				});
+			}
 		}
 
 		return {
@@ -92,10 +119,22 @@
 			/// accepted_at}` (`app/src-tauri/src/phone/routes.rs:370-376`) and the send queue then
 			/// drops the item, because the Mac has it and nothing durable is owed any more
 			/// (`queue.js`, rule 3). Until this existed, that left NOTHING on the screen where his
-			/// message had been: the Mac's own row for it does not arrive on the live stream —
-			/// `event_from_live` translates `rich://message-*` and nothing else
-			/// (`phone/rows.rs:115-173`), so no live frame in this build carries a CEO turn — and
-			/// the projected row only reaches the phone with the next `hello` or backfill.
+			/// message had been.
+			///
+			/// **THE REASON GIVEN HERE WAS TRUE UNTIL `102b7c07` AND IS NOT ANY MORE, so it is
+			/// corrected rather than left to be read as current.** It said: *"the Mac's own row
+			/// for it does not arrive on the live stream — `event_from_live` translates
+			/// `rich://message-*` and nothing else, so no live frame in this build carries a CEO
+			/// turn"*. `rich://ceo-message` exists now (`phone/rows.rs` `event_from_live`'s first
+			/// arm, `opens_a_row`), and it is emitted for BOTH roads a CEO utterance can take —
+			/// the desk (`spine.rs`'s `accept_prompt`) and the intake log the phone writes to
+			/// (`spine.rs`'s `drain_intake`). So his own row now arrives live, with the
+			/// projection's own id.
+			///
+			/// **This stand-in is therefore SHORTER-LIVED and is still not redundant.** It covers
+			/// the window between the Mac accepting the POST and the turn being drained, which is
+			/// a real window: the drain runs on its own thread and needs the spine, and a phone
+			/// with nothing on the screen in it is the defect this was written for.
 			///
 			/// So this is the bubble AFTER the Mac has taken it: ordered by the cursor the Mac
 			/// itself promised, so it sits where his message will sit rather than at the bottom.
@@ -104,9 +143,10 @@
 			/// key the contract names is `client_id`, and the Mac's projected rows carry
 			/// `client_id: null` for every row (`phone/rows.rs:82`, `:97`) because the id never
 			/// reaches the ledger — so there is nothing to match on but his words, and his words
-			/// are what is on the screen. **A CEO row in this thread is always the Mac's**: the
-			/// live stream can only ever open a `role: "rich"` row, so anything `role: "ceo"` in
-			/// `rows` came from a `hello`, a backfill or a push, all of which are the projection.
+			/// are what is on the screen. **A CEO row in this thread is always the Mac's**, and
+			/// that is unchanged by the correction above — a live `role: "ceo"` row is minted by
+			/// `Spine` out of the ledger's own turn, so every road into `rows` (the live stream,
+			/// a `hello`, a backfill, a push) is the projection and none of them is the phone.
 			/// Two identical messages in a row therefore retire together on the first of the two
 			/// rows and the second reappears with the next merge — a repaint, never a loss, and
 			/// said here rather than discovered.
