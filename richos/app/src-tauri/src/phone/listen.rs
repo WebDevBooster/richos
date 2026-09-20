@@ -2354,8 +2354,7 @@ mod tests {
         let held = Arc::new(StdMutex::new(Some(listener)));
         let owner_listener = Arc::clone(&held);
         let owner_hub = Arc::clone(&hub);
-        let torn_down = Arc::new(StdMutex::new(false));
-        let owner_torn_down = Arc::clone(&torn_down);
+        let (torn_down_tx, torn_down_rx) = std::sync::mpsc::channel();
         crate::phone::watch_for_rejection(rejections, move || {
             // `PhoneRuntime::forget`'s first two lines. In production they are reached through
             // `forget()` itself — one call, one copy of the sequence.
@@ -2363,7 +2362,7 @@ mod tests {
                 listener.stop();
             }
             owner_hub.set_live(false);
-            *owner_torn_down.lock().unwrap() = true;
+            torn_down_tx.send(()).expect("the test stopped waiting for teardown");
         });
 
         // A real TLS client for the tailnet name, validating our leaf against our own root.
@@ -2488,14 +2487,19 @@ mod tests {
         );
 
         // --- 5. AND THE REST OF THE STATE MATCHES `Forget this phone` ---------------------------
+        // A refused connection proves the socket closed, not that its thread has been joined
+        // and the owner finished updating the hub. Wait for that completion on the same deadline.
+        torn_down_rx
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .expect("the shipped watcher did not finish the owner's teardown within five seconds");
         assert!(!devices.is_paired(), "a rejected phone is still paired");
         assert!(
             !hub.is_live(),
             "the hub is still live, so the surface would still be told a phone is there"
         );
         assert!(
-            held.lock().unwrap().is_none() && *torn_down.lock().unwrap(),
-            "the shipped watcher never ran the owner's teardown, so something else closed the port"
+            held.lock().unwrap().is_none(),
+            "the owner finished teardown but still holds the listener"
         );
     }
 }
