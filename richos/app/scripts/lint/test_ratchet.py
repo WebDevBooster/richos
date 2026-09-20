@@ -1,6 +1,12 @@
 import copy
+import argparse
+import json
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 from common import Refusal
+import driver
 from ratchet import NOTE, check, compare, lower
 
 
@@ -12,6 +18,39 @@ def record():
 
 
 class Ratchet(unittest.TestCase):
+    def test_filesystem_check_and_trusted_git_baseline(self):
+        with tempfile.TemporaryDirectory(prefix='lint-ratchet-') as tmp:
+            root = Path(tmp)
+            def git(*args):
+                subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Lint fixture',
+                                '-c', 'user.email=lint@example.invalid', *args], cwd=root, check=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            git('init', '-q', '--initial-branch=main')
+            path = root / driver.BASE / 'fixture.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(record()))
+            git('add', '.')
+            git('commit', '-qm', 'Fixture integration baseline')
+            args = argparse.Namespace(trusted_ref='refs/heads/main', bootstrap=False, lower=False)
+            before = (path.read_bytes(), path.stat().st_mtime_ns)
+            actual = record()
+            actual['counts']['a'] = 1
+            driver.enforce(root, 'fixture', actual, args)
+            self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+            args.lower = True
+            driver.enforce(root, 'fixture', actual, args)
+            self.assertEqual(json.loads(path.read_text())['counts']['a'], 1)
+            raised = record()
+            raised['counts']['a'] = 3
+            path.write_text(json.dumps(raised))
+            args.lower = False
+            with self.assertRaisesRegex(Refusal, 'raised ceiling'):
+                driver.enforce(root, 'fixture', raised, args)
+            path.unlink()
+            args.bootstrap = True
+            with self.assertRaisesRegex(Refusal, 'already on integration'):
+                driver.enforce(root, 'fixture', record(), args)
+
     def test_check_does_not_mutate(self):
         baseline = record()
         before = copy.deepcopy(baseline)
