@@ -391,6 +391,45 @@ expect "T6 capture refuses to photograph this machine's screen" 1 "never a test 
 run env -u RICHOS_QA_CAPTURE "$QA/ocr-watch.sh" "$TMP/watch" --region 0,0,10,10 --count 1
 expect "T7 ocr-watch refuses to photograph this machine's screen" 2 "never a test surface"
 
+run "$QA/timeline.py" at "$TMP/tl" 0007.png
+expect "T10 a frame chosen by reading is dated off the capture's own clock" 0 "+450.0 ms"
+
+run "$QA/timeline.py" at "$TMP/tl" 99
+expect "T11 a frame that clock does not cover is refused, not dated anyway" 1 "not in"
+
+run "$QA/timeline.py" capture "$TMP/cap2" 1 --region 0,0,10,10 --also-region 1,2,3 --wait-only
+expect "T8 --also-region without a full rectangle is refused, not silently dropped" 1 "takes a rectangle"
+
+# Two regions, one action, one clock — driven against a FAKE `screencapture`
+# first on PATH, so nothing photographs this machine. What is under test is the
+# pair of calls `capture` BUILDS and the two meta.tsv files it writes; the
+# guarantee that matters is that BOTH carry the SAME action instant, because
+# two separate `capture` runs stamping their own is the defect this replaces.
+mkdir -p "$TMP/fakebin"
+cat > "$TMP/fakebin/screencapture" <<'SH'
+#!/bin/sh
+for a in "$@"; do case "$a" in -R*) echo "${a#-R}" >> "$TMPDIR_RECT" ;; esac; done
+out=""; for a in "$@"; do out="$a"; done
+printf 'x' > "$out"
+SH
+chmod +x "$TMP/fakebin/screencapture"
+: > "$TMP/rects"
+run env PATH="$TMP/fakebin:$PATH" TMPDIR_RECT="$TMP/rects" RICHOS_QA_CAPTURE=allow \
+    "$QA/timeline.py" capture "$TMP/cap3" 1 --region 0,25,100,50 \
+    --also-region 200,25,60,50 --wait-only --baseline 0.3 --interval 0.05
+A_BEFORE="$(awk -F'\t' '$1=="t_action_before"{print $2}' "$TMP/cap3/meta.tsv" 2>/dev/null || true)"
+B_BEFORE="$(awk -F'\t' '$1=="t_action_before"{print $2}' "$TMP/cap3/b/meta.tsv" 2>/dev/null || true)"
+B_REGION="$(awk -F'\t' '$1=="region"{print $2}' "$TMP/cap3/b/meta.tsv" 2>/dev/null || true)"
+if [ "$CODE" = 0 ] \
+   && [ -n "$A_BEFORE" ] && [ "$A_BEFORE" = "$B_BEFORE" ] \
+   && [ "$B_REGION" = "200,25,60,50" ] \
+   && grep -Fq "200,25,60,50" "$TMP/rects" && grep -Fq "0,25,100,50" "$TMP/rects"; then
+  ok "T9 --also-region captures the second rectangle on the SAME action instant"
+else
+  bad "T9 the second region was not captured against the same action" \
+      "primary=$A_BEFORE also=$B_BEFORE region=$B_REGION code=$CODE"
+fi
+
 echo ""
 echo "=== X. the fixtures are still the fixtures ==="
 
