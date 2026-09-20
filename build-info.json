@@ -1,19 +1,19 @@
 {
   "build": true,
-  "version": "1.2.0-nightly.20260919.7",
-  "tag": "v1.2.0-nightly.20260919.7",
-  "source_commit": "321f10762e283cb2a2a2220a70ed1dcc1f9a2ab1",
-  "created_at": "2026-09-19T19:52:06.446961+00:00",
-  "run_id": "20260919T194834Z-a784f8c9",
+  "version": "1.2.0-nightly.20260919.8",
+  "tag": "v1.2.0-nightly.20260919.8",
+  "source_commit": "cb95e9052fa7595ff092203fbde0558a127e8977",
+  "created_at": "2026-09-19T23:48:43.352341+00:00",
+  "run_id": "20260919T234500Z-09b02927",
   "run_attempt": "1",
   "channel": "nightly",
   "platform": "darwin-aarch64",
   "no_host_screen": true,
   "script_suites": {
     "jobs": 3,
-    "seconds": 126,
-    "run_id": "20260919T194834Z-a784f8c9",
-    "commit": "321f10762e283cb2a2a2220a70ed1dcc1f9a2ab1",
+    "seconds": 134,
+    "run_id": "20260919T234500Z-09b02927",
+    "commit": "cb95e9052fa7595ff092203fbde0558a127e8977",
     "suites": [
       {
         "name": "front-door.test.sh",
@@ -38,27 +38,27 @@
       {
         "name": "make-engine-asset.test.sh",
         "state": "passed",
-        "seconds": 117,
+        "seconds": 126,
         "where": "host",
-        "inputs_sha256": "81c3c6d3c254b69997b185735fee57a241c997bed045ff5e9663a54404099ae9"
+        "inputs_sha256": "e483f400c5aab226024def8c1ee29976027bab89eb4aa6409ef41702824eddf3"
       },
       {
         "name": "make-release.test.sh",
         "state": "passed",
-        "seconds": 126,
+        "seconds": 134,
         "where": "host",
-        "inputs_sha256": "f169d171048e62cab89d509fd7a5fddf9ac6ed01ffc7d4f7e36ca034177306ae"
+        "inputs_sha256": "46977bae96594bc63d8c73ba850465dc0a16da7089239fb51ac1340dc6271e39"
       },
       {
         "name": "nightly-local.test.sh",
         "state": "passed",
-        "seconds": 0,
+        "seconds": 1,
         "where": "host"
       },
       {
         "name": "nightly.test.sh",
         "state": "passed",
-        "seconds": 20,
+        "seconds": 23,
         "where": "host"
       },
       {
@@ -70,7 +70,7 @@
       {
         "name": "package-app.test.sh",
         "state": "passed",
-        "seconds": 4,
+        "seconds": 5,
         "where": "host"
       },
       {
@@ -82,28 +82,28 @@
       {
         "name": "run-tests.test.sh",
         "state": "passed",
-        "seconds": 10,
+        "seconds": 17,
         "where": "host"
       },
       {
         "name": "signing-setup.test.sh",
         "state": "passed",
-        "seconds": 2,
+        "seconds": 4,
         "where": "host"
       },
       {
         "name": "updater-setup.test.sh",
         "state": "passed",
-        "seconds": 21,
+        "seconds": 19,
         "where": "host"
       },
       {
         "name": "voice-component.test.sh",
         "state": "passed",
-        "seconds": 12,
+        "seconds": 17,
         "where": "host"
       }
     ]
   },
-  "build_commit": "a5557b34a5d3f47fae2d2d015909239904301feb"
+  "build_commit": "be35f254d4dd8589aff6e30bccb5b7dd9b7d0ed8"
 }
