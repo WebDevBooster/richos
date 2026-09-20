@@ -1,0 +1,135 @@
+# WHICH SHIPPED FILES EACH BROWSER SUITE READS — the one declared half of `proof-for.sh`.
+#
+# ========================================================================================
+# WHY THIS IS DECLARED AND NOT DERIVED, WHICH IS A MEASUREMENT AND NOT A PREFERENCE
+# ========================================================================================
+# Everywhere else in `app/ui/tests/` an inventory is read off disk and a typed list is the
+# defect. The three derived rules in `proof-for.sh` follow that: a touched suite is itself,
+# a touched library is whoever requires it, a touched reference shot is whoever names its
+# directory. This file is the fourth rule, and it is declared because the derivation was
+# tried on this tree and measured:
+#
+#   * a plain basename grep over the 55 suites gives `main.js` 33 suites and `index.html`
+#     37 — near enough the whole set, which is not a map, it is a full run with extra steps;
+#   * with comments stripped — leaving only the lines that are code — it gives `home.js`
+#     ZERO. Every mention of `home.js` inside `home.js`'s own suite is prose in its header.
+#
+# Both numbers are correct and both are useless, for the same reason: a browser suite does
+# not NAME the source it exercises. It opens `index.html` and drives the rendered surface.
+# The relation between a shipped file and the suite that would catch a change in it is
+# behavioral, and behavior is not greppable.
+#
+# `lib/ui-sources.js` does not close the gap either, though the name suggests it: it is the
+# manifest of what SHIPS, derived from `index.html` and reconciled against the directory.
+# It answers "which files are product" and never "which suite reads which".
+#
+# ========================================================================================
+# WHAT STOPS IT ROTTING
+# ========================================================================================
+# The same thing that stops `ui-sources.js`'s ROLES table rotting: it is RECONCILED IN BOTH
+# DIRECTIONS, by `proof-for.sh`, on every single invocation, and a mismatch is exit 2 rather
+# than a quiet wrong answer.
+#
+#   * a suite in `ui/tests/` with no row here          -> refuses, naming the suite
+#   * a row naming a suite that does not exist         -> refuses, naming the row
+#   * a row naming a path that is not in the tree      -> refuses, naming both
+#   * two rows for one suite                           -> refuses
+#
+# So this file cannot be short and it cannot be stale. It can still be WRONG — a row can
+# name too little — and the honest guard against that is the direction it errs in: a row is
+# a SUPERSET, exactly as `run-tests: inputs` is. Naming a file the suite barely touches
+# costs one suite run. Failing to name one costs a defect.
+#
+# WHERE THIS BELONGS EVENTUALLY. Each row wants to live in its own suite, as a
+# `// proof-for: inputs …` header, for the reason `run-tests.sh` gives for reading its
+# declaration out of the suite: the suite is the only thing that knows what it reads, and a
+# second place to edit is the defect. It is here instead because `ui/tests/` had another
+# owner on the day this landed. Moving a row into its suite and deleting it here is a
+# one-line change per suite and needs no change to `proof-for.sh` beyond reading the header
+# first.
+#
+# FORMAT
+#   <suite.js>  <path> [<path>…]      paths are repository-relative
+#   @name       <path> [<path>…]      an alias, usable in any row
+#   @allui                            NOT typed: computed by proof-for.sh as every shipped
+#                                     file under app/ui/ (tests/ and node_modules/ aside).
+#                                     The eight suites that `require("./lib/ui-sources")`
+#                                     genuinely read all of them.
+# ========================================================================================
+
+@shell   richos/app/ui/index.html richos/app/ui/main.js richos/app/ui/style.css
+@home    richos/app/ui/home.js richos/app/ui/home.css richos/app/ui/home/field-engine.js richos/app/ui/home/field-prep.js richos/app/ui/home/field-ref.js
+@splash  richos/app/ui/splash.js richos/app/ui/splash-library.js richos/app/ui/splash.css richos/app/ui/theme-boot.js
+@phone   richos/app/ui/phone.js richos/app/ui/qr.js
+
+# ---- the eight that read the whole shipped manifest ------------------------------------
+# Each of these requires `./lib/ui-sources` and walks every file it classifies: the state
+# inventory, the contrast sweep and the dialect pass are whole-surface gates by definition.
+affordances.js          @allui
+appearance.js           @allui
+contrast.js             @allui
+corrections.js          @allui
+feedback.js             @allui
+memory.js               @allui
+setup.js                @allui
+splash.js               @allui
+
+# ---- the chat surface and its states ----------------------------------------------------
+compaction-notice.js    @shell
+compaction-progress.js  @shell
+composer-off.js         @shell
+composer-scroll.js      @shell
+control-names.js        @shell
+live-workers.js         @shell richos/app/ui/timeline.js
+question-timer.js       @shell richos/app/ui/timeline.js
+slow-bridge.js          @shell richos/app/ui/updates.js
+waiting-state.js        @shell richos/app/ui/mock.js
+waiting-lifecycle.js    @shell richos/app/ui/mock.js
+second-mouth.js         @shell richos/app/ui/mock.js
+dialect.js              @shell richos/app/ui/mock.js
+retention.js            @shell richos/app/ui/mock.js
+onboarding.js           @shell richos/app/ui/mock.js
+onboarding-lifecycle.js @shell richos/app/ui/mock.js
+first-run-sheet.js      @shell richos/app/ui/mock.js
+voice-model.js          @shell richos/app/ui/mock.js
+provider-auth.js        @shell
+
+# ---- the timeline renderer ---------------------------------------------------------------
+inspector.js            @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+interruption.js         @shell richos/app/ui/timeline.js
+local-notice.js         @shell richos/app/ui/timeline.js
+markdown.js             @shell richos/app/ui/timeline.js
+memory-strategy.js      @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+outage.js               @shell richos/app/ui/timeline.js
+realbytes.js            @shell richos/app/ui/timeline.js
+restart-scope.js        @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+scale.js                @shell richos/app/ui/timeline.js
+steering.js             @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+techy.js                @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+workers.js              @shell richos/app/ui/timeline.js
+
+# ---- the home screen and the window's chrome ---------------------------------------------
+chrome-align.js         @shell @home richos/app/ui/settings-button.js richos/app/ui/splash.css
+escape.js               @shell @home @splash richos/app/ui/permissions.js
+front-door.js           @shell @home
+home-fit.js             @shell @home
+home.js                 @shell @home richos/app/ui/mock.js richos/app/ui/home/field-data.js richos/app/ui/splash.js richos/app/ui/settings-button.js richos/app/ui/theme-boot.js
+ticker-wrap.js          @shell @home
+settings-fit.js         @shell @phone richos/app/ui/settings-button.js
+
+# ---- one screen each -----------------------------------------------------------------------
+background-work.js      @shell richos/app/ui/work-summary.js
+no-home-network.js      @shell @phone
+permissions.js          @shell richos/app/ui/permissions.js
+phone.js                @shell @phone richos/app/ui/mock.js
+quit-question.js        @shell richos/app/ui/quit-question.js
+repositories.js         @shell richos/app/ui/repositories.js
+updates.js              @shell richos/app/ui/updates.js richos/app/ui/settings-button.js richos/app/ui/mock.js
+work-summary.js         @shell richos/app/ui/work-summary.js
+
+# ---- the two suites that read documents rather than the screen -----------------------------
+# They live in this directory and run with the rest, but nothing they check is in `ui/`, so
+# their rows name what they actually read. Both would otherwise be suites with no inputs,
+# which the reconciliation refuses — correctly: "reads nothing" is never true of a suite.
+docs-claims.js          richos/app/README.md richos/app/STREAMING.md richos/app/ui/tests/README.md richos/app/crates/richos-core/src/stream.rs richos/app/crates/richos-core/src/live.rs richos/app/crates/richos-core/src/machinery.rs richos/app/crates/richos-core/src/upstream.rs richos/app/crates/richos-voice/src/event.rs
+vouch-template.js       .github/workflows/vouch-pr.yml .github/workflows/ui-suite-ci.yml docs/verification/pr-trust-gate-2026-09-05/README.md docs/verification/pr-trust-gate-2026-09-05/raw/close-comment-rendered.md
