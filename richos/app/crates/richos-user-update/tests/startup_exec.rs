@@ -150,7 +150,7 @@ fn shipping_startup_activates_and_execs_with_lifetime_exclusion() {
     assert!(stage_verified(&home, &archive("3.0.0", &new), "3.0.0").is_err());
     stage_verified(&home, &archive("4.0.0", &newer), "4.0.0").unwrap();
     assert_eq!(
-        richos_user_update::activate_prepared_above(&mut observer, "2.0.0")
+        richos_user_update::activate_prepared(&mut observer, "2.0.0")
             .unwrap_err()
             .kind(),
         io::ErrorKind::WouldBlock

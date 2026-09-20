@@ -13,6 +13,13 @@
 # D: the next ordinary launch activates and runs 0.1.1 before the fixture runtime.
 # T/K: tampering or a different signing key is refused as a signature failure,
 #      preserving the current bundle.
+# R: THE WAY BACK. From 0.1.1, "Go back" fetches v0.1.0's OWN immutable manifest from
+#    a fixture release directory laid out exactly as a published one
+#    (`releases/download/<tag>/latest.json`, two version tags and a moving channel
+#    tag), verifies its signature through the same download, stages it, and the next
+#    ordinary launch runs 0.1.0 again. A tampered v0.1.0 archive is refused the same
+#    way case T's is — going back is not a hole in the signature story. And once back,
+#    the way back is CLOSED (it would be a step up) while the way forward is open.
 #
 # RICHOS_UPDATE_SELFTEST invokes the same updates::check and updates::install
 # functions as the Tauri commands. HOME and the user application destination are
@@ -184,12 +191,24 @@ NEW_BYTES="$(stat -f '%z' "$SERVE/RichOS.app.tar.gz")"
 NEW_SHA="$(shasum -a 256 "$SERVE/RichOS.app.tar.gz" | awk '{print $1}')"
 cp "$SERVE/RichOS.app.tar.gz" "$WORK/good.tar.gz"
 cp "$SERVE/RichOS.app.tar.gz.sig" "$WORK/good.tar.gz.sig"
+# A PRISTINE COPY OF THE MANIFEST, because case K rewrites `$SERVE/latest.json` in
+# place to point at the wrong key's signature and case R needs the real one.
+cp "$SERVE/latest.json" "$WORK/good-latest.json"
 
 # ---------------------------------------------------------------------------
 # 2. Build the OLD version and "install" it: a copy of the bundle, outside the
 #    build tree, exactly as a customer would have it.
 # ---------------------------------------------------------------------------
-build 0.1.0 0
+build 0.1.0 1
+# THE EARLIER TAG'S OWN ARTIFACTS, which is what case R needs and what a published
+# release actually carries: `nightly.py::finish` uploads `latest.json` to the
+# per-version release as well as to the rolling channel release, and NIGHTLY.md states
+# existing tags and artifacts are never overwritten. Until this build carried
+# `--updater` there was no signed 0.1.0 archive at all, and a rollback test would have
+# had nothing to fetch.
+cp "$BUNDLE_DIR/RichOS.app.tar.gz" "$WORK/old.tar.gz"
+cp "$BUNDLE_DIR/RichOS.app.tar.gz.sig" "$WORK/old.tar.gz.sig"
+cp "$BUNDLE_DIR/latest.json" "$WORK/old-latest.json"
 rm -rf "$INSTALLED/RichOS.app"
 /usr/bin/ditto "$BUNDLE_DIR/RichOS.app" "$INSTALLED/RichOS.app"
 EXE="$INSTALLED/RichOS.app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INSTALLED/RichOS.app/Contents/Info.plist")"
@@ -227,12 +246,12 @@ python3 -m json.tool "$SERVE/latest.json" | sed 's/^/    /'
 # ---------------------------------------------------------------------------
 # The driver. Runs the INSTALLED bundle headless and returns its selftest lines.
 # ---------------------------------------------------------------------------
-run_selftest() { # run_selftest <check|install> <logname> -> exit code, output in $SELFTEST_OUT
-  local mode="$1" name="$2"
+run_selftest() { # run_selftest <check|install|rollback> <logname> [endpoint] -> exit code, output in $SELFTEST_OUT
+  local mode="$1" name="$2" endpoint="${3:-$BASE/latest.json}"
   local log="$LOGS/$name.log"
   HOME="$TEST_HOME" \
   RICHOS_UPDATE_SELFTEST="$mode" \
-  RICHOS_UPDATE_ENDPOINT="$BASE/latest.json" \
+  RICHOS_UPDATE_ENDPOINT="$endpoint" \
   RICHOS_ENTITY="${RICHOS_ENTITY:-richos}" \
     "$EXE" >"$log" 2>&1
   local code=$?
@@ -386,6 +405,169 @@ if [ "$still" = "0.1.0" ]; then
   ok "K2 the installed bundle is UNTOUCHED — still 0.1.0"
 else
   bad "K2 the installed bundle is UNTOUCHED — still 0.1.0" "Info.plist says '$still'"
+fi
+
+# ---------------------------------------------------------------------------
+# CASE R — THE WAY BACK OFF A BAD RELEASE
+#
+# The CEO runs the nightly as his daily driver. Before this the only documented way
+# off a bad one was NIGHTLY.md's "install a stable version at least as new as the
+# nightly" — by hand, from a browser, on the machine he was trying to use.
+#
+# THE FIXTURE RELEASE DIRECTORY IS THE SHAPE A PUBLISHED ONE HAS, not a convenient
+# one. `nightly.py::finish` uploads `latest.json` to the per-version release as well
+# as to the rolling channel release, so every published nightly carries its own
+# immutable signed manifest under its own tag:
+#
+#   serve/releases/download/nightly/latest.json    <- the moving channel tag
+#   serve/releases/download/v0.1.1/latest.json     <- and the archive it names
+#   serve/releases/download/v0.1.0/latest.json     <- the earlier tag, still there
+#
+# `updates::previous_manifest_url` derives the middle segment from the endpoint in
+# force, which is why the layout has to be real: a flat directory would have proved a
+# rule the product does not use.
+# ---------------------------------------------------------------------------
+rule
+say "CASE R — from 0.1.1, go back to 0.1.0 through the same signature-verified download"
+say ""
+
+REL="$SERVE/releases/download"
+mkdir -p "$REL/nightly" "$REL/v0.1.0" "$REL/v0.1.1"
+cp "$WORK/good.tar.gz" "$REL/v0.1.1/RichOS.app.tar.gz"
+cp "$WORK/good.tar.gz.sig" "$REL/v0.1.1/RichOS.app.tar.gz.sig"
+cp "$WORK/old.tar.gz" "$REL/v0.1.0/RichOS.app.tar.gz"
+cp "$WORK/old.tar.gz.sig" "$REL/v0.1.0/RichOS.app.tar.gz.sig"
+
+# The manifests are the ones `package-app.sh` emitted, with only the announced URL
+# moved to where this layout actually serves the bytes. The SIGNATURE is untouched:
+# it covers the archive, and the archive is byte-identical to the one it was made
+# from — which is the point, because a re-signed fixture would prove nothing.
+retarget() { # retarget <src manifest> <dst manifest> <url>
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+src, dst, url = sys.argv[1:4]
+doc = json.load(open(src))
+for platform in doc["platforms"].values():
+    platform["url"] = url
+json.dump(doc, open(dst, "w"), indent=2)
+PY
+}
+retarget "$WORK/good-latest.json" "$REL/v0.1.1/latest.json" "$BASE/releases/download/v0.1.1/RichOS.app.tar.gz"
+retarget "$WORK/good-latest.json" "$REL/nightly/latest.json"  "$BASE/releases/download/v0.1.1/RichOS.app.tar.gz"
+retarget "$WORK/old-latest.json"  "$REL/v0.1.0/latest.json"   "$BASE/releases/download/v0.1.0/RichOS.app.tar.gz"
+CHANNEL="$BASE/releases/download/nightly/latest.json"
+
+# Get this installation to where the CEO's is: on 0.1.1, having ARRIVED there through
+# an update. A hand-placed 0.1.1 has no publication history and no way back, which is
+# itself a stated limit of the feature — so the setup has to be the real path.
+reinstall_old
+run_selftest install prepare-back "$CHANNEL" >/dev/null 2>&1 || true
+run_selftest check prepare-back-relaunch "$CHANNEL" >/dev/null 2>&1 || true
+if [ "$(installed_version)" = "0.1.1" ]; then
+  ok "R0 the installation arrived at 0.1.1 through a real update, so it has a history"
+else
+  bad "R0 the installation arrived at 0.1.1 through a real update" \
+      "Info.plist says '$(installed_version)' (log: $LOGS/prepare-back-relaunch.log)"
+fi
+
+# ---- R1: a tampered EARLIER archive is refused exactly as a tampered newer one is ---
+cp "$WORK/old.tar.gz" "$WORK/old-good-copy.tar.gz"
+python3 - "$WORK/old.tar.gz" "$REL/v0.1.0/RichOS.app.tar.gz" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+data = bytearray(open(src, "rb").read())
+i = len(data) - 1024
+data[i] ^= 0xFF
+open(dst, "wb").write(bytes(data))
+print("    flipped byte %d of %d in the v0.1.0 archive" % (i, len(data)))
+PY
+
+run_selftest rollback back-tamper "$CHANNEL"
+back_tamper_code=$?
+printf '%s\n' "$SELFTEST_OUT" | sed 's/^/    /'
+
+# "IT FAILED" IS NOT ENOUGH, for the same reason case T states it: the run must have
+# REACHED the rollback — found a way back to 0.1.0 — and then failed on the signature.
+if printf '%s\n' "$SELFTEST_OUT" | grep -q 'back=0.1.0'; then
+  if [ "$back_tamper_code" -ne 0 ] && [ "$(failure_of)" = "signature" ]; then
+    ok "R1 it found the way back to 0.1.0, tried it, and REFUSED the tampered archive as a signature failure (exit $back_tamper_code)"
+  else
+    bad "R1 it found the way back to 0.1.0 and refused the tampered archive" \
+        "exit $back_tamper_code, failure kind '$(failure_of)'; selftest said: $SELFTEST_OUT"
+  fi
+else
+  bad "R1 it found the way back to 0.1.0 and refused the tampered archive" \
+      "the run never resolved a way back, so this case proves nothing: $SELFTEST_OUT"
+fi
+
+still="$(installed_version)"
+if [ "$still" = "0.1.1" ]; then
+  ok "R2 the installed bundle is UNTOUCHED — still 0.1.1"
+else
+  bad "R2 the installed bundle is UNTOUCHED — still 0.1.1" "Info.plist says '$still'"
+fi
+
+# ---- R3: the real thing ------------------------------------------------------------
+cp "$WORK/old-good-copy.tar.gz" "$REL/v0.1.0/RichOS.app.tar.gz"
+run_selftest rollback back "$CHANNEL"
+back_code=$?
+printf '%s\n' "$SELFTEST_OUT" | sed 's/^/    /'
+
+if [ "$back_code" -eq 0 ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'state=ready.*rollback=true'; then
+  ok "R3 it fetched v0.1.0's own manifest, the signature VERIFIED, and it staged the way back"
+else
+  bad "R3 it fetched v0.1.0's own manifest, the signature VERIFIED, and it staged the way back" \
+      "exit $back_code; selftest said: $SELFTEST_OUT (log: $SELFTEST_LOG)"
+fi
+
+after="$(installed_version)"
+if [ "$after" = "0.1.1" ] && [ -f "$INSTALLED/.richos-updater/rollback.json" ]; then
+  ok "R4 the running bundle is still 0.1.1 and the downgrade is AUTHORIZED but not yet applied"
+else
+  bad "R4 the running bundle is still 0.1.1 and the downgrade is authorized but not applied" \
+      "Info.plist says '$after'; rollback.json present: $([ -f "$INSTALLED/.richos-updater/rollback.json" ] && echo yes || echo no)"
+fi
+
+# ---- R5: the next ordinary launch is the one that moves ----------------------------
+run_selftest check back-relaunch "$CHANNEL"
+back_relaunch_code=$?
+printf '%s\n' "$SELFTEST_OUT" | sed 's/^/    /'
+boot_line="$(grep '^\[richos\] rollback activated' "$SELFTEST_LOG" || true)"
+
+if [ "$(installed_version)" = "0.1.0" ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'current=0.1.0'; then
+  ok "R5 the next ordinary launch RELAUNCHED into 0.1.0 and reports itself as 0.1.0"
+else
+  bad "R5 the next ordinary launch RELAUNCHED into 0.1.0" \
+      "Info.plist says '$(installed_version)'; selftest said: $SELFTEST_OUT (log: $SELFTEST_LOG)"
+fi
+
+# THE BOOT LINE NAMES BOTH VERSIONS AND WHICH WAY IT WENT. A record that says only
+# what is now installed cannot tell a rollback from an update after the fact, and
+# "which one did this Mac just do" is the first question asked when a nightly is bad.
+if printf '%s\n' "$boot_line" | grep -q 'rollback activated: 0.1.1 -> 0.1.0'; then
+  ok "R6 the boot line says WHICH WAY it went and between which versions: $boot_line"
+else
+  bad "R6 the boot line says which way it went and between which versions" \
+      "found: '${boot_line:-nothing}' (log: $SELFTEST_LOG)"
+fi
+
+# The way FORWARD is still open — going back is not a trap.
+if [ "$back_relaunch_code" -eq 0 ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'state=available.*available=0.1.1'; then
+  ok "R7 ...and 0.1.1 is still offered, so going back is reversible by an ordinary update"
+else
+  bad "R7 0.1.1 is still offered after going back" \
+      "exit $back_relaunch_code; selftest said: $SELFTEST_OUT"
+fi
+
+# ---- R8: and the way BACK is now closed, because it would be a step UP --------------
+run_selftest rollback back-again "$CHANNEL"
+back_again_code=$?
+printf '%s\n' "$SELFTEST_OUT" | sed 's/^/    /'
+if [ "$back_again_code" -eq 13 ] && printf '%s\n' "$SELFTEST_OUT" | grep -q 'back=-'; then
+  ok "R8 there is no second way back: the version this copy came from is NEWER, and it says so instead of stepping up (exit $back_again_code)"
+else
+  bad "R8 there is no second way back from 0.1.0" \
+      "exit $back_again_code; selftest said: $SELFTEST_OUT (log: $SELFTEST_LOG)"
 fi
 
 # ---------------------------------------------------------------------------

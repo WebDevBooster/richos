@@ -102,6 +102,8 @@ function view(over) {
       busyReason: null,
       unchecked: [],
       readySince: null,
+      rollbackVersion: null,
+      readyIsRollback: false,
     },
     over
   );
@@ -322,6 +324,11 @@ async function readRow(page) {
         return n ? n.disabled : null;
       })(),
       install: vis("update-install") ? txt("update-install") : null,
+      back: vis("update-back") ? txt("update-back") : null,
+      backDisabled: (() => {
+        const n = document.getElementById("update-back");
+        return n ? n.disabled : null;
+      })(),
       relaunch: vis("update-relaunch") ? txt("update-relaunch") : null,
       why: vis("update-why") ? txt("update-why") : null,
       detail: vis("update-detail") ? txt("update-detail") : null,
@@ -696,6 +703,74 @@ async function main() {
     assertEqual(calls.indexOf("update_relaunch"), -1, "no restart command was issued");
     await page.close();
     return calls.join(" -> ");
+  });
+
+  // ---- 9b/9c. the way back off a bad release --------------------------------------------
+  //
+  // The CEO runs the nightly as his daily driver, and before this the only documented way
+  // off a bad one was `NIGHTLY.md`'s "install a stable version at least as new as the
+  // nightly" — by hand, from a browser, on the machine he was trying to use.
+  //
+  // The browser half of the proof is the same half this suite always proves: the control
+  // says where it goes, it is offered only where pressing it is true, and it issues the
+  // command rather than merely looking pressed. That an earlier tag is fetched, its
+  // signature verified and its bundle published is proven where it happens —
+  // `app/scripts/updater-e2e.sh` case R, on a fixture release directory with two tags.
+  await run.check("20. Go back names its destination, and only exists when there is one", async () => {
+    const page = await openApp(browser);
+    await openMenu(page);
+
+    await setState(page, view({ state: "upToDate", checkedAt: Date.now(), rollbackVersion: null }));
+    let row = await readRow(page);
+    assertEqual(row.back, null, "no recorded earlier version means no control at all");
+
+    await setState(page, view({ state: "upToDate", checkedAt: Date.now(), rollbackVersion: "0.1.0" }));
+    row = await readRow(page);
+    // THE VERSION IS IN THE LABEL. "Go back" on its own is a control nobody presses,
+    // and it has to mean the same thing read aloud as read on screen.
+    assertEqual(row.back, "Go back to 0.1.0", "the control names where back is");
+    assertEqual(row.backDisabled, false, "and is pressable when nothing is running");
+
+    // ABSENT WHILE RICHOS IS WORKING, not dimmed — the same rule the Install control
+    // follows, for the same reason (CEO, 2026-09-05).
+    await setState(page, view({ state: "upToDate", checkedAt: Date.now(), rollbackVersion: "0.1.0", busy: true, busyReason: "Rich is working on your last message." }));
+    assertEqual((await readRow(page)).back, null, "removed while RichOS is working");
+
+    // ABSENT ONCE SOMETHING IS ALREADY PREPARED. That is what the next launch will do, and
+    // `richos-user-update` refuses to stage a rollback over a prepared update — so offering
+    // the press here would be offering a refusal.
+    await setState(page, view({ state: "ready", availableVersion: "0.1.2", percent: 100, rollbackVersion: "0.1.0" }));
+    assertEqual((await readRow(page)).back, null, "removed once something is prepared");
+
+    await page.close();
+    return "Go back to 0.1.0 / absent when none, busy, or already prepared";
+  });
+
+  await run.check("21. Go back issues update_rollback, and the row promises the RIGHT thing", async () => {
+    const page = await openApp(browser);
+    await openMenu(page);
+    await setState(
+      page,
+      view({ state: "upToDate", currentVersion: "0.1.2", checkedAt: Date.now(), rollbackVersion: "0.1.0", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" }),
+      [view({ state: "ready", currentVersion: "0.1.2", availableVersion: "0.1.0", readyIsRollback: true, percent: 100, rollbackVersion: "0.1.0", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" })]
+    );
+    await page.click("#update-back");
+    await settledAfterCommand(page, "update_rollback");
+
+    const row = await readRow(page);
+    assertEqual(row.state, "ready", "the scripted rollback landed");
+    // THE PROMISE IS DIFFERENT FROM AN UPDATE'S, and it comes off `readyIsRollback` rather
+    // than off comparing two version strings — the shell is the one place that knows which
+    // direction the staged thing moves.
+    assert(row.headline.indexOf("go back to 0.1.0") >= 0, "the row says where it is going: " + row.headline);
+    assert(row.sub.indexOf("go back automatically next time RichOS opens") >= 0, "and when: " + row.sub);
+    assertEqual(row.relaunch, null, "no update action can terminate the running session");
+
+    const calls = await page.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
+    assert(calls.indexOf("update_rollback") >= 0, "Go back issued update_rollback: " + calls.join(","));
+    assertEqual(calls.indexOf("update_install"), -1, "and not the update command");
+    await page.close();
+    return calls.join(" -> ") + " | “" + row.headline + "”";
   });
 
   // ---- 10. the row survives a menu rebuild ----------------------------------------------
@@ -1367,6 +1442,11 @@ async function main() {
 //       it when your work is finished" — 26's mode 1 promised over a product that
 //       still needs a button press. It is the sentence the brief originally asked for
 //       and it is the one thing here that would have shipped a lie
+//   25  updates.js: `nodes.back.hidden` reduced to `!backTo`, dropping the busy and          20
+//       already-prepared clauses — the control comes back while RichOS is working,
+//       which is precisely the button the CEO said he would not dare press
+//   26  updates.js: the Go back listener issues `update_install` instead of                  21
+//       `update_rollback` — the row still looks right and the wrong command goes out
 //
 // MUTATION 19 IS WORTH THE LINE IT TAKES. It reddened 16 as well as 15, unprompted, because
 // check 16 asserts `cueCount === 0` beside its own existence — the two cues are one rule with

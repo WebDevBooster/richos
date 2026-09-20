@@ -101,6 +101,69 @@ The signing key, the public key, the archive format, the manifest shape, the sig
 and the install are the shipping ones. The transport is http instead of https, and that is the
 whole of the delta.
 
+### The way back — case R, 2026-09-20
+
+An updater that can only move forward is an updater with no answer to *"this one is bad"*.
+The CEO runs the nightly as his daily driver, and until this the only documented recovery was
+`NIGHTLY.md`'s *"install a stable version at least as new as the nightly"* — by hand, from a
+browser, on the machine he was trying to use.
+
+**Settings → Updates → "Go back to `<version>`"** is now that answer, and it is the update
+path with two differences and no third:
+
+1. **The manifest is one specific earlier tag's**, not the channel's.
+   `scripts/nightly.py::finish` uploads `latest.json` to the per-version release as well as
+   to the rolling channel release, and existing tags and artifacts are never overwritten — so
+   every published nightly carries its own immutable, signed manifest at
+   `<host>/<owner>/<repo>/releases/download/v<version>/latest.json`. The URL is derived from
+   the endpoint in force by replacing everything between `/releases/` and the final segment,
+   which is the one rule that covers both the rolling nightly endpoint and the stable one.
+2. **The version comparator.** The plugin's default is `remote.version > current_version`,
+   which is exactly why a rollback cannot happen by accident: without the closure the fetch
+   succeeds, the manifest parses, and `check()` hands back `None`. It admits the one version
+   this installation's own history named, and nothing else.
+
+Everything else is shared — including `Update::download`, which returns only after verifying
+the payload against the compiled public key. **Going back is not a hole in the signature
+story**, and case R requires that rather than asserting it:
+
+| Case | What it proves |
+|---|---|
+| R0 | the installation reached 0.1.1 through a real update, so it has a publication history |
+| R1 | a **tampered** v0.1.0 archive is refused with `failure.kind == "signature"` — after the run reached the rollback and resolved 0.1.0, so the refusal is the signature's and not a run that never looked |
+| R2 | the installed bundle is untouched by that refusal — still 0.1.1 |
+| R3 | the intact v0.1.0 archive downloads, its signature **verifies**, and the way back is staged |
+| R4 | the running bundle is STILL 0.1.1 and the downgrade is authorized (`rollback.json`) but not applied — nothing swaps under a live session |
+| R5 | the next ordinary launch relaunches into **0.1.0** and reports itself as 0.1.0 |
+| R6 | the boot line names both versions and the direction: `[richos] rollback activated: 0.1.1 -> 0.1.0` |
+| R7 | 0.1.1 is still offered afterwards — going back is reversible by an ordinary update, not a trap |
+| R8 | there is no SECOND way back from 0.1.0, because the version it came from is newer; it says so instead of stepping up |
+
+The fixture release directory is laid out the way a published one is —
+`releases/download/{nightly,v0.1.1,v0.1.0}/` — because `previous_manifest_url` derives that
+middle segment, and a flat directory would have proved a rule the product does not use.
+
+**The run: 19/19 on 2026-09-20**, A–D, T, K and R0–R8 together, on this machine. The three
+lines that carry it, verbatim from that run — the refusal, the staging, and what the copy
+said about itself afterwards:
+
+```
+RICHOS-UPDATE-SELFTEST state=failed current=0.1.1 available=0.1.0 percent=100 back=0.1.0 rollback=true failure=signature detail=The signature verification failed
+RICHOS-UPDATE-SELFTEST state=ready  current=0.1.1 available=0.1.0 percent=100 back=0.1.0 rollback=true failure=- detail=-
+RICHOS-UPDATE-SELFTEST state=available current=0.1.0 available=0.1.1 percent=- back=- rollback=false failure=- detail=-
+[richos] rollback activated: 0.1.1 -> 0.1.0
+```
+
+The tampered case flipped byte 12,165,992 of the 12,167,016-byte v0.1.0 archive — late in
+the file, well past the gzip header, so it is a corrupted payload rather than an archive that
+fails to open, and the refusal is the signature's. The last selftest line is the copy running
+as 0.1.0 with `back=-`: there is no second way back, and 0.1.1 is offered instead.
+
+**The selftest line grew two fields on this date** (`back=` and `rollback=`), so the
+1.0.1 → 1.0.2 capture at the top of this file, and the one in
+`docs/verification/live-update-2026-09-04/`, are in the older format. They are captured
+evidence of a run that happened and are left exactly as that run printed them.
+
 ---
 
 ## The signing key
@@ -374,6 +437,15 @@ that behind the CEO's back is that invariant broken by a background thread.
 signature failure gets an explanation, because retrying a tampered artifact refuses
 identically and a button that invites someone to keep pressing until a security check passes is
 the wrong control.
+
+**And when a version turns out to be bad, there is a way back in the same row.** A control
+reading *Go back to 0.1.0* — the plain button, not the gold one, because going back is not
+the row's recommended act. It names its destination, because *Go back* on its own is a
+control nobody presses. It is absent, not dimmed, wherever pressing it would not be true:
+while RichOS is working, once something is already prepared for the next launch, and when
+this copy holds no record of an earlier version it came from. Afterwards the row says
+*RichOS will go back to 0.1.0 when you next open it*, and the newer version is still offered,
+so the way back is not a one-way door.
 
 ---
 

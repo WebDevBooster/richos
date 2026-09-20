@@ -493,6 +493,8 @@ function updateView(over) {
       busyReason: null,
       unchecked: [],
       readySince: null,
+      rollbackVersion: null,
+      readyIsRollback: false,
     },
     over || {}
   );
@@ -1306,6 +1308,22 @@ const FIXTURES = {
     return openUpdates(browser, { state: "ready", availableVersion: "0.1.2" });
   },
 
+  /// THE WAY BACK, STAGED. The same `ready` state, the opposite direction, and a different
+  /// promise — "RichOS will go back to 0.1.0 when you next open it" rather than "0.1.2 is
+  /// ready for the next launch". It is its own fixture rather than an `over` on the one
+  /// above for the reason `updates-install-failed` is: the registry claims a SENTENCE
+  /// renders, and a fixture painting the update wording would have proved a claim nobody
+  /// made. The control is absent here by design — what the next launch will do is already
+  /// decided, and the crate refuses to stage a second thing over it.
+  async "updates-rolling-back"(browser) {
+    return openUpdates(browser, {
+      state: "ready",
+      availableVersion: "0.1.0",
+      readyIsRollback: true,
+      rollbackVersion: "0.1.0",
+    });
+  },
+
   async "updates-failed"(browser) {
     return openUpdates(browser, {
       state: "failed",
@@ -1458,6 +1476,7 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "updates-idle",
   "updates-unconfigured",
   "updates-ready",
+  "updates-rolling-back",
   "updates-failed",
   "updates-install-failed",
   "updates-waiting-available",

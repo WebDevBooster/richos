@@ -379,6 +379,40 @@ the same data; there is no separate side-by-side application or settings toggle.
 To leave the channel, install a stable version at least as new as the nightly.
 Stable `1.2.0` supersedes `1.2.0-nightly.*`; stable `1.1.0` does not.
 
+## Going back when a nightly is bad
+
+**Settings → Updates → "Go back to `<version>`".** One press. It fetches the
+previous nightly's own manifest from that tag's release
+(`releases/download/v<version>/latest.json`, which `finish` uploads beside the
+archive and which is never overwritten), verifies its signature against the same
+compiled public key as any update, and stages it. The next time RichOS opens it
+is running the earlier build — the same swap an update uses, at the same moment,
+with nothing to do by hand. The boot line says which way it went:
+
+```text
+[richos] rollback activated: 1.2.0-nightly.20260920.2 -> 1.2.0-nightly.20260919.3
+```
+
+Four things it deliberately does not do, each of which is a refusal with one
+sentence rather than a surprise:
+
+* **It only ever goes to the version this copy actually came from**, read from
+  the receipt the last update wrote before it swapped the bundles — not from a
+  list of releases and not from anything the server says. A copy installed by
+  hand has no such receipt and is told so.
+* **It never steps up.** After going back, the version this copy came from is
+  the newer one, so the control is gone; the way forward from there is an
+  ordinary update, and the newer nightly is still offered.
+* **It refuses while an update is already prepared for the next launch.** That
+  prepared update is what the next launch will do; open RichOS again first.
+* **It is absent while RichOS is working**, exactly as the update control is.
+
+Leaving the channel for good is still the paragraph above: a rollback moves
+within the channel, it does not change which endpoint this copy fetches.
+
+Proven end to end by `scripts/updater-e2e.sh` case R, on a fixture release
+directory with two published tags and a moving channel tag.
+
 ## The release smoke: release-only steps run on every build
 
 Every step a release performs and an ordinary day does not — the version written into

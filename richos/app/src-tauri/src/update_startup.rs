@@ -84,8 +84,22 @@ pub fn prepare(compiled_version: &str) -> Result<Option<StartupLease>, String> {
         }
     }
     let activated = if lease.can_activate() && !redirected {
-        match wait_for_lock(|| richos_user_update::activate_prepared_above(&mut lease, compiled_version)) {
-            Ok(publication) => publication.is_some(),
+        match wait_for_lock(|| richos_user_update::activate_prepared(&mut lease, compiled_version)) {
+            Ok(activation) => {
+                // THE BOOT LINE NAMES BOTH VERSIONS AND WHICH WAY IT WENT. An activation
+                // record that says only what is now installed cannot distinguish a
+                // rollback from an update after the fact, and "which one did this Mac
+                // just do" is the first question asked when a nightly goes wrong.
+                if let Some(a) = &activation {
+                    eprintln!(
+                        "[richos] {} activated: {} -> {}",
+                        if a.rollback { "rollback" } else { "update" },
+                        a.left.as_deref().unwrap_or("(nothing installed)"),
+                        a.entered.version
+                    );
+                }
+                activation.is_some()
+            }
             Err(error) => {
                 // Publication is an atomic directory exchange. If that occurred,
                 // the already loaded process must not continue against new resources.
@@ -107,7 +121,17 @@ pub fn prepare(compiled_version: &str) -> Result<Option<StartupLease>, String> {
             return Ok(());
         }
         let newer = publication.is_newer_than(compiled_version)?;
-        if loaded_bundle_changed && !newer && publication.version != compiled_version {
+        // A DELIBERATE ROLLBACK IS THE ONE OLDER REDIRECT THAT IS CORRECT, and it is
+        // admitted by a durable record of what the last activation did rather than by this
+        // process knowing it performed one -- a second launch that arrives moments after
+        // another process completed the exchange sees exactly the same changed bundle and
+        // must reach the same answer. Without it, opening RichOS twice around a rollback
+        // refuses to start with a sentence about a downgrade nobody attempted.
+        let rolled_back_here = richos_user_update::last_activation(&home)
+            .ok()
+            .flatten()
+            .is_some_and(|a| a.rollback && a.entered.version == publication.version);
+        if loaded_bundle_changed && !newer && publication.version != compiled_version && !rolled_back_here {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Changed application cannot redirect to an older release"));
         }
         if !activated && !loaded_bundle_changed && !newer {

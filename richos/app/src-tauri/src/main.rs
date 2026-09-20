@@ -3223,6 +3223,7 @@ fn main() {
             updates::update_state,
             updates::update_check,
             updates::update_install,
+            updates::update_rollback,
             updates::update_relaunch,
             // --- first-run setup, Option D (2026-09-01) — appended, never reordered ---
             setup_status,

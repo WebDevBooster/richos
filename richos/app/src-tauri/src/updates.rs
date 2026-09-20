@@ -201,6 +201,28 @@ pub struct UpdateView {
     /// indefinite wait is not. Cleared by `clear_attempt`, so a fresh check restarts it
     /// rather than ageing an update that was replaced.
     pub ready_since: Option<u64>,
+
+    // ---- the way back (CEO, 2026-09-19) -----------------------------------------------
+    /// **The version "Go back" would install, or `None` when there is no way back.**
+    ///
+    /// He runs the nightly as his daily driver, so "this one is bad, how do I get off it"
+    /// has to be answerable from the same surface as "is there a new one" — and answerable
+    /// with a VERSION, because a control that says "go back" without saying where is a
+    /// control nobody presses.
+    ///
+    /// Read from this installation's own publication history (`rollback_target`), never
+    /// from the server: it is the version this Mac was demonstrably running one update
+    /// ago. `None` covers both empty answers — no record of an earlier version, and a
+    /// record that points forwards because the last thing that happened WAS a rollback.
+    pub rollback_version: Option<String>,
+    /// Whether the thing waiting for the next launch is a rollback rather than an update.
+    ///
+    /// `ready` alone cannot say it: the two are the same exchange of two directories and
+    /// only the receipt that authorized it tells them apart. The row's promise differs —
+    /// "1.2.1 is ready for the next launch" against "RichOS will go back to 1.2.0 when you
+    /// next open it" — so the flag travels with the state instead of being inferred by
+    /// comparing two numbers on the way out.
+    pub ready_is_rollback: bool,
 }
 
 impl UpdateView {
@@ -222,6 +244,8 @@ impl UpdateView {
             busy_reason: None,
             unchecked: Vec::new(),
             ready_since: None,
+            rollback_version: None,
+            ready_is_rollback: false,
         }
     }
 
@@ -238,6 +262,10 @@ impl UpdateView {
         // version that is no longer the one on offer, which is the one thing this field
         // exists to state accurately.
         self.ready_since = None;
+        // The DIRECTION belongs to the attempt, not to the installation. `rollback_version`
+        // deliberately survives: it is a fact about this Mac's history, and a check that
+        // found nothing does not change where back is.
+        self.ready_is_rollback = false;
     }
 }
 
@@ -359,16 +387,23 @@ pub async fn check(app: &AppHandle) -> UpdateView {
     let Some(_operation) = UpdateOperation::acquire(&state.operation) else {
         return state.snapshot();
     };
+    refresh_rollback_target(app);
     #[cfg(target_os = "macos")]
     if let Ok(home) = app.path().home_dir() {
         match richos_user_update::staged(&home) {
-            Ok(Some(p))
-                if p.is_newer_than(&app.package_info().version.to_string())
-                    .unwrap_or(false) =>
+            // A STAGED ROLLBACK IS ALSO SOMETHING WAITING FOR THE NEXT LAUNCH, and it is
+            // deliberately NOT newer, so the newer-than test alone would walk straight past
+            // it and go asking the server about an update he has just decided to leave.
+            Ok(Some(s))
+                if s.rollback
+                    || s.publication
+                        .is_newer_than(&app.package_info().version.to_string())
+                        .unwrap_or(false) =>
             {
                 return transition(app, |v| {
                     v.state = "ready";
-                    v.available_version = Some(p.version);
+                    v.available_version = Some(s.publication.version);
+                    v.ready_is_rollback = s.rollback;
                     v.percent = Some(100);
                 })
             }
@@ -606,6 +641,280 @@ pub async fn install(app: &AppHandle) -> UpdateView {
         Ok(()) => transition(app, |v| {
             v.state = "ready";
             v.percent = Some(100);
+            v.ready_is_rollback = false;
+        }),
+        Err(detail) => install_failure(app, detail),
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// The way back
+// ---------------------------------------------------------------------------------------
+
+/// Re-read where back is, from this installation's own publication history.
+///
+/// Cheap — three small reads under the updater's own lock — and deliberately NOT cached at
+/// `init`: the answer changes the moment an update or a rollback activates, and a stale
+/// "Go back to 1.2.0" on a copy that is already on 1.2.0 is worse than no control at all.
+/// Called at the top of every check and on every `update_state`, which are the two moments
+/// the surface is about to be painted.
+fn refresh_rollback_target(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use richos_user_update::RollbackTarget;
+        let target = app
+            .path()
+            .home_dir()
+            .ok()
+            .and_then(|home| richos_user_update::rollback_target(&home).ok())
+            .and_then(|t| match t {
+                RollbackTarget::Available(version) => Some(version),
+                // Both empty answers become `None`. The UI's question is "is there a way
+                // back", and "the record points forwards" is a no with a longer story.
+                RollbackTarget::NoRecord | RollbackTarget::NotOlder(_) => None,
+            });
+        transition(app, |v| v.rollback_version = target);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
+/// THE MANIFEST FOR ONE SPECIFIC EARLIER TAG, built from the endpoint this build already
+/// uses.
+///
+/// `app/scripts/nightly.py::finish` uploads `latest.json` to the per-version release as well
+/// as to the rolling channel release (`gh release upload info["tag"] … out/"latest.json"`,
+/// the line after the one that uploads the archive), and `NIGHTLY.md` states that existing
+/// tags and artifacts are never overwritten. So every published nightly carries its own
+/// immutable, signed manifest at a URL of exactly one shape:
+///
+///   `<host>/<owner>/<repo>/releases/download/v<version>/latest.json`
+///
+/// ...whether the channel endpoint in force is the rolling nightly one
+/// (`…/releases/download/nightly/latest.json`) or the stable one
+/// (`…/releases/latest/download/latest.json`). Everything between `/releases/` and the final
+/// segment is the part that names WHICH release, so replacing exactly that is one rule that
+/// covers both, and it is the same rule for a fixture server that mirrors the layout.
+///
+/// A build pointed somewhere that is not a release channel gets `None` and a sentence, not a
+/// guessed URL: an updater that invents a download location is worse than one that says it
+/// cannot find the file.
+fn previous_manifest_url(endpoint: &str, version: &str) -> Option<tauri::Url> {
+    let url = tauri::Url::parse(endpoint).ok()?;
+    let path = url.path();
+    let (before, after) = path.split_once("/releases/")?;
+    let file = after.rsplit('/').next()?;
+    if file.is_empty() {
+        return None;
+    }
+    let mut next = url.clone();
+    next.set_path(&format!("{before}/releases/download/v{version}/{file}"));
+    Some(next)
+}
+
+/// **Go back to the version this Mac was running before the last update.**
+///
+/// The CEO runs the nightly as his daily driver. Before this, the only documented way off a
+/// bad one was `NIGHTLY.md`'s *"install a stable version at least as new as the nightly"* —
+/// by hand, from a browser, on the machine he was trying to use.
+///
+/// It is the SAME PATH AS AN UPDATE, deliberately and at every step: the same
+/// signature-verifying `Update::download` against the same compiled public key, the same
+/// staging, the same activation at the next ordinary launch. Only two things differ — the
+/// manifest fetched is one specific earlier tag's rather than the channel's, and the
+/// staging call writes the authorization that lets startup accept a downgrade once.
+///
+/// What it does NOT do is reuse the copy the updater retired. `collect_retired` reclaims
+/// those bytes at a later startup, so the retained copy is not something a recovery path may
+/// depend on — and bytes that have been sitting in a user-writable directory since the day
+/// they were displaced are not bytes to put back without re-verifying them anyway.
+pub async fn rollback(app: &AppHandle) -> UpdateView {
+    let state = app.state::<Updates>();
+    let Some(_operation) = UpdateOperation::acquire(&state.operation) else {
+        return state.snapshot();
+    };
+    // The same gate, for the same reason, in the same place: hiding the control is the
+    // affordance half of a fix and never the whole of it.
+    if refresh_work_verdict(app).busy {
+        return app.state::<Updates>().snapshot();
+    }
+
+    refresh_rollback_target(app);
+    let Some(target) = app.state::<Updates>().snapshot().rollback_version else {
+        return transition(app, |v| {
+            v.state = "failed";
+            v.failure = Some(Failure {
+                kind: "rollback",
+                headline: "RichOS has no earlier version on this Mac to go back to."
+                    .to_string(),
+                detail: "no publication receipt records a version older than the one \
+                         installed now"
+                    .to_string(),
+            });
+        });
+    };
+
+    let (endpoint, placeholder) = resolve_endpoint(app);
+    if placeholder {
+        return transition(app, |v| {
+            v.clear_attempt();
+            v.state = "unconfigured";
+            v.endpoint = endpoint.clone();
+            v.endpoint_is_placeholder = true;
+        });
+    }
+    let Some(manifest) = previous_manifest_url(&endpoint, &target) else {
+        let detail = format!("{endpoint} is not a release-channel manifest URL");
+        return transition(app, |v| {
+            v.state = "failed";
+            v.failure = Some(Failure {
+                kind: "configuration",
+                headline: "This build of RichOS cannot find where earlier versions are kept."
+                    .to_string(),
+                detail,
+            });
+        });
+    };
+
+    transition(app, |v| {
+        v.clear_attempt();
+        v.state = "checking";
+        v.available_version = Some(target.clone());
+        v.ready_is_rollback = true;
+        v.endpoint = endpoint.clone();
+        v.endpoint_is_placeholder = false;
+    });
+
+    // THE COMPARATOR IS THE WHOLE OF THE DIFFERENCE AT THIS LAYER. The plugin's default is
+    // `release.version > current_version`, which is the correct default and the reason a
+    // rollback cannot happen by accident: without this closure the fetch would succeed, the
+    // manifest would parse, and `check()` would hand back `None`. It admits exactly one
+    // version — the one this installation's own history named — and nothing else, so a
+    // manifest that answers with something other than the tag asked for is refused here
+    // rather than downloaded and then argued with.
+    let wanted = target.clone();
+    let updater = match app
+        .updater_builder()
+        .version_comparator(move |_current, remote| remote.version.to_string() == wanted)
+        .endpoints(vec![manifest])
+        .and_then(|b| b.build())
+    {
+        Ok(u) => u,
+        Err(e) => {
+            let failure = Failure::classify(&e);
+            return transition(app, |v| {
+                v.state = "failed";
+                v.failure = Some(failure);
+            });
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            let detail = format!("the manifest for v{target} does not offer {target}");
+            return transition(app, |v| {
+                v.state = "failed";
+                v.failure = Some(Failure {
+                    kind: "manifest",
+                    headline: "The update server does not have that earlier version."
+                        .to_string(),
+                    detail,
+                });
+            });
+        }
+        Err(e) => {
+            let failure = Failure::classify(&e);
+            return transition(app, |v| {
+                v.state = "failed";
+                v.failure = Some(failure);
+                v.checked_at = Some(now_millis());
+            });
+        }
+    };
+
+    transition(app, |v| {
+        v.state = "downloading";
+        v.available_version = Some(update.version.clone());
+        v.notes = None;
+        v.downloaded_bytes = 0;
+        v.total_bytes = None;
+        v.percent = None;
+        v.failure = None;
+        v.ready_is_rollback = true;
+    });
+
+    let app_for_chunks = app.clone();
+    let mut received: u64 = 0;
+    let mut last_emit = Instant::now() - Duration::from_millis(200);
+    let on_chunk = move |chunk: usize, total: Option<u64>| {
+        received += chunk as u64;
+        let done = total.map(|t| received >= t).unwrap_or(false);
+        if last_emit.elapsed() >= Duration::from_millis(100) || done {
+            last_emit = Instant::now();
+            let percent = total.and_then(|t| {
+                if t == 0 {
+                    None
+                } else {
+                    Some(((received.min(t) * 100) / t) as u8)
+                }
+            });
+            transition(&app_for_chunks, |v| {
+                v.state = "downloading";
+                v.downloaded_bytes = received;
+                v.total_bytes = total;
+                v.percent = percent;
+            });
+        }
+    };
+    let app_for_finish = app.clone();
+    let on_finish = move || {
+        transition(&app_for_finish, |v| {
+            v.state = "installing";
+            v.percent = Some(100);
+        });
+    };
+
+    // Returns only after the plugin has verified the signed payload. Identical to the
+    // update path, and the reason a rollback is not a hole in the signature story.
+    let bytes = match update.download(on_chunk, on_finish).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return transition(app, |v| {
+                v.state = "failed";
+                v.failure = Some(Failure::classify(&e));
+            })
+        }
+    };
+    if refresh_work_verdict(app).busy {
+        // Nothing staged, nothing lost. Unlike an update there is no standing offer to
+        // return to, so the row goes back to what it can still say truthfully.
+        return transition(app, |v| {
+            v.state = "idle";
+            v.percent = None;
+        });
+    }
+    #[cfg(target_os = "macos")]
+    let result = app
+        .path()
+        .home_dir()
+        .map_err(|e| e.to_string())
+        .and_then(|home| {
+            richos_user_update::stage_rollback_verified(&home, &bytes, &update.version)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        });
+    #[cfg(not(target_os = "macos"))]
+    let result: Result<(), String> = {
+        let _ = bytes;
+        Err("Going back to an earlier version is not implemented on this platform.".into())
+    };
+    match result {
+        Ok(()) => transition(app, |v| {
+            v.state = "ready";
+            v.percent = Some(100);
+            v.ready_is_rollback = true;
+            v.ready_since = Some(now_millis());
         }),
         Err(detail) => install_failure(app, detail),
     }
@@ -786,6 +1095,10 @@ pub fn spawn_work_watcher(app: AppHandle) {
 #[tauri::command(async)]
 pub fn update_state(app: AppHandle) -> UpdateView {
     refresh_work_verdict(&app);
+    // The way back is re-read here for the same reason the gate is: this is the moment he
+    // is deliberately looking at the surface, and it is the one place a stale answer is
+    // guaranteed to be seen.
+    refresh_rollback_target(&app);
     app.state::<Updates>().snapshot()
 }
 
@@ -797,6 +1110,12 @@ pub async fn update_check(app: AppHandle) -> UpdateView {
 #[tauri::command(async)]
 pub async fn update_install(app: AppHandle) -> UpdateView {
     install(&app).await
+}
+
+/// The third verb, reached the same way the other two are.
+#[tauri::command(async)]
+pub async fn update_rollback(app: AppHandle) -> UpdateView {
+    rollback(&app).await
 }
 
 /// Compatibility endpoint for an older frontend. Updates never exit a live session;
@@ -831,10 +1150,10 @@ pub fn spawn_launch_check(app: AppHandle) {
 // The headless end-to-end mode
 // ---------------------------------------------------------------------------------------
 
-/// `RICHOS_UPDATE_SELFTEST=check|install`, read once at launch.
+/// `RICHOS_UPDATE_SELFTEST=check|install|rollback`, read once at launch.
 pub fn selftest_mode() -> Option<String> {
     match std::env::var(SELFTEST_ENV) {
-        Ok(v) if v == "check" || v == "install" => Some(v),
+        Ok(v) if v == "check" || v == "install" || v == "rollback" => Some(v),
         _ => None,
     }
 }
@@ -853,18 +1172,20 @@ pub fn selftest_mode() -> Option<String> {
 /// on states rather than on log prose.
 ///
 /// Exit codes: 0 the requested operation reached its terminal success state; 10 the check
-/// found nothing; 11 it failed; 12 the install failed. The failure KIND is on stdout, which
-/// is how case T asserts that a tampered artifact is refused for the signature and not for
-/// something that merely resembles it.
+/// found nothing; 11 it failed; 12 the install failed; 13 the rollback failed. The failure
+/// KIND is on stdout, which is how case T asserts that a tampered artifact is refused for
+/// the signature and not for something that merely resembles it.
 pub fn spawn_selftest(app: AppHandle, mode: String) {
     tauri::async_runtime::spawn(async move {
         let say = |v: &UpdateView| {
             println!(
-                "RICHOS-UPDATE-SELFTEST state={} current={} available={} percent={} failure={} detail={}",
+                "RICHOS-UPDATE-SELFTEST state={} current={} available={} percent={} back={} rollback={} failure={} detail={}",
                 v.state,
                 v.current_version,
                 v.available_version.clone().unwrap_or_else(|| "-".into()),
                 v.percent.map(|p| p.to_string()).unwrap_or_else(|| "-".into()),
+                v.rollback_version.clone().unwrap_or_else(|| "-".into()),
+                v.ready_is_rollback,
                 v.failure.as_ref().map(|f| f.kind).unwrap_or("-"),
                 v.failure
                     .as_ref()
@@ -874,6 +1195,25 @@ pub fn spawn_selftest(app: AppHandle, mode: String) {
             use std::io::Write;
             let _ = std::io::stdout().flush();
         };
+
+        // `rollback` NEVER CHECKS THE CHANNEL FIRST. Asking the server what is newest is
+        // the one thing the CEO pressing this button is not asking for, and a check here
+        // would also leave a staged update in the way of the thing he did ask for.
+        if mode == "rollback" {
+            let before = update_state(app.clone());
+            say(&before);
+            let back = rollback(&app).await;
+            say(&back);
+            let code = if back.state == "ready" && back.ready_is_rollback {
+                0
+            } else {
+                13
+            };
+            println!("RICHOS-UPDATE-SELFTEST exit={code}");
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            std::process::exit(code);
+        }
 
         let checked = check(&app).await;
         say(&checked);
@@ -1037,5 +1377,57 @@ mod tests {
             "`current_version` is written after construction, so the running build can be \
              renamed by something that is not the bundle it is: {writers:?}"
         );
+    }
+
+    /// ONE RULE FOR BOTH ENDPOINT SHAPES, and a refusal for anything else.
+    ///
+    /// The nightly channel endpoint and the stable one disagree about everything except the
+    /// thing that matters: the segment naming WHICH release sits between `/releases/` and
+    /// the final path element. If this rule were wrong, a rollback would fetch a 404 and
+    /// report it as a manifest failure — a wrong URL that looks like a missing release.
+    #[test]
+    fn the_previous_tags_manifest_is_derived_from_either_endpoint_shape() {
+        let cases = [
+            (
+                "https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json",
+                "https://github.com/WebDevBooster/richos/releases/download/v1.2.0-nightly.20260919.3/latest.json",
+            ),
+            (
+                "https://github.com/WebDevBooster/richos/releases/latest/download/latest.json",
+                "https://github.com/WebDevBooster/richos/releases/download/v1.2.0-nightly.20260919.3/latest.json",
+            ),
+            // The fixture server in `scripts/updater-e2e.sh` case R, which mirrors the
+            // published layout precisely so the harness exercises this rule and not a
+            // friendlier one.
+            (
+                "http://127.0.0.1:8973/releases/download/nightly/latest.json",
+                "http://127.0.0.1:8973/releases/download/v1.2.0-nightly.20260919.3/latest.json",
+            ),
+        ];
+        for (endpoint, want) in cases {
+            let got = previous_manifest_url(endpoint, "1.2.0-nightly.20260919.3")
+                .unwrap_or_else(|| panic!("no URL derived from {endpoint}"));
+            assert_eq!(got.as_str(), want, "from {endpoint}");
+        }
+    }
+
+    /// A build pointed somewhere that is not a release channel gets NOTHING, not a guess.
+    /// An updater that invents a download location is worse than one that says it cannot
+    /// find the file, because the sentence on screen would be about a missing release.
+    #[test]
+    fn an_endpoint_that_is_not_a_release_channel_derives_no_url_at_all() {
+        for endpoint in [
+            // The committed placeholder. `rollback` never reaches the derivation with this
+            // one — it returns `unconfigured` first — and it must still not resolve.
+            "https://updates.richos.invalid/darwin/aarch64/1.0.0",
+            "https://example.com/latest.json",
+            "https://example.com/releases/",
+            "not a url at all",
+        ] {
+            assert!(
+                previous_manifest_url(endpoint, "1.0.0").is_none(),
+                "{endpoint} must not resolve to a guessed location"
+            );
+        }
     }
 }

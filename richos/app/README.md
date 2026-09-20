@@ -653,8 +653,16 @@ richos/app/
                               throttled progress, VERIFY, install, relaunch; a nine-state
                               view emitted as `rich://update`; and the failure classifier
                               whose signature arm must never widen. The webview is granted
-                              NO `plugin:updater|*` permission — these four commands are the
-                              whole of its updater surface
+                              NO `plugin:updater|*` permission — these five commands are the
+                              whole of its updater surface.
+                              AND THE WAY BACK (2026-09-20): `rollback` fetches ONE earlier
+                              tag's own immutable manifest — derived from the endpoint in
+                              force, `…/releases/download/v<version>/latest.json` — through
+                              the SAME signature-verifying download, and stages it with the
+                              authorization startup needs to accept a downgrade. The version
+                              comes from this Mac's publication history, never from the
+                              server, and the plugin's default comparator (`remote > current`)
+                              is why a rollback cannot happen by accident
     src/events.rs            the relay: one LiveObserver that puts §13's payloads on the
                               webview, and nothing that can widen them
     src/phone/assets.rs      THE PHONE APP, COMPILED INTO THIS EXECUTABLE. The source tree is
@@ -705,6 +713,14 @@ richos/app/
                               manifest, makes the first BECOME the second on this machine,
                               then flips one byte and requires the install to REFUSE.
                               10/10 on 2026-08-31 — docs/verification/updater-e2e-2026-08-31/
+                              CASE R (2026-09-20) adds the way BACK, on a fixture release
+                              directory laid out as a published one is
+                              (`releases/download/{nightly,v0.1.1,v0.1.0}/`): 0.1.1 goes back
+                              to 0.1.0 through the same verified download, a tampered v0.1.0
+                              archive is refused as a signature failure with the bundle
+                              untouched, the boot line names both versions and the direction,
+                              and from 0.1.0 there is no SECOND way back because it would be
+                              a step up
     lib/updater_tar.py       the update archive, built from the SIGNED bundle (the bundler
                               makes its own from the unsigned one — see package-app.sh's
                               header) and by tarfile rather than by bsdtar, which writes

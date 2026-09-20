@@ -209,6 +209,10 @@ window.RichUpdates = (function () {
   /// for "there is an update" to be written down, and the two would drift.
   function sentences(v) {
     var current = "RichOS " + (v.currentVersion || "");
+    // THE DIRECTION COMES OFF THE PAYLOAD, never off a comparison of two version strings.
+    // A rollback and an update reach this row in the same three states and differ only in
+    // what they promise, and `updates.rs` is the one place that knows which it is holding.
+    var back = !!v.readyIsRollback;
     switch (v.state) {
       case "unconfigured":
         return {
@@ -246,16 +250,27 @@ window.RichUpdates = (function () {
         };
       case "installing":
         return {
-          headline: "Checking and preparing the update…",
-          sub: "RichOS is confirming this update was signed by us before preparing it for the next launch.",
+          headline: back
+            ? "Checking and preparing RichOS " + v.availableVersion + "…"
+            : "Checking and preparing the update…",
+          sub: back
+            ? "RichOS is confirming this earlier version was signed by us before preparing it for the next launch."
+            : "RichOS is confirming this update was signed by us before preparing it for the next launch.",
         };
       case "ready":
         return {
-          headline: "RichOS " + v.availableVersion + " is ready for the next launch.",
+          headline: back
+            ? "RichOS will go back to " + v.availableVersion + " when you next open it."
+            : "RichOS " + v.availableVersion + " is ready for the next launch.",
           // The gate's own words come FIRST when it is busy: "nothing is lost" is true of the
           // install and says nothing about the turn he is watching, which is the thing he is
           // actually asking about.
-          sub: join(gateClauses(v), "It will activate automatically next time RichOS opens. Your work will continue uninterrupted."),
+          sub: join(
+            gateClauses(v),
+            back
+              ? "It will go back automatically next time RichOS opens. Your work will continue uninterrupted."
+              : "It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
+          ),
         };
       case "failed":
         return {
@@ -311,8 +326,16 @@ window.RichUpdates = (function () {
     var install = el("button", "update-btn update-btn--go", { id: "update-install", type: "button" });
     install.hidden = true;
     install.textContent = "Download update";
+    // THE THIRD VERB, and deliberately the PLAIN button rather than the gold one. Going
+    // back is the thing he reaches for when the newest build is bad; it is not the row's
+    // recommended act, and two primary-weight controls side by side make neither one
+    // primary. It introduces no new token at all, so it inherits the measured
+    // `.update-btn` pairs (label 14.78 dark / 15.58 light, border 3.79 / 4.06).
+    var back = el("button", "update-btn", { id: "update-back", type: "button" });
+    back.hidden = true;
     actions.appendChild(check);
     actions.appendChild(install);
+    actions.appendChild(back);
 
     var why = el("button", "update-why", {
       id: "update-why",
@@ -342,6 +365,9 @@ window.RichUpdates = (function () {
     install.addEventListener("click", function () {
       call("update_install");
     });
+    back.addEventListener("click", function () {
+      call("update_rollback");
+    });
     why.addEventListener("click", function () {
       var open = detail.hidden === false;
       detail.hidden = open;
@@ -357,6 +383,7 @@ window.RichUpdates = (function () {
       fill: fill,
       check: check,
       install: install,
+      back: back,
       why: why,
       detail: detail,
       endpoint: endpoint,
@@ -417,6 +444,25 @@ window.RichUpdates = (function () {
     // talk button while `start_voice_capture` still refuses.
     nodes.install.hidden = v.state !== "available" || !!v.busy;
     nodes.install.disabled = !canAct;
+
+    // THE WAY BACK IS OFFERED ONLY WHERE IT IS TRUE AND PRESSABLE.
+    //
+    // It names its destination, because "Go back" without a version is a control nobody
+    // presses — and the version is this Mac's own history, not the server's opinion.
+    // Absent while RichOS is working, for the same reason the Install control is; absent
+    // once something is already prepared for the next launch, because that is what the
+    // next launch will do and `updates.rs` refuses to stage a second thing over it; and
+    // absent, rather than disabled, when there is no earlier version recorded at all.
+    var backTo = v.rollbackVersion;
+    nodes.back.hidden =
+      !backTo ||
+      !!v.busy ||
+      v.state === "ready" ||
+      v.state === "checking" ||
+      v.state === "unconfigured" ||
+      downloading;
+    nodes.back.disabled = !canAct;
+    if (backTo) nodes.back.textContent = "Go back to " + backTo;
 
 
     var detail = v.failure ? v.failure.detail : "";
@@ -614,7 +660,12 @@ window.RichUpdates = (function () {
     // The ROW's own sentence, not a second one. "RichOS 0.1.2 is available." — the version is
     // named, which is the one place this is deliberately better than the reference, whose
     // button says only "Update" and never says which.
-    var said = want === "ready" ? "RichOS " + v.availableVersion + " is ready." : sentences(v).headline;
+    var said =
+      want === "ready"
+        ? v.readyIsRollback
+          ? "RichOS will go back to " + v.availableVersion + "."
+          : "RichOS " + v.availableVersion + " is ready."
+        : sentences(v).headline;
     node.lastChild.textContent = said;
     // A BUTTON'S NAME SHOULD SAY WHAT PRESSING IT DOES, and the visible label is a statement
     // rather than an act — so the accessible name is the statement PLUS the act. It starts
@@ -723,14 +774,19 @@ window.RichUpdates = (function () {
   /// The sentence, generated ONCE and used for both the accessible name and the painted note.
   function waitingSaid(v) {
     var version = v.availableVersion ? "RichOS " + v.availableVersion : "An update";
+    var back = !!v.readyIsRollback;
     var head =
       v.state === "ready"
-        ? version + " is ready for the next launch."
+        ? back
+          ? "RichOS will go back to " + v.availableVersion + " when you next open it."
+          : version + " is ready for the next launch."
         : version + " is ready to install.";
     var why = v.busyReason ? " " + String(v.busyReason) : "";
     var tail =
       v.state === "ready"
-        ? " It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
+        ? back
+          ? " It will go back automatically next time RichOS opens. Your work will continue uninterrupted."
+          : " It will activate automatically next time RichOS opens. Your work will continue uninterrupted."
         : " I'll wait until everything has finished — nothing will be interrupted.";
     return head + why + tail;
   }

@@ -474,6 +474,98 @@ fn single_name(s: &str) -> bool {
         && Path::new(s).components().count() == 1
         && matches!(Path::new(s).components().next(), Some(Component::Normal(_)))
 }
+fn older(a: &str, b: &str) -> io::Result<bool> {
+    let a = semver::Version::parse(a).map_err(|_| refuse("invalid version"))?;
+    let b = semver::Version::parse(b).map_err(|_| refuse("invalid version"))?;
+    Ok(a < b)
+}
+
+/// THE ONE THING THAT MAY MOVE THIS INSTALLATION BACKWARDS, and it is a file the user's own
+/// act wrote.
+///
+/// Every version check in this module is an inequality in one direction: staging refuses an
+/// offer that is not newer than what is published, `recover` refuses to exchange onto an
+/// equal-or-newer destination, and `activate_prepared` retires a prepared receipt that is
+/// not newer than the running build. That is not incidental strictness -- it is the property
+/// that makes a stale process, a replayed manifest or a resurrected transaction unable to
+/// reinstate an older application behind the user's back.
+///
+/// A rollback has to cross exactly those three checks, so it carries an authorization rather
+/// than relaxing them. `rollback.json` names the prepared archive it authorizes AND the
+/// version it was staged to leave; activation accepts a downgrade only when BOTH still hold
+/// at the moment of exchange. A receipt that has been overtaken -- the app was updated again
+/// between staging and restart -- authorizes nothing and is retired, which is the same
+/// outcome an obsolete forward update gets.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+struct Rollback {
+    /// The `prepared.json` receipt this authorizes, by its archive digest.
+    archive_sha256: String,
+    /// The version the running application must still be for this to authorize anything.
+    from_version: String,
+}
+impl Rollback {
+    fn valid(&self) -> io::Result<()> {
+        if self.archive_sha256.len() != 64
+            || !self
+                .archive_sha256
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+            || semver::Version::parse(&self.from_version).is_err()
+        {
+            return Err(refuse("invalid rollback authorization"));
+        }
+        Ok(())
+    }
+}
+
+/// Which direction a staging call is allowed to move this installation.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Direction {
+    /// An ordinary update. Refuses anything that is not strictly newer than what is published.
+    Forward,
+    /// A deliberate return to an earlier release. Refuses anything that is not strictly older.
+    Back,
+}
+
+/// WHAT AN ACTIVATION DID, not merely what is now installed.
+///
+/// `published.json` answers "what am I", and answering "what just happened" from it means
+/// subtracting two numbers and guessing the intent behind the difference. A rollback and an
+/// update are the same exchange of two directories; only the receipt that authorized it
+/// distinguishes them, and only at the moment it is consumed. So the moment records itself.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Activation {
+    /// The publication now in `~/Applications/RichOS.app`.
+    pub entered: Published,
+    /// The version it replaced, or `None` when there was no application there before.
+    pub left: Option<String>,
+    /// True when an authorized `rollback.json` is what permitted the exchange.
+    pub rollback: bool,
+}
+
+/// A verified payload waiting for the next launch, and which way it will move.
+#[derive(Clone, Debug)]
+pub struct Staged {
+    pub publication: Published,
+    pub rollback: bool,
+}
+
+/// What a rollback would do, or the reason there is nothing for it to do.
+///
+/// Three arms rather than an `Option`, because the two empty answers need different
+/// sentences on screen: one says the way back is unknown, the other says there is no way
+/// back from here because the record points forwards.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RollbackTarget {
+    /// The version a rollback would fetch, verify and publish.
+    Available(String),
+    /// This installation holds no record of an earlier version it replaced.
+    NoRecord,
+    /// The recorded earlier version is not older than what is published now.
+    NotOlder(String),
+}
 fn read_document<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
     let mut f = OpenOptions::new()
         .read(true)
@@ -979,17 +1071,19 @@ fn quarantine_invalid_pending(root: &Path, p: &Published) -> io::Result<bool> {
     sync(root)?;
     Ok(true)
 }
-fn recover(root: &Path) -> io::Result<Option<Published>> {
+fn recover(root: &Path) -> io::Result<Option<Activation>> {
     let journal = root.join("prepared.json");
     let p = match read_json(&journal) {
         Ok(p) => p,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
+    let authorized = rollback_receipt(root, &p)?;
     let dest = root.parent().unwrap().join(APP);
     let transaction = root.join(&p.archive_sha256);
     owned_dir(&transaction)?;
     let incoming = transaction.join("incoming.app");
+    let mut left = None;
     if !matches(&dest, &p)? {
         if !matches(&incoming, &p).unwrap_or(false) {
             quarantine_invalid_pending(root, &p)?;
@@ -1005,14 +1099,30 @@ fn recover(root: &Path) -> io::Result<Option<Published>> {
         match metadata(&dest) {
             Ok(_) => {
                 bundle_identity(&dest, None)?;
-                if !p.is_newer_than(&bundle_version(&dest)?)? {
+                let running = bundle_version(&dest)?;
+                // THE ONLY PLACE A DOWNGRADE IS PERMITTED, and it is permitted by a file
+                // rather than by a flag in the caller's memory: the authorization has to
+                // survive the crash between staging and this exchange, and it has to name
+                // the version it was granted against so that an update in between voids it.
+                let permitted = match &authorized {
+                    Some(rb) => rb.from_version == running && older(&p.version, &running)?,
+                    None => p.is_newer_than(&running)?,
+                };
+                if !permitted {
                     fs::rename(&journal, transaction.join("obsolete.json"))?;
                     sync(&transaction)?;
                     sync(root)?;
+                    if authorized.is_some() {
+                        clear_rollback(root)?;
+                        return Err(refuse(
+                            "prepared rollback no longer applies to the installed application",
+                        ));
+                    }
                     return Err(refuse(
                         "prepared update would replace an equal or newer destination",
                     ));
                 }
+                left = Some(running);
                 let previous = Published {
                     version: bundle_version(&dest)?,
                     archive_sha256: p.archive_sha256.clone(),
@@ -1036,8 +1146,21 @@ fn recover(root: &Path) -> io::Result<Option<Published>> {
     write_json(root, "published.json", &p)?;
     fs::remove_file(journal)?;
     sync(root)?;
+    // A REPLAY AFTER A CRASH REACHES HERE WITH `left` UNSET, because the exchange it is
+    // completing happened in an earlier process. `previous.json` is that process's own
+    // record of what it displaced and is written before the exchange, so the answer is
+    // durable rather than reconstructed.
+    let left = left.or(optional_json(&transaction.join("previous.json"))?.map(|q| q.version));
+    let activation = Activation {
+        entered: p,
+        left,
+        rollback: authorized.is_some(),
+    };
+    write_document(root, "last-activation.json", &activation)?;
+    clear_rollback(root)?;
+    sync(root)?;
     // Keep the receipt-bound previous bundle until a later exclusive startup collects it.
-    Ok(Some(p))
+    Ok(Some(activation))
 }
 
 // Device numbers can change across macOS boots. Durable deletion authority uses the
@@ -1147,6 +1270,27 @@ fn optional_json(path: &Path) -> io::Result<Option<Published>> {
     match read_json(path) {
         Ok(p) => Ok(Some(p)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+/// The rollback authorization for THIS prepared receipt, or `None`.
+///
+/// A file naming another archive is not this receipt's authorization and is never treated as
+/// one -- it is left alone rather than deleted, because deleting somebody else's receipt from
+/// a read path is how a repair turns into a loss.
+fn rollback_receipt(root: &Path, p: &Published) -> io::Result<Option<Rollback>> {
+    let r: Rollback = match read_document(&root.join("rollback.json")) {
+        Ok(r) => r,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    r.valid()?;
+    Ok((r.archive_sha256 == p.archive_sha256).then_some(r))
+}
+fn clear_rollback(root: &Path) -> io::Result<()> {
+    match fs::remove_file(root.join("rollback.json")) {
+        Ok(()) => sync(root),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
     }
 }
@@ -1273,6 +1417,33 @@ pub fn collect_retired(lease: &mut StartupLease, loaded_bundle: &Path) -> io::Re
 /// Stage only bytes already accepted by `Update::download` signature verification.
 /// Does not publish or modify the running app, including protected system installations.
 pub fn stage_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Published> {
+    stage(home, bytes, version, Direction::Forward)
+}
+/// Stage a DELIBERATE RETURN to an earlier release -- same bytes contract as
+/// [`stage_verified`], same extraction, same identity probe, same publication receipt.
+///
+/// The bytes must come from the same signature-verifying `Update::download` as any update.
+/// That is the whole point of re-fetching the earlier tag instead of resurrecting a retained
+/// copy: the payload that goes back on disk is one the compiled public key accepted a moment
+/// ago, not one that has been sitting in a user-writable directory since the day it was
+/// displaced.
+///
+/// It refuses unless `version` is strictly older than the publication receipt for the
+/// application currently in `~/Applications`, and it writes the `rollback.json` that lets
+/// startup activation accept that downgrade exactly once.
+pub fn stage_rollback_verified(
+    home: &Path,
+    bytes: &[u8],
+    version: &str,
+) -> io::Result<Published> {
+    stage(home, bytes, version, Direction::Back)
+}
+fn stage(
+    home: &Path,
+    bytes: &[u8],
+    version: &str,
+    direction: Direction,
+) -> io::Result<Published> {
     let root = root(home)?;
     // Independent staging serialization and SH exclusion keep expensive extraction and
     // probing off the publication lock. Other normal startups can join SH immediately.
@@ -1295,6 +1466,17 @@ pub fn stage_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Pu
             if !incoming_matches && quarantine_invalid_pending(&root, &p)? {
                 None
             } else {
+                // A ROLLBACK NEVER SUPERSEDES A PENDING PUBLICATION. The supersede rule is
+                // "a newer offer wins", and a rollback is by definition not newer, so it
+                // has no claim on a receipt somebody already prepared. Refusing is also the
+                // honest answer on screen: the thing that is prepared is what the next
+                // launch will do, and the way to change that is to take it first.
+                if direction == Direction::Back {
+                    return Err(refuse(
+                        "an update is already prepared for the next launch; open RichOS again \
+                         before going back",
+                    ));
+                }
                 if !incoming_matches
                     || published_matches
                     || semver::Version::parse(&p.version)
@@ -1311,6 +1493,36 @@ pub fn stage_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Pu
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(e),
     };
+    // A ROLLBACK MAY ONLY GO WHERE THIS INSTALLATION'S OWN HISTORY SAYS IT CAME FROM.
+    //
+    // Checking merely that the offer is older would let any older release be staged by
+    // anything that could reach this function with bytes and a number. Binding it to
+    // `resolve_rollback` -- the `previous.json` the last exchange wrote before it swapped
+    // the directories -- means the only reachable destination is the one version this Mac
+    // was demonstrably running an update ago. It also puts the refusal BEFORE the
+    // idempotent early return below, so "go back" to the version already installed is
+    // refused rather than quietly answered with a receipt for what is already there.
+    let mut from_version = None;
+    if direction == Direction::Back {
+        match resolve_rollback(&root)? {
+            RollbackTarget::Available(previous) if previous == version => {}
+            RollbackTarget::Available(previous) => {
+                return Err(refuse(format!(
+                    "this installation came from {previous}, not from {version}"
+                )))
+            }
+            RollbackTarget::NotOlder(_) => {
+                return Err(refuse(
+                    "that version is not older than the one this Mac is running",
+                ))
+            }
+            RollbackTarget::NoRecord => {
+                return Err(refuse(
+                    "this copy of RichOS has no record of an earlier version to go back to",
+                ))
+            }
+        }
+    }
     match read_json(&root.join("published.json")) {
         Ok(p) => {
             if p.archive_sha256 == archive_sha256
@@ -1319,14 +1531,16 @@ pub fn stage_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Pu
             {
                 return Ok(p);
             }
-            if semver::Version::parse(&p.version)
-                .map_err(|_| refuse("invalid published version"))?
-                >= offered
+            if direction == Direction::Forward
+                && semver::Version::parse(&p.version)
+                    .map_err(|_| refuse("invalid published version"))?
+                    >= offered
             {
                 return Err(refuse(
                     "an equal or newer user application is already published",
                 ));
             }
+            from_version = Some(p.version);
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
@@ -1344,13 +1558,24 @@ pub fn stage_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Pu
                     || p.version != version
                     || !matches(&transaction.join("incoming.app"), &p)?
                 {
-                    return Err(refuse(
-                        "transaction retains a previous application; refusing to delete it",
-                    ));
+                    // A SPENT TRANSACTION IS NOT A RETAINED APPLICATION, and until rollback
+                    // existed nothing could reach this distinction: an archive was staged
+                    // once and never again, so a transaction directory with a receipt but
+                    // no payload was unreachable. Re-fetching an earlier tag lands on
+                    // exactly that directory -- `collect_retired` reclaimed its payload
+                    // and deliberately left its receipts behind. Its bytes are gone, so
+                    // there is nothing here to protect; the refusal below is for a
+                    // directory that still HOLDS an application, which this one does not.
+                    if !spent(&transaction)? {
+                        return Err(refuse(
+                            "transaction retains a previous application; refusing to delete it",
+                        ));
+                    }
+                } else {
+                    probe(&transaction.join("incoming.app"), &p)?;
+                    prepare_receipt(&root, &p, superseded.as_ref(), direction, &from_version)?;
+                    return Ok(p);
                 }
-                probe(&transaction.join("incoming.app"), &p)?;
-                prepare_receipt(&root, &p, superseded.as_ref())?;
-                return Ok(p);
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(e),
@@ -1377,10 +1602,29 @@ pub fn stage_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Pu
     };
     probe(&app, &p)?;
     write_json(&transaction, "verified.json", &p)?;
-    prepare_receipt(&root, &p, superseded.as_ref())?;
+    prepare_receipt(&root, &p, superseded.as_ref(), direction, &from_version)?;
     Ok(p)
 }
-fn prepare_receipt(root: &Path, p: &Published, superseded: Option<&Published>) -> io::Result<()> {
+/// True when a transaction directory holds no application payload at all -- neither the
+/// staged `incoming.app` nor a `retiring.app` awaiting collection. Any other error is
+/// propagated: "I could not tell" is never answered as "there is nothing there".
+fn spent(transaction: &Path) -> io::Result<bool> {
+    for name in ["incoming.app", "retiring.app"] {
+        match metadata(&transaction.join(name)) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+            Ok(_) => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+fn prepare_receipt(
+    root: &Path,
+    p: &Published,
+    superseded: Option<&Published>,
+    direction: Direction,
+    from_version: &Option<String>,
+) -> io::Result<()> {
     let _publication = Lock::acquire_startup(root)?;
     if let Some(old) = superseded {
         write_json(
@@ -1389,14 +1633,38 @@ fn prepare_receipt(root: &Path, p: &Published, superseded: Option<&Published>) -
             old,
         )?;
     }
+    // THE AUTHORIZATION IS WRITTEN BEFORE THE JOURNAL IT AUTHORIZES, and cleared before a
+    // journal it does not. A crash between the two leaves a `rollback.json` naming an
+    // archive no `prepared.json` refers to, which `rollback_receipt` reads as no
+    // authorization at all -- the safe direction of the only ordering that can be wrong.
+    match direction {
+        Direction::Back => {
+            let from = from_version
+                .clone()
+                .ok_or_else(|| refuse("rollback needs the version it is leaving"))?;
+            let receipt = Rollback {
+                archive_sha256: p.archive_sha256.clone(),
+                from_version: from,
+            };
+            receipt.valid()?;
+            write_document(root, "rollback.json", &receipt)?;
+        }
+        Direction::Forward => clear_rollback(root)?,
+    }
     write_json(root, "prepared.json", p)
 }
-/// Complete a prepared update only before runtime startup, while every participating
+/// Complete a prepared publication only before runtime startup, while every participating
 /// session is excluded. This never runs from the live update command.
-pub fn activate_prepared_above(
+///
+/// RENAMED FROM `activate_prepared_above` when rollback landed, because the old name stated
+/// an invariant that is no longer the whole truth. It still activates only what is newer
+/// than `running_version` -- unless a `rollback.json` written by the user's own "Go back"
+/// authorizes exactly this receipt, in which case it activates only what is strictly OLDER.
+/// A name that said `_above` over a function that can move down is worse than no name.
+pub fn activate_prepared(
     lease: &mut StartupLease,
     running_version: &str,
-) -> io::Result<Option<Published>> {
+) -> io::Result<Option<Activation>> {
     if !lease.can_activate() {
         return Err(io::Error::new(
             io::ErrorKind::WouldBlock,
@@ -1407,7 +1675,10 @@ pub fn activate_prepared_above(
     validate_lease_file(&lease.file, &root)?;
     let _lock = Lock::acquire_startup(&root)?;
     match read_json(&root.join("prepared.json")) {
-        Ok(p) if !p.is_newer_than(running_version)? => {
+        // An authorized rollback is DELIBERATELY not newer, so it must not be retired here
+        // as an obsolete forward update. Whether it still applies is decided by `recover`,
+        // against the bundle actually on disk, under the same lock as the exchange.
+        Ok(p) if !p.is_newer_than(running_version)? && rollback_receipt(&root, &p)?.is_none() => {
             if matches(&lease.home.join("Applications").join(APP), &p)? {
                 // The new image can be loaded after an exchange but before its receipt
                 // is durable. Complete exactly that receipt without exchanging or exec.
@@ -1437,8 +1708,13 @@ pub fn activate_prepared_above(
     }
     recover(&root)
 }
-/// Read a verified pending update for the live UI without publishing it.
-pub fn staged(home: &Path) -> io::Result<Option<Published>> {
+/// Read a verified pending publication for the live UI without publishing it.
+///
+/// It reports the DIRECTION as well as the version, because the sentence on screen is not
+/// the same sentence: "1.2.1 is ready for the next launch" and "RichOS will go back to
+/// 1.2.0 when you next open it" are different promises and the UI must not have to infer
+/// which one it is holding by comparing two numbers.
+pub fn staged(home: &Path) -> io::Result<Option<Staged>> {
     let root = root(home)?;
     let _lock = Lock::acquire(&root)?;
     let p = match read_json(&root.join("prepared.json")) {
@@ -1453,13 +1729,63 @@ pub fn staged(home: &Path) -> io::Result<Option<Published>> {
             "pending update no longer matches its verified receipt",
         ));
     }
-    Ok(Some(p))
+    let rollback = rollback_receipt(&root, &p)?.is_some();
+    Ok(Some(Staged {
+        publication: p,
+        rollback,
+    }))
+}
+/// What the last activation did, for the boot line and the update surface. `None` before
+/// this installation has ever activated anything (a hand-installed first copy).
+pub fn last_activation(home: &Path) -> io::Result<Option<Activation>> {
+    let root = root(home)?;
+    let _lock = Lock::acquire(&root)?;
+    match read_document::<Activation>(&root.join("last-activation.json")) {
+        Ok(a) => {
+            a.entered.valid()?;
+            Ok(Some(a))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+/// THE VERSION THIS INSTALLATION WOULD GO BACK TO, read off its own publication history.
+///
+/// `recover` writes `previous.json` into the transaction directory before it exchanges the
+/// bundle, so every update this Mac has applied left a durable note of what it displaced.
+/// The COLLECTOR reclaims that transaction's payload bytes at a later startup -- it does not
+/// remove the note -- which is why the version is still answerable long after the old
+/// application is gone, and why a rollback has to re-fetch the bytes from the release rather
+/// than hope for a retained copy.
+///
+/// Only the `version` field of that note is used. Its `archive_sha256` is the digest of the
+/// archive that REPLACED it (the transaction's own name, by construction in `recover`), and
+/// its `tree_sha256` describes a directory that no longer exists; both would be wrong
+/// answers to "which release do I fetch". The tag is `v<version>`, and the bytes under it
+/// are verified against the compiled public key like any other download.
+pub fn rollback_target(home: &Path) -> io::Result<RollbackTarget> {
+    let root = root(home)?;
+    let _lock = Lock::acquire(&root)?;
+    resolve_rollback(&root)
+}
+fn resolve_rollback(root: &Path) -> io::Result<RollbackTarget> {
+    let Some(published) = optional_json(&root.join("published.json"))? else {
+        return Ok(RollbackTarget::NoRecord);
+    };
+    let Some(previous) = optional_json(&root.join(&published.archive_sha256).join("previous.json"))?
+    else {
+        return Ok(RollbackTarget::NoRecord);
+    };
+    if !older(&previous.version, &published.version)? {
+        return Ok(RollbackTarget::NotOlder(previous.version));
+    }
+    Ok(RollbackTarget::Available(previous.version))
 }
 #[cfg(test)]
 fn install_verified(home: &Path, bytes: &[u8], version: &str) -> io::Result<Published> {
     let p = stage_verified(home, bytes, version)?;
     let mut lease = StartupLease::acquire(home)?;
-    activate_prepared_above(&mut lease, "0.0.0")?;
+    activate_prepared(&mut lease, "0.0.0")?;
     Ok(p)
 }
 /// Validate the recorded preferred user app, including its complete tree, before a
@@ -2114,16 +2440,16 @@ exec, so the next session refused to activate over a session that had ended"
         let mut another = StartupLease::acquire(&h).unwrap();
         assert!(!another.can_activate());
         assert_eq!(
-            activate_prepared_above(&mut another, "0.0.0")
+            activate_prepared(&mut another, "0.0.0")
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::WouldBlock
         );
-        assert_eq!(staged(&h).unwrap().unwrap().version, "2.0.0");
+        assert_eq!(staged(&h).unwrap().unwrap().publication.version, "2.0.0");
         drop(another);
         drop(live);
         let mut startup = StartupLease::acquire(&h).unwrap();
-        activate_prepared_above(&mut startup, "0.0.0")
+        activate_prepared(&mut startup, "0.0.0")
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -2149,7 +2475,7 @@ exec, so the next session refused to activate over a session that had ended"
         let r = root(&h).unwrap();
         fs::rename(r.join("session.lock"), r.join("old-session.lock")).unwrap();
         File::create(r.join("session.lock")).unwrap();
-        assert!(activate_prepared_above(&mut lease, "0.0.0").is_err());
+        assert!(activate_prepared(&mut lease, "0.0.0").is_err());
         assert!(!h.join("Applications/RichOS.app").exists());
     }
     #[test]
@@ -2240,7 +2566,7 @@ exec, so the next session refused to activate over a session that had ended"
         let incoming = r.join(&p.archive_sha256).join("incoming.app");
         exchange(&incoming, &h.join("Applications/RichOS.app")).unwrap();
         let mut lease = StartupLease::acquire(&h).unwrap();
-        assert!(activate_prepared_above(&mut lease, "2.0.0")
+        assert!(activate_prepared(&mut lease, "2.0.0")
             .unwrap()
             .is_none());
         assert_eq!(preferred(&h).unwrap().unwrap().version, "2.0.0");
@@ -2256,13 +2582,13 @@ exec, so the next session refused to activate over a session that had ended"
         let h = canonical(&t);
         let old = stage_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
         let mut lease = StartupLease::acquire(&h).unwrap();
-        assert!(activate_prepared_above(&mut lease, "4.0.0")
+        assert!(activate_prepared(&mut lease, "4.0.0")
             .unwrap()
             .is_none());
         assert!(staged(&h).unwrap().is_none());
         drop(lease);
         stage_verified(&h, &archive("5.0.0", |_| {}), "5.0.0").unwrap();
-        assert_eq!(staged(&h).unwrap().unwrap().version, "5.0.0");
+        assert_eq!(staged(&h).unwrap().unwrap().publication.version, "5.0.0");
         assert!(!h.join("Applications/RichOS.app").exists());
         assert!(root(&h)
             .unwrap()
@@ -2283,7 +2609,7 @@ exec, so the next session refused to activate over a session that had ended"
         );
         assert!(staged(&h).unwrap().is_none());
         stage_verified(&h, &archive("4.0.0", |_| {}), "4.0.0").unwrap();
-        assert_eq!(staged(&h).unwrap().unwrap().version, "4.0.0");
+        assert_eq!(staged(&h).unwrap().unwrap().publication.version, "4.0.0");
     }
     #[test]
     fn probe_does_not_inherit_writable_files_or_sockets() {
@@ -2332,7 +2658,7 @@ exec, so the next session refused to activate over a session that had ended"
         )
         .unwrap();
         let mut lease = StartupLease::acquire(&h).unwrap();
-        assert!(activate_prepared_above(&mut lease, "1.0.0").is_err());
+        assert!(activate_prepared(&mut lease, "1.0.0").is_err());
         assert_eq!(
             bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
             "4.0.0"
@@ -2529,6 +2855,314 @@ exec, so the next session refused to activate over a session that had ended"
         }
         assert_eq!(worker.join().unwrap().unwrap().version, "2.0.0");
     }
+    // =====================================================================================
+    // THE WAY BACK OFF A BAD RELEASE
+    //
+    // Every test below moves this installation DOWN, which is the direction every other
+    // check in this file exists to refuse. They run against the same fixture bundles the
+    // update tests use, so what is proved is the authorization and the ordering -- not a
+    // second, friendlier code path.
+    // =====================================================================================
+
+    /// Stage a rollback and let the next (exclusive) startup activate it, the way
+    /// `install_verified` does for an ordinary update.
+    #[cfg(target_os = "macos")]
+    fn rollback_verified(
+        home: &Path,
+        bytes: &[u8],
+        version: &str,
+        running: &str,
+    ) -> io::Result<Option<Activation>> {
+        stage_rollback_verified(home, bytes, version)?;
+        let mut lease = StartupLease::acquire(home)?;
+        activate_prepared(&mut lease, running)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rollback_returns_to_the_version_the_last_update_replaced() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        install_verified(&h, &old, "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        assert_eq!(
+            rollback_target(&h).unwrap(),
+            RollbackTarget::Available("1.0.0".into())
+        );
+        let activation = rollback_verified(&h, &old, "1.0.0", "2.0.0")
+            .unwrap()
+            .unwrap();
+        assert!(activation.rollback);
+        assert_eq!(activation.left.as_deref(), Some("2.0.0"));
+        assert_eq!(activation.entered.version, "1.0.0");
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "1.0.0"
+        );
+        // The authorization is spent, not left lying about for a second downgrade.
+        assert!(!root(&h).unwrap().join("rollback.json").exists());
+        let recorded = last_activation(&h).unwrap().unwrap();
+        assert!(recorded.rollback);
+        assert_eq!(recorded.left.as_deref(), Some("2.0.0"));
+        assert_eq!(recorded.entered.version, "1.0.0");
+    }
+
+    /// The same record after an ORDINARY update: the two are distinguishable without
+    /// subtracting version numbers and guessing which way the subtraction went.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_update_and_a_rollback_are_distinguishable_in_the_activation_record() {
+        let t = home();
+        let h = canonical(&t);
+        install_verified(&h, &archive("1.0.0", |_| {}), "1.0.0").unwrap();
+        let first = last_activation(&h).unwrap().unwrap();
+        assert!(!first.rollback);
+        assert_eq!(first.left, None, "nothing was installed before the first");
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        let second = last_activation(&h).unwrap().unwrap();
+        assert!(!second.rollback);
+        assert_eq!(second.left.as_deref(), Some("1.0.0"));
+        assert_eq!(second.entered.version, "2.0.0");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn there_is_no_way_back_from_a_first_installation() {
+        let t = home();
+        let h = canonical(&t);
+        assert_eq!(rollback_target(&h).unwrap(), RollbackTarget::NoRecord);
+        install_verified(&h, &archive("1.0.0", |_| {}), "1.0.0").unwrap();
+        assert_eq!(rollback_target(&h).unwrap(), RollbackTarget::NoRecord);
+        assert!(stage_rollback_verified(&h, &archive("0.9.0", |_| {}), "0.9.0").is_err());
+    }
+
+    /// After going back once, the recorded earlier version is the one just LEFT, which is
+    /// newer. That is reported as such rather than offered as a second way back -- the way
+    /// forward from here is an ordinary update, and a rollback never moves up.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rollback_does_not_offer_a_newer_version_as_a_way_back() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        install_verified(&h, &old, "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        rollback_verified(&h, &old, "1.0.0", "2.0.0").unwrap().unwrap();
+        assert_eq!(
+            rollback_target(&h).unwrap(),
+            RollbackTarget::NotOlder("2.0.0".into())
+        );
+        let e = stage_rollback_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap_err();
+        assert!(e.to_string().contains("not older"), "{e}");
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "1.0.0"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rollback_refuses_a_version_that_is_not_older_than_the_installed_one() {
+        let t = home();
+        let h = canonical(&t);
+        install_verified(&h, &archive("1.0.0", |_| {}), "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        // Including the version already installed: "go back" to where you already are is a
+        // refusal with a sentence, not a receipt for what is already on disk.
+        for version in ["2.0.0", "3.0.0"] {
+            let e = stage_rollback_verified(&h, &archive(version, |_| {}), version).unwrap_err();
+            assert!(
+                e.to_string().contains("came from 1.0.0"),
+                "unexpected refusal: {e}"
+            );
+        }
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "2.0.0"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rollback_refuses_while_an_update_is_already_prepared_for_the_next_launch() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        install_verified(&h, &old, "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        stage_verified(&h, &archive("3.0.0", |_| {}), "3.0.0").unwrap();
+        let e = stage_rollback_verified(&h, &old, "1.0.0").unwrap_err();
+        assert!(e.to_string().contains("already prepared"), "{e}");
+        // The prepared update is untouched and still the thing the next launch will do.
+        let pending = staged(&h).unwrap().unwrap();
+        assert_eq!(pending.publication.version, "3.0.0");
+        assert!(!pending.rollback);
+    }
+
+    /// The staged rollback reports itself AS a rollback, so the surface can promise the
+    /// right thing before the restart rather than inferring a direction from two numbers.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_staged_rollback_reports_its_direction() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        install_verified(&h, &old, "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        stage_rollback_verified(&h, &old, "1.0.0").unwrap();
+        let pending = staged(&h).unwrap().unwrap();
+        assert_eq!(pending.publication.version, "1.0.0");
+        assert!(pending.rollback);
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "2.0.0",
+            "staging must not touch the running application"
+        );
+    }
+
+    /// THE AUTHORIZATION IS BOUND TO THE VERSION IT WAS GRANTED AGAINST. A receipt naming a
+    /// version this Mac is no longer running authorizes nothing, and is retired rather than
+    /// applied to whatever happens to be installed.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_rollback_authorization_does_not_survive_the_version_it_named() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        install_verified(&h, &old, "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        stage_rollback_verified(&h, &old, "1.0.0").unwrap();
+        let r = root(&h).unwrap();
+        let mut receipt: Rollback = read_document(&r.join("rollback.json")).unwrap();
+        receipt.from_version = "9.9.9".into();
+        fs::remove_file(r.join("rollback.json")).unwrap();
+        write_document(&r, "rollback.json", &receipt).unwrap();
+        let mut lease = StartupLease::acquire(&h).unwrap();
+        let e = activate_prepared(&mut lease, "2.0.0").unwrap_err();
+        assert!(e.to_string().contains("no longer applies"), "{e}");
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "2.0.0"
+        );
+        assert!(!r.join("rollback.json").exists());
+        assert!(staged(&h).unwrap().is_none(), "the receipt is retired");
+    }
+
+    /// An authorization naming a different archive is not this receipt's authorization.
+    /// Without that rule one stale `rollback.json` would license every older payload that
+    /// ever reached `prepared.json`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_rollback_authorization_for_another_archive_licenses_nothing() {
+        let t = home();
+        let h = canonical(&t);
+        install_verified(&h, &archive("1.0.0", |_| {}), "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        let (r, p) = prepare(&h, &archive("1.5.0", |_| {}), "1.5.0");
+        write_document(
+            &r,
+            "rollback.json",
+            &Rollback {
+                archive_sha256: "a".repeat(64),
+                from_version: "2.0.0".into(),
+            },
+        )
+        .unwrap();
+        let mut lease = StartupLease::acquire(&h).unwrap();
+        assert!(activate_prepared(&mut lease, "2.0.0").unwrap().is_none());
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "2.0.0"
+        );
+        assert!(r.join(&p.archive_sha256).join("obsolete.json").exists());
+    }
+
+    /// A PAYLOAD THAT DOES NOT SURVIVE THE CRATE'S OWN CHECKS IS NEVER PUBLISHED, on the
+    /// way down exactly as on the way up.
+    ///
+    /// The signature is checked one layer above this, by `Update::download` against the
+    /// compiled public key, and a rollback goes through that same download -- `updates.rs`
+    /// hands these bytes over only after it returns. What this proves is the half that
+    /// lives HERE: bytes that reach staging and then fail to extract, or that carry an
+    /// identity other than the one asked for, leave the running application untouched.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_damaged_or_mislabelled_rollback_payload_never_reaches_the_application() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        install_verified(&h, &old, "1.0.0").unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+
+        let mut damaged = old.clone();
+        let i = damaged.len() / 2;
+        damaged[i] ^= 0xFF;
+        assert!(stage_rollback_verified(&h, &damaged, "1.0.0").is_err());
+
+        // Intact bytes, a version this installation never came from: refused by the
+        // history binding before a single byte is extracted.
+        assert!(stage_rollback_verified(&h, &old, "1.0.1").is_err());
+
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "2.0.0"
+        );
+        assert!(staged(&h).unwrap().is_none());
+        assert!(!root(&h).unwrap().join("rollback.json").exists());
+    }
+
+    /// An ordinary update must not inherit an authorization it did not write.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_forward_update_clears_a_rollback_authorization_it_did_not_write() {
+        let t = home();
+        let h = canonical(&t);
+        install_verified(&h, &archive("1.0.0", |_| {}), "1.0.0").unwrap();
+        let r = root(&h).unwrap();
+        write_document(
+            &r,
+            "rollback.json",
+            &Rollback {
+                archive_sha256: "b".repeat(64),
+                from_version: "1.0.0".into(),
+            },
+        )
+        .unwrap();
+        install_verified(&h, &archive("2.0.0", |_| {}), "2.0.0").unwrap();
+        assert!(!r.join("rollback.json").exists());
+        assert!(!last_activation(&h).unwrap().unwrap().rollback);
+    }
+
+    /// RE-FETCHING AN EARLIER TAG LANDS ON ITS OWN OLD TRANSACTION DIRECTORY, whose payload
+    /// the collector reclaimed and whose receipts it deliberately left behind. That
+    /// directory holds no application, so it is reused -- while one that still holds an
+    /// application is refused exactly as before.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_spent_transaction_is_reused_and_a_loaded_one_is_still_refused() {
+        let t = home();
+        let h = canonical(&t);
+        let old = archive("1.0.0", |_| {});
+        let r = root(&h).unwrap();
+        install_verified(&h, &old, "1.0.0").unwrap();
+        let spent_tx = r.join(digest(&old));
+        assert!(
+            spent_tx.join("verified.json").exists() && !spent_tx.join("incoming.app").exists(),
+            "a first install leaves its transaction receipted and empty"
+        );
+        assert!(spent(&spent_tx).unwrap());
+        let newer = archive("2.0.0", |_| {});
+        install_verified(&h, &newer, "2.0.0").unwrap();
+        // 2.0.0's transaction still HOLDS the displaced 1.0.0 bundle, so it is not spent.
+        assert!(!spent(&r.join(digest(&newer))).unwrap());
+        rollback_verified(&h, &old, "1.0.0", "2.0.0").unwrap().unwrap();
+        assert_eq!(
+            bundle_version(&h.join("Applications/RichOS.app")).unwrap(),
+            "1.0.0"
+        );
+    }
+
     #[test]
     fn retirement_uses_native_volume_uuid_and_rejects_changed_volume_or_legacy_device_pins() {
         let t = home();
