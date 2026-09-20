@@ -497,6 +497,7 @@ pub enum FrontDeskReady {
 
 pub struct Spine {
     ledger: Ledger,
+    reader: Option<crate::read_view::SpineReader>,
     lease: Option<Box<dyn Cognition>>,
     /// **The other front desks** — every thread that has spoken, keyed by thread id, minus
     /// whichever one currently holds [`Spine::lease`]. See [`Resident`].
@@ -737,9 +738,33 @@ impl WorkerEventsSource {
 }
 
 impl Spine {
+    /// Share immutable window snapshots without sharing the turn's lock or writer.
+    pub fn reader(&mut self) -> crate::read_view::SpineReader {
+        if let Some(reader) = &self.reader { return reader.clone(); }
+        let reader = crate::read_view::SpineReader::new(self);
+        let updates = reader.clone();
+        self.ledger.observe_reads(std::sync::Arc::new(move |event| updates.apply(event.clone())));
+        self.reader = Some(reader.clone());
+        reader
+    }
+
+    fn publish_read_metadata(&self) {
+        if let Some(reader) = &self.reader { reader.refresh(self); }
+    }
+
+    pub(crate) fn read_metadata(&self) -> crate::read_view::ReadMetadata {
+        crate::read_view::ReadMetadata {
+            active: self.active.clone(), registry: self.registry.clone(),
+            machinery_root: self.machinery_journal.as_ref().map(|j| j.root().to_path_buf()),
+            workers: self.worker_events.clone(), control: self.control.clone(),
+            central_root: self.central_root.clone(), onboarding_record: self.onboarding_record.clone(),
+        }
+    }
+
     pub fn new(ledger: Ledger) -> Self {
         Spine {
             ledger,
+            reader: None,
             lease: None,
             resident: std::collections::HashMap::new(),
             spare: None,
@@ -812,6 +837,7 @@ impl Spine {
     /// rendering inside this entity's thread (timeline.rs `project_with_workers`).
     pub fn set_worker_events(&mut self, source: WorkerEventsSource) {
         self.worker_events = source;
+        self.publish_read_metadata();
     }
 
     pub fn worker_events_source(&self) -> &WorkerEventsSource {
@@ -946,6 +972,7 @@ impl Spine {
     /// there is no flag gating it, deliberately (§3.2).
     pub fn set_machinery_journal(&mut self, journal: MachineryJournal) {
         self.machinery_journal = Some(journal);
+        self.publish_read_metadata();
     }
 
     pub fn has_machinery_journal(&self) -> bool {
@@ -1454,6 +1481,7 @@ impl Spine {
         control.set_cancel(self.lease.as_ref().and_then(|l| l.cancel_handle()));
         control.set_lease_session(self.lease.as_ref().map(|l| l.session_id().to_string()));
         self.control = control;
+        self.publish_read_metadata();
     }
 
     /// A clone of the shared control handle, for the shell's own commands.
@@ -1505,6 +1533,7 @@ impl Spine {
     /// what that costs (`richos-central-folder-2026-09-06.md` §1.3).
     pub fn set_central_root(&mut self, root: std::path::PathBuf) {
         self.central_root = Some(root);
+        self.publish_read_metadata();
         self.unprime_every_front_desk();
     }
 
@@ -1528,6 +1557,7 @@ impl Spine {
     /// them into one setter would put a RichOS bookkeeping file inside a folder the CEO owns.
     pub fn set_onboarding_record(&mut self, path: std::path::PathBuf) {
         self.onboarding_record = Some(path);
+        self.publish_read_metadata();
         self.unprime_every_front_desk();
     }
 
@@ -1944,6 +1974,7 @@ impl Spine {
     /// Replace the entity registry (tests, or a future CEO-configured registry).
     pub fn set_entity_registry(&mut self, registry: EntityRegistry) {
         self.registry = registry;
+        self.publish_read_metadata();
     }
 
     pub fn entity_registry(&self) -> &EntityRegistry {
@@ -2016,6 +2047,7 @@ impl Spine {
     fn activate(&mut self, thread_id: &str) -> Result<ThreadBinding, SpineError> {
         let binding = self.ledger.rebind_at_new_revision(thread_id)?;
         self.active = Some(binding.clone());
+        self.publish_read_metadata();
         Ok(binding)
     }
 

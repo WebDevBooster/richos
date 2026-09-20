@@ -24,7 +24,7 @@
 //! (`get_machinery_raw`), fetched when the CEO actually expands a row.
 
 use richos_core::journal::ThreadMachinery;
-use richos_core::spine::Spine;
+use richos_core::read_view::SpineView;
 use richos_core::timeline::ViewMode;
 use serde_json::json;
 
@@ -74,7 +74,7 @@ pub const BETWEEN_TURNS_QUIET: &str =
 /// second ordering invented in the renderer.
 ///
 /// Fails closed on an unbound thread, exactly like `get_messages` and `get_timeline`.
-pub fn machinery_payload(spine: &Spine, thread_id: &str) -> Result<serde_json::Value, String> {
+pub fn machinery_payload(spine: &dyn SpineView, thread_id: &str) -> Result<serde_json::Value, String> {
     // The state FIRST, and from the checked read — `Spine::timeline` uses the unchecked
     // one, which cannot tell an unreadable directory from an empty thread. If the store
     // refuses, say so and do not hand back a prose-only timeline that reads as "he did

@@ -770,7 +770,8 @@ impl HistoryHealth {
 
 pub struct Ledger {
     path: PathBuf,
-    file: File,
+    file: Option<File>,
+    read_observer: Option<std::sync::Arc<dyn Fn(&Event) + Send + Sync>>,
     threads: Vec<Thread>,
     turns: Vec<Turn>,
     actions: Vec<Action>,
@@ -799,6 +800,28 @@ pub struct Ledger {
 fn is_false(value: &bool) -> bool { !*value }
 
 impl Ledger {
+    // Snapshots have no file handle and expose no mutation capability to window readers.
+    pub(crate) fn read_copy(&self) -> Self {
+        Self {
+            path: self.path.clone(), file: None, read_observer: None,
+            threads: self.threads.clone(), turns: self.turns.clone(), actions: self.actions.clone(),
+            handoff_summaries: self.handoff_summaries.clone(),
+            scope_violations: self.scope_violations.clone(), skipped: self.skipped.clone(),
+            records_read: self.records_read, records_applied: self.records_applied,
+            next_revision: self.next_revision,
+        }
+    }
+
+    pub(crate) fn observe_reads(&mut self, observer: std::sync::Arc<dyn Fn(&Event) + Send + Sync>) {
+        self.read_observer = Some(observer);
+    }
+
+    pub(crate) fn apply_read_event(&mut self, event: Event) {
+        let reconcile = matches!(event, Event::ThreadEntityBound { .. });
+        self.apply(event);
+        if reconcile { self.reconcile_scope(); }
+    }
+
     /// Open (creating if needed) and replay the on-disk log into the projection.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         let path = path.as_ref().to_path_buf();
@@ -807,7 +830,8 @@ impl Ledger {
         }
         let mut ledger = Ledger {
             path: path.clone(),
-            file: OpenOptions::new().create(true).append(true).read(true).open(&path)?,
+            file: Some(OpenOptions::new().create(true).append(true).read(true).open(&path)?),
+            read_observer: None,
             threads: Vec::new(),
             turns: Vec::new(),
             actions: Vec::new(),
@@ -1455,13 +1479,17 @@ impl Ledger {
         // [`Ledger::history_health`] that asked for it.
         let mut line = crate::skip::stamped_line(&event)?;
         line.push('\n');
-        crate::util::ensure_line_boundary(&mut self.file)?;
-        self.file.write_all(line.as_bytes())?;
-        self.file.flush()?;
+        let file = self.file.as_mut().ok_or_else(|| std::io::Error::other("read-only ledger snapshot"))?;
+        crate::util::ensure_line_boundary(file)?;
+        file.write_all(line.as_bytes())?;
+        file.flush()?;
         if sync {
-            self.file.sync_data()?;
+            file.sync_data()?;
         }
-        self.apply(event);
+        self.apply(event.clone());
+        if let Some(observer) = &self.read_observer {
+            observer(&event);
+        }
         Ok(())
     }
 

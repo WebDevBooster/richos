@@ -46,6 +46,16 @@ pub struct TauriLiveEmitter {
 
 impl LiveObserver for TauriLiveEmitter {
     fn on_live_event(&self, event: &LiveEvent) {
-        let _ = self.app.emit(event.event_name(), event.payload());
+        let payload = event.payload();
+        // Opt-in timing evidence carries identities and a clock, never message content.
+        // An emitted text event and text rendered by the window are separate milestones.
+        if crate::hop_trace_is_on() && matches!(event.event_name(),
+            "rich://message-delta" | "rich://ceo-message" | "rich://turn-status") {
+            let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis()).unwrap_or(0);
+            eprintln!("[richos] event-timing at={at} event={} thread={} turn={}",
+                event.event_name(), payload["threadId"], payload["turnId"]);
+        }
+        let _ = self.app.emit(event.event_name(), payload);
     }
 }

@@ -203,3 +203,5 @@ pub mod work_host;
 ///                    than a sentence: no tool discovery, no bookkeeping, and the hand-over
 ///                    first, inside a budget taken off two real turns.
 pub mod first_reply;
+
+pub mod read_view;

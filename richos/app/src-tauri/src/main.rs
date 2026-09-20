@@ -25,6 +25,7 @@ mod window_geometry;
 // the test suite does. Same split `work_gate.rs` documents for the update gate.
 mod screen;
 
+use richos_core::read_view::{SpineReader, SpineView};
 use richos_core::native::{resolve_claude_bin, resolve_claude_bin_checked, NativeCognition};
 use richos_core::cognition::{Cognition, CognitionError, LeaseFactory};
 use richos_core::config::{Assertiveness, ConfigStore, RetentionChoice, TechyMode, TechyScope};
@@ -491,6 +492,7 @@ struct AppState {
     /// own desk (`spine.rs`'s residency).
     front_desk_primed_for: Mutex<Option<String>>,
     spine: Mutex<Spine>,
+    reader: SpineReader,
     /// Durable CEO-facing preferences (company name, the assertiveness dial) — stored
     /// alongside the ledger in the app data dir, same durability posture.
     config: Mutex<ConfigStore>,
@@ -765,12 +767,12 @@ fn phone_forget(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<(
 
 #[tauri::command(async)]
 fn list_threads(state: State<AppState>) -> Vec<ThreadSummary> {
-    take_the_spine(&state.spine).threads()
+    state.reader.snapshot().threads()
 }
 
 #[tauri::command(async)]
 fn active_thread(state: State<AppState>) -> Option<String> {
-    take_the_spine(&state.spine).active_thread().map(|s| s.to_string())
+    state.reader.snapshot().active_thread().map(|s| s.to_string())
 }
 
 #[tauri::command(async)]
@@ -793,7 +795,7 @@ fn switch_thread(state: State<AppState>, thread_id: String) -> Result<(), String
 /// "I will not serve this" and "there is nothing here" are different statements.
 #[tauri::command(async)]
 fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message>, String> {
-    take_the_spine(&state.spine).messages(&thread_id).map_err(|e| e.to_string())
+    state.reader.snapshot().messages(&thread_id).map_err(|e| e.to_string())
 }
 
 /// One thread's TYPED TIMELINE (UX §12), gated to the CEO view (§5.3).
@@ -814,7 +816,7 @@ fn get_messages(state: State<AppState>, thread_id: String) -> Result<Vec<Message
 /// Fails closed on an unbound thread, exactly like `get_messages`.
 #[tauri::command(async)]
 fn get_timeline(app: AppHandle, state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let payload = timeline_payload(&take_the_spine(&state.spine), &thread_id);
+    let payload = timeline_payload(&*state.reader.snapshot(), &thread_id);
     // **HIS FRONT DESK IS MADE READY HERE, AFTER THE SNAPSHOT AND NEVER BEFORE IT** — the CEO's
     // §55. See [`ready_the_front_desk`] for why this command is the hook.
     ready_the_front_desk(&app, &thread_id);
@@ -2973,6 +2975,7 @@ fn main() {
                 can_come_back: activation.presentation == activation::Presentation::Regular,
                 provider_auth: Mutex::new(Default::default()),
                 front_desk_primed_for: Mutex::new(None),
+                reader: spine.reader(),
                 spine: Mutex::new(spine),
                 config: Mutex::new(config),
                 machinery_root,
@@ -4142,7 +4145,7 @@ const UNBOUND_THREAD_EXPLANATION: &str =
     "This thread has no entity home: it predates entity scoping, and Rich will not guess \
      which entity this work belongs to. An operator must bind it explicitly.";
 
-fn active_binding_view(spine: &Spine) -> Option<ActiveContext> {
+fn active_binding_view(spine: &dyn SpineView) -> Option<ActiveContext> {
     spine.active_binding().map(|b| ActiveContext {
         thread_id: b.thread_id().to_string(),
         entity_id: b.entity_id().to_string(),
@@ -4155,14 +4158,14 @@ fn active_binding_view(spine: &Spine) -> Option<ActiveContext> {
 /// quarantine list, and the authoritative active scope.
 #[tauri::command(async)]
 fn navigation_tree(state: State<AppState>) -> NavigationTree {
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     let nav = state.nav.lock().unwrap();
-    build_navigation_tree(&spine, nav.state())
+    build_navigation_tree(&*spine, nav.state())
 }
 
 /// The command's whole body, taking plain references instead of Tauri state — so the rail's
 /// grouping can be tested against a REAL ledger file rather than only exercised by hand.
-fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> NavigationTree {
+fn build_navigation_tree(spine: &dyn SpineView, nav_state: &nav::NavState) -> NavigationTree {
     let ledger = spine.ledger();
     let registry = spine.entity_registry();
 
@@ -4211,7 +4214,7 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
     NavigationTree {
         groups,
         unbound,
-        active: active_binding_view(&spine),
+        active: active_binding_view(spine),
         unbound_explanation: UNBOUND_THREAD_EXPLANATION.to_string(),
     }
 }
@@ -4232,7 +4235,7 @@ fn build_navigation_tree(spine: &Spine, nav_state: &nav::NavState) -> Navigation
 /// gets to phrase a claim about a customer's history.
 #[tauri::command(async)]
 fn history_health(state: State<AppState>) -> richos_core::ledger::HistoryHealth {
-    take_the_spine(&state.spine).ledger().history_health()
+    state.reader.snapshot().ledger().history_health()
 }
 
 // ---------------------------------------------------------------------------------------
@@ -4306,7 +4309,7 @@ const ONBOARDING_UNUSABLE_MESSAGE: &str =
      will need to look at that.";
 
 fn onboarding_view_of(state: &State<AppState>) -> OnboardingView {
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     let Some(binding) = spine.active_binding() else {
         return OnboardingView {
             state: "no-central-folder".to_string(),
@@ -4400,14 +4403,14 @@ const ONBOARDING_DECLINE_REFUSED: &str =
 /// The authoritative answer to "which entity and thread is the CEO actually talking to?".
 #[tauri::command(async)]
 fn active_context(state: State<AppState>) -> Option<ActiveContext> {
-    active_binding_view(&take_the_spine(&state.spine))
+    active_binding_view(&*state.reader.snapshot())
 }
 
 /// One thread's durable scope. Fallible on purpose: an unbound thread returns the core's
 /// own `UnboundThread` message, which is what the UI renders in the binding-failure state.
 #[tauri::command(async)]
 fn thread_scope(state: State<AppState>, thread_id: String) -> Result<ActiveContext, String> {
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     spine
         .ledger()
         .thread_binding(&thread_id)
@@ -4532,7 +4535,7 @@ fn unknown_company_message(id: &str) -> String {
 fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
     // Lock order, everywhere in this file: config, then entity, then spine.
     let chosen = state.entity.lock().unwrap().clone();
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     let registry = spine.entity_registry();
     let summaries = spine.threads();
     let options = registry
@@ -4558,7 +4561,7 @@ fn entity_choice_view(state: &State<AppState>) -> EntityChoiceView {
         options,
         registry_source: state.registry_source.as_str().to_string(),
         registry_path: state.registry_path.display().to_string(),
-        active: active_binding_view(&spine),
+        active: active_binding_view(&*spine),
     }
 }
 
@@ -5281,12 +5284,12 @@ fn excerpt_at(original: &[char], at: usize, needle_len: usize) -> String {
 /// without having to work out which entity a result came from.
 #[tauri::command(async)]
 fn search_nav(state: State<AppState>, query: String, limit: Option<usize>) -> Vec<SearchHit> {
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     let nav = state.nav.lock().unwrap();
-    run_search(&spine, nav.state(), &query, limit.unwrap_or(SEARCH_DEFAULT_LIMIT))
+    run_search(&*spine, nav.state(), &query, limit.unwrap_or(SEARCH_DEFAULT_LIMIT))
 }
 
-fn run_search(spine: &Spine, nav_state: &nav::NavState, query: &str, limit: usize) -> Vec<SearchHit> {
+fn run_search(spine: &dyn SpineView, nav_state: &nav::NavState, query: &str, limit: usize) -> Vec<SearchHit> {
     let needle = fold_chars(query.trim());
     if needle.is_empty() {
         return Vec::new();
@@ -6489,13 +6492,14 @@ mod navigation_tests {
 
     #[test]
     fn pin_rename_and_archive_move_the_row_without_touching_the_entity_home() {
-        let (spine, path) = spine_from_real_ledger("navstate");
+        let (mut spine, path) = spine_from_real_ledger("navstate");
         let mut nav_state = nav::NavState::default();
         nav_state.pinned_threads.push(BOUND_ID.to_string());
         nav_state.archived_threads.push(BOUND_ID.to_string());
         nav_state.renamed_threads.insert(BOUND_ID.to_string(), "Rich's desk".to_string());
 
-        let tree = build_navigation_tree(&spine, &nav_state);
+        let reader = spine.reader();
+        let tree = build_navigation_tree(&*reader.snapshot(), &nav_state);
         let row = tree
             .groups
             .iter()
@@ -7317,17 +7321,10 @@ fn feedback_history(state: State<AppState>) -> Result<Vec<serde_json::Value>, St
 /// decides whether to ask.
 #[tauri::command(async)]
 fn get_machinery(state: State<AppState>, thread_id: String) -> Result<serde_json::Value, String> {
-    let mut spine = take_the_spine(&state.spine);
-    // PUMP, THEN READ (techy-mode §1.5). Between-turn traffic is parked by the reader
-    // thread and lands in the journal only when the spine drains it. The turn boundaries do
-    // that, but opening the technical view is the other moment somebody actually wants to
-    // SEE it — and without this line the newest between-turn records would appear one turn
-    // late, which reads as the feature being broken rather than as a drain schedule.
-    //
-    // It takes the same lock the read takes, so nothing new can interleave, and it is a
-    // no-op costing one mutex and one `Vec::is_empty` when the lane is quiet.
-    spine.pump_between_turn();
-    machinery_payload(&spine, &thread_id)
+    if let Ok(mut spine) = state.spine.try_lock() {
+        spine.pump_between_turn();
+    }
+    machinery_payload(&*state.reader.snapshot(), &thread_id)
 }
 
 /// §2.4's raw pane, one record at a time.
@@ -7350,7 +7347,7 @@ fn get_machinery_raw(
     thread_id: String,
     machinery_id: String,
 ) -> Result<serde_json::Value, String> {
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     let Some(journal) = spine.machinery_journal() else {
         return Ok(not_retained());
     };
@@ -8043,7 +8040,7 @@ struct HomeEntityView {
 fn home_entity_row(state: State<AppState>) -> Vec<HomeEntityView> {
     // Lock order, everywhere in this file: config, then entity, then spine.
     let config = state.config.lock().unwrap();
-    let spine = take_the_spine(&state.spine);
+    let spine = state.reader.snapshot();
     spine
         .entity_registry()
         .entities()
@@ -8396,3 +8393,6 @@ mod ipc_responsiveness_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod window_read_tests;
