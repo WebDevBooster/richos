@@ -362,6 +362,27 @@ pub struct PhoneRuntime {
     running: Mutex<Option<Running>>,
     /// The last answer [`tailnet::detect`] gave, and when. See [`PhoneRuntime::tailnet_now`].
     tailnet: Mutex<Option<(u64, tailnet::TailnetState)>>,
+    /// **A HANDLE ON ITSELF, SO THE THING THAT OWNS THE LISTENER CAN BE REACHED FROM THE THREAD
+    /// THAT WATCHES FOR A REJECTION.** Weak rather than strong, so this never keeps itself
+    /// alive: a watcher outliving the app finds nothing to upgrade and exits.
+    ///
+    /// It exists because the teardown a rejected fingerprint needs is [`PhoneRuntime::forget`]
+    /// and nothing less — the socket, the hub and the certificate authority — and that is a
+    /// method on this type. Copying its four lines into a watcher would be the same defect
+    /// Ray's `.8` walk found, one layer further in.
+    me: std::sync::Weak<PhoneRuntime>,
+    /// **DID THE PERSON PRESS THE ALARM BUTTON ON THE PHONE?** Set when the phone answers the
+    /// six words with `no` and this Mac has finished stopping; cleared the next time he asks to
+    /// pair a phone. Surfaced as [`PhoneStatus::rejected`], which is the only thing that puts
+    /// the sheet on the screen that says it heard him.
+    ///
+    /// **In memory and deliberately not on disk, which is a real limit and is named rather than
+    /// hidden.** After a relaunch this Mac is not serving and nothing is paired — the true state
+    /// — but it no longer says why, and the person who pressed the button and then quit RichOS
+    /// gets the ordinary `This Mac is ready` screen back. Making it durable means a file whose
+    /// only content is a sentence about a thing that already happened; if he ever wants that
+    /// sentence to survive a relaunch, this is where it would be written.
+    rejected: Mutex<bool>,
 }
 
 /// How long a Tailscale detection is reused before the daemon is asked again.
@@ -380,6 +401,50 @@ pub struct PhoneRuntime {
 /// On the overwhelmingly common Mac it costs no subprocess at all: [`tailnet::find_cli`] answers
 /// `Absent` from four `stat` calls without spawning anything.
 pub const TAILNET_RECHECK_MS: u64 = 2_000;
+
+/// **THE THREAD THAT MAY STOP THE LISTENER, BECAUSE THE LISTENER'S OWN THREAD MAY NOT.**
+///
+/// [`listen::Listener::stop`] ends in `thread.join()` on the `richos-phone-channel` thread, and
+/// every route runs on that thread — so `They do not match`, handled inline, would join its own
+/// thread and hang. This is the other side of [`routes::StopSwitch`]: it blocks on the doorbell
+/// and runs `teardown` on a thread of its own.
+///
+/// **It ends by itself.** Every sender lives on the [`routes::Channel`]; when the channel is
+/// dropped — by `forget`, by `stop_pairing`, or by the app going away — `recv` returns
+/// `Disconnected` and this returns. There is no second shutdown signal to get wrong.
+///
+/// **It is a free function and not a method so that it can be TESTED.** Building a
+/// [`PhoneRuntime`] far enough to start a channel needs a `tauri::AppHandle`, the login Keychain
+/// and a working tailnet, none of which belong in a unit test. The end-to-end test in
+/// `listen.rs` calls THIS, with a real `Listener` and a real TLS client, and plays the owner
+/// itself. What that leaves uncovered is one line — the upgrade-and-call closure in
+/// [`PhoneRuntime::watch_for_rejection`] — and that is said out loud rather than implied by a
+/// green run.
+pub(crate) fn watch_for_rejection<F>(rejections: std::sync::mpsc::Receiver<()>, teardown: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    let spawned = std::thread::Builder::new()
+        .name("richos-phone-rejection".to_string())
+        .spawn(move || {
+            // One rejection is the end of this channel, so one `recv` is the whole loop.
+            if rejections.recv().is_err() {
+                // The channel went down for an ordinary reason. Nothing to stop.
+                return;
+            }
+            teardown();
+        });
+    if let Err(e) = spawned {
+        // NOT fatal and NOT silent. The credential is dropped synchronously by the route either
+        // way, so this is the socket surviving a rejection — exactly the defect, and it would
+        // otherwise be invisible.
+        eprintln!(
+            "[richos] could not start the thread that stops this channel when the phone rejects \
+             the six words, so a rejection will drop the phone's credential without closing the \
+             port: {e}"
+        );
+    }
+}
 
 struct Running {
     listener: listen::Listener,
@@ -475,6 +540,17 @@ pub struct PhoneStatus {
     pub pairing_seconds_left: Option<u64>,
     /// Where this Mac is on the Tailscale path — the ONLY input that selects a how-to screen.
     pub tailnet: TailnetView,
+    /// **THE PERSON AT THE PHONE SAID THE SIX WORDS DID NOT MATCH, AND THIS MAC STOPPED.**
+    ///
+    /// Ray's nightly `.8` walk, defect 1: the credential really was dropped, and the sheet in
+    /// front of the person did not change at all — *"he has no way to know the Mac heard
+    /// him."* The six words exist for one scenario, something other than his Mac answering, and
+    /// a Mac that goes on displaying the pairing card after the alarm is pressed teaches him
+    /// the check is ceremonial.
+    ///
+    /// It outranks every other screen in the sheet while it is true, and it is cleared by the
+    /// next [`PhoneRuntime::begin_pairing`] — the one act that says he is done reading it.
+    pub rejected: bool,
 }
 
 /// **What the how-to screens draw themselves from** — Urban's state table
@@ -644,11 +720,16 @@ impl PhoneRuntime {
     pub fn install(data_dir: std::path::PathBuf) -> (Arc<Self>, Box<dyn richos_core::live::LiveObserver>) {
         let hub = stream::PhoneHub::new();
         let emitter = Box::new(stream::PhoneLiveEmitter::new(Arc::clone(&hub)));
-        let runtime = Arc::new(PhoneRuntime {
+        // `new_cyclic` rather than a `set_me` after construction: `me` is read from another
+        // thread and must be there before anything can be started, and the alternative — an
+        // `Option` filled in a second step — is a field every reader has to ask about.
+        let runtime = Arc::new_cyclic(|me| PhoneRuntime {
             data_dir,
             hub,
             running: Mutex::new(None),
             tailnet: Mutex::new(None),
+            me: me.clone(),
+            rejected: Mutex::new(false),
         });
         (runtime, emitter)
     }
@@ -717,6 +798,10 @@ impl PhoneRuntime {
                 // is listening: the user has not paired a phone yet, which is the entire point of
                 // the screen they are reading.
                 tailnet,
+                // AND THIS IS THE BRANCH IT IS ACTUALLY READ IN. A Mac that stopped because the
+                // phone rejected the words is a Mac with nothing running, so the early return
+                // is where the rejection screen is decided.
+                rejected: *self.rejected.lock().unwrap(),
             };
         };
         let device = running.channel.devices.paired();
@@ -751,6 +836,10 @@ impl PhoneRuntime {
                 PAIRING_WINDOW_MS.saturating_sub(elapsed) / 1000
             }),
             tailnet,
+            // False by construction here: the flag is only ever set after `forget()` has taken
+            // the listener down, and this branch is a listener that is up. Read rather than
+            // written as `false` so the two branches cannot drift.
+            rejected: *self.rejected.lock().unwrap(),
         }
     }
 
@@ -765,6 +854,14 @@ impl PhoneRuntime {
     /// user's chosen route — Urban's N1 — and the route went with the chooser. There is one path
     /// to plan, and a Mac that cannot serve it is refused with a sentence: see [`serving_plan`].
     pub fn begin_pairing(&self, app: tauri::AppHandle) -> Result<PhoneStatus, PhoneError> {
+        // **ASKING TO PAIR A PHONE IS HOW THE REJECTION SCREEN IS LEFT**, and it is the only
+        // way. It is cleared BEFORE the start rather than after, so the status this returns is
+        // the one the sheet renders: clearing it afterwards would hand back a status that still
+        // said `rejected` and put the screen back for one poll.
+        //
+        // A start that FAILS still clears it — he has read the sentence and moved on, and the
+        // failure has a sentence of its own (`phone-message`) that he needs to be able to see.
+        *self.rejected.lock().unwrap() = false;
         self.start(app, true)
     }
 
@@ -901,7 +998,14 @@ impl PhoneRuntime {
 
         let devices = Arc::new(device::DeviceDesk::open(&self.data_dir)?);
         let bridge = Arc::new(bridge::PhoneBridge::new(app));
+        // **THE HANDLE THE ROUTE TABLE DID NOT HAVE** — Ray's nightly `.8` defect 1. One
+        // `Sender` goes into the channel and the `Receiver` goes to a thread of this runtime's,
+        // which is the only thing allowed to put the listener down. Every clone of the sender
+        // lives on the channel, so when the channel goes the watcher's `recv` fails and the
+        // thread ends: no shutdown signal, no lifetime to get wrong.
+        let (doorbell, rejections) = std::sync::mpsc::channel::<()>();
         let channel = Arc::new(routes::Channel {
+            rejected: routes::StopSwitch::to(doorbell),
             devices: Arc::clone(&devices),
             api_base: Arc::new(api_base::ApiBaseDesk::only(origin.clone())),
             hub: Arc::clone(&self.hub),
@@ -938,6 +1042,9 @@ impl PhoneRuntime {
             listener.bound.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "),
             origin,
         );
+        // **THE WATCHER STARTS ONLY ONCE THE SOCKET IS UP**, because before that there is
+        // nothing for it to stop. One per running channel, and it ends with that channel.
+        self.watch_for_rejection(rejections);
         *running = Some(Running {
             listener,
             channel,
@@ -950,6 +1057,52 @@ impl PhoneRuntime {
         });
         drop(running);
         Ok(self.status())
+    }
+
+    /// **THE OWNER'S HALF OF `They do not match`** — Ray's nightly `.8` walk, defect 1 (HIGH).
+    ///
+    /// The route drops the device record on the request thread and rings [`routes::StopSwitch`];
+    /// this is what the bell reaches. It does not repeat any of the sequence: it calls the same
+    /// [`PhoneRuntime::forget`] the `Forget this phone` button calls, so the two presses end in
+    /// one state by construction rather than by two lists agreeing.
+    ///
+    /// **THE FLAG IS SET BEFORE THE TEARDOWN, AND THE ORDER IS DELIBERATE.** `forget()` joins
+    /// the serving thread, so it takes as long as an in-flight response takes to finish; a poll
+    /// landing inside that window with the flag not yet set would find nothing paired, nothing
+    /// rejected and a listener on its way down, and would draw `This Mac is ready` — the screen
+    /// that made Ray write *"he has no way to know the Mac heard him"*. Nothing is claimed early
+    /// by setting it first: the credential is already gone when this runs, dropped synchronously
+    /// by the route before it rang.
+    fn stop_because_the_phone_rejected_the_words(&self) {
+        eprintln!(
+            "[richos] the phone said the six words did not match - stopping the channel, \
+             forgetting the phone and deleting this Mac's authority"
+        );
+        *self.rejected.lock().unwrap() = true;
+        if let Err(e) = self.forget() {
+            // The device record is already gone (the route took it), so this is the socket, the
+            // hub or the Keychain. It is said rather than swallowed: a Mac still answering on
+            // 8443 after this is the defect itself, and the log is where that gets diagnosed.
+            eprintln!(
+                "[richos] could not finish stopping after the phone rejected the six words: {e}"
+            );
+        }
+    }
+
+    /// Put a thread on the doorbell for this runtime's own teardown.
+    ///
+    /// **Separate from [`watch_for_rejection`] only by the closure**, which is the one line that
+    /// cannot be exercised without a real `tauri::AppHandle`, a real Keychain and a real
+    /// tailnet. Everything else about the mechanism — that a rejection arriving over TLS wakes a
+    /// thread that is NOT the serving thread, and that stopping a real listener from there works
+    /// — is proved end to end in `listen.rs`.
+    fn watch_for_rejection(&self, rejections: std::sync::mpsc::Receiver<()>) {
+        let me = self.me.clone();
+        watch_for_rejection(rejections, move || {
+            // Nothing to stop if the app is on its way out; the sockets go with the process.
+            let Some(runtime) = me.upgrade() else { return };
+            runtime.stop_because_the_phone_rejected_the_words();
+        });
     }
 
     /// "Forget this phone" (plan §4.1). **Instant and complete on the Mac side by construction**:
