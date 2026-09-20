@@ -243,6 +243,33 @@ measurement in the comment that fixed them:
   and five of nine shots moved for no reason but how long the walk took. `pinClock` pins the
   page's wall clock for the length of the capture and recomputes the row through the product's
   own visibility handler (`main.js:1446`) — no re-implemented formatter, no waited-out tick.
+  **The band above the composer sat outside that handler until 2026-09-20** and went on
+  counting this directory's own runtime inside an otherwise pinned frame; it is recomputed
+  there now, which is what `startOrStopWaitTimer`'s own comment always claimed.
+* **a countdown whose sentence changes one second into the page's life** — the phone pairing
+  window is 300 s and the harness's clock starts when `mock.js` loads, so
+  `ceil((300000 - elapsed) / 1000)` is 300 for the first second and 299 after it, and
+  `remaining()` floors those to `5 more minutes` and `4 more minutes`. Measured 2026-09-20: the
+  sheet is reached 879–1,055 ms after `goto`, straddling that boundary, and
+  `shots-phone/phone-{light,dark}.png` and `shots-contrast/phone-pairing.png` each came back
+  different under concurrent load — 775 pixels, delta 164, inside one 120x13 box holding that
+  sentence. The fixture's own `phonePairingSecondsLeft` knob pins the ANSWER (it does not move
+  the clock) at 270 s, which is `4 more minutes` with thirty seconds of margin to either edge
+  of its minute. Only the pages that are PHOTOGRAPHED take the pin; the checks that read a live
+  countdown keep the running clock they were written against.
+
+**And that three-second poll is now waited for by every committed shot of the conversation
+surface, not only §26's.** `main.js:3113` has **no leading call** — the interval is its only
+caller — so from the moment the app opens a conversation the chip zone is empty for up to three
+seconds and then a whole line of text arrives in it. Every shot in `techy.js` (10) and
+`updates.js` (9) was being taken inside that window: all nineteen changed when the wait went
+in, and `3-1-03` had alternated between two pictures 6.01% apart under concurrent load. Both
+suites now shoot through a local `evidence()` that calls `awaitWorkerChipSettled` and throws
+rather than photographing a surface that is still moving — the same shape `memory-strategy.js`
+has used since 2026-09-19. It costs `techy.js` 67 s and `updates.js` 41 s per run; a leading
+`pollWorkerStatus()` when a thread becomes the open conversation would give most of that back
+and would close the product-side hole as well, and that is a change for whoever owns that poll
+rather than for this directory.
 
 ### AND WHAT IS LEFT IS DECLARED, WITH ITS CAUSE, ITS MEASUREMENT AND ITS BOUND
 
@@ -276,8 +303,20 @@ not just the file names.
 | `shots-splash/material-round-11-v1.png` | compositor dither | 0.07%–0.59%, delta **2** every time | delta ≤ 2 |
 | `shots-splash/material-round-11-v2.png` | compositor dither | 0.17%–0.77%, delta **2** every time | delta ≤ 2 |
 | `shots-contrast/inspector.png` | compositor dither | unchanged in three of seven, else 0.52%, delta 2 and once 3 | delta ≤ 3 |
-| `shots-26/ms-04-...png` | one unanchored elapsed counter | 79 pixels (0.0057%) every time, delta 135 — one digit | 0.02% of pixels |
-| `shots-26/ms-05-...png` | one unanchored elapsed counter | 116 pixels (0.0084%) every time, delta 135 — one digit | 0.02% of pixels |
+
+**Two rows left this table on 2026-09-20, because what they blamed was not what was moving.**
+`shots-26/ms-04` and `ms-05` were declared at 79 and 116 pixels against a `startedAt` that
+`mock.js` was said to stamp from the real clock at §26.12. Then `ms-03` — photographed six
+steps before that run exists — moved in the same 10x15 box at x[1162..1171], `25s` against
+`26s`, and nothing in `mock.js`'s `memoryStrategy` reads the wall clock at all. The element was
+the **wait band above the composer**: `pinClock` reaches the surface through the product's own
+`visibilitychange` handler, and that handler recomputed the timeline's timers and not the
+band's, which runs its own one-second `renderWaitBand` off `Date.now()`. `main.js` now
+recomputes the band there too and starts or stops its timer — which is what
+`startOrStopWaitTimer`'s own comment claimed and what §6.2 requires of both clocks. Five
+consecutive same-source runs after that, three of them with five suites running concurrently,
+left all nine §26 shots byte-identical, so there is nothing left to declare and nothing is
+declared.
 
 **The live field cannot be frozen into a byte-equal shot, and that is measured rather than
 assumed.** `home/field-engine.js:1031` integrates 7,500 objects on springs and flies packets
