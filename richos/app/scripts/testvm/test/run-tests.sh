@@ -347,10 +347,148 @@ t "join: a daemon that never reaches Running is a refusal, never a silent pass"
   has "$out" "never reached Running"
 t_done
 
+# ===========================================================================
+# tailnet.sh join — the daemon start-up race (Ray .7 and .8 defect 3, Echo .9)
+# ===========================================================================
+# The guest Ray and Echo met: booted, ssh answering, `tailscaled` not up yet.
+# `STUB_DAEMON_READY_AFTER=3` is that guest — every tailscale call fails with
+# the socket error until the third status read, exactly as `up` did for them.
+t "daemon: a join issued before tailscaled is up WAITS for it instead of failing"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  : > "$TMP/log.late"
+  out="$(env STUB_LOG="$TMP/log.late" STUB_CERT_PEM="$TMP/cert.bundle" \
+             STUB_DAEMON_READY_AFTER=3 TESTVM_DAEMON_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"; ok $? "a late daemon must not lose the join"
+  has "$out" "tailnet=richos-test-a.tail770f6e.ts.net"
+  has "$out" "answered after 3 read(s)"
+t_done
+
+t "daemon: and the join is not issued until it has answered — the ordering, not the patience"
+  # THE POINT OF THE WAIT. A version that waited and then joined anyway in the
+  # wrong order would pass the test above. This reads the guest's command log and
+  # requires every status read that found nothing to come BEFORE the join.
+  log="$(cat "$TMP/log.late")"
+  first_up="$(printf '%s\n' "$log" | grep -n "tailscale up" | head -1 | cut -d: -f1)"
+  reads_before="$(printf '%s\n' "$log" | head -n "$((first_up - 1))" | grep -c "tailscale status")"
+  eq "$reads_before" "3" "up must come after the three status reads, not before them"
+t_done
+
+t "daemon: the key is never staged in a guest whose daemon never came up"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads" "$TMP/staged.never"
+  : > "$TMP/log.never"
+  out="$(env STUB_LOG="$TMP/log.never" STUB_MODE=daemon-never STUB_KEEP_STAGED="$TMP/staged.never" \
+             TESTVM_DAEMON_POLLS=2 TESTVM_DAEMON_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"; no $? "a dead daemon must be a refusal"
+  has  "$out" "NOT JOINED"
+  has  "$out" "tailscaled never answered"
+  has  "$out" "/var/run/tailscaled.socket"
+  hasnt "$(cat "$TMP/log.never")" "--auth-key"
+  [ -e "$TMP/staged.never" ]; no $? "a credential must not be handed to a guest that cannot use it"
+t_done
+
+t "daemon: the refusal names a cause a summary can print, never a bare not-joined"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  out="$(env STUB_LOG=/dev/null STUB_MODE=daemon-never \
+             TESTVM_DAEMON_POLLS=2 TESTVM_DAEMON_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  cause="$(printf '%s\n' "$out" | tailnet_cause_from_join_output)"
+  has "$cause" "tailscaled never answered"
+  eq  "$(printf '%s\n' "$cause" | wc -l | tr -d ' ')" "1" "a cause is one line, so a summary can carry it"
+t_done
+
 t "join: no certificate means a loud warning — the app would refuse to pair"
   write_key 600 "$FAKE_KEY"
   out="$(env STUB_LOG=/dev/null STUB_MODE=no-cert "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
   has "$out" "would not hand over a certificate"
+t_done
+
+# ===========================================================================
+# keychain.sh — the fixture's login keychain (Ray .7 defect 4, .8 defect 5)
+# ===========================================================================
+GUEST_HOME_UNDER_TEST="/Users/$TESTVM_GUEST_USER/testvm/richos-test-a/home"
+
+t "keychain: a path outside the guest's home is REFUSED, never sanitized"
+  # THE ONE THING THIS FILE MUST NEVER DO. `.7` defect 4 was the fixture's
+  # Library/Keychains symlinked at the CEO's real keychain directory. A check
+  # that tried to normalize a host path into a guest one would be a check that
+  # sometimes guesses; this one refuses and says which prefix it wanted.
+  : > "$TMP/log.kcbad"
+  for bad in "$HOME/Library/Keychains" "/Users/alex/testvm/x/home" "../../../etc" ""; do
+    out="$(env STUB_LOG="$TMP/log.kcbad" "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$bad" 2>&1)"
+    no $? "must refuse: $bad"
+  done
+  eq "$(wc -l < "$TMP/log.kcbad" | tr -d ' ')" "0" "a refused path must not reach the guest at all"
+t_done
+
+t "keychain: prepare issues the search list, the default, the no-timeout setting and BOTH unlocks"
+  : > "$TMP/log.kc"
+  env STUB_LOG="$TMP/log.kc" "$TESTVM_DIR/keychain.sh" prepare richos-test-a "$GUEST_HOME_UNDER_TEST" >/dev/null 2>&1
+  log="$(cat "$TMP/log.kc")"
+  has "$log" "security create-keychain"
+  has "$log" "security list-keychains -d user -s"          # or `security` finds nothing
+  has "$log" "security default-keychain -d user -s"        # or the app's default is nothing
+  has "$log" "security set-keychain-settings"              # the 300s default would re-lock mid-walk
+  hasnt "$log" "set-keychain-settings -t"                  # a timeout is the thing being removed
+  has "$log" "launchctl asuser"                            # THE unlock that is load-bearing
+  eq "$(printf '%s\n' "$log" | grep -c "unlock-keychain")" "2" "both sessions, ssh and the app's"
+t_done
+
+t "keychain: every path it touches is under the guest's payload home"
+  log="$(cat "$TMP/log.kc")"
+  eq "$(printf '%s\n' "$log" | grep -c "/Users/alex/")" "0" "no host path may appear in any guest command"
+  has "$log" "$GUEST_HOME_UNDER_TEST/Library/Keychains/login.keychain-db"
+t_done
+
+t "keychain: every security call is bounded, because an unbounded one HANGS"
+  # MEASURED 2026-09-20: against a home with no keychain, `security` raises
+  # SecurityAgent's Keychain Not Found dialog inside the guest and waits for a
+  # click nothing can give it. The first version of check hung for over ten
+  # minutes on that case. macOS ships no timeout(1); perl's alarm is the bound.
+  log="$(cat "$TMP/log.kc")"
+  security_calls="$(printf '%s\n' "$log" | grep -c "security ")"
+  bounded_calls="$(printf '%s\n' "$log" | grep "security " | grep -c "alarm shift")"
+  eq "$bounded_calls" "$security_calls" "every security call must carry the alarm"
+  [ "$security_calls" -ge 6 ]; ok $? "and there must be some to bound ($security_calls found)"
+t_done
+
+t "keychain: a missing keychain is answered WITHOUT calling security at all"
+  # The anti-hang guarantee, as a fact rather than a bound: the case that hangs
+  # never reaches the command that hangs.
+  : > "$TMP/log.kcabsent"
+  out="$(env STUB_LOG="$TMP/log.kcabsent" STUB_KEYCHAIN=absent \
+             "$TESTVM_DIR/keychain.sh" check richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"; no $?
+  has "$out" "no keychain at that path"
+  has "$out" "Keychain Not Found"
+  eq "$(grep -c "generic-password" "$TMP/log.kcabsent" | tr -d ' ')" "0" \
+     "the probe that hangs must not be issued"
+t_done
+
+t "keychain: check answers for the APP's session, not the ssh one"
+  # The measurement that decided the design, reproduced here as a contract: the
+  # answer that matters is the one from the session `open -n -a` launches into.
+  # In a real guest (2026-09-20, zach-kc3) an ssh-only unlock gave
+  # gui-session=UNUSABLE while the file existed and was the default — exactly
+  # what Ray saw as "it then prompted for its password twice more".
+  : > "$TMP/log.kccheck"
+  out="$(env STUB_LOG="$TMP/log.kccheck" "$TESTVM_DIR/keychain.sh" check richos-test-a "$GUEST_HOME_UNDER_TEST" 2>&1)"; ok $?
+  has "$out" "gui-session=usable"
+  has "$(printf '%s\n' "$(grep "generic-password" "$TMP/log.kccheck" | head -1)")" "launchctl asuser"
+t_done
+
+t "keychain: run.sh prepares it after the fixture home lands and before the app launches"
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" "keychain.sh"
+  # The ordering, read off the file: the home is copied, the keychain is made,
+  # THEN the app is launched with the same HOME. Any other order prepares a
+  # keychain the app will never look at.
+  home_in="$(printf '%s\n' "$src" | grep -n "copying the fixture home in" | head -1 | cut -d: -f1)"
+  kc_at="$(printf '%s\n' "$src" | grep -n 'keychain.sh" prepare' | head -1 | cut -d: -f1)"
+  launch="$(printf '%s\n' "$src" | grep -n "launching the app in the guest" | head -1 | cut -d: -f1)"
+  [ "$home_in" -lt "$kc_at" ] && [ "$kc_at" -lt "$launch" ]
+  ok $? "order must be: fixture home ($home_in) -> keychain ($kc_at) -> launch ($launch)"
 t_done
 
 # ===========================================================================
@@ -413,6 +551,65 @@ t_done
 t "summary: run.sh still accepts --no-tailnet and still requires its real arguments"
   out="$("$TESTVM_DIR/run.sh" --no-tailnet 2>&1)"; no $?
   has "$out" "--bundle is required"
+t_done
+
+# EVERY refusal shape, through the real refusals rather than over made-up
+# strings: whatever `tailnet.sh` prints, run.sh's summary must be able to say
+# WHY in one line. Ray's defect 3 was not that the cause did not exist — it was
+# that the line the caller reads said `not-joined` and nothing else.
+t "summary: every shape of a failed join yields a one-line cause, never a shrug"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  out="$(env STUB_LOG=/dev/null STUB_MODE=invalid-key "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "expired, revoked, or single-use"
+
+  out="$(env STUB_LOG=/dev/null STUB_MODE=certs-off "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "will not issue the node a certificate"
+
+  out="$(env STUB_LOG=/dev/null STUB_MODE=never-running TESTVM_JOIN_POLLS=2 TESTVM_JOIN_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "never reached Running"
+
+  rm -f "$TESTVM_AUTHKEY"
+  out="$("$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "$TESTVM_AUTHKEY"
+
+  # And the negative control: nothing at all still produces a sentence rather
+  # than an empty line that would print as `cause:` with nothing after it.
+  eq "$(printf '' | tailnet_cause_from_join_output)" "the join produced no output at all"
+t_done
+
+t "summary: a SUCCESSFUL join is not mistaken for a cause"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  out="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>/dev/null)"; ok $?
+  eq "$(printf '%s\n' "$out" | tailnet_name_from_join_output)" "richos-test-a.tail770f6e.ts.net"
+t_done
+
+t "summary: run.sh carries the refusal block and the escape hatch, in that order"
+  # Read off the script rather than run, because reaching this branch needs a
+  # 7 GB guest. What is asserted is what a reader of a failed run would see:
+  # the word REFUSED, the cause line, and the flag that makes it cost nothing.
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" "REFUSED: \$VM IS NOT ON THE TAILNET"
+  has "$src" "cause:  \$WHY"
+  has "$src" "tailnet_cause_from_join_output"
+  has "$src" "--no-tailnet"
+  hasnt "$src" 'JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && true'
+t_done
+
+t "summary: the join's exit status survives set -e, so the refusal block is reachable at all"
+  # FOUND WHILE WRITING THE REFUSAL ABOVE, and it would have been invisible: under
+  # `set -e` a plain `VAR=$(failing-cmd)` KILLS THE SCRIPT at that line, before any
+  # `$?` can be read. run.sh would have exited silently on exactly the failure it
+  # was being taught to shout about. The compound form is the fix, and the two
+  # probes below are the measurement rather than the belief.
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has   "$src" 'JOIN_RC=0 || JOIN_RC=$?'
+  hasnt "$src" 'join "$VM" 2>&1)"; JOIN_RC=$?'
+  eq "$(bash -c 'set -euo pipefail; X="$(exit 7)" && RC=0 || RC=$?; echo "rc=$RC"' 2>/dev/null)" "rc=7"
+  bash -c 'set -euo pipefail; X="$(exit 7)"; RC=$?; echo "rc=$RC"' >/dev/null 2>&1
+  no $? "the plain form must die under set -e — that is the whole reason for the compound one"
 t_done
 
 # ===========================================================================

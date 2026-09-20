@@ -119,6 +119,27 @@ TESTVM_MIN_VALIDITY="${TESTVM_MIN_VALIDITY:-720h}"
 # takes ten.
 TESTVM_TAILNET_TIMEOUT="${TESTVM_TAILNET_TIMEOUT:-90s}"
 
+# How long to wait for the guest's `tailscaled` to ANSWER AT ALL, before asking
+# it to do anything.
+#
+# THIS IS THE FIX FOR A DEFECT RAY RAISED TWICE AND ECHO REPRODUCED. `run.sh`
+# joins the tailnet as soon as ssh answers, which is roughly nine to eleven
+# seconds after the guest reports an IP — and the Homebrew launch daemon is not
+# up yet. MEASURED, in Ray's own words on nightly .8: *"run.sh attempted the join
+# 9 s after the guest reported an IP and got 'failed to connect to local
+# tailscaled … /var/run/tailscaled.socket: no such file or directory'"*. Echo saw
+# the same sentence on `.9`. Both times a later `tailnet.sh join` worked — in 4 s
+# for Ray, 37 s for Echo, which is the spread that tells you a fixed sleep is the
+# wrong instrument: whatever number is picked is too long for one machine and too
+# short for the other.
+#
+# So the join waits for a FACT — the CLI getting an answer out of the daemon —
+# and these two knobs only bound how long it is prepared to wait for it. 60 × 1 s
+# covers Echo's 37 s with room, and is overridable ONLY so the tests can drive
+# the never-answers path without spending a minute to prove a refusal.
+TESTVM_DAEMON_POLLS="${TESTVM_DAEMON_POLLS:-60}"
+TESTVM_DAEMON_POLL_SECONDS="${TESTVM_DAEMON_POLL_SECONDS:-1}"
+
 # ssh options: no host-key prompt or pollution — a guest is disposable and its
 # key changes every clone, so StrictHostKeyChecking=no plus a THROWAWAY known
 # hosts file keeps the CEO's ~/.ssh/known_hosts untouched.
@@ -361,6 +382,35 @@ cert_cache_store() {
 # and the name is wanted in both cases.
 tailnet_name_from_join_output() {
   sed -n 's/.*tailnet=\([^ ]*\).*/\1/p' | tail -1
+}
+
+# WHY the join did not produce a usable tailnet, in one line, out of the same
+# output — the other half of the same contract, and the reason run.sh no longer
+# prints a bare `tailnet=not-joined`.
+#
+# Ray, nightly .8, defect 3: *"A tester who misses that line walks the whole path
+# against a Mac that cannot serve."* The line was there; the CAUSE was thirty
+# lines further up, in a refusal block on stderr, and the summary the caller
+# actually reads said only `not-joined`. A summary that names no cause is a
+# summary that gets skimmed.
+#
+# Three shapes, in the order they are looked for:
+#   1. `[testvm] tailnet: NOT JOINED — <why>`   every `refuse_tailnet`
+#   2. `tailnet=<name> certificates=off`        joined, but will not be certified
+#   3. anything else: the last non-empty line, so an unclassified failure still
+#      arrives with its own words rather than with a shrug.
+tailnet_cause_from_join_output() {
+  local out; out="$(cat)"
+  local why
+  why="$(printf '%s\n' "$out" | sed -n 's/.*NOT JOINED[[:space:]]*[—-][[:space:]]*\(.*\)/\1/p' | tail -1)"
+  if [ -n "$why" ]; then printf '%s\n' "$why"; return 0; fi
+  case "$out" in
+    *certificates=off*)
+      printf '%s\n' "this tailnet will not issue the node a certificate (HTTPS Certificates is off in the admin console)"
+      return 0 ;;
+  esac
+  why="$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1 | sed 's/^[[:space:]]*//')"
+  printf '%s\n' "${why:-the join produced no output at all}"
 }
 
 # The Tailscale command line on the HOST, in the same order the app looks

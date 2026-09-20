@@ -2497,6 +2497,60 @@ mod tests {
         }
     }
 
+    /// **A hold on the work's FIRST OBSERVABLE STEP, so "registration does not wait for the
+    /// work" can be stated as a fact instead of as a duration.**
+    ///
+    /// Opening a back-end lease (`ensure_lease` → `spawn_work`) is the first thing that
+    /// happens to an assignment after it is queued, and it happens on the runner's thread.
+    /// Hold it shut and there are only two possible outcomes: `register` returns while the
+    /// work provably has not begun — the property under test — or `register` was preparing
+    /// the work on the CALLER's thread, in which case it is now waiting on this gate and
+    /// cannot return. No clock distinguishes those; the gate does.
+    ///
+    /// **Open by default**, so every other test in this file is untouched and never waits.
+    ///
+    /// The one duration in here is not part of the passing path. `forced` exists so a build
+    /// with the defect FAILS with a sentence rather than hanging a suite forever: after a
+    /// deliberately generous wait the gate lets go by itself and remembers that it had to.
+    /// The green path opens it explicitly, in microseconds, and never reaches that branch.
+    #[derive(Default)]
+    struct StartGate {
+        open: Mutex<bool>,
+        changed: Condvar,
+        forced: AtomicBool,
+    }
+
+    impl StartGate {
+        fn open_now() -> Arc<Self> {
+            Arc::new(StartGate { open: Mutex::new(true), changed: Condvar::new(), forced: AtomicBool::new(false) })
+        }
+        fn shut(&self) {
+            *self.open.lock().unwrap() = false;
+        }
+        fn release(&self) {
+            *self.open.lock().unwrap() = true;
+            self.changed.notify_all();
+        }
+        /// Called on whatever thread is about to take the work's first step.
+        fn wait_until_open(&self) {
+            let mut open = self.open.lock().unwrap();
+            let deadline = std::time::Duration::from_secs(30);
+            while !*open {
+                let (guard, timed_out) = self.changed.wait_timeout(open, deadline).unwrap();
+                open = guard;
+                if timed_out.timed_out() && !*open {
+                    self.forced.store(true, Ordering::SeqCst);
+                    *open = true;
+                }
+            }
+        }
+        /// True only if the gate had to let go of itself — which, in the test below, means
+        /// the caller's thread was the one waiting at it.
+        fn had_to_force(&self) -> bool {
+            self.forced.load(Ordering::SeqCst)
+        }
+    }
+
     struct WorkFactory {
         bound: Arc<Mutex<Vec<WorkAssignment>>>,
         revoked: Arc<AtomicUsize>,
@@ -2518,6 +2572,8 @@ mod tests {
         /// standing, for every assignment — so this is an observable rather than a counter
         /// nobody reads.
         spawns: Arc<AtomicUsize>,
+        /// Open everywhere but in the one test that shuts it. See `StartGate`.
+        start_gate: Arc<StartGate>,
     }
 
     impl LeaseFactory for WorkFactory {
@@ -2525,6 +2581,9 @@ mod tests {
             Err(CognitionError::Protocol("a conversation lease is not what this factory is for".into()))
         }
         fn spawn_work(&self, _binding: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+            // BEFORE the counter and before the refusal, because this is the point the one
+            // test that shuts the gate needs to be able to say has not been reached.
+            self.start_gate.wait_until_open();
             if self.refuse_next.swap(false, Ordering::SeqCst) {
                 return Err(CognitionError::Protocol("no second connection could be opened".into()));
             }
@@ -2579,6 +2638,7 @@ mod tests {
         readiness: Arc<Mutex<Option<String>>>,
         turn_error: Arc<Mutex<Option<String>>>,
         work_prompts: Arc<Mutex<Vec<String>>>,
+        start_gate: Arc<StartGate>,
     }
 
     fn harness(step_ms: u64) -> Harness {
@@ -2602,7 +2662,9 @@ mod tests {
         let readiness = Arc::new(Mutex::new(None));
         let turn_error = Arc::new(Mutex::new(None));
         let work_prompts = Arc::new(Mutex::new(Vec::new()));
+        let start_gate = StartGate::open_now();
         let factory = WorkFactory {
+            start_gate: start_gate.clone(),
             bound: bound.clone(),
             revoked: revoked.clone(),
             fence: fence.clone(),
@@ -2623,7 +2685,7 @@ mod tests {
         let host = WorkHost::new(&state, Box::new(factory), notices.clone(), Arc::clone(&desk));
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
-            work_prompts }
+            work_prompts, start_gate }
     }
 
     fn registration(harness: &Harness) -> Registration {
@@ -2663,21 +2725,67 @@ mod tests {
         assert!(host.live_on("thread-one").is_some(), "the assignment never reached its back end");
     }
 
-    /// Spec §0 row 2 and §7.1. Registration returns while the work is still to come, and
-    /// the number is the assertion: the work turn here takes 400 ms, and `register` must
-    /// return in a small fraction of it. A build that started preparing on the caller's
-    /// thread fails this by an order of magnitude.
+    /// **Spec §0 row 2 and §7.1. Registration returns while the work is still to come.**
+    ///
+    /// **THE ASSERTION IS AN ORDERING, NOT A DURATION — changed 2026-09-20, and here is
+    /// what forced it.** This test used to read `assert!(took < 100ms)`. A wall clock does
+    /// not measure the property; it measures the machine, and on a loaded one the two
+    /// diverge. zach-opus-cache1 measured **100.107 ms** — over by a tenth of one percent —
+    /// and on pristine `049d8790` the whole `richos-core` lib suite under 56 CPU hogs gave
+    /// *"registration took 129.283042ms"* on run 5 of 12. The same binary, run alone under
+    /// 48 hogs at load 133, took **8.3–10.8 ms** across twenty runs: the bound was never
+    /// measuring registration, it was measuring how busy the Mac was.
+    ///
+    /// A test that needs a timeout to pass is wrong, and a wider bound would only move the
+    /// day it fires. So the thing the number stood for is asserted directly: **the work's
+    /// first observable step is held shut, and `register` returns anyway.**
+    ///
+    ///   * With the gate closed, `spawn_work` — the runner opening this conversation's
+    ///     back-end lease, the first thing that happens to a queued assignment — cannot
+    ///     proceed. `spawns == 0` is then a fact the gate guarantees, not a race won.
+    ///   * A build that prepared the work on the CALLER's thread would be inside that gate
+    ///     when `register` was supposed to return, so it could not return at all. That is
+    ///     the defect, caught structurally, at any speed, on any machine.
+    ///   * `had_to_force` turns the hang such a build would otherwise cause into a named
+    ///     failure. On the passing path the gate is released explicitly and it is never set.
+    ///
+    /// The second half is unchanged and is the positive control: released, the work really
+    /// does run, really does reach the lease, and really does take the 400 ms that
+    /// registration did not wait for. That is a LOWER bound, which load can only help.
     #[test]
     fn registering_returns_before_the_work_starts_and_the_work_still_runs() {
         let h = harness(400);
         let _runner = h.host.start();
+
+        h.start_gate.shut();
         let started = std::time::Instant::now();
         let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
-        let took = started.elapsed();
-        assert!(took < std::time::Duration::from_millis(100), "registration took {took:?}");
-        // Positive control: the thing it did NOT wait for really does take longer.
+
+        // THE ASSERTION. `register` has returned while the work is provably still to come.
+        //
+        // `had_to_force` is read FIRST, and the order is the diagnosis. A build that
+        // prepared the work on the caller's thread gets out of the gate only when the gate
+        // lets go of itself — and by then `spawns` is 1, so the count would fire too, with
+        // the wrong sentence. Verified 2026-09-20 by injecting exactly that defect into
+        // `register_kind`: with the count first it read "the gate is in the wrong place",
+        // which is false; with this order it names what actually happened.
+        assert!(
+            !h.start_gate.had_to_force(),
+            "registration was waiting at the work's own first step, so it prepared the work on the \
+             caller's thread instead of queueing it"
+        );
+        assert_eq!(
+            h.spawns.load(Ordering::SeqCst),
+            0,
+            "the work's first step ran even though it was held shut — the gate is in the wrong place"
+        );
+
+        // Positive control: released, the thing it did NOT wait for really does happen, and
+        // really does take longer than the registration did.
+        h.start_gate.release();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         assert!(started.elapsed() >= std::time::Duration::from_millis(400));
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "the back-end lease was never opened");
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
         assert_ne!(row.state, AssignmentState::Registered, "the runner never picked it up");
         assert_eq!(h.bound.lock().unwrap().len(), 1, "the assignment never reached the work lease");
@@ -4494,6 +4602,8 @@ mod tests {
         let host = WorkHost::new(
             &h.state,
             Box::new(WorkFactory {
+                // The same gate as the harness's, which is open and stays open here.
+                start_gate: h.start_gate.clone(),
                 bound: h.bound.clone(),
                 revoked: h.revoked.clone(),
                 fence: h.fence.clone(),
