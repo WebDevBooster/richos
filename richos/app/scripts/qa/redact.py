@@ -26,7 +26,7 @@ Both are fixed the same way, and it is the rule here: a word is covered when
 IT, or IT JOINED TO ITS NEIGHBOR ON THE SAME OCR LINE, matches a real
 address pattern. Line identity comes from tesseract's own block/paragraph/
 line numbers, so 'Talk to Rich' cannot be joined into an address and
-'alex @ example.com' cannot escape as three tokens.
+'jane @ example.com' cannot escape as three tokens.
 
 ===========================================================================
 A REDACTOR THAT DOES NOT RE-READ ITS OUTPUT IS A CLAIM, NOT A REDACTION
