@@ -96,7 +96,7 @@ elif [ ! -f "$CONTROL" ]; then
     echo "             control with --no-control '<why>' and accept a weaker result." >&2
     exit 2
 else
-    CTL="$("$TESS" "$CONTROL" stdout 2>/dev/null || true)"
+    CTL="$(RICHOS_QA_TESSERACT="$TESS" python3 "$HERE/ocr-read.py" --fresh "$CONTROL")" || exit 2
     if ! printf '%s' "$CTL" | grep -qiE 'qa-fixture@example\.invalid'; then
         echo "ocr-gate.sh: POSITIVE CONTROL FAILED." >&2
         echo "             The reader did not find the known address in the control" >&2
@@ -160,10 +160,15 @@ if [ "${#FRAMES[@]}" -eq 0 ]; then
     exit 2
 fi
 
-# --- the gate ----------------------------------------------------------------
+# Read each image once. Every invocation still evaluates the current privacy rules.
+OCR_TEXTS="$(mktemp -d "${TMPDIR:-/tmp}/ocr-gate.XXXXXX")" || exit 2
+trap 'rm -rf "$OCR_TEXTS"' EXIT
+RICHOS_QA_TESSERACT="$TESS" python3 "$HERE/ocr-read.py" --export "$OCR_TEXTS" "${FRAMES[@]}" || exit 2
 HITS=0
+FRAME_INDEX=0
 for f in "${FRAMES[@]}"; do
-    TXT="$("$TESS" "$f" stdout 2>/dev/null || true)"
+    TXT="$(cat "$OCR_TEXTS/$FRAME_INDEX.txt")"
+    FRAME_INDEX=$((FRAME_INDEX + 1))
     FOUND=""
 
     SHAPE_HIT="$(printf '%s' "$TXT" | grep -oiE "$SHAPES" | sort -u | head -5 || true)"
