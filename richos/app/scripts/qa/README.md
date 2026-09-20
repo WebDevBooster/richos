@@ -36,6 +36,7 @@ and never prints a number it did not measure.
 | `timeline.py` | `capture` an action and its frames **on one clock**; `report` the first repaint against the frame before the action; `stats` for min/median/max over samples. |
 | `wait-for.sh` | Wait for a git ref to move, a log line, a file, a wall-clock instant, or a new process. **Exit 1 on timeout** — a wait that gives up is a failure. |
 | `fixtures/make-fixtures.py` | Regenerate the committed fixtures, or `--check` that they still match. |
+| **guest screen and shell:** `../testvm/ax.sh`, `../testvm/guest.sh` | Not in this directory, and looked for here first every time. `ax.sh <vm> tree\|find\|click` is the guest's accessibility tree with real geometry and a press by title or description; `guest.sh <vm> <command>` is one word into the guest, with `--pull`/`--push`. They live beside the VM they need (`scripts/testvm/`, documented in `docs/testvm.md`); twenty-five throwaways were written before they existed. |
 
 `lib/qaimg.py` and `lib/qaocr.py` are the shared halves: one PNG reader (Pillow
 when it imports, a built-in decoder when it does not — the candidate .11 walk

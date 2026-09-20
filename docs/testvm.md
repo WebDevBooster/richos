@@ -24,6 +24,11 @@ cd <repo>/richos/app/scripts/testvm
 
 ./run.sh     --bundle <RichOS.app.zip> --home <fixture-home-dir> [--vm <name>] [--no-tailnet]
 ./shot.sh    <vm> <out.png> [--ocr]
+./guest.sh   <vm> '<shell command>' | <cmd> <arg>... | --pull <guest> <host> | --push <host> <guest>
+./ax.sh      <vm> tree  [--app <name>] [--depth N] [--window N] [--max N] [--json]
+./ax.sh      <vm> find  --title <text> [--role R] [--value V] [--contains] [--json]
+./ax.sh      <vm> click --title <text> [--role R] [--nth N] [--contains]
+./ax.sh      <vm> click --at <x>,<y>
 ./ax.sh      <vm> '<applescript>' | --focused | --windows | --key <code>
 ./stop.sh    <vm>
 ./tailnet.sh join|name|logout|nodes|doctor [<vm>]
@@ -70,6 +75,86 @@ Two at once is just two names:
 garbage is always cleaned up. `stop.sh` quits the app, verifies `pgrep` is empty, stops
 the VM, deletes the clone, and removes the run state. If any of that fails it prints a
 massive alert naming exactly what to delete by hand.
+
+---
+
+## Reading the guest's screen, and driving it
+
+**Added 2026-09-20, because every walk was writing these two by hand.** The CEO's
+question that day: *"How many times does Ray build the same scripts or checks from
+scratch (for the same type of job)? And how much time does that waste in every one of his
+runs?"* For the guest, the answer was about fourteen accessibility scripts and eleven ssh
+wrappers across three walks.
+
+### `guest.sh` — one word into the guest
+
+```sh
+./guest.sh <vm> 'ls -la /Users/admin/testvm | wc -l'   # one string: the guest's shell runs it
+./guest.sh <vm> ls -la '/a b'                          # several: each quoted, none re-split
+./guest.sh <vm> --pull /Users/admin/testvm/<vm>/app.log ./app.log
+./guest.sh <vm> --push ./fixture.json /Users/admin/fixture.json
+printf '%s' "$SECRET" | ./guest.sh <vm> 'cat > /tmp/x' # stdin is the only place a secret goes
+```
+
+The exit code is the **guest command's**. `lib.sh` has had `guest_ssh` since the harness
+was written, but it is a shell function in a file that is sourced and never run, so
+nothing on a command line could call it — which is why eleven wrappers existed, each with
+its own copy of the same four ssh options.
+
+**One argument is a shell command; several are arguments.** `ssh` joins its arguments
+with spaces and lets the guest re-split them, so `ssh host ls '/a b'` runs `ls` with two
+arguments and the error blames the guest. One argument is passed through untouched
+(pipes and redirections are the guest's, which is what `'cat > /tmp/x'` needs); several
+are quoted for the guest's shell. `--` forces the literal reading for a single argument.
+
+### `ax.sh tree` / `find` / `click` — the screen as text
+
+```sh
+./ax.sh <vm> tree                       # the app under test, every window, indented
+./ax.sh <vm> tree --app Safari          # the phone half of a walk is Safari in the guest
+./ax.sh <vm> find --title 'Set my phone up'
+./ax.sh <vm> click --title Settings     # AXPress, by title OR description
+./ax.sh <vm> click --at 974,43          # the fallback, and it refuses unless frontmost
+```
+
+A line of `tree` carries role, subrole, title, description, value, enabled, and the box
+as **four separate numbers**:
+
+```
+AXWindow/AXStandardWindow title='RichOS' ... pos=0 25 size=1024 700
+  AXGroup title='' ... pos=0 25 size=1024 700
+    AXButton title='Settings' desc='' value='' enabled=yes pos=974 43 size=32 32
+```
+
+**The four numbers are the whole reason this is JavaScript.** AppleScript renders a list
+as a string by *concatenating* it — measured on this Mac, 2026-09-20:
+
+```
+$ osascript -e 'set sz to {1024, 700}' -e 'return (sz as string)'
+1024700
+```
+
+A 1024x700 window and a 102x4700 one are the same six characters, and the app derives a
+**1024x700** window in this guest, so those are not hypothetical neighbors. `ax.js` runs
+under `osascript -l JavaScript`, where `position()` and `size()` return real arrays and
+`JSON.stringify` exists, so the numbers are never adjacent in the first place. The
+renderer **refuses** a fused token anyway and exits 4: that failure is silent otherwise,
+because `1024700` looks like a measurement and would be quoted in an audit.
+
+**Match on the title OR the description, and `click` presses the element.** An
+`aria-label` on a web view's control surfaces as `AXDescription`, not `AXTitle` — the
+walk that learned this wrote `axpress.js` (title), `axpress2.js` (title plus role, still
+`NOTFOUND` on buttons plainly on the screen) and `axpress3.js` (description) before it
+worked. `--contains` switches from an exact match to a substring; `--nth N` picks among
+several; `--role`, `--subrole` and `--value` narrow further. A press goes to the
+*element*, so it survives a moved window, a window that is not frontmost, and anything
+drawn over it. `--at x,y` exists for controls that expose no `AXPress`, and it carries
+the same frontmost refusal `--key` has had since a synthetic key landed in the CEO's
+Terminal on 2026-09-19.
+
+Everything takes `--json` and prints the guest's own one-object-per-line stream, which is
+what to pipe into `python3 -c` when a walk needs to compute rather than read. A walk that
+hits the node cap says so rather than handing back a tree that merely looks complete.
 
 ---
 
@@ -338,7 +423,7 @@ the tailnet still lists, because that is the one piece of garbage nothing here c
 | Refusal with no key: one action named, the guest untouched, the VM still usable | **Verified** on a live guest, 2026-09-19. A full `run.sh` with the join refusing reached a window in **43 s** (`windows=1`, capture 64.2% non-black), and printed `tailnet=not-joined` |
 | Two clones at once, each refusing on its own, neither disturbing the other | **Verified** 2026-09-19 — `richos-test-a` ready in **72 s**, `richos-test-b` in **66 s**, both with a window, both stopped clean |
 | `tailnet.sh doctor` against a live guest | **Verified** — reports `NeedsLogin`, and names the CLI it found (`/opt/homebrew/bin/tailscale -> ../Cellar/tailscale/1.102.4/…`) |
-| Every flag, the key-by-file handling, the name read-back, the refusal classifications | **Verified** by `test/run-tests.sh` (41 tests) against a stub guest |
+| Every flag, the key-by-file handling, the name read-back, the refusal classifications | **Verified** by `test/run-tests.sh` (111 tests) against a stub guest |
 | The certificate cache's accept/refuse rules | **Verified** with openssl against generated certificates |
 | A real tailnet accepting a real key; two guests as two **nodes**; the pairing sheet in a VM | **NOT RUN** — needs the CEO's key, which no agent can produce. `tailnet.sh doctor <vm>` settles the first two in one command once the key is in place; the third is a QA walk |
 
@@ -351,13 +436,17 @@ the tailnet still lists, because that is the one piece of garbage nothing here c
 ./test/run-tests.sh 'cert'     # only the tests whose names match
 ```
 
-56 tests, against a **stub guest**: `tailnet.sh` and `keychain.sh` each reach their VM
+**111 tests** (79 before the 2026-09-20 screen-and-shell additions), against a **stub
+guest**: `tailnet.sh`, `keychain.sh`, `claude-sync.sh` and `ax.sh` each reach their VM
 through one indirection, so pointing that at a script exercises every decision without
-booting anything. They assert the things a screenshot cannot show — that the key never
-appears in a command line or in output, that a missing key refuses exactly one step
-without touching the guest, that the name is read back from the daemon, that the join
-waits for the daemon and does not merely sleep, that no path `keychain.sh` touches is
-ever outside the guest, that `stop.sh`'s sign-out actually signs out.
+booting anything. `guest.sh` is driven against a fake `ssh` and `scp` first on `PATH`,
+because what matters there is the call it BUILDS. They assert the things a screenshot
+cannot show — that the key never appears in a command line or in output, that a missing
+key refuses exactly one step without touching the guest, that the name is read back from
+the daemon, that the join waits for the daemon and does not merely sleep, that no path
+`keychain.sh` touches is ever outside the guest, that `stop.sh`'s sign-out actually signs
+out, that a fused geometry token is refused rather than printed, and that a path with a
+space in it survives the trip into the guest as one path.
 
 They found four real defects on their first run, including a certificate cache that
 could never hit (written under the daemon's FQDN, read under the short name) whose only
@@ -370,6 +459,13 @@ killed `run.sh` silently at exactly the failure it was being taught to shout abo
 2026-09-20 batch was run with the new `test/` against pristine `049d8790`'s scripts:
 42 passed, 7 failed, and the seven were the seven that were new. A new test that passes
 against unfixed code is testing nothing.
+
+**The screen-and-shell cases were proved the same way, by defeat.** With the fused-token
+refusal deleted from `ax.sh`'s renderer, *"a FUSED geometry token is refused"* fails; with
+`printf '%q'` removed from `guest.sh`, *"a path with a space stays one path"* fails
+(`expected [ls -la /a\ b] got [ls -la /a b]`). One of them caught itself first: the
+`node --check` case passed for the wrong reason until the captured program was given a
+`.js` name, because node refuses an unknown extension before it looks at any syntax.
 
 ---
 
