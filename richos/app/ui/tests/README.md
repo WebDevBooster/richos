@@ -259,17 +259,24 @@ measurement in the comment that fixed them:
   countdown keep the running clock they were written against.
 
 **And that three-second poll is now waited for by every committed shot of the conversation
-surface, not only §26's.** `main.js:3113` has **no leading call** — the interval is its only
-caller — so from the moment the app opens a conversation the chip zone is empty for up to three
-seconds and then a whole line of text arrives in it. Every shot in `techy.js` (10) and
+surface, not only §26's.** The poll used to have **no leading call** — the interval was its only
+caller — so from the moment the app opened a conversation the chip zone was empty for up to
+three seconds and then a whole line of text arrived in it. Every shot in `techy.js` (10) and
 `updates.js` (9) was being taken inside that window: all nineteen changed when the wait went
 in, and `3-1-03` had alternated between two pictures 6.01% apart under concurrent load. Both
 suites now shoot through a local `evidence()` that calls `awaitWorkerChipSettled` and throws
 rather than photographing a surface that is still moving — the same shape `memory-strategy.js`
-has used since 2026-09-19. It costs `techy.js` 67 s and `updates.js` 41 s per run; a leading
-`pollWorkerStatus()` when a thread becomes the open conversation would give most of that back
-and would close the product-side hole as well, and that is a change for whoever owns that poll
-rather than for this directory.
+has used since 2026-09-19.
+
+**The leading call landed on 2026-09-20 and the waits stay.** `openThread` now awaits
+`pollWorkerStatus()` before it returns, so the chip is on screen with the conversation and the
+product-side hole is closed. The `evidence()` waits are NOT removed: the interval still
+re-renders the chip for as long as the page is open, so a shutter can still land mid-re-render
+— what changed is the price. Measured on one host, serially, same tree, both runs on a host
+with no nightly build on it: `techy.js` 104 s → 65 s and `updates.js` 78 s → 50 s, and
+`work-summary.js` 18 s → 7 s WITH a check added to it, because its own waits on the chip's text
+were paying the same three seconds. Whoever deletes those `evidence()` waits on the strength of
+the leading call will get the alternating picture back.
 
 ### AND WHAT IS LEFT IS DECLARED, WITH ITS CAUSE, ITS MEASUREMENT AND ITS BOUND
 
