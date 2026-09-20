@@ -68,12 +68,20 @@ const USAGE =
   "usage: node run.js [--allow-skip=<suite.js> ...]        every suite, serially, gate in-process\n" +
   "       node run.js --shard=<i>/<N> --receipts=<dir>     one shard, writing a receipt per suite\n" +
   "       node run.js --coverage=<dir>                     reconcile every shard's receipts\n" +
-  "       node run.js --plan[=<N>]                         print the packing and exit";
+  "       node run.js --shards=<N>                         run N shards in parallel, then reconcile\n" +
+  "       node run.js --weigh=<dir>                        rewrite suite-weights.tsv from receipts\n" +
+  "       node run.js --plan[=<N>]                         print the packing and exit\n" +
+  "  with --coverage: [--quarantine=<suite.js> ...]        report these red, do not fail on them\n" +
+  "                   [--proof-out=<file>]                 write a coverage proof for a later gate";
 
 const ALLOWED_SKIPS = new Set();
+const QUARANTINED = new Set();
 let SHARD = null;
 let RECEIPTS = null;
 let COVERAGE = null;
+let WEIGH = null;
+let SHARDS = null;
+let PROOF_OUT = null;
 let PLAN = null;
 for (const arg of process.argv.slice(2)) {
   if (arg.startsWith("--allow-skip=")) {
@@ -101,6 +109,30 @@ for (const arg of process.argv.slice(2)) {
     COVERAGE = arg.slice("--coverage=".length);
     continue;
   }
+  if (arg.startsWith("--shards=")) {
+    SHARDS = Number(arg.slice("--shards=".length));
+    if (!Number.isInteger(SHARDS) || SHARDS < 1) {
+      console.error("--shards wants a positive shard count: " + arg + "\n" + USAGE);
+      process.exit(2);
+    }
+    continue;
+  }
+  if (arg.startsWith("--weigh=")) {
+    WEIGH = arg.slice("--weigh=".length);
+    continue;
+  }
+  // QUARANTINE IS A VISIBLE ARGUMENT AT THE CALL SITE, exactly as `--allow-skip` is and for
+  // the same reason: a list of "known red" suites kept inside this directory is a list that
+  // grows quietly and is never read again. Passed from the caller, it is printed in that
+  // caller's own output on every single run, next to whether it was NEEDED.
+  if (arg.startsWith("--quarantine=")) {
+    QUARANTINED.add(arg.slice("--quarantine=".length));
+    continue;
+  }
+  if (arg.startsWith("--proof-out=")) {
+    PROOF_OUT = arg.slice("--proof-out=".length);
+    continue;
+  }
   if (arg === "--plan" || arg.startsWith("--plan=")) {
     PLAN = arg === "--plan" ? 0 : Number(arg.slice("--plan=".length));
     if (!Number.isInteger(PLAN) || PLAN < 0) {
@@ -123,6 +155,25 @@ if (SHARD && COVERAGE) {
 // together rather than one being an optional extra somebody forgets in the YAML.
 if (SHARD && !RECEIPTS) {
   console.error("--shard needs --receipts=<dir>: an unreceipted shard cannot be reconciled.\n" + USAGE);
+  process.exit(2);
+}
+if (WEIGH && (SHARD || COVERAGE)) {
+  console.error("--weigh reads a finished run's receipts; it does not run or reconcile one.\n" + USAGE);
+  process.exit(2);
+}
+// A QUARANTINE A SHARD OBSERVED WOULD BE A GREEN SHARD OVER A RED SUITE, and the shard is
+// not the thing that gets to say the run passed. Only the coverage job — the one process
+// that has seen every receipt — may hold a failure back from the verdict, so only it takes
+// the flag. Anywhere else the flag is a mistake, and a mistaken flag is never ignored here.
+if (SHARDS && (SHARD || COVERAGE || WEIGH)) {
+  console.error("--shards runs the whole sharded job; it is not combined with one end of it.\n" + USAGE);
+  process.exit(2);
+}
+if ((QUARANTINED.size || PROOF_OUT) && !COVERAGE && !SHARDS) {
+  console.error(
+    "--quarantine and --proof-out are the coverage job's arguments: only the process that " +
+      "reconciles every receipt may excuse a suite or certify a set.\n" + USAGE
+  );
   process.exit(2);
 }
 
@@ -246,7 +297,14 @@ function loadWeights() {
     if (!t || t.startsWith("#")) continue;
     const [name, secs] = t.split("\t");
     const n = Number(secs);
-    if (name && Number.isFinite(n) && n > 0) w.set(name, n);
+    // `>= 0`, NOT `> 0`, AND THE DIFFERENCE COST TEN MINUTES A RUN. A suite that finishes in
+    // under a second is measured as `0`, and the `> 0` this replaced threw that row away —
+    // so `dialect.js` and `docs-claims.js`, the two CHEAPEST suites in the inventory, were
+    // read as having no weight at all and then packed as if each were the most expensive one
+    // known (305 s). A measurement is not made unusable by being small; only a row that says
+    // nothing (missing, blank, non-numeric) is, and `Number.isFinite` is what rejects those.
+    // A negative weight is still refused: it is not a duration.
+    if (name && Number.isFinite(n) && n >= 0) w.set(name, n);
   }
   return w;
 }
@@ -304,6 +362,79 @@ if (PLAN !== null) {
   process.exit(0);
 }
 
+// --shards=N: THE WHOLE SHARDED JOB AS ONE COMMAND. Spawn N shards, wait, reconcile.
+//
+// WHY IT LIVES HERE AND NOT IN THE CALLER. The fan-out was first written inside
+// `nightly-local.py`'s build gate, and its own tests refused it: every other gate in that
+// file goes through one `command()` helper that owns env, cwd, logging and failure, and a
+// second launcher written beside it is exactly the "two implementations of one job" this
+// directory keeps paying for. Sharding is THIS file's subject — it already owns the
+// packing, the receipts and the coverage gate — so the caller asks for the job, not for
+// its pieces, and a build gate is one ordinary subprocess again.
+//
+// THE SHARDS' EXIT CODES ARE NOT THE VERDICT. They are reported because a reader wants
+// them; the verdict is the coverage job's, which is the only thing that has seen every
+// receipt and the only thing that can tell a failed suite from an absent one.
+if (SHARDS !== null) {
+  const { spawn } = require("child_process");
+  const dir = RECEIPTS || fs.mkdtempSync(path.join(os.tmpdir(), "richos-ui-receipts-"));
+  const owned = !RECEIPTS; // only clean up what this process created
+  fs.mkdirSync(dir, { recursive: true });
+  // A LEFTOVER RECEIPT IS A GREEN TICK FOR A RUN THAT DID NOT HAPPEN. Coverage compares the
+  // commits of the receipts it finds, but only among those present, so the directory starts
+  // empty rather than being trusted to be overwritten file for file.
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith(".receipt.json")) fs.rmSync(path.join(dir, f));
+  }
+  console.log(`${SUITES.length} suite(s) over ${SHARDS} shard(s), receipts in ${dir}\n`);
+  const started = Date.now();
+  const children = [];
+  for (let i = 1; i <= SHARDS; i++) {
+    const t0 = Date.now();
+    const args = [__filename, `--shard=${i}/${SHARDS}`, `--receipts=${dir}`];
+    for (const s of ALLOWED_SKIPS) args.push(`--allow-skip=${s}`);
+    const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks = [];
+    child.stdout.on("data", (d) => chunks.push(d));
+    child.stderr.on("data", (d) => chunks.push(d));
+    children.push(
+      new Promise((resolve) =>
+        // OUTPUT IS HELD AND PRINTED WHOLE, per shard. Four concurrent writers on one
+        // stream interleave line by line, and a log nobody can read is the same as no log
+        // on the morning the gate refuses something.
+        child.on("close", (code) =>
+          resolve({ index: i, code, seconds: (Date.now() - t0) / 1000, out: Buffer.concat(chunks).toString() })
+        )
+      )
+    );
+  }
+  Promise.all(children).then((results) => {
+    for (const r of results.sort((a, b) => a.index - b.index)) {
+      console.log(`--- shard ${r.index}/${SHARDS} (exit ${r.code}, ${r.seconds.toFixed(0)}s) ---`);
+      console.log(r.out.trimEnd());
+    }
+    const wall = (Date.now() - started) / 1000;
+    const longest = Math.max(...results.map((r) => r.seconds));
+    console.log(
+      `\n${SHARDS} shard(s) finished in ${wall.toFixed(0)} s wall clock; per shard ` +
+        results.sort((a, b) => a.index - b.index).map((r) => `${r.index}:${r.seconds.toFixed(0)}s`).join(" ") +
+        `. The run costs its LONGEST shard (${longest.toFixed(0)} s), never its average — ` +
+        `an unbalanced pack is paid for here.\n`
+    );
+    // runCoverage exits the process; clean the directory this process made before it does.
+    if (owned) process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
+    runCoverage(dir);
+  });
+  return;
+}
+
+// --weigh: this process runs no suite either. It turns a finished run's receipts into the
+// packing weights, so the file that decides shard balance is measured rather than typed.
+if (WEIGH) {
+  runWeigh(WEIGH);
+  // runWeigh never returns.
+}
+
 // --coverage: this process runs no suite. It reconciles what the shards wrote down.
 if (COVERAGE) {
   runCoverage(COVERAGE);
@@ -329,6 +460,60 @@ if (MINE.length === 0) {
 const ledgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "richos-ui-evidence-"));
 const ledgerFile = path.join(ledgerDir, "evidence.jsonl");
 fs.writeFileSync(ledgerFile, "");
+
+// A RUN THAT IS KILLED LEAVES NOTHING BEHIND — SWEPT AT STARTUP, NOT CAUGHT AT EXIT.
+//
+// The normal path removes this directory once the records have been read, which covers a
+// pass and a failure and covered nothing on the two ways a run actually ends early: a
+// Ctrl-C, and a build gate terminating its shards. MEASURED 2026-09-20: `$TMPDIR` held
+// fourteen `richos-ui-evidence-*` directories, ten of them from 2026-09-19, every one the
+// residue of a run somebody stopped. Cleaning up is not conditional on finishing (CEO §54).
+//
+// A SIGNAL HANDLER IS THE OBVIOUS FIX AND IT IS THE WRONG ONE. It was written, measured and
+// removed within the hour: this file runs its suites with `spawnSync`, so the event loop is
+// blocked for the whole of a suite — up to 150 s — and a queued SIGTERM is not delivered
+// until that suite returns. Registering a handler therefore does not clean up promptly, it
+// makes the shard UNKILLABLE for the length of a suite. Measured: `kill -TERM` left the
+// process alive and running, and it took `kill -9`. A cleanup that hangs the thing it is
+// cleaning up after is worse than the leak it fixes.
+//
+// So the sweep happens at startup, where there is nothing to block it, and it is precise
+// rather than time-based: each directory records the pid that owns it, and a directory
+// whose owner is gone is residue by definition. Never a heuristic about age — a long
+// legitimate run must not have its ledger deleted out from under it by the next one.
+fs.writeFileSync(path.join(ledgerDir, "owner.pid"), String(process.pid));
+(function sweepAbandonedLedgers() {
+  for (const entry of fs.readdirSync(os.tmpdir())) {
+    if (!entry.startsWith("richos-ui-evidence-")) continue;
+    const dir = path.join(os.tmpdir(), entry);
+    if (dir === ledgerDir) continue;
+    let owner;
+    try {
+      owner = Number(fs.readFileSync(path.join(dir, "owner.pid"), "utf8").trim());
+    } catch (_e) {
+      // Written before this file recorded an owner, or a directory that never got one:
+      // nothing claims it, so nothing is lost by removing it.
+      owner = null;
+    }
+    if (owner) {
+      // ONLY `ESRCH` MEANS GONE, and the first version of this treated every throw as gone.
+      // `process.kill(pid, 0)` also throws `EPERM` — the process EXISTS and this user may
+      // not signal it — so "any error means dead" deletes the live ledger of a run started
+      // by another user. Measured: a directory owned by pid 1 was swept away while launchd
+      // was plainly running. Anything that is not a definite "no such process" is treated
+      // as alive, because the cost of keeping residue one run longer is a directory, and
+      // the cost of the other mistake is a live run losing its evidence mid-flight.
+      let gone = false;
+      try {
+        process.kill(owner, 0); // Signal 0 tests for existence; it delivers nothing.
+      } catch (e) {
+        gone = e.code === "ESRCH";
+      }
+      if (!gone) continue;
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 if (SHARD) {
   console.log(
@@ -366,10 +551,34 @@ for (const suite of MINE) {
 // concludes is derived from those two, so a suite that never started is a hole in `data`
 // rather than an absence nobody can see.
 
+// QUARANTINE — WHY IT IS HERE AND WHAT IT DELIBERATELY DOES NOT COVER.
+//
+// A gate that turns test rot into a failed BUILD stops the build and does not fix the app.
+// The CEO's question, 2026-09-19: "Will that get me back to that endless fixing of millions
+// of bugs without doing any actual work?" A quarantined suite still RUNS, is still counted,
+// and is still printed in the build's own output on every single run — it just does not
+// hold the build. That is the difference between knowing a suite is rotten and pretending
+// it is green.
+//
+// TWO THINGS KEEP THE LIST FROM ROTTING, and they matter more than the excusing does:
+// a quarantined suite that PASSES says so, loudly, as a note naming the row to delete; and
+// the list is supplied by the CALLER, so it is printed where the caller's output is read
+// rather than living in this directory where nobody re-reads it.
+//
+// A MISSING RECEIPT IS NEVER EXCUSED. Quarantine is a statement about a suite's own
+// assertions being stale. "Nothing was written down" is not that: it means a shard died, or
+// never started, or its artifact vanished — an integrity failure of the run itself, which
+// is precisely the class this whole file exists to refuse. Excusing it would let a
+// quarantine entry silently hide a broken harness.
 function gate(planned, data, opts) {
   const label = (opts && opts.label) || "";
+  const quarantined = (opts && opts.quarantined) || new Set();
   const problems = [];
+  const excused = [];
   const notes = [];
+  // Route a suite's own defect to the verdict, or to the excused list when it is
+  // quarantined. Everything about a suite goes through here EXCEPT the missing-receipt case.
+  const fault = (suite, text) => (quarantined.has(suite) ? excused : problems).push(text);
   let ran = 0;
   let skipped = 0;
   let observedTotal = 0;
@@ -387,7 +596,7 @@ function gate(planned, data, opts) {
     const status = entry ? entry.exit : null;
 
     if (declared === 0) {
-      problems.push(`${suite}: its source declares no \`run.check(\` at all — a suite that cannot fail`);
+      fault(suite, `${suite}: its source declares no \`run.check(\` at all — a suite that cannot fail`);
     }
 
     // NO RECEIPT AT ALL is a sharded-run failure the serial runner could not have. A matrix
@@ -409,7 +618,8 @@ function gate(planned, data, opts) {
         console.log(`  SKIP (allowed)  ${suite} — ${skips[0].skipped.split("\n")[0]}`);
       } else {
         console.log(`  SKIP            ${suite} — ${skips[0].skipped.split("\n")[0]}`);
-        problems.push(
+        fault(
+          suite,
           `${suite}: did not run and was not allowed to skip. Pass --allow-skip=${suite} at the ` +
             `call site if that is deliberate, so the gap is visible where the run is started.`
         );
@@ -418,7 +628,8 @@ function gate(planned, data, opts) {
     }
 
     if (!runs.length) {
-      problems.push(
+      fault(
+        suite,
         `${suite}: produced NO evidence — it exited ${status} without reporting a single check. ` +
           `Its source declares ${declared}.`
       );
@@ -430,7 +641,8 @@ function gate(planned, data, opts) {
     observedTotal += observed;
     declaredTotal += declared;
     if (observed < declared) {
-      problems.push(
+      fault(
+        suite,
         `${suite}: ran ${observed} check(s) but its source declares ${declared} — it stopped early ` +
           `or a check was never reached.`
       );
@@ -444,7 +656,26 @@ function gate(planned, data, opts) {
     // SHORT, not ok: the suite's own checks all passed and it exited 0, and it still did less
     // than it says it does. That is the case worth a word of its own — it is the one that reads
     // as green everywhere else.
-    const verdict = failedChecks || status !== 0 ? "FAIL " : observed < declared ? "SHORT" : "ok   ";
+    const isRed = failedChecks || status !== 0;
+    // QUAR, not FAIL: the suite IS red and the reader must see that it is red. The word only
+    // says who the redness stops — the build, or nobody.
+    const verdict = isRed
+      ? quarantined.has(suite)
+        ? "QUAR "
+        : "FAIL "
+      : observed < declared
+        ? "SHORT"
+        : "ok   ";
+    if (!isRed && observed >= declared && quarantined.has(suite)) {
+      // THE LIST CANNOT ROT SILENTLY. A quarantine that is no longer needed is a suite whose
+      // failures nobody would see if it went red again, so the day it goes green is the day
+      // the row must come out — and this is where that gets said, every run, in the caller's
+      // own output.
+      notes.push(
+        `--quarantine=${suite} was passed and is NO LONGER NEEDED: ${suite} passed here. ` +
+          `Delete the row — a stale quarantine hides the next real failure in this suite.`
+      );
+    }
     const where = entry.shard ? `  [shard ${entry.shard}]` : "";
     const took = entry.seconds ? `  ${entry.seconds.toFixed(0)}s` : "";
     console.log(
@@ -455,15 +686,20 @@ function gate(planned, data, opts) {
 
   // FAILED BY EITHER WITNESS. The exit code is one; the ledger is the other, and where they
   // disagree the ledger is the one that saw a check go red.
-  const failedSuites = planned.filter((s) => {
+  const redSuites = planned.filter((s) => {
     const entry = data.get(s);
     if (!entry) return false; // already a problem above; not also a "failed suite"
     const recs = entry.records.filter((r) => typeof r.checks === "number");
     return entry.exit !== 0 || recs.reduce((a, r) => a + r.failed, 0) > 0;
   });
-  for (const s of failedSuites) {
+  // The split the verdict turns on: red suites that hold the run, and red suites the caller
+  // has declared it already knows about. Both are printed; only the first is fatal.
+  const failedSuites = redSuites.filter((s) => !quarantined.has(s));
+  const quarantinedRed = redSuites.filter((s) => quarantined.has(s));
+  for (const s of redSuites) {
     if (data.get(s).exit === 0) {
-      problems.push(
+      fault(
+        s,
         `${s}: reported failed check(s) and still exited 0 — its own failures did not reach its ` +
           `exit code. The run is failed on the LEDGER; fix the suite to exit on \`run.report()\`.`
       );
@@ -481,6 +717,21 @@ function gate(planned, data, opts) {
 
   for (const n of notes) console.log("  NOTE  " + n);
 
+  // QUARANTINE IS REPORTED BEFORE THE VERDICT, NEVER FOLDED INTO IT. A reader who skims to
+  // the last line must still be told, in this run's own output, which suites are red and
+  // excused — otherwise "all green" is doing exactly the work this file was written to stop.
+  if (quarantinedRed.length || excused.length) {
+    console.log(
+      `\n== ${quarantinedRed.length} QUARANTINED suite(s): red, reported, not holding this run ==`
+    );
+    for (const s of quarantinedRed) console.log("  ! " + s);
+    for (const ex of excused) console.log("  ! " + ex);
+    console.log(
+      "  These are excused because the caller named them, not because they passed. " +
+        "A quarantine is a debt with a date on it, not a verdict."
+    );
+  }
+
   if (problems.length) {
     console.log("\n== the evidence gate REFUSES this run ==");
     for (const pr of problems) console.log("  ✗ " + pr);
@@ -490,7 +741,14 @@ function gate(planned, data, opts) {
     console.log(`\n${failedSuites.length} suite(s) FAILED: ${failedSuites.join(", ")}`);
   }
 
-  return { ok: !failedSuites.length && !problems.length, ran, observedTotal, failedSuites, problems };
+  return {
+    ok: !failedSuites.length && !problems.length,
+    ran,
+    observedTotal,
+    failedSuites,
+    problems,
+    quarantinedRed,
+  };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -573,9 +831,11 @@ function reconcile(state) {
     reconcile({ duplicates: [], unplanned: [], commits: clean, here: "" }).length, 0);
 })();
 
-function runCoverage(dir) {
+/// Every `*.receipt.json` under `dir`, sorted. Shared by `--coverage` and `--weigh` so the
+/// two never disagree about what a receipt directory contains.
+function receiptFiles(dir, flag) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-    console.error(`--coverage=${dir} is not a directory. No receipts means nothing was proven.`);
+    console.error(`${flag}=${dir} is not a directory. No receipts means nothing was proven.`);
     process.exit(1);
   }
   // Receipts arrive as one directory per shard artifact, or flat. Both are walked, because
@@ -600,12 +860,93 @@ function runCoverage(dir) {
     );
     process.exit(1);
   }
+  return files.sort();
+}
+
+// ---------------------------------------------------------------------------------------
+// --weigh — the weights are MEASURED on the machine that runs them, never estimated
+// ---------------------------------------------------------------------------------------
+//
+// WHY THIS COMMAND EXISTS. `suite-weights.tsv` is the only input to packing, and on
+// 2026-09-20 it named 32 of 55 suites. `pack()` weighs an unweighted suite as the heaviest
+// one known — a deliberately safe default — so 25 suites (23 absent, plus `dialect.js` and
+// `docs-claims.js` whose measured `0` the loader was discarding) were each packed as 305 s.
+// That is 7625 s of load that does not exist, against 2155 s that does, so the packer was
+// balancing four shards of mostly fiction and the balance it reported was an artifact:
+// every shard showed 2446 s while the REAL measured load was 311 / 311 / 920 / 613 s. One
+// shard carried three times another, the run took as long as its longest shard, and nobody
+// could see it because the plan said the shards were even.
+//
+// A weights file maintained by hand drifts the moment a suite is added, which is exactly
+// what happened. This command regenerates it from a real run's receipts — the same receipts
+// the coverage job reconciles — so the fix is re-derivable in one command instead of being
+// a number somebody remembered to update.
+//
+// IT REFUSES A PARTIAL SET. Writing weights for the suites that happen to have receipts
+// would silently DELETE the weight of every suite that did not, turning each of them back
+// into a 305 s phantom. The whole inventory, or nothing.
+function runWeigh(dir) {
+  const files = receiptFiles(dir, "--weigh");
+  const seconds = new Map();
+  for (const f of files) {
+    let r;
+    try {
+      r = JSON.parse(fs.readFileSync(f, "utf8"));
+    } catch (e) {
+      console.error(`unreadable receipt ${f}: ${e.message}`);
+      process.exit(1);
+    }
+    if (!r.suite || typeof r.seconds !== "number") {
+      console.error(`receipt ${f} carries no suite/seconds pair to weigh`);
+      process.exit(1);
+    }
+    seconds.set(r.suite, r.seconds);
+  }
+  const missing = SUITES.filter((s) => !seconds.has(s));
+  if (missing.length) {
+    console.error(
+      `refusing to rewrite ${path.basename(WEIGHTS_FILE)} from a partial run: no receipt for ` +
+        `${missing.join(", ")}. Weighing only what ran would delete these suites' weights and ` +
+        `pack each of them as the heaviest suite known, which is the defect this command exists ` +
+        `to end. Run every shard, then weigh.`
+    );
+    process.exit(1);
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  const total = SUITES.reduce((a, s) => a + seconds.get(s), 0);
+  const lines = [
+    `# Measured wall clock per suite, in seconds, on the machine that runs them.`,
+    `# REGENERATED BY \`node run.js --weigh=<receipts>\` — do not hand-edit: a weight typed`,
+    `# here drifts the moment a suite changes, and a MISSING row is not neutral. \`pack()\``,
+    `# weighs an unknown suite as the heaviest one known, so an absent row costs wall clock`,
+    `# on every run until somebody measures it.`,
+    `#`,
+    `# A weight is never load-bearing for correctness: it decides which shard a suite lands`,
+    `# in and nothing else. Coverage is proven from receipts.`,
+    `#`,
+    `# ${SUITES.length} suite(s), ${total.toFixed(0)} s serial, measured ${stamp}.`,
+    `# A suite under a second is written as 0 and that is a measurement, not a missing row.`,
+  ];
+  for (const s of SUITES) lines.push(`${s}\t${Math.round(seconds.get(s))}`);
+  fs.writeFileSync(WEIGHTS_FILE, lines.join("\n") + "\n");
+  console.log(
+    `${path.basename(WEIGHTS_FILE)} rewritten from ${files.length} receipt(s): ` +
+      `${SUITES.length} suite(s), ${total.toFixed(0)} s serial.`
+  );
+  const heaviest = SUITES.slice().sort((a, b) => seconds.get(b) - seconds.get(a)).slice(0, 5);
+  console.log(`  heaviest: ${heaviest.map((s) => `${s} ${seconds.get(s).toFixed(0)}s`).join(", ")}`);
+  console.log(`  the floor for ANY shard count is the heaviest single suite: ${seconds.get(heaviest[0]).toFixed(0)} s.`);
+  process.exit(0);
+}
+
+function runCoverage(dir) {
+  const files = receiptFiles(dir, "--coverage");
 
   const data = new Map();
   const duplicates = [];
   const commits = new Map();
   const unplanned = [];
-  for (const f of files.sort()) {
+  for (const f of files) {
     let r;
     try {
       r = JSON.parse(fs.readFileSync(f, "utf8"));
@@ -638,7 +979,22 @@ function runCoverage(dir) {
       `against ${SUITES.length} discovered suite(s), at ${String(commit).slice(0, 12)}`
   );
 
-  const result = gate(SUITES, data, { label: "reconciled across every shard" });
+  const result = gate(SUITES, data, {
+    label: "reconciled across every shard",
+    quarantined: QUARANTINED,
+  });
+
+  // A QUARANTINE NAMING A SUITE THAT IS NOT HERE is a row nobody will ever delete, because
+  // nothing will ever report it as unneeded. Said as a note rather than a refusal: a renamed
+  // suite must not stop a build, only be noticed.
+  for (const q of QUARANTINED) {
+    if (!SUITES.includes(q)) {
+      console.log(
+        `  NOTE  --quarantine=${q} names no suite in this checkout — it was renamed or deleted. ` +
+          `Delete the row; it excuses nothing and will never report itself stale.`
+      );
+    }
+  }
 
   if (refusals.length) {
     console.log("\n== coverage REFUSES this run ==");
@@ -647,9 +1003,43 @@ function runCoverage(dir) {
 
   if (!result.ok || refusals.length) process.exit(1);
 
+  // THE PROOF IS WRITTEN ONLY ON A PASS, AND IT CARRIES THE COMMIT. A later gate is allowed
+  // to skip this whole suite when it holds one of these for the exact sha it fetched — the
+  // same shape `--checks-done-at-land` and `--gui-proof` already use in nightly-local.py,
+  // and for the same reason: a proof that cannot name the tree it was taken against proves
+  // nothing about any tree. It also records what was EXCUSED, so a build cannot inherit a
+  // quarantine silently from a run it did not watch.
+  if (PROOF_OUT) {
+    fs.mkdirSync(path.dirname(path.resolve(PROOF_OUT)), { recursive: true });
+    fs.writeFileSync(
+      PROOF_OUT,
+      JSON.stringify(
+        {
+          proof: "ui-suite-coverage",
+          commit,
+          at: new Date().toISOString(),
+          suites: SUITES.length,
+          ran: result.ran,
+          checks: result.observedTotal,
+          quarantined: [...QUARANTINED],
+          quarantined_red: result.quarantinedRed,
+        },
+        null,
+        2
+      ) + "\n"
+    );
+    console.log(`  coverage proof written to ${PROOF_OUT} (commit ${String(commit).slice(0, 12)})`);
+  }
+
   const wall = [...data.values()].reduce((a, d) => a + (d.seconds || 0), 0);
+  // "ALL GREEN" HAS TO STOP BEING TRUE THE MOMENT IT IS NOT. A quarantined suite is red and
+  // excused, and a summary line that still said "all green" would be this file's own thesis
+  // failing in the last sentence it prints — the place a reader is most likely to stop.
+  const greenness = result.quarantinedRed.length
+    ? `all green except ${result.quarantinedRed.length} QUARANTINED (${result.quarantinedRed.join(", ")})`
+    : "all green";
   console.log(
-    `\n✓ ui-suite: ${result.ran}/${SUITES.length} discovered suite(s) ran, all green, all at ${commit}.\n` +
+    `\n✓ ui-suite: ${result.ran}/${SUITES.length} discovered suite(s) ran, ${greenness}, all at ${commit}.\n` +
       `  ${result.observedTotal} checks observed. serial cost ${wall.toFixed(0)} s across ` +
       `${new Set([...data.values()].map((d) => d.shard)).size} shard(s).\n` +
       `  ${SUITES.join(", ")}`

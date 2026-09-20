@@ -65,6 +65,14 @@ DECLARED_GAPS = (
 # argument would let a stale sha wave a different tree's tests through, which is worse than
 # having no flag: the skip has to be unable to lie, not merely documented as honest.
 #
+# IT ALSO DROPS `gates/ui-suite`, AND ON A STRICTER CONDITION: the sha has to match AND a
+# coverage proof for that sha has to be on this machine, written by the land's own
+# `run.js --coverage --proof-out` on a pass. The sha alone is enough for the core tests
+# because the land always runs them; the UI suite gets a proof because "the land ran it"
+# is a claim about something that may or may not have happened, and a build must not pay
+# 378 s for a proof the land already made, nor accept one nobody made. No proof, no skip --
+# the suite simply runs, which is the safe direction for a missing file to fail in.
+#
 # Nothing else in gates() is skippable, because nothing at the land runs it.
 # `richos-user-update` is the updater's own crate; `run-tests.sh` is the packaging,
 # signing, updater and release-chain suites; `named-persons.sh --tree` is the privacy sweep
@@ -102,6 +110,43 @@ NO_HOST_SCREEN_COMMANDS = ("build",)
 # `run-tests.sh` writes this beside the plan; its contents travel into the candidate's
 # `build-info.json`, so a candidate can never quietly claim a suite it did not run.
 SUITE_RESULTS = "script-suites.json"
+
+# ── The UI suite, and why it is a build gate at all ──────────────────────────────────────
+#
+# UNTIL NOW IT GATED NOTHING. `app/ui/tests/run.js` holds 55 suites and 863 checks over the
+# screens the CEO actually looks at, and no script in `app/scripts/` invoked it -- measured
+# at bf1381e0, `grep -n run.js scripts/*.sh scripts/*.py` matched three COMMENTS and no call.
+# A build could be signed, notarized and published with every one of those checks red.
+#
+# WHAT IT COSTS, MEASURED ON THIS MAC (M4, 4 performance cores), 2026-09-20 at bf1381e0:
+# 1510 s serially, 557 s over 4 shards before the packing was fixed, 378 s after. Four is
+# the shard count because four is the performance-core count; the packer reports the same
+# 378 s for all four shards, which is the arithmetic floor for this inventory at this count
+# (total/4), and no shard count at all gets under the heaviest single suite, contrast.js at
+# 150 s.
+UI_TESTS = Path("richos/app/ui/tests")
+UI_SUITE_GATE = "gates/ui-suite"
+UI_SHARDS = 4
+
+# ── Quarantine: the list that keeps test rot from stopping a build ───────────────────────
+#
+# THE CEO'S QUESTION, 2026-09-19, and it is the right one to hold this against: "Will that
+# get me back to that endless fixing of millions of bugs without doing any actual work?"
+#
+# A gate is worth having only if a red suite means the APP is wrong. When a suite is red
+# because its own assertion, fixture or screenshot has drifted, stopping the build buys
+# nothing and costs a night. So a named suite here still RUNS, is still reconciled, and is
+# still printed in this build's output on every run -- it just does not hold the build.
+#
+# EVERY ROW CARRIES A FILE, A REASON AND A DATE, because a quarantine is a debt and an
+# undated debt is a permanent one. `run.js` prints a row that is no longer needed as a NOTE
+# naming the row to delete, so the list cannot rot silently, and prints a row naming a suite
+# that no longer exists for the same reason.
+#
+# IT IS EMPTY, AND THAT IS A MEASUREMENT, NOT AN ASPIRATION. The full inventory was run at
+# bf1381e0 on 2026-09-20: 55 of 55 suites ran, 863 checks observed, every suite exited 0 and
+# the coverage job reconciled all four shards green. There is nothing to quarantine today.
+UI_QUARANTINE = ()
 
 # The inside of the one long `nightly.py build` step, matched IN ORDER against the lines
 # its children stream past TimestampedLog, so the split is readable without coupling this
@@ -318,6 +363,90 @@ def strip_identity_overrides(env):
     return {name: env.pop(name) for name in IDENTITY_OVERRIDES if name in env}
 
 
+# WHAT A GATE MAY SEE FROM THE OPERATOR'S SHELL. AN ALLOWLIST, AND THE INVERSION IS THE
+# WHOLE POINT.
+#
+# This was `os.environ.copy()` minus four names, and four names is a GUESS about which of
+# the operator's exports can break a build. The guess has to be re-made, correctly, every
+# time anyone adds a variable to any script in the chain -- and on 2026-09-19 it was wrong,
+# which is what broke that day's builds. A deny-list is a list of the mistakes somebody has
+# already made; an allowlist is a statement of what the work needs, and a variable nobody
+# thought about is excluded by construction instead of included by construction.
+#
+# MEASURED ON THIS MAC, 2026-09-20: a shell here exports 44 names, of which the old form
+# passed 40 into every cargo test, every script suite and the privacy sweep -- among them
+# CLAUDE_CODE_MESSAGING_TOKEN, CLAUDE_CODE_MESSAGING_SOCKET, ANDROID_HOME, ANDROID_SDK_ROOT,
+# JAVA_HOME, AI_AGENT and CLAUDECODE. A suite's answer must not depend on whose terminal
+# started it, and a gate that can see an agent's messaging token can print it into a log.
+#
+# EVERY NAME BELOW CARRIES THE REASON IT IS NEEDED. That is the bar for adding one: not
+# "it seems harmless" -- nothing here is about harm -- but "this step cannot do its job
+# without it". Values are never listed, only names; what a name holds is the machine's
+# business.
+GATE_PASSTHROUGH = (
+    # The machine's identity and scratch space. cargo, rustup, playwright's browser cache,
+    # git's own config, the login keychain and `gh`'s credential store all live under HOME.
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    # Text encoding. Without these a subprocess can decode its own output differently than
+    # the run that measured it, which is a suite that fails on one terminal and not another.
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    # `origin` is git@github.com:WebDevBooster/richos.git, so `fetch` authenticates over ssh
+    # through the agent. Without the socket the fetch phase prompts, and GIT_TERMINAL_PROMPT=0
+    # (set below) turns that prompt into a failure whose message names none of this.
+    "SSH_AUTH_SOCK",
+    # macOS keychain access for codesign, which is how the security session is found. Not
+    # needed by the gates; needed by the signing step that runs in the same environment.
+    "SECURITYSESSIONID",
+    # `gh api` in preflight and `gh release` at publish, for an operator who authenticates by
+    # token or against a non-default host rather than through `gh auth login`'s store.
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_HOST",
+    "GH_CONFIG_DIR",
+    # A Rust toolchain that is not at ~/.cargo and ~/.rustup.
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    # Xcode selection on a machine carrying more than one.
+    "DEVELOPER_DIR",
+    # The privacy deny-list for the `named-persons.sh --tree` gate. Operator-configurable by
+    # design, and defaulted below when unset.
+    "RICHOS_NAMED_PERSONS_FILE",
+)
+
+# WHAT THIS SCRIPT SETS FOR EVERY GATE, whatever the shell held. Declared as names here so
+# that `run-tests.test.sh` case E1 -- which re-runs the whole suite under the environment a
+# build hands it -- derives the list instead of keeping a copy that silently goes stale the
+# next time a variable is added. `nightly-local.py gate-environment` prints it.
+GATE_SET_BY_BUILD = (
+    "PATH",
+    "PYTHONDONTWRITEBYTECODE",
+    "CARGO_PROFILE_DEV_DEBUG",
+    "CARGO_PROFILE_TEST_DEBUG",
+    "GIT_TERMINAL_PROMPT",
+    "GIT_SSH_COMMAND",
+    "RICHOS_NIGHTLY_RUN_ID",
+    "RICHOS_NAMED_PERSONS_FILE",
+    # Set by Runner.runtime() once the pinned runtimes are verified.
+    "RICHOS_RUNTIME_DIR",
+)
+
+# WHAT THIS SCRIPT SETS FOR ONE STEP ONLY, at that step's own call site, through
+# `command(env_extra=...)`. These never come from the shell -- that is the point of them --
+# but a suite still has to survive seeing them, which is what E1 proves.
+# The UI suite's quarantine is NOT here, and that is deliberate: it is passed to `run.js` as
+# `--quarantine=` arguments, where it is visible in the command line the log records, rather
+# than through an environment variable a stray export could also set.
+GATE_SET_PER_STEP = (
+    "RUN_TESTS_DECLARED_GAPS",
+    "RUN_TESTS_SKIP_UNCHANGED",
+)
+
+
 def local_environment(run_id=None):
     """Return (environment, credentials). Nothing merges them but the signing steps.
 
@@ -326,16 +455,28 @@ def local_environment(run_id=None):
     id; `publish`/`candidate` never pass one, since they act on an EXISTING build's
     run id (given separately, as `--run`) rather than minting their own.
     """
-    env = os.environ.copy()
+    # THE TWO QUESTIONS ARE ANSWERED SEPARATELY, and that is why credentials are collected
+    # from the FULL environment while the gate environment is built from the allowlist. A
+    # signing variable the operator exported must still reach the step that signs; it must
+    # simply never reach a gate. Reading them from `os.environ` rather than popping them out
+    # of `env` is what lets both be true at once.
+    credentials = split_credentials(os.environ.copy())
+    env = {name: os.environ[name] for name in GATE_PASSTHROUGH if name in os.environ}
     # Explicit PATH also works from a fresh terminal, without an interactive shell.
     env["PATH"] = f"{Path.home()}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    for key in ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG", "CARGO_TARGET_DIR",
-                "RUN_TESTS_DECLARED_GAPS"):
-        env.pop(key, None)
-    strip_identity_overrides(env)
-    # Whatever the operator's shell exported leaves the gate environment here, not
-    # only what notary.env supplies below.
-    credentials = split_credentials(env)
+    # NOT NEEDED ANY MORE, AND KEPT AS A PROOF RATHER THAN A STEP. Every name these two
+    # removed -- GIT_AUTHOR_*, GIT_COMMITTER_*, EMAIL, RICHOS_EXTRA_TAURI_CONFIG,
+    # TAURI_CONFIG, CARGO_TARGET_DIR, RUN_TESTS_DECLARED_GAPS -- is absent from
+    # GATE_PASSTHROUGH, so an allowlisted environment cannot contain one. Asserting that
+    # here means the day somebody adds a name to the allowlist without thinking, this fails
+    # loudly instead of quietly restoring the leak.
+    leaked = [n for n in IDENTITY_OVERRIDES + ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG",
+                                               "CARGO_TARGET_DIR", "RUN_TESTS_DECLARED_GAPS")
+              if n in env]
+    if leaked:
+        raise ValueError(
+            f"GATE_PASSTHROUGH admits {', '.join(leaked)}, which a gate must never take from "
+            "the operator's shell. Remove the name from the allowlist.")
     credentials.pop("TAURI_SIGNING_PRIVATE_KEY", None)  # The key's literal bytes: the path form is used.
     credentials.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
     credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
@@ -590,6 +731,157 @@ class Runner:
                      self.source / SCRIPTS / "runtime-sources.json")
         self.env["RICHOS_RUNTIME_DIR"] = str(path)
 
+    def ui_proof_path(self, sha):
+        return self.state / "ui-coverage" / f"{sha}.json"
+
+    def accept_ui_proof(self, sha):
+        """The coverage proof for `sha`, or None. Never a bare boolean, and never a guess.
+
+        `--checks-done-at-land` says a land already ran the sharded UI suite on the commit
+        this build then fetched. The proof that makes that true is the file `run.js
+        --coverage --proof-out` writes on a PASS, and the only thing tying it to a tree is
+        the commit inside it -- so it is compared against the sha this run actually fetched,
+        exactly as accept_land_proof does. A proof file named after the right sha whose
+        CONTENTS name a different one proves nothing; that is why both are checked.
+        """
+        path = self.ui_proof_path(sha)
+        if not path.exists():
+            return None
+        try:
+            proof = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        if proof.get("proof") != "ui-suite-coverage":
+            return None
+        seen = proof.get("commit", "")
+        if not seen or not sha.startswith(seen) and not seen.startswith(sha):
+            raise ValueError(
+                f"{path} is a coverage proof for {seen or '<no commit>'}, not for {sha}. "
+                "A proof taken against a different tree proves nothing about this one.")
+        return proof
+
+    def ui_suite(self, checks_done_at_land=None):
+        """Run the whole UI inventory, sharded, and refuse the build on a red suite.
+
+        ONE SUBPROCESS, exactly like every other gate. `run.js --shards=N` owns the fan-out,
+        the receipts and the coverage verdict, so this method is a call and a refusal rather
+        than a second process launcher living beside `command()`. The first version of this
+        spawned the four shards here with `subprocess.Popen`, and `nightly-local.test.py`
+        refused it within a minute: five cases assert the argv and the ENVIRONMENT of every
+        gate subprocess by patching `subprocess.run`, and a launcher that goes around
+        `command()` goes around all of it -- the credential split, the log, the timeout and
+        the error that names the step. That is the defect this repository keeps paying for
+        in other costumes, caught here by tests that were already written.
+
+        THE SHARDS' EXIT CODES ARE NOT THE VERDICT and this method never sees them. `run.js`
+        says why in its own words -- a shard has seen a subset, and only the coverage job has
+        seen every receipt, so only it can tell a failed suite from an absent one.
+        """
+        if checks_done_at_land:
+            proof = self.accept_ui_proof(checks_done_at_land)
+            if proof:
+                self.skip(UI_SUITE_GATE,
+                          f"the land already ran the sharded UI suite on {checks_done_at_land} "
+                          f"({proof.get('ran')} suite(s), {proof.get('checks')} checks, "
+                          f"proven {proof.get('at')}), which is the commit this run fetched")
+                return
+        tests = self.source / UI_TESTS
+        receipts = self.state / "ui-receipts"
+        with self.phase(UI_SUITE_GATE):
+            if UI_QUARANTINE:
+                self.announce(f"  ui quarantine ({len(UI_QUARANTINE)}): " + "; ".join(UI_QUARANTINE))
+            else:
+                self.announce("  ui quarantine: empty - every suite holds this build.")
+            args = ["node", "run.js", f"--shards={UI_SHARDS}", f"--receipts={receipts}"]
+            for suite in UI_QUARANTINE:
+                args.append(f"--quarantine={suite}")
+            try:
+                self.command(*args, cwd=tests)
+                self.restore_source_tree("the UI suite")
+            except RuntimeError:
+                self.restore_source_tree("the UI suite")
+                # NAME THE SUITE AND ITS LOG. A gate that refuses a build and leaves the
+                # reader to find out which of 55 suites did it is a gate people learn to
+                # re-run rather than read.
+                red = self.red_ui_suites(receipts)
+                raise RuntimeError(
+                    "the UI suite refused this build"
+                    + (f": {', '.join(red)}" if red else " (see the coverage output)")
+                    + f". Every shard's output and the coverage verdict are in this run's log "
+                    f"under the {UI_SUITE_GATE} phase; the receipts are in {receipts}.") from None
+
+    def restore_source_tree(self, who):
+        """Put the fetched source back the way it was fetched, naming anything that moved.
+
+        THIS EXISTS BECAUSE THE UI SUITE WRITES TO ITS OWN CHECKOUT, and until this gate
+        existed nothing in a build did. `lib/harness.js:publishShot` deliberately REWRITES a
+        committed screenshot when the picture it takes differs, announcing "shot changed" --
+        good behavior for an engineer running the suite by hand, and a trap for a build:
+        `checkout()` refuses to reuse the nightly worktree when `git status --porcelain`
+        says anything at all ("nightly worktree has changes; inspect it before continuing").
+        So a gate that left the tree dirty would pass tonight and REFUSE TO START tomorrow,
+        with a message about the worktree that names nothing about the suite that dirtied it.
+
+        MEASURED, 2026-09-20, two full runs at bf1381e0: `shots-phone/phone-light.png` and
+        `shots-contrast/phone-pairing.png` were untouched by the first and rewritten by the
+        second -- 775 of 1,330,000 pixels, worst channel delta 164, in one 120x13 box. The
+        two runs differed only in which shard each suite landed in, so that surface is not
+        the same picture twice and is not declared in `lib/shot-stability.js`, which is the
+        file that exists to declare exactly that.
+
+        IT REPORTS BEFORE IT RESTORES, and that order is the whole point. A silent `git
+        checkout -- .` would erase the evidence that a screen changed, which is the one thing
+        anybody would want to know. It does not FAIL the build: an unstable screenshot is
+        test-artifact drift, not a broken app, and stopping a night's build over it is the
+        trade this gate is explicitly not making.
+        """
+        # NOTHING HERE MAY RAISE. One of the two callers is an `except` block reporting which
+        # suite refused the build, and an exception thrown from inside it would replace that
+        # message with a git error -- losing the only sentence that says what actually
+        # happened. Tidying up is never allowed to become the reported failure.
+        try:
+            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True)
+        except (RuntimeError, OSError) as error:
+            self.announce(f"  could not check whether {who} left its checkout dirty: {error}")
+            return
+        if not dirty:
+            return
+        self.announce(f"  {who} modified its own checkout; restoring it so the next build's "
+                      f"`checkout()` is not refused. Files:")
+        for line in dirty.splitlines():
+            self.announce(f"    {line}")
+        self.announce("  If one of these is a real visual change, it is a change to look at, "
+                      "not a file to re-commit from here; if it differs run to run, it belongs "
+                      "in richos/app/ui/tests/lib/shot-stability.js with its cause and bound.")
+        try:
+            self.command("git", "checkout", "--", ".", cwd=self.source)
+        except (RuntimeError, OSError) as error:
+            # Say it plainly rather than swallowing it: the next build will refuse to start
+            # and this line is what tells somebody why.
+            self.announce(f"  RESTORE FAILED ({error}). The next build's checkout() will "
+                          f"refuse this worktree until {self.source} is clean.")
+
+    @staticmethod
+    def red_ui_suites(receipts):
+        """Which suites a finished sharded run recorded as red, read off the receipts.
+
+        Read here rather than parsed out of the coverage job's prose: the receipt is the
+        thing `run.js` wrote down, and a second parser for the same fact is a second thing
+        to keep true.
+        """
+        red = []
+        for path in sorted(Path(receipts).glob("*.receipt.json")):
+            try:
+                receipt = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            failed = sum(r.get("failed", 0) for r in receipt.get("records", [])
+                         if isinstance(r.get("checks"), int))
+            if receipt.get("exit") or failed:
+                red.append(f"{receipt.get('suite')} (exit {receipt.get('exit')}, "
+                           f"{failed} failed check(s))")
+        return red
+
     def gates(self, checks_done_at_land=None, no_host_screen=False, skip_unchanged=False):
         # Deliberately without `credentials=True`: a gate that can see the operator's
         # notary key answers questions the suites ask precisely because the answer
@@ -619,6 +911,10 @@ class Runner:
             if no_host_screen:
                 args.append("--no-host-screen")
             self.command(*args, env_extra=extra)
+        # AFTER the script suites and BEFORE the privacy sweep. It is the longest gate, so
+        # the cheap refusals get to refuse first: there is no sense spending 378 s of WebKit
+        # to learn that `cargo test` was going to fail anyway.
+        self.ui_suite(checks_done_at_land)
         with self.phase("gates/privacy-sweep"):
             self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree",
                          "--repo", self.source)
@@ -885,8 +1181,14 @@ class Runner:
             # candidate's `build-info.json` and its committed provenance. A skip recorded
             # only in a log lives on this Mac; a skip recorded here travels with the
             # candidate to whoever walks it.
+            # WHAT WAS ACTUALLY SKIPPED, not what this line used to assume was. It named
+            # `[LAND_PROVEN_GATE]` literally, which was true while exactly one gate could be
+            # skipped; the UI suite can be skipped too now, and only when its own coverage
+            # proof exists for this sha. Reading the runner's own record of its skips means
+            # the candidate's provenance cannot claim a gate ran that did not, or the
+            # reverse, the next time a third skippable gate appears.
             info = {**info, "checks_done_at_land": checks_done_at_land,
-                    "checks_skipped": [LAND_PROVEN_GATE]}
+                    "checks_skipped": sorted(self.skipped)}
             plan_path.write_text(json.dumps(info, indent=2) + "\n")
         out = self.state / "releases" / info["tag"]
         if command == "release":
@@ -922,16 +1224,18 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check", "build", "publish", "candidate", "release"])
+    parser.add_argument("command", choices=["check", "build", "publish", "candidate",
+                                           "release", "gate-environment"])
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--state-dir", type=Path, default=Path.home() / ".richos-nightly")
     parser.add_argument("--runtime-dir", type=Path, help="existing verified runtime cache")
     parser.add_argument("--force", action="store_true", help="explicitly rebuild a previously released source")
     parser.add_argument("--run", help="an existing build's run id (required for publish/candidate)")
     parser.add_argument("--checks-done-at-land", metavar="SHA",
-                        help="skip the one gate a land already ran on this exact commit "
-                             "(cargo test -p richos-core); refused unless SHA is the sha "
-                             "this run fetches")
+                        help="skip the gates a land already ran on this exact commit "
+                             "(cargo test -p richos-core, and the sharded UI suite when a "
+                             "coverage proof for SHA is on this machine); refused unless "
+                             "SHA is the sha this run fetches")
     parser.add_argument("--no-host-screen", action="store_true",
                         help="hold back every suite that boots the app on this Mac's screen; "
                              "the candidate is still built and walkable, and publish will "
@@ -940,6 +1244,19 @@ def main():
                         help="a gui-boot proof taken against this candidate's commit, required "
                              "to publish a candidate built with --no-host-screen")
     args = parser.parse_args()
+    # THE ONE COMMAND THAT BUILDS NOTHING, SIGNS NOTHING AND NEEDS NO STATE. It prints the
+    # declared gate environment so a test in another language can read the list instead of
+    # keeping a copy of it: `run-tests.test.sh` case E1 re-runs the whole suite under every
+    # variable a build exports, and a hand-written copy of that list goes stale in silence
+    # the next time one is added. It runs before the Apple-Silicon precondition on purpose --
+    # it is a question about this file's source, not about this machine.
+    if args.command == "gate-environment":
+        for kind, names in (("passthrough", GATE_PASSTHROUGH),
+                            ("set", GATE_SET_BY_BUILD),
+                            ("per-step", GATE_SET_PER_STEP)):
+            for name in names:
+                print(f"{kind}\t{name}")
+        return
     if args.command in ("publish", "candidate") and not args.run:
         parser.error(f"{args.command} requires --run <run-id> (see the output of a prior `build`)")
     if args.checks_done_at_land and args.command not in ("build", "release"):
