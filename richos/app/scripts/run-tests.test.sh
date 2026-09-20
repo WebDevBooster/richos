@@ -662,16 +662,55 @@ echo "=== E. this file's own footing ==="
 if [ -n "${RUN_TESTS_TEST_INNER:-}" ]; then
   ok "E1 skipped in the inner run — this is that inner run, and it must not recurse"
 else
-  E1OUT="$(env RUN_TESTS_TEST_INNER=1 \
-               RUN_TESTS_NO_HOST_SCREEN=1 \
-               RICHOS_GUI_HOST=richos-test-e1 \
-               RUN_TESTS_JOBS=1 \
-               RUN_TESTS_SKIP_UNCHANGED=1 \
-               RUN_TESTS_STATE="$TMP/e1-store" \
-               RICHOS_NIGHTLY_RUN_ID=e1-hostile \
-               RICHOS_RUNTIME_DIR="$TMP/e1-runtime" \
-               "RUN_TESTS_DECLARED_GAPS=front-door.test.sh: whatever the build declares" \
-               bash "$DIR/run-tests.test.sh" 2>&1)"; E1CODE=$?
+  # THE LIST IS DERIVED, NOT COPIED. It used to be nine names typed here, and a typed copy
+  # of somebody else's list is a copy that goes stale the first time they add a name --
+  # silently, because a variable this case never exports is a variable this case never
+  # proves anything about. `nightly-local.py gate-environment` prints what a gate actually
+  # receives, so the build declares it once and this reads it.
+  #
+  # A DECLARED NAME WITH NO VALUE BELOW IS A FAILURE, never a skip. That is the whole
+  # mechanism: add a variable to the build's gate environment and this case goes red until
+  # somebody decides what it should be here.
+  E1NAMES="$(python3 "$DIR/nightly-local.py" gate-environment \
+             | awk -F'\t' '$1 == "set" || $1 == "per-step" { print $2 }')"
+  if [ -z "$E1NAMES" ]; then
+    bad "E1 the build's gate environment can be read" \
+        "nightly-local.py gate-environment printed nothing; this case cannot derive its list"
+    E1NAMES=""
+  fi
+  E1ENV=()
+  E1MISSING=""
+  for E1N in $E1NAMES; do
+    case "$E1N" in
+      # PATH is the one name that must keep working: a hostile PATH does not test the
+      # suite's footing, it stops `bash` finding anything at all.
+      PATH) continue ;;
+      # The values a build genuinely hands a gate. E1's property is "the environment a
+      # build hands it", so these are the build's own values, not invented ones.
+      PYTHONDONTWRITEBYTECODE) E1ENV+=("PYTHONDONTWRITEBYTECODE=1") ;;
+      CARGO_PROFILE_DEV_DEBUG) E1ENV+=("CARGO_PROFILE_DEV_DEBUG=0") ;;
+      CARGO_PROFILE_TEST_DEBUG) E1ENV+=("CARGO_PROFILE_TEST_DEBUG=0") ;;
+      GIT_TERMINAL_PROMPT) E1ENV+=("GIT_TERMINAL_PROMPT=0") ;;
+      GIT_SSH_COMMAND) E1ENV+=("GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=15") ;;
+      RICHOS_NIGHTLY_RUN_ID) E1ENV+=("RICHOS_NIGHTLY_RUN_ID=e1-hostile") ;;
+      RICHOS_RUNTIME_DIR) E1ENV+=("RICHOS_RUNTIME_DIR=$TMP/e1-runtime") ;;
+      RICHOS_NAMED_PERSONS_FILE) E1ENV+=("RICHOS_NAMED_PERSONS_FILE=$TMP/e1-named-persons") ;;
+      RUN_TESTS_SKIP_UNCHANGED) E1ENV+=("RUN_TESTS_SKIP_UNCHANGED=1") ;;
+      RUN_TESTS_DECLARED_GAPS) E1ENV+=("RUN_TESTS_DECLARED_GAPS=front-door.test.sh: whatever the build declares") ;;
+      *) E1MISSING="$E1MISSING $E1N" ;;
+    esac
+  done
+  # `run-tests.sh`'s OWN env-form flags, which the build passes as arguments rather than
+  # exporting. They are not in the declared list and they belong here anyway: a caller CAN
+  # export them, and RUN_TESTS_NO_HOST_SCREEN alone is what turned S2 and S4 red on 62e5affd.
+  E1ENV+=("RUN_TESTS_TEST_INNER=1" "RUN_TESTS_NO_HOST_SCREEN=1" "RICHOS_GUI_HOST=richos-test-e1" \
+          "RUN_TESTS_JOBS=1" "RUN_TESTS_STATE=$TMP/e1-store")
+  if [ -n "$E1MISSING" ]; then
+    bad "E1 exercises every variable the build's gate environment declares" \
+        "the build now hands a gate$E1MISSING, and this case has no value for it. Add one to \
+the case statement above so the suite is proven under it, rather than leaving it untested."
+  fi
+  E1OUT="$(env "${E1ENV[@]}" bash "$DIR/run-tests.test.sh" 2>&1)"; E1CODE=$?
   E1FAILS="$(grep -c '^  FAIL' <<<"$E1OUT")"
   if [ "$E1CODE" != 0 ] || [ "$E1FAILS" != 0 ]; then
     bad "E1 the suite's verdict does not change under the environment a build exports" \

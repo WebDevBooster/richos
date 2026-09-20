@@ -318,6 +318,90 @@ def strip_identity_overrides(env):
     return {name: env.pop(name) for name in IDENTITY_OVERRIDES if name in env}
 
 
+# WHAT A GATE MAY SEE FROM THE OPERATOR'S SHELL. AN ALLOWLIST, AND THE INVERSION IS THE
+# WHOLE POINT.
+#
+# This was `os.environ.copy()` minus four names, and four names is a GUESS about which of
+# the operator's exports can break a build. The guess has to be re-made, correctly, every
+# time anyone adds a variable to any script in the chain -- and on 2026-09-19 it was wrong,
+# which is what broke that day's builds. A deny-list is a list of the mistakes somebody has
+# already made; an allowlist is a statement of what the work needs, and a variable nobody
+# thought about is excluded by construction instead of included by construction.
+#
+# MEASURED ON THIS MAC, 2026-09-20: a shell here exports 44 names, of which the old form
+# passed 40 into every cargo test, every script suite and the privacy sweep -- among them
+# CLAUDE_CODE_MESSAGING_TOKEN, CLAUDE_CODE_MESSAGING_SOCKET, ANDROID_HOME, ANDROID_SDK_ROOT,
+# JAVA_HOME, AI_AGENT and CLAUDECODE. A suite's answer must not depend on whose terminal
+# started it, and a gate that can see an agent's messaging token can print it into a log.
+#
+# EVERY NAME BELOW CARRIES THE REASON IT IS NEEDED. That is the bar for adding one: not
+# "it seems harmless" -- nothing here is about harm -- but "this step cannot do its job
+# without it". Values are never listed, only names; what a name holds is the machine's
+# business.
+GATE_PASSTHROUGH = (
+    # The machine's identity and scratch space. cargo, rustup, playwright's browser cache,
+    # git's own config, the login keychain and `gh`'s credential store all live under HOME.
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    # Text encoding. Without these a subprocess can decode its own output differently than
+    # the run that measured it, which is a suite that fails on one terminal and not another.
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    # `origin` is git@github.com:WebDevBooster/richos.git, so `fetch` authenticates over ssh
+    # through the agent. Without the socket the fetch phase prompts, and GIT_TERMINAL_PROMPT=0
+    # (set below) turns that prompt into a failure whose message names none of this.
+    "SSH_AUTH_SOCK",
+    # macOS keychain access for codesign, which is how the security session is found. Not
+    # needed by the gates; needed by the signing step that runs in the same environment.
+    "SECURITYSESSIONID",
+    # `gh api` in preflight and `gh release` at publish, for an operator who authenticates by
+    # token or against a non-default host rather than through `gh auth login`'s store.
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_HOST",
+    "GH_CONFIG_DIR",
+    # A Rust toolchain that is not at ~/.cargo and ~/.rustup.
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    # Xcode selection on a machine carrying more than one.
+    "DEVELOPER_DIR",
+    # The privacy deny-list for the `named-persons.sh --tree` gate. Operator-configurable by
+    # design, and defaulted below when unset.
+    "RICHOS_NAMED_PERSONS_FILE",
+)
+
+# WHAT THIS SCRIPT SETS FOR EVERY GATE, whatever the shell held. Declared as names here so
+# that `run-tests.test.sh` case E1 -- which re-runs the whole suite under the environment a
+# build hands it -- derives the list instead of keeping a copy that silently goes stale the
+# next time a variable is added. `nightly-local.py gate-environment` prints it.
+GATE_SET_BY_BUILD = (
+    "PATH",
+    "PYTHONDONTWRITEBYTECODE",
+    "CARGO_PROFILE_DEV_DEBUG",
+    "CARGO_PROFILE_TEST_DEBUG",
+    "GIT_TERMINAL_PROMPT",
+    "GIT_SSH_COMMAND",
+    "RICHOS_NIGHTLY_RUN_ID",
+    "RICHOS_NAMED_PERSONS_FILE",
+    # Set by Runner.runtime() once the pinned runtimes are verified.
+    "RICHOS_RUNTIME_DIR",
+)
+
+# WHAT THIS SCRIPT SETS FOR ONE STEP ONLY, at that step's own call site, through
+# `command(env_extra=...)`. These never come from the shell -- that is the point of them --
+# but a suite still has to survive seeing them, which is what E1 proves.
+# The UI suite's quarantine is NOT here, and that is deliberate: it is passed to `run.js` as
+# `--quarantine=` arguments, where it is visible in the command line the log records, rather
+# than through an environment variable a stray export could also set.
+GATE_SET_PER_STEP = (
+    "RUN_TESTS_DECLARED_GAPS",
+    "RUN_TESTS_SKIP_UNCHANGED",
+)
+
+
 def local_environment(run_id=None):
     """Return (environment, credentials). Nothing merges them but the signing steps.
 
@@ -326,16 +410,28 @@ def local_environment(run_id=None):
     id; `publish`/`candidate` never pass one, since they act on an EXISTING build's
     run id (given separately, as `--run`) rather than minting their own.
     """
-    env = os.environ.copy()
+    # THE TWO QUESTIONS ARE ANSWERED SEPARATELY, and that is why credentials are collected
+    # from the FULL environment while the gate environment is built from the allowlist. A
+    # signing variable the operator exported must still reach the step that signs; it must
+    # simply never reach a gate. Reading them from `os.environ` rather than popping them out
+    # of `env` is what lets both be true at once.
+    credentials = split_credentials(os.environ.copy())
+    env = {name: os.environ[name] for name in GATE_PASSTHROUGH if name in os.environ}
     # Explicit PATH also works from a fresh terminal, without an interactive shell.
     env["PATH"] = f"{Path.home()}/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    for key in ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG", "CARGO_TARGET_DIR",
-                "RUN_TESTS_DECLARED_GAPS"):
-        env.pop(key, None)
-    strip_identity_overrides(env)
-    # Whatever the operator's shell exported leaves the gate environment here, not
-    # only what notary.env supplies below.
-    credentials = split_credentials(env)
+    # NOT NEEDED ANY MORE, AND KEPT AS A PROOF RATHER THAN A STEP. Every name these two
+    # removed -- GIT_AUTHOR_*, GIT_COMMITTER_*, EMAIL, RICHOS_EXTRA_TAURI_CONFIG,
+    # TAURI_CONFIG, CARGO_TARGET_DIR, RUN_TESTS_DECLARED_GAPS -- is absent from
+    # GATE_PASSTHROUGH, so an allowlisted environment cannot contain one. Asserting that
+    # here means the day somebody adds a name to the allowlist without thinking, this fails
+    # loudly instead of quietly restoring the leak.
+    leaked = [n for n in IDENTITY_OVERRIDES + ("RICHOS_EXTRA_TAURI_CONFIG", "TAURI_CONFIG",
+                                               "CARGO_TARGET_DIR", "RUN_TESTS_DECLARED_GAPS")
+              if n in env]
+    if leaked:
+        raise ValueError(
+            f"GATE_PASSTHROUGH admits {', '.join(leaked)}, which a gate must never take from "
+            "the operator's shell. Remove the name from the allowlist.")
     credentials.pop("TAURI_SIGNING_PRIVATE_KEY", None)  # The key's literal bytes: the path form is used.
     credentials.update(notary_environment(Path.home() / ".richos-signing/notary.env"))
     credentials["TAURI_SIGNING_PRIVATE_KEY_PATH"] = str(private_file(
@@ -922,7 +1018,8 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["check", "build", "publish", "candidate", "release"])
+    parser.add_argument("command", choices=["check", "build", "publish", "candidate",
+                                           "release", "gate-environment"])
     parser.add_argument("--repo", type=Path, default=ROOT)
     parser.add_argument("--state-dir", type=Path, default=Path.home() / ".richos-nightly")
     parser.add_argument("--runtime-dir", type=Path, help="existing verified runtime cache")
@@ -940,6 +1037,19 @@ def main():
                         help="a gui-boot proof taken against this candidate's commit, required "
                              "to publish a candidate built with --no-host-screen")
     args = parser.parse_args()
+    # THE ONE COMMAND THAT BUILDS NOTHING, SIGNS NOTHING AND NEEDS NO STATE. It prints the
+    # declared gate environment so a test in another language can read the list instead of
+    # keeping a copy of it: `run-tests.test.sh` case E1 re-runs the whole suite under every
+    # variable a build exports, and a hand-written copy of that list goes stale in silence
+    # the next time one is added. It runs before the Apple-Silicon precondition on purpose --
+    # it is a question about this file's source, not about this machine.
+    if args.command == "gate-environment":
+        for kind, names in (("passthrough", GATE_PASSTHROUGH),
+                            ("set", GATE_SET_BY_BUILD),
+                            ("per-step", GATE_SET_PER_STEP)):
+            for name in names:
+                print(f"{kind}\t{name}")
+        return
     if args.command in ("publish", "candidate") and not args.run:
         parser.error(f"{args.command} requires --run <run-id> (see the output of a prior `build`)")
     if args.checks_done_at_land and args.command not in ("build", "release"):
