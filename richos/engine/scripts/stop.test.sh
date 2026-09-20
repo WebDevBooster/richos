@@ -253,12 +253,12 @@ fi
 # ---------------------------------------------------------------------------
 PRED="$ENGINE_ROOT/scripts/lib/stop-live-work.py"
 V_JSON="$(python3 "$PRED" --task-id alpha-opus-t1 --liveness ALIVE \
-    --entity-root "$ENTITY" --user-text "what is taking so long with the build" 2>&1)"
+    --entity-root "$ENTITY" 2>&1)"
 V="$(printf '%s' "$V_JSON" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("verdict") or "")
 except Exception: print("")' 2>/dev/null)"
 if [ "$V" = "allow-acked" ]; then
-    ok "S8  the TaskStop guard's own predicate answers allow-acked on a turn carrying no stop order — the stop goes through"
+    ok "S8  the TaskStop guard's own predicate answers allow-acked on the ack alone — his words are not an input to it, and the stop goes through"
 else
     bad "S8  the guard would answer '$V', not allow-acked; the ack this command writes is not the one the guard reads" "$V_JSON"
 fi

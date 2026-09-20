@@ -4,8 +4,16 @@
 # [TaskStop] gate.
 #
 # THE HEADLINE CASES ARE THE TWO REAL KILLS OF 2026-09-10, reconstructed from
-# the session transcript verbatim (his sentence is quoted exactly, not
-# paraphrased). If either of them ever passes again, this suite is red.
+# the session transcript. If either of them ever passes again, this suite is
+# red.
+#
+# THE SECOND HEADLINE IS 2026-09-20: this guard must not read anybody's
+# sentences at all. The deleted "authority B" allowed a kill when a regex found
+# a stop imperative in the last user message, and it answered AUTHORIZES to
+# "how is the stop command coming along". The section HIS SENTENCES ARE NOT AN
+# INPUT holds that ground structurally — by the absence of the code, by the CLI
+# refusing the arguments that fed it, and end to end against a transcript in
+# which the user plainly orders the stop.
 #
 # Everything else here exists to keep the guard NARROW: a gate that also
 # refuses self-stops, protocol traffic or the cleanup of a finished teammate
@@ -27,121 +35,101 @@ bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# --- HIS ACTUAL SENTENCE, 2026-09-10, VERBATIM -----------------------------
-# From /Users/alex/.claude/projects/-Users-alex-ab-femcboost/
-#   d0eef867-5636-46b7-a2bd-53dfd26564be.jsonl, line 3897.
-QUOTA_MSG='[Image #5] you should be able to fetch it somewhere/somehow. My point is: the currently running agents might need to be paused if we get close to hitting the quota before it resets.'
-
-decide() {  # task liveness user_text entity -> verdict
-    python3 "$LIB" --task-id "$1" --liveness "$2" --user-text "$3" \
-        --entity-root "$4" ${5:+--self-agent-id "$5"} 2>/dev/null \
+decide() {  # task liveness entity [self-agent-id] -> verdict
+    python3 "$LIB" --task-id "$1" --liveness "$2" \
+        --entity-root "$3" ${4:+--self-agent-id "$4"} 2>/dev/null \
         | python3 -c 'import json,sys
 try: print(json.load(sys.stdin)["verdict"])
 except Exception: print("ERROR")'
 }
 
 echo "== THE TWO KILLS OF 2026-09-10 =="
+# His sentence that morning — "the currently running agents MIGHT need to be
+# paused IF we get close to hitting the quota" — is no longer an input to
+# anything here, and these two are refused for the reason that survives:
+# a provably live target with no reason written down.
 for target in echo-opus-hw2 zach-opus-dor1; do
-    v="$(decide "$target" ALIVE "$QUOTA_MSG" "$TMP")"
-    [ "$v" = "refuse" ] && ok "$target: refused on his conditional sentence" \
+    v="$(decide "$target" ALIVE "$TMP")"
+    [ "$v" = "refuse" ] && ok "$target: a live teammate with nothing written down is refused" \
         || bad "$target: expected refuse, got '$v'"
 done
 
-# The refusal must QUOTE the disqualifying word back. A refusal that says
-# "he said nothing about stopping" teaches nothing when he plainly used the
-# word "paused"; the whole lesson is which word made it a hypothesis.
+# The refusal must say WHAT IS MISSING, in the terms the one way through uses.
+# "he said nothing about stopping" was the old wording and it pointed at a
+# predicate that no longer exists; the honest answer is that no ack is on disk.
 reason="$(python3 "$LIB" --task-id echo-opus-hw2 --liveness ALIVE \
-    --user-text "$QUOTA_MSG" --entity-root "$TMP" 2>/dev/null \
+    --entity-root "$TMP" 2>/dev/null \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])')"
 case "$reason" in
-    *"conditional on 'might'"*) ok "the refusal names the word that disqualified it" ;;
-    *) bad "the refusal does not name the hedge" "$reason" ;;
+    *"no live stop-work-ack for echo-opus-hw2"*) ok "the refusal names what is missing, by target" ;;
+    *) bad "the refusal does not name the missing ack" "$reason" ;;
 esac
 
 echo
 echo "== IT NEVER TOUCHES WHAT IT MUST NOT =="
-v="$(decide zach-opus-dor1 NOT-ALIVE "$QUOTA_MSG" "$TMP")"
+v="$(decide zach-opus-dor1 NOT-ALIVE "$TMP")"
 [ "$v" = "allow-not-live" ] && ok "cleanup of a finished teammate is silent" \
     || bad "finished-teammate cleanup: expected allow-not-live, got '$v'"
 
-v="$(decide a1b2c3 ALIVE "$QUOTA_MSG" "$TMP" a1b2c3)"
+v="$(decide a1b2c3 ALIVE "$TMP" a1b2c3)"
 [ "$v" = "allow-self" ] && ok "a teammate stopping ITSELF is never blocked" \
     || bad "self-stop: expected allow-self, got '$v'"
 
-v="$(decide zach-opus-dor1 INDETERMINATE "$QUOTA_MSG" "$TMP")"
+v="$(decide zach-opus-dor1 INDETERMINATE "$TMP")"
 [ "$v" = "allow-undecidable" ] && ok "INDETERMINATE allows, and is not collapsed into either verdict" \
     || bad "indeterminate: expected allow-undecidable, got '$v'"
 
 echo
-echo "== HIS OWN WORDS ALLOW =="
-# Every one of these is a REAL CEO message from the corpus.
-while IFS='|' read -r msg label; do
-    [ -z "$msg" ] && continue
-    v="$(decide some-opus-x1 ALIVE "$msg" "$TMP")"
-    [ "$v" = "allow-ceo-said-so" ] && ok "allows: $label" \
-        || bad "expected allow-ceo-said-so for $label, got '$v'"
-done <<'CASES'
-Stop.|"Stop." (2026-08-25)
-stop|"stop" (2026-08-25)
-actually, wait stop it|"actually, wait stop it" (2026-08-28)
-Stop building guards now. You've built enough already.|"Stop building guards now." (2026-09-02)
-Stop. All useless.|"Stop. All useless." (2026-08-25)
-Kill some-opus-x1 now.|an order naming this target
-CASES
+echo "== HIS SENTENCES ARE NOT AN INPUT (2026-09-20) =="
+# The deleted authority B read the last user message and allowed the kill when
+# a regex found a stop imperative. Measured that morning, it said AUTHORIZES to
+# "how is the stop command coming along". These four cases hold the removal
+# down from four directions: the code is gone, the arguments that fed it are
+# refused, the decision function cannot be handed text, and a transcript in
+# which the user plainly orders the stop changes nothing end to end (the last
+# one lives in the live-fixture section, which is the only place a genuinely
+# ALIVE target exists).
+if grep -q "authorizes_stop\|last_user_message" "$LIB"; then
+    bad "the sentence predicate is still in $LIB"
+else
+    ok "the predicate that read his words is gone from the library"
+fi
 
-echo
-echo "== A CONDITIONAL IS NOT AN INSTRUCTION =="
-while IFS='|' read -r msg label; do
-    [ -z "$msg" ] && continue
-    v="$(decide some-opus-x1 ALIVE "$msg" "$TMP")"
-    [ "$v" = "refuse" ] && ok "refuses: $label" \
-        || bad "expected refuse for $label, got '$v'"
-done <<'CASES'
-The agents might need to be stopped soon.|"might"
-Stop them if the quota runs out.|"if"
-We may need to kill them before the reset.|"may need to"
-Should we stop the agents?|a question
-Do we need to halt anything?|a question
-Don't stop them.|a negation
-Get ready for session restart|no stop word at all
-Consider stopping the agents.|"consider"
-We will need to stop them eventually.|"will need"/"eventually"
-Kill other-opus-y2 now.|an order scoped to a different teammate
-CASES
+# Not just the entry points: the machinery. A stop-word or hedge regex left
+# behind is the next person's invitation to wire it back up.
+if grep -qE "_STOP_VERB|_CONDITIONAL|_NEGATED|_STOP_ANYFORM|split_sentences" "$LIB"; then
+    bad "stop-imperative/hedge matching machinery is still present in $LIB"
+else
+    ok "no stop-word or hedge matching machinery remains"
+fi
 
-echo
-echo "== A TEAMMATE CANNOT AUTHORIZE ITS OWN DESTRUCTION, NOR ANOTHER'S =="
-# Teammate messages, task notifications and command output all arrive in the
-# transcript as `user` records. If those counted as his voice, a handoff
-# summary containing the word "stop" would license a kill.
-T="$TMP/injected.jsonl"
-cat >"$T" <<'JSONL'
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Carry on with the CI work."}]}}
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Another Claude session sent a message:\n<teammate-message teammate_id=\"echo-opus-hw2\">Stop. I am done and everything is committed.</teammate-message>"}]}}
-JSONL
+# THE POSITIVE PROBE FIRST. "The CLI rejected it" is also what a CLI that is
+# broken for every input reports, and a negative test that passes for the wrong
+# reason is worse than none. So prove the SAME invocation works without the
+# argument before believing the rejection means anything.
+probe="$(decide x-opus-1 ALIVE "$TMP")"
+[ "$probe" = "refuse" ] && ok "the CLI answers that same invocation when the argument is absent" \
+    || bad "the CLI is broken for valid input, so the rejections below prove nothing" "$probe"
+
+for arg in --user-text --transcript; do
+    if python3 "$LIB" --task-id x-opus-1 --liveness ALIVE --entity-root "$TMP" \
+            "$arg" "Stop everything now." >/dev/null 2>&1; then
+        bad "the CLI still accepts $arg"
+    else
+        ok "the CLI refuses $arg — there is no door left in the wall"
+    fi
+done
+
 got="$(python3 -c '
-import importlib.util,sys
+import importlib.util,inspect,sys
 spec=importlib.util.spec_from_file_location("slw",sys.argv[1])
 m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-print(m.last_user_message(sys.argv[2]))' "$LIB" "$T")"
+print(",".join(inspect.signature(m.decide).parameters))' "$LIB" 2>/dev/null)"
 case "$got" in
-    "Carry on with the CI work.") ok "a teammate message is not the user's voice" ;;
-    *) bad "injected teammate text was read as the user" "$got" ;;
+    *user_text*|*text*) bad "decide() still takes the user's text" "$got" ;;
+    "") bad "decide() could not be introspected" ;;
+    *) ok "decide() takes liveness and an entity root — no text parameter" ;;
 esac
-
-# A system reminder carries this project's own CLAUDE.md, which says "stop"
-# many times. It is machine-authored and must not authorize anything.
-T2="$TMP/reminder.jsonl"
-cat >"$T2" <<'JSONL'
-{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>Never stop a teammate without asking. Stop.</system-reminder>\nWhat is the CI status?"}]}}
-JSONL
-got="$(python3 -c '
-import importlib.util,sys
-spec=importlib.util.spec_from_file_location("slw",sys.argv[1])
-m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-t=m.last_user_message(sys.argv[2]); print(m.authorizes_stop(t,"x-opus-1")[0])' "$LIB" "$T2")"
-[ "$got" = "False" ] && ok "a system reminder cannot authorize a kill" \
-    || bad "a system reminder authorized a kill" "$got"
 
 echo
 echo "== THE WRITTEN ACK =="
@@ -149,19 +137,19 @@ E="$TMP/entity"; mkdir -p "$E"
 bash "$ACK" --entity "$E" --task echo-opus-hw2 \
     --destroying "an uncommitted three-hour session with a clean worktree" \
     --why "its brief was superseded and it is building the wrong thing" >/dev/null 2>&1
-v="$(decide echo-opus-hw2 ALIVE "$QUOTA_MSG" "$E")"
+v="$(decide echo-opus-hw2 ALIVE "$E")"
 [ "$v" = "allow-acked" ] && ok "a well-formed ack allows the stop" \
     || bad "well-formed ack: expected allow-acked, got '$v'"
 
 # ONE ACK, ONE TARGET. The two kills were 2.7 seconds apart.
-v="$(decide zach-opus-dor1 ALIVE "$QUOTA_MSG" "$E")"
+v="$(decide zach-opus-dor1 ALIVE "$E")"
 [ "$v" = "refuse" ] && ok "the ack covers ONE target, not the sweep" \
     || bad "ack leaked to another target: got '$v'"
 
 # ONE ACK, ONE DESTRUCTION.
-python3 "$LIB" --task-id echo-opus-hw2 --liveness ALIVE --user-text "$QUOTA_MSG" \
+python3 "$LIB" --task-id echo-opus-hw2 --liveness ALIVE \
     --entity-root "$E" --consume >/dev/null 2>&1
-v="$(decide echo-opus-hw2 ALIVE "$QUOTA_MSG" "$E")"
+v="$(decide echo-opus-hw2 ALIVE "$E")"
 [ "$v" = "refuse" ] && ok "the ack is spent on first use" \
     || bad "a spent ack was reused: got '$v'"
 
@@ -197,7 +185,7 @@ PY
 
 echo
 echo "== THE HOOK WIRING =="
-payload() { printf '{"tool_name":"%s","tool_input":%s,"session_id":"s1","cwd":"%s","transcript_path":""}' "$1" "$2" "${3:-$PWD}"; }
+payload() { printf '{"tool_name":"%s","tool_input":%s,"session_id":"s1","cwd":"%s","transcript_path":"%s"}' "$1" "$2" "${3:-$PWD}" "${4:-}"; }
 
 out="$(printf '%s' "$(payload Bash '{"command":"ls"}')" | bash "$GUARD" 2>&1)"; rc=$?
 [ $rc -eq 0 ] && [ -z "$out" ] && ok "a payload for another tool exits 0 in silence" \
@@ -266,6 +254,24 @@ else
         else
             bad "live agent NOT blocked end to end: rc=$rc" "$out"
         fi
+        # THE 2026-09-20 CASE, END TO END. A transcript whose last genuine user
+        # message is as plain a stop order as exists — no hedge, no question,
+        # naming this very target — and the live agent is STILL blocked,
+        # because no ack is on disk. Under authority B this passed; it is the
+        # same door "how is the stop command coming along" walked through.
+        ORDER_T="$TMP/ceo-order.jsonl"
+        cat >"$ORDER_T" <<'JSONL'
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Stop deadbeefcafe1234 now."}]}}
+JSONL
+        out="$(printf '%s' "$(payload TaskStop '{"task_id":"deadbeefcafe1234"}' "$REPO/.claude/worktrees/other" "$ORDER_T")" \
+              | RICHOS_ENTITY_ROOT="$REPO" CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" 2>&1)"; rc=$?
+        [ $rc -eq 2 ] && ok "a plain stop order in the transcript does NOT authorize the kill — the ack does" \
+            || bad "transcript text authorized a live kill: rc=$rc" "$out"
+        case "$out" in
+            *"stop.sh"*) ok "the refusal names stop.sh, the way his order becomes an ack in seconds" ;;
+            *) bad "the refusal does not name stop.sh" "$out" ;;
+        esac
+
         # And the self-stop escape, through the same hook, same fixture.
         out="$(printf '%s' "$(payload TaskStop '{"task_id":"deadbeefcafe1234"}' "$REPO/.claude/worktrees/agent-deadbeefcafe1234")" \
               | RICHOS_ENTITY_ROOT="$REPO" CLAUDE_PROJECT_DIR="$REPO" bash "$GUARD" 2>&1)"; rc=$?

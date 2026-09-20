@@ -8,8 +8,11 @@ WHY THIS FILE EXISTS
 2026-09-20, ~05:30Z. Three engineers were running. The CEO objected to the
 spend: "And those 3 are gonna keep running and burning my tokens OR WHAT???"
 Rich's `TaskStop` on each was refused by `guard-stop-live-work.sh` — correctly,
-because his sentence carried no unconditional stop imperative and no
-`stop-work-ack.sh` line existed on disk. The way through takes seconds. Rich
+because no `stop-work-ack.sh` line existed on disk. (The guard also weighed his
+sentence that morning, and found no unconditional stop imperative in it; that
+clause was removed later the same day, after it was measured reading "how is
+the stop command coming along" as an order. The guard now asks one question and
+this command is the answer to it.) The way through takes seconds. Rich
 sent "commit and hold" messages instead, which stop nothing until an agent
 happens to read one, and the CEO killed all three from his own screen a minute
 later: "DID YOU SUDDENLY FORGET HOW TO FUCKING STOP AN AGENT OR FUCKING WHAT?"

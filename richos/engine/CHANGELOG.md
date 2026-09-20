@@ -10,6 +10,33 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Removed — the TaskStop guard no longer reads the CEO's sentences (2026-09-20)
+
+- **`authorizes_stop()` and the whole language predicate are gone** from
+  `scripts/lib/stop-live-work.py`, along with `last_user_message()`, the stop-word,
+  hedge, negation and false-friend regexes, `decide()`'s `user_text` parameter, and the
+  CLI's `--user-text` / `--transcript` arguments. `guard-stop-live-work.sh` loses its
+  `allow-ceo-said-so` arm. A `TaskStop` against a provably live teammate is now decided
+  by one question: is a reason written down on disk.
+- **Why.** The deleted clause allowed a kill when a regex found an unconditional stop
+  imperative in the last user message. Measured 2026-09-20 (escalation
+  `esc-20260920T050611Z-fb0a4718`), it answered AUTHORIZES to *"how is the stop command
+  coming along"*, *"tell me about stop.sh"*, *"when will the stop command be ready"* and
+  *"the stop rule is in CLAUDE.md now"* — talk ABOUT stopping, read as the order to
+  destroy a live agent. *"When the fuck did I say 'blindly automate everything even
+  remotely related to a stop'??????"* (CEO, ceo-decisions §67). The clause had been
+  written after two teammates were killed on an inference from his words, and it
+  re-encoded that inference as a pattern.
+- **His stop still executes in seconds** — `scripts/stop.sh <names> --ceo-word "<his
+  sentence>"` writes the ack per named target and prints the exact calls. The authority
+  moved from a regex to Rich, quoting him.
+- **The transcript is still passed to the liveness resolver** for the name → agent-id
+  join, and to nothing else.
+- `guard-stop-live-work.test.sh`: 16 authority-B cases deleted, 6 added that hold the
+  removal down structurally and end to end (29 total). Corpus, README guard table and
+  `docs/failures-playbook.md` updated; the clause-B measurement is kept as the record of
+  why a hand-adjudicated corpus was evidence for the wrong proposition.
+
 ### Added — scratch that nobody is using gets deleted on a schedule (2026-09-17)
 
 - **`scripts/scratch-reaper.sh` + `scripts/lib/scratch-reaper.py`.** Deletes finished

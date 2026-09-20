@@ -432,11 +432,20 @@ gone. His reply was *"Did I say anything about stopping???"*
 
 **Enforced,** because this one destroys work that cannot be recovered:
 `scripts/hooks/guard-stop-live-work.sh` refuses a `TaskStop` against a
-**provably live** teammate unless the CEO ordered it in his own unconditional
-words or a reason is written down first with `scripts/stop-work-ack.sh`.
-**A conditional is not an instruction** — `might`, `if`, `may need to`,
-`should we` are hypotheses about a future, and reading one as an order is the
-whole of this failure. Retiring a finished teammate is untouched; so is an
+**provably live** teammate unless a reason is written down first —
+`scripts/stop-work-ack.sh` for your own call, or `scripts/stop.sh <names>
+--ceo-word "<his sentence>"` when he ordered it, which writes the same ack per
+named target in a second and prints the exact calls to make.
+
+**The guard does not read his sentences, and the reason is the second half of
+this failure.** The original fix carried a clause that hunted an unconditional
+stop imperative in the last user message and allowed the kill when it found
+one. On 2026-09-20 it was measured answering AUTHORIZES to *"how is the stop
+command coming along"* and *"tell me about stop.sh"* — talk ABOUT stopping,
+read as the order — and it was removed (ceo-decisions §67). A clause written
+because two agents were killed on an inference from his words had re-encoded
+that inference as a regex; a predicate over prose cannot tell an order from a
+conversation about orders. Retiring a finished teammate is untouched; so is an
 agent stopping itself. Corpus and the measured false-positive rate:
 `scripts/hooks/stop-live-work.corpus.md`.
 

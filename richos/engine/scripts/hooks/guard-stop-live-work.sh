@@ -2,8 +2,11 @@
 #
 # guard-stop-live-work.sh — BLOCKING PreToolUse guard on the TaskStop tool.
 #
-# ONE RULE: DESTROYING A LIVE TEAMMATE'S WORK REQUIRES THE CEO'S OWN WORDS OR A
-# WRITTEN, CHECKABLE REASON.
+# ONE RULE: DESTROYING A LIVE TEAMMATE'S WORK REQUIRES A WRITTEN, CHECKABLE
+# REASON ON DISK BEFORE THE CALL.
+#
+# THIS GUARD DOES NOT READ THE CEO'S SENTENCES. It used to, and what that cost
+# is the second failure below.
 #
 # ===========================================================================
 # THE FAILURE, 2026-09-10
@@ -24,6 +27,26 @@
 # of the four, because it is the only one whose cost cannot be undone.
 #
 # ===========================================================================
+# THE SECOND FAILURE, 2026-09-20 — AND THE CLAUSE THAT IS GONE
+# ===========================================================================
+# The first fix carried an "authority B": a regex over the last genuine user
+# message that ALLOWED the kill when it found an unconditional stop imperative.
+# Measured 2026-09-20 (escalation esc-20260920T050611Z-fb0a4718), it answered
+# AUTHORIZES to "how is the stop command coming along", "tell me about
+# stop.sh", "when will the stop command be ready" and "the stop rule is in
+# CLAUDE.md now" — ordinary talk ABOUT stopping, each of which would have waved
+# a live teammate's destruction through with no ack at all.
+#
+# "When the fuck did I say 'blindly automate everything even remotely related
+#  to a stop'??????"  — CEO, 2026-09-20. He never did. (ceo-decisions §67)
+#
+# A clause written because a kill was made on an INFERENCE from his words had
+# re-encoded that inference as a pattern. It is removed. His stop still goes
+# through in seconds — `scripts/stop.sh <names> --ceo-word "<his sentence>"`
+# writes the ack per named target and prints the exact TaskStop calls — by
+# Rich's explicit act, quoting him, never by a machine reading him.
+#
+# ===========================================================================
 # THE CONTRACT
 # ===========================================================================
 # The predicate, the corpus measurement and the argument for every clause live
@@ -33,11 +56,9 @@
 #   ALLOW, SILENTLY   the target is not provably running (a finished teammate
 #                     being retired -- the overwhelming majority of real
 #                     TaskStop traffic), or the caller IS the target.
-#   ALLOW             the last genuine user message carries an unconditional,
-#                     non-negated, non-interrogative stop imperative.
 #   ALLOW + record    a live, targeted, unconsumed stop-work-ack.
 #   ALLOW + NOTE      liveness is INDETERMINATE. Said out loud, never guessed.
-#   BLOCK             a PROVABLY LIVE target, no instruction, nothing written.
+#   BLOCK             a PROVABLY LIVE target with nothing written down.
 #
 # ===========================================================================
 # WHY BLOCKING, AND THE NUMBERS THAT DECIDED IT
@@ -47,18 +68,18 @@
 # one by one in scripts/hooks/stop-live-work.corpus.md.
 #
 #   100  real TaskStop calls
-#    94  target NOT provably live at the call, or the CEO had not spoken
-#         -> of these, the great majority are the legitimate dominant use:
-#            retiring a teammate that had already handed off. Those reach
-#            authority A and the guard never speaks.
-#     6  carried the CEO's own unconditional stop order -> authority B allows,
-#        and it fires on exactly those six and on nothing else.
-#     2  are today's kills. Both are refused.
+#    94  target NOT provably live at the call -> of these, the great majority
+#         are the legitimate dominant use: retiring a teammate that had already
+#         handed off. Those reach authority A and the guard never speaks.
+#     6  carried an order of his -> under the deleted authority B they were
+#        allowed unwritten; now each is one `stop.sh` invocation, which writes
+#        the ack with his sentence in it and takes a second.
+#     2  are the kills of 2026-09-10. Both are refused.
 #
-#   FALSE POSITIVES ON THE MEASURED CORPUS: 0.
+#   FALSE POSITIVES ON THE MEASURED CORPUS: 0 — and they were always 0 for the
+#   liveness reason below, never for the language predicate that is now gone.
 #
-# The clause that makes that number 0 is the liveness gate, not the language
-# predicate. This guard refuses only on a POSITIVE ALIVE verdict from
+# This guard refuses only on a POSITIVE ALIVE verdict from
 # scripts/lib/agent-liveness.py, whose authoritative source is the worktree
 # lock. A finished teammate has no lock, so every cleanup passes untouched and
 # a habit of waiving never gets a chance to form. That is the g11/g12/g13
@@ -114,7 +135,7 @@ fi
 
 # python3 is required to read anything at all. FAIL OPEN -- see the header.
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "NOTE: guard-stop-live-work.sh: python3 unavailable, so this TaskStop was NOT checked against the CEO's instruction or an ack. $HOOK_TAG" >&2
+    echo "NOTE: guard-stop-live-work.sh: python3 unavailable, so this TaskStop was NOT checked against a written stop-work-ack. $HOOK_TAG" >&2
     exit 0
 fi
 
@@ -252,6 +273,11 @@ fi
 # and scripts/lib/agent-liveness.py is its only parser. This asks that parser
 # rather than adding a second one.
 #
+# THE TRANSCRIPT IS PASSED FOR THAT JOIN AND FOR NOTHING ELSE. It is read for
+# `Agent` tool_use records joined to their agent ids — never for what the CEO,
+# or anyone, wrote. The predicate below is not given it at all, which is the
+# point of the 2026-09-20 change in the header.
+#
 # The caller's own agent id comes from its cwd when it is an isolation
 # worktree, which is how "a teammate stopping itself" is recognized without
 # trusting anything the caller says.
@@ -323,7 +349,6 @@ VERDICT_JSON="$(
     python3 "$ENGINE_ROOT/scripts/lib/stop-live-work.py" \
         --task-id "$TASK_ID" \
         --liveness "$LIVENESS" \
-        --transcript "$TRANSCRIPT" \
         --entity-root "$ENTITY_ROOT" \
         --self-agent-id "$SELF_AGENT_ID" \
         --resolved-agent-id "$RESOLVED_ID" \
@@ -356,10 +381,6 @@ case "$VERDICT" in
         echo "NOTE: TaskStop on '$TASK_ID' — could not establish whether it is still running (${LIVE_DETAIL:-no evidence}), so it was allowed unchecked. If it IS running and has not committed, that work is now gone. $HOOK_TAG" >&2
         exit 0
         ;;
-    allow-ceo-said-so)
-        echo "TaskStop on '$TASK_ID' allowed: he said so — ${REASON}. $HOOK_TAG" >&2
-        exit 0
-        ;;
     allow-acked)
         mkdir -p "$LOG_DIR" 2>/dev/null || true
         {
@@ -376,7 +397,7 @@ esac
     echo "BLOCKED: TaskStop on '$TASK_ID' would destroy work that is STILL RUNNING."
     echo
     echo "  Liveness: ALIVE — ${LIVE_DETAIL:-its isolation worktree lock is held by a running process}"
-    echo "  Instruction: ${REASON}"
+    echo "  On disk:  ${REASON}"
     echo
     echo "  TaskStop is a destructor, not a pause. To PAUSE, message the teammate:"
     echo "  commit what you have, then hold - end your turn and wait to be messaged."
@@ -390,15 +411,19 @@ esac
     echo "  flight is already paid for; killing it refunds nothing and forfeits"
     echo "  the result. The action that costs nothing is to stop DISPATCHING."
     echo
-    echo "  Two ways forward, and only two:"
+    echo "  Two ways forward, and only two. BOTH TAKE SECONDS, and both end in"
+    echo "  a reason on disk — this guard does not read anybody's sentences."
     echo
-    echo "    1. HE SAYS IT. An unconditional instruction to stop, in his own"
-    echo "       words, in this session. A conditional is not an instruction —"
-    echo "       'might', 'if', 'may need to', 'should we' are hypotheses about"
-    echo "       a future, and reading one as an order is the exact mistake this"
-    echo "       refusal exists to prevent."
+    echo "    1. HE ORDERED IT. Run his stop, quoting him:"
     echo
-    echo "    2. YOU WRITE IT DOWN:"
+    echo "         $ENGINE_ROOT/scripts/stop.sh '$TASK_ID' \\"
+    echo "             --ceo-word '<his sentence, verbatim>'"
+    echo
+    echo "       It names only the teammates he named, measures what each one"
+    echo "       would lose, writes the ack per target with his words in it,"
+    echo "       and prints the exact TaskStop call to make next."
+    echo
+    echo "    2. IT IS YOUR CALL. Write your own reason down:"
     echo
     echo "         $ENGINE_ROOT/scripts/stop-work-ack.sh \\"
     echo "             --task '$TASK_ID' \\"

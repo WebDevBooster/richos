@@ -606,11 +606,12 @@ HOOK_FILES+=(
     # The STOP predicate and the ack recorder that is its only escape hatch.
     # Check the lock, ignore the key — for the fourth time, and this one has
     # the shortest fuse of any of them. guard-stop-live-work.sh decides nothing
-    # itself: it asks stop-live-work.py whether the CEO ordered this stop and
-    # whether an ack exists, and hashing the guard while leaving the answer
-    # unverified would be checking the lock and ignoring the key exactly as
-    # above. What makes it sharper is the direction a tampered copy fails in.
-    # A `return True` in authorizes_stop() leaves the guard wired, hashed,
+    # itself: it asks stop-live-work.py whether a written ack exists for this
+    # exact target, and hashing the guard while leaving the answer unverified
+    # would be checking the lock and ignoring the key exactly as above. What
+    # makes it sharper is the direction a tampered copy fails in.
+    # A `return best, ""` bolted onto find_live_ack() — or any edit that hands
+    # decide() an ALLOW it did not earn — leaves the guard wired, hashed,
     # green in the probe, announced in the session banner — and waving through
     # every kill it was written to refuse, silently, because an ALLOW says
     # nothing. The symptom of that is indistinguishable from a morning where
