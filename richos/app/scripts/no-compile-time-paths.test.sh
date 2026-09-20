@@ -30,6 +30,7 @@
 #   P8  a missing root is exit 2, never a clean pass over nothing
 #   P9  the phone app is reachable from where build.rs looks for it — the check that would
 #       have failed the moment the 2026-09-18 move landed with a stale relative path
+# run-tests: inputs richos/app/scripts/no-compile-time-paths.test.sh richos/app/scripts/lib/no_compile_time_paths.py richos/app/src-tauri richos/app/crates richos/app/ui richos/web/web-app
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
