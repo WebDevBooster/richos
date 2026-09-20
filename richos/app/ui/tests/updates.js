@@ -173,13 +173,19 @@ async function settled(page) {
 /// ONE SHUTTER FOR EVERY COMMITTED SHOT IN THIS SUITE, and it waits for the one piece of the
 /// shell this suite never drove.
 ///
-/// `main.js:3113` polls `get_worker_status` every 3,000 ms and rebuilds the drill chip from
-/// the answer, with NO leading call — so for up to three seconds after the app opens a
-/// conversation the chip zone is empty, and then a whole line of text arrives in it. Every
-/// shot in this file is a full-page picture of that shell, taken seconds after the app came
-/// up, which is precisely that window.
+/// `main.js` polls `get_worker_status` every 3,000 ms and rebuilds the drill chip from the
+/// answer. It used to do so with NO leading call — so for up to three seconds after the app
+/// opened a conversation the chip zone was empty, and then a whole line of text arrived in it.
+/// Every shot in this file is a full-page picture of that shell, taken seconds after the app
+/// came up, which was precisely that window.
 ///
-/// MEASURED, 2026-09-20, on this tree: a probe that reached `updates-cue-absent`'s state and
+/// `openThread` now awaits `pollWorkerStatus()` before it returns, so the chip is on screen
+/// with the conversation. This wait stays: the 3,000 ms interval still re-renders the chip for
+/// as long as the page is open, and a shutter can still land mid-re-render. It simply costs
+/// less now — the settle agrees with a chip that is already there instead of waiting for one.
+///
+/// MEASURED, 2026-09-20, on this tree, BEFORE the leading call: a probe that reached
+/// `updates-cue-absent`'s state and
 /// read `document.body.innerText` three times 1.6 s apart found the line `⋯ 1 working · 1
 /// done · 1 I can't see` absent at the first two reads and present at the third. Nothing this
 /// suite asserts is about the work chip, and a picture that has it in one run and not the

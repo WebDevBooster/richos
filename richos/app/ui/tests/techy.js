@@ -258,15 +258,22 @@ const techRows = (page) =>
 /// ONE SHUTTER FOR EVERY COMMITTED SHOT IN THIS SUITE, and it waits for the chrome this
 /// suite never drove.
 ///
-/// `main.js:3113` polls `get_worker_status` every 3,000 ms and rebuilds the drill chip from
-/// the answer — and there is NO leading call, so from the moment a thread becomes the open
-/// conversation the chip zone is empty for up to three seconds and then a whole line of text
-/// arrives in it. Every shot below is of the conversation surface, and every one of them is
-/// taken within a second or two of opening a thread, which is exactly that window.
+/// `main.js` polls `get_worker_status` every 3,000 ms and rebuilds the drill chip from the
+/// answer. It USED TO HAVE NO LEADING CALL, so from the moment a thread became the open
+/// conversation the chip zone was empty for up to three seconds and then a whole line of text
+/// arrived in it. Every shot below is of the conversation surface, and every one of them is
+/// taken within a second or two of opening a thread, which was exactly that window.
 ///
-/// MEASURED, 2026-09-20, on this tree. A probe that reached `3-1-07`'s state and then read
-/// `document.body.innerText` three times 1.6 s apart: the line `⋯ 1 working · 1 done · 1 I
-/// can't see` was ABSENT at the shutter point and PRESENT 1.6 s later. And with the five
+/// THE LEADING CALL NOW EXISTS — `openThread` awaits `pollWorkerStatus()` before it returns —
+/// and this wait is kept rather than deleted, because it was never about the FIRST paint: the
+/// 3,000 ms interval still re-renders the chip for as long as the page is open, so a shutter
+/// can still land in the middle of a re-render. What changed is the cost: the settle now
+/// agrees with a chip that is already on screen instead of waiting for one to arrive.
+///
+/// MEASURED, 2026-09-20, on this tree, BEFORE the leading call existed. A probe that reached
+/// `3-1-07`'s state and then read `document.body.innerText` three times 1.6 s apart: the line
+/// `⋯ 1 working · 1 done · 1 I can't see` was ABSENT at the shutter point and PRESENT 1.6 s
+/// later. That is the defect the leading call fixes. And with the five
 /// owning suites of the seven undeclared unstable shots run concurrently — the contention
 /// the gate's shards have, which a serial run of one suite does not — `3-1-03` came back
 /// different in two consecutive rounds, 79,928 of 1,330,000 pixels at a worst channel delta

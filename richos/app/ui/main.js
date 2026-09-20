@@ -1019,23 +1019,20 @@ async function openThread(threadId, opts) {
   // `closeWorkerInspector()` call fourteen lines down calls "the exact shape of leak every
   // guard in this build exists to stop", and it was arriving through a different door.
   //
-  // **WHAT THIS FIXES AND WHAT IT DELIBERATELY DOES NOT.** It makes a WRONG chip
+  // **WHAT THIS FIXES, AND WHERE THE OTHER HALF NOW LIVES.** This makes a WRONG chip
   // impossible at any width: from this line the chip carries nothing rather than another
-  // conversation's counts. It does NOT make the right counts arrive any sooner — the
-  // interval below still fires first at t+3000ms, never at t+0, so the chip is now EMPTY for
-  // up to three seconds after a switch or a launch instead of false for up to three seconds.
+  // conversation's counts. On its own it did NOT make the right counts arrive any sooner —
+  // the interval below fires first at t+3000ms, never at t+0 — so for a day the chip was
+  // EMPTY for up to three seconds after a switch or a launch instead of false for up to
+  // three seconds. EMPTY IS STRICTLY BETTER THAN FALSE, which is why that half landed on
+  // its own: a chip that says nothing tells him nothing, and a chip that says "2 working ·
+  // 1 waiting for you" about the conversation he just left tells him something untrue.
   //
-  // That second half is a real defect and it is measured, but it is NOT fixed here and the
-  // reason is named rather than left as an omission: a leading `pollWorkerStatus()` puts the
-  // chip on screen before the first tick, and doing so moves two text nodes onto 32 of the 43
-  // surfaces `ui/tests/contrast.js` walks — which re-calibrates that suite's whole floor
-  // table and turns its 9z negative control red on seven surfaces. Measured both ways on one
-  // host, same tree: bare shell 92 of 562 without it, 94 of 564 with it. Raised as
-  // esc-20260920T075635Z-0f2cba02, with the per-surface deltas.
-  //
-  // EMPTY IS STRICTLY BETTER THAN FALSE, which is why this half lands on its own: a chip that
-  // says nothing for three seconds tells him nothing, and a chip that says "2 working · 1
-  // waiting for you" about the conversation he just left tells him something untrue.
+  // THE SECOND HALF IS NOW HERE TOO — the awaited `pollWorkerStatus()` further down this
+  // function, where its own block states the cost that held it back and what re-deriving it
+  // came to (esc-20260920T075635Z-0f2cba02). The pair is what this function promises: the
+  // chip is never another conversation's, and it is this conversation's in the first
+  // rendered second.
   workerCounts = { active: 0, livenessUnknown: 0 };
   assignments = {rows: []};
   // The previous company's offer must not remain clickable while activation is pending.
@@ -1140,6 +1137,34 @@ async function openThread(threadId, opts) {
   // and before the awaited calls below: `replayHeldSend` compares the box against what he
   // actually submitted, so it has to run while that is still the box's state.
   replayHeldSend(threadId);
+  // **AND THE CHIP CARRIES THIS THREAD'S WORK IN THE FIRST RENDERED SECOND, not the fourth.**
+  //
+  // The synchronous head above clears all four pieces of state `renderDrillChip` reads, so from
+  // there the chip is EMPTY rather than wrong (10e6e426). Empty is better than false and it is
+  // still not right: the refill was on a free-running 3,000 ms interval with NO leading call,
+  // so after every launch and every conversation switch the status line he reads most often
+  // said nothing at all about work that was already running, for up to three seconds. Measured
+  // on this tree before this line existed — `techy.js:261-273`'s probe read `⋯ 1 working · 1
+  // done · 1 I can't see` as ABSENT at the shutter and PRESENT 1.6 s later.
+  //
+  // ONE AWAITED CALL, AND IT IS BOUNDED BY CONSTRUCTION rather than by hope. Every command it
+  // issues is non-blocking on the spine BY DESIGN, so it cannot hold `renderFirstRunNotice()`
+  // below behind a model turn: `get_worker_status` reads `TurnControl` and never the spine
+  // (`src-tauri/src/main.rs:3388-3399` — "Taking the spine lock here would make the worker chip
+  // block until Rich finished"), and `get_work_status` and `get_assignments` take the spine
+  // with `try_lock` and answer in a sentence rather than waiting (`main.rs:3411`, `main.rs:3557`).
+  // Three non-blocking round trips, never a turn.
+  //
+  // AWAITED rather than fired and forgotten, because `openThread` is what every caller and
+  // every driver awaits: awaiting it here makes "the thread is open" and "the chip is right"
+  // the same instant instead of two instants a scheduler apart. It carries its own
+  // `workStatusRead` ticket, so a second switch landing mid-flight still discards the older
+  // answer.
+  //
+  // Placed AFTER `replayHeldSend` (which must see the box exactly as `restoreThreadViewState`
+  // left it) and BEFORE `renderFirstRunNotice`, so the chip arrives with the conversation
+  // rather than behind the onboarding question that may follow it.
+  await pollWorkerStatus();
   // WHERE ONBOARDING STANDS FOR THIS THREAD'S COMPANY. Re-derived on every thread open
   // rather than once at boot, because a thread's company is immutable and moving between
   // threads can move between companies — a notice left over from the last one would be a
