@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("path");
+const { spawnSync } = require("child_process");
 const { loadPlaywright, leaveHome, createRun, assert, assertEqual, UI_DIR } = require("./lib/harness");
 const APP = "file://" + path.join(UI_DIR, "index.html");
 
@@ -82,6 +83,23 @@ async function main() {
       assert(view.title && view.title !== title, "the previous breadcrumb is gone");
       assert(view.text.includes("Waiting for its saved messages"), "the cache miss is explicit");
       assert(!view.text.includes(saved.trim()), "another entity's content cannot carry across");
+      const ratios = [];
+      for (const theme of ["light", "dark"]) {
+        const colors = await page.evaluate(async theme => {
+          document.documentElement.setAttribute("data-theme", theme);
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const text = document.querySelector(".thread-loading");
+          let background = text;
+          while (background && ["rgba(0, 0, 0, 0)", "transparent"].includes(getComputedStyle(background).backgroundColor)) {
+            background = background.parentElement;
+          }
+          return [getComputedStyle(text).color, getComputedStyle(background || document.body).backgroundColor];
+        }, theme);
+        const contrast = spawnSync("python3", [path.resolve(UI_DIR, "../scripts/qa/contrast.py"), ...colors], { encoding: "utf8" });
+        assertEqual(contrast.status, 0, theme + ": " + contrast.stdout + contrast.stderr);
+        ratios.push(theme + ": " + contrast.stdout.trim());
+      }
+      return ratios.join("; ");
     });
 
     await run.check("rapid navigation cannot let an older activation repaint the latest selection", async () => {
