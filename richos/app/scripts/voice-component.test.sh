@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Source and consumer integration for engine/voice, including Rust's compiled metadata.
+# run-tests: inputs richos/app/scripts/voice-component.test.sh richos/engine/voice richos/app/crates/richos-voice richos/app/Cargo.toml
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VOICE="$HERE/../../engine/voice"

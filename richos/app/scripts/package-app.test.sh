@@ -97,6 +97,7 @@
 # bundle, calls `open`, or drives System Events; every `richos-tauri` in it is a string in a
 # Cargo.toml it writes.
 # run-tests: no-host-screen: every bundle here is a fixture whose executable is /bin/echo, copied and never launched
+# run-tests: inputs richos/app/scripts/package-app.test.sh richos/app/scripts/package-app.sh richos/app/scripts/install-signing-cert.sh richos/app/scripts/nightly-local.py richos/app/src-tauri/Cargo.toml richos/app/src-tauri/Info.plist richos/app/src-tauri/Entitlements.plist
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

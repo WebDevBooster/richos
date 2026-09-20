@@ -40,6 +40,7 @@
 # executable is /bin/echo. Every bundle in this file is signed and inspected; not one is
 # launched.
 # run-tests: no-host-screen: its bundles are /bin/echo fixtures that are signed and read, never launched
+# run-tests: inputs richos/app/scripts/rebuild-survival.test.sh richos/app/scripts/rebuild-survival.sh
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
