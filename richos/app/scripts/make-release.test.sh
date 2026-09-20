@@ -51,7 +51,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$SRC_DIR/.." && pwd)"
 SCRIPT="$SRC_DIR/make-release.sh"
 
-TMP="$(mktemp -d -t make-release-test.XXXXXX)"
+TMP="$(python3 -c 'import tempfile; print(tempfile.mkdtemp(prefix="make-release-test-"))')"
 SERVER_PID=""
 cleanup() { [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null; rm -rf "$TMP"; }
 trap cleanup EXIT

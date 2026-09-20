@@ -472,13 +472,11 @@ $(printf '%s' "$dirty" | sed 's/^/    /')" 1
     || die "the built bundle says it is $plist_version and this release is $VERSION.
   The tag, the manifest and the binary would disagree." 1
 
-  # Check the compiled identity as well as the plist. This probe exits before
-  # setup, update activation or any access to the operator's application data.
-  local identity
-  identity="$("$exe" --richos-internal-update-identity)" \
-    || die "the built executable could not report its update identity" 1
-  printf '%s' "$identity" | python3 -c 'import json,sys; p=json.load(sys.stdin); sys.exit(0 if p.get("version")==sys.argv[1] and p.get("identifier")=="com.richos.app" else 1)' "$VERSION" \
-    || die "the compiled executable version does not match $VERSION" 1
+  # Run the existing headless identity entry point and the delivered compiler
+  # inside an isolated installation, including controls that defeat isolation.
+  python3 "$here/lib/probe_packaged.py" --app "$bundle" \
+    --engine-archive "$OUT/$ENGINE_ASSET" --engine-sha256 "$RICHOS_ENGINE_SHA256" \
+    || die "the headless packaged-component probe failed" 1
 
   # ---- the first-install artifact -----------------------------------------------------
   #
