@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import json
+import hashlib
 import os
 from pathlib import Path
 import signal
@@ -179,8 +180,13 @@ def main(argv=None):
         os.environ["CARGO_PROFILE_DEV_DEBUG"] = "0"
         os.environ["CARGO_PROFILE_TEST_DEBUG"] = "0"
         rows = inventory(ROOT)
+        report["source"] = {
+            "revision": checked(["git", "rev-parse", "HEAD"], ROOT).strip(),
+            "working_diff_sha256": hashlib.sha256(checked(["git", "diff", "HEAD", "--binary"], ROOT).encode()).hexdigest(),
+        }
+        report["target_directory"] = os.environ.get("CARGO_TARGET_DIR", "Cargo default")
         if args.js_report:
-            report = js_report(ROOT, rows)
+            report.update(js_report(ROOT, rows))
             print(json.dumps(report, indent=2))
             return 0
         if args.nightly and not os.environ.get("RICHOS_NIGHTLY_RUN_ID"):
@@ -189,6 +195,7 @@ def main(argv=None):
         # never probes release.lock or host load, including inside a nightly
         # that already owns that lock. Cargo arbitrates its own cache lock.
         tool_versions = versions(ROOT, cargo=not args.static)
+        report["versions"] = tool_versions
         if not args.nightly or not fast_was_run(args.suite_results, os.environ.get("RICHOS_NIGHTLY_RUN_ID")):
             tick = time.monotonic()
             print("ShellCheck and custom rules running", flush=True)
