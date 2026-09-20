@@ -10,7 +10,7 @@
 //! `src-tauri` is a binary crate, so an example cannot `use` it — `#[path]` inclusion is
 //! how one source file ends up compiled into both.
 
-use richos_core::spine::Spine;
+use richos_core::read_view::SpineView;
 use richos_core::timeline::ViewMode;
 
 /// One thread's typed timeline (UX §12), gated to the CEO view (§5.3).
@@ -24,7 +24,7 @@ use richos_core::timeline::ViewMode;
 ///
 /// Fails closed on an unbound thread, exactly like `get_messages`: "I will not serve this"
 /// and "there is nothing here" are different statements.
-pub fn timeline_payload(spine: &Spine, thread_id: &str) -> Result<serde_json::Value, String> {
+pub fn timeline_payload(spine: &dyn SpineView, thread_id: &str) -> Result<serde_json::Value, String> {
     let timeline = spine.timeline(thread_id).map_err(|e| e.to_string())?;
     Ok(timeline.view(ViewMode::Ceo).payload())
 }

@@ -7,8 +7,9 @@
 //!
 //! ## What this layer is allowed to do
 //!
-//! **Relay a name and a payload. Nothing else.** It builds no payload, resolves no scope,
-//! makes no visibility decision and knows no event names. All of that lives in
+//! **Relay a name and a payload.** It builds no payload, resolves no scope and
+//! makes no visibility decision. Optional timing logs observe event identities only.
+//! Payload construction and visibility policy live in
 //! `richos_core::live`, where it is unit-tested without a webview; if this file could
 //! construct an event, the ECS fence and the visibility gate would both be one careless
 //! edit away from being bypassed. `LiveEvent`'s fence is not even constructible from here
@@ -46,6 +47,16 @@ pub struct TauriLiveEmitter {
 
 impl LiveObserver for TauriLiveEmitter {
     fn on_live_event(&self, event: &LiveEvent) {
-        let _ = self.app.emit(event.event_name(), event.payload());
+        let payload = event.payload();
+        // Opt-in timing evidence carries identities and a clock, never message content.
+        // An emitted text event and text rendered by the window are separate milestones.
+        if crate::hop_trace_is_on() && matches!(event.event_name(),
+            "rich://message-delta" | "rich://ceo-message" | "rich://turn-status") {
+            let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis()).unwrap_or(0);
+            eprintln!("[richos] event-timing at={at} event={} thread={} turn={}",
+                event.event_name(), payload["threadId"], payload["turnId"]);
+        }
+        let _ = self.app.emit(event.event_name(), payload);
     }
 }

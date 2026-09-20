@@ -209,6 +209,22 @@ let entityChoice = null;
 // cost the CEO the fastest path into his own work on every launch. §21's rule is the argument
 // as well: a REMEMBERED selection must never overwrite a CHOSEN one.
 let openingThread = null;
+// Bound models retain already rendered messages while activation waits for the writer.
+// Each entry belongs to an immutable entity/thread pair. Keep this window cache bounded.
+const threadViews = new Map();
+let threadViewEpoch = 0;
+function threadViewKey(entityId, threadId) { return JSON.stringify([entityId, threadId]); }
+function rememberThreadView() {
+  if (!timelineModel.entityId || !timelineModel.threadId || timelineModel.cacheEpoch !== threadViewEpoch) return;
+  const key = threadViewKey(timelineModel.entityId, timelineModel.threadId);
+  threadViews.delete(key);
+  threadViews.set(key, { model: timelineModel, techy });
+  while (threadViews.size > 12) threadViews.delete(threadViews.keys().next().value);
+}
+function updateCachedThread(method, payload) {
+  const entry = threadViews.get(threadViewKey(payload.entityId, payload.threadId));
+  if (entry && entry.model !== timelineModel) window.RichTimeline[method](entry.model, payload);
+}
 let navTicket = 0; // every openThread takes one, synchronously, before its first await
 let handNavigations = 0; // how many threads the CEO has asked for himself this launch
 
@@ -742,7 +758,7 @@ function renderRail() {
 function setMainView(view) {
   mainView = view;
   if (view !== "opening") openingThread = null;
-  conversationEl.hidden = view !== "conversation";
+  conversationEl.hidden = view !== "conversation" && view !== "opening";
   entityViewEl.hidden = view !== "entity";
   unboundViewEl.hidden = view !== "unbound";
   // The waiting band is a conversation surface. It never sits over the entity screen or the
@@ -898,6 +914,13 @@ function showEntityView(entityId, mode) {
 /// Read from `activeContext` (the binding) whenever one exists, so the header states what
 /// the SPINE thinks the scope is rather than what this file believes it selected.
 function renderScopeHeader() {
+  if (mainView === "opening" && openingThread) {
+    const row = threadRow(openingThread.threadId);
+    scopeEntityEl.textContent = row ? entityLabel(row.entity_id) : "";
+    scopeSepEl.hidden = !row;
+    scopeThreadEl.textContent = row ? row.display_title : "";
+    return;
+  }
   if (mainView === "entity" && viewEntityId) {
     scopeEntityEl.textContent = entityLabel(viewEntityId);
     scopeSepEl.hidden = false;
@@ -1003,6 +1026,8 @@ async function openThread(threadId, opts) {
   const ticket = ++navTicket;
   const stale = () => ticket !== navTicket;
 
+  if (mainView === "conversation") rememberThreadView();
+  const cached = threadViews.get(threadViewKey(row.entity_id, threadId));
   const previousModel = openingThread ? openingThread.previousModel : timelineModel;
   stashThreadViewState();
   clearLiveMark(threadId);
@@ -1040,10 +1065,12 @@ async function openThread(threadId, opts) {
   firstRunState = null;
   ++firstRunRead;
   drillItems = [];
-  // A fresh model per thread. `sessionLiveTurns` (not this model) remembers what is running
-  // where, so nothing about the previous thread's live turn leaks into this one and nothing
-  // about THIS thread's live turn is forgotten by having left it.
-  timelineModel = window.RichTimeline.createModel();
+  timelineModel = cached ? cached.model : window.RichTimeline.createModel();
+  if (!cached) window.RichTimeline.bind(timelineModel, row.entity_id, threadId, row.binding_revision);
+  techy = cached ? cached.techy : null;
+  renderTechyChip();
+  renderTechyState(null);
+  renderBetweenTurns(null);
   renderDrillChip();
   closeSlideOver();
   closeThreadMenu();
@@ -1063,13 +1090,16 @@ async function openThread(threadId, opts) {
     return;
   }
 
-  openingThread = { threadId, previousModel, startedAt: Date.now(), quietAnnounced: false };
+  openingThread = { threadId, previousModel, cached: !!cached, startedAt: Date.now(), quietAnnounced: false };
   inputEl.value = drafts.get(threadId) || "";
   inputEl.disabled = false;
   autoGrow();
   composerBlockedEl.hidden = true;
   composerScopeEl.hidden = true;
   setMainView("opening");
+  renderScopeHeader();
+  // Paint the destination in this animation frame, before any activation/read completes.
+  flushRender();
   syncComposerMode();
   renderRail();
   startOrStopWaitTimer();
@@ -1235,11 +1265,11 @@ async function refreshNavigation() {
 }
 
 async function refreshActiveContext() {
-  try {
-    activeContext = await Bridge.invoke("active_context");
-  } catch (_e) {
-    activeContext = null;
-  }
+  const ticket = navTicket;
+  let context = null;
+  try { context = await Bridge.invoke("active_context"); } catch (_e) { /* fail closed */ }
+  if (ticket !== navTicket) return;
+  activeContext = context;
   renderScopeHeader();
 }
 
@@ -1398,7 +1428,7 @@ function scheduleProse(messageId) {
 function flushRender() {
   renderPending = false;
   proseDirty.clear();
-  if (mainView !== "conversation") return;
+  if (mainView !== "conversation" && mainView !== "opening") return;
 
   // §15: "preserve viewport position when activity above collapses", and §18: "focus
   // remains stable during streaming and collapse transitions".
@@ -1451,7 +1481,14 @@ function flushRender() {
   // is looking at" — the same predicate the wait band is drawn from — so there is no second
   // idea of it here to drift from the first.
   if (timelineModel.items.size === 0 && timelineModel.turnOrder.length === 0 && !visiblePendingSend()) {
-    renderFirstRun();
+    if (mainView === "opening") {
+      const pending = document.createElement("p");
+      pending.className = "thread-loading";
+      pending.textContent = openingThread.cached ? "No messages in this conversation yet." : "Waiting for its saved messages";
+      messagesEl.appendChild(pending);
+    } else {
+      renderFirstRun();
+    }
   }
 
   if (focusId) {
@@ -1613,7 +1650,8 @@ function renderFirstRun() {
 async function loadTimeline() {
   const loadedModel = timelineModel;
   const loadedThread = activeThreadId;
-  const stale = () => loadedModel !== timelineModel || loadedThread !== activeThreadId;
+  const loadedEpoch = threadViewEpoch;
+  const stale = () => loadedModel !== timelineModel || loadedThread !== activeThreadId || loadedEpoch !== threadViewEpoch;
   const techy = techyOn();
   let snapshot;
   try {
@@ -1652,6 +1690,8 @@ async function loadTimeline() {
   }
   if (stale()) return;
   window.RichTimeline.applySnapshot(timelineModel, snapshot);
+  timelineModel.cacheEpoch = threadViewEpoch;
+  rememberThreadView();
   reviveLiveTurns();
   scheduleRender();
 }
@@ -2656,7 +2696,7 @@ function renderWaitBand() {
       ? "Stopping work in the previous conversation"
       : [...opening.previousModel.turns.values()].some(t => t.live)
       ? "The previous conversation is still working. Press Stop to stop that work."
-      : "Waiting for its saved messages"),
+      : opening.cached ? "" : "Waiting for its saved messages"),
     tone: waitLastPaintAt - opening.startedAt >= QUIET_AFTER_MS ? "quiet" : "queued",
     pace: null,
   } : waitTurn ? waitBandCopy(waitTurn, waitLastPaintAt) : {
@@ -2901,6 +2941,7 @@ jumpLatestBtn.addEventListener("click", jumpToLatest);
 // gate, the idempotent upsert and the supersession merge all live in `timeline.js`.
 // ---------------------------------------------------------------------------------------
 Bridge.listen("rich://turn-status", ({ payload }) => {
+  updateCachedThread("onTurnStatus", payload);
   // Session-wide first, so a BACKGROUND thread's live turn is remembered and revived when
   // the CEO opens it (§2: "return to a running thread without losing its live state").
   if (payload.status === "queued" || payload.status === "working" || payload.status === "recovering") {
@@ -3012,6 +3053,7 @@ Bridge.listen("rich://turn-status", ({ payload }) => {
 // it is a no-op: `turn-status: queued` has already adopted the optimistic bubble onto that exact
 // id. One sentence, one row, live and after a reload.
 Bridge.listen("rich://ceo-message", ({ payload }) => {
+  updateCachedThread("onCeoMessage", payload);
   const r = window.RichTimeline.onCeoMessage(timelineModel, payload);
   if (r.rejected) return;
   // §18: a message that appeared on this screen without him typing it is a change a screen
@@ -3024,6 +3066,7 @@ Bridge.listen("rich://ceo-message", ({ payload }) => {
 });
 
 Bridge.listen("rich://message-started", ({ payload }) => {
+  updateCachedThread("onMessageStarted", payload);
   const r = window.RichTimeline.onMessageStarted(timelineModel, payload);
   if (r.rejected) return;
   // "Writing the reply" is the ONLY thing this event licenses. `phase` is `unknown` on every
@@ -3033,6 +3076,7 @@ Bridge.listen("rich://message-started", ({ payload }) => {
 });
 
 Bridge.listen("rich://message-delta", ({ payload }) => {
+  updateCachedThread("onMessageDelta", payload);
   const r = window.RichTimeline.onMessageDelta(timelineModel, payload);
   if (r.rejected) return;
   noteTurnSignal(payload.turnId, "Writing the reply");
@@ -3041,6 +3085,7 @@ Bridge.listen("rich://message-delta", ({ payload }) => {
 });
 
 Bridge.listen("rich://message-completed", ({ payload }) => {
+  updateCachedThread("onMessageCompleted", payload);
   const r = window.RichTimeline.onMessageCompleted(timelineModel, payload);
   if (r.rejected) return;
   // A signal with NO new description: this closes one run of prose, and whether more
@@ -3055,6 +3100,7 @@ Bridge.listen("rich://message-completed", ({ payload }) => {
 });
 
 Bridge.listen("rich://activity-upserted", ({ payload }) => {
+  updateCachedThread("onActivityUpserted", payload);
   const r = window.RichTimeline.onActivityUpserted(timelineModel, payload);
   if (r.rejected) return;
   // `summary` is written in Rust (`machinery.rs`) and relayed VERBATIM. Nothing here
@@ -6894,7 +6940,9 @@ function techyOn() {
 /// Read this thread's answer from the backend. Never inferred from the previous thread's:
 /// a per-thread override is per thread.
 async function refreshTechy(threadId) {
+  const ticket = navTicket;
   const mode = await invokeQuiet("techy_mode", { threadId });
+  if (ticket !== navTicket || threadId && threadId !== activeThreadId) return;
   techy = mode || null;
   renderTechyChip();
   renderTechySettings();
@@ -7217,6 +7265,8 @@ async function setRetentionChoice(choice) {
 /// open the CEO gets his three-way choice instead, and "all companies" is that choice's
 /// first option applied through `set_techy_scope`.
 async function setTechyDefault(on) {
+  threadViews.clear();
+  threadViewEpoch++;
   await invokeQuiet("set_techy_default", { enabled: on });
   await refreshTechy(activeThreadId);
   const top = conversationEl.scrollTop;
@@ -7325,6 +7375,8 @@ async function confirmTechyScope() {
   const on = techyScopeAsk.on;
   const picked = techyScopeInputs().find((i) => i.checked);
   const scope = picked ? picked.value : TECHY_SCOPE_PRESELECTED;
+  threadViews.clear();
+  threadViewEpoch++;
   const mode = await invokeQuiet("set_techy_scope", { threadId: activeThreadId, scope, enabled: on });
   techyScopeAsk = null;
   techyScopeEl.hidden = true;

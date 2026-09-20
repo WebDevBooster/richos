@@ -133,3 +133,5 @@ work-summary.js         @shell richos/app/ui/work-summary.js
 # which the reconciliation refuses — correctly: "reads nothing" is never true of a suite.
 docs-claims.js          richos/app/README.md richos/app/STREAMING.md richos/app/ui/tests/README.md richos/app/crates/richos-core/src/stream.rs richos/app/crates/richos-core/src/live.rs richos/app/crates/richos-core/src/machinery.rs richos/app/crates/richos-core/src/upstream.rs richos/app/crates/richos-voice/src/event.rs
 vouch-template.js       .github/workflows/vouch-pr.yml .github/workflows/ui-suite-ci.yml docs/verification/pr-trust-gate-2026-09-05/README.md docs/verification/pr-trust-gate-2026-09-05/raw/close-comment-rendered.md
+
+thread-switch.js       @shell richos/app/ui/timeline.js richos/app/ui/mock.js

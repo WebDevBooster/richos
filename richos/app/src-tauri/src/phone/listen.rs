@@ -935,7 +935,7 @@ mod tests {
         fn snapshot(&self, thread_id: Option<&str>) -> Result<Value, String> {
             let thread = thread_id.unwrap_or(&self.thread).to_string();
             let spine = self.spine.lock().unwrap();
-            crate::timeline_view::timeline_payload(&spine, &thread)
+            crate::timeline_view::timeline_payload(&*spine, &thread)
         }
         fn current_thread(&self) -> Option<(String, String)> {
             Some((self.thread.clone(), "the proposal".into()))

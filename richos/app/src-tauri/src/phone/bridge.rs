@@ -71,7 +71,7 @@ impl PhoneBridge {
         let active = spine.active_thread().map(|s| s.to_string()).or_else(|| threads.first().map(|t| t.0.clone()));
         let mut payloads = HashMap::new();
         if let Some(id) = active.as_deref() {
-            if let Ok(payload) = timeline_payload(&spine, id) {
+            if let Ok(payload) = timeline_payload(&*spine, id) {
                 payloads.insert(id.to_string(), payload);
             }
         }
@@ -148,7 +148,7 @@ impl Bridge for PhoneBridge {
             // `timeline_payload` is the ONLY way this file can obtain a payload, and it is
             // `view(ViewMode::Ceo)` — `Timeline` does not implement `Serialize`, so there is no
             // ungated path from here to the phone even by mistake.
-            let payload = timeline_payload(&spine, &thread)?;
+            let payload = timeline_payload(&*spine, &thread)?;
             self.cache.lock().unwrap().payloads.insert(thread.clone(), payload.clone());
             return Ok(payload);
         }
