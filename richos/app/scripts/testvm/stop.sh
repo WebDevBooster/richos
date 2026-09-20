@@ -32,34 +32,27 @@ KEEP_VM=0; [ "${2:-}" = "--keep-vm" ] && KEEP_VM=1
 STATE="$TESTVM_RUN/$VM"
 PROBLEMS=()
 
-# --- 1. quit the app, by pid --------------------------------------------------
+# --- 1. stop only the recorded app process ---------------------------------
 if vm_running "$VM" 2>/dev/null; then
   PID="$(cat "$STATE/app.pid" 2>/dev/null || true)"
-  if [ -n "$PID" ]; then
-    log "quitting the app in $VM (pid $PID, TERM)..."
-    guest_ssh "$VM" "kill -TERM $PID 2>/dev/null || true" 2>/dev/null
-    for i in $(seq 1 15); do
-      ALIVE="$(guest_ssh "$VM" "pgrep -f richos-tauri 2>/dev/null | head -1 || true" 2>/dev/null | tr -d '[:space:]')"
-      [ -z "$ALIVE" ] && break
-      sleep 1
-    done
-    # A process that ignored TERM for 15 s is not going to honor it. KILL is
-    # correct here: the guest is about to be destroyed anyway, and an app that
-    # survives the quit is exactly the garbage §54 is about.
-    ALIVE="$(guest_ssh "$VM" "pgrep -f richos-tauri 2>/dev/null | head -1 || true" 2>/dev/null | tr -d '[:space:]')"
-    if [ -n "$ALIVE" ]; then
-      log "app ignored TERM; sending KILL"
-      guest_ssh "$VM" "pkill -KILL -f richos-tauri 2>/dev/null || true" 2>/dev/null
-      sleep 2
-    fi
-  fi
-  # The §54 verification: pgrep must be EMPTY, and we check rather than assume.
-  REMAIN="$(guest_ssh "$VM" "pgrep -fl richos-tauri 2>/dev/null || true" 2>/dev/null)"
-  if [ -n "$REMAIN" ]; then
-    PROBLEMS+=("the app is STILL running in $VM: $REMAIN")
-  else
-    log "verified: pgrep for richos-tauri is empty in $VM"
-  fi
+  case "$PID" in
+    *[!0-9]*|"") ;;
+    *)
+      COMMAND="$(guest_ssh "$VM" "ps -p $PID -o comm= 2>/dev/null || true")"
+      case "$COMMAND" in
+        */richos-tauri)
+          log "quitting recorded app pid $PID"
+          guest_ssh "$VM" "kill -TERM $PID 2>/dev/null || true"
+          for i in $(seq 1 15); do
+            guest_ssh "$VM" "kill -0 $PID 2>/dev/null" || break
+            sleep 1
+          done
+          guest_ssh "$VM" "kill -0 $PID 2>/dev/null && kill -KILL $PID 2>/dev/null || true"
+          ;;
+        *) log "recorded app pid $PID has exited; no process selected by name" ;;
+      esac
+      ;;
+  esac
 fi
 
 # --- 1b. leave the tailnet, while there is still a guest to leave it from -----
@@ -99,14 +92,6 @@ if [ -n "$VMPID" ] && kill -0 "$VMPID" 2>/dev/null; then
   for c in $CHILDREN; do kill -0 "$c" 2>/dev/null && kill -KILL "$c" 2>/dev/null; done
   kill -TERM "$VMPID" 2>/dev/null; sleep 1
   kill -0 "$VMPID" 2>/dev/null && kill -KILL "$VMPID" 2>/dev/null
-fi
-# Anything still holding this VM by name is a leftover by definition.
-STRAY="$(pgrep -f "tart run $VM\b" 2>/dev/null || true)"
-if [ -n "$STRAY" ]; then
-  log "killing stray tart runner(s) for $VM: $STRAY"
-  for s in $STRAY; do kill -TERM "$s" 2>/dev/null; done
-  sleep 2
-  for s in $STRAY; do kill -0 "$s" 2>/dev/null && kill -KILL "$s" 2>/dev/null; done
 fi
 vm_running "$VM" 2>/dev/null && PROBLEMS+=("VM $VM is still running")
 

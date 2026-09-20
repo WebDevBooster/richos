@@ -1,0 +1,82 @@
+{
+  "name": "desktop-phone-delta",
+  "model_turn_limit": 6,
+  "steps": [
+    {
+      "id": "phone-prerequisite",
+      "action": "phone_prerequisite"
+    },
+    {
+      "id": "pair",
+      "action": "pair",
+      "requires": [
+        "phone-prerequisite"
+      ]
+    },
+    {
+      "id": "samples",
+      "action": "samples",
+      "requires": [
+        "pair"
+      ],
+      "count": 5
+    },
+    {
+      "id": "typed-to-phone",
+      "action": "typed_to_phone",
+      "requires": [
+        "samples"
+      ],
+      "limit_ms": 1000
+    },
+    {
+      "id": "first-words",
+      "action": "first_words",
+      "requires": [
+        "samples"
+      ],
+      "limit_ms": 9000
+    },
+    {
+      "id": "reply-to-phone",
+      "action": "reply_to_phone",
+      "requires": [
+        "samples"
+      ],
+      "limit_ms": 1000
+    },
+    {
+      "id": "wait-band",
+      "action": "wait_band",
+      "requires": [
+        "samples"
+      ]
+    },
+    {
+      "id": "phone-to-mac",
+      "action": "phone_to_mac",
+      "requires": [
+        "pair"
+      ],
+      "limit_ms": 1000
+    },
+    {
+      "id": "work-chip-switch",
+      "action": "work_chip",
+      "requires": [
+        "pair"
+      ]
+    },
+    {
+      "id": "rejected-phone",
+      "action": "rejected_phone",
+      "requires": [
+        "pair"
+      ]
+    },
+    {
+      "id": "rollback",
+      "action": "rollback"
+    }
+  ]
+}

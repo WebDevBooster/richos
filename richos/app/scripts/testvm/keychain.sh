@@ -76,18 +76,29 @@ kcg() {
 # rather than cautious — see `cmd_check`'s header: against a home with no
 # keychain in it, `security` raises `SecurityAgent`'s `Keychain Not Found`
 # dialog inside the guest and waits forever for a click nothing can give it.
-# Stock macOS ships no `timeout(1)`; `perl` is there, and `alarm` is exactly
-# this. A call that is killed produces no output, and every caller here reads
+# The shared Python supervisor kills the owned process group at the deadline,
+# including a security command waiting behind its shell. A call that is killed produces no output, and every caller here reads
 # no output as a failure.
 TESTVM_KEYCHAIN_PROBE_SECONDS="${TESTVM_KEYCHAIN_PROBE_SECONDS:-20}"
 
 # One bounded `security` call in the guest's ssh session, with this fixture
 # home's HOME. Output (both streams) comes back for the caller to classify.
-kcs() {
-  local vm="$1" home="$2" cmd="$3"
-  kcg "$vm" "env HOME='$home' perl -e 'alarm shift; exec @ARGV' $TESTVM_KEYCHAIN_PROBE_SECONDS \
-               sh -c \"$cmd\" 2>&1"
+kc_bound() {
+  local vm="$1" home="$2" cmd="$3" who="$4" remote
+  remote="$(python3 - "$home" "$cmd" "$who" "$TESTVM_GUEST_USER" "$TESTVM_KEYCHAIN_PROBE_SECONDS" "$HERE/ax-deadline.py" <<'BOUND'
+import pathlib, shlex, sys
+home,command,who,user,seconds,source=sys.argv[1:]
+args=['env','HOME='+home,'python3','-c',pathlib.Path(source).read_text(),seconds,'sh','-c',command]
+if who=='gui':
+    args=['sudo','launchctl','asuser','__GUEST_UID__','sudo','-u',user]+args
+print(shlex.join(args).replace('__GUEST_UID__','$(id -u '+shlex.quote(user)+')')+' 2>&1')
+BOUND
+)" || return 1
+  kcg "$vm" "$remote"
 }
+
+kcs() { kc_bound "$1" "$2" "$3" ssh; }
+kcg_gui() { kc_bound "$1" "$2" "$3" gui; }
 
 # ---------------------------------------------------------------------------
 # prepare
@@ -126,18 +137,23 @@ cmd_prepare() {
   kcs "$vm" "$home" "security list-keychains -d user -s '$kc'"   >/dev/null 2>&1
   kcs "$vm" "$home" "security default-keychain -d user -s '$kc'" >/dev/null 2>&1
 
-  # NO TIMEOUT AND NO LOCK ON SLEEP. `set-keychain-settings` with neither -t nor
-  # -l is the "stays unlocked" setting; the DEFAULT for a freshly created
-  # keychain is a 300-second timeout, which would re-lock itself in the middle of
-  # a walk and raise the password prompt Ray saw once per pairing.
-  kcs "$vm" "$home" "security set-keychain-settings '$kc'" >/dev/null 2>&1
-
-  # THE UNLOCK, in both sessions. See the header: the ssh session is not the
-  # app's session, and the app's is the one that has to be right.
-  kcs "$vm" "$home" "security unlock-keychain -p '$TESTVM_KEYCHAIN_PHRASE' '$kc'" >/dev/null 2>&1
-  kcg "$vm" "sudo launchctl asuser \$(id -u $TESTVM_GUEST_USER) sudo -u $TESTVM_GUEST_USER \
-               env HOME='$home' perl -e 'alarm shift; exec @ARGV' $TESTVM_KEYCHAIN_PROBE_SECONDS \
-                 security unlock-keychain -p '$TESTVM_KEYCHAIN_PHRASE' '$kc'" >/dev/null 2>&1
+  # The app uses the GUI session's default/search list, not an explicit file.
+  # A successful SSH configuration does not establish those GUI settings.
+  kcg_gui "$vm" "$home" "security list-keychains -d user -s '$kc'" || return 1
+  kcg_gui "$vm" "$home" "security default-keychain -d user -s '$kc'" || return 1
+  kcs "$vm" "$home" "security unlock-keychain -p '$TESTVM_KEYCHAIN_PHRASE' '$kc'" >/dev/null 2>&1 || true
+  kcg_gui "$vm" "$home" "security unlock-keychain -p '$TESTVM_KEYCHAIN_PHRASE' '$kc'" || return 1
+  kcg_gui "$vm" "$home" "security set-keychain-settings '$kc'" || return 1
+  local settings
+  settings="$(kcg_gui "$vm" "$home" "security show-keychain-info '$kc'")" || return 1
+  case "$settings" in
+    *no-timeout*) ;;
+    *) echo "keychain: GUI session did not retain no-timeout: $settings" >&2; return 1 ;;
+  esac
+  case "$settings" in
+    *lock-on-sleep*) echo "keychain: GUI session still locks on sleep" >&2; return 1 ;;
+  esac
+  echo "gui-settings=no-timeout"
 
   cmd_check "$vm" "$home"
 }
@@ -147,11 +163,9 @@ cmd_prepare() {
 #         predicts what the app will meet
 # ---------------------------------------------------------------------------
 # The probe is a WRITE AND A READ of a throwaway item, not `show-keychain-info`:
-# storing and retrieving a secret is exactly what the app does
-# (`secrets::Keychain::for_app_data`), and a locked keychain refuses it while an
-# unlocked one does not. `-A` keeps the prompt-free path prompt-free; without it
-# the read raises an access dialog that nothing in a headless guest can click,
-# which is the same failure wearing different words.
+# use the GUI default search list and the app's normal ACL behavior. Do not
+# grant all applications access with -A or specify an explicit keychain file.
+# This prerequisite does not replace observing the real app keys after pairing.
 #
 # **EVERY PROBE IS BOUNDED, AND THAT IS NOT DEFENSIVE PROGRAMMING — IT IS THE
 # DEFECT ITSELF.** Measured 2026-09-20 while testing this file: run against a
@@ -167,24 +181,18 @@ cmd_prepare() {
 # Two things prevent it, and the first is the cheap one:
 #   1. a keychain FILE that is not there is answered from `test -f`, with no
 #      `security` call made at all;
-#   2. anything that does run goes under a `perl` alarm, because stock macOS has
-#      no `timeout(1)`. A probe that is killed is reported as "no answer", which
+#   2. anything that runs has a process-group deadline, including its children. A probe that is killed is reported as "no answer", which
 #      is the truth: a keychain that needs a click is unusable to this app.
 
 # One bounded probe, in one session. `who`: gui | ssh.
 keychain_probe() {
   local vm="$1" home="$2" kc="$3" who="$4"
   local tag="richos-testvm-probe-$who"
-  local inner="security add-generic-password -a richos-testvm -s $tag -w probe -A -U '$kc' >/dev/null 2>&1; \
-               security find-generic-password -a richos-testvm -s $tag -w '$kc' 2>&1; \
-               security delete-generic-password -a richos-testvm -s $tag '$kc' >/dev/null 2>&1"
-  local bounded="perl -e 'alarm shift; exec @ARGV' $TESTVM_KEYCHAIN_PROBE_SECONDS sh -c \"$inner\""
-  if [ "$who" = "gui" ]; then
-    kcg "$vm" "sudo launchctl asuser \$(id -u $TESTVM_GUEST_USER) sudo -u $TESTVM_GUEST_USER \
-                 env HOME='$home' $bounded 2>&1" | tr -d '[:space:]'
-  else
-    kcg "$vm" "env HOME='$home' $bounded 2>&1" | tr -d '[:space:]'
-  fi
+  local inner="security add-generic-password -a richos-testvm -s $tag -w probe -U >/dev/null 2>&1; \
+               security find-generic-password -a richos-testvm -s $tag -w 2>&1; \
+               security delete-generic-password -a richos-testvm -s $tag >/dev/null 2>&1"
+  kc_bound "$vm" "$home" "$inner" "$who" | tr -d '[:space:]'
+
 }
 
 cmd_check() {
@@ -201,6 +209,11 @@ cmd_check() {
     return 1
   fi
 
+  local settings
+  settings="$(kcg_gui "$vm" "$home" "security show-keychain-info '$kc'")" || return 1
+  case "$settings" in *no-timeout*) ;; *) echo "gui-settings=UNUSABLE ($settings)"; return 1 ;; esac
+  case "$settings" in *lock-on-sleep*) echo "gui-settings=UNUSABLE (lock-on-sleep)"; return 1 ;; esac
+  echo "gui-settings=no-timeout"
   local gui ssh_ default
   gui="$(keychain_probe "$vm" "$home" "$kc" gui)"
   ssh_="$(keychain_probe "$vm" "$home" "$kc" ssh)"

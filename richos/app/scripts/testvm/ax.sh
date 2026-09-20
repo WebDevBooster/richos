@@ -49,6 +49,10 @@
 # does it by pid (see that script's header for why).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Bound preflight, SSH transport, guest work, rendering and cleanup together.
+if [ "${TESTVM_AX_SUPERVISED:-}" != 1 ]; then
+  exec env TESTVM_AX_SUPERVISED=1 python3 "$HERE/ax-deadline.py" --host "${TESTVM_AX_TIMEOUT:-20}" bash "$0" "$@" </dev/null
+fi
 . "$HERE/lib.sh"
 
 VM="${1:-}"; shift || true
@@ -75,10 +79,23 @@ fi
 PID="$(cat "$TESTVM_RUN/$VM/app.pid" 2>/dev/null || true)"
 
 # The deadline on every accessibility read. A tree walk of a wedged app is the
-# one call in here that can sit forever, and a harness that hangs is worse than
-# one that refuses. `perl -e alarm` because macOS ships no `timeout(1)`.
-AX_TIMEOUT="${TESTVM_AX_TIMEOUT:-120}"
-REMOTE_OSA="perl -e 'alarm shift; exec @ARGV' $AX_TIMEOUT osascript -l JavaScript -"
+# command must also reap any helper it starts when its deadline expires.
+AX_TIMEOUT="${TESTVM_AX_TIMEOUT:-20}"
+REMOTE_OSA="$(python3 - "$HERE/ax-deadline.py" "$AX_TIMEOUT" <<'DEADLINE'
+import os, pathlib, shlex, sys, time
+try:
+    seconds = float(sys.argv[2])
+    assert 1 <= seconds <= 300
+except (ValueError, AssertionError):
+    raise SystemExit("TESTVM_AX_TIMEOUT must be between 1 and 300 seconds")
+# Leave two seconds for diagnostics, SSH delivery and the host renderer.
+remaining = float(os.environ['TESTVM_AX_DEADLINE']) - time.monotonic() - 2
+if remaining < 1: raise SystemExit("AX preflight consumed the deadline")
+seconds = min(seconds, remaining)
+print("python3 -c " + shlex.quote(pathlib.Path(sys.argv[1]).read_text()) +
+      " " + shlex.quote(str(seconds)) + " osascript -l JavaScript -")
+DEADLINE
+)"
 
 # ===========================================================================
 # tree / find / click — the JXA path
@@ -86,7 +103,8 @@ REMOTE_OSA="perl -e 'alarm shift; exec @ARGV' $AX_TIMEOUT osascript -l JavaScrip
 ax_walk() {  # ax_walk <mode> <args...>
   local mode="$1"; shift
   local app="" depth="" window="" maxn="" role="" subrole="" text="" value=""
-  local nth="" contains="" atx="" aty="" json=0
+  local nth="" contains="" atx="" aty="" json=0 first="" scope="" window_title="" input="" replace=""
+  if [ "$mode" = "type" ]; then input="${1:?type requires text}"; shift; fi
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -98,6 +116,15 @@ ax_walk() {  # ax_walk <mode> <args...>
       --subrole)  subrole="${2:-}";  shift 2 ;;
       --title)    text="${2:-}";     shift 2 ;;
       --value)    value="${2:-}";    shift 2 ;;
+      --first)    first=1; shift ;;
+      --replace)  replace=1; shift ;;
+      --in)
+        scope="${2:-}"; shift 2
+        case "$scope" in
+          window) window_title="${1:?--in window needs a title}"; shift ;;
+          dialog|sidebar|composer) ;;
+          *) die "--in needs dialog, sidebar, composer or window <title>" ;;
+        esac ;;
       --nth)      nth="${2:-}";      shift 2 ;;
       --contains) contains=1;        shift ;;
       --json)     json=1;            shift ;;
@@ -117,7 +144,7 @@ ax_walk() {  # ax_walk <mode> <args...>
   fi
 
   case "$mode" in
-    find|click)
+    find|click|focus|type)
       [ -n "$text$role$value$subrole" ] \
         || die "$mode needs something to match: --title, --role, --value or --subrole" ;;
   esac
@@ -135,7 +162,8 @@ ax_walk() {  # ax_walk <mode> <args...>
   params="$(AX_MODE="$mode" AX_APP="$app" AX_PID="${PID:-0}" AX_WINDOW="$window" \
             AX_DEPTH="$depth" AX_MAX="$maxn" AX_ROLE="$role" AX_SUBROLE="$subrole" \
             AX_TEXT="$text" AX_VALUE="$value" AX_NTH="$nth" AX_CONTAINS="$contains" \
-            AX_ATX="$atx" AX_ATY="$aty" \
+            AX_ATX="$atx" AX_ATY="$aty" AX_FIRST="$first" AX_SCOPE="$scope" AX_WINDOW_TITLE="$window_title" \
+            AX_INPUT="$input" AX_REPLACE="$replace" \
             python3 -c '
 import json, os, sys
 
@@ -164,11 +192,21 @@ p = {
     "sub":      opt("AX_SUBROLE"),
     "text":     opt("AX_TEXT"),
     "value":    opt("AX_VALUE"),
-    "nth":      num("AX_NTH", 0),
+    "nth":      num("AX_NTH"),
+    "first": os.environ.get("AX_FIRST") == "1",
+    "scope": opt("AX_SCOPE"),
+    "windowTitle": opt("AX_WINDOW_TITLE"),
+    "input": os.environ.get("AX_INPUT", ""),
+    "replace": os.environ.get("AX_REPLACE") == "1",
     "contains": os.environ.get("AX_CONTAINS") == "1",
     "atx":      num("AX_ATX"),
     "aty":      num("AX_ATY"),
 }
+if p["first"] and p["nth"] is not None:
+    raise SystemExit("--first and --nth are mutually exclusive")
+for key in ("depth", "max", "window"):
+    if p[key] is not None and p[key] < 1: raise SystemExit(key + " must be positive")
+if p["nth"] is not None and p["nth"] < 0: raise SystemExit("--nth must be nonnegative")
 print("var AX_PARAMS = %s;" % json.dumps(p))
 ')" || die "could not build the parameter block (see above)"
 
@@ -177,14 +215,15 @@ print("var AX_PARAMS = %s;" % json.dumps(p))
   errf="$(mktemp "${TMPDIR:-/tmp}/testvm-ax.XXXXXX")"
   raw="$( { printf '%s\n' "$params"; cat "$HERE/ax.js"; } | ag "$REMOTE_OSA" 2>"$errf" )" || rc=$?
   if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$raw"
     cat "$errf" >&2
     rm -f "$errf"
     echo "[testvm] the accessibility read failed (exit $rc)." >&2
     echo "         If the error mentions 'not allowed assistive access', the Accessibility" >&2
     echo "         TCC grant did not take — re-run testvm/setup.sh --reprovision." >&2
     echo "         If it produced nothing at all, the read hit its ${AX_TIMEOUT}s deadline" >&2
-    echo "         (raise it with TESTVM_AX_TIMEOUT)." >&2
-    return 1
+    echo "         Check the target process and any SecurityAgent dialog before retrying." >&2
+    return "$rc"
   fi
   cat "$errf" >&2
   rm -f "$errf"
@@ -206,6 +245,7 @@ import json, os, sys
 as_json = os.environ.get("AX_RENDER_JSON") == "1"
 fused = []
 err = None
+invalid = False
 truncated = False
 
 def geom(v, where):
@@ -227,6 +267,7 @@ for raw_line in sys.stdin.read().splitlines():
     try:
         rec = json.loads(line)
     except ValueError:
+        invalid = True
         sys.stderr.write("[testvm] ax: unparseable line from the guest: %s\n" % line[:200])
         continue
     if not isinstance(rec, dict):
@@ -265,6 +306,10 @@ for raw_line in sys.stdin.read().splitlines():
                 rec.get("matches")))
         continue
 
+    if rec.get("action"):
+        lines.append(line if as_json else "%s verified=%s" % (rec["action"], rec.get("verified")))
+        continue
+
     # a node
     if as_json:
         lines.append(line)
@@ -295,6 +340,10 @@ if truncated:
     sys.stderr.write("[testvm] ax: the walk hit its node cap and STOPPED — this tree is "
                      "incomplete. Narrow it (--window N, --role, --depth) or raise --max.\n")
 
+if (not lines and not err) or invalid:
+    sys.stderr.write("[testvm] ax: empty or invalid guest response\n")
+    raise SystemExit(3)
+
 if fused:
     where, value = fused[0]
     sys.stderr.write(
@@ -312,11 +361,19 @@ if err:
         sys.stderr.write("         the element does offer: %s\n" %
                          (", ".join(err["actions"]) or "no actions at all"))
     raise SystemExit(1)
+if truncated:
+    raise SystemExit(5)
 '
 }
 
 case "${1:-}" in
-  tree|find|click)
+  --help|-h)
+    echo 'ax.sh VM tree|find|click|focus|type TEXT [--title TEXT|--role ROLE|--value TEXT]'
+    echo '  --in dialog|sidebar|composer|window TITLE  --first | --nth N (zero based)'
+    echo '  --replace (type) --contains --app NAME --window N --depth N --max N --json'
+    echo '  find defaults to exhaustive; actions require uniqueness unless --first/--nth.'
+    exit 0 ;;
+  tree|find|click|focus|type)
     SUB="$1"; shift
     ax_walk "$SUB" "$@"
     exit $?
@@ -370,9 +427,11 @@ case "${1:-}" in
   --key)
     CODE="${2:-}"; [ -n "$CODE" ] || die "--key needs a keycode"
     [ -n "$PID" ] || die "no app pid recorded for $VM"
-    FRONT="$(ag "osascript -e 'tell application \"System Events\" to unix id of first process whose frontmost is true' 2>/dev/null || echo 0" | tr -d '[:space:]')"
-    [ "$FRONT" = "$PID" ] || die "refusing to send a key: frontmost pid is $FRONT, the app under test is $PID. A key sent now would land in another process."
-    SCRIPT="tell application \"System Events\" to key code $CODE"
+    case "$CODE" in *[!0-9]*) die "keycode must be numeric" ;; esac
+    SCRIPT="tell application \"System Events\"
+      if unix id of first process whose frontmost is true is not $PID then error \"refusing to send a key to another process\"
+      key code $CODE
+    end tell"
     ;;
   "") die "nothing to run" ;;
   *) SCRIPT="$1" ;;
@@ -380,8 +439,9 @@ esac
 
 # The script goes in over stdin, never interpolated into a remote command line:
 # AppleScript is full of quotes and newlines and a shell would shred it.
-printf '%s' "$SCRIPT" | ag "osascript -" 2>&1 || {
+printf '%s' "$SCRIPT" | ag "${REMOTE_OSA%osascript -l JavaScript -}osascript -" 2>&1 || {
+  rc=$?
   echo "[testvm] osascript failed. If the error mentions 'not allowed assistive access',"  >&2
   echo "         the Accessibility TCC grant did not take — re-run testvm/setup.sh --reprovision." >&2
-  exit 1
+  exit "$rc"
 }

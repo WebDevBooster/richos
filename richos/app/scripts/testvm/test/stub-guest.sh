@@ -31,7 +31,8 @@ CMD="$*"
 STUB_LOG="${STUB_LOG:-/dev/null}"
 STUB_MODE="${STUB_MODE:-ok}"
 STUB_DNSNAME="${STUB_DNSNAME:-richos-test-a.tail770f6e.ts.net}"
-printf '%s\t%s\n' "$VM" "$CMD" >> "$STUB_LOG"
+# One log record per call, including multi-line supervisor source.
+printf '%s\t%s\n' "$VM" "${CMD//$'\n'/ }" >> "$STUB_LOG"
 
 # A REDIRECTION INSIDE THE COMMAND STRING IS EXECUTED BY THE GUEST, so what ssh
 # hands back already has it applied. Honored here, because getting it wrong
@@ -188,6 +189,8 @@ case "$CMD" in
   *"test -f "*)
     [ "$STUB_KEYCHAIN" = "present" ] && exit 0
     exit 1 ;;
+  *"show-keychain-info"*)
+    echo "${STUB_KEYCHAIN_SETTINGS:-no-timeout}"; exit 0 ;;
   *"create-keychain"*)
     [ "$STUB_KEYCHAIN" = "present" ] && { echo "security: SecKeychainCreate: A keychain with the same name already exists."; exit 1; }
     exit 0 ;;
