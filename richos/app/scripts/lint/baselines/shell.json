@@ -1,0 +1,258 @@
+{
+  "commands": {
+    "shellcheck": [
+      "shellcheck",
+      "--format=json",
+      "--rcfile=richos/app/.shellcheckrc",
+      "<shell-inventory>"
+    ]
+  },
+  "counts": {
+    "SC1007": 3,
+    "SC1091": 1,
+    "SC2004": 17,
+    "SC2012": 4,
+    "SC2013": 1,
+    "SC2015": 16,
+    "SC2016": 22,
+    "SC2034": 7,
+    "SC2046": 12,
+    "SC2066": 1,
+    "SC2086": 7,
+    "SC2094": 2,
+    "SC2209": 3,
+    "SC2295": 2,
+    "SC2319": 9,
+    "SC2329": 5
+  },
+  "inventory": {
+    "richos/app/scripts/dependency-license-inventory.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/fonts/rebuild.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/front-door.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/frontend-payload.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/generate-app-icons.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/gui-boot.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/gui-proof-in-vm.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/install-signing-cert.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/install-tauri-cli.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/lib/gui-launch.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/lib/worktree-resource.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/lint.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/lint.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/make-engine-asset.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/make-engine-asset.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/make-release.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/make-release.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/make-signing-csr.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/nightly-local.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/nightly.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/no-compile-time-paths.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/package-app.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/package-app.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/proof-for.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/proof-for.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/qa.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/qa/ocr-find.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/qa/ocr-gate.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/qa/ocr-watch.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/qa/wait-for.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/rebuild-survival.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/rebuild-survival.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/run-tests.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/run-tests.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/shared-build-cache.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/signing-setup.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/testvm/ax.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/claude-login.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/claude-sync.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/guest.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/keychain.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/lib.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/provision-guest.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/reap.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/run.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/setup.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/shot.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/stop.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/tailnet.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/testvm/test/run-tests.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/testvm/test/stub-guest.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/updater-e2e.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/updater-setup.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    },
+    "richos/app/scripts/verify-engine-asset-members.sh": {
+      "language": "shell",
+      "role": "production"
+    },
+    "richos/app/scripts/voice-component.test.sh": {
+      "language": "shell",
+      "role": "suite"
+    }
+  },
+  "limitation": "Counts prevent net growth, not every new violation. Check never writes.",
+  "rules": {
+    "shellcheck-diagnostics": "blocking"
+  },
+  "schema": 1,
+  "versions": {
+    "shellcheck": "0.11.0"
+  }
+}
