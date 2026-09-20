@@ -51,7 +51,9 @@ mkdir -p "$STATE"
 # Cloning is copy-on-write on APFS: a new guest costs seconds and almost no
 # disk until it diverges. This is what makes a per-run disposable VM practical
 # rather than a 25 GB copy each time.
+CREATED_CLONE=0
 if ! vm_exists "$VM"; then
+  CREATED_CLONE=1
   log "cloning $TESTVM_BASE_VM -> $VM (copy-on-write)"
   # The base must be stopped to clone a consistent disk.
   if vm_running "$TESTVM_BASE_VM"; then
@@ -99,17 +101,72 @@ done
 # joins afterwards shows the user "this Mac is not set up yet" until the cache
 # ages out. Joining first means the first screen he reads is the true one.
 #
-# A refusal here is NOT fatal — see tailnet.sh's `refuse_tailnet`. Without the
-# CEO's key there is no phone path, and everything else about this VM still
-# works, so the run continues and says so in its summary.
+# A JOIN THAT FAILS IS A REFUSAL, AND IT WAS NOT — CHANGED 2026-09-20.
+#
+# This step used to swallow its own exit status and carry on, putting
+# `tailnet=not-joined` in the summary with the cause thirty lines away on
+# stderr. Ray raised it on `.7`, raised it again on `.8` — *"A tester who misses
+# that line walks the whole path against a Mac that cannot serve"* — and Echo
+# reproduced it on `.9`. Twice in a row a walk of the phone path went ahead
+# against a guest that could not serve one, and both times the harness had said
+# so in a way nobody read.
+#
+# So the tailnet is what it says it is: ON by default because the phone path is
+# the reason this VM exists (CEO §61), and `--no-tailnet` the way to say this
+# proof is not about the phone. Asked for and not delivered is a stop, with the
+# cause on the same screen as the refusal — never a degraded run that looks like
+# a successful one.
 TAILNET_NAME="not-joined"
 if [ "$TAILNET" -eq 1 ]; then
-  JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && true
+  # `VAR=$(cmd)` UNDER `set -e` EXITS ON A FAILING cmd, before any `$?` can be
+  # read — which is why the line this replaces ended in `&& true` and threw the
+  # status away. Written as a compound list, errexit does not fire and `$?` in
+  # the `||` branch is the assignment's own status. Proved by driving this file
+  # with a `tailnet.sh` that exits 1: without the compound form the script dies
+  # silently at this line and the refusal block below never runs at all.
+  JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && JOIN_RC=0 || JOIN_RC=$?
   printf '%s\n' "$JOIN_OUT" >&2
   case "$JOIN_OUT" in
     *tailnet=*) TAILNET_NAME="$(printf '%s\n' "$JOIN_OUT" | tailnet_name_from_join_output)" ;;
   esac
   [ -n "$TAILNET_NAME" ] || TAILNET_NAME="not-joined"
+  if [ "$JOIN_RC" -ne 0 ] || [ "$TAILNET_NAME" = "not-joined" ]; then
+    WHY="$(printf '%s\n' "$JOIN_OUT" | tailnet_cause_from_join_output)"
+    # The diagnosis is taken BEFORE the guest is destroyed, because after it
+    # there is nothing left to ask. It is best effort by construction: a guest
+    # whose daemon never came up cannot answer most of these either.
+    DOCTOR="$("$HERE/tailnet.sh" doctor "$VM" 2>&1)" || true
+    cat >&2 <<EOF
+
+========================================================================
+[testvm] REFUSED: $VM IS NOT ON THE TAILNET, AND THE PHONE PATH NEEDS IT
+========================================================================
+  cause:  $WHY
+
+  There is ONE phone path and it is Tailscale (CEO §61). A guest that is not
+  on the tailnet cannot serve a pairing code: the app answers "This Mac is
+  not set up yet" and any walk of the phone path against it is measuring the
+  harness, not the product. That is what happened on nightly .7, .8 and .9,
+  and it is why this is a stop rather than a line in a summary.
+
+  WHAT THE GUEST SAID, while it was still there to ask:
+$(printf '%s\n' "$DOCTOR" | sed 's/^/    /')
+
+  IF THIS PROOF IS NOT ABOUT THE PHONE, say so and it costs nothing:
+    $0 --bundle <bundle> --home <home> --vm $VM --no-tailnet
+========================================================================
+EOF
+    # §54: this run's own garbage goes with it. A guest that was ALREADY there
+    # when this script started belongs to whoever started it and is left alone.
+    if [ "$CREATED_CLONE" -eq 1 ] && [ "$KEEP" -eq 0 ]; then
+      log "cleaning up the clone this run created..."
+      "$HERE/stop.sh" "$VM" >&2 || log "WARNING: stop.sh did not clean up $VM — remove it by hand: tart delete $VM"
+    else
+      log "$VM was already running before this call, so it is left alone."
+      log "diagnose: $HERE/tailnet.sh doctor $VM      stop: $HERE/stop.sh $VM"
+    fi
+    exit 1
+  fi
 fi
 
 # --- 3. stage the payload -----------------------------------------------------

@@ -143,6 +143,37 @@ elif want=="ips": print(" ".join(self_.get("TailscaleIPs") or []))
 }
 
 # ---------------------------------------------------------------------------
+# is the daemon there at all? — the wait that used to be a race
+# ---------------------------------------------------------------------------
+# **THE FACT, and it is deliberately the cheapest true one:** `tailscale status
+# --json` produced a document with a `BackendState` in it. That is precisely the
+# capability `tailscale up` needs one line later — a CLI that can reach its
+# daemon over the socket — so a wait on anything else would be a wait on a proxy.
+# A daemon that is not up answers *"failed to connect to local tailscaled …
+# /var/run/tailscaled.socket: no such file or directory"* on stderr and exits
+# non-zero, `guest_status_field` then prints nothing, and nothing is the signal.
+#
+# **It is not a sleep, and the difference is not stylistic.** Ray's guest was
+# ready 4 s after the failed join and Echo's took 37 s; any fixed interval is
+# wrong for one of them. This returns the moment the daemon answers and refuses
+# the moment it is clear it never will, and it reports which of the two happened.
+#
+# Deliberately NOT `refuse_tailnet` itself: this is a question, and the caller is
+# what turns a `no` into the refusal with the right words on it.
+guest_daemon_ready() {
+  local vm="$1" state i
+  for i in $(seq 1 "$TESTVM_DAEMON_POLLS"); do
+    state="$(guest_status_field "$vm" state | tr -d '[:space:]')"
+    if [ -n "$state" ]; then
+      [ "$i" -gt 1 ] && log "tailnet: the guest's tailscaled answered after $i read(s) — state $state"
+      return 0
+    fi
+    sleep "$TESTVM_DAEMON_POLL_SECONDS"
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # join
 # ---------------------------------------------------------------------------
 cmd_join() {
@@ -157,6 +188,17 @@ cmd_join() {
 
   local problem
   problem="$(authkey_problem "$TESTVM_AUTHKEY")" || { refuse_tailnet "$problem"; return 1; }
+
+  # THE DAEMON, BEFORE ANYTHING IS ASKED OF IT. Ray's defect 3, carried from .7
+  # to .8 and reproduced by Echo on .9: `run.sh` joined ~9–11 s after the guest
+  # reported an IP, `tailscaled` was not up, and the whole run degraded to
+  # `not-joined` over a guest that would have been ready seconds later. The key
+  # is staged AFTER this, so a guest that never brings its daemon up is never
+  # handed a credential it has no use for.
+  if ! guest_daemon_ready "$vm"; then
+    refuse_tailnet "the guest's tailscaled never answered ($TESTVM_DAEMON_POLLS read(s), ${TESTVM_DAEMON_POLL_SECONDS}s apart) — 'tailscale status' could not reach /var/run/tailscaled.socket"
+    return 1
+  fi
 
   # The key goes into the guest as a FILE, and `tailscale up --auth-key file:…`
   # reads it there. Never as a command argument: an argument is visible in the
@@ -226,6 +268,13 @@ cmd_join() {
         refuse_tailnet "the tailnet refused the key — it is expired, revoked, or single-use and already spent" ;;
       *"already in use"*|*"Ephemeral"*)
         refuse_tailnet "the tailnet refused the key: $out" ;;
+      # The race's own signature, kept as a named branch even though the wait
+      # above should now make it unreachable: if it is ever seen again, it means
+      # the daemon answered a status read and then went away, which is a
+      # different defect from the one that was fixed and deserves to say so
+      # rather than arrive as an unclassified "up failed".
+      *"failed to connect to local tailscaled"*|*"tailscaled.socket"*)
+        refuse_tailnet "the guest's tailscaled answered a status read and then stopped answering — this is NOT the start-up race, which the wait above already covers: $out" ;;
       *) refuse_tailnet "tailscale up failed: $out" ;;
     esac
     return 1

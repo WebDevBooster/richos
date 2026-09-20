@@ -347,6 +347,58 @@ t "join: a daemon that never reaches Running is a refusal, never a silent pass"
   has "$out" "never reached Running"
 t_done
 
+# ===========================================================================
+# tailnet.sh join — the daemon start-up race (Ray .7 and .8 defect 3, Echo .9)
+# ===========================================================================
+# The guest Ray and Echo met: booted, ssh answering, `tailscaled` not up yet.
+# `STUB_DAEMON_READY_AFTER=3` is that guest — every tailscale call fails with
+# the socket error until the third status read, exactly as `up` did for them.
+t "daemon: a join issued before tailscaled is up WAITS for it instead of failing"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  : > "$TMP/log.late"
+  out="$(env STUB_LOG="$TMP/log.late" STUB_CERT_PEM="$TMP/cert.bundle" \
+             STUB_DAEMON_READY_AFTER=3 TESTVM_DAEMON_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"; ok $? "a late daemon must not lose the join"
+  has "$out" "tailnet=richos-test-a.tail770f6e.ts.net"
+  has "$out" "answered after 3 read(s)"
+t_done
+
+t "daemon: and the join is not issued until it has answered — the ordering, not the patience"
+  # THE POINT OF THE WAIT. A version that waited and then joined anyway in the
+  # wrong order would pass the test above. This reads the guest's command log and
+  # requires every status read that found nothing to come BEFORE the join.
+  log="$(cat "$TMP/log.late")"
+  first_up="$(printf '%s\n' "$log" | grep -n "tailscale up" | head -1 | cut -d: -f1)"
+  reads_before="$(printf '%s\n' "$log" | head -n "$((first_up - 1))" | grep -c "tailscale status")"
+  eq "$reads_before" "3" "up must come after the three status reads, not before them"
+t_done
+
+t "daemon: the key is never staged in a guest whose daemon never came up"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads" "$TMP/staged.never"
+  : > "$TMP/log.never"
+  out="$(env STUB_LOG="$TMP/log.never" STUB_MODE=daemon-never STUB_KEEP_STAGED="$TMP/staged.never" \
+             TESTVM_DAEMON_POLLS=2 TESTVM_DAEMON_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"; no $? "a dead daemon must be a refusal"
+  has  "$out" "NOT JOINED"
+  has  "$out" "tailscaled never answered"
+  has  "$out" "/var/run/tailscaled.socket"
+  hasnt "$(cat "$TMP/log.never")" "--auth-key"
+  [ -e "$TMP/staged.never" ]; no $? "a credential must not be handed to a guest that cannot use it"
+t_done
+
+t "daemon: the refusal names a cause a summary can print, never a bare not-joined"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  out="$(env STUB_LOG=/dev/null STUB_MODE=daemon-never \
+             TESTVM_DAEMON_POLLS=2 TESTVM_DAEMON_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  cause="$(printf '%s\n' "$out" | tailnet_cause_from_join_output)"
+  has "$cause" "tailscaled never answered"
+  eq  "$(printf '%s\n' "$cause" | wc -l | tr -d ' ')" "1" "a cause is one line, so a summary can carry it"
+t_done
+
 t "join: no certificate means a loud warning — the app would refuse to pair"
   write_key 600 "$FAKE_KEY"
   out="$(env STUB_LOG=/dev/null STUB_MODE=no-cert "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
@@ -413,6 +465,65 @@ t_done
 t "summary: run.sh still accepts --no-tailnet and still requires its real arguments"
   out="$("$TESTVM_DIR/run.sh" --no-tailnet 2>&1)"; no $?
   has "$out" "--bundle is required"
+t_done
+
+# EVERY refusal shape, through the real refusals rather than over made-up
+# strings: whatever `tailnet.sh` prints, run.sh's summary must be able to say
+# WHY in one line. Ray's defect 3 was not that the cause did not exist — it was
+# that the line the caller reads said `not-joined` and nothing else.
+t "summary: every shape of a failed join yields a one-line cause, never a shrug"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  out="$(env STUB_LOG=/dev/null STUB_MODE=invalid-key "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "expired, revoked, or single-use"
+
+  out="$(env STUB_LOG=/dev/null STUB_MODE=certs-off "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "will not issue the node a certificate"
+
+  out="$(env STUB_LOG=/dev/null STUB_MODE=never-running TESTVM_JOIN_POLLS=2 TESTVM_JOIN_POLL_SECONDS=0 \
+             "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "never reached Running"
+
+  rm -f "$TESTVM_AUTHKEY"
+  out="$("$TESTVM_DIR/tailnet.sh" join richos-test-a 2>&1)"
+  has "$(printf '%s\n' "$out" | tailnet_cause_from_join_output)" "$TESTVM_AUTHKEY"
+
+  # And the negative control: nothing at all still produces a sentence rather
+  # than an empty line that would print as `cause:` with nothing after it.
+  eq "$(printf '' | tailnet_cause_from_join_output)" "the join produced no output at all"
+t_done
+
+t "summary: a SUCCESSFUL join is not mistaken for a cause"
+  write_key 600 "$FAKE_KEY"
+  rm -f "$STUB_GUEST_FS/.stub-daemon-reads"
+  out="$(env STUB_LOG=/dev/null STUB_CERT_PEM="$TMP/cert.bundle" "$TESTVM_DIR/tailnet.sh" join richos-test-a 2>/dev/null)"; ok $?
+  eq "$(printf '%s\n' "$out" | tailnet_name_from_join_output)" "richos-test-a.tail770f6e.ts.net"
+t_done
+
+t "summary: run.sh carries the refusal block and the escape hatch, in that order"
+  # Read off the script rather than run, because reaching this branch needs a
+  # 7 GB guest. What is asserted is what a reader of a failed run would see:
+  # the word REFUSED, the cause line, and the flag that makes it cost nothing.
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" "REFUSED: \$VM IS NOT ON THE TAILNET"
+  has "$src" "cause:  \$WHY"
+  has "$src" "tailnet_cause_from_join_output"
+  has "$src" "--no-tailnet"
+  hasnt "$src" 'JOIN_OUT="$("$HERE/tailnet.sh" join "$VM" 2>&1)" && true'
+t_done
+
+t "summary: the join's exit status survives set -e, so the refusal block is reachable at all"
+  # FOUND WHILE WRITING THE REFUSAL ABOVE, and it would have been invisible: under
+  # `set -e` a plain `VAR=$(failing-cmd)` KILLS THE SCRIPT at that line, before any
+  # `$?` can be read. run.sh would have exited silently on exactly the failure it
+  # was being taught to shout about. The compound form is the fix, and the two
+  # probes below are the measurement rather than the belief.
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has   "$src" 'JOIN_RC=0 || JOIN_RC=$?'
+  hasnt "$src" 'join "$VM" 2>&1)"; JOIN_RC=$?'
+  eq "$(bash -c 'set -euo pipefail; X="$(exit 7)" && RC=0 || RC=$?; echo "rc=$RC"' 2>/dev/null)" "rc=7"
+  bash -c 'set -euo pipefail; X="$(exit 7)"; RC=$?; echo "rc=$RC"' >/dev/null 2>&1
+  no $? "the plain form must die under set -e — that is the whole reason for the compound one"
 t_done
 
 # ===========================================================================
