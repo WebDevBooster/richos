@@ -157,7 +157,7 @@ impl PhoneCa {
             let scratch = Scratch::new(&home)?;
             let sec1 = scratch.write("leaf.key", leaf_key_pem.as_bytes())?;
             let pkcs8 = openssl(&scratch, &["pkcs8", "-topk8", "-nocrypt", "-in", path_str(&sec1)?])?;
-            pem_body(&pkcs8, "PRIVATE KEY")?
+            normalize_p256_pkcs8(&pem_body(&pkcs8, "PRIVATE KEY")?)?
         };
 
         Ok(PhoneCa { ca_der, leaf_der, leaf_key_pkcs8, names })
@@ -300,6 +300,69 @@ fn openssl(scratch: &Scratch, args: &[&str]) -> Result<String, PhoneError> {
 fn generate_p256_key(scratch: &Scratch) -> Result<String, PhoneError> {
     // `-noout` suppresses the parameters block, so the output is the key and nothing else.
     openssl(scratch, &["ecparam", "-name", "prime256v1", "-genkey", "-noout"])
+}
+
+/// LibreSSL can encode a P-256 scalar without its leading zero bytes. Ring requires
+/// all 32 bytes, including for keys already in the secret store. Restore only that
+/// width, preserving the scalar, public point and authority. Ring still validates
+/// the complete key, including the curve and the private/public correspondence.
+fn normalize_p256_pkcs8(input: &[u8]) -> Result<Vec<u8>, PhoneError> {
+    fn invalid() -> PhoneError {
+        PhoneError::Crypto("invalid P-256 private key encoding".into())
+    }
+    // Only the short DER lengths needed by a P-256 PrivateKeyInfo are accepted.
+    fn take<'a>(input: &mut &'a [u8], tag: u8) -> Result<&'a [u8], PhoneError> {
+        let [actual, length, rest @ ..] = *input else { return Err(invalid()) };
+        if *actual != tag { return Err(invalid()); }
+        let (length, rest) = match *length {
+            0..=127 => (*length as usize, rest),
+            0x81 if rest.first().is_some_and(|n| *n >= 128) => (rest[0] as usize, &rest[1..]),
+            _ => return Err(invalid()),
+        };
+        if length > rest.len() { return Err(invalid()); }
+        let (value, remaining) = rest.split_at(length);
+        *input = remaining;
+        Ok(value)
+    }
+    fn wrap(tag: u8, value: &[u8]) -> Result<Vec<u8>, PhoneError> {
+        let length = u8::try_from(value.len()).map_err(|_| invalid())?;
+        let mut out = vec![tag];
+        if length >= 128 { out.push(0x81); }
+        out.push(length);
+        out.extend_from_slice(value);
+        Ok(out)
+    }
+
+    let mut outer = input;
+    let mut info = take(&mut outer, 0x30)?;
+    if !outer.is_empty() || take(&mut info, 0x02)? != [0] { return Err(invalid()); }
+    let algorithm = take(&mut info, 0x30)?;
+    // id-ecPublicKey with named prime256v1, exactly what our authority generates.
+    if algorithm != b"\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07" {
+        return Err(invalid());
+    }
+    let mut private = take(&mut info, 0x04)?;
+    let mut ec = take(&mut private, 0x30)?;
+    if !info.is_empty() || !private.is_empty() || take(&mut ec, 0x02)? != [1] {
+        return Err(invalid());
+    }
+    let scalar = take(&mut ec, 0x04)?;
+    if scalar.is_empty() || scalar.len() > 32 { return Err(invalid()); }
+    let mut padded = [0u8; 32];
+    padded[32 - scalar.len()..].copy_from_slice(scalar);
+    let mut key = vec![0x02, 0x01, 0x01];
+    key.extend(wrap(0x04, &padded)?);
+    key.extend_from_slice(ec);
+    let mut body = vec![0x02, 0x01, 0x00];
+    body.extend(wrap(0x30, algorithm)?);
+    body.extend(wrap(0x04, &wrap(0x30, &key)?)?);
+    let encoded = wrap(0x30, &body)?;
+    ring::signature::EcdsaKeyPair::from_pkcs8(
+        &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
+        &encoded,
+        &ring::rand::SystemRandom::new(),
+    ).map_err(|_| invalid())?;
+    Ok(encoded)
 }
 
 fn self_signed_root(scratch: &Scratch, key_file: &Path, display_name: &str) -> Result<String, PhoneError> {
@@ -589,6 +652,60 @@ mod tests {
             .unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).to_string()
+    }
+
+    #[test]
+    fn a_leaf_with_a_short_scalar_still_loads_in_rustls_after_reopen() {
+        // Public test vector: scalar 1 and the P-256 generator, never a real secret.
+        const KEY: &str = r#"-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABoAoGCCqGSM49AwEHoUQDQgAE
+axfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpZP40Li/hp/m47n60p8D54WK84zV2sxXs7L
+tkBoN79R9Q==
+-----END EC PRIVATE KEY-----
+"#;
+        let dir = TempDir::new("short-scalar");
+        let secrets = MemorySecrets::default();
+        secrets.put(LEAF_KEY, KEY.as_bytes()).unwrap();
+        let first = PhoneCa::open(&dir.0, &secrets, test_names()).unwrap();
+        crate::phone::listen::tls_config(&first.leaf_der, &first.leaf_key_pkcs8)
+            .expect("a valid P-256 key must be usable by the listener");
+        let second = PhoneCa::open(&dir.0, &secrets, test_names()).unwrap();
+        assert_eq!(first.ca_der, second.ca_der);
+        assert_eq!(first.leaf_der, second.leaf_der);
+        assert_eq!(first.leaf_key_pkcs8, second.leaf_key_pkcs8);
+        assert!(secrets.get(LEAF_KEY).unwrap().unwrap() == KEY.as_bytes());
+    }
+
+    #[test]
+    fn scalar_padding_preserves_valid_keys_and_rejects_invalid_keys() {
+        let rng = ring::rand::SystemRandom::new();
+        let generated = ring::signature::EcdsaKeyPair::generate_pkcs8(
+            &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING, &rng,
+        ).unwrap();
+        let valid = generated.as_ref();
+        // Ring's complete, fixed-width encoding needs no repair.
+        assert!(normalize_p256_pkcs8(valid).unwrap() == valid);
+        for length in 0..valid.len() {
+            assert!(normalize_p256_pkcs8(&valid[..length]).is_err(), "accepted truncation at {length}");
+        }
+        let mut trailing = valid.to_vec();
+        trailing.push(0);
+        assert!(normalize_p256_pkcs8(&trailing).is_err());
+
+        // Ring's template puts the 32-byte scalar at offset 36. Keep a valid public
+        // point but replace the scalar with zero or a different valid scalar.
+        assert_eq!(&valid[34..36], &[0x04, 32]);
+        let mut zero = valid.to_vec();
+        zero[36..68].fill(0);
+        assert!(normalize_p256_pkcs8(&zero).is_err());
+        let mut mismatch = valid.to_vec();
+        mismatch[67] ^= 1;
+        assert!(normalize_p256_pkcs8(&mismatch).is_err(), "accepted a mismatched public point");
+        let mut wrong_curve = valid.to_vec();
+        // Last byte of the prime256v1 OID in this template.
+        assert_eq!(&valid[24..27], &[0x03, 0x01, 0x07]);
+        wrong_curve[26] = 8;
+        assert!(normalize_p256_pkcs8(&wrong_curve).is_err());
     }
 
     // --- Apple's four rules, asserted against the BYTES ------------------------------
