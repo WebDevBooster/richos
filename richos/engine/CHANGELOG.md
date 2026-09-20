@@ -10,6 +10,39 @@ version heading with Added / Changed / Fixed groupings.
 
 ## [Unreleased]
 
+### Removed — the idle-land gate no longer reads the CEO's sentences either (2026-09-20)
+
+- **`HOLD_RE`, `OFF_DUTY_RE`, `hold_signal()` and TERM 3b are gone** from
+  `scripts/hooks/guard-idle-land.py`, along with the `said` collection in `read_turn()`
+  that existed only to feed them, and the `idle.hold_signal(turn["said"])` call in
+  `ass-kicker/guard-stated-actions.py`'s ARM 2. Two regexes over his own typed messages
+  — "hold", "stand down", "don't dispatch", "going to bed", "calling it a night" —
+  stood a BLOCKING gate down on a match. The returned turn dict has no `said` key, so a
+  caller reaching for his words gets a `KeyError` at the line that reaches.
+- **Why.** *"WHAT THE FUCK DO I NEED YOU FOR IF YOU FUCKING BUILD GUARDS THAT ARE
+  SUPPOSED TO AUTOMATICALLY INFER ANYTHING FROM MY WORDS???"* (CEO, 2026-09-20). The
+  code defended itself on the ground that its error was one-directional — it could only
+  stand a gate DOWN, never accuse anybody. True, and beside the point: standing a
+  blocking gate down IS a decision, taken from a sentence he typed for a person to read.
+- **What it cost, measured.** The gate's own replay of 1,082 real orchestrator turns:
+  `0 were held by the operator`. The suppressor never fired once. What it protected is
+  still protected by `stop-declared: ceo-owns-it — <reason>`, written by the orchestrator
+  in its own reply and shown to him every time.
+- **Tests inverted rather than deleted**, so the old behavior cannot return quietly:
+  `guard-idle-land.test.sh` cases f and AC now expect a refusal on the SAME fixtures
+  (59/59); `guard-stated-actions.test.sh` case n5 likewise (49/49); case z asserts the
+  `held` verdict can no longer appear in the observation ledger. Both mutation harnesses
+  carry an INVERTED mutant that puts a read of his words BACK and requires the suite to
+  go red (18/18 and 32/32).
+- **The whole engine was audited for the same class** —
+  `docs/audits/ceo-words-hook-audit-2026-09-20.md`: 172 hook and lib files, one row
+  each, with the line that classified it. One deciding branch found (this one); two
+  quote-only readers kept (`scripts/hooks/left-off-report.sh` and
+  `scripts/lib/left-off.py`); one raised to him rather than removed
+  (`scripts/hooks/commit-ceo-inputs.sh`, which acts on a path literal he typed and is
+  the mechanism he ordered on 2026-09-05 — escalation
+  `esc-20260920T060059Z-fc088bd9`).
+
 ### Removed — the TaskStop guard no longer reads the CEO's sentences (2026-09-20)
 
 - **`authorizes_stop()` and the whole language predicate are gone** from
