@@ -39,7 +39,12 @@ end-to-end run, on candidate `.5`:
 ```
 vm=richos-test-1 ip=192.168.64.4 pid=717 ssh=admin@192.168.64.4 windows=1 elapsed=100s
 tailnet=richos-test-1.tail770f6e.ts.net
+claude: host 2.1.277 guest 2.1.277
+claude login: guest logged in
 ```
+
+The last two lines are printed at **every** run, matched or not — see *The claude binary and
+the claude login*. Real output from `zach-claude1`, 2026-09-20.
 
 The `tailnet=` line is the guest's own name on the tailnet, and it is what makes the
 **phone path** testable in here — see *The phone path in a VM*. **Since 2026-09-20 there
@@ -382,7 +387,7 @@ All verified on 2026-09-19 against candidate `.5` unless marked otherwise.
 | Two VMs at once | **Yes** — both booted, both rendered, both captured, 32% host memory still free |
 | Works with the host screen **locked/asleep** | **Yes** — the completion proof was captured with the host display asleep. The guest runs its own WindowServer; the host's screen state is irrelevant to it |
 | WebGL splash / Metal rendering | Untested in this pass — the fixture home boots straight past the splash into the home screen. See "Graphics" |
-| **Model turns (`claude`)** | **Yes, since 2026-09-20** — the binary and the login are both copied from this Mac at every run. It was *"no, not without a one-time human sign-in"* until then; see *The claude binary and the claude login* |
+| **Model turns (`claude`)** | **Yes, since 2026-09-20, measured** — `claude -p 'Reply with the single word READY…'` in the guest answered **`READY`** (rc 0) from a login copied in at the start of that run. It was *"no, not without a one-time human sign-in"* until then; see *The claude binary and the claude login* |
 | Audio | Out of scope. CEO §53 stands: the Mac's speakers cannot stand in for a person, and a VM's virtual audio device does not change that. Do not test barge-in here. |
 | Tailscale as its own node | **Yes, with the auth key** — the guest joins as `richos-test-<vm>`, which is what makes the phone path reachable in here. Without the key it stays signed out and only the phone path is unavailable. See *The phone path in a VM* |
 
@@ -494,6 +499,21 @@ expired token in the guest is impossible *across* runs; within a run, the guest 
 exactly what this Mac holds, because it was copied from it minutes earlier. If **this
 Mac** is not signed in, `run.sh` stops before booting anything:
 *"host claude is not logged in — /login on the host first"*.
+
+**Measured, 2026-09-20** (`docs/verification/2026-09-20-claude-binary-and-login-in-the-test-vm.md`):
+the credential file lands at **524 bytes in the guest, matching this Mac's credential byte for
+byte in size**, and `claude -p` in that guest answered **`READY`**. The size comparison is the
+check that matters and it is not decoration — Ray's vm9 audit found that
+`security add-generic-password -w` reading from a pipe with no tty stores an **empty** password
+and **exits 0**, so a store's own success is not evidence that it holds anything.
+
+**Where it goes: the file store first.** `claude` keeps `.credentials.json` in its config dir
+(`CLAUDE_CONFIG_DIR` when set, `~/.claude` otherwise), and a file has no tty, no securityd and
+no session to be on the wrong side of. Both paths are written — the fixture home's, which is
+what the app is launched with, and the guest user's own, which is what a `claude` started by
+hand over ssh reads — from ONE stdin write copied inside the guest, under `umask 077`. The
+keychain item is written too, by a different mechanism from the one that failed Ray (`security
+-i` with `-X <hex>` on stdin, never `-w`), so either store alone is a login.
 
 **The value is only ever on a pipe.** `security -i` reads its commands from **stdin**,
 which is how Claude Code itself writes this item — from the same binary:
@@ -653,6 +673,7 @@ pid, verifies that pid is frontmost, and refuses to send otherwise.
 | ssh | `BatchMode=yes` | without it, failed key auth falls back to a password prompt: a hang, or an askpass **window** on his screen |
 | `caffeinate` | `-is`, never `-dimsu` | `-d`/`-u` would keep his display lit and unlocked for the length of every test |
 | Guest staging dir | `$HOME`, not `/tmp` | Homebrew's tesseract cannot read the guest's `/tmp` |
+| `--engine` untar | **`--strip-components 1`, then a shape check** | the release tarball's one top-level member is `engine/`, so a plain untar produced `<payload>/engine/engine/…`; the app asks for `<dir>/scripts/hooks` and `<dir>/VERSION` and said *"the RichOS engine isn't on this Mac"* — which is why nightlies .7 and .8 could not measure Mac → phone |
 | `claude` auto-updates in the guest | **`DISABLE_AUTOUPDATER=1`** | the `autoUpdates:false` CONFIG key is ignored for a native install once `autoUpdatesProtectedForNative` is set, which the native updater sets itself — a config pin would look set and do nothing |
 | The guest's `claude` version | **the host's, re-checked every run** | a binary copied once into the base image is a snapshot; the host's updates four times in two days, and the VM is supposed to be his Mac |
 | Writing the credential into the guest | **`security -i` on stdin** | `add-generic-password -w <secret>` puts it in the process table and in every log of the command line; `security -i` is the mode Claude Code itself uses for the same item |
