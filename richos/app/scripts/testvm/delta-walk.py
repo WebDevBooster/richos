@@ -22,6 +22,7 @@ sys.path.insert(0,str(QA/'lib'))
 import qaimg
 import qaocr
 from scenario import Failure, TurnBudget, run
+from reserve import cpu_admission
 from relaunch import guest,relaunch
 from rollback import exercise
 import importlib.util
@@ -104,12 +105,10 @@ class Walk:
                 '--role','AXPopUpButton','--first',app='Safari')
         return {'paired':True,'layout':{'mac':[0,25,1024,700],'phone':[1024,25,656,700]}}
     def capture(self,label,origin,budget,switch=False):
-        admission=time.monotonic()
-        while os.getloadavg()[0]>=8 and time.monotonic()-admission<self.a.admission_wait_seconds:
-            time.sleep(2)
-        admission_wait=time.monotonic()-admission
-        load=os.getloadavg()[0]
-        if load>=8:raise Failure('prerequisite unavailable','load %.2f is above timing admission limit; no send issued' % load)
+        try:
+            admission=cpu_admission(wait_seconds=self.a.admission_wait_seconds)
+        except BlockingIOError as exc:
+            raise Failure('prerequisite unavailable',str(exc)+' No send issued.') from exc
         number=budget.take() # Counts the attempt even if the send later fails.
         token='probe'+uuid.uuid4().hex[:10]
         prompt='Reply with these characters joined without spaces: '+' '.join(token)
@@ -140,8 +139,7 @@ class Walk:
             if thread:thread.join(timeout=30)
         # Transfer the immutable sequence once, then perform all analysis locally.
         command([HERE/'guest.sh',self.vm,'--pull',remote,self.out/label],120)
-        row={'number':number,'token':token,'prompt':prompt,'directory':str(self.out/label),'origin':origin,'load':load,
-             'admission_wait_seconds':admission_wait,
+        row={'number':number,'token':token,'prompt':prompt,'directory':str(self.out/label),'origin':origin,**admission,
              'capture':output,'switch':switched}
         (self.out/(label+'.json')).write_text(json.dumps(row,indent=2))
         return row
@@ -257,7 +255,7 @@ def main():
     p.add_argument('--keychain-endurance',action='store_true',help='pair then idle/relaunch for 30 minutes; no test sends (app initialization may use the model)')
     p.add_argument('--previous-app');p.add_argument('--thread-a',default='Scenario A');p.add_argument('--thread-b',default='Scenario B')
     p.add_argument('--admission-wait-seconds',type=float,default=0,
-                   help='bounded wait for load below 8 before each attempt; counted separately from capture')
+                   help='bounded wait for CPU below 80% busy before each attempt; excludes at most 5s final probe; recorded separately from capture')
     p.add_argument('--band-side',choices=['mac','phone'],default='mac')
     p.add_argument('--band-box',nargs=4,type=int,required=True,help='x0 y0 x1 y1 enclosing a stable band boundary')
     p.add_argument('--band-color',required=True,help='measured boundary color')

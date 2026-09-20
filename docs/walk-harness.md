@@ -54,7 +54,7 @@ the source and resulting ledger hashes. The caller owns deletion of these copies
 
 `run-walk.py` holds the same `<state-dir>/release.lock` as `nightly-local.py`. Its
 default state directory is `~/.richos-nightly`; `--state-dir` must match the nightly
-when overridden. Acquisition is nonblocking and host load must be below 8. Under
+when overridden. Acquisition is nonblocking and measured CPU use must be below 80%. Under
 that lock it refuses another running clone, creates a unique headless guest and
 keeps the reservation until `stop.sh` has stopped the captured processes and deleted
 the clone. It also cleans up after boot failure or interruption. Only `caffeinate -is`
@@ -97,9 +97,16 @@ wait before its reply so the eight-second switch has an active-work interval to
 observe. Both clients explicitly select the same named conversation. Send attempts count before sending;
 there is no automatic retry and recovery cannot exceed six total attempts. A missing
 reply is a measured failure, not a reason to keep sending diagnostic prompts.
-On a shared host, `--admission-wait-seconds 120` allows a bounded wait for load below
-8 before each attempt. This wait is recorded separately from capture time and is
-included in the complete scenario duration. It sends nothing while load is too high.
+On a shared host, `--admission-wait-seconds 120` allows a bounded wait for CPU use
+below 80% before each attempt. Each probe uses the second `top` sample, one second
+after the first, with a five-second command timeout. The final probe can extend the
+requested wait by at most five seconds. Actual admission time, measured CPU use and
+informational load average are recorded in each capture receipt. Admission time is
+included in the complete scenario duration. Busy CPU or an unavailable measurement
+refuses admission before consuming a turn or sending a prompt. Load average alone
+neither establishes another active job nor blocks work on an otherwise idle CPU.
+For an explicitly controlled benchmark, `reserve.py --max-load N` retains an opt-in
+legacy load criterion. The shared lock remains mandatory in either mode.
 
 Each prompt contains spaced characters; the requested reply joins them. Thus the
 reply token is absent from the prompt. Desktop and phone OCR streams stay separate.
