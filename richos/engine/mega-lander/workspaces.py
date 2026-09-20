@@ -1898,6 +1898,96 @@ def platform_agent_records(session_id):
     return out
 
 
+def platform_agent_transcript(rec):
+    """The agent's own JSONL, beside the per-agent record the platform writes.
+
+    <projects>/<project>/<session>/subagents/agent-<id>.jsonl — the same
+    directory platform_agent_record reads, and the same file the session's
+    scratch `tasks/<id>.output` is a symlink to. Read, never written."""
+    aid = (rec.get("agent_id") or "").strip()
+    if not AGENT_ID_RE.match(aid):
+        return ""
+    leaf = os.path.join("subagents", "agent-%s.jsonl" % aid)
+    base = _platform_projects_dir()
+    sid = (rec.get("session_id") or "").strip()
+    pats = []
+    if sid and "/" not in sid:
+        pats.append(os.path.join(base, "*", sid, leaf))
+    pats.append(os.path.join(base, "*", "*", leaf))
+    for pat in pats:
+        for p in sorted(glob.glob(pat)):
+            if os.path.isfile(p):
+                return p
+    return ""
+
+
+def qa_throwaway_lines(ref, me=""):
+    """What a QA teammate's walk wrote from scratch, said at its land.
+
+    The CEO, 2026-09-20: "what else must be done to ensure the QA toolkit
+    actually gets used?" The spawn carries the toolkit's index in; this is the
+    other end — the land says what the walk wrote instead of reaching for it.
+    111 helper scripts across eight walks is the baseline it measures against,
+    and a number nobody ever reads is the same as no number.
+
+    INFORMATION, NEVER A REFUSAL. A walk that genuinely needed a one-off is not
+    a defect, and a land that refused over a count would be waived the first
+    time it was right — which is how a guard dies. It never raises either: a
+    counter that could break the deleter it hangs off would be a worse defect
+    than the one it reports.
+
+    NEVER SILENT. A transcript it cannot find is said so, with where it looked.
+    A count that is absent because nothing looked reads exactly like a clean
+    walk, and those are opposite facts."""
+    out = []
+    try:
+        here = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "scripts", "lib")
+        # Both modules carry a hyphen in their filename, so they are loaded by
+        # path rather than imported by name — the same reason spawn.py has its
+        # own _load. ONE definition of "is this a QA type" (qa-toolkit.py, off
+        # QA_TOOLKIT_AGENTS) and ONE definition of what counts as a throwaway
+        # (qa-throwaways.py); this file restates neither.
+        qa_toolkit = _import_path("qa_toolkit", os.path.join(here, "qa-toolkit.py"))
+        throwaways = _import_path("qa_throwaways", os.path.join(here, "qa-throwaways.py"))
+        rec = _resolve(ref, me)
+        stype = (rec.get("subagent_type") or "").strip()
+        if not qa_toolkit.is_qa_type(stype):
+            return []
+        path = platform_agent_transcript(rec)
+        if not path:
+            return ["qa toolkit:  no transcript found for %s under %s — the count of "
+                    "helper scripts this walk wrote was NOT taken"
+                    % (rec.get("name") or ref, _platform_projects_dir())]
+        events, rows = throwaways.scan(path)
+        scripts, toolkit = throwaways.classify(events)
+        n = len(scripts)
+        if n:
+            out.append("qa toolkit:  %d helper script%s written from scratch in this walk "
+                       "(%s):" % (n, "" if n == 1 else "s", os.path.basename(path)))
+            for s in sorted(scripts, key=lambda s: s["rows"][0])[:12]:
+                out.append("               %s" % os.path.basename(s["path"]))
+            if n > 12:
+                out.append("               ... and %d more — "
+                           "scripts/qa-throwaways.sh %s" % (n - 12, path))
+        else:
+            out.append("qa toolkit:  0 helper scripts written from scratch in this walk")
+        if toolkit:
+            out.append("               %d added to the committed toolkit, which is the "
+                       "wanted behavior" % len(toolkit))
+    except Exception as e:                                   # never break a land
+        out = ["qa toolkit:  the count could not be taken (%s)" % str(e)[:160]]
+    return out
+
+
+def _import_path(name, path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 # POINT 11's UNTIDY ENDINGS. "That covers every ending: it handed in its work,
 # crashed, was cut off by a limit, OR WAS STOPPED." The tidy ending arrives as
 # a hook: the LAST SubagentStop of a run carries the agent's own bound id, and
@@ -4850,8 +4940,15 @@ def main(argv):
         if a.cmd == "status":
             return _print_status(me, entity)
         if a.cmd == "land":
+            # Taken BEFORE the land: the record is read for the agent's type and
+            # its transcript, and a land that ends in a deletion retry must not
+            # cost the count. The transcript itself lives in the platform's
+            # projects directory and no workspace deletion touches it.
+            qa_lines = qa_throwaway_lines(a.agent, me)
             land(a.agent, me, ignored_ok=a.ignored_not_needed)
             print("landed: %s — every workspace and branch deleted (or retrying)" % a.agent)
+            for _l in qa_lines:
+                print(_l)
             sweep_scratch_after_land()
         elif a.cmd == "discard":
             r = discard(a.agent, a.reason, a.ceo_word, a.not_ceo_ordered, me)
