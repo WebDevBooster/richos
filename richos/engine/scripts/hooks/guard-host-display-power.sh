@@ -174,11 +174,19 @@
 #
 # TWO CONSEQUENCES WORTH STATING:
 #
-#   * `testvm/ax.sh <vm> '<applescript>'` is exempt BY CONSTRUCTION, verified by
-#     reading it rather than by trusting its name: every path through that
-#     script ends at `guest_ssh "$VM" "osascript -"` (ax.sh, final block), and
-#     `guest_ssh` is `ssh "${TESTVM_SSH_OPTS[@]}" … "$user@$ip"` (lib.sh:146).
-#     It has no branch that runs anything locally.
+#   * `testvm/ax.sh <vm> …` is exempt BY CONSTRUCTION, verified by reading it
+#     rather than by trusting its name: every path that reaches a SCREEN ends at
+#     `guest_ssh`, which is `ssh "${TESTVM_SSH_OPTS[@]}" … "$user@$ip"`
+#     (lib.sh) — the AppleScript form at `osascript -`, and the `tree`/`find`/
+#     `click` forms at `osascript -l JavaScript -`.
+#     CORRECTED 2026-09-20, when those three subcommands were added: it is no
+#     longer true that ax.sh runs NOTHING locally. They build their parameter
+#     block and render the guest's answer with `python3 -c` on this Mac, and
+#     take one `mktemp` scratch file. None of that touches display, power,
+#     session or input, so the exemption still holds — but it holds because the
+#     local branches are pure text, not because there are none. If a local
+#     branch in there ever grows teeth, this is the sentence that changes with
+#     it.
 #   * `ssh -o ProxyCommand='…'` and `-o LocalCommand='…'` DO run locally, so an
 #     ssh segment is still scanned for those two option values and they are
 #     analyzed as commands. Without this, the word `ssh` would be a bypass with
