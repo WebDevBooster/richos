@@ -2,6 +2,7 @@
 """timeline.py — how long did the app take to respond, measured off one clock.
 
   timeline.py capture <outdir> <seconds> --region x,y,w,h
+                      [--also-region x,y,w,h]
                       [--click X,Y | --key CODE | --wait-only]
                       [--baseline SECONDS] [--interval SECONDS]
   timeline.py report  <outdir> [--tol N] [--step N]
@@ -38,6 +39,25 @@ a one-frame flicker is visible as a one-frame flicker rather than as an
 answer.
 
 ===========================================================================
+TWO REGIONS, ONE ACTION, ONE CLOCK — `--also-region`
+===========================================================================
+A phone walk asks one question of two screens: the press happens on the Mac,
+and the answer is wanted BOTH on the Mac and on the phone page beside it.
+Two separate `capture` runs cannot answer it, because each stamps its own
+action instant and the gap between two processes starting is unknown in
+size and in sign — on a leg whose claim is single-digit milliseconds.
+
+So `--also-region` captures a SECOND rectangle from the SAME process, in a
+second thread, around the SAME action. Its frames land in `<outdir>/b/`
+with their own `meta.tsv`, whose `t_action_before`/`t_action_after` are
+**the same two numbers** as the primary's — one press, one clock, two
+answers. `report <outdir>` and `report <outdir>/b` then read normally.
+
+Both loops call `screencapture` concurrently, so the per-loop frame gap is
+wider than a single loop's. `capture` prints the median gap of each, and
+that number is the resolution of the answer — quote it beside the answer.
+
+===========================================================================
 WHY `capture` REFUSES TO RUN WITHOUT BEING TOLD
 ===========================================================================
 It takes a picture of a screen and it can synthesize a click. On the
@@ -67,6 +87,7 @@ GUEST_USER = os.environ.get("TESTVM_GUEST_USER", "admin")
 # ---------------------------------------------------------------------------
 def cmd_capture(args):
     region = None
+    also = None
     action = None
     baseline = 1.2
     interval = 0.0
@@ -76,6 +97,9 @@ def cmd_capture(args):
         a = args[i]
         if a == "--region":
             region = args[i + 1] if i + 1 < len(args) else None
+            i += 2
+        elif a == "--also-region":
+            also = args[i + 1] if i + 1 < len(args) else None
             i += 2
         elif a == "--click":
             action = ("click", args[i + 1] if i + 1 < len(args) else "")
@@ -101,6 +125,8 @@ def cmd_capture(args):
     out, secs = rest[0], float(rest[1])
     if not region or len(region.split(",")) != 4:
         qaimg.die("--region is required, as x,y,w,h")
+    if also is not None and len(also.split(",")) != 4:
+        qaimg.die("--also-region takes a rectangle, as x,y,w,h")
     if action is None:
         qaimg.die("say what the action is: --click X,Y, --key CODE, or --wait-only")
 
@@ -116,25 +142,33 @@ def cmd_capture(args):
 
     if not os.path.isdir(out):
         os.makedirs(out)
+    out_b = os.path.join(out, "b")
+    if also is not None and not os.path.isdir(out_b):
+        os.makedirs(out_b)
 
     frames = []
+    frames_b = []
     stop = threading.Event()
 
-    def loop():
+    def loop(rect, where, sink):
         n = 0
         while not stop.is_set():
             t = time.time()
-            subprocess.run(["screencapture", "-x", "-o", "-R" + region,
-                            os.path.join(out, "%04d.png" % n)],
+            subprocess.run(["screencapture", "-x", "-o", "-R" + rect,
+                            os.path.join(where, "%04d.png" % n)],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            check=False)
-            frames.append((n, t))
+            sink.append((n, t))
             n += 1
             if interval:
                 time.sleep(interval)
 
-    th = threading.Thread(target=loop, daemon=True)
+    th = threading.Thread(target=loop, args=(region, out, frames), daemon=True)
     th.start()
+    th_b = None
+    if also is not None:
+        th_b = threading.Thread(target=loop, args=(also, out_b, frames_b), daemon=True)
+        th_b.start()
     time.sleep(baseline)
 
     t0 = time.time()
@@ -153,25 +187,40 @@ def cmd_capture(args):
     time.sleep(secs)
     stop.set()
     th.join(timeout=15)
+    if th_b is not None:
+        th_b.join(timeout=15)
 
     if not frames:
         qaimg.die("not one frame was captured — screencapture produced nothing")
+    if also is not None and not frames_b:
+        qaimg.die("--also-region captured not one frame — screencapture "
+                  "produced nothing for %s" % also)
 
-    gaps = sorted((frames[i + 1][1] - frames[i][1]) * 1000
-                  for i in range(len(frames) - 1))
-    med = gaps[len(gaps) // 2] if gaps else -1.0
+    def _median_gap(fr):
+        gaps = sorted((fr[i + 1][1] - fr[i][1]) * 1000 for i in range(len(fr) - 1))
+        return gaps[len(gaps) // 2] if gaps else -1.0
 
-    with open(os.path.join(out, "meta.tsv"), "w") as fh:
-        fh.write("action\t%s %s\n" % (kind, arg))
-        fh.write("region\t%s\n" % region)
-        fh.write("t_action_before\t%.1f\n" % (t0 * 1000))
-        fh.write("t_action_after\t%.1f\n" % (t1 * 1000))
-        for n, t in frames:
-            fh.write("frame\t%d\t%.1f\n" % (n, t * 1000))
+    def _write(where, rect, fr):
+        with open(os.path.join(where, "meta.tsv"), "w") as fh:
+            fh.write("action\t%s %s\n" % (kind, arg))
+            fh.write("region\t%s\n" % rect)
+            # THE SAME TWO NUMBERS in both files, deliberately: there was one
+            # press, and both regions are answered against it.
+            fh.write("t_action_before\t%.1f\n" % (t0 * 1000))
+            fh.write("t_action_after\t%.1f\n" % (t1 * 1000))
+            for n, t in fr:
+                fh.write("frame\t%d\t%.1f\n" % (n, t * 1000))
 
+    med = _median_gap(frames)
+    _write(out, region, frames)
     print("frames %d   median gap %.1f ms   action window %.1f ms"
           % (len(frames), med, (t1 - t0) * 1000))
     print("wrote %s" % os.path.join(out, "meta.tsv"))
+    if also is not None:
+        _write(out_b, also, frames_b)
+        print("also   %d   median gap %.1f ms   region %s"
+              % (len(frames_b), _median_gap(frames_b), also))
+        print("wrote %s" % os.path.join(out_b, "meta.tsv"))
     return 0
 
 
