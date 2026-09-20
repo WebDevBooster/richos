@@ -13,6 +13,29 @@ class Refusal(RuntimeError):
     pass
 
 
+def finish_group(process):
+    """Bounded cleanup even when a successful wrapper leaves children behind."""
+    def alive():
+        process.poll()
+        try:
+            os.killpg(process.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if not alive():
+            break
+        os.killpg(process.pid, sig)
+        end = time.monotonic() + 2
+        while alive() and time.monotonic() < end:
+            time.sleep(.02)
+    process.wait(timeout=2)
+    if alive():
+        raise Refusal(f"cleanup failed for owned process group {process.pid}")
+
+
 def run(args, *, cwd, timeout=180, env=None, input=None):
     """Own the process group, including Cargo children and cache-lock waiters."""
     started = time.monotonic()
@@ -22,20 +45,13 @@ def run(args, *, cwd, timeout=180, env=None, input=None):
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
         out, err = process.communicate(input, timeout=max(.001, timeout))
-    except BaseException:
-        # Only the process group we created. No name or path matching.
+    finally:
         try:
-            os.killpg(process.pid, signal.SIGTERM)
-            process.communicate(timeout=1)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
-            pass
+            finish_group(process)
         finally:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.communicate()
-        raise
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
     return subprocess.CompletedProcess(args, process.returncode, out, err), time.monotonic() - started
 
 
