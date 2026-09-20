@@ -1,5 +1,8 @@
 # The test VM — on-screen proofs that never touch the CEO's screen
 
+For bounded AX searches, cached OCR, held reservations and reusable scenarios, see
+[the walk harness guide](walk-harness.md).
+
 **What it is:** a macOS virtual machine on this same Mac that acts as the host for
 anything that has to put the RichOS app on a screen. The app opens on the guest's
 virtual display; the host renders no window at all. Two guests can run at once, so two
