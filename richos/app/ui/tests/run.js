@@ -68,12 +68,14 @@ const USAGE =
   "usage: node run.js [--allow-skip=<suite.js> ...]        every suite, serially, gate in-process\n" +
   "       node run.js --shard=<i>/<N> --receipts=<dir>     one shard, writing a receipt per suite\n" +
   "       node run.js --coverage=<dir>                     reconcile every shard's receipts\n" +
+  "       node run.js --weigh=<dir>                        rewrite suite-weights.tsv from receipts\n" +
   "       node run.js --plan[=<N>]                         print the packing and exit";
 
 const ALLOWED_SKIPS = new Set();
 let SHARD = null;
 let RECEIPTS = null;
 let COVERAGE = null;
+let WEIGH = null;
 let PLAN = null;
 for (const arg of process.argv.slice(2)) {
   if (arg.startsWith("--allow-skip=")) {
@@ -101,6 +103,10 @@ for (const arg of process.argv.slice(2)) {
     COVERAGE = arg.slice("--coverage=".length);
     continue;
   }
+  if (arg.startsWith("--weigh=")) {
+    WEIGH = arg.slice("--weigh=".length);
+    continue;
+  }
   if (arg === "--plan" || arg.startsWith("--plan=")) {
     PLAN = arg === "--plan" ? 0 : Number(arg.slice("--plan=".length));
     if (!Number.isInteger(PLAN) || PLAN < 0) {
@@ -123,6 +129,10 @@ if (SHARD && COVERAGE) {
 // together rather than one being an optional extra somebody forgets in the YAML.
 if (SHARD && !RECEIPTS) {
   console.error("--shard needs --receipts=<dir>: an unreceipted shard cannot be reconciled.\n" + USAGE);
+  process.exit(2);
+}
+if (WEIGH && (SHARD || COVERAGE)) {
+  console.error("--weigh reads a finished run's receipts; it does not run or reconcile one.\n" + USAGE);
   process.exit(2);
 }
 
@@ -246,7 +256,14 @@ function loadWeights() {
     if (!t || t.startsWith("#")) continue;
     const [name, secs] = t.split("\t");
     const n = Number(secs);
-    if (name && Number.isFinite(n) && n > 0) w.set(name, n);
+    // `>= 0`, NOT `> 0`, AND THE DIFFERENCE COST TEN MINUTES A RUN. A suite that finishes in
+    // under a second is measured as `0`, and the `> 0` this replaced threw that row away —
+    // so `dialect.js` and `docs-claims.js`, the two CHEAPEST suites in the inventory, were
+    // read as having no weight at all and then packed as if each were the most expensive one
+    // known (305 s). A measurement is not made unusable by being small; only a row that says
+    // nothing (missing, blank, non-numeric) is, and `Number.isFinite` is what rejects those.
+    // A negative weight is still refused: it is not a duration.
+    if (name && Number.isFinite(n) && n >= 0) w.set(name, n);
   }
   return w;
 }
@@ -302,6 +319,13 @@ if (PLAN !== null) {
   const unweighted = SUITES.filter((x) => !WEIGHTS.has(x));
   if (unweighted.length) console.log(`  NOTE  no committed weight, packed as heaviest: ${unweighted.join(", ")}`);
   process.exit(0);
+}
+
+// --weigh: this process runs no suite either. It turns a finished run's receipts into the
+// packing weights, so the file that decides shard balance is measured rather than typed.
+if (WEIGH) {
+  runWeigh(WEIGH);
+  // runWeigh never returns.
 }
 
 // --coverage: this process runs no suite. It reconciles what the shards wrote down.
@@ -573,9 +597,11 @@ function reconcile(state) {
     reconcile({ duplicates: [], unplanned: [], commits: clean, here: "" }).length, 0);
 })();
 
-function runCoverage(dir) {
+/// Every `*.receipt.json` under `dir`, sorted. Shared by `--coverage` and `--weigh` so the
+/// two never disagree about what a receipt directory contains.
+function receiptFiles(dir, flag) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-    console.error(`--coverage=${dir} is not a directory. No receipts means nothing was proven.`);
+    console.error(`${flag}=${dir} is not a directory. No receipts means nothing was proven.`);
     process.exit(1);
   }
   // Receipts arrive as one directory per shard artifact, or flat. Both are walked, because
@@ -600,12 +626,97 @@ function runCoverage(dir) {
     );
     process.exit(1);
   }
+  return files.sort();
+}
+
+// ---------------------------------------------------------------------------------------
+// --weigh — the weights are MEASURED on the machine that runs them, never estimated
+// ---------------------------------------------------------------------------------------
+//
+// WHY THIS COMMAND EXISTS. `suite-weights.tsv` is the only input to packing, and on
+// 2026-09-20 it named 32 of 55 suites. `pack()` weighs an unweighted suite as the heaviest
+// one known — a deliberately safe default — so 25 suites (23 absent, plus `dialect.js` and
+// `docs-claims.js` whose measured `0` the loader was discarding) were each packed as 305 s.
+// That is 7625 s of load that does not exist, against 2155 s that does, so the packer was
+// balancing four shards of mostly fiction and the balance it reported was an artifact:
+// every shard showed 2446 s while the REAL measured load was 311 / 311 / 920 / 613 s. One
+// shard carried three times another, the run took as long as its longest shard, and nobody
+// could see it because the plan said the shards were even.
+//
+// MEASURED END TO END on this Mac (M4, 4 performance cores) at bf1381e0: four shards took
+// 190 / 296 / 467 / 557 s before, and 379 / 384 / 387 / 402 s after. The run costs its
+// LONGEST shard, so that is 557 s -> 402 s, a 28% cut with not one suite made faster.
+//
+// A weights file maintained by hand drifts the moment a suite is added, which is exactly
+// what happened. This command regenerates it from a real run's receipts — the same receipts
+// the coverage job reconciles — so the fix is re-derivable in one command instead of being
+// a number somebody remembered to update.
+//
+// IT REFUSES A PARTIAL SET. Writing weights for the suites that happen to have receipts
+// would silently DELETE the weight of every suite that did not, turning each of them back
+// into a 305 s phantom. The whole inventory, or nothing.
+function runWeigh(dir) {
+  const files = receiptFiles(dir, "--weigh");
+  const seconds = new Map();
+  for (const f of files) {
+    let r;
+    try {
+      r = JSON.parse(fs.readFileSync(f, "utf8"));
+    } catch (e) {
+      console.error(`unreadable receipt ${f}: ${e.message}`);
+      process.exit(1);
+    }
+    if (!r.suite || typeof r.seconds !== "number") {
+      console.error(`receipt ${f} carries no suite/seconds pair to weigh`);
+      process.exit(1);
+    }
+    seconds.set(r.suite, r.seconds);
+  }
+  const missing = SUITES.filter((s) => !seconds.has(s));
+  if (missing.length) {
+    console.error(
+      `refusing to rewrite ${path.basename(WEIGHTS_FILE)} from a partial run: no receipt for ` +
+        `${missing.join(", ")}. Weighing only what ran would delete these suites' weights and ` +
+        `pack each of them as the heaviest suite known, which is the defect this command exists ` +
+        `to end. Run every shard, then weigh.`
+    );
+    process.exit(1);
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  const total = SUITES.reduce((a, s) => a + seconds.get(s), 0);
+  const lines = [
+    `# Measured wall clock per suite, in seconds, on the machine that runs them.`,
+    `# REGENERATED BY \`node run.js --weigh=<receipts>\` — do not hand-edit: a weight typed`,
+    `# here drifts the moment a suite changes, and a MISSING row is not neutral. \`pack()\``,
+    `# weighs an unknown suite as the heaviest one known, so an absent row costs wall clock`,
+    `# on every run until somebody measures it.`,
+    `#`,
+    `# A weight is never load-bearing for correctness: it decides which shard a suite lands`,
+    `# in and nothing else. Coverage is proven from receipts.`,
+    `#`,
+    `# ${SUITES.length} suite(s), ${total.toFixed(0)} s serial, measured ${stamp}.`,
+    `# A suite under a second is written as 0 and that is a measurement, not a missing row.`,
+  ];
+  for (const s of SUITES) lines.push(`${s}\t${Math.round(seconds.get(s))}`);
+  fs.writeFileSync(WEIGHTS_FILE, lines.join("\n") + "\n");
+  console.log(
+    `${path.basename(WEIGHTS_FILE)} rewritten from ${files.length} receipt(s): ` +
+      `${SUITES.length} suite(s), ${total.toFixed(0)} s serial.`
+  );
+  const heaviest = SUITES.slice().sort((a, b) => seconds.get(b) - seconds.get(a)).slice(0, 5);
+  console.log(`  heaviest: ${heaviest.map((s) => `${s} ${seconds.get(s).toFixed(0)}s`).join(", ")}`);
+  console.log(`  the floor for ANY shard count is the heaviest single suite: ${seconds.get(heaviest[0]).toFixed(0)} s.`);
+  process.exit(0);
+}
+
+function runCoverage(dir) {
+  const files = receiptFiles(dir, "--coverage");
 
   const data = new Map();
   const duplicates = [];
   const commits = new Map();
   const unplanned = [];
-  for (const f of files.sort()) {
+  for (const f of files) {
     let r;
     try {
       r = JSON.parse(fs.readFileSync(f, "utf8"));
