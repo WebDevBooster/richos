@@ -1005,6 +1005,38 @@ impl TurnControl {
         log.channel_message(thread_id, entity_id, text, channel)
     }
 
+    /// **The DESK's road in, and it is the same road for the same reason** — the one the
+    /// window takes for every typed sentence, not only the ones that land while the front
+    /// desk is being primed.
+    ///
+    /// [`Self::defer_send`] writes exactly this record and answers `None` unless a prime is
+    /// in flight. That gate made sense while the only thing the window gained was skipping a
+    /// wait it could see: the screen said *"Sending your message"* and the CEO watched it.
+    /// It stopped making sense the day a PHONE was looking at the same thread, because his
+    /// own sentence cannot reach that phone until his words are somewhere durable, and the
+    /// ledger is behind the one mutex a turn holds for its whole length
+    /// (`Ledger::record_prompt_received` is `&mut self`). Measured through the shipped
+    /// listener: the phone path itself costs **5 ms**, and a spine held for 1,500 ms put his
+    /// row on the phone at 1,507 ms (`phone::listen`'s two timing tests).
+    ///
+    /// So the window writes here FIRST, always, and the spine picks it up with
+    /// [`crate::spine::Spine::poll_intake`] — the phone's own path, in the phone's own order,
+    /// with the phone's own at-least-once guarantee into a ledger that can spot a replay.
+    ///
+    /// **Durable before the caller can say anything.** `fsync` inside, like every write on
+    /// this log, because the whole point is that nothing downstream is claimed before his
+    /// words survive a crash.
+    pub fn submit_from_desk(
+        &self,
+        thread_id: &str,
+        entity_id: Option<EntityId>,
+        text: &str,
+    ) -> Result<IntakeRecord, SteeringError> {
+        let mut guard = self.inner.intake.lock().unwrap();
+        let log = guard.as_mut().ok_or(SteeringError::NoDurableIntake)?;
+        log.desk_message(thread_id, entity_id, text)
+    }
+
     // --- the pre-prime window (CEO §55) -------------------------------------------------
 
     /// **A priming turn has started for `thread_id`, and the spine's mutex is about to be
@@ -1060,6 +1092,14 @@ impl TurnControl {
     /// with [`SteeringError::NoDurableIntake`] rather than accepting a message it cannot
     /// write down — the same refusal `steer` and `request_stop` make, for the same reason.
     /// The caller falls back to blocking, which is what it did before this existed.
+    ///
+    /// **THE SHELL NO LONGER CALLS THIS, and that is a widening rather than a retirement.**
+    /// `send_message` takes [`Self::submit_from_desk`] for EVERY typed sentence now, because
+    /// a prime was never the only thing his words could be stuck behind — an ordinary turn
+    /// holds the same mutex for its whole length, and his phone shows the wait that the Mac's
+    /// own window hides. This function is the narrower question ("is a prime in flight, and
+    /// atomically so?") and it keeps its tests, because that question is the one thing
+    /// `submit_from_desk` cannot answer and the day something needs it, it is here and proved.
     pub fn defer_send(
         &self,
         thread_id: &str,

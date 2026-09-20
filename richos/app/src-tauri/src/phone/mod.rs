@@ -772,6 +772,18 @@ impl PhoneRuntime {
         state
     }
 
+    /// **Tell a watching phone what he just typed, the instant he typed it.**
+    ///
+    /// The whole of the work is [`stream::announce_his_words`] — see it for why this exists
+    /// and for the numbers. This wrapper is only the handle: the hub lives here, and it is
+    /// INERT when no phone is paired, so the caller never has to ask whether there is one.
+    ///
+    /// Returns whether anything went out, for the log line at the call site. `false` is the
+    /// ordinary answer on a Mac with no phone.
+    pub fn announce_his_words(&self, thread_id: &str, message_id: &str, text: &str) -> bool {
+        stream::announce_his_words(&self.hub, thread_id, message_id, text, now_millis()).is_some()
+    }
+
     /// Ask the daemon again on the next [`PhoneRuntime::status`], whatever the cache says.
     ///
     /// This is the Mac's half of Urban's `Check again` control: the user has just done the thing

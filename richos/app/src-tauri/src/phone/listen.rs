@@ -1617,6 +1617,11 @@ mod tests {
     struct Timed {
         dir: std::path::PathBuf,
         spine: Arc<StdMutex<Spine>>,
+        /// The lock-free durable road the shell's send path takes.
+        control: TurnControl,
+        hub: Arc<PhoneHub>,
+        thread: String,
+        entity: EntityId,
         listener: Listener,
         /// The signed stream URL, ready to open.
         url: String,
@@ -1680,6 +1685,10 @@ mod tests {
         spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec![reply])));
         let control = TurnControl::open(dir.join("intake.jsonl")).unwrap();
         spine.set_turn_control(control.clone());
+        // The handle the SHELL holds. `send_message` reaches the log through its own
+        // `AppState`, never through the spine, and that is the whole point of it.
+        let for_the_desk = control.clone();
+        let for_the_desk_entity = entity.clone();
 
         let hub = PhoneHub::new();
         spine.set_live_observer(Box::new(crate::phone::stream::PhoneLiveEmitter::new(Arc::clone(
@@ -1753,6 +1762,10 @@ mod tests {
         Timed {
             dir,
             spine,
+            control: for_the_desk,
+            hub,
+            thread,
+            entity: for_the_desk_entity,
             listener,
             url: format!("{stream_path}&auth={stream_auth}"),
             ca_der: ca.ca_der.clone(),
@@ -1932,6 +1945,96 @@ mod tests {
              {HELD_MS} ms — if that is real, the lock is no longer on this path and the comment \
              above this test is out of date. Transcript:\n{transcript}"
         );
+        mac.finish();
+    }
+
+    /// **AND THE ROAD THE SHELL TAKES NOW, MEASURED AGAINST THE SAME HELD LOCK.**
+    ///
+    /// The test above is the defect: his row is behind the spine because it can only be built
+    /// out of the ledger, and the ledger is behind that mutex. This is the fix, and it is the
+    /// same situation with one thing changed — `send_message` writes his words to the DURABLE
+    /// intake log (no lock, one `fsync`) and announces them from the record, so the phone has
+    /// his sentence while the mutex is still held by somebody else.
+    ///
+    /// **The two tests are deliberately one pair.** Either alone could be satisfied by a
+    /// trick: the one above by a slow machine, this one by announcing something the Mac had
+    /// not committed to. Together they say the only thing worth saying — the wait was real,
+    /// the wait is gone, and what the phone is shown is a record that is already on disk.
+    ///
+    /// **What this does NOT assert, said rather than implied.** It does not exercise
+    /// `send_message` itself: that is a `#[tauri::command]` and needs a window. It exercises
+    /// the seam the command calls, with the lock in the state the command finds it in.
+    #[test]
+    fn his_words_reach_the_phone_while_the_spine_is_still_held_by_something_else() {
+        const HELD_MS: u64 = 1_500;
+        let mac = a_mac_with_a_paired_phone("announced", THE_REPLY);
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let watcher = mac.watch(vec![HIS_WORDS.to_string()], ready_tx);
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the phone's stream never said hello");
+
+        let holding = Arc::clone(&mac.spine);
+        let (let_go_tx, let_go_rx) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let guard = holding.lock().unwrap();
+            let _ = let_go_tx.send(());
+            std::thread::sleep(std::time::Duration::from_millis(HELD_MS));
+            drop(guard);
+        });
+        let_go_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the holder never took the spine");
+
+        // THE PRESS, on the road `send_message` takes: the durable record first — which this
+        // fixture's `TurnControl` writes to a real file — then the announcement, and only then
+        // the spine.
+        let pressed = super::super::now_millis();
+        let record = mac
+            .control
+            .submit_from_desk(&mac.thread, Some(mac.entity.clone()), HIS_WORDS)
+            .expect("his words could not be written to the intake log");
+        let announced = crate::phone::stream::announce_his_words(
+            &mac.hub,
+            &mac.thread,
+            &format!("intake_{}", record.id()),
+            HIS_WORDS,
+            super::super::now_millis(),
+        );
+        assert!(announced.is_some(), "nothing was published for his sentence");
+
+        let (at, transcript) = watcher.join().expect("the watching phone panicked");
+        let his = at[0].expect("his message never reached the phone at all");
+        let took = his.saturating_sub(pressed);
+        println!("the spine was held for            : {HELD_MS} ms");
+        println!("his message -> the phone, past it : {took} ms");
+
+        // **PAST THE LOCK, NOT BEHIND IT.** 300 ms is the same slack the test above uses, from
+        // the same three sources (wall clock, a 20 ms poll, a loaded host). It is a fifth of
+        // the wait it has to beat, so this cannot pass on a machine where the lock still
+        // mattered — that machine produces 1,507 ms, which is what the test above measured.
+        assert!(
+            took <= 300,
+            "his message took {took} ms to reach the phone while the spine was held for \
+             {HELD_MS} ms — the announcement is back behind the lock. Transcript:\n{transcript}"
+        );
+        assert!(
+            transcript.contains("intake_"),
+            "the row on the wire does not carry the intake id the page retires it by:\n{transcript}"
+        );
+
+        // AND HIS WORDS ARE ON DISK, which is what makes the announcement honest rather than a
+        // guess the Mac might contradict (plan §6).
+        assert!(
+            mac.control.pending_intake().iter().any(|r| r.id() == record.id()),
+            "his sentence was announced to the phone and is not on the log"
+        );
+
+        let _ = holder.join();
+        // The turn itself still runs, in order, off the log — the same call `send_message`
+        // makes once it has the spine.
+        mac.spine.lock().unwrap().poll_intake().expect("the spine could not take it off the log");
         mac.finish();
     }
 

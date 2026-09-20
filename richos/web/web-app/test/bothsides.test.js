@@ -171,6 +171,65 @@ test('a live message frame reaches the screen the same way whichever of them sai
 	);
 });
 
+test('the Mac\'s stand-in for a sentence he just typed retires on the Mac\'s own row, never beside it', () => {
+	// THE ROAD THIS IS ON. He types on the Mac. `send_message` writes his words to the durable
+	// intake log without the spine lock and announces them to the phone immediately, under the
+	// intake id (`app/src-tauri/src/phone/stream.rs` `announce_his_words`). When the spine is
+	// free the same words become a turn and the projection sends the row again, under
+	// `{turn}:user`. Two frames, one sentence — and the screen must show one bubble the whole
+	// way through.
+	const thread = createThread();
+	const standIn = {
+		id: 'intake_41', thread_id: 'thr_5c1e', cursor: 1, role: 'ceo', kind: 'text',
+		text: 'where are we on the proposal?', created_at: '2026-09-20T07:00:00.000Z',
+		client_id: null, has_audio: false, from_microphone: false, state: 'sent', complete: true
+	};
+	thread.merge(standIn);
+	assert.deepStrictEqual(
+		thread.view([]).map((row) => [row.id, row.text]),
+		[['intake_41', 'where are we on the proposal?']],
+		'his words did not reach the screen at all on the fast road'
+	);
+
+	// The turn exists now. Same words, the projection's id and its own cursor.
+	thread.merge({
+		id: 't7:user', thread_id: 'thr_5c1e', cursor: 2, role: 'ceo', kind: 'text',
+		text: 'where are we on the proposal?', created_at: '2026-09-20T07:00:00.000Z',
+		client_id: null, has_audio: false, from_microphone: false, state: 'sent', complete: true
+	});
+	assert.deepStrictEqual(
+		thread.view([]).map((row) => [row.id, row.text]),
+		[['t7:user', 'where are we on the proposal?']],
+		'his one sentence is on the screen twice'
+	);
+
+	// POSITIVE CONTROL: a DIFFERENT sentence does not retire the stand-in. Without this, a rule
+	// that deleted every stand-in on any CEO row would pass the assertion above.
+	const other = createThread();
+	other.merge(standIn);
+	other.merge({
+		id: 't8:user', thread_id: 'thr_5c1e', cursor: 2, role: 'ceo', kind: 'text',
+		text: 'and the Kestrel deck?', created_at: '2026-09-20T07:01:00.000Z',
+		client_id: null, has_audio: false, from_microphone: false, state: 'sent', complete: true
+	});
+	assert.deepStrictEqual(
+		other.view([]).map((row) => [row.id, row.text]),
+		[['intake_41', 'where are we on the proposal?'], ['t8:user', 'and the Kestrel deck?']],
+		'a different sentence retired the stand-in, so a message he typed was deleted off his screen'
+	);
+
+	// AND A REPLY NEVER RETIRES ONE. Rich's row shares nothing with his, but a rule written on
+	// `text` alone would retire a stand-in whose words Rich happened to repeat back.
+	const echoed = createThread();
+	echoed.merge(standIn);
+	echoed.merge({
+		id: 't9:rich', thread_id: 'thr_5c1e', cursor: 2, role: 'rich', kind: 'text',
+		text: 'where are we on the proposal?', created_at: '2026-09-20T07:02:00.000Z',
+		client_id: null, has_audio: false, from_microphone: false, state: 'complete', complete: true
+	});
+	assert.strictEqual(echoed.view([]).length, 2, 'Rich repeating his words deleted his message');
+});
+
 test('a reply that arrives with no question in front of it makes the phone ask the Mac for one', () => {
 	// The fallback for the message he types ON THE MAC while watching the phone. It was written
 	// when no live event carried a CEO turn at all; `rich://ceo-message` (`102b7c07`) closed that,

@@ -37,6 +37,14 @@
 		let oldestKnownCursor = null;
 		let reachedTheBeginning = false;
 
+		/// Is this row the Mac's stand-in for a sentence it has taken but not yet turned into a
+		/// turn? Its id is the intake id — `intake_<n>`, the id `POST /api/messages` answers a
+		/// phone with, and the id the Mac announces a DESK message under before the spine has
+		/// been asked for anything (`app/src-tauri/src/phone/stream.rs` `announce_his_words`).
+		function isAStandIn(row) {
+			return Boolean(row) && row.role === 'ceo' && typeof row.id === 'string' && row.id.indexOf('intake_') === 0;
+		}
+
 		function remember(row) {
 			if (!row || !row.id) return;
 			if (typeof row.cursor !== 'number') {
@@ -48,6 +56,25 @@
 			rows.set(row.id, existing ? Object.assign({}, existing, row) : Object.assign({}, row));
 			if (row.client_id) acknowledgedClientIds.add(row.client_id);
 			if (oldestKnownCursor === null || row.cursor < oldestKnownCursor) oldestKnownCursor = row.cursor;
+
+			// **THE STAND-IN RETIRES ON THE MAC'S OWN ROW, AND THE MATCH IS THE TEXT** — the same
+			// rule `confirm`/`view` have used for a phone's pending bubble since the send queue
+			// was written, and for the same reason: the projected row carries `client_id: null`
+			// and the id it carries is the projection's (`{turn}:user`), so his words are the
+			// only thing the two have in common.
+			//
+			// Both rows are the Mac's, which is what makes this a repaint rather than a
+			// reconciliation: the stand-in came from a record the Mac had already fsynced, and
+			// the row replacing it is that record having become a turn.
+			//
+			// TWO IDENTICAL MESSAGES IN A ROW retire together on the first of the two and the
+			// second reappears with the next merge — a repaint, never a loss. Said here rather
+			// than discovered, exactly as `confirm` says it.
+			if (row.role === 'ceo' && !isAStandIn(row)) {
+				rows.forEach((held, id) => {
+					if (isAStandIn(held) && (held.text || '') === (row.text || '')) rows.delete(id);
+				});
+			}
 		}
 
 		return {
