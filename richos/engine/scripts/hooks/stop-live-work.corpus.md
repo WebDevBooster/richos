@@ -67,14 +67,12 @@ not alive, so the guard never speaks. This is the single most important number
 in the file, because it is what decides that a blocking gate does not become a
 gate that is habitually waived.
 
-## Third finding: clause B fires on his orders and on nothing else
+## Third finding, and what 2026-09-20 did to it
 
-The shipped predicate (`scripts/lib/stop-live-work.py`, `authorizes_stop`) was
-replayed over all 100 calls, against the transcript **prefix as the hook would
-have seen it** — every record written before the assistant message carrying the
-call.
-
-**6 of 100** are authorized by the CEO's own words. All six, in full:
+The original shipped predicate carried a second clause — "authority B" — which
+read the last genuine user message and ALLOWED the kill when it found an
+unconditional stop imperative. Replayed over all 100 calls against the
+transcript **prefix as the hook would have seen it**, it fired on **6 of 100**:
 
 | when | what he wrote |
 |---|---|
@@ -85,7 +83,7 @@ call.
 | 2026-08-28 16:09 | `actually, wait stop it` |
 | 2026-09-02 23:05 | `Stop building guards now.` |
 
-**94 of 100** are not. Including, at the top of that list:
+**94 of 100** were not authorized by it. Including, at the top of that list:
 
 > 2026-09-10 09:10:45 · `echo-opus-hw2`
 > 2026-09-10 09:10:47 · `zach-opus-dor1`
@@ -95,19 +93,49 @@ call.
 Both refused. Two point seven seconds apart, which is why one ack cannot cover
 a sweep.
 
+**THAT CLAUSE IS GONE, AND THIS IS WHY THE TABLE ABOVE IS KEPT RATHER THAN
+DELETED.** It is the measurement that made the clause look safe. A 6/100 hit
+rate on a hand-adjudicated corpus of real calls is about as good as evidence
+gets, and it was still evidence for the wrong proposition: it showed the regex
+agreeing with the corpus, not the regex understanding him. On 2026-09-20 the
+same predicate was run against sentences the corpus never contained —
+
+    "how is the stop command coming along"
+    "tell me about stop.sh"
+    "when will the stop command be ready"
+    "the stop rule is in CLAUDE.md now"
+
+— and every one returned AUTHORIZES. Ordinary talk ABOUT stopping, each of
+which would have let a live teammate be destroyed with no ack at all. His
+answer: *"When the fuck did I say 'blindly automate everything even remotely
+related to a stop'??????"* (ceo-decisions §67). The clause was written because
+two agents were killed on an INFERENCE from his words, and it had re-encoded
+that inference as a pattern.
+
+**A corpus proves what a rule DID on traffic that already happened. It cannot
+prove what it will do on a sentence nobody thought to write down.** That is the
+finding worth keeping from this file, and it outranks every count in it.
+
+What replaces the clause is not friction: `scripts/stop.sh <names> --ceo-word
+"<his sentence>"` turns each of those six orders into a written ack, per named
+target, in a second. The authority moved from a regex to Rich, quoting him.
+
 ## The false-positive rate, stated honestly
 
 **Zero, on the measured corpus — and the reason is a design choice, not luck.**
 
-A refusal requires **all three** of: the target is **provably ALIVE**; the CEO
-did not order it; nothing was written down. On this corpus:
+A refusal requires **both** of: the target is **provably ALIVE**, and nothing
+was written down. On this corpus:
 
 - Every stop of an already-finished teammate is allowed by authority A,
   silently, and that is the majority of the traffic.
-- Every stop the CEO ordered is allowed by authority B, and the predicate
-  finds all six of them and no seventh.
 - Every stop whose target cannot be resolved is allowed by the
   INDETERMINATE arm, with a note.
+- The six he ordered are each one `stop.sh` invocation away from an ack, and
+  under the current rule they reach the guard as refusals until that second has
+  been spent. **That is a real change to this table and it is stated rather
+  than smoothed over** — what it costs is a second; what the old arrangement
+  cost is in the paragraph above it.
 
 Which leaves the refusals concentrated on the genuinely live kills. Reading
 those by hand, they are exactly the class that should carry a written reason:
@@ -141,10 +169,13 @@ A live one-shot session with a probe hook, 2026-09-10. At the moment a
 | the `tool_use` itself | **absent** — line 26 |
 | payload keys | `cwd`, `hook_event_name`, `permission_mode`, `prompt_id`, `session_id`, `tool_input`, `tool_name`, `tool_use_id`, `transcript_path` |
 
-So clause B ("did he actually say it?") is answerable, and no marker in the
-orchestrator's own prose is readable at all. Combined with the one-key
-`tool_input`, that is why the ack is a **command that writes a file** rather
-than a marker line like every other ack in this engine.
+No marker in the orchestrator's own prose is readable at all. Combined with the
+one-key `tool_input`, that is why the ack is a **command that writes a file**
+rather than a marker line like every other ack in this engine.
+
+The second row — the user's message is readable — is what made the deleted
+clause B possible. It is still true, and nothing reads it any more. **Being
+able to read his words was never the same as being able to understand them.**
 
 ## The cheaper truth the incident exposed
 
@@ -175,9 +206,17 @@ committed. The three commands, in order:
 
 1. walk `~/.claude/projects/**/*.jsonl`, keep records whose `message.content`
    holds a `tool_use` with `name == "TaskStop"` → 100 hits, 17 sessions
-2. for each hit, slice the transcript to the lines **before** it and run
-   `stop_live_work.last_user_message()` + `authorizes_stop()` on that slice
+2. for each hit, slice the transcript to the lines **before** it and classify
+   the call — liveness, and (for the historical clause-B table above) the last
+   genuine user message in that slice
 3. tally
+
+Step 2's language half was run with `stop_live_work.last_user_message()` +
+`authorizes_stop()`, **both of which were deleted from the library on
+2026-09-20** along with the clause they served. The clause-B table is therefore
+a historical measurement and cannot be re-derived from the shipped code; it is
+reproducible from git history at `5a55a16f^`. Every other number here is about
+liveness and traffic, and re-derives from the current library unchanged.
 
 Anything in this file that reads like a count was produced by (1)–(3) and can
 be re-derived from them. Anything that reads like a judgment about a specific
