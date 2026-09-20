@@ -3097,15 +3097,15 @@ module.exports = [
       "rather than an event (the same source `timeline.js`'s `stopping` row uses). He has " +
       "already acted; this is the acknowledgement of it.",
   },
-  {
-    s: "Nothing has come back yet",
-    c: "INFORMATIONAL",
-    why:
-      "Zero content events observed on a turn this window watched from its start. The " +
-      "honest alternative to a fabricated progress claim — there is no percentage, step " +
-      "count or estimate anywhere in the ACP wire to render (see " +
-      "`docs/verification/acp-emission-probe-2026-08-28.md`).",
-  },
+  // REMOVED 2026-09-20: "Nothing has come back yet". The product no longer renders it, so the
+  // row goes with it — part 1's exact set comparison is the thing that makes this registry a
+  // record of the shipped product rather than of its history. What used to occupy this state
+  // (zero content events on a turn watched from its start, under the quiet threshold) is now
+  // an EMPTY detail, which is not a string and therefore has no row: Ray's `.20260920.1` walk
+  // measured the sentence on the real window for 10.5-14.5 s on five healthy turns and named
+  // it a report of absence sitting where the eye settles (defect 2 of
+  // `docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`).
+  // The silence is still named, past QUIET_AFTER_MS, by "Nothing new for" below.
   {
     s: "Nothing new for",
     c: "FRAGMENT",

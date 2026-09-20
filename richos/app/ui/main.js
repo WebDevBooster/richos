@@ -2473,7 +2473,39 @@ function waitBandCopy(t, nowMs) {
   let detail;
   if (quiet) detail = "Nothing new for " + gap;
   else if (t.status === "queued") detail = "Waiting to start";
-  else if (t.signals === 0 && t.fromStart) detail = "Nothing has come back yet";
+  // NOTHING YET IS SAID BY SAYING NOTHING — the absence report is gone, and it was measured
+  // out rather than argued out. Ray's `.20260920.1` walk in the VM
+  // (`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`,
+  // defect 2) put "Nothing has come back yet" on the real window for **10.8 s (m1), 10.5 s
+  // (m2), 12.7 s (m3), 14.5 s (m4), 13.0 s (m5)** on five turns that were all perfectly
+  // healthy, and named what that costs: *"Two sentences are competing and one of them is
+  // discouraging. 'Rich is working' with a live timer is the reassuring half. 'Nothing has
+  // come back yet' is a report of absence, and it is the last line, which is where the eye
+  // settles. After ten seconds of reading that a reasonable person concludes something is
+  // stuck."* That is the 2026-09-06 report — *"it looks like a crashed application"* — being
+  // reproduced by the very band written to answer it.
+  //
+  // **Why the line is dropped rather than reworded.** There is genuinely nothing true left to
+  // put here. The headline already says the turn is alive and the timer already says how long,
+  // so every candidate sentence is either a second copy of those two or an invented phase —
+  // and `phase` is `unknown` on every message this runtime emits, which is the one thing this
+  // suite's FABRICATION list exists to stop. An empty detail states the same fact as the old
+  // sentence, in the only register that adds no discouragement: it says nothing, because
+  // nothing is what has happened.
+  //
+  // **Nothing is lost at the end that matters.** The silence still gets named — by the `quiet`
+  // branch above, at QUIET_AFTER_MS (35 s), which is where the wire's own two 30-second
+  // heartbeats have already failed to arrive and the absence is finally evidence rather than
+  // an ordinary young turn. Before that instant the absence is not news; after it, it is, and
+  // it is still reported in the attention tone exactly as before.
+  //
+  // **`fromStart` only.** A turn this window JOINED LATE keeps "Nothing new for <gap>": there
+  // the age of the silence is information he does not otherwise have, because the window did
+  // not watch the turn's first seconds and its timer cannot stand in for them.
+  //
+  // `.wait-detail` reserves its line height in `style.css` so the band does not jump by a
+  // whole 22.4px row the moment the first signal arrives.
+  else if (t.signals === 0 && t.fromStart) detail = "";
   else if (t.signals === 0) detail = "Nothing new for " + (gap || "a moment");
   else if (t.lastWhat) {
     const age = window.RichTimeline.formatDuration(nowMs - t.whatAt);

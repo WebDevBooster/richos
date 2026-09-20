@@ -340,7 +340,13 @@ async function main() {
       readings.push(`BEFORE  ${String(t / 1000).padStart(2)}s   ${line(b)}`);
       await frame(before, "before-dark-" + t / 1000 + "s");
     }
-    assertEqual(beforeAt[10000].detail, "Nothing has come back yet", "before: 10s");
+    // The BEFORE arm's point is that the app said nothing about the pause, and since
+    // 2026-09-20 it says nothing at all here: the absence report that used to occupy this
+    // line was measured holding for 10.5-14.5 s on five healthy turns and was dropped
+    // (`main.js`, "NOTHING YET IS SAID BY SAYING NOTHING"). The claim being made is
+    // unchanged and is now made more directly — at 10s into a compaction the old app gave him
+    // an empty line where the reason should have been.
+    assertEqual(beforeAt[10000].detail, "", "before: 10s — not a word about the pause");
     assertEqual(beforeAt[60000].detail, "Nothing new for 1m 0s", "before: at a minute the app can only report the silence");
     assert(!/room/i.test(beforeAt[60000].detail), "before: nothing on screen names the reason");
     await before.close();
