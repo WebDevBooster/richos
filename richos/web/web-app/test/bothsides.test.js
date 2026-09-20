@@ -29,9 +29,15 @@
 //      that boots a browser app on load, and `test/desktop-verify.js` — the harness that drives
 //      the real thing — needs Playwright and is not part of `npm test`.
 //   3. HIS OWN MESSAGE, BETWEEN THE SEND AND THE PROJECTION. The queue drops an item the moment
-//      the Mac takes it, no live frame in this build carries a CEO turn, and the projected row
-//      waits for the next `hello`. `thread.confirm` holds his words in that window and retires
-//      them on the Mac's own row rather than leaving two.
+//      the Mac takes it, and the Mac's own row for it only exists once the intake log is drained
+//      — which runs on its own thread, behind the spine. `thread.confirm` holds his words in
+//      that window and retires them on the Mac's own row rather than leaving two.
+//
+// AND A PREMISE THAT WAS TRUE WHEN THIS FILE WAS WRITTEN IS NOT ANY MORE, corrected here rather
+// than left where a reader would believe it: *"no live frame in this build carries a CEO turn"*.
+// `rich://ceo-message` has existed since `102b7c07`, so his own row arrives live on both roads —
+// the desk's (`spine.rs`'s `accept_prompt`) and the phone's (`drain_intake`). Check 2b below is
+// about the leg that claim used to excuse.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -113,9 +119,63 @@ test('the shipped app merges the rows the Mac puts in every hello, rather than d
 	assert.ok(mergeAt !== -1 && renderAt > mergeAt, 'the rows are merged after the repaint that would have shown them');
 });
 
+// --- 2b. ONE PATH FOR BOTH ROLES — Ray's `.20260920.1` defect 1 ---------------------------------
+//
+// He typed on the Mac and the phone showed his sentence 1.3-6.1 s later on four of five turns,
+// while the REPLY to that same sentence crossed in under a second
+// (`docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-phone-in-the-vm-audit.md`,
+// step 3). Two legs of one turn, measured against each other, is what makes that a finding rather
+// than a slow network.
+//
+// THE PAGE'S HALF OF THE ANSWER IS THAT THERE IS NO SECOND PATH HERE, and this asserts it on the
+// bytes: the `message` handler merges and schedules a repaint for whatever arrives, and the only
+// thing it does per-role — `askForTheQuestion` — happens AFTER the merge and cannot hold a row
+// back. A future edit that special-cases his own row (a batch, a debounce, a "wait for the reply
+// then refresh") fails here.
+//
+// It does not and cannot measure the Mac's half; that is `phone::listen`'s
+// `his_own_message_and_richs_reply_reach_the_phone_within_one_bound`, over real TLS.
+
+test('a live message frame reaches the screen the same way whichever of them said it', () => {
+	const handler = appJs.match(/\n\t+message\(row\) \{[\s\S]*?\n\t+\},\n/);
+	assert.ok(handler, 'the live `message` handler is gone from app.js');
+
+	const mergeAt = handler[0].indexOf('thread.merge(row)');
+	const renderAt = handler[0].indexOf('scheduleRender()');
+	assert.ok(mergeAt !== -1, 'the live handler does not merge the row it was given');
+	assert.ok(renderAt > mergeAt, 'the repaint is scheduled before the row it would show');
+
+	// NOTHING DECIDES ON THE ROLE IN FRONT OF THE MERGE. The one role test in this handler is
+	// the reconciliation below, and it sits after the repaint.
+	const beforeTheMerge = handler[0].slice(0, mergeAt);
+	assert.ok(
+		!/role/.test(beforeTheMerge),
+		`something now looks at the role before merging his row:\n${beforeTheMerge}`
+	);
+	const roleAt = handler[0].indexOf('row.role');
+	assert.ok(roleAt === -1 || roleAt > renderAt, 'a role test was moved in front of the repaint');
+
+	// AND THE PAGE MERGES BOTH ROLES OFF THE LIVE STREAM, not only the projection. Same frame
+	// shape the Mac builds in `phone/rows.rs` `event_from_live`, one row each, in the order they
+	// are published.
+	const thread = createThread();
+	thread.merge({
+		id: 't9:user', thread_id: 'thr_5c1e', cursor: 1, role: 'ceo', kind: 'text',
+		text: 'where are we on the proposal?', created_at: '2026-09-20T07:00:00.000Z',
+		client_id: null, has_audio: false, from_microphone: false, state: 'sent', complete: true
+	});
+	assert.deepStrictEqual(
+		thread.view([]).map((row) => [row.role, row.text]),
+		[['ceo', 'where are we on the proposal?']],
+		'a LIVE row for his own message does not reach the screen'
+	);
+});
+
 test('a reply that arrives with no question in front of it makes the phone ask the Mac for one', () => {
-	// The fallback for the message he types ON THE MAC while watching the phone: no live event in
-	// this build carries a CEO turn, so the row in front of a streamed reply can be missing.
+	// The fallback for the message he types ON THE MAC while watching the phone. It was written
+	// when no live event carried a CEO turn at all; `rich://ceo-message` (`102b7c07`) closed that,
+	// and this stays because a phone whose stream dropped during his sentence still comes back to
+	// a reply with no question in front of it.
 	assert.match(appJs, /function askForTheQuestion\(row\)/, 'the reconciliation is gone');
 	assert.match(
 		appJs,
