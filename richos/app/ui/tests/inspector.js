@@ -21,6 +21,23 @@ async function openApp(browser, viewport) {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push("console: " + m.text());
   });
+  // Capture the existing shell refresh listener so a delayed response can be released
+  // between input down/up without adding a public mock-only event API.
+  await page.addInitScript(() => {
+    let bridge;
+    Object.defineProperty(window, "RichBridge", {
+      configurable: true,
+      get: () => bridge,
+      set(value) {
+        const listen = value.listen.bind(value);
+        value.listen = (name, callback) => {
+          if (name === "rich://mock-proactive") window.__reloadTimeline = callback;
+          return listen(name, callback);
+        };
+        bridge = value;
+      },
+    });
+  });
   await page.goto(APP);
   // The home screen is the landing surface now; this suite is about the app UI behind it.
   await leaveHome(page);
@@ -42,7 +59,9 @@ async function openApp(browser, viewport) {
 async function openHiringThread(page) {
   await page.click('.nav-thread[data-thread-id="hiring"]');
   await page.waitForSelector('.tl-duration-btn:not(.tl-duration-btn--static)');
-  await page.click(".tl-duration-btn");
+  const disclosure = page.locator('.tl-duration-btn:not(.tl-duration-btn--static)').first();
+  if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
+  await page.waitForSelector('.tl-duration-btn[aria-expanded="true"]');
   await page.waitForSelector(".tl-chip");
 }
 
@@ -249,15 +268,97 @@ async function main() {
   });
 
   await run.check("SCREENSHOT: the inspector docked beside the conversation", async () => {
-    await page.click('.nav-thread[data-thread-id="hiring"]');
-    await page.waitForSelector(".tl-duration-btn");
-    await page.click(".tl-duration-btn");
-    await page.waitForSelector(".tl-chip");
+    // This is a return to a cached thread: its disclosure may already be open.
+    await openHiringThread(page);
     await page.click('[id="chip:agt_clark_1"]');
     await page.waitForSelector("#inspector:not([hidden])");
     const s = await shot(page, "inspector-docked-1400");
     assert(s.bytes > 3000, "too small to be a render: " + s.bytes);
     return `${s.file} (${s.bytes} bytes)`;
+  });
+
+  for (const input of ["mouse", "keyboard"]) {
+    await run.check(`an unchanged worker keeps ${input} activation across a late snapshot`, async () => {
+      const p = await openApp(browser);
+      try {
+        await openHiringThread(p);
+        await p.waitForFunction(() => document.querySelector("#composer-row").dataset.mode !== "opening");
+        await p.evaluate(() => {
+          const original = window.RichBridge.invoke.bind(window.RichBridge);
+          const apply = window.RichTimeline.applySnapshot;
+          window.__snapshotApplied = false;
+          window.RichTimeline.applySnapshot = (model, snapshot) => {
+            const result = apply(model, snapshot);
+            window.__snapshotApplied = true;
+            return result;
+          };
+          window.RichBridge.invoke = async (cmd, args) => {
+            if (cmd !== "get_timeline") return original(cmd, args);
+            const snapshot = await original(cmd, args);
+            return new Promise(resolve => { window.__releaseSnapshot = () => resolve(JSON.parse(JSON.stringify(snapshot))); });
+          };
+          window.__targetChip = document.getElementById("chip:agt_clark_1");
+          const threadId = window.__RICHOS_TIMELINE__().threadId;
+          window.__reloadTimeline({ payload: { threadId } });
+        });
+        await p.waitForFunction(() => !!window.__releaseSnapshot);
+        const chip = p.locator('[id="chip:agt_clark_1"]');
+        if (input === "mouse") {
+          const box = await chip.boundingBox();
+          await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await p.mouse.down();
+        } else {
+          await chip.focus();
+          await p.keyboard.down("Space");
+        }
+        await p.evaluate(() => window.__releaseSnapshot());
+        await p.waitForFunction(() => window.__snapshotApplied);
+        await p.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert(await p.evaluate(() => window.__targetChip === document.getElementById("chip:agt_clark_1") && window.__targetChip.isConnected),
+          "an equivalent snapshot replaced the active target");
+        if (input === "mouse") await p.mouse.up();
+        else await p.keyboard.up("Space");
+        await p.waitForSelector("#inspector:not([hidden])");
+        assertEqual(await p.locator("#inspector-title").innerText(), "Clark");
+      } finally { await p.close(); }
+    });
+  }
+
+  await run.check("authoritative snapshots still replace changed, removed and re-scoped workers", async () => {
+    const result = await page.evaluate(async () => {
+      const T = window.RichTimeline;
+      const snapshot = await window.RichBridge.invoke("get_timeline", { threadId: "hiring" });
+      const results = {};
+      for (const change of ["changed", "removed", "thread", "entity", "mode", "visibility"]) {
+        const model = T.createModel();
+        const container = document.createElement("div");
+        const opts = { isExpanded: () => true, openWorker: () => {} };
+        const original = JSON.parse(JSON.stringify(snapshot));
+        T.applySnapshot(model, original);
+        T.render(model, container, opts);
+        const before = container.querySelector('[id="chip:agt_clark_1"]');
+        if (!before) throw new Error("worker fixture is absent");
+        const next = JSON.parse(JSON.stringify(snapshot));
+        const worker = next.items.find(item => item.worker && item.worker.agentId === "agt_clark_1");
+        if (!worker) throw new Error("worker snapshot item is absent");
+        if (change === "changed") worker.worker.workerName = "Updated worker";
+        if (change === "removed") next.items = next.items.filter(item => item !== worker);
+        if (change === "thread") next.threadId = "another-thread";
+        if (change === "entity") next.entityId = "another-entity";
+        if (change === "mode") next.mode = "technical";
+        if (change === "visibility") worker.visibility = "internal";
+        T.applySnapshot(model, next);
+        T.render(model, container, opts);
+        const after = container.querySelector('[id="chip:agt_clark_1"]');
+        results[change] = change === "removed" || change === "visibility"
+          ? after === null
+          : after !== null && after !== before &&
+            (change !== "changed" || after.textContent.includes("Updated worker"));
+      }
+      return results;
+    });
+    for (const [change, replaced] of Object.entries(result)) assert(replaced, change + " kept a stale worker control");
+    return "changed values, removal, thread, entity, mode and visibility all invalidate the old control";
   });
 
   await run.check("no page errors in the real shell", async () => {
