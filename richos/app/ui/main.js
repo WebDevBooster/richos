@@ -1448,6 +1448,22 @@ document.addEventListener("visibilitychange", () => {
   // from `startedAt`, never accumulated, so nothing was lost by not ticking.
   if (!document.hidden) window.RichTimeline.updateTimers(timelineModel, messagesEl, Date.now());
   startOrStopTimer();
+  // AND THE BAND KEEPS THE SAME CLOCK — it was not in this handler, and `startOrStopWaitTimer`
+  // is the only `document.hidden` test in this file that nothing was calling when that value
+  // changed. Its own comment says "dead stopped while the window is hidden … recompute from
+  // timestamps on return, never accumulate", and neither half could happen: the band's
+  // one-second interval ran on for as long as the window stayed hidden, and on return the
+  // elapsed it displayed was whatever the last tick had left there until the next one.
+  //
+  // MEASURED, 2026-09-20, same-source runs of `memory-strategy.js`: `ms-03` differed between
+  // two runs in 99 pixels inside a 10x15 box at x[1162..1171] — `25s` in one run and `26s` in
+  // the next — and `ms-01` carries the same element reading `2s`. `lib/harness.js`'s
+  // `pinClock` puts the whole surface at the fixture's instant THROUGH THIS HANDLER, which is
+  // why it reached every timer in the timeline and not the one in the band directly above the
+  // composer. One recompute here, in the product's own path, rather than a second clock
+  // anywhere in the suites.
+  if (!document.hidden) renderWaitBand();
+  startOrStopWaitTimer();
 });
 
 function toggleWorkTranscript(turnId) {

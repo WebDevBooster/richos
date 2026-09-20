@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
+import uuid
 from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("local_nightly", Path(__file__).with_name("nightly-local.py"))
@@ -87,7 +89,7 @@ class LocalTests(unittest.TestCase):
 
         with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
-        self.assertEqual(len(seen), 6)
+        self.assertEqual(len(seen), 7)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
@@ -147,6 +149,66 @@ class LocalTests(unittest.TestCase):
         for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
                      "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
             self.assertIn(name, m.IDENTITY_OVERRIDES)
+
+    def test_a_variable_nobody_thought_about_reaches_no_gate(self):
+        """The allowlist's whole claim, tested the only way that proves it: by surprise.
+
+        Every other case here names a variable somebody already knew was dangerous, so
+        every one of them would still pass against the deny-list this replaced -- which
+        is exactly how the deny-list looked right on 2026-09-18 and broke the build on
+        2026-09-19. The variable planted below is deliberately one NO list anywhere in
+        this repository mentions. A deny-list passes it through; an allowlist cannot,
+        and it cannot for a reason that does not depend on anyone having foreseen it.
+        """
+        stray = "RICHOS_TEST_STRAY_" + uuid.uuid4().hex
+        with patch.dict(os.environ, {stray: "from the operator's shell", "HOME": os.environ["HOME"]}):
+            env, credentials = m.local_environment()
+        self.assertNotIn(stray, env)
+        self.assertNotIn(stray, credentials)
+        # Not vacuous: the planting worked, and an allowlisted name from the SAME
+        # os.environ did come through. Without this the case would pass just as well
+        # against a local_environment() that returned an empty dict.
+        self.assertIn("HOME", env)
+        # And the property in general, not one specimen of it: nothing in the returned
+        # environment came from the shell except by being named in the allowlist.
+        #
+        # BOTH SIDES SUBTRACT GATE_SET_BY_BUILD, and the first version of this case
+        # subtracted it from only the left -- which passed in a terminal and failed inside
+        # a build, the exact shape of defect this file's allowlist exists to end. The
+        # cause is that RICHOS_NAMED_PERSONS_FILE is in BOTH tuples: the operator may set
+        # it, and the build sets it regardless. So in a terminal it is absent from
+        # os.environ and the asymmetry is invisible; inside a gate it is present and the
+        # two sides disagree about a name that never came from a shell at all. A name
+        # this script sets is not evidence about what the shell got through, whichever
+        # tuple also lists it.
+        from_shell = sorted(set(env) - set(m.GATE_SET_BY_BUILD))
+        self.assertEqual(from_shell,
+                         sorted(n for n in m.GATE_PASSTHROUGH
+                                if n in os.environ and n not in m.GATE_SET_BY_BUILD))
+
+    def test_the_allowlist_is_the_only_door_and_e1_derives_its_list_from_it(self):
+        """`gate-environment` is what run-tests.test.sh case E1 reads instead of copying.
+
+        E1 re-runs the whole script suite under the environment a build hands it. Its
+        list used to be hand-written, so it went stale in silence the next time anyone
+        added a variable. This asserts the printed contract is complete and well-formed:
+        if a name is added to either tuple and this is the only copy, E1 picks it up for
+        free; if the printing ever stops covering a tuple, this fails rather than E1
+        quietly testing less than it claims to.
+        """
+        printed = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("nightly-local.py")), "gate-environment"],
+            capture_output=True, text=True, check=True).stdout
+        rows = [line.split("\t") for line in printed.splitlines() if line]
+        self.assertTrue(all(len(row) == 2 for row in rows), rows)
+        by_kind = {}
+        for kind, name in rows:
+            by_kind.setdefault(kind, []).append(name)
+        self.assertEqual(by_kind.get("passthrough"), list(m.GATE_PASSTHROUGH))
+        self.assertEqual(by_kind.get("set"), list(m.GATE_SET_BY_BUILD))
+        self.assertEqual(by_kind.get("per-step"), list(m.GATE_SET_PER_STEP))
+        # No credential name may ever be printed here: E1 exports every name this prints.
+        self.assertEqual([name for _, name in rows if m.is_credential(name)], [])
 
     def identity_runner(self, configured=True):
         state = self.root / "state"
@@ -396,11 +458,18 @@ class LocalTests(unittest.TestCase):
 
     def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
         r, seen = self.gate_commands()
-        self.assertEqual(len(seen), 6)
+        self.assertEqual(len(seen), 7)
         self.assertEqual(r.skipped, {})
+        # ORDER IS PART OF THE ASSERTION, not incidental. The release smoke is first
+        # because it is the cheapest refusal in the build (0.2 s against ~950 s), and the
+        # defect class it catches -- a release-only step that rotted since the last
+        # release -- is otherwise found by the release that needed it.
         self.assertEqual([name for name, _, _ in r.timings],
-                         ["gates/core-tests", "gates/updater-tests",
+                         ["gates/release-smoke", "gates/core-tests", "gates/updater-tests",
                           "gates/script-suites", m.UI_SUITE_GATE, "gates/privacy-sweep"])
+        smoke = [argv for argv in seen if "release-smoke" in " ".join(argv)]
+        self.assertEqual(len(smoke), 1, seen)
+        self.assertTrue([a for a in smoke[0] if a.endswith("nightly.py")], smoke)
         # THE UI SUITE IS ONE SUBPROCESS, not a fan-out written beside `command()`. If this
         # ever counts more than one `run.js`, the shards have been hoisted back into this
         # file and every assertion in this class about a gate's argv and environment has
@@ -438,8 +507,11 @@ class LocalTests(unittest.TestCase):
         self.assertTrue([c for c in joined if "named-persons.sh" in c], joined)
         self.assertIn(m.LAND_PROVEN_GATE, r.skipped)
         self.assertIn("a" * 40, r.skipped[m.LAND_PROVEN_GATE])
+        # The release smoke is NEVER dropped by this flag. A land does not run it, and
+        # its input is the release path itself rather than a tree whose sha was proved.
+        self.assertTrue([c for c in joined if "release-smoke" in c], joined)
         # NO PROOF ON THIS MACHINE: the UI suite runs, and is NOT recorded as skipped.
-        self.assertEqual(len(seen), 5)
+        self.assertEqual(len(seen), 6)
         self.assertTrue([c for c in joined if "run.js" in c], joined)
         self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
 
