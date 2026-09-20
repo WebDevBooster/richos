@@ -329,9 +329,21 @@ const SURFACES = [
     // THE PAIRING STATE NEEDS A READY TAILNET NOW (CEO §61). It used to be reachable with no
     // Tailscale at all, because the removed path served that Mac; the one path refuses to, and a
     // fixture that cannot reach the screen would walk an empty panel and report it covered.
+    //
+    // AND THE COUNTDOWN IS PINNED, because this surface is PHOTOGRAPHED as well as walked.
+    // `mock.js` starts the 300 s window when it loads, so `Math.ceil((300000 - elapsed)/1000)`
+    // is 300 for the first second of the page's life and 299 after it, and `remaining()` floors
+    // those to `5 more minutes` and `4 more minutes` — two sentences either side of one
+    // millisecond boundary this walk lands within a hair of. MEASURED, 2026-09-20, with the five
+    // owning suites of the seven undeclared unstable shots run concurrently: `phone-pairing.png`
+    // came back different, 775 of 1,330,000 pixels at a worst channel delta of 164, inside one
+    // 120x13 box — that sentence and nothing else. 270 s is `4 more minutes` with thirty seconds
+    // of margin to either edge of its minute; `phone.js` pins the same knob for its own two
+    // shots and `settings-fit.js` pins it at 245 for the same reason. It pins the ANSWER and
+    // does not move the clock, so every color this suite measures is the one it measured before.
     name: "phone-pairing",
     what: "the pairing screen: the code, the countdown, the four phone steps and the six words",
-    preset: {phonePairing: true, phoneTailnet: {
+    preset: {phonePairing: true, phonePairingSecondsLeft: 270, phoneTailnet: {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
       origin: "https://mm1.tail9a3b2.ts.net:8443",

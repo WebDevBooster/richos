@@ -156,45 +156,32 @@ const DECLARED = [
   },
 
   // -------------------------------------------------------------------------------------
-  // CLASS 3 — A LIVE COUNTER THE FIXTURE DOES NOT ANCHOR.
+  // CLASS 3 — A LIVE COUNTER THE FIXTURE DOES NOT ANCHOR. **THE CLASS IS EMPTY, AND THAT IS
+  // THE RESULT, NOT AN OMISSION.**
   // -------------------------------------------------------------------------------------
   //
-  // §26's clock IS injected: `setMemoryStrategyAnchor` puts the turn 18.6s past its lease
-  // handoff so the row reads `Working for 18s`, and `memory-strategy.js`'s `evidence()` now
-  // pins the page's wall clock to that same instant for the length of every capture, through
-  // the product's own visibility recompute. That took five of the nine shots from drifting by
-  // 176-617 pixels to not drifting at all.
+  // `ms-04-run-ended-with-recovery-commentary.png` and `ms-05-worker-detail-beside-thread.png`
+  // were declared here on 2026-09-19 at 79 and 116 pixels, blamed on a `startedAt` that
+  // `mock.js` was said to stamp from the real clock at §26.12. THAT ATTRIBUTION WAS WRONG, and
+  // the way it was found is worth keeping: on 2026-09-20 `ms-03` — which is photographed six
+  // steps BEFORE the replacement run exists — moved in the same 10x15 box at x[1162..1171],
+  // `25s` against `26s`. Nothing in `mock.js`'s `memoryStrategy` reads the wall clock: every
+  // row in it is stamped `at(offset)` off the anchor.
   //
-  // WHAT IS LEFT IS ONE ROW THE FIXTURE NEVER ANCHORED. §26.12 opens a SECOND Sage run, and
-  // `mock.js` stamps that run's `startedAt` from the real clock at the moment the walk applies
-  // step 12. Its elapsed is therefore `pinned_now - whenever_the_walk_got_there`, and the walk
-  // gets there a few hundred milliseconds apart on consecutive runs — so the seconds digit of
-  // one right-aligned counter changes, and nothing else in the frame does. Measured: a 10x14
-  // box at x[1162..1171], `31s` in one run and `32s` in the next.
+  // WHAT WAS MOVING WAS THE WAIT BAND ABOVE THE COMPOSER, and it was moving in every §26 shot
+  // that has a live turn in it. `lib/harness.js`'s `pinClock` puts the surface at the fixture's
+  // instant THROUGH THE PRODUCT'S OWN `visibilitychange` handler — and that handler recomputed
+  // the timeline's timers and did not touch the band, whose elapsed and `… ago` line are
+  // rendered by `renderWaitBand` off `Date.now()` on a separate one-second interval. So the
+  // pinned frame carried one element still counting this suite's own runtime.
   //
-  // THIS IS A FIXTURE GAP AND IT IS NAMED RATHER THAN BOUGHT OFF. Anchoring the replacement
-  // run's start the way the first one is anchored — `ui/mock.js`'s `memoryStrategy` step 12,
-  // beside `setMemoryStrategyAnchor` at `ui/mock.js:3503` — removes this entry entirely. The
-  // bound below is deliberately the tightest in this file: 0.02% of the frame is about 276
-  // pixels, which is two glyphs. Anything larger than a changed digit fails it.
-  {
-    file: "shots-26/ms-04-run-ended-with-recovery-commentary.png",
-    class: "one unanchored elapsed counter (the §26.12 replacement run)",
-    source: "app/ui/main.js:1437 `updateTimers`, over a `startedAt` app/ui/mock.js stamps from the real clock",
-    measured: "3 transitions after the clock pin: 79 pixels (0.0057%) every time, worst channel delta 135 — one digit",
-    bound: { maxPixelFraction: 0.0002 },
-    why:
-      "0.02% of this frame is 276 pixels, roughly two glyphs. A changed digit fits; a changed " +
-      "word, a moved row or a palette shift does not.",
-  },
-  {
-    file: "shots-26/ms-05-worker-detail-beside-thread.png",
-    class: "one unanchored elapsed counter (the §26.12 replacement run)",
-    source: "app/ui/main.js:1437 `updateTimers`, over a `startedAt` app/ui/mock.js stamps from the real clock",
-    measured: "3 transitions after the clock pin: 116 pixels (0.0084%) every time, worst channel delta 135 — one digit",
-    bound: { maxPixelFraction: 0.0002 },
-    why: "As `ms-04`; the same counter, with the inspector pane open beside it.",
-  },
+  // `main.js`'s visibility handler now recomputes the band and starts or stops its timer, which
+  // is what `startOrStopWaitTimer`'s own comment said it did and what §6.2 requires of both
+  // clocks. Five consecutive same-source runs after that — three of them with the five suites
+  // that own the seven undeclared unstable shots running CONCURRENTLY, which is the contention
+  // the gate's shards have — left all nine §26 shots byte-identical. There is nothing left in
+  // this class to declare, so nothing is declared: an entry whose cause has been fixed is a
+  // bound that would hold a future regression instead of showing it.
 ];
 
 // ---------------------------------------------------------------------------------------

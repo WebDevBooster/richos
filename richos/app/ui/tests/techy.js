@@ -51,6 +51,7 @@ const path = require("path");
 const { leaveHome,
   loadPlaywright,
   shot,
+  awaitWorkerChipSettled,
   createRun,
   assert,
   assertEqual,
@@ -254,6 +255,40 @@ const techRows = (page) =>
     }))
   );
 
+/// ONE SHUTTER FOR EVERY COMMITTED SHOT IN THIS SUITE, and it waits for the chrome this
+/// suite never drove.
+///
+/// `main.js:3113` polls `get_worker_status` every 3,000 ms and rebuilds the drill chip from
+/// the answer — and there is NO leading call, so from the moment a thread becomes the open
+/// conversation the chip zone is empty for up to three seconds and then a whole line of text
+/// arrives in it. Every shot below is of the conversation surface, and every one of them is
+/// taken within a second or two of opening a thread, which is exactly that window.
+///
+/// MEASURED, 2026-09-20, on this tree. A probe that reached `3-1-07`'s state and then read
+/// `document.body.innerText` three times 1.6 s apart: the line `⋯ 1 working · 1 done · 1 I
+/// can't see` was ABSENT at the shutter point and PRESENT 1.6 s later. And with the five
+/// owning suites of the seven undeclared unstable shots run concurrently — the contention
+/// the gate's shards have, which a serial run of one suite does not — `3-1-03` came back
+/// different in two consecutive rounds, 79,928 of 1,330,000 pixels at a worst channel delta
+/// of 214, alternating between two pictures. That is the chip arriving, or not, before the
+/// shutter; nothing in this suite is about the work chip.
+///
+/// `awaitWorkerChipSettled` is the harness's own wait on the PRODUCT'S re-render agreeing
+/// with itself, not on a duration — the same call `memory-strategy.js` puts in front of all
+/// nine of its committed shots, and for the same reason. It THROWS rather than photographing
+/// a surface that is still moving: a picture of a moment is not evidence of a state.
+async function evidence(page, name) {
+  const settled = await awaitWorkerChipSettled(page);
+  if (!settled.settled) {
+    throw new Error(
+      name + ": the work chip was still changing after the budget (" + settled.renders +
+        " re-renders, last text " + JSON.stringify(settled.text) + "). A shot of a surface " +
+        "that is still moving is evidence of a moment, not of a state."
+    );
+  }
+  return shot(page, name);
+}
+
 async function main() {
   const pw = loadPlaywright();
   const run = createRun("techy mode — the renderer, the per-thread toggle and techy_default (row 3.1)");
@@ -280,7 +315,7 @@ async function main() {
     for (const hint of ["technical detail", "Technical view", "Show technical", "machinery"]) {
       assert(!text.includes(hint), "the conversation must not hint at techy mode: found " + hint);
     }
-    await shot(page, "../shots-3-1/3-1-01-off-nothing-changed");
+    await evidence(page, "../shots-3-1/3-1-01-off-nothing-changed");
     assertEqual(page.__errors, [], "no page errors");
     await page.close();
     return "the calm surface carries no affordance at all";
@@ -349,7 +384,7 @@ async function main() {
     assert(rows.some((r) => r.title.startsWith("python3 scripts/counter-model.py --list")),
       "the full command, not an ellipsis: " + JSON.stringify(rows.map((r) => r.title)));
     assert(rows.some((r) => r.paths.length), "a touched path is on screen");
-    await shot(page, "../shots-3-1/3-1-02-the-turns-real-machinery");
+    await evidence(page, "../shots-3-1/3-1-02-the-turns-real-machinery");
     assertEqual(page.__errors, [], "no page errors");
     await page.close();
     return rows.length + " rows: " + rows.map((r) => r.state).join(", ");
@@ -457,7 +492,7 @@ async function main() {
     await openThread(page, "acme");
     await openTechySwitch(page, true);
     await pickScope(page, "all-companies");
-    await shot(page, "../shots-3-1/3-1-03-one-switch-for-all-of-them");
+    await evidence(page, "../shots-3-1/3-1-03-one-switch-for-all-of-them");
     const state = await page.evaluate(() => window.__RICHOS_MOCK__.techyState());
     assertEqual(state, { default: true, companies: {}, threads: { hiring: false } },
       "global on; the pin he made on ANOTHER conversation keeps its own answer");
@@ -533,7 +568,7 @@ async function main() {
     assert(after === before, "the calm view must be byte-identical after a round trip");
     assert(await page.locator("#techy-state").isHidden(), "and the state line is gone with it");
     assert(await page.locator("#techy-chip").isHidden(), "and so is the chip");
-    await shot(page, "../shots-3-1/3-1-04-off-again-and-identical");
+    await evidence(page, "../shots-3-1/3-1-04-off-again-and-identical");
     await page.close();
     return before.length + " bytes of DOM, unchanged";
   });
@@ -549,7 +584,7 @@ async function main() {
     // The conversation itself is still there. An empty machinery column is not an empty
     // thread, and the CEO did not lose his conversation by turning a view on.
     assert((await page.textContent("#messages")).includes("carry split"), "his conversation still renders");
-    await shot(page, "../shots-3-1/3-1-05-nothing-was-recorded-for-this-one");
+    await evidence(page, "../shots-3-1/3-1-05-nothing-was-recorded-for-this-one");
     assertEqual(page.__errors, [], "no page errors");
     await page.close();
     return "nothing_recorded, with the conversation intact";
@@ -576,7 +611,7 @@ async function main() {
     // and "he did nothing" — which is why it must not be the empty-state one.
     assertEqual(await page.locator(".tl-tech").count(), 0, "the journal gave nothing back");
     assert((await page.textContent("#messages")).includes("comparables"), "his conversation still renders");
-    await shot(page, "../shots-3-1/3-1-06-i-cannot-read-it-which-is-not-empty");
+    await evidence(page, "../shots-3-1/3-1-06-i-cannot-read-it-which-is-not-empty");
     await page.close();
     return "unreadable, with the operator's reason: " + reason;
   });
@@ -609,7 +644,7 @@ async function main() {
     await page.click("#mach\\:mach_a6");
     await page.waitForTimeout(200);
     assertEqual(await page.textContent("#raw\\:mach_a6 .tl-tech-note"), RAW_TRUNCATED, "verbatim from main.rs");
-    await shot(page, "../shots-3-1/3-1-07-the-output-and-the-two-honest-degrades");
+    await evidence(page, "../shots-3-1/3-1-07-the-output-and-the-two-honest-degrades");
     assertEqual(page.__errors, [], "no page errors");
     await page.close();
     return "retained / not retained / truncated — three answers, three sentences";
@@ -710,7 +745,7 @@ async function main() {
     // be worse than the frame name.
     assertEqual(rows.map((r) => r.title), ["system:init", "system:status"], "frame name as label");
     assert(await page.locator("#between-turns-quiet").isHidden(), "no empty-state sentence over a full lane");
-    await shot(page, "../shots-3-1/3-1-08-between-turns-has-somewhere-to-go");
+    await evidence(page, "../shots-3-1/3-1-08-between-turns-has-somewhere-to-go");
     assertEqual(page.__errors, [], "no page errors");
     await page.close();
     return rows.length + " between-turn rows, present only in technical mode";
@@ -731,7 +766,7 @@ async function main() {
     assertEqual(await page.textContent("#between-turns-quiet"), BETWEEN_TURNS_QUIET, "verbatim from machinery_view.rs");
     // And the conversation above it is untouched: an empty lane is not an empty thread.
     assert((await page.locator(".tl-tech").count()) > 0, "the turn's own machinery still renders");
-    await shot(page, "../shots-3-1/3-1-09-a-quiet-lane-says-so");
+    await evidence(page, "../shots-3-1/3-1-09-a-quiet-lane-says-so");
     assertEqual(page.__errors, [], "no page errors");
     await page.close();
     return "the quiet sentence, with the conversation intact above it";
@@ -879,7 +914,7 @@ async function main() {
       { default: false, companies: {}, threads: {} },
       "asking is not applying"
     );
-    await shot(page, "../shots-3-1/3-1-05-where-should-this-apply");
+    await evidence(page, "../shots-3-1/3-1-05-where-should-this-apply");
     await page.click("#techy-scope-cancel");
     await page.waitForSelector("#techy-scope", { state: "hidden" });
     await page.close();
