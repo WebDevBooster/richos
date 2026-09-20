@@ -20,7 +20,7 @@
 //! unaffected by it.
 
 use super::rows::{event_from_live, opens_a_row};
-use richos_core::live::{LiveEvent, LiveObserver};
+use richos_core::live::{LiveEvent, LiveObserver, EVENT_CEO_MESSAGE};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
@@ -230,6 +230,58 @@ impl LiveObserver for PhoneLiveEmitter {
             let _ = self.hub.publish(kind, cursor, data.to_string());
         }
     }
+}
+
+/// **HIS OWN SENTENCE, ON HIS PHONE, BEFORE THE SPINE HAS BEEN ASKED FOR ANYTHING** — Ray's
+/// `.20260920.1` defect 1.
+///
+/// # The measurement this exists for
+///
+/// His typed message reached the phone 1.3-6.1 s after he pressed Send on four of five turns,
+/// while the REPLY to the same message crossed in under a second. Both legs were always on
+/// this one path and the path is not slow: `phone::listen`'s two timing tests measure the leg
+/// at **5 ms** over real TLS, and then measure it again with the spine held for 1,500 ms and
+/// get **1,507 ms**. The seconds were never on the wire; they were spent waiting for
+/// `take_the_spine` in `send_message`, because until the window has that mutex his words
+/// cannot reach the ledger (`Ledger::record_prompt_received` is `&mut self`) and until they
+/// reach the ledger there is nothing for [`PhoneLiveEmitter`] to publish.
+///
+/// # What is announced, and why it is not a claim the Mac has not made
+///
+/// The caller writes his words to the DURABLE intake log first, without any lock, and hands
+/// the record's own id here. So this is never "the phone showing something the Mac has not
+/// accepted" — plan §6's refusal — it is the phone showing something the Mac has written to
+/// disk and will turn into a turn, in order, the moment the spine is free. That is exactly
+/// the guarantee the phone's OWN messages have had since `bridge.rs` was written.
+///
+/// # And it is the same row the projection will send
+///
+/// Built by handing [`super::rows::event_from_live`] the payload `rich://ceo-message` carries,
+/// so there is ONE definition of a CEO row on this wire and not a second one that can drift.
+/// The id is the intake id — `intake_<n>`, the same id `POST /api/messages` answers a phone
+/// with — and the projected row that follows carries `{turn}:user`. The page retires the
+/// stand-in when the projected row arrives (`web/web-app/lib/thread.js`, `remember`), which is
+/// the same retire-on-the-Mac's-own-row rule it has used for a phone's pending bubble since
+/// the send queue was written.
+pub fn announce_his_words(
+    hub: &PhoneHub,
+    thread_id: &str,
+    message_id: &str,
+    text: &str,
+    at: u64,
+) -> Option<Frame> {
+    let cursor = hub.next_cursor();
+    let payload = serde_json::json!({
+        "messageId": message_id,
+        "threadId": thread_id,
+        "text": text,
+        // Typed, always: this road is the desktop composer and nothing else writes to it.
+        "source": "text",
+        "createdAt": at,
+        "at": at,
+    });
+    let (kind, data) = event_from_live(EVENT_CEO_MESSAGE, &payload, cursor)?;
+    hub.publish(kind, cursor, data.to_string())
 }
 
 /// **Fan one live stream out to several observers.**
