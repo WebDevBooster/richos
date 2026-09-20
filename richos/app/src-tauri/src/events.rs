@@ -7,8 +7,9 @@
 //!
 //! ## What this layer is allowed to do
 //!
-//! **Relay a name and a payload. Nothing else.** It builds no payload, resolves no scope,
-//! makes no visibility decision and knows no event names. All of that lives in
+//! **Relay a name and a payload.** It builds no payload, resolves no scope and
+//! makes no visibility decision. Optional timing logs observe event identities only.
+//! Payload construction and visibility policy live in
 //! `richos_core::live`, where it is unit-tested without a webview; if this file could
 //! construct an event, the ECS fence and the visibility gate would both be one careless
 //! edit away from being bypassed. `LiveEvent`'s fence is not even constructible from here

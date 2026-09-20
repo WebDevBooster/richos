@@ -72,7 +72,7 @@ async function main() {
       assert(view.visible, "the conversation pane must be visible");
       assertEqual(view.title, title, "the breadcrumb names the selected destination");
       assert(view.text.includes(saved.trim()), "the saved destination messages remain visible");
-      assert(!view.text.includes("Waiting for its saved messages"), "cached messages need no loading placeholder");
+      assert(!(await page.locator("body").innerText()).includes("Waiting for its saved messages"), "cached messages need no loading placeholder, including the wait band");
     });
     await release(page);
     await page.waitForFunction(() => document.querySelector("#composer-row").dataset.mode !== "opening");

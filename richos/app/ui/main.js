@@ -1650,7 +1650,8 @@ function renderFirstRun() {
 async function loadTimeline() {
   const loadedModel = timelineModel;
   const loadedThread = activeThreadId;
-  const stale = () => loadedModel !== timelineModel || loadedThread !== activeThreadId;
+  const loadedEpoch = threadViewEpoch;
+  const stale = () => loadedModel !== timelineModel || loadedThread !== activeThreadId || loadedEpoch !== threadViewEpoch;
   const techy = techyOn();
   let snapshot;
   try {
@@ -2695,7 +2696,7 @@ function renderWaitBand() {
       ? "Stopping work in the previous conversation"
       : [...opening.previousModel.turns.values()].some(t => t.live)
       ? "The previous conversation is still working. Press Stop to stop that work."
-      : "Waiting for its saved messages"),
+      : opening.cached ? "" : "Waiting for its saved messages"),
     tone: waitLastPaintAt - opening.startedAt >= QUIET_AFTER_MS ? "quiet" : "queued",
     pace: null,
   } : waitTurn ? waitBandCopy(waitTurn, waitLastPaintAt) : {
