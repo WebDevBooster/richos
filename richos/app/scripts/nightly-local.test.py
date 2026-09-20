@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
+import uuid
 from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("local_nightly", Path(__file__).with_name("nightly-local.py"))
@@ -147,6 +149,54 @@ class LocalTests(unittest.TestCase):
         for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
                      "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
             self.assertIn(name, m.IDENTITY_OVERRIDES)
+
+    def test_a_variable_nobody_thought_about_reaches_no_gate(self):
+        """The allowlist's whole claim, tested the only way that proves it: by surprise.
+
+        Every other case here names a variable somebody already knew was dangerous, so
+        every one of them would still pass against the deny-list this replaced -- which
+        is exactly how the deny-list looked right on 2026-09-18 and broke the build on
+        2026-09-19. The variable planted below is deliberately one NO list anywhere in
+        this repository mentions. A deny-list passes it through; an allowlist cannot,
+        and it cannot for a reason that does not depend on anyone having foreseen it.
+        """
+        stray = "RICHOS_TEST_STRAY_" + uuid.uuid4().hex
+        with patch.dict(os.environ, {stray: "from the operator's shell", "HOME": os.environ["HOME"]}):
+            env, credentials = m.local_environment()
+        self.assertNotIn(stray, env)
+        self.assertNotIn(stray, credentials)
+        # Not vacuous: the planting worked, and an allowlisted name from the SAME
+        # os.environ did come through. Without this the case would pass just as well
+        # against a local_environment() that returned an empty dict.
+        self.assertIn("HOME", env)
+        # And the property in general, not one specimen of it: nothing in the returned
+        # environment came from the shell except by being named in the allowlist.
+        self.assertEqual(sorted(set(env) - set(m.GATE_SET_BY_BUILD)),
+                         sorted(n for n in m.GATE_PASSTHROUGH if n in os.environ))
+
+    def test_the_allowlist_is_the_only_door_and_e1_derives_its_list_from_it(self):
+        """`gate-environment` is what run-tests.test.sh case E1 reads instead of copying.
+
+        E1 re-runs the whole script suite under the environment a build hands it. Its
+        list used to be hand-written, so it went stale in silence the next time anyone
+        added a variable. This asserts the printed contract is complete and well-formed:
+        if a name is added to either tuple and this is the only copy, E1 picks it up for
+        free; if the printing ever stops covering a tuple, this fails rather than E1
+        quietly testing less than it claims to.
+        """
+        printed = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("nightly-local.py")), "gate-environment"],
+            capture_output=True, text=True, check=True).stdout
+        rows = [line.split("\t") for line in printed.splitlines() if line]
+        self.assertTrue(all(len(row) == 2 for row in rows), rows)
+        by_kind = {}
+        for kind, name in rows:
+            by_kind.setdefault(kind, []).append(name)
+        self.assertEqual(by_kind.get("passthrough"), list(m.GATE_PASSTHROUGH))
+        self.assertEqual(by_kind.get("set"), list(m.GATE_SET_BY_BUILD))
+        self.assertEqual(by_kind.get("per-step"), list(m.GATE_SET_PER_STEP))
+        # No credential name may ever be printed here: E1 exports every name this prints.
+        self.assertEqual([name for _, name in rows if m.is_credential(name)], [])
 
     def identity_runner(self, configured=True):
         state = self.root / "state"
