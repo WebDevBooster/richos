@@ -2732,6 +2732,13 @@
           // the mock mirrors the shell's refusals rather than only its happy paths.
           if (mockUpdate.view.busy) return { ...mockUpdate.view };
           return mockUpdateAdvance();
+        case "update_rollback":
+          mockUpdate.calls.push("update_rollback");
+          // The same gate, and the same reason: `updates.rs::rollback` reads the work
+          // verdict before it looks at anything else, so a preview that went ahead here
+          // would prove a rollback the product declines.
+          if (mockUpdate.view.busy) return { ...mockUpdate.view };
+          return mockUpdateAdvance();
         // WHETHER THE PREVIEW OFFERS VOICE, answered rather than left to the default reject.
         //
         // `main.js` treats every unknown as "not available" and hides the talk button, which
