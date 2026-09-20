@@ -51,11 +51,12 @@ fn uid() -> u32 {
 /// the same two processes with `--test-threads 1` were both green. It cost a nightly build
 /// and it is the reason this exists.
 ///
-/// WHY NOT THE TWO OBVIOUS REPAIRS. Dropping the `pre_exec` closure in `probe()` so
-/// `Command` uses `posix_spawn` would end the window -- and throw away what that closure is
-/// for, which is marking EVERY inherited descriptor close-on-exec before handing control to
-/// a staged binary this process has not finished verifying. `posix_spawn` respects the
-/// flag; it cannot set it on a descriptor somebody else opened without it. And `fcntl`
+/// Dropping the `pre_exec` closure in `probe()` is not a repair: ordinary macOS
+/// `Command` spawns can also temporarily retain another thread's session descriptor.
+/// It would also remove the marking of EVERY inherited descriptor close-on-exec before
+/// handing control to a staged binary this process has not finished verifying.
+/// `posix_spawn` respects the flag; it cannot set it on a descriptor somebody else
+/// opened without it. And `fcntl`
 /// record locks would trade this bug for a worse one: `F_OFD_SETLK` locks live on the
 /// description, which is the very thing `fork` copies, so the bug would survive untouched;
 /// classic process-associated locks are not inherited by a child, but they also do not
@@ -63,15 +64,14 @@ fn uid() -> u32 {
 /// how `stage_does_not_replace_live_bundle_and_shared_sessions_veto_activation` states the
 /// product's meaning.
 ///
-/// So the window stays, and nothing may observe a lock while it is open. Every `flock` call
-/// in this file takes the shared side; the one place this crate forks takes the exclusive
-/// side and holds it until the child has EXECED -- which is precisely when `Command::spawn`
-/// returns, because it waits on the child's close-on-exec error pipe.
+/// Lease acquisition and conversion take the shared side. The probe and every unit-test
+/// fixture launch take the exclusive side until `Command::spawn` returns. Protecting only
+/// the probe leaves compiler, ACL and fixture-process launches able to retain a released
+/// lease and cause a spurious refusal in another test.
 ///
-/// THE LIMIT, STATED: this closes the window for forks THIS crate performs. A fork
-/// elsewhere in the process can still inherit a lease for its own window, and the answer
-/// there is the same one `probe()` already applies -- every descriptor close-on-exec -- not
-/// a lock this crate cannot reach.
+/// This coordinates only this crate's launches. Uncoordinated launches elsewhere in the
+/// process can still inherit a lease before exec despite close-on-exec. Production startup
+/// activation must run before runtime threads, as the startup/exec API requires.
 static FORK_WINDOW: RwLock<()> = RwLock::new(());
 
 /// Run one lock observation -- an `flock`, and the `open` that precedes it -- with no fork
@@ -1820,6 +1820,18 @@ pub fn with_preferred<T>(
 mod tests {
     use super::*;
     use flate2::{write::GzEncoder, Compression};
+
+    // Every fixture launch must participate, including ordinary Command spawns:
+    // on macOS those can briefly inherit another thread's session descriptor too.
+    // Coordinate only spawn/exec, never the child's runtime or the entire test.
+    trait FixtureCommandExt {
+        fn spawn_fixture(&mut self) -> io::Result<std::process::Child>;
+    }
+    impl FixtureCommandExt for std::process::Command {
+        fn spawn_fixture(&mut self) -> io::Result<std::process::Child> {
+            spawn_past_lock_steps(self)
+        }
+    }
     fn home() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }
@@ -1851,7 +1863,12 @@ mod tests {
             .arg(&source)
             .arg("-o")
             .arg(&executable)
-            .output()
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn_fixture()
+            .unwrap()
+            .wait_with_output()
             .unwrap();
         assert!(
             result.status.success(),
@@ -2276,17 +2293,33 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_child_parked_between_fork_and_exec_cannot_hold_a_released_lease() {
-        use std::os::unix::process::CommandExt;
+        fixture_spawn_releases_lease(false);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_fixture_child_cannot_keep_a_released_shared_session_alive() {
+        fixture_spawn_releases_lease(true);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn fixture_spawn_releases_lease(shared: bool) {
+        use std::os::unix::{net::UnixStream, process::CommandExt};
         let t = home();
         let h = canonical(&t);
 
-        let lease = StartupLease::acquire(&h).unwrap();
+        let mut lease = StartupLease::acquire(&h).unwrap();
         assert!(lease.can_activate(), "the first session owns the lease");
+        if shared {
+            lease.begin_session().unwrap();
+        }
 
-        // The child reports that it has forked and is parked; this test waits on that fact.
-        let mut ends = [0i32; 2];
-        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
-        let (reader, writer) = (ends[0], ends[1]);
+        // Owned, close-on-exec endpoints, with a bound if the child never reports in.
+        let (mut reader, writer) = UnixStream::pair().unwrap();
+        reader
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let writer_fd = writer.as_raw_fd();
 
         let mut command = std::process::Command::new("/bin/sleep");
         command
@@ -2299,22 +2332,29 @@ mod tests {
                 // In the CHILD, after fork and before exec: it holds a copy of every open
                 // description in the parent, including the lease acquired above.
                 let byte = b".";
-                libc::write(writer, byte.as_ptr().cast(), 1);
-                std::thread::sleep(std::time::Duration::from_millis(300));
+                if libc::write(writer_fd, byte.as_ptr().cast(), 1) != 1 {
+                    return Err(io::Error::last_os_error());
+                }
+                let delay = libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: 300_000_000,
+                };
+                if libc::nanosleep(&delay, std::ptr::null_mut()) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
         let forker = std::thread::spawn(move || {
-            let mut child = spawn_past_lock_steps(&mut command).unwrap();
-            child.wait().unwrap()
+            let status = command.spawn_fixture().and_then(|mut child| child.wait());
+            drop(writer);
+            status
         });
 
         let mut byte = [0u8; 1];
-        assert_eq!(
-            unsafe { libc::read(reader, byte.as_mut_ptr().cast(), 1) },
-            1,
-            "the child never reached its parked state, so nothing was proven"
-        );
+        reader
+            .read_exact(&mut byte)
+            .expect("the child never reached its parked state, so nothing was proven");
 
         // The session ends while that child is still parked.
         drop(lease);
@@ -2326,7 +2366,10 @@ mod tests {
         // description EXCLUSIVE, so the next session could take neither EX nor SH and the
         // acquisition itself failed WouldBlock. A softer variant would return a lease that
         // merely cannot activate. Neither may happen, and neither may fail namelessly.
-        let next = StartupLease::acquire(&h).unwrap_or_else(|error| {
+        let next = StartupLease::acquire(&h);
+        // Reap the child even when the captured acquisition proves the regression.
+        assert!(forker.join().unwrap().unwrap().success());
+        let next = next.unwrap_or_else(|error| {
             panic!(
                 "a released lease was still held by a child parked between fork and exec, \
 so the next session could not take it at all: {error}"
@@ -2338,11 +2381,6 @@ so the next session could not take it at all: {error}"
 exec, so the next session refused to activate over a session that had ended"
         );
         drop(next);
-
-        assert!(forker.join().unwrap().success());
-        unsafe {
-            libc::close(reader);
-        }
     }
 
     // A REAL SECOND SESSION IS STILL REFUSED. The repair above is about a child that is
@@ -2372,7 +2410,9 @@ exec, so the next session refused to activate over a session that had ended"
             assert!(std::process::Command::new("/bin/chmod")
                 .args(["+a", rule])
                 .arg(&h)
-                .status()
+                .spawn_fixture()
+                .unwrap()
+                .wait()
                 .unwrap()
                 .success())
         };
@@ -2383,7 +2423,9 @@ exec, so the next session refused to activate over a session that had ended"
         assert!(std::process::Command::new("/bin/chmod")
             .arg("-N")
             .arg(&h)
-            .status()
+            .spawn_fixture()
+            .unwrap()
+            .wait()
             .unwrap()
             .success());
     }
@@ -2397,7 +2439,9 @@ exec, so the next session refused to activate over a session that had ended"
         assert!(std::process::Command::new("/bin/chmod")
             .args(["+a", "everyone allow write"])
             .arg(&executable)
-            .status()
+            .spawn_fixture()
+            .unwrap()
+            .wait()
             .unwrap()
             .success());
         assert!(preferred(&h).is_err());
@@ -2534,7 +2578,7 @@ exec, so the next session refused to activate over a session that had ended"
             .env("RICHOS_TEST_UPDATE_EXEC_HOME", &h)
             .env_remove("RICHOS_TEST_UPDATE_EXEC_FD")
             .stdout(std::process::Stdio::null())
-            .spawn()
+            .spawn_fixture()
             .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while !h.join("ready").exists() {
@@ -2635,7 +2679,9 @@ exec, so the next session refused to activate over a session that had ended"
             .arg(source)
             .arg("-o")
             .arg(&exe)
-            .status()
+            .spawn_fixture()
+            .unwrap()
+            .wait()
             .unwrap()
             .success());
         let bytes = archive_with_binary("2.0.0", &fs::read(exe).unwrap(), |_| {});
@@ -2775,7 +2821,9 @@ exec, so the next session refused to activate over a session that had ended"
                     "--nocapture",
                 ])
                 .env(MARKER, "1")
-                .status()
+                .spawn_fixture()
+                .unwrap()
+                .wait()
                 .unwrap();
             assert!(status.success());
             return;
@@ -2798,7 +2846,9 @@ exec, so the next session refused to activate over a session that had ended"
             .arg(source)
             .arg("-o")
             .arg(&exe)
-            .status()
+            .spawn_fixture()
+            .unwrap()
+            .wait()
             .unwrap()
             .success());
         let bytes = archive_with_binary("2.0.0", &fs::read(exe).unwrap(), |_| {});
@@ -2828,7 +2878,9 @@ exec, so the next session refused to activate over a session that had ended"
             .arg(source)
             .arg("-o")
             .arg(&exe)
-            .status()
+            .spawn_fixture()
+            .unwrap()
+            .wait()
             .unwrap()
             .success());
         let bytes = archive_with_binary("2.0.0", &fs::read(exe).unwrap(), |_| {});
