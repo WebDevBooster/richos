@@ -1,0 +1,1021 @@
+{
+  "commands": {
+    "clippy": [
+      [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--manifest-path",
+        "richos/app/Cargo.toml"
+      ],
+      [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--manifest-path",
+        "richos/app/crates/richos-user-update/Cargo.toml"
+      ]
+    ]
+  },
+  "counts": {
+    "clippy::assertions_on_constants": 5,
+    "clippy::bool_assert_comparison": 2,
+    "clippy::cloned_ref_to_slice_refs": 8,
+    "clippy::collapsible_if": 2,
+    "clippy::collapsible_match": 2,
+    "clippy::doc_lazy_continuation": 2,
+    "clippy::doc_overindented_list_items": 58,
+    "clippy::empty_line_after_doc_comments": 2,
+    "clippy::err_expect": 1,
+    "clippy::explicit_counter_loop": 2,
+    "clippy::items_after_test_module": 1,
+    "clippy::large_enum_variant": 4,
+    "clippy::len_zero": 3,
+    "clippy::let_underscore_must_use": 777,
+    "clippy::let_unit_value": 34,
+    "clippy::manual_contains": 8,
+    "clippy::manual_is_multiple_of": 4,
+    "clippy::manual_pattern_char_comparison": 2,
+    "clippy::manual_range_contains": 1,
+    "clippy::manual_repeat_n": 2,
+    "clippy::needless_borrow": 3,
+    "clippy::needless_borrows_for_generic_args": 11,
+    "clippy::needless_range_loop": 8,
+    "clippy::needless_return": 2,
+    "clippy::nonminimal_bool": 2,
+    "clippy::ptr_arg": 5,
+    "clippy::redundant_closure": 1,
+    "clippy::redundant_guards": 2,
+    "clippy::should_implement_trait": 6,
+    "clippy::single_element_loop": 2,
+    "clippy::too_many_arguments": 5,
+    "clippy::type_complexity": 13,
+    "clippy::unnecessary_cast": 2,
+    "clippy::unnecessary_get_then_check": 1,
+    "clippy::unnecessary_lazy_evaluations": 4,
+    "clippy::unnecessary_map_or": 1,
+    "clippy::unnecessary_sort_by": 4,
+    "clippy::useless_vec": 2,
+    "dead_code": 1,
+    "unused_mut": 1
+  },
+  "inventory": {
+    "richos/app/crates/richos-core/build.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/assignment_receipt_timing.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/company_choice_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/continuity_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/conversation_wait_behind_another.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/evidence_lookup_e2e.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/first_reply_timing_e2e.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/first_run_correction_e2e.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/first_run_demo.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/fresh_user_first_run.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/gui_boot_machine.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/launch_kinds.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/ledger_projection_digest.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/live_events_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/loro_correction_demo.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/loro_ecs_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/loro_gui_correction_e2e.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/loro_install_probe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/loro_reprime_demo.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/machinery_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/native_failure_modes.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/native_permission_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/native_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/onboarding_native_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/onboarding_probe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/provision_refusals.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/question_receipt_e2e.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/reachability_probe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/registry_migration_check.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/rotation_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/setup_demo.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/setup_failures.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/verify_delivery.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/watermark_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/work_lease_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/work_roundtrip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/examples/worker_status_demo.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/app_workers.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/assignment.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/assignment_tools.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/belief.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/cognition.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/company.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/config.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/correction.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/doctrine.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/ecs.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/engine_profile.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/entity.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/evidence.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/feedback.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/first_reply.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/heard.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/home_field.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/interruption.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/journal.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/launch.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/ledger.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/lib.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/live.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/loro.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/machinery.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/native.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/onboarding.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/onboarding_tools.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/owned_process.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/permissions.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/provider_auth.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/provision.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/reachability.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/recovery.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/repositories.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/reprime.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/runtime.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/screen.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/setup.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/skills.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/skip.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/spine.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/spoken.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/staging.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/status_tools.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/steering.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/stream.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/thread.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/timeline.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/upstream.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/util.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/work_gate.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/work_host.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/work_status.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/worker_events.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/src/worker_status.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-core/tests/action_ledger_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/belief_precision.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/belief_trigger_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/between_turn_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/between_turn_thread_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/company_layer_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/correction_forward_compat_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/deferred_send_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/delivered_ecs_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/delivered_loro_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/doctrine_sentinel.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/engine_profile.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/entity_binding_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/entity_registry_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/evidence_lookup_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/feedback_no_outbound_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/feedback_surface_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/front_desk_priming_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/heard_precision.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/heard_trigger_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/intake_forward_compat_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/interruption_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/launch_no_outbound_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/ledger_forward_compat_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/live_event_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/loro_gui_launch_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/loro_lane_map_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/loro_reprime_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/machinery_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/native_cancel_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/native_onboarding_grant_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/onboarding_declination_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/onboarding_persistence_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/owned_process.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/phone_intake_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/provider_auth.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/reachability_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/repository_connection.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/request_preparation_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/resident_front_desk_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/rotation_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/runtime_delivery.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/setup.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/spare_front_desk_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/spine_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/spoken_gate_agreement.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/spoken_precision.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/spoken_trigger_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/steering_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/support/ledger_digest.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/support/mod.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/timeline_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/two_conversations_at_once_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/upstream_classification_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/upstream_turn_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/watermark_cadence_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/work_gate_cost.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-core/tests/worker_attribution_tests.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-user-update/src/lib.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-user-update/tests/startup_exec.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-voice/build.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/aec_capture.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/aec_live.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/aec_probe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/aec_rig.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/aec_transcribe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/bargein_score.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/device_probe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/model_metadata.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/model_resolution.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/noaudio_live.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/toolchain_probe.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/examples/voice_loop.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/aec.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/bargein.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/capture.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/chunk.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/controller.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/endpoint.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/event.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/fft.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/hardware.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/lib.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/noaudio.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/playout.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/private_fixtures.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/provision.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/state.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/stt.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/toolchain.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/tts.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/vad.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/voiced.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/src/wav.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/crates/richos-voice/tests/barge_in_composition.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-voice/tests/barge_in_on_the_ceos_rig.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-voice/tests/echo_path_replay.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-voice/tests/model_provisioning.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-voice/tests/self_voice_replay.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/crates/richos-voice/tests/voiced_acceptance.rs": {
+      "language": "rust",
+      "role": "suite"
+    },
+    "richos/app/src-tauri/build.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/machinery_payload.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/provision_model.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/stop_payload.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/timeline_payload.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/verify_update_manifest.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/verify_update_signature.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/examples/window_placement.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/activation.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/engine.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/events.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/lifecycle.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/machinery_view.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/main.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/memory.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/nav.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/opener.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/api_base.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/assets.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/bridge.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/ca.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/device.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/listen.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/mod.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/names.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/push.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/routes.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/rows.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/secrets.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/stream.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/phone/tailnet.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/screen.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/setup_view.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/startup_alert.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/timeline_view.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/update_startup.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/updates.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/voice_provision.rs": {
+      "language": "rust",
+      "role": "production"
+    },
+    "richos/app/src-tauri/src/window_geometry.rs": {
+      "language": "rust",
+      "role": "production"
+    }
+  },
+  "limitation": "Counts prevent net growth, not every new violation. Check never writes.",
+  "rules": {
+    "richos/app/Cargo.toml:workspace:clippy::await_holding_lock": "\"warn\"",
+    "richos/app/Cargo.toml:workspace:clippy::let_underscore_future": "\"warn\"",
+    "richos/app/Cargo.toml:workspace:clippy::let_underscore_must_use": "\"warn\"",
+    "richos/app/Cargo.toml:workspace:rust::unused_must_use": "\"warn\"",
+    "richos/app/crates/richos-core/Cargo.toml:inherits-workspace": "true",
+    "richos/app/crates/richos-user-update/Cargo.toml:inherits-workspace": "false",
+    "richos/app/crates/richos-user-update/Cargo.toml:package:clippy::await_holding_lock": "\"warn\"",
+    "richos/app/crates/richos-user-update/Cargo.toml:package:clippy::let_underscore_future": "\"warn\"",
+    "richos/app/crates/richos-user-update/Cargo.toml:package:clippy::let_underscore_must_use": "\"warn\"",
+    "richos/app/crates/richos-user-update/Cargo.toml:package:rust::unused_must_use": "\"warn\"",
+    "richos/app/crates/richos-voice/Cargo.toml:inherits-workspace": "true",
+    "richos/app/src-tauri/Cargo.toml:inherits-workspace": "false",
+    "richos/app/src-tauri/Cargo.toml:package:clippy::await_holding_lock": "\"warn\"",
+    "richos/app/src-tauri/Cargo.toml:package:clippy::let_underscore_future": "\"warn\"",
+    "richos/app/src-tauri/Cargo.toml:package:clippy::let_underscore_must_use": "\"warn\"",
+    "richos/app/src-tauri/Cargo.toml:package:rust::unused_must_use": "\"warn\"",
+    "toolchain-default-diagnostics": "blocking-count-ceiling"
+  },
+  "schema": 1,
+  "versions": {
+    "clippy": "clippy 0.1.95 (59807616e1 2026-04-14)",
+    "python": "3.14",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-apple-darwin\nrelease: 1.95.0\nLLVM version: 22.1.2",
+    "shellcheck": "0.11.0"
+  }
+}

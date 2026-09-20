@@ -1,0 +1,4 @@
+# Resolve sourced helpers relative to the script that sources them.
+source-path=SCRIPTDIR
+external-sources=true
+severity=style

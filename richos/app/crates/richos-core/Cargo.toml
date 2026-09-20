@@ -76,3 +76,6 @@ path = "examples/setup_failures.rs"
 [[example]]
 name = "assignment_receipt_timing"
 path = "examples/assignment_receipt_timing.rs"
+
+[lints]
+workspace = true

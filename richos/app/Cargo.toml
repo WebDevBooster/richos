@@ -9,3 +9,14 @@
 [workspace]
 resolver = "2"
 members = ["crates/richos-core", "crates/richos-voice"]
+
+# Check ignored outcomes and asynchronous work at the lint entry point.
+# Timeout refusal regression: a0b51998. These warn on related Rust mistakes;
+# shell timeout control flow is covered by the project rule, not by Clippy.
+[workspace.lints.rust]
+unused_must_use = "warn"
+
+[workspace.lints.clippy]
+let_underscore_future = "warn"
+let_underscore_must_use = "warn"
+await_holding_lock = "warn"

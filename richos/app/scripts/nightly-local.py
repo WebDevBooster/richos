@@ -977,6 +977,9 @@ class Runner:
             if no_host_screen:
                 args.append("--no-host-screen")
             self.command(*args, env_extra=extra)
+        with self.phase("gates/lint-tauri"):
+            self.command("bash", self.source / SCRIPTS / "lint.sh", "--nightly",
+                         "--state-dir", self.state, "--suite-results", results)
         # AFTER the script suites and BEFORE the privacy sweep. It is the longest gate, so
         # the cheap refusals get to refuse first: there is no sense spending 378 s of WebKit
         # to learn that `cargo test` was going to fail anyway.
