@@ -51,8 +51,13 @@
 #                                     turn saying an agent finished
 #   2. nothing was STARTED            no `Agent` call and no BACKGROUNDED tool
 #                                     call this turn, scoped to promptId
-#   3. nothing is OWED TO THE CEO     no `AskUserQuestion` this turn, and no
-#                                     hold or end-of-day in his own words
+#   3. nothing is OWED TO THE CEO     no `AskUserQuestion` this turn — a TOOL
+#                                     CALL, never prose. (The second half of
+#                                     this term read his own typed messages for
+#                                     a hold; deleted 2026-09-20 by CEO ruling
+#                                     §68 — no hook decides what he meant. A
+#                                     turn he stopped is ended by the
+#                                     orchestrator's own `stop-declared:` line.)
 #   4. there IS something to start    an unblocked row DERIVED from the record's
 #                                     `## Next` table — never a typed count.
 #                                     This is also what answers "a teammate is
@@ -78,10 +83,14 @@
 #   Of the 276 confirmed landings:
 #      95  dispatched an Agent in the same turn        -> silent, correct
 #     101  still had an agent running                  -> silent, correct
-#       0  were held by the operator                   -> the hold suppressor
-#                                                         never fired once; it
-#                                                         is a backstop that
-#                                                         term 4 usually beats
+#       0  were held by the operator                   -> THE SUPPRESSOR THAT
+#                                                         READ HIS WORDS NEVER
+#                                                         FIRED ONCE in 1,082
+#                                                         turns. Deleted
+#                                                         2026-09-20; the
+#                                                         number is kept
+#                                                         because it says what
+#                                                         the deletion cost.
 #      80  landed, started nothing, nothing running    -> BLOCKED  (29%)
 #
 #   TERM 4 IS DECISIVE AND IS NOT RECONSTRUCTABLE. `background_tasks` comes

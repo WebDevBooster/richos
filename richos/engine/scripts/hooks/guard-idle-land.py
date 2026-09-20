@@ -84,9 +84,21 @@ THE PREDICATE, AND WHY EVERY TERM IS READ FROM GROUND TRUTH
        suite) so it cannot come back.
 
     3. NOTHING IS OWED TO THE CEO. No `AskUserQuestion` in this turn -- read
-       from the TOOL CALL, not from prose -- and no hold or end-of-day in the
-       operator's own words. Ending a turn on a question he has to answer is the
-       one move nobody else can make for him.
+       from the TOOL CALL, not from prose. Ending a turn on a question he has to
+       answer is the one move nobody else can make for him.
+
+       WHAT USED TO BE HERE AND IS GONE (2026-09-20, CEO ruling §68): a second
+       half of this term read the CEO's own typed messages for a hold -- "hold",
+       "stand down", "don't dispatch" -- or for the end of his day, and stood
+       the gate down on a match. It was the engine's other language predicate
+       over his words, and it decided something: whether a blocking gate fired.
+       His ruling is that a hook may check what the orchestrator DID and never
+       decide what HE MEANT, however careful the regex and however one-
+       directional the error. So the branch is deleted, not narrowed. A turn he
+       told to stop is now ended the same way every other legitimate stop is
+       ended -- the orchestrator writes `stop-declared: ceo-owns-it` with its
+       reason, which is the orchestrator's own act, in its own words, on the
+       record where the CEO can read it.
 
     4. THERE IS SOMETHING TO START. At least one row of the record's `## Next`
        table that is neither struck through nor blocked -- DERIVED FROM THE
@@ -169,7 +181,14 @@ MACHINE_PROMPT_RE = re.compile(
 
 
 def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
-    """Tool names, Bash command strings and the operator's own words, THIS TURN.
+    """Tool names, Bash command strings and host-written notices, THIS TURN.
+
+    THE CEO'S OWN WORDS ARE NOT COLLECTED HERE ANY MORE (2026-09-20, §68). The
+    `said` list this function used to build had exactly one consumer -- the
+    deleted hold predicate -- so it is gone with it, and the only prompt text
+    that still reaches the caller is a HOST-WRITTEN notice (`notices`), which
+    is not a person speaking but the transport a teammate's completion arrives
+    on.
 
     The turn is scoped by promptId, using the binary's own semantic: a UUID
     correlating a user prompt with all subsequent events until the next prompt.
@@ -197,7 +216,7 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
     except OSError:
         return None
 
-    tools, bash, said, notices, cwd = [], [], [], [], ""
+    tools, bash, notices, cwd = [], [], [], ""
     backgrounded = False
     started = False
     try:
@@ -219,17 +238,21 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                     continue
                 msg = rec.get("message") or {}
                 content = msg.get("content")
-                # The operator's own words, used ONLY to stand the gate down
-                # (see hold_signal). Real user prompts carry an origin or a
-                # promptSource; a tool_result user record carries neither.
+                # ONLY THE HOST-WRITTEN PROMPTS ARE KEPT, and that is the whole
+                # of what this branch does now. A <task-notification> arrives on
+                # the user channel carrying a teammate's whole handoff, and it
+                # is the ONLY place a teammate's completion is visible from
+                # inside the turn that has to answer for it (see
+                # agent_finishes).
                 #
-                # MACHINE-GENERATED PROMPTS ARE NOT THE OPERATOR. A
-                # <task-notification> arrives on the same channel, carries a
-                # whole agent handoff inside it, and is where this filter was
-                # earned: replaying the failing turn, the gate stood itself
-                # down on the word "Freeze" — inside `Freeze margin 1.5`,
-                # quoted by an agent reporting a measurement. The operator had
-                # said nothing at all that turn.
+                # THE OPERATOR'S OWN PROMPTS ARE READ AND DISCARDED -- kept
+                # apart here rather than filtered away upstream so that the one
+                # thing this file must never do again is visible at the line
+                # where it would happen. Nothing downstream receives his text.
+                # Until 2026-09-20 it was collected as `said` and fed to a
+                # regex that could stand the gate down; the CEO ruled that no
+                # hook infers anything from his words, and the collection went
+                # with the predicate.
                 if rec.get("type") == "user" and (rec.get("origin") or rec.get("promptSource")):
                     parts = []
                     if isinstance(content, str):
@@ -240,14 +263,7 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
                                 parts.append(b.get("text", ""))
                     for t in parts:
                         if MACHINE_PROMPT_RE.search(t):
-                            # NOT DISCARDED ANY MORE. A host-written prompt is
-                            # not the operator speaking -- which is why it stays
-                            # out of `said` -- but it is the ONLY place a
-                            # teammate's completion is visible from inside the
-                            # turn that has to answer for it. See agent_finishes.
                             notices.append(t)
-                            continue
-                        said.append(t)
                 if rec.get("type") == "assistant" and isinstance(content, list):
                     for b in content:
                         if not isinstance(b, dict) or b.get("type") != "tool_use":
@@ -269,7 +285,10 @@ def read_turn(path, prompt_id, limit_bytes=48 * 1024 * 1024):
         return None
     if not started:
         return None
-    return {"tools": tools, "bash": bash, "said": "\n".join(said),
+    # NO `said` KEY, deliberately. A caller reaching for the operator's words
+    # gets a KeyError at the line that reaches, not a quiet empty string that
+    # lets the old behavior grow back looking harmless.
+    return {"tools": tools, "bash": bash,
             "notices": notices, "backgrounded": backgrounded, "cwd": cwd}
 
 
@@ -710,79 +729,38 @@ def still_running(payload):
 
 
 # --------------------------------------------------------------------------
-# the operator's own hold
+# THE OPERATOR'S OWN HOLD -- DELETED 2026-09-20, AND THE SPACE IS KEPT EMPTY
 # --------------------------------------------------------------------------
-
-HOLD_RE = re.compile(
-    r"\b(hold(?:\s+(?:on|off|everything|all|it|fire|the\s+line))?|"
-    r"stand\s+down|stand\s+by|standby|"
-    r"pause(?:\s+(?:everything|all|the|it|here))?|"
-    r"freeze(?:\s+(?:everything|all))?|"
-    r"do\s+not\s+(?:dispatch|spawn|start|proceed|continue|land)|"
-    r"don'?t\s+(?:dispatch|spawn|start|proceed|continue|land)|"
-    r"no\s+more\s+(?:work|dispatches|dispatching|agents))\b", re.I)
-
-# THE OTHER WAY THE OPERATOR STOPS A TURN, AND IT IS NOT A HOLD.
-# HOLD_RE above reads instructions -- "hold", "stand down", "don't dispatch".
-# It does not read the far more common thing he actually says at the end of a
-# night, which is that HE is stopping: he is going to bed. Refusing that turn
-# and demanding a dispatch is the gate at its worst, because the one person it
-# cannot afford to annoy is the one it exists for.
 #
-# Kept SEPARATE from HOLD_RE rather than folded into it, for two reasons worth
-# the extra constant. It is a different claim -- "stop working" versus "I am
-# stopping" -- and the mutation run can therefore prove each half load-bearing
-# on its own, which a single fused alternation makes impossible.
+# What stood here: HOLD_RE, OFF_DUTY_RE and hold_signal(). Two regexes over the
+# CEO'S OWN TYPED MESSAGES -- "hold", "stand down", "don't dispatch", "going to
+# bed", "calling it a night" -- and a function that stood this blocking gate
+# down whenever one matched.
 #
-# One-directional, exactly like HOLD_RE: it can only ever stand the gate DOWN,
-# so a false positive costs one un-fired gate and a false negative costs
-# nothing at all. That asymmetry is the only reason prose is allowed in this
-# file, and it applies here unchanged.
-OFF_DUTY_RE = re.compile(
-    r"\b(going\s+to\s+bed|off\s+to\s+bed|heading\s+to\s+bed|going\s+to\s+sleep|"
-    r"good\s?night|call(?:ing)?\s+it\s+a\s+(?:night|day)|"
-    r"that'?s\s+(?:it|all|enough)\s+for\s+(?:tonight|today|now)|"
-    r"see\s+you\s+(?:tomorrow|in\s+the\s+morning)|"
-    r"talk\s+(?:to\s+you\s+)?tomorrow|"
-    r"wrap(?:ping)?\s+(?:it\s+|things\s+)?up\s+for\s+(?:tonight|today)|"
-    r"sign(?:ing)?\s+off)\b", re.I)
+# THE RULING (CEO, 2026-09-20): "since when can a fucking hook be automatically
+# inferred from my words??? since when is such a thing become reliably
+# possible????" A hook may check what the orchestrator DID. It never decides
+# what HE MEANT.
+#
+# The defense written here was that the error was one-directional -- it could
+# only ever stand a gate DOWN, never accuse anybody -- and that argument is
+# true and is not sufficient. Standing a blocking gate down IS a decision, and
+# the decision was being taken from a sentence he typed for a person to read.
+# A direction of error is a property of a mistake; the ruling is about who is
+# entitled to make the judgment at all.
+#
+# WHAT REPLACES IT: nothing here, and something already present. A turn he told
+# to stop ends through stop_declaration() below -- `stop-declared: ceo-owns-it`
+# plus a reason, written by the orchestrator, in the orchestrator's own final
+# message, where the CEO can read what it claimed he wanted. That is the
+# orchestrator's own act and it is checkable. The regexes are not narrowed,
+# not moved and not kept behind a flag: a language predicate over his words
+# that still exists is one that gets reached for again.
+#
+# CODE_SPAN_RE survives because stop_declaration() uses it to keep a
+# declaration quoted inside a fenced block from exempting anything.
 
 CODE_SPAN_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
-
-
-def hold_signal(said):
-    """The operator told this turn to stop. Prose, deliberately, and safe.
-
-    Every other prose predicate in this engine was measured and demoted, and
-    this one would be too if it could accuse anybody. It cannot: it only ever
-    STANDS THE GATE DOWN. A false positive costs one un-fired gate; a false
-    negative costs nothing, because the gate then evaluates its four real
-    terms. ONE-DIRECTIONAL ERROR is what makes a heuristic acceptable here and
-    is the only reason there is prose in this file at all.
-
-    Two narrowings, both earned on the replay rather than guessed, and NOT a
-    third one that was tried and rejected:
-      * the text is the OPERATOR'S OWN PROMPTS only, never a host-written one
-        (read_turn does that filtering). A task notification carrying an
-        agent's handoff is not the operator speaking, and that is where the
-        real false positive came from;
-      * code spans are removed. `Freeze margin 1.5`, quoted inside an agent's
-        measurement, stood the gate down on the very turn it exists to catch.
-      * REJECTED: requiring the phrase to open a sentence. It is the obvious
-        third narrowing and it is wrong -- "Land what is finished and then
-        hold" is exactly how a hold is actually said, and the anchor threw it
-        away. Measured over the corpus, the unanchored form suppressed nothing
-        it should not have; the operator's own words are short and directive,
-        which is what makes the loose form safe HERE and nowhere else.
-    """
-    if not said:
-        return None
-    text = CODE_SPAN_RE.sub(" ", said)
-    m = HOLD_RE.search(text)
-    if m:
-        return m.group(1)
-    m = OFF_DUTY_RE.search(text)
-    return m.group(1) if m else None
 
 
 # --------------------------------------------------------------------------
@@ -1185,13 +1163,11 @@ def main():
         log()
         return 0
 
-    # TERM 3b. THE OPERATOR STOPPED IT -- a hold, or the end of his day.
-    held = hold_signal(turn["said"])
-    if held:
-        record["verdict"] = "held"
-        record["hold"] = held
-        log()
-        return 0
+    # TERM 3b IS GONE (2026-09-20). It read the CEO's own prompts for a hold or
+    # an end-of-day and returned 0 on a match. A turn he stopped now ends the
+    # way every other legitimate stop ends: `stop-declared: ceo-owns-it`, read
+    # below from the orchestrator's OWN final message. See the tombstone above
+    # CODE_SPAN_RE for the ruling.
 
     # From here the turn HAS landed and started nothing, so every remaining
     # outcome is worth a line on stderr. Above this point silence is correct;

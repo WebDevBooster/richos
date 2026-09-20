@@ -169,14 +169,16 @@ ARM 2 — THE TURN THAT STOPS, stated precisely
     the turn's window holds a host-written <task-notification> saying an
     Agent FINISHED (status completed), AND the turn started nothing (no Agent
     call, no backgrounded tool call), AND nothing is owed to the CEO (no
-    AskUserQuestion, no hold or end-of-day in his own words), AND the reply
-    carries no valid `stop-declared:` line.
+    AskUserQuestion), AND the reply carries no valid `stop-declared:` line.
+
+    THE TERM THAT USED TO SAY "no hold or end-of-day in his own words" IS GONE
+    (2026-09-20, CEO ruling §68). No hook reads his sentences to decide
+    anything. What it excused is still excusable, through the declaration.
 
 EVERY ONE OF THOSE TERMS IS guard-idle-land.py's, BY IMPORT. The completion
 signal is its agent_finishes() — the host's own summary shape, `<status>
 completed</status>` required, a killed agent and a finished shell excluded by
-the summary text itself. The hold is its hold_signal(), reading only the
-operator's own prompts. The declaration is its stop_declaration(), with its
+the summary text itself. The declaration is its stop_declaration(), with its
 three cases, its six-word and thirty-character floors, and its code-span
 strip. Nothing here re-derives a term that gate already measured, and there
 is exactly one vocabulary for "this stop is legitimate" in the engine:
@@ -608,9 +610,11 @@ def stop_after_completion(idle, transcript, prompt_id, message):
         return {"finishes": finishes, "verdict": "started", "detail": "backgrounded tool call"}
     if "AskUserQuestion" in turn["tools"]:
         return {"finishes": finishes, "verdict": "ceo-owed", "detail": "AskUserQuestion"}
-    hold = idle.hold_signal(turn.get("said"))
-    if hold:
-        return {"finishes": finishes, "verdict": "ceo-owed", "detail": "operator said: " + hold}
+    # NO HOLD TERM (2026-09-20, CEO ruling §68). This used to call
+    # idle.hold_signal(turn["said"]) -- two regexes over the CEO's own typed
+    # messages -- and excuse the turn on a match. Both the predicate and the
+    # `said` collection it fed on are deleted from guard-idle-land.py; a hook
+    # does not decide what he meant. A turn he stopped is declared, below.
     decl = idle.stop_declaration(message)
     if decl and decl.get("ok"):
         return {"finishes": finishes, "verdict": "declared", "detail": decl}
@@ -763,8 +767,10 @@ def main():
         for t in stop["finishes"]:
             out.append("      Agent \"%s\" finished" % t)
         out.append("")
-        out.append("  No Agent call, no backgrounded command, no question to the CEO, no hold")
-        out.append("  in his words, and no declaration. The report IS the stopping — and six")
+        out.append("  No Agent call, no backgrounded command, no question to the CEO, and no")
+        out.append("  declaration. (His own words are NOT read here and never will be — if he")
+        out.append("  stopped this turn, say so yourself in a `stop-declared: ceo-owns-it`")
+        out.append("  line.) The report IS the stopping — and six")
         out.append("  times on 2026-09-02 he had to send \"No Frank this time?\" to restart work")
         out.append("  that should never have paused. guard-idle-land let those turns through")
         out.append("  because its backlog had no free row; the next step after a returned")

@@ -249,10 +249,16 @@ mutant arm2-ignores-ask "n4." "$P" \
     '    if False:\n        return {"finishes": finishes, "verdict": "ceo-owed", "detail": "AskUserQuestion"}' \
     "a question to the CEO is owed an answer, and refusing that turn demands a dispatch over his head."
 
-mutant arm2-ignores-hold "n5." "$P" \
-    '    hold = idle.hold_signal(turn.get("said"))' \
-    '    hold = None' \
-    "'hold everything' in his own words is the operator taking the turn; the gate must not overrule him."
+# THE MUTATION IS NOW THE OTHER WAY ROUND (2026-09-20, CEO ruling §68). It used
+# to remove the hold read and expect n5 to go red; the hold read is DELETED, so
+# what has to be proven load-bearing is its ABSENCE. This mutant PUTS THE
+# INFERENCE BACK -- a direct scan of the transcript's user records for a hold
+# phrase, which is what a future edit reaching for the old behavior would look
+# like -- and n5, which now expects a refusal, must go red.
+mutant arm2-reads-his-words-again "n5." "$P" \
+    '    decl = idle.stop_declaration(message)' \
+    '    import re as _re, json as _json\n    for _ln in open(transcript, encoding="utf-8", errors="replace"):\n        try:\n            _r = _json.loads(_ln)\n        except Exception:\n            continue\n        if _r.get("type") == "user" and _re.search(r"hold everything", str(_r.get("message", ""))):\n            return {"finishes": finishes, "verdict": "ceo-owed", "detail": "his words"}\n    decl = idle.stop_declaration(message)' \
+    "a hook that reads his sentences for an instruction is the thing the CEO ruled out; if putting it back leaves the suite green, nothing is holding it out."
 
 mutant arm2-ignores-declaration "n6." "$P" \
     '    if decl and decl.get("ok"):' \

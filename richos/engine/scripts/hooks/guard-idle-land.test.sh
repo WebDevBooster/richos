@@ -29,7 +29,8 @@
 #     (AA5) a finish answered by a dispatch                 -> exit 0
 #   NOTHING IS OWED TO THE CEO — the two legitimate stops that had no route
 #     (AB)  a question was put to him this turn             -> exit 0
-#     (AC)  he said he is going to bed                      -> exit 0
+#     (AC)  end-of-day IN HIS WORDS no longer suppresses    -> exit 2
+#           (INVERTED 2026-09-20: a hook does not read his sentences)
 #     (AD)  a BACKGROUNDED tool call counts as started      -> exit 0
 #   THE DECLARATION — the only live escape, and it is a sentence
 #     (AE)  a valid `stop-declared:` line                   -> exit 0
@@ -58,12 +59,15 @@
 #     (c3) tasks run and the stop is DECLARED              -> exit 0
 #     (d)  lands, backlog fully struck through / blocked   -> exit 0
 #     (e)  no landing in this turn at all                  -> exit 0
-#     (f)  the operator called a hold                      -> exit 0
+#     (f)  a hold IN HIS WORDS no longer suppresses        -> exit 2
+#          (INVERTED 2026-09-20, CEO ruling: the hold predicate over his own
+#           typed messages is deleted, not narrowed. The same fixture that
+#           used to pass is now refused, and the refusal names the
+#           declaration that ends such a turn legitimately.)
 #     (f2) a hold word inside a HOST-written prompt        -> exit 2
 #     (f3) a hold word inside the operator's own code span -> exit 2
-#          (f2 and f3 exist separately because two different defenses stop the
-#           one real false positive, and a fixture that trips both proves
-#           neither)
+#          (kept as the standing proof that no prose in the turn, from any
+#           author, reaches a verdict)
 #   CONFIRMATION IS IDENTITY, NOT PROSE
 #     (g)  merge command ran but the ref is NOT an ancestor -> exit 0
 #     (h)  push command ran but HEAD != upstream            -> exit 0
@@ -559,10 +563,19 @@ write_record "$ENTITY/RICH-TODOs.md" normal
 
 run_case "e.no-landing-passes" 0 "$(payload "$TR_NOLAND")"
 
-run_case "f.operator-called-a-hold-passes" 0 "$(payload "$TR_HOLD")"
+# THE INVERTED CASE, 2026-09-20. It read 0 until today: the gate parsed his
+# prompt for "hold" / "stand down" / "don't dispatch" and stood itself down.
+# The CEO ruled that no hook infers anything from his words, so the SAME
+# fixture — an unmistakable hold, typed by him, in the same turn as the land —
+# must now be refused like any other undeclared stop. The refusal names the
+# declaration that ends the turn legitimately, which is the orchestrator's own
+# act rather than a reading of his sentence.
+run_case "f.a-hold-IN-HIS-WORDS-no-longer-suppresses-the-gate" 2 \
+    "$(payload "$TR_HOLD")" "$BLOCK_HEAD"
 
-# The hold suppressor must not be reachable from a HOST-written prompt, and not
-# from a code span. Both halves of the real false positive, in one case.
+# These two were the narrowings that kept the deleted predicate from firing on
+# text he never typed. They are kept as the standing proof that NO prose in the
+# turn — his, an agent's, or quoted inside a code span — reaches a verdict.
 run_case "f2.quoted-hold-word-in-a-machine-prompt-does-not-suppress" 2 \
     "$(payload "$TR_QUOTED_HOLD")" "$BLOCK_HEAD"
 
@@ -612,13 +625,18 @@ run_case "AA5.a-finish-answered-by-a-dispatch-passes" 0 \
     "$(payload "$TR_FINISH_AGENT")"
 
 # --- NOTHING IS OWED TO THE CEO -------------------------------------------
-# LEGITIMATE STOP 2, in its two real forms. Neither existed before: the first
-# version of this gate would have refused the turn in which the orchestrator
-# put a decision to him, and the turn in which he said he was going to bed.
+# LEGITIMATE STOP 2, and it is now read from a TOOL CALL and nothing else.
 run_case "AB.LEGITIMATE-STOP-a-question-was-put-to-the-CEO" 0 \
     "$(payload "$TR_MERGE_ASK")"
-run_case "AC.LEGITIMATE-STOP-the-operator-is-going-to-bed" 0 \
-    "$(payload "$TR_BED")"
+
+# AC INVERTED, 2026-09-20, same ruling as case f. "I am going to bed" is the
+# commonest way his night ends and the gate used to recognize it by regex.
+# Recognizing it is deciding what he meant, so the turn is refused and the
+# orchestrator declares the stop instead — `stop-declared: ceo-owns-it`, in
+# its own reply, where he can read the claim it is making about him. AE below
+# proves that path still ends the turn.
+run_case "AC.end-of-day-IN-HIS-WORDS-no-longer-suppresses-the-gate" 2 \
+    "$(payload "$TR_BED")" "$BLOCK_HEAD"
 
 # A tool call sent to the background IS work started -- the turn handed
 # something off. It belongs with the dispatch, not with the stand-down.
@@ -916,10 +934,15 @@ verdicts = {r["verdict"] for r in rows}
 # path that produces it. `declared` and `asked-ceo` are the two new ways a turn
 # is let through, and both must be recorded -- an escape nobody can count is an
 # escape nobody can audit.
-for want in ("block", "dispatched", "held", "backlog-empty",
+for want in ("block", "dispatched", "backlog-empty",
              "declared", "asked-ceo", "no-completion"):
     assert want in verdicts, (want, sorted(verdicts))
 assert "background-running" not in verdicts, "the blanket stand-down is back"
+# `held` IS GONE THE SAME WAY, and for a sharper reason: it was the verdict
+# recorded when the gate had read the CEO's own prompt and decided he meant
+# stop. No hook reads his words, so no run can produce it -- asserted from the
+# ledger, which is the one place the behavior would reappear undisguised.
+assert "held" not in verdicts, "the gate is reading his words again"
 assert any(r.get("free") for r in rows), "no derived free-row count recorded"
 declared = [r for r in rows if r["verdict"] == "declared"]
 assert declared and all(r.get("declared", {}).get("why") for r in declared), \
