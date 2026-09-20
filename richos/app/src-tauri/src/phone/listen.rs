@@ -949,10 +949,15 @@ mod tests {
     struct TlsClient {
         config: Arc<rustls::ClientConfig>,
         port: u16,
+        /// The name this client asks for and validates against — **taken from the fixture's own
+        /// [`LocalNames`] rather than written out again here.** It was a literal in three places
+        /// in this file, which is three chances for a test to validate a name the Mac it is
+        /// talking to was never issued.
+        server: String,
     }
 
     impl TlsClient {
-        fn new(ca_der: &[u8], port: u16) -> Self {
+        fn new(ca_der: &[u8], port: u16, server: &str) -> Self {
             let mut roots = rustls::RootCertStore::empty();
             roots
                 .add(rustls::pki_types::CertificateDer::from(ca_der.to_vec()))
@@ -960,7 +965,14 @@ mod tests {
             let config = rustls::ClientConfig::builder()
                 .with_root_certificates(roots)
                 .with_no_client_auth();
-            TlsClient { config: Arc::new(config), port }
+            TlsClient { config: Arc::new(config), port, server: server.to_string() }
+        }
+
+        /// The name this client asks for, as rustls wants it. One place, so a fixture that
+        /// changes its Mac's name changes what is validated too.
+        fn server_name(&self) -> rustls::pki_types::ServerName<'static> {
+            rustls::pki_types::ServerName::try_from(self.server.clone())
+                .expect("the fixture's own name is not a server name")
         }
 
         /// One request, one response, one connection. Returns `(status, headers, body)`.
@@ -976,16 +988,17 @@ mod tests {
             headers: &[(&str, &str)],
             body: &[u8],
         ) -> (u16, Vec<(String, String)>, Vec<u8>) {
-            let server_name =
-                rustls::pki_types::ServerName::try_from("mm1.local").unwrap().to_owned();
             let mut connection =
-                rustls::ClientConnection::new(Arc::clone(&self.config), server_name).unwrap();
+                rustls::ClientConnection::new(Arc::clone(&self.config), self.server_name()).unwrap();
             let mut socket =
                 std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect");
             socket.set_read_timeout(Some(std::time::Duration::from_secs(20))).unwrap();
             let mut tls = rustls::Stream::new(&mut connection, &mut socket);
 
-            let mut request = format!("{method} {path} HTTP/1.1\r\nHost: mm1.local\r\nConnection: close\r\n");
+            let mut request = format!(
+                "{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
+                self.server
+            );
             for (name, value) in headers {
                 request.push_str(&format!("{name}: {value}\r\n"));
             }
@@ -1002,15 +1015,16 @@ mod tests {
 
         /// Open a stream and read whatever arrives within `wait`, then drop the connection.
         fn stream(&self, path: &str, wait: std::time::Duration) -> String {
-            let server_name =
-                rustls::pki_types::ServerName::try_from("mm1.local").unwrap().to_owned();
             let mut connection =
-                rustls::ClientConnection::new(Arc::clone(&self.config), server_name).unwrap();
+                rustls::ClientConnection::new(Arc::clone(&self.config), self.server_name()).unwrap();
             let mut socket =
                 std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect");
             socket.set_read_timeout(Some(wait)).unwrap();
             let mut tls = rustls::Stream::new(&mut connection, &mut socket);
-            let request = format!("GET {path} HTTP/1.1\r\nHost: mm1.local\r\nAccept: text/event-stream\r\n\r\n");
+            let request = format!(
+                "GET {path} HTTP/1.1\r\nHost: {}\r\nAccept: text/event-stream\r\n\r\n",
+                self.server
+            );
             tls.write_all(request.as_bytes()).expect("write request");
             tls.flush().ok();
             let mut raw = Vec::new();
@@ -1024,6 +1038,81 @@ mod tests {
                 }
             }
             String::from_utf8_lossy(&raw).to_string()
+        }
+
+        /// **THE SAME STREAM, WITH A CLOCK ON IT.** Open the stream and record, for each
+        /// marker, the first instant at which the bytes carrying it had arrived at this client.
+        /// Returns `(arrival per marker, the whole transcript)`.
+        ///
+        /// **Why a second method rather than a flag on the one above.** [`Self::stream`] answers
+        /// "did this ever reach the phone", which is a question about bytes; this answers
+        /// "when", which is a question about the path they took — and the two want opposite read
+        /// timeouts. `stream` waits once for as long as it is willing to wait; this polls on a
+        /// short one, so an arrival is dated to within that poll rather than to whenever the
+        /// socket happened to fill.
+        ///
+        /// `opened` is rung the moment `event: hello` is on the wire, so a caller can be certain
+        /// the stream is live BEFORE it does the thing it is timing. Without it the measurement
+        /// would silently include a TLS handshake on some runs and not on others.
+        ///
+        /// **The resolution is `POLL` and is stated rather than implied.** Every assertion made
+        /// on these numbers is two orders of magnitude above it.
+        fn stream_marked(
+            &self,
+            path: &str,
+            markers: &[String],
+            opened: std::sync::mpsc::Sender<()>,
+            wait: std::time::Duration,
+        ) -> (Vec<Option<u64>>, String) {
+            const POLL: std::time::Duration = std::time::Duration::from_millis(20);
+            let mut connection =
+                rustls::ClientConnection::new(Arc::clone(&self.config), self.server_name()).unwrap();
+            let mut socket =
+                std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).expect("connect");
+            // The handshake is a round trip and must not be timed out by the polling interval.
+            // It is shortened the moment the request is on the wire.
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+            let mut tls = rustls::Stream::new(&mut connection, &mut socket);
+            let request = format!(
+                "GET {path} HTTP/1.1\r\nHost: {}\r\nAccept: text/event-stream\r\n\r\n",
+                self.server
+            );
+            tls.write_all(request.as_bytes()).expect("write request");
+            tls.flush().ok();
+            tls.sock.set_read_timeout(Some(POLL)).unwrap();
+
+            let mut text = String::new();
+            let mut at: Vec<Option<u64>> = vec![None; markers.len()];
+            let mut rung = false;
+            let deadline = std::time::Instant::now() + wait;
+            let mut buffer = [0u8; 4096];
+            while std::time::Instant::now() < deadline {
+                match tls.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => text.push_str(&String::from_utf8_lossy(&buffer[..n])),
+                    // A read that timed out is the ORDINARY case on a live stream with nothing
+                    // happening on it. `WouldBlock`/`TimedOut` is not a dead socket, and
+                    // treating it as one is how a measurement quietly becomes "nothing arrived".
+                    Err(ref e)
+                        if e.kind() == std::io::ErrorKind::WouldBlock
+                            || e.kind() == std::io::ErrorKind::TimedOut => {}
+                    Err(_) => break,
+                }
+                let now = super::super::now_millis();
+                if !rung && text.contains("event: hello") {
+                    rung = true;
+                    let _ = opened.send(());
+                }
+                for (i, marker) in markers.iter().enumerate() {
+                    if at[i].is_none() && text.contains(marker.as_str()) {
+                        at[i] = Some(now);
+                    }
+                }
+                if at.iter().all(|a| a.is_some()) {
+                    break;
+                }
+            }
+            (at, text)
         }
     }
 
@@ -1333,7 +1422,7 @@ mod tests {
         .expect("the listener did not start");
 
         // --- the phone -----------------------------------------------------------------------
-        let client = TlsClient::new(&ca.ca_der, https_port);
+        let client = TlsClient::new(&ca.ca_der, https_port, &names.bonjour);
         let phone = crate::phone::device::tests::Phone::new();
 
         // 0. THE APP LOADS — and it is numbered zero because it happens before everything else
@@ -1493,6 +1582,358 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // -----------------------------------------------------------------------------------
+    // THE TWO LEGS, TIMED — Ray's `.20260920.1` defect 1
+    // -----------------------------------------------------------------------------------
+    //
+    // **WHAT WAS MEASURED IN THE VM, and it is the asymmetry rather than either number that
+    // is the finding.** `docs/verification/2026-09-20-nightly-1.2.0-nightly.20260920.1-mac-to-
+    // phone-in-the-vm-audit.md`, step 3: Rich's reply crossed from the Mac's window to the
+    // phone's page in under a second on all five turns (tightest turn: the two screens within
+    // 167 ms). The CEO's OWN typed message took **1.3 s to 6.1 s on four of those same five
+    // turns** — same channel, same thread, same second.
+    //
+    // **WHAT THIS TEST CAN AND CANNOT SETTLE, said before the numbers so they are not read as
+    // more than they are.** It measures the leg from the Mac's LEDGER to the bytes on the
+    // phone's socket, for both directions of one turn, over real TLS through the shipped
+    // listener. That is the whole of what `src/phone/` owns. It does NOT measure the leg from
+    // his keypress to the ledger — that is the window, the Tauri command and the spine's one
+    // mutex (`main.rs`'s `take_the_spine`), and it is measured in the VM with `RICHOS_HOP_TRACE`
+    // and not here. So a GREEN run here does not say "the defect is fixed"; it says the phone
+    // path is not where the asymmetry is, which is a thing worth being able to prove in
+    // twenty seconds rather than in a VM walk.
+    //
+    // **THE ONE STRUCTURAL FACT IT PINS**, which is what makes it a regression test rather than
+    // a benchmark: his message and Rich's reply leave the Mac through the SAME
+    // `LiveObserver` -> `PhoneHub::publish` -> one open SSE socket (`stream.rs`), so no future
+    // version can quietly put his own words on a poll, a batch or a refresh-after-the-reply
+    // without this failing. That is exactly the shape the fix for
+    // `esc-20260919T003541Z-6885f74b` removed, and nothing until now would have noticed it
+    // coming back.
+
+    /// One Mac, one paired phone, one thread — everything the two timing tests below need, and
+    /// nothing either of them measures. Built once so the measurement is the only thing that
+    /// differs between them.
+    struct Timed {
+        dir: std::path::PathBuf,
+        spine: Arc<StdMutex<Spine>>,
+        listener: Listener,
+        /// The signed stream URL, ready to open.
+        url: String,
+        ca_der: Vec<u8>,
+        server: String,
+        port: u16,
+    }
+
+    impl Timed {
+        /// Open the phone's stream on its own thread and watch for `markers`. The handle yields
+        /// `(arrival per marker, transcript)`; `opened` is rung when the stream says `hello`.
+        fn watch(
+            &self,
+            markers: Vec<String>,
+            opened: std::sync::mpsc::Sender<()>,
+        ) -> std::thread::JoinHandle<(Vec<Option<u64>>, String)> {
+            let client = TlsClient::new(&self.ca_der, self.port, &self.server);
+            let url = self.url.clone();
+            std::thread::spawn(move || {
+                client.stream_marked(&url, &markers, opened, std::time::Duration::from_secs(20))
+            })
+        }
+
+        fn finish(mut self) {
+            self.listener.stop();
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn a_mac_with_a_paired_phone(tag: &str, reply: &'static str) -> Timed {
+        let dir = std::env::temp_dir().join(format!(
+            "richos-phone-{tag}-{}-{}",
+            std::process::id(),
+            super::super::now_millis()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let secrets = MemorySecrets::default();
+        // **THE FIXTURE MAC IS NAMED THE WAY A REAL ONE IS NOW** — its tailnet name, the same
+        // origin `TEST_API_BASE` hands the phone, because CEO §61 leaves the product one path
+        // and the older fixtures in this file still carry the name of the one it lost. Nothing
+        // about the measurement depends on which name it is; the leaf covers both this name and
+        // the loopback address, and the client below validates against the certificate either
+        // way.
+        let names = LocalNames {
+            host: "MM1".into(),
+            bonjour: "mm1.tail9a3b2.ts.net".into(),
+            addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        };
+        let ca = PhoneCa::open(&dir, &secrets, names.clone()).unwrap();
+
+        let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
+        spine.set_entity_registry(
+            EntityRegistry::new(vec![
+                Entity::new("femcboost", "FemcBoost", &["/fixture/femcboost"]).unwrap()
+            ])
+            .unwrap(),
+        );
+        let entity = EntityId::parse("femcboost").unwrap();
+        let thread = spine.create_thread("the proposal", &entity).unwrap();
+        spine.switch_thread(&thread).unwrap();
+        spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec![reply])));
+        let control = TurnControl::open(dir.join("intake.jsonl")).unwrap();
+        spine.set_turn_control(control.clone());
+
+        let hub = PhoneHub::new();
+        spine.set_live_observer(Box::new(crate::phone::stream::PhoneLiveEmitter::new(Arc::clone(
+            &hub,
+        ))));
+        let spine = Arc::new(StdMutex::new(spine));
+
+        let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+        let vapid = crate::phone::push::VapidKey::generate().unwrap();
+        let channel = Arc::new(Channel {
+            rejected: crate::phone::routes::StopSwitch::unwired(),
+            devices: Arc::clone(&devices),
+            api_base: Arc::new(ApiBaseDesk::only(TEST_API_BASE)),
+            hub: Arc::clone(&hub),
+            bridge: Arc::new(SpineBridge {
+                spine: Arc::clone(&spine),
+                control,
+                thread: thread.clone(),
+                entity,
+            }) as Arc<dyn Bridge>,
+            assets: crate::phone::assets::PhoneApp::embedded(),
+            vapid_public: vapid.application_server_key(),
+            fingerprint_hex: ca.fingerprint_hex(),
+            pairing_path: std::sync::Mutex::new(crate::phone::device::PairedVia::HOME),
+        });
+
+        devices.open_pairing().unwrap();
+        let code = devices.pairing_window().unwrap().code;
+        let tls = tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap();
+        let https_port = free_port();
+        let mut listener = Listener::start(
+            Arc::clone(&channel),
+            tls,
+            &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
+            https_port,
+        )
+        .expect("the listener did not start");
+
+        // --- the phone pairs ----------------------------------------------------------------
+        let client = TlsClient::new(&ca.ca_der, https_port, &names.bonjour);
+        let phone = crate::phone::device::tests::Phone::new();
+        let pair_body = serde_json::json!({
+            "code": code, "public_key_jwk": phone.jwk(), "device_name": "iPhone",
+        })
+        .to_string();
+        let (status, _headers, body) = client.request(
+            "POST",
+            "/api/pair",
+            &[("Content-Type", "application/json")],
+            pair_body.as_bytes(),
+        );
+        assert_eq!(status, 200, "pairing: {}", String::from_utf8_lossy(&body));
+        let paired: Value = serde_json::from_slice(&body).unwrap();
+        let device_id = paired["device_id"].as_str().unwrap().to_string();
+        let challenge = paired["challenge"].as_str().unwrap().to_string();
+
+        // --- and OPENS ITS STREAM BEFORE ANYTHING HAPPENS -----------------------------------
+        //
+        // The phone is on the thread, watching, the way it is when it sits beside his keyboard.
+        // The measurement does not start until this socket has said `hello`.
+        let stream_path = format!("/api/events?thread_id={thread}");
+        let stream_sig = super::super::b64url(&phone.sign(&signing_string(
+            &challenge,
+            "GET",
+            &stream_path,
+            b"",
+        )));
+        let stream_auth =
+            format!("RichOS-Device {device_id}.{challenge}.{stream_sig}").replace(' ', "%20");
+
+        Timed {
+            dir,
+            spine,
+            listener,
+            url: format!("{stream_path}&auth={stream_auth}"),
+            ca_der: ca.ca_der.clone(),
+            server: names.bonjour.clone(),
+            port: https_port,
+        }
+    }
+
+    /// **THE WORDS THE TWO TESTS USE.** Distinct sentences with no substring of one in the
+    /// other, because every arrival below is decided by `contains`.
+    const HIS_WORDS: &str = "where are we on the proposal?";
+    const THE_REPLY: &str = "It is with legal, and I will chase it today.";
+
+    #[test]
+    fn his_own_message_and_richs_reply_reach_the_phone_within_one_bound() {
+        let mac = a_mac_with_a_paired_phone("legs", THE_REPLY);
+
+        // The phone is on the thread, watching, the way it is when it sits beside his keyboard.
+        // Nothing is measured until this socket has said `hello`.
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let watcher = mac.watch(vec![HIS_WORDS.to_string(), THE_REPLY.to_string()], ready_tx);
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the phone's stream never said hello — nothing below would mean anything");
+
+        // --- THE PRESS ----------------------------------------------------------------------
+        //
+        // BOTH ledger writes happen inside `[pressed, settled]` — his message at the top of
+        // `Spine::accept_prompt` and the reply's completion at the end of the same call — so
+        // each leg is an INTERVAL and not a point, exactly as Ray's own table is. Quoting one
+        // end of it as the measurement would be inventing precision the instrument has not got.
+        let pressed = super::super::now_millis();
+        mac.spine
+            .lock()
+            .unwrap()
+            .submit_prompt(HIS_WORDS, richos_core::ledger::Source::Text)
+            .expect("the turn was refused");
+        let settled = super::super::now_millis();
+
+        let (at, transcript) = watcher.join().expect("the watching phone panicked");
+
+        let his = at[0].expect("HIS OWN MESSAGE NEVER REACHED THE PHONE AT ALL");
+        let rich = at[1].expect("RICH'S REPLY NEVER REACHED THE PHONE AT ALL");
+        let his_hi = his.saturating_sub(pressed);
+        let his_lo = his.saturating_sub(settled);
+        let rich_hi = rich.saturating_sub(pressed);
+        let rich_lo = rich.saturating_sub(settled);
+        let turn_span = settled.saturating_sub(pressed);
+        println!("the turn itself, ledger to ledger : {turn_span} ms");
+        println!("his own message -> the phone      : ({his_lo}, {his_hi}) ms");
+        println!("Rich's reply    -> the phone      : ({rich_lo}, {rich_hi}) ms");
+        println!("the asymmetry between the two legs: {} ms", his_hi.abs_diff(rich_hi));
+
+        // **THE BOUND, AND WHERE THE NUMBER COMES FROM.** One second — chosen as the figure the
+        // VM walk measured for the leg that IS fast ("under a second on all five turns"), so a
+        // leg that fails this is a leg that would have been filed as the defect. It is roughly
+        // two orders of magnitude above what this path costs on loopback, which is what keeps it
+        // from being a load test of whatever else the machine is doing.
+        const BOUND_MS: u64 = 1_000;
+        assert!(
+            his_hi <= BOUND_MS,
+            "his own message took ({his_lo}, {his_hi}) ms to reach the phone — the wire, not the \
+             window. Transcript:\n{transcript}"
+        );
+        assert!(
+            rich_hi <= BOUND_MS,
+            "Rich's reply took ({rich_lo}, {rich_hi}) ms to reach the phone. Transcript:\n{transcript}"
+        );
+
+        // **AND THE TWO LEGS ARE ONE PATH.** This is the assertion that would have failed if his
+        // own message had been left to a poll, a batch or a refresh-after-the-reply: those all
+        // produce a leg that is fine in absolute terms and WRONG beside the other one.
+        const ASYMMETRY_MS: u64 = 500;
+        assert!(
+            his_hi.abs_diff(rich_hi) <= ASYMMETRY_MS,
+            "the two legs are not on one path: his ({his_lo}, {his_hi}) ms, the reply \
+             ({rich_lo}, {rich_hi}) ms. Transcript:\n{transcript}"
+        );
+        assert!(
+            his <= rich,
+            "the phone was told what Rich said before it was told what he said: his at {his}, \
+             the reply at {rich}"
+        );
+
+        // POSITIVE CONTROLS, so a green run cannot be green because nothing was measured: both
+        // rows really are on this stream, with the roles the page merges on.
+        assert!(transcript.contains("\"role\":\"ceo\""), "no CEO row on the wire:\n{transcript}");
+        assert!(transcript.contains("\"role\":\"rich\""), "no Rich row on the wire:\n{transcript}");
+
+        mac.finish();
+    }
+
+    /// **WHERE THE 1.3-6.1 SECONDS GO, DEMONSTRATED RATHER THAN ARGUED.**
+    ///
+    /// The test above shows the two legs are one path and that the path is fast. This one shows
+    /// what that path is BEHIND, and it is the thing the Mac's own window is not behind.
+    ///
+    /// **THE CHAIN, WITH ITS FILE AND LINE AT THE TIME OF WRITING.**
+    ///
+    ///   1. `ui/main.js` paints his bubble from the webview's own model — `addPendingUserMessage`
+    ///      then `scheduleRender()` (`:1814-1821`) — and only THEN calls
+    ///      `Bridge.invoke("send_message")` (`:1824`). So the Mac's screen shows his sentence
+    ///      without waiting for anything at all, which is why Ray measured it at 43-504 ms.
+    ///   2. `send_message` (`src-tauri/src/main.rs`) reaches `take_the_spine(&state.spine)`
+    ///      (`:1187`) and **waits there for the one process-wide spine mutex**.
+    ///   3. Only past that lock does `Spine::accept_prompt` write his words to the ledger and
+    ///      emit `rich://ceo-message` one statement later (`crates/richos-core/src/spine.rs`
+    ///      `:2336`). The write itself cannot be moved out from under the lock:
+    ///      `Ledger::record_prompt_received` is `&mut self` over in-memory projections
+    ///      (`ledger.rs:1624-1625`).
+    ///
+    /// **So every millisecond anything else holds that mutex is charged to the phone's copy of
+    /// his sentence and to nothing else on his screen.** The longest holder by far is a turn:
+    /// `send_message`'s own documentation says it "holds that mutex for the entire turn"
+    /// (`main.rs:557`), and it keeps holding it past the moment the window is told the turn is
+    /// over — `TurnStatus::Completed` goes out at `spine.rs:2898`, and `after_turn_boundary`
+    /// (`spine.rs:3450`: proactive flush, `drain_intake`, stop claim, context pressure),
+    /// `drain_queue`, and then `spine.messages(&thread)` (`main.rs:1263`, a full projection of
+    /// the thread) all run before the guard is dropped. The composer is live through all of it,
+    /// because `anyLiveTurn()` went false when the window heard `Completed`.
+    ///
+    /// **This test is that window, stood up deliberately and measured.** A holder takes the
+    /// spine for [`HELD_MS`] and lets go; his sentence is submitted while it is held. The
+    /// assertion is not "this is slow" — it is that HIS leg inherits the wait and the shape
+    /// matches what Ray saw on a real Mac.
+    #[test]
+    fn a_busy_spine_delays_the_phones_copy_of_his_words_and_nothing_else_he_can_see() {
+        const HELD_MS: u64 = 1_500;
+        let mac = a_mac_with_a_paired_phone("held", THE_REPLY);
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let watcher = mac.watch(vec![HIS_WORDS.to_string()], ready_tx);
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the phone's stream never said hello");
+
+        // SOMETHING ELSE HAS THE SPINE — the tail of the turn before his, a window command, a
+        // prime. Which one it is does not matter to the arithmetic and is exactly what the log
+        // line at `main.rs`'s `spine_wait_notice` names on a real Mac.
+        let holding = Arc::clone(&mac.spine);
+        let (let_go_tx, let_go_rx) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let guard = holding.lock().unwrap();
+            let _ = let_go_tx.send(());
+            std::thread::sleep(std::time::Duration::from_millis(HELD_MS));
+            drop(guard);
+        });
+        let_go_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the holder never took the spine");
+
+        // THE PRESS. The window has already painted his bubble by this point in the real app;
+        // this line is everything that happens after `Bridge.invoke`.
+        let pressed = super::super::now_millis();
+        mac.spine
+            .lock()
+            .unwrap()
+            .submit_prompt(HIS_WORDS, richos_core::ledger::Source::Text)
+            .expect("the turn was refused");
+        let _ = holder.join();
+
+        let (at, transcript) = watcher.join().expect("the watching phone panicked");
+        let his = at[0].expect("his message never reached the phone at all");
+        let waited = his.saturating_sub(pressed);
+        println!("the spine was held for          : {HELD_MS} ms");
+        println!("his message -> the phone, behind it: {waited} ms");
+
+        // **THE WAIT IS INHERITED, MEASURABLY.** A slack of 300 ms below the holder's own sleep,
+        // because `now_millis` is a wall clock, the holder's sleep is a floor rather than an
+        // exact span, and the marker is dated to within the watcher's 20 ms poll. It is nowhere
+        // near tight enough to flake and nowhere near loose enough to pass if the wait were not
+        // inherited: without it this leg is single-digit milliseconds, which the test above
+        // measures on the same fixture.
+        assert!(
+            waited + 300 >= HELD_MS,
+            "his message reached the phone in {waited} ms while the spine was held for \
+             {HELD_MS} ms — if that is real, the lock is no longer on this path and the comment \
+             above this test is out of date. Transcript:\n{transcript}"
+        );
+        mac.finish();
+    }
 
     // -----------------------------------------------------------------------------------
     // THE SAME THING AGAIN, WITH AN OUTSIDE CLIENT
