@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -234,4 +235,7 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    def interrupted(_signum, _frame):
+        raise KeyboardInterrupt("lint interrupted; cleaning up owned commands")
+    signal.signal(signal.SIGTERM, interrupted)
     sys.exit(main())
