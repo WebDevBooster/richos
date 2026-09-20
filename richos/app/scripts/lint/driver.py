@@ -127,6 +127,8 @@ def tauri(root, args, rows, tools, report):
     deadline = started + 180
     fingerprint = rust.tauri_inputs(root, tools, deadline)
     green_path = args.state_dir / "lint-tauri-green.json"
+    if green_path.resolve().is_relative_to(root.resolve()):
+        raise Refusal("last-green state must be outside the source checkout")
     # A baseline edit invalidates the fingerprint before the skip decision.
     if args.nightly and state.green(green_path, fingerprint):
         print("Tauri Clippy skipped: inputs unchanged since its last green check", flush=True)
@@ -142,6 +144,8 @@ def tauri(root, args, rows, tools, report):
     if not (args.bootstrap or args.lower):
         if rust.tauri_inputs(root, tools, deadline) != fingerprint:
             raise Refusal("Tauri inputs changed during Clippy; last-green unchanged")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Tauri Clippy deadline expired")
         revision = checked(["git", "rev-parse", "HEAD"], root).strip()
         state.save(green_path, fingerprint, revision, root)
     report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)

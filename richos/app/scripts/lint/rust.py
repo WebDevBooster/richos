@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 from common import APP, Refusal, checked, run, tracked
 
@@ -48,9 +49,8 @@ def collect(root, commands, deadline=None):
 def tauri_inputs(root, versions, deadline):
     """Discover local crate roots through Cargo; hash bytes, including dirty files.
 
-    Also include the inputs explicitly declared by local build.rs files and the
-    lint implementation. Dynamic build-script declarations are conservatively
-    covered by the entire app and web source inventories.
+    Also include inputs explicitly declared by local build.rs files and the lint
+    implementation. Dynamic declarations conservatively cover app and web trees.
     """
     pending = [root / APP / "src-tauri/Cargo.toml"]
     seen, directories = set(), set()
@@ -73,10 +73,28 @@ def tauri_inputs(root, versions, deadline):
                     pending.append(Path(dep["path"]) / "Cargo.toml")
     files = set(tracked(root))
     files.update(p for p in checked(["git", "ls-files", "--others", "--exclude-standard", "-z"], root).split("\0") if p)
-    # Conservative superset also covers embedded frontend and phone assets. No
-    # second hand-maintained list of crate names can miss a new path dependency.
-    selected = {p for p in files if p.startswith((APP, "richos/web/", "richos/engine/scripts/", "richos/engine/orchestration.config"))
-                or any((root / p).is_relative_to(d) for d in directories)
+    inputs = set(directories)
+    for directory in directories:
+        build = directory / "build.rs"
+        if build.is_file():
+            for declared in re.findall(r'cargo::?rerun-if-changed=([^"\n]+)', build.read_text()):
+                if "{" in declared:
+                    inputs.update((root / APP, root / "richos/web"))
+                else:
+                    resolved = (directory / declared).resolve()
+                    resolved.relative_to(root)
+                    inputs.add(resolved)
+        # Workspace manifests and locks can live above an individual package.
+        for parent in (directory, *directory.parents):
+            if not parent.is_relative_to(root):
+                break
+            inputs.update((parent / "Cargo.toml", parent / "Cargo.lock"))
+    # The hook configuration is an input to the same lint policy. Library changes
+    # invalidate its result without maintaining a second transitive source list.
+    policy = (APP + "scripts/lint", APP + ".shellcheckrc", "richos/engine/scripts/",
+              "richos/engine/orchestration.config")
+    selected = {p for p in files if p.startswith(policy)
+                or any((root / p).is_relative_to(d) for d in inputs)
                 or Path(p).name in {"rust-toolchain", "rust-toolchain.toml", "clippy.toml", ".clippy.toml"}
                 or ".cargo" in Path(p).parts}
     if not selected:
