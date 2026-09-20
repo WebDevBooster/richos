@@ -113,8 +113,9 @@
       "considered": 510
     },
     "updates-waiting": {
+      "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four \u2014 the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed.",
       "checked": 94,
-      "considered": 564
+      "considered": 566
     },
     "company-picker": {
       "checked": 44,
@@ -125,12 +126,14 @@
       "considered": 580
     },
     "memory-setup": {
+      "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four \u2014 the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed.",
       "checked": 14,
-      "considered": 564
+      "considered": 566
     },
     "memory-no-compiler": {
+      "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four \u2014 the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed.",
       "checked": 12,
-      "considered": 564
+      "considered": 566
     },
     "setup-sheet": {
       "checked": 22,
@@ -221,6 +224,11 @@
       "//": "CEO §61.1's identity screen, which since §61 is the FIRST screen of the sheet rather than a screen behind a chosen route — its driver no longer clicks anything to reach it, and that is the arrival proof that matters here. 34 measured of 572 across both themes. `checked` 34 is lower than the bare shell's 92 because the sheet covers the shell it opened over, so the floor that bites is `considered`: 572 against the shell's 506 is a margin of 66, far outside the three-node tolerance — it was 2 when this surface was declared unable to bite and 4 after the first shrink. `checked` fell by 2 under §61: the `Pick a different way` beside `I understand`, in both themes. THE NOTE THIS ROW USED TO CARRY IS RETIRED WITH ITS SUBJECT: it recorded that this was the only surface where a control's BORDER separated two decisions (`.phone-route > button` at `--line-control`, 3.79:1 dark and 4.06:1 light). §61 removed the screen with two decisions on it. The token still carries that job on `.desk-btn` itself, measured at the same ratios from the rendered pixels — Urban's G6 — because on the paired card that border is the only thing that makes a button a button.",
       "checked": 34,
       "considered": 572
+    },
+    "phone-rejected": {
+      "//": "The screen the phone's `They do not match` leaves behind \u2014 Ray's nightly `.8` walk in the test VM, defect 1. Measured in one run on 2026-09-20: 104 of 566 across both themes, against a bare shell of 92 of 562 in the same run. `considered` is the absolute count and it is the number that bites here: 566 against the shell's 562 is a margin of 4, outside the three-node tolerance, so a driver that never reached this state fails check 9 \u2014 which is why no `cannotBite` declaration is needed and why check 9z passes with this row in. `checked` is the surface's OWN contribution, 12, on the same footing as the three rows below it: the shell's 92 measurable nodes are counted on every surface, and holding this figure absolute would turn any future edit to the sheet's shared markup into a red run on this one surface alone. The screen carries one heading, one sentence and one control; `tests/phone.js` check 9f measures that sentence itself in both themes (5.78:1 dark, 6.38:1 light at 16px) rather than leaving it to the walk's node count.",
+      "checked": 12,
+      "considered": 566
     },
     "phone-tailscale-ready": {
       "//": "The ready screen with an account known and a phone that is registered and switched off — the state this Mac was actually in on 2026-09-19. 24 measured of 570 across both themes: the tailnet name in monospace, the sentence naming the provider and login name, the exposure note, the phone-watch line and the one control. 570 against the shell's 506 is a margin of 64, far outside the three-node tolerance, so the floor bites without a `cannotBite` declaration. `checked` fell by 2 under CEO §61 — the `Pick a different way` beside `Set my phone up`, in both themes — which leaves `Set my phone up` and the account line it sits under.",

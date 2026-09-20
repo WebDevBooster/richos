@@ -347,6 +347,32 @@
       </div>
     </div>
 
+    <!-- SCREEN 8 — THE ALARM BUTTON, ANSWERED. Ray's nightly .8 walk in the test VM, defect 1
+         (HIGH): pressing "They do not match" on the phone dropped the credential, and the sheet
+         in front of the person did not change at all. The Mac went on showing the pairing card,
+         with the six words under it, while it had already forgotten the phone — and, until the
+         commit this screen arrives in, while it was still answering on 8443. *"He has no way to
+         know the Mac heard him."*
+
+         THE SIX WORDS EXIST FOR EXACTLY ONE SCENARIO: something other than his Mac on the other
+         end. A Mac that says nothing when the alarm is pressed teaches him the check is
+         ceremonial, which is worse than not asking at all.
+
+         IT OUTRANKS EVERY OTHER SCREEN while it is true — see render(). What is true at that
+         moment is not "This Mac is ready", even though the tailnet is; the ready screen would
+         be the sheet forgetting the thing that just happened.
+
+         AND IT HAS THE ONE CONTROL THAT LEAVES IT, which is also the only thing left to do:
+         start again, from a Mac he now trusts. Close is in the footer as it is on every screen.
+         The Mac cannot clear this by itself — nothing else changes it, so nothing else may. -->
+    <div id="phone-rejected" hidden>
+      <h3 class="phone-step-title">I stopped</h3>
+      <p class="overlay-note" id="phone-rejected-note" role="status"></p>
+      <div class="desk-card-actions">
+        <button id="phone-rejected-again" class="desk-btn desk-btn--confirm" type="button">Set my phone up again</button>
+      </div>
+    </div>
+
     <!-- WHAT THE MAC IS DOING, OR WHY IT COULD NOT — OUTSIDE EVERY STATE BLOCK, WHICH IS A
          MOVE THIS CHANGE FORCED.
 
@@ -562,6 +588,23 @@
     "answer on the phone.";
   const PAIRED_CONFIRMED = "It is paired. Open Rich on it and keep talking.";
 
+  /// **WHAT THE MAC SAYS WHEN THE PERSON PRESSES THE ALARM BUTTON** — Ray's nightly `.8` walk,
+  /// defect 1.
+  ///
+  /// One sentence, and it is a report rather than an instruction: it names what was said, and
+  /// then the three things this Mac did about it, in the order it did them. Nothing is softened
+  /// and nothing is hedged — *"in case he was mistaken"* is the one outcome the product has
+  /// already ruled out, on both ends, and a screen that hinted otherwise would be arguing with
+  /// the phone.
+  ///
+  /// **It claims nothing the Mac has not finished doing.** `PhoneStatus.rejected` is set by
+  /// `PhoneRuntime::stop_because_the_phone_rejected_the_words`, after the device record is
+  /// already gone, and the port is closed within milliseconds of it (measured at 1 ms in
+  /// `phone::listen::tests::they_do_not_match_over_the_wire_stops_the_listener`).
+  const REJECTED_NOTE =
+    "Your phone said the six words did not match, so I stopped answering, forgot the phone, " +
+    "and deleted the certificate this Mac was serving.";
+
   /// Which of the two the record selects. `via` is the token `device.rs` writes; anything that
   /// is not this build's own path — including an empty string from a record written before the
   /// field existed — gets the migration sentence rather than being folded into the answer that
@@ -762,6 +805,37 @@
     // apart on a screen that now has one.
     field("phone-lead").textContent = LEAD;
 
+    // **THE ALARM BUTTON, ANSWERED, AND IT OUTRANKS EVERYTHING BELOW** — Ray's nightly `.8`,
+    // defect 1. It is taken before the six screens rather than folded into them because it is
+    // not one of their states: `rejected` is true of a Mac that is not listening, has nothing
+    // paired and has no code — which is character for character the input that draws
+    // `This Mac is ready`, the screen that said nothing had happened.
+    //
+    // **NOTHING POLLS HERE AND THE COUNTDOWN STOPS.** Every other screen in this sheet is
+    // waiting for something to happen elsewhere; this one is waiting for him to read it. The
+    // only thing that leaves it is the button on it, which is `phone_begin_pairing` — the same
+    // call that clears the flag on the Mac.
+    if (status.rejected) {
+      field("phone-rejected-note").textContent = REJECTED_NOTE;
+      field("phone-rejected").hidden = false;
+      for (const id of [
+        "phone-identity",
+        "phone-ts-wait",
+        "phone-ts-ready",
+        "phone-paired",
+        "phone-pairing",
+        "phone-refresh",
+        "phone-pairing-back",
+      ]) {
+        field(id).hidden = true;
+      }
+      stopTicking();
+      setPolling(false);
+      waitingForPhoneSince = null;
+      return;
+    }
+    field("phone-rejected").hidden = true;
+
     // **THE SIX SCREENS, AND EVERY STATUS REACHES EXACTLY ONE OF THEM.**
     //
     // Urban's §3 table, with row 1 — the route chooser — struck out by CEO §61 and its two
@@ -805,7 +879,17 @@
     // a phone joining the tailnet is another thing that happens elsewhere and has to move the
     // screen on its own. Screen 0 does not: nothing detection can find changes what it says.
     // This is the whole reason there is no Next button anywhere in the flow.
-    setPolling(waiting || ready || (pairing && !status.paired));
+    //
+    // **AND SO DOES THE PAIRED CARD WHILE IT IS STILL ASKING ABOUT THE SIX WORDS**, which it did
+    // NOT do until Ray's nightly `.8` defect 1 — and that omission is why his walk saw nothing
+    // change for two minutes. The answer to the six words arrives from the phone, over the
+    // network, exactly like a phone joining the tailnet: it is a third screen waiting for
+    // something that happens elsewhere. Without this the Mac could stop serving, forget the
+    // phone and set `rejected`, and the card would sit there reading `It has reached this Mac`
+    // until he closed it by hand. It moves the confirming case too — `It is paired` now arrives
+    // by itself rather than on the next open.
+    const askingAboutTheWords = status.paired && !status.fingerprintConfirmed;
+    setPolling(waiting || ready || (pairing && !status.paired) || askingAboutTheWords);
 
     // **THE WATCH STARTS WHEN THE USER IS FIRST TOLD TO GO TO THEIR PHONE**, which is Screen 4 as
     // well as Screen 5 — see the note beside `#phone-ts-peer-ready` for the frame math that makes
@@ -1168,6 +1252,9 @@
     field("phone-message").textContent = "Getting this Mac ready…";
     field("phone-ts-start").disabled = true;
     field("phone-refresh").disabled = true;
+    // The rejection screen's own control calls this too, so it is held with the other two:
+    // two presses would ask for two windows.
+    field("phone-rejected-again").disabled = true;
     try {
       render(await bridge.invoke("phone_begin_pairing"));
       field("phone-message").textContent = "";
@@ -1178,6 +1265,7 @@
       busy = false;
       field("phone-ts-start").disabled = false;
       field("phone-refresh").disabled = false;
+      field("phone-rejected-again").disabled = false;
     }
   }
 
@@ -1188,6 +1276,12 @@
   // TWO DOORS INTO THE PAIRING SCREEN, NOT THREE. `#phone-start`, on the screen the other route
   // landed on, went with that route.
   field("phone-ts-start").addEventListener("click", () => begin(false));
+  // **THE ONE WAY OFF THE SCREEN THAT SAYS THE MAC STOPPED.** It is `begin` and not a
+  // dismiss: the flag lives on the Mac (`PhoneRuntime::rejected`) and is cleared by
+  // `phone_begin_pairing` and by nothing else, so a control that only redrew this sheet would
+  // put the screen straight back on the next open. `false`, so it lands at the top of the
+  // pairing screen rather than scrolled to the code — he is starting over, not refreshing.
+  field("phone-rejected-again").addEventListener("click", () => begin(false));
   field("phone-refresh").addEventListener("click", () => begin(true));
   field("phone-close").addEventListener("click", close);
 
