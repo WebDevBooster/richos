@@ -1,0 +1,75 @@
+[richos] activation: regular — RICHOS_ACTIVATION=regular asked for the front. Without it this boot would have been judged on its own facts.
+[richos] window: restored 1024x700 pt at (438,92), min 1024x700 — where it was left, still inside Monitor #0 work area 1680x940 pt at (0,25), scale 1
+[richos] launch: fresh (start 29, 1 window(s))
+[richos] company registry: 1 company from /Users/admin/testvm/ray10/home/Library/Application Support/com.richos.app/entities.json
+[richos] company registry: 1 compan(ies), /Users/admin/testvm/ray10/home/Library/Application Support/com.richos.app/entities.json (file)
+[richos] central folder: /Users/admin/testvm/ray10/home/myrichos (NOT THERE — no company has anything on file)
+[richos] company: qa-test-co (via the saved choice)
+[richos] onboarding qa-test-co: nothing on file and no declination — Rich will offer the interview
+[richos] loro Tier C: no corpus configured — re-primes carry no company memory
+[richos] loro Tier C: tried /Users/admin/testvm/ray10/home/Library/Application Support/RichOS/corpus — not present
+[richos] loro Tier C: tried /Users/admin/testvm/ray10/home/Library/Application Support/RichOS/loro-root — not present
+[richos] loro Tier C: tried /Users/admin/testvm/ray10/home/RichOS/corpus — not present
+[richos] loro Tier C: RichOS will offer to set one up in the window, and will not pick a location on its own.
+[richos] this app: built from 9426124195d39b733b9943decec7422a60a885ff
+[richos] engine directory: /Users/admin/testvm/ray10/engine (via RICHOS_ENGINE_DIR, engine 1.2.0 with no record of what installed it, and this build pins 72db698068cc — taken as named)
+[richos] compute connection: starts with the first cancellable request over /Users/admin/.local/bin/claude
+[richos] recovery: 0 assignment(s) unknown until re-witnessed, 0 left as recorded
+[richos] first-run setup: nothing missing.
+[richos] loro correction desk: CLOSED — no corpus resolved (candidates listed above). Confirming a correction will refuse and say so rather than appearing to write.
+[richos] no RICHOS_SERVICE_BIN — spoken corrections will be recorded and asked, and confirming one will report that there is no vocabulary to write to
+[richos] boot complete — every line above is what this launch resolved
+[richos] voice: not ready on this machine (toolchain-missing) — My ears aren't installed on this machine yet — whoever set RichOS up adds those. I can still read what you type.
+[richos] this connection NAMES the turns it is sent (`command_lifecycle` for our own `command_uuid`), so a prompt is correlated with its own turn rather than with whichever `result` arrives next.
+[richos] this connection NAMES the turns it is sent (`command_lifecycle` for our own `command_uuid`), so a prompt is correlated with its own turn rather than with whichever `result` arrives next.
+[richos] the front desk is ready before he types: 5646 ms, including the lease's own start — that is what his first message used to wait through (CEO §55)
+[richos] a window command waited 5625 ms for the spine at src/main.rs:4309 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a front desk is primed and waiting for the next new thread in qa-test-co:                  16215 ms — that is what his first message into it used to wait through (CEO §55)
+[richos] a window command waited 9 ms for the spine at src/main.rs:898 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] the phone channel could not start: security: still running after 120s, killed
+[richos] the phone channel is listening on 100.75.246.80:8443, [fd7a:115c:a1e0::9631:f651]:8443 — pairing at https://richos-test-ray10.tail770f6e.ts.net:8443
+[richos] this connection NAMES the turns it is sent (`command_lifecycle` for our own `command_uuid`), so a prompt is correlated with its own turn rather than with whichever `result` arrives next.
+[richos] the front desk is ready before he types: 12961 ms, including the lease's own start — that is what his first message used to wait through (CEO §55)
+[richos] a window command waited 12938 ms for the spine at src/main.rs:4309 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] his Send is durable (intake 9) and is on his phone before the spine has been asked for anything
+[richos] a window command waited 10385 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 10324 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 37 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] his Send is durable (intake 10) and is on his phone before the spine has been asked for anything
+[richos] a window command waited 8346 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 8329 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 44 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] his Send is durable (intake 11) and is on his phone before the spine has been asked for anything
+[richos] a window command waited 14340 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 14336 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 65 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] his Send is durable (intake 12) and is on his phone before the spine has been asked for anything
+[richos] a window command waited 11420 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 11410 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 5067 ms for the spine at src/main.rs:788 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] this connection NAMES the turns it is sent (`command_lifecycle` for our own `command_uuid`), so a prompt is correlated with its own turn rather than with whichever `result` arrives next.
+[richos] the front desk is ready before he types: 9878 ms, including the lease's own start — that is what his first message used to wait through (CEO §55)
+[richos] a window command waited 9849 ms for the spine at src/main.rs:4309 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] the front desk is ready before he types: 0 ms — that is what his first message used to wait through (CEO §55)
+[richos] his Send is durable (intake 13) and is on his phone before the spine has been asked for anything
+[richos] a window command waited 12694 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 12718 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 103 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] the phone channel refused /api/messages: StaleChallenge
+[richos] a window command waited 11529 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 11947 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 1772 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 1771 ms for the spine at src/main.rs:817 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] a window command waited 617 ms for the spine at src/main.rs:4158 — that wait is HIS, it is spent in front of the turn's clock, and it is charged to §55. While it runs the screen reads "Sending your message / Waiting for Rich to accept it" or "Opening conversation", depending which hop this is.
+[richos] the phone channel is listening on 100.75.246.80:8443, [fd7a:115c:a1e0::9631:f651]:8443 — pairing at https://richos-test-ray10.tail770f6e.ts.net:8443
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
+[richos] the phone channel refused /api/events: NoDevice
