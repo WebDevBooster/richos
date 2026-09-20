@@ -433,3 +433,90 @@ host_ts_cli() {
   command -v tailscale 2>/dev/null && return 0
   return 1
 }
+
+# ============================================================================
+# THE CLAUDE BINARY — the guest runs the one the CEO runs, at EVERY run
+# ============================================================================
+# The CEO's question, 2026-09-20: "What happens with the Claude binary in the
+# VM? Will it always stay on the same version regardless of any updates?"
+#
+# Until this section existed the answer was yes, and that was the defect: the
+# binary was copied into the base image ONCE, at setup, and `run.sh` never
+# looked at it again. The host's Claude Code auto-updates itself (four versions
+# landed in ~/.local/share/claude/versions in the two days before this was
+# written), so the guest tested the app against a `claude` the CEO no longer
+# runs, and nothing in the output said so.
+#
+# `~/.local/bin/claude` IS A SYMLINK into ~/.local/share/claude/versions/<v>,
+# and its target changes at every host update. Resolve it before hashing or
+# copying: hashing the link reads 48 bytes of path text, which would compare
+# equal forever and be wrong forever.
+TESTVM_HOST_CLAUDE="${TESTVM_HOST_CLAUDE:-$HOME/.local/bin/claude}"
+TESTVM_GUEST_CLAUDE="${TESTVM_GUEST_CLAUDE:-/Users/$TESTVM_GUEST_USER/.local/bin/claude}"
+
+# The ONE pin that works. Claude Code's own check, read out of the 2.1.277
+# binary, in its order:
+#
+#   if (DISABLE_UPDATES) ...; if (DISABLE_AUTOUPDATER) ...;
+#   if (CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) ...;
+#   if (config.autoUpdates === false &&
+#       (config.installMethod !== "native" ||
+#        config.autoUpdatesProtectedForNative !== true)) ...
+#
+# The last clause is why this is an env var and not a settings file. The host's
+# `claude` is a NATIVE install, so the copy in the guest is one too, and the
+# native updater writes `installMethod:"native"` with
+# `autoUpdatesProtectedForNative:true` — from that moment `autoUpdates:false`
+# in the config is IGNORED. A config pin would look set and do nothing, which
+# is the worst shape a pin can have. The env var is checked first and nothing
+# inside the process overrides it.
+TESTVM_CLAUDE_PIN_VAR="DISABLE_AUTOUPDATER"
+TESTVM_CLAUDE_PIN_VALUE="1"
+
+# The host binary, symlinks resolved. Refuses rather than guessing: a harness
+# that cannot say which binary it is copying has nothing to compare against.
+host_claude_path() {
+  [ -e "$TESTVM_HOST_CLAUDE" ] || return 1
+  python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$TESTVM_HOST_CLAUDE" 2>/dev/null
+}
+
+sha256_file() {
+  [ -f "$1" ] || return 1
+  shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# `claude --version` prints `2.1.277 (Claude Code)`; the version is field one.
+# The deadline comes from perl's `alarm` (perl ships with macOS; `timeout(1)`
+# does not, as the tailnet code already found). A 217 MB single-file binary on
+# a cold guest disk is the one call in here that can sit there, and a harness
+# that hangs is worse than one that refuses.
+claude_version_of() {  # <path-on-this-machine>
+  local out
+  out="$(env "$TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE" \
+         perl -e 'alarm shift; exec @ARGV' "${TESTVM_CLAUDE_TIMEOUT:-90}" \
+         "$1" --version 2>/dev/null)" || return 1
+  out="$(printf '%s\n' "$out" | awk 'NF{print $1; exit}')"
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
+}
+
+# The line every run prints. Written in one place so the summary and the
+# refusal cannot disagree about what was measured.
+claude_version_line() {  # <host-version> <guest-version>
+  printf 'claude: host %s guest %s\n' "${1:-unknown}" "${2:-unknown}"
+}
+
+# The verdict, as a word, from what was measured — pure, so the decision is
+# tested without a virtual machine.
+#   in-sync   identical bytes, both versions read, and they agree
+#   copy      the guest has something else, or nothing: copy the host's in
+#   refuse    no host binary, or still not identical, or a version unreadable
+claude_sync_verdict() {  # <host-sha> <guest-sha> <host-version> <guest-version>
+  local hsha="${1:-}" gsha="${2:-}" hver="${3:-}" gver="${4:-}"
+  [ -n "$hsha" ] || { printf 'refuse\n'; return 1; }
+  if [ "$hsha" != "$gsha" ]; then printf 'copy\n'; return 0; fi
+  if [ -z "$hver" ] || [ -z "$gver" ] || [ "$hver" != "$gver" ]; then
+    printf 'refuse\n'; return 1
+  fi
+  printf 'in-sync\n'; return 0
+}

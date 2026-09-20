@@ -40,6 +40,14 @@ done
 [ -d "$FIXTURE_HOME" ] || die "no such fixture home: $FIXTURE_HOME"
 [ "$VM" != "$TESTVM_BASE_VM" ] || die "refusing to run in the base VM — it is the template every clone comes from"
 
+# --- 0. what this host can give the guest, asked BEFORE anything boots --------
+# A property of THIS Mac, so it is answered before a 25 GB clone exists to clean
+# up. The guest gets the host's claude binary at every run (claude-sync.sh); a
+# host that has none cannot hand one over, and finding that out after a boot
+# costs a minute and leaves a VM behind.
+host_claude_path >/dev/null 2>&1 \
+  || die "no claude binary on this host at $TESTVM_HOST_CLAUDE — the app shells out to it; install Claude Code first"
+
 START=$(date +%s)
 preflight_tart
 vm_exists "$TESTVM_BASE_VM" || die "base VM missing — run testvm/setup.sh first"
@@ -94,6 +102,47 @@ for i in $(seq 1 30); do
   [ "$i" -eq 30 ] && die "ssh into $VM never came up"
   sleep 2
 done
+
+# §54: a refusal takes this run's own garbage with it. A guest that was ALREADY
+# there when this script started belongs to whoever started it and is left alone.
+clean_up_this_runs_clone() {
+  if [ "$CREATED_CLONE" -eq 1 ] && [ "$KEEP" -eq 0 ]; then
+    log "cleaning up the clone this run created..."
+    "$HERE/stop.sh" "$VM" >&2 || log "WARNING: stop.sh did not clean up $VM — remove it by hand: tart delete $VM"
+  else
+    log "$VM was already running before this call, so it is left alone."
+  fi
+}
+
+# --- 2a. the claude binary ----------------------------------------------------
+# FIRST, because it is the cheapest refusal in the file when it fires and the
+# most expensive defect when it does not. The binary was copied into the base
+# image once, at setup, and never looked at again — while the host's Claude Code
+# auto-updated underneath it. The CEO asked what happens to it (2026-09-20);
+# what happened was silent, growing drift between the `claude` the app shelled
+# out to in here and the one he actually runs.
+CLAUDE_LINE="$("$HERE/claude-sync.sh" "$VM")" && CLAUDE_RC=0 || CLAUDE_RC=$?
+printf '%s\n' "$CLAUDE_LINE" >&2
+if [ "$CLAUDE_RC" -ne 0 ]; then
+  cat >&2 <<EOF
+
+========================================================================
+[testvm] REFUSED: $VM IS NOT RUNNING THE CLAUDE BINARY THIS MAC RUNS
+========================================================================
+  $CLAUDE_LINE
+
+  The app shells out to \`claude\`. A guest holding a different build is not
+  the Mac the CEO uses, and every model turn measured in it would be measuring
+  a version nobody ships. The copy was attempted and did not take; the cause is
+  above this banner.
+
+  Ask again, without booting anything:
+    $HERE/claude-sync.sh --check $VM
+========================================================================
+EOF
+  clean_up_this_runs_clone
+  exit 1
+fi
 
 # --- 2b. the tailnet ----------------------------------------------------------
 # BEFORE the app launches, not after: the app asks Tailscale where it is on
@@ -248,13 +297,21 @@ LOGFILE="$PAYLOAD/app.log"
 # routes the launch through launchd into the auto-logged-in user's GUI session,
 # which is where a window can actually exist. --env carries the environment the
 # host QA recipe uses, so the app under test is configured identically.
+#
+# DISABLE_AUTOUPDATER=1 is on the launch, and it is not decoration: `claude`
+# updates ITSELF, and a `claude` that updated itself mid-walk would silently
+# stop being the version step 2a just measured and printed. The env var is the
+# only pin that holds for a native install — the `autoUpdates:false` config key
+# is ignored once `autoUpdatesProtectedForNative` is set, which the native
+# updater sets itself. Reasoning and the quoted check: lib.sh, TESTVM_CLAUDE_PIN.
 log "launching the app in the guest's GUI session..."
 guest_ssh "$VM" "rm -f '$LOGFILE'; \
   open -n -a '$APP' \
     --env HOME='$GUEST_HOME' \
     --env RICHOS_ACTIVATION=regular \
     --env CLAUDE_CONFIG_DIR='$GUEST_HOME/.claude' \
-    --env RICHOS_CLAUDE_BIN=/Users/$TESTVM_GUEST_USER/.local/bin/claude \
+    --env RICHOS_CLAUDE_BIN='$TESTVM_GUEST_CLAUDE' \
+    --env $TESTVM_CLAUDE_PIN_VAR=$TESTVM_CLAUDE_PIN_VALUE \
     ${ENGINE:+--env RICHOS_ENGINE_DIR='$PAYLOAD/engine'} \
     --stdout '$LOGFILE' --stderr '$LOGFILE'"
 
@@ -287,6 +344,10 @@ fi
 log "ready in ${ELAPSED}s"
 echo "vm=$VM ip=$IP pid=$PID ssh=$TESTVM_GUEST_USER@$IP windows=${WINDOWS:-0} elapsed=${ELAPSED}s"
 echo "tailnet=$TAILNET_NAME"
+# Printed whether they matched or not, and printed at EVERY run: a number
+# nobody prints is a number nobody checks, and these two silently drifted apart
+# for as long as the harness existed.
+echo "$CLAUDE_LINE"
 if [ "$TAILNET_NAME" != "not-joined" ]; then
   echo "phone: https://$TAILNET_NAME:8443/  (from this Mac: curl -sk https://$TAILNET_NAME:8443/)"
 fi

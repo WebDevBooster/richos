@@ -148,16 +148,26 @@ PROV_RC=0
 ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$IP" \
   "TART_DISPLAY_SIZE=$TESTVM_DISPLAY bash /tmp/provision-guest.sh" || PROV_RC=$?
 
-# Copy the host's claude binary in — the BINARY only, never a credential.
-# The app's spine shells out to `claude`; without it on PATH the app reports
-# "no claude install could be found on this Mac". Signing in is a human action
-# (see docs/testvm.md) because `claude`'s session lives in the login keychain
-# and no agent may copy or borrow the CEO's credentials.
-if [ -x "$HOME/.local/bin/claude" ]; then
-  log "copying the claude binary into the guest (no credentials)..."
-  ssh "${TESTVM_SSH_OPTS[@]}" -i "$TESTVM_SSH_KEY" "$TESTVM_GUEST_USER@$IP" 'mkdir -p ~/.local/bin' || true
-  scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" "$HOME/.local/bin/claude" \
-    "$TESTVM_GUEST_USER@$IP:.local/bin/claude" >/dev/null 2>&1 || log "WARN: claude copy failed"
+# Put the host's claude binary in the BASE image — the BINARY only, never a
+# credential. The app's spine shells out to `claude`; without it on PATH the app
+# reports "no claude install could be found on this Mac".
+#
+# CHANGED 2026-09-20. This used to be the ONLY place the binary was ever copied,
+# and that made the version in the VM a snapshot of whatever the host happened
+# to run on the day the image was built — while the host's Claude Code
+# auto-updated underneath it. `run.sh` now re-checks and re-copies at EVERY run
+# (claude-sync.sh), so this call is no longer what keeps the guest current; it
+# seeds the base so the usual per-run answer is "already in sync, nothing to
+# copy". Same script, same comparison, one place.
+#
+# The LOGIN is copied per run too, and never into the base image: it belongs to
+# the fixture home, which arrives fresh with every run. See claude-login.sh.
+if [ -n "$(host_claude_path 2>/dev/null)" ]; then
+  log "seeding the base image with this Mac's claude binary (no credentials)..."
+  "$HERE/claude-sync.sh" "$TESTVM_BASE_VM" || {
+    log "WARN: the claude binary did not sync into the base image (above)."
+    PROV_RC=1
+  }
 fi
 
 # TCC caches decisions per process; the ssh session that WROTE the grants is
