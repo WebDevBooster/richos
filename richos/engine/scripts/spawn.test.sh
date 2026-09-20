@@ -954,6 +954,29 @@ else
     bad "a toolkit that cannot be found is reported and the spawn still goes" "rc=$RC $OUT"
 fi
 
+# THE ENGINE IS LOADED THROUGH A SYMLINK (`~/.claude/richos-engine` ->
+# <repo>/richos/engine), and os.path.abspath does not follow one. Measured
+# before the fix: through a symlinked engine the sibling-tree fallback
+# resolved to the HOME directory and found no toolkit at all, so a QA dispatch
+# into a repository that is not the toolkit's got an empty section and a note.
+# The repositories-first path hid it, which is why this case loads the module
+# the way the plugin does rather than the way the suite does.
+SYMLINKED="$SANDBOX/engine-link"
+ln -sfn "$SCRIPT_DIR/.." "$SYMLINKED"
+LOCATED="$(python3 - "$SYMLINKED/scripts/lib/qa-toolkit.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("qt", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+print(m.locate(["/nonexistent-repository"])[0] or "")
+PY
+)"
+if [ -n "$LOCATED" ] && [ -f "$LOCATED" ]; then
+    ok "the toolkit is found through a SYMLINKED engine (the plugin's own layout)"
+else
+    bad "the toolkit is found through a symlinked engine" "located='$LOCATED'"
+fi
+
 echo ""
 if [ "$SKIP" -gt 0 ]; then
     echo "  NOT RUN HERE — these are SKIPS, not passes:"

@@ -52,6 +52,15 @@ import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENGINE = os.path.dirname(os.path.dirname(HERE))          # .../engine
+# AND THE SAME THING WITH THE SYMLINK RESOLVED. The engine is loaded BY
+# REFERENCE: `~/.claude/richos-engine` is a symlink to the repository's engine
+# directory, and os.path.abspath does not follow it — so through the plugin
+# path ENGINE is `~/.claude/richos-engine`, whose parent is `~/.claude` and
+# whose grandparent is the home directory. The sibling-tree fallback below
+# looks for the toolkit beside the engine, and measured through a symlinked
+# engine it found nothing at all. realpath is what makes that fallback real.
+ENGINE_REAL = os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.realpath(__file__))))
 
 DEFAULT_AGENTS = "ray urban kai quint"
 DEFAULT_TOOLKIT_DIR = "richos/app/scripts/qa"
@@ -98,15 +107,18 @@ def candidate_roots(repos):
     The repositories this teammate was given, then the engine's own sibling
     tree — the engine ships inside the repository the toolkit lives in, so a
     QA dispatch into some OTHER repository still gets a real, absolute path to
-    the real toolkit instead of nothing."""
+    the real toolkit instead of nothing. Both the literal and the symlink-
+    resolved engine location are tried, because on this machine the engine is
+    loaded through a symlink and only the resolved one reaches the tree."""
     roots = []
     for r in (repos or []):
         if r and r not in roots:
             roots.append(r)
-    sibling = os.path.dirname(ENGINE)                     # .../richos (the tree)
-    for up in (os.path.dirname(sibling), sibling):
-        if up and up not in roots:
-            roots.append(up)
+    for engine in (ENGINE_REAL, ENGINE):
+        sibling = os.path.dirname(engine)                 # .../richos (the tree)
+        for up in (os.path.dirname(sibling), sibling):
+            if up and up not in roots:
+                roots.append(up)
     return roots
 
 
