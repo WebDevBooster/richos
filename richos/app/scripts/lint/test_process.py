@@ -13,6 +13,9 @@ class ProcessRules(unittest.TestCase):
     def test_owned_and_inspection(self):
         for source in ('pid=$!\nkill "$pid"', 'pgrep -f app', 'pkill -0 app',
                        'pid=$(pgrep -f app)\npid=$!\nkill "$pid"',
+                       'pid=$(pgrep -P "$owned_parent")\nkill "$pid"',
+                       'pkill -P "$owned_parent"',
+                       'find_worker() {\nlocal pid=$(pgrep -f app)\n}\nstop() {\nkill "$pid"\n}',
                        'echo "kill $(pgrep -f app)"', '# pkill -f app'):
             with self.subTest(source=source):
                 self.assertEqual(scan(source), [])

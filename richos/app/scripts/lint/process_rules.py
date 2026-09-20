@@ -11,6 +11,30 @@ import shlex
 RULES = {"process-pattern-kill": "blocking", "process-self-wait": "blocking"}
 
 
+def has_name_pattern(arguments):
+    """PID/parent/session selectors alone are not name-pattern selection."""
+    skip = False
+    for word in arguments:
+        if skip:
+            skip = False
+            continue
+        if word in {"-P", "-g", "-G", "-u", "-U", "-s", "-t", "-d"}:
+            skip = True
+        elif not word.startswith("-") and word not in {"2>/dev/null", "||", "true", ";"}:
+            return True
+    return False
+
+
+def lookup(line):
+    match = re.search(r"\$\(\s*pgrep\s+([^)]*)\)", line)
+    if not match:
+        return False
+    try:
+        return has_name_pattern(shlex.split(match[1]))
+    except ValueError:
+        return False
+
+
 def scan(text):
     findings = []
     selected = set()
@@ -23,21 +47,24 @@ def scan(text):
         if not words:
             continue
         stripped = line.strip()
+        # No data-flow assertion crosses a function scope boundary.
+        if re.match(r"(?:function\s+)?\w+\s*\(\s*\)\s*\{", stripped) or stripped == "}":
+            selected.clear()
         command = words[0]
         if command in {"echo", "printf", "#"}:
             continue
-        assignment = re.match(r"([A-Za-z_]\w*)=", stripped)
+        assignment = re.match(r"(?:local\s+|export\s+)?([A-Za-z_]\w*)=", stripped)
         if assignment:
             variable = assignment[1]
             selected.discard(variable)
-            if re.search(r"\$\(\s*pgrep\s", stripped):
+            if lookup(stripped):
                 selected.add(variable)
         loop = re.match(r"for\s+(\w+)\s+in\s+\$\(\s*pgrep\s", stripped)
-        if loop:
+        if loop and lookup(stripped):
             selected.add(loop[1])
         kill = re.match(r"(?:then\s+|do\s+)?kill\s+(.+)", stripped)
-        direct = command == "pkill" and "-0" not in words[1:]
-        if direct or (kill and (re.search(r"\$\(\s*pgrep\s", kill[1]) or any(
+        direct = command == "pkill" and "-0" not in words[1:] and has_name_pattern(words[1:])
+        if direct or (kill and (lookup(kill[1]) or any(
                 re.search(r"\$\{?" + re.escape(v) + r"\}?(?!\w)", kill[1]) for v in selected))):
             findings.append(("process-pattern-kill", number))
         if command in {"sh", "bash"} and len(words) == 3 and words[1] == "-c":
