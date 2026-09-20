@@ -17,11 +17,12 @@ import process_rules
 import ratchet
 import rust
 import state
+import suite_rules
 import timeout_rules
 
 ROOT = Path(__file__).resolve().parents[4]
 BASE = APP + "scripts/lint/baselines/"
-RULES = {**process_rules.RULES, **timeout_rules.RULES, **advisory_rules.RULES, **dialect.RULES}
+RULES = {**process_rules.RULES, **timeout_rules.RULES, **advisory_rules.RULES, **dialect.RULES, **suite_rules.RULES}
 
 
 def versions(root, cargo=False):
@@ -51,10 +52,7 @@ def custom(root, rows):
         found = advisory_rules.scan(text, row["role"], row["language"])
         if row["language"] == "shell":
             found += process_rules.scan(text) + timeout_rules.scan(text)
-            # The suite discovery contract applies only to discovered .test.sh files.
-            if Path(path).name.endswith(".test.sh") and Path(path).parent == root.joinpath(APP, "scripts").relative_to(root):
-                if not any(line.startswith("# run-tests: inputs ") for line in text.splitlines()):
-                    found.append(("suite-inputs", 1))
+            found += suite_rules.scan(path, text)
         for rule, line in found:
             findings.append(dict(path=path, line=line, rule=rule, classification=RULES[rule]))
             if RULES[rule] == "blocking":
@@ -67,9 +65,6 @@ def custom(root, rows):
             counts["dialect"] += len(labels)
             findings.extend(dict(path=path, rule="dialect", classification="blocking", message=label) for label in labels)
     return counts, findings
-
-
-RULES["suite-inputs"] = "blocking"
 
 
 def enforce(root, name, actual, args):
