@@ -15,7 +15,7 @@ counted by diagnostic ID; compiler errors always fail. Rust settings warn during
 ordinary compilation and the lint entry point refuses growth above the baseline.
 
 Install ShellCheck 0.11.0 and the Clippy component for the Rust toolchain recorded
-in the baseline. Python 3.9 or newer is needed; its major/minor version is recorded
+in the baseline. Python 3.11 or newer is needed for the TOML reader; its major/minor version is recorded
 for the custom rules. Commands, versions, rules and scanned paths are visible in
 `baselines/*.json`. Missing tools, empty inventories, invalid output and failed
 compilation refuse the check. `CARGO_TARGET_DIR` is respected.

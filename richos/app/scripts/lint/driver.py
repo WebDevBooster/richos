@@ -142,7 +142,7 @@ def tauri(root, args, rows, tools, report):
     counts, diagnostics = rust.collect(root, rust.TAURI, deadline)
     report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)
     summarize("Tauri Clippy", counts, diagnostics)
-    actual = record({"clippy": rust.TAURI}, tools, {"compiler-diagnostics": "blocking"},
+    actual = record({"clippy": rust.TAURI}, tools, rust.lint_rules(root),
                     {p: r for p, r in rows.items() if r["language"] == "rust"}, counts)
     enforce(root, "tauri", actual, args)
     # Do not bless inputs changed during the check, even by another checkout or
@@ -203,7 +203,8 @@ def main(argv=None):
             report["shell"] = dict(counts=counts, diagnostics=diagnostics)
             summarize("ShellCheck", counts, diagnostics)
             shell_rows = {p: r for p, r in rows.items() if r["language"] == "shell"}
-            shell_record = record({"shellcheck": ["shellcheck", "--format=json", "--rcfile=" + APP + ".shellcheckrc", "<shell-inventory>"]},
+            shell_record = record({"shellcheck": ["shellcheck", "--format=json", "--rcfile=" + APP + ".shellcheckrc", "<shell-inventory>"],
+                                   "configuration_sha256": hashlib.sha256((ROOT / APP / ".shellcheckrc").read_bytes()).hexdigest()},
                                   {"shellcheck": tool_versions["shellcheck"]}, {"shellcheck-diagnostics": "blocking"}, shell_rows, counts)
             enforce(ROOT, "shell", shell_record, args)
             counts, diagnostics = custom(ROOT, rows)
@@ -221,7 +222,7 @@ def main(argv=None):
                 report["rust-fast"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
                 summarize("Rust fast set", counts, diagnostics)
                 enforce(ROOT, "rust-fast", record({"clippy": rust.FAST}, tool_versions,
-                        {"compiler-diagnostics": "blocking"}, {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
+                        rust.lint_rules(ROOT), {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
         if args.all or args.nightly:
             tauri(ROOT, args, rows, tool_versions, report)
         print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)

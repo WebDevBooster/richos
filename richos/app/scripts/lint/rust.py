@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import time
+import tomllib
 from common import APP, Refusal, checked, run, tracked
 
 FAST = [
@@ -12,6 +13,23 @@ FAST = [
     ["cargo", "clippy", "--locked", "--all-targets", "--manifest-path", APP + "crates/richos-user-update/Cargo.toml"],
 ]
 TAURI = [["cargo", "clippy", "--locked", "--all-targets", "--manifest-path", APP + "src-tauri/Cargo.toml"]]
+
+
+def lint_rules(root):
+    """Record actual lint IDs, levels and package inheritance, not just counts."""
+    rules = {"toolchain-default-diagnostics": "blocking-count-ceiling"}
+    for path in tracked(root):
+        if not path.startswith(APP) or Path(path).name != "Cargo.toml":
+            continue
+        data = tomllib.loads((root / path).read_text())
+        tables = {"package": data.get("lints", {}), "workspace": data.get("workspace", {}).get("lints", {})}
+        for scope, table in tables.items():
+            if scope == "package" and "package" in data:
+                rules[path + ":inherits-workspace"] = str(table.get("workspace", False)).lower()
+            for group in ("rust", "clippy"):
+                for name, setting in table.get(group, {}).items():
+                    rules[f"{path}:{scope}:{group}::{name}"] = json.dumps(setting, sort_keys=True)
+    return rules
 
 
 def collect(root, commands, deadline=None):

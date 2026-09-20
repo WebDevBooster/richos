@@ -9,6 +9,21 @@ import rust
 
 
 class Inputs(unittest.TestCase):
+    def test_removed_lint_and_removed_inheritance_change_rule_identity(self):
+        with tempfile.TemporaryDirectory(prefix='lint-manifest-') as tmp:
+            root = Path(tmp)
+            path = 'richos/app/Cargo.toml'
+            manifest = root / path
+            manifest.parent.mkdir(parents=True)
+            original = '[package]\nname="fixture"\n[lints]\nworkspace=true\n[workspace.lints.rust]\nunused_must_use="warn"\n'
+            manifest.write_text(original)
+            with patch('rust.tracked', return_value=[path]):
+                before = rust.lint_rules(root)
+                manifest.write_text(original.replace('workspace=true', 'workspace=false'))
+                self.assertNotEqual(before, rust.lint_rules(root))
+                manifest.write_text(original.replace('unused_must_use="warn"', ''))
+                self.assertNotEqual(before, rust.lint_rules(root))
+
     def test_real_content_changes_invalidate(self):
         with tempfile.TemporaryDirectory(prefix='lint-inputs-') as tmp:
             root = Path(tmp).resolve()

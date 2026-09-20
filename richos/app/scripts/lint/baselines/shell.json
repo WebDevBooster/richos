@@ -1,5 +1,6 @@
 {
   "commands": {
+    "configuration_sha256": "3f86b79be018f223639a23055727cfbc47a15ea6a0aafafabd49fa6bf4f109fa",
     "shellcheck": [
       "shellcheck",
       "--format=json",
