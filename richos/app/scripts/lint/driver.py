@@ -71,9 +71,9 @@ def enforce(root, name, actual, args):
     path = BASE + name + ".json"
     baseline_path = root / path
     trusted = ratchet.trusted_record(root, args.trusted_ref, path)
-    if args.bootstrap:
-        if baseline_path.exists() or trusted is not None:
-            raise Refusal(f"bootstrap refuses an existing baseline: {name}")
+    if args.bootstrap and not baseline_path.exists():
+        if trusted is not None:
+            raise Refusal(f"bootstrap refuses a baseline already on integration: {name}")
         ratchet.validate(actual)
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(json.dumps(actual, indent=2, sort_keys=True) + "\n")
