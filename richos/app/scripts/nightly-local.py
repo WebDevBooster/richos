@@ -21,6 +21,7 @@ import platform
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -28,6 +29,85 @@ import tempfile
 import threading
 import time
 import uuid
+
+# Gate ceilings include rebuilds, not just reuse of successful receipts. Cargo
+# uses fivefold cold/warm headroom rounded up to a minute. The script envelope
+# adds cold Cargo runs and the generated-command integration to a full no-reuse
+# reference before doubling it. Script/UI ceilings round up to five minutes.
+# Measurements and model assumptions are recorded in the private handoff.
+# Gates skipped by a land proof do not spawn a command or spend a deadline.
+GATE_BUDGETS = {
+    "gates/release-smoke": 60,   # One-minute startup floor for fixture-only Python work.
+    "gates/core-tests": 300,    # At least 5x the worst cold/warm Cargo sample.
+    "gates/updater-tests": 360, # At least 5x its separate workspace's cold/warm sample.
+    "gates/script-suites": 1800, # At least 2x the full-execution envelope, without reuse.
+    "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
+    "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
+}
+CLEANUP_TIMEOUT = 30
+TERM_GRACE = 2
+KILL_GRACE = 2
+
+
+class CommandCleanupError(RuntimeError):
+    """A command did not surrender its owned group before the cleanup deadline."""
+
+
+def finish_group(process):
+    """Stop only the session/group we created, including surviving grandchildren.
+
+    Descendants that deliberately call setsid/setpgid escape this boundary. This
+    is process-group ownership, not an OS container or a claim to discover those
+    descendants. No process-name lookup is used.
+    """
+    def exists():
+        process.poll()  # Reap the leader before testing its group.
+        try:
+            os.killpg(process.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # macOS can briefly report EPERM while orphaned group members are
+            # being reaped. Treat it as present and keep the bounded wait.
+            return True
+
+    for sig, grace in ((signal.SIGTERM, TERM_GRACE), (signal.SIGKILL, KILL_GRACE)):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            # A group of exiting orphans may briefly reject signals on macOS.
+            # The deadline and final presence check still apply.
+            pass
+        until = time.monotonic() + grace
+        while exists() and time.monotonic() < until:
+            time.sleep(0.02)
+        if not exists():
+            break
+    try:
+        process.wait(timeout=KILL_GRACE)
+    except subprocess.TimeoutExpired:
+        raise CommandCleanupError(f"owned command group {process.pid} did not exit after bounded cleanup") from None
+    if exists():
+        raise CommandCleanupError(f"owned command group {process.pid} did not exit after bounded cleanup")
+
+
+def owned_run(args, *, timeout=None, **kwargs):
+    """subprocess.run's result shape with bounded, owned-group cleanup on all exits."""
+    process = subprocess.Popen(args, start_new_session=True, **kwargs)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    finally:
+        try:
+            finish_group(process)
+        finally:
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+
 
 ROOT = Path(__file__).resolve().parents[3]
 REPO = "WebDevBooster/richos"
@@ -519,6 +599,7 @@ class Runner:
         self.timings = []
         self.skipped = {}
         self.started = time.time()
+        self.active_phase = None
 
     def announce(self, text):
         """Say it on the terminal AND in the run log, so neither has to be read beside
@@ -542,9 +623,11 @@ class Runner:
         self.log.write(f"=== phase {name} begins ===\n")
         self.watch_child_milestones(name == "build")
         start = time.time()
+        previous_phase, self.active_phase = self.active_phase, name
         try:
             yield
         finally:
+            self.active_phase = previous_phase
             end = time.time()
             self.watch_child_milestones(False)
             self.timings.append((name, start, end))
@@ -602,13 +685,17 @@ class Runner:
         if env_extra:
             env = {**env, **env_extra}
         try:
-            result = subprocess.run([str(a) for a in args], cwd=cwd or self.source,
-                                    env=env, stdin=subprocess.DEVNULL, text=True,
-                                    stdout=subprocess.PIPE if capture else self.log,
-                                    stderr=self.log, timeout=timeout)
+            result = owned_run([str(a) for a in args], cwd=cwd or self.source,
+                               env=env, stdin=subprocess.DEVNULL, text=True,
+                               stdout=subprocess.PIPE if capture else self.log,
+                               stderr=self.log, timeout=timeout)
+        except CommandCleanupError as error:
+            label = self.active_phase or Path(str(args[0])).name
+            raise CommandCleanupError(f"{label} cleanup failed (command budget {timeout}s): {error}") from None
         except subprocess.TimeoutExpired:
             # TimeoutExpired's default message includes argv, potentially a password.
-            raise RuntimeError(f"{Path(str(args[0])).name} timed out; see the run log") from None
+            label = self.active_phase or Path(str(args[0])).name
+            raise RuntimeError(f"{label} timed out after {timeout}s; owned group stopped; see the run log") from None
         if result.returncode:
             # Do not echo argv: signing commands can carry a password.
             raise RuntimeError(f"{Path(str(args[0])).name} failed (exit {result.returncode}); see the run log")
@@ -813,15 +900,9 @@ class Runner:
     def ui_suite(self, checks_done_at_land=None):
         """Run the whole UI inventory, sharded, and refuse the build on a red suite.
 
-        ONE SUBPROCESS, exactly like every other gate. `run.js --shards=N` owns the fan-out,
-        the receipts and the coverage verdict, so this method is a call and a refusal rather
-        than a second process launcher living beside `command()`. The first version of this
-        spawned the four shards here with `subprocess.Popen`, and `nightly-local.test.py`
-        refused it within a minute: five cases assert the argv and the ENVIRONMENT of every
-        gate subprocess by patching `subprocess.run`, and a launcher that goes around
-        `command()` goes around all of it -- the credential split, the log, the timeout and
-        the error that names the step. That is the defect this repository keeps paying for
-        in other costumes, caught here by tests that were already written.
+        `run.js --shards=N` owns fan-out, receipts and the coverage verdict.
+        command() owns its process group, credential split, log and deadline.
+        This method never launches a second process outside that boundary.
 
         THE SHARDS' EXIT CODES ARE NOT THE VERDICT and this method never sees them. `run.js`
         says why in its own words -- a shard has seen a subset, and only the coverage job has
@@ -846,16 +927,17 @@ class Runner:
             for suite in UI_QUARANTINE:
                 args.append(f"--quarantine={suite}")
             try:
-                self.command(*args, cwd=tests)
+                self.command(*args, cwd=tests, timeout=GATE_BUDGETS[UI_SUITE_GATE])
                 self.restore_source_tree("the UI suite")
-            except RuntimeError:
-                self.restore_source_tree("the UI suite")
+            except RuntimeError as error:
+                if not isinstance(error, CommandCleanupError):
+                    self.restore_source_tree("the UI suite")
                 # NAME THE SUITE AND ITS LOG. A gate that refuses a build and leaves the
                 # reader to find out which of 55 suites did it is a gate people learn to
                 # re-run rather than read.
                 red = self.red_ui_suites(receipts)
                 raise RuntimeError(
-                    "the UI suite refused this build"
+                    f"the UI suite refused this build: {error}"
                     + (f": {', '.join(red)}" if red else " (see the coverage output)")
                     + f". Every shard's output and the coverage verdict are in this run's log "
                     f"under the {UI_SUITE_GATE} phase; the receipts are in {receipts}.") from None
@@ -890,7 +972,7 @@ class Runner:
         # message with a git error -- losing the only sentence that says what actually
         # happened. Tidying up is never allowed to become the reported failure.
         try:
-            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True)
+            dirty = self.command("git", "status", "--porcelain", cwd=self.source, capture=True, timeout=CLEANUP_TIMEOUT)
         except (RuntimeError, OSError) as error:
             self.announce(f"  could not check whether {who} left its checkout dirty: {error}")
             return
@@ -904,7 +986,7 @@ class Runner:
                       "not a file to re-commit from here; if it differs run to run, it belongs "
                       "in richos/app/ui/tests/lib/shot-stability.js with its cause and bound.")
         try:
-            self.command("git", "checkout", "--", ".", cwd=self.source)
+            self.command("git", "checkout", "--", ".", cwd=self.source, timeout=CLEANUP_TIMEOUT)
         except (RuntimeError, OSError) as error:
             # Say it plainly rather than swallowing it: the next build will refuse to start
             # and this line is what tells somebody why.
@@ -952,7 +1034,8 @@ class Runner:
         # input is the release path itself.
         with self.phase("gates/release-smoke"):
             self.command(sys.executable, self.source / SCRIPTS / "nightly.py",
-                         "release-smoke", "--out", self.state / "release-smoke")
+                         "release-smoke", "--out", self.state / "release-smoke",
+                         timeout=GATE_BUDGETS["gates/release-smoke"])
         if checks_done_at_land:
             self.skip(LAND_PROVEN_GATE,
                       f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "
@@ -960,10 +1043,12 @@ class Runner:
         else:
             with self.phase(LAND_PROVEN_GATE):
                 self.command("cargo", "test", "--locked", "--manifest-path",
-                             "richos/app/Cargo.toml", "-p", "richos-core")
+                             "richos/app/Cargo.toml", "-p", "richos-core",
+                             timeout=GATE_BUDGETS[LAND_PROVEN_GATE])
         with self.phase("gates/updater-tests"):
             self.command("cargo", "test", "--locked", "--manifest-path",
-                         "richos/app/crates/richos-user-update/Cargo.toml")
+                         "richos/app/crates/richos-user-update/Cargo.toml",
+                         timeout=GATE_BUDGETS["gates/updater-tests"])
         results = self.state / SUITE_RESULTS
         with self.phase("gates/script-suites"):
             # Every one of these is written literally at this call site rather than taken
@@ -976,7 +1061,7 @@ class Runner:
                     "--results-out", results]
             if no_host_screen:
                 args.append("--no-host-screen")
-            self.command(*args, env_extra=extra)
+            self.command(*args, env_extra=extra, timeout=GATE_BUDGETS["gates/script-suites"])
         with self.phase("gates/lint-tauri"):
             self.command("bash", self.source / SCRIPTS / "lint.sh", "--all",
                          "--suite-results", results)
@@ -986,7 +1071,7 @@ class Runner:
         self.ui_suite(checks_done_at_land)
         with self.phase("gates/privacy-sweep"):
             self.command("bash", "richos/engine/scripts/named-persons.sh", "--tree",
-                         "--repo", self.source)
+                         "--repo", self.source, timeout=GATE_BUDGETS["gates/privacy-sweep"])
         try:
             return json.loads(results.read_text())
         except (OSError, ValueError):

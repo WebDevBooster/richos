@@ -578,8 +578,16 @@ if [ "${N_SCRIPT:-0}" -gt 0 ]; then
   say "BUILD AND PACKAGING SUITES — $N_SCRIPT of $(grep -c . "$SCRIPT_SUITES" || echo 0)"
   say "  (heavier; these are the proof a candidate needs, not the proof an edit needs)"
   ONLY=""
-  while IFS= read -r s; do [ -n "$s" ] && ONLY="$ONLY --only $s"; done < "$WORK/script"
-  cmd "cd $APP_REL && scripts/run-tests.sh --no-host-screen$ONLY"
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    if [ "$s" = "make-engine-asset.test.sh" ]; then
+      say '  Prerequisite: RICHOS_RUNTIME_DIR points to a prepared runtime matching scripts/runtime-sources.json.'
+      cmd "cd $APP_REL && bash scripts/make-engine-asset.test.sh"
+    else
+      ONLY="$ONLY --only $s"
+    fi
+  done < "$WORK/script"
+  [ -z "$ONLY" ] || cmd "cd $APP_REL && scripts/run-tests.sh --no-host-screen$ONLY"
   say ""
 fi
 

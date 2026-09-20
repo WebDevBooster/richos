@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -87,14 +88,14 @@ class LocalTests(unittest.TestCase):
             seen.append(kwargs["env"])
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(m, "owned_run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
         self.assertEqual(len(seen), 8)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
         # ...and the same runner still hands the whole set to a step that signs.
-        with patch.object(m.subprocess, "run", side_effect=record):
+        with patch.object(m, "owned_run", side_effect=record):
             r.command("codesign", credentials=True)
         self.assertEqual({name: seen[-1][name] for name in self.CREDENTIALS}, self.CREDENTIALS)
 
@@ -115,7 +116,7 @@ class LocalTests(unittest.TestCase):
             seen.append((args, kwargs["env"]))
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(m, "owned_run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
         declared = [(args, env["RUN_TESTS_DECLARED_GAPS"]) for args, env in seen
                     if env.get("RUN_TESTS_DECLARED_GAPS") != base["RUN_TESTS_DECLARED_GAPS"]]
@@ -294,10 +295,118 @@ class LocalTests(unittest.TestCase):
     def test_command_timeout_does_not_expose_signing_password(self):
         r = m.Runner(self.root, self.root, {}, io.StringIO())
         args = ["cargo", "tauri", "signer", "sign", "-p", "secret-password"]
-        with patch.object(m.subprocess, "run", side_effect=subprocess.TimeoutExpired(args, 30)):
+        with patch.object(m, "owned_run", side_effect=subprocess.TimeoutExpired(args, 30)):
             with self.assertRaisesRegex(RuntimeError, "cargo timed out") as raised:
                 r.command(*args, timeout=30)
         self.assertNotIn("secret-password", str(raised.exception))
+
+    def test_capture_cannot_wait_forever_on_a_descendants_inherited_pipe(self):
+        # The leader exits, but its child keeps the stdout pipe open. A timeout
+        # must stop that child too, otherwise communicate() cannot finish.
+        script = self.root / "pipe.py"
+        script.write_text("""import subprocess, sys
+from pathlib import Path
+p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+Path(sys.argv[1]).write_text(str(p.pid))
+""")
+        pid_file = self.root / "pipe-child"
+        with (self.root / "pipe.log").open("w") as log:
+            r = m.Runner(self.root, self.root, dict(os.environ), log)
+            with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
+                r.command(sys.executable, script, pid_file, cwd=self.root,
+                          capture=True, timeout=1)
+        self.assert_pid_gone(int(pid_file.read_text()))
+
+    def test_every_gate_has_a_named_deadline(self):
+        for phase, budget in m.GATE_BUDGETS.items():
+            with self.subTest(phase=phase):
+                r = m.Runner(self.root, self.root, {}, io.StringIO())
+                r.restore_source_tree = Mock()
+                def run(args, **kwargs):
+                    if r.active_phase == phase:
+                        self.assertEqual(kwargs["timeout"], budget)
+                        raise subprocess.TimeoutExpired(args, budget)
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                with patch.object(m, "owned_run", side_effect=run), \
+                        contextlib.redirect_stdout(io.StringIO()), \
+                        self.assertRaisesRegex(RuntimeError, f"{phase} timed out after {budget}s"):
+                    r.gates()
+
+    def test_cleanup_commands_have_deadlines(self):
+        r = m.Runner(self.root, self.root, {}, io.StringIO())
+        r.command = Mock(side_effect=[" M fixture", None])
+        with contextlib.redirect_stdout(io.StringIO()):
+            r.restore_source_tree("fixture")
+        self.assertEqual(len(r.command.call_args_list), 2)
+        for call in r.command.call_args_list:
+            self.assertEqual(call.kwargs["timeout"], m.CLEANUP_TIMEOUT)
+
+    def test_ui_does_not_restore_files_when_group_cleanup_failed(self):
+        r = m.Runner(self.root, self.root, {}, io.StringIO())
+        r.command = Mock(side_effect=m.CommandCleanupError("owned group still running"))
+        r.restore_source_tree = Mock()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaisesRegex(RuntimeError, "owned group still running"):
+            r.ui_suite()
+        r.restore_source_tree.assert_not_called()
+
+    def process_fixture(self):
+        script = self.root / "tree.py"
+        script.write_text("""import os, signal, subprocess, sys, time
+from pathlib import Path
+root = Path(sys.argv[1])
+level = int(sys.argv[2])
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(root / ('pid' + str(level))).write_text(str(os.getpid()))
+if level < 2:
+    subprocess.Popen([sys.executable, __file__, str(root), str(level + 1)])
+while True: time.sleep(.02)
+""")
+        return [sys.executable, str(script), str(self.root), "0"]
+
+    def assert_pid_gone(self, pid):
+        until = time.monotonic() + 3
+        while time.monotonic() < until:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(.02)
+        self.fail(f"owned process {pid} survived cleanup")
+
+    def test_parent_only_kill_leaves_descendants_but_group_cleanup_does_not(self):
+        p = subprocess.Popen(self.process_fixture(), start_new_session=True)
+        try:
+            until = time.monotonic() + 5
+            while not (self.root / "pid2").exists() and time.monotonic() < until:
+                time.sleep(.02)
+            ids = [int((self.root / f"pid{i}").read_text()) for i in range(3)]
+            p.kill()
+            p.wait(timeout=3)
+            for pid in ids[1:]:
+                os.kill(pid, 0)  # Positive evidence: parent-only kill left both alive.
+            m.finish_group(p)
+            for pid in ids:
+                self.assert_pid_gone(pid)
+        finally:
+            m.finish_group(p)
+
+    def test_real_timeout_escalates_and_preserves_unrelated_process(self):
+        sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                                    start_new_session=True)
+        try:
+            with (self.root / "log").open("w") as log:
+                r = m.Runner(self.root, self.root, dict(os.environ), log)
+                start = time.monotonic()
+                with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
+                    r.command(*self.process_fixture(), cwd=self.root, timeout=1)
+                self.assertLess(time.monotonic() - start, 8)
+            for i in range(3):
+                self.assert_pid_gone(int((self.root / f"pid{i}").read_text()))
+            self.assertIsNone(sentinel.poll())
+        finally:
+            sentinel.kill()
+            sentinel.wait(timeout=3)
 
     def test_only_release_reaches_publisher(self):
         r = self.runner()
@@ -451,7 +560,7 @@ class LocalTests(unittest.TestCase):
             seen.append([str(a) for a in args])
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        with patch.object(m.subprocess, "run", side_effect=record), \
+        with patch.object(m, "owned_run", side_effect=record), \
                 contextlib.redirect_stdout(io.StringIO()):
             r.gates(checks_done_at_land)
         return r, seen
@@ -547,7 +656,7 @@ class LocalTests(unittest.TestCase):
             seen.append([str(a) for a in args])
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        with patch.object(m.subprocess, "run", side_effect=record), \
+        with patch.object(m, "owned_run", side_effect=record), \
                 contextlib.redirect_stdout(io.StringIO()):
             r.gates(sha)
         self.assertFalse([c for c in seen if "run.js" in " ".join(c)], seen)

@@ -302,9 +302,12 @@ async function main() {
     return "clamped -> Show more -> Show less -> clamped, aria-expanded tracked both ways";
   });
 
-  await run.check("SCREENSHOT 1/9: just after send", async () =>
-    evidence(a, "ms-01-just-after-send", "§26 shot 1")
-  );
+  await run.check("SCREENSHOT 1/9: just after send", async () => {
+    // A young turn has no absence caption. Keep the reference aligned with
+    // this product state, independently of screenshot publication behavior.
+    assertEqual(await a.locator(".wait-detail").textContent(), "", "young turn detail");
+    return evidence(a, "ms-01-just-after-send", "§26 shot 1");
+  });
 
   await a.close();
 
