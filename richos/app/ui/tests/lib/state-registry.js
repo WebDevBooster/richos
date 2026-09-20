@@ -2727,6 +2727,70 @@ module.exports = [
       "a build were ever made, and on that day it needs a class of its own and a party.",
   },
 
+  // ---- the way back off a bad release (2026-09-20) --------------------------------------
+  //
+  // SIX STRINGS, AND NOT ONE OF THEM ASKS ANYTHING OF HIM. That is the point of the
+  // classification rather than an accident of wording: the ACT is the "Go back to <version>"
+  // control, which `paint()` offers in `idle`/`upToDate`/`available`/`failed`; everything
+  // below is what the row says AFTER he has pressed it, while RichOS does the rest. The same
+  // shape, and the same classes, as the update sentences directly above — a rollback and an
+  // update are one exchange of two directories, and a surface that treated them as two
+  // different kinds of event would eventually describe them inconsistently.
+  {
+    s: "RichOS will go back to",
+    c: "FRAGMENT",
+    why:
+      "One literal used three times — `sentences()`'s `ready` headline, `cue()`'s pill and " +
+      "`waitingSaid()`'s `ready` head — always completed with the version and 'when you " +
+      "next open it.'. The counterpart of 'is ready for the next launch.' on the way down, " +
+      "and deliberately a different sentence rather than the same one with a smaller " +
+      "number: 'ready' says something arrived, and going back is not an arrival.",
+  },
+  {
+    s: "when you next open it.",
+    c: "FRAGMENT",
+    why:
+      "The tail of the sentence above (updates.js:263 and :781). Split only by the version " +
+      "in the middle; it never appears alone.",
+  },
+  {
+    s: "It will go back automatically next time RichOS opens. Your work will continue uninterrupted.",
+    c: "INFORMATIONAL",
+    fixture: "updates-rolling-back",
+    why:
+      "The `ready` sub-line for a staged rollback, and INFORMATIONAL for exactly the reason " +
+      "its update twin four hundred lines above is: the control is REMOVED by design rather " +
+      "than missing, nothing is asked of anyone, and the party that will act is RichOS at " +
+      "the next launch. Not NEEDS-SOMEONE-ELSE — nobody is being waited on.",
+  },
+  {
+    s: "RichOS is confirming this earlier version was signed by us before preparing it for the next launch.",
+    c: "INFORMATIONAL",
+    why:
+      "The `installing` sub-line while a rollback is verified. Its update twin says 'this " +
+      "update'; this one says 'this earlier version', because THE SIGNATURE CHECK IS THE " +
+      "SAME CHECK and the sentence has to be able to say so without calling a downgrade an " +
+      "update. Bytes are already moving; nothing is waiting on him.",
+  },
+  {
+    s: "Checking and preparing RichOS",
+    c: "FRAGMENT",
+    why:
+      "The `installing` headline for a rollback, completed with the version and an ellipsis " +
+      "(updates.js:254). The update arm says 'the update' and has nothing to name; this one " +
+      "names the version, because 'preparing the update' over a downgrade would be wrong.",
+  },
+  {
+    s: "Going back to an earlier version is not implemented on this platform.",
+    c: "UNREACHABLE",
+    why:
+      "updates.rs's `rollback`, inside `#[cfg(not(target_os = \"macos\"))]` exactly as the " +
+      "'Password-free application updates' row above is, and for the same reason: the " +
+      "literal is not compiled into the build this app ships. It is worded as its own " +
+      "sentence rather than reusing that one because a person meeting it is asking about a " +
+      "different act. Same day as that row's port, same class, same party.",
+  },
+
   // ---- home.js — the home screen the CEO lands on ---------------------------------------
   {
     s:

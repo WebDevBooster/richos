@@ -1378,4 +1378,56 @@ mod tests {
              renamed by something that is not the bundle it is: {writers:?}"
         );
     }
+
+    /// ONE RULE FOR BOTH ENDPOINT SHAPES, and a refusal for anything else.
+    ///
+    /// The nightly channel endpoint and the stable one disagree about everything except the
+    /// thing that matters: the segment naming WHICH release sits between `/releases/` and
+    /// the final path element. If this rule were wrong, a rollback would fetch a 404 and
+    /// report it as a manifest failure — a wrong URL that looks like a missing release.
+    #[test]
+    fn the_previous_tags_manifest_is_derived_from_either_endpoint_shape() {
+        let cases = [
+            (
+                "https://github.com/WebDevBooster/richos/releases/download/nightly/latest.json",
+                "https://github.com/WebDevBooster/richos/releases/download/v1.2.0-nightly.20260919.3/latest.json",
+            ),
+            (
+                "https://github.com/WebDevBooster/richos/releases/latest/download/latest.json",
+                "https://github.com/WebDevBooster/richos/releases/download/v1.2.0-nightly.20260919.3/latest.json",
+            ),
+            // The fixture server in `scripts/updater-e2e.sh` case R, which mirrors the
+            // published layout precisely so the harness exercises this rule and not a
+            // friendlier one.
+            (
+                "http://127.0.0.1:8973/releases/download/nightly/latest.json",
+                "http://127.0.0.1:8973/releases/download/v1.2.0-nightly.20260919.3/latest.json",
+            ),
+        ];
+        for (endpoint, want) in cases {
+            let got = previous_manifest_url(endpoint, "1.2.0-nightly.20260919.3")
+                .unwrap_or_else(|| panic!("no URL derived from {endpoint}"));
+            assert_eq!(got.as_str(), want, "from {endpoint}");
+        }
+    }
+
+    /// A build pointed somewhere that is not a release channel gets NOTHING, not a guess.
+    /// An updater that invents a download location is worse than one that says it cannot
+    /// find the file, because the sentence on screen would be about a missing release.
+    #[test]
+    fn an_endpoint_that_is_not_a_release_channel_derives_no_url_at_all() {
+        for endpoint in [
+            // The committed placeholder. `rollback` never reaches the derivation with this
+            // one — it returns `unconfigured` first — and it must still not resolve.
+            "https://updates.richos.invalid/darwin/aarch64/1.0.0",
+            "https://example.com/latest.json",
+            "https://example.com/releases/",
+            "not a url at all",
+        ] {
+            assert!(
+                previous_manifest_url(endpoint, "1.0.0").is_none(),
+                "{endpoint} must not resolve to a guessed location"
+            );
+        }
+    }
 }
