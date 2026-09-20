@@ -332,6 +332,59 @@ Path(sys.argv[1]).write_text(str(p.pid))
                         self.assertRaisesRegex(RuntimeError, f"{phase} timed out after {budget}s"):
                     r.gates()
 
+    def assert_executed_gate_deadlines(self, checks_done_at_land=None):
+        """Discover phases by executing gates(), independently of the budget table."""
+        r = m.Runner(self.root, self.root, {}, io.StringIO())
+        r.restore_source_tree = Mock()
+        original_phase = r.phase
+        phases, commands = set(), set()
+
+        @contextlib.contextmanager
+        def registered_phase(name):
+            if name.startswith("gates/"):
+                self.assertIn(name, m.GATE_BUDGETS, f"{name} has no registered deadline")
+                phases.add(name)
+            with original_phase(name):
+                yield
+
+        def run(args, **kwargs):
+            name = r.active_phase
+            if name and name.startswith("gates/"):
+                self.assertEqual(kwargs.get("timeout"), m.GATE_BUDGETS[name],
+                                 f"{name} did not pass its registered deadline")
+                commands.add(name)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        r.phase = registered_phase
+        with patch.object(m, "owned_run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            r.gates(checks_done_at_land)
+        self.assertTrue(phases)
+        self.assertEqual(commands, phases)
+
+    def test_executed_gates_have_registered_and_wired_deadlines(self):
+        self.assert_executed_gate_deadlines()
+        self.assert_executed_gate_deadlines("land-proof-fixture")
+
+    def test_gate_coverage_detects_a_missing_budget_entry(self):
+        budgets = dict(m.GATE_BUDGETS)
+        del budgets["gates/lint-tauri"]
+        with patch.object(m, "GATE_BUDGETS", budgets), \
+                self.assertRaisesRegex(AssertionError, "gates/lint-tauri has no registered deadline"):
+            self.assert_executed_gate_deadlines()
+
+    def test_gate_coverage_detects_an_unwired_timeout(self):
+        command = m.Runner.command
+
+        def without_lint_timeout(runner, *args, **kwargs):
+            if runner.active_phase == "gates/lint-tauri":
+                kwargs.pop("timeout", None)
+            return command(runner, *args, **kwargs)
+
+        with patch.object(m.Runner, "command", without_lint_timeout), \
+                self.assertRaisesRegex(AssertionError, "gates/lint-tauri did not pass its registered deadline"):
+            self.assert_executed_gate_deadlines()
+
     def test_cleanup_commands_have_deadlines(self):
         r = m.Runner(self.root, self.root, {}, io.StringIO())
         r.command = Mock(side_effect=[" M fixture", None])

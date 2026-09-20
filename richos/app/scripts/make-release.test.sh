@@ -45,6 +45,7 @@
 # the three files named. The line lives here rather than in run-tests.sh because a suite is
 # the only thing that knows what it reads.
 # run-tests: inputs richos/app/scripts richos/app/src-tauri/Cargo.toml richos/engine/VERSION richos/engine/scripts
+# run-tests: covers richos/app/scripts/make-release.sh
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

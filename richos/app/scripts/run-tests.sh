@@ -175,6 +175,8 @@
 #     the inventory is not typed. The declaration is a deliberate SUPERSET of what the
 #     suite reads: a superset re-runs a suite that did not need re-running, which is the
 #     harmless direction;
+#     `# run-tests: covers <files>` separately claims exact-file behavior for
+#     proof-for.sh, not this digest. Write `covers -` when there is no claim.
 #   * it is `git ls-files -s` over those paths (git's own content hashes, exact and
 #     instant) AND a `git status --porcelain --untracked-files=all` over the same paths
 #     that must be EMPTY. A modified or untracked input is not hashed, it is a change, so

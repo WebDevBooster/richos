@@ -61,6 +61,7 @@
 # webview and no window; the app itself is never built or launched.
 # run-tests: no-host-screen: its bundle paths are tar fixture members, and its two cargo examples are console programs
 # run-tests: inputs richos/app/scripts/updater-setup.test.sh richos/app/scripts/package-app.sh richos/app/scripts/lib/updater_tar.py richos/app/scripts/updater-e2e.sh richos/app/src-tauri/Cargo.toml richos/app/src-tauri/tauri.conf.json richos/app/src-tauri/capabilities richos/app/src-tauri/src/update_startup.rs richos/app/crates/richos-user-update
+# run-tests: covers richos/app/scripts/lib/updater_tar.py richos/app/scripts/updater-e2e.sh
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -41,6 +41,7 @@ GATE_BUDGETS = {
     "gates/core-tests": 300,    # At least 5x the worst cold/warm Cargo sample.
     "gates/updater-tests": 360, # At least 5x its separate workspace's cold/warm sample.
     "gates/script-suites": 1800, # At least 2x the full-execution envelope, without reuse.
+    "gates/lint-tauri": 300,    # At least 10x the full-lint sample; headroom beyond the 180s inner cap.
     "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
@@ -1064,7 +1065,7 @@ class Runner:
             self.command(*args, env_extra=extra, timeout=GATE_BUDGETS["gates/script-suites"])
         with self.phase("gates/lint-tauri"):
             self.command("bash", self.source / SCRIPTS / "lint.sh", "--all",
-                         "--suite-results", results)
+                         "--suite-results", results, timeout=GATE_BUDGETS["gates/lint-tauri"])
         # AFTER the script suites and BEFORE the privacy sweep. It is the longest gate, so
         # the cheap refusals get to refuse first: there is no sense spending 378 s of WebKit
         # to learn that `cargo test` was going to fail anyway.
