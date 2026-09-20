@@ -17,7 +17,7 @@ def run(args, *, cwd, timeout=180, env=None, input=None):
     """Own the process group, including Cargo children and cache-lock waiters."""
     started = time.monotonic()
     process = subprocess.Popen(
-        [str(a) for a in args], cwd=cwd, env=env, text=True,
+        [str(a) for a in args], cwd=cwd, env=env, text=True, errors="surrogateescape",
         stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     try:
