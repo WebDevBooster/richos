@@ -376,12 +376,15 @@ pub struct PhoneRuntime {
     /// pair a phone. Surfaced as [`PhoneStatus::rejected`], which is the only thing that puts
     /// the sheet on the screen that says it heard him.
     ///
-    /// **In memory and deliberately not on disk, which is a real limit and is named rather than
-    /// hidden.** After a relaunch this Mac is not serving and nothing is paired — the true state
-    /// — but it no longer says why, and the person who pressed the button and then quit RichOS
-    /// gets the ordinary `This Mac is ready` screen back. Making it durable means a file whose
-    /// only content is a sentence about a thing that already happened; if he ever wants that
-    /// sentence to survive a relaunch, this is where it would be written.
+    /// **IT IS ON DISK AS WELL AS HERE, SINCE 2026-09-20.** This field used to be the whole of
+    /// it, seeded `false` at every [`PhoneRuntime::install`], and the note here said so: after a
+    /// relaunch this Mac was not serving and nothing was paired — the true state — but it no
+    /// longer said WHY, and the person who pressed the button and then quit RichOS got the
+    /// ordinary `This Mac is ready` screen back. That is Ray's `.8` defect 1 again, one launch
+    /// later. The durable half is `device::record_rejection` / `device::rejection_recorded`,
+    /// beside `device.json`; this field is the copy every poll reads, so the screen costs no
+    /// disk. The two move together in exactly two places — the teardown below and
+    /// [`PhoneRuntime::begin_pairing`] — and nothing else writes either.
     rejected: Mutex<bool>,
 }
 
@@ -720,6 +723,11 @@ impl PhoneRuntime {
     pub fn install(data_dir: std::path::PathBuf) -> (Arc<Self>, Box<dyn richos_core::live::LiveObserver>) {
         let hub = stream::PhoneHub::new();
         let emitter = Box::new(stream::PhoneLiveEmitter::new(Arc::clone(&hub)));
+        // **THE REFUSAL IS READ BACK BEFORE ANYTHING ELSE EXISTS**, so the first `status()` of
+        // the launch is already the true one. A poll can land before the window is even on
+        // screen, and a screen that says `This Mac is ready` for one frame and then corrects
+        // itself is worse than one that was right from the start.
+        let rejected = device::rejection_recorded(&data_dir);
         // `new_cyclic` rather than a `set_me` after construction: `me` is read from another
         // thread and must be there before anything can be started, and the alternative — an
         // `Option` filled in a second step — is a field every reader has to ask about.
@@ -729,7 +737,7 @@ impl PhoneRuntime {
             running: Mutex::new(None),
             tailnet: Mutex::new(None),
             me: me.clone(),
-            rejected: Mutex::new(false),
+            rejected: Mutex::new(rejected),
         });
         (runtime, emitter)
     }
@@ -861,6 +869,13 @@ impl PhoneRuntime {
         //
         // A start that FAILS still clears it — he has read the sentence and moved on, and the
         // failure has a sentence of its own (`phone-message`) that he needs to be able to see.
+        //
+        // **THE DURABLE HALF GOES FIRST, and a crash between the two lines is harmless in that
+        // order**: the file is gone and the flag is about to be, so the worst case is a launch
+        // that has forgotten a refusal he has already acted on. The other order would leave a
+        // Mac whose screen says `ready` and whose disk says `refused`, and the disk wins at the
+        // next launch — the sheet coming back days later for a phone he re-paired.
+        device::clear_rejection(&self.data_dir);
         *self.rejected.lock().unwrap() = false;
         self.start(app, true)
     }
@@ -1078,6 +1093,20 @@ impl PhoneRuntime {
             "[richos] the phone said the six words did not match - stopping the channel, \
              forgetting the phone and deleting this Mac's authority"
         );
+        // **WRITTEN DOWN BEFORE IT IS ANNOUNCED**, for the same reason the flag is set before
+        // the teardown: the durable record is what the NEXT launch reads, and a process that
+        // dies between the bell and this line would come back up having forgotten that a person
+        // stood at the Mac and said the words did not match. The credential is already gone
+        // when this runs — the route dropped it synchronously — so nothing is claimed early.
+        if let Err(e) = device::record_rejection(&self.data_dir, now_millis()) {
+            // Said, never swallowed, and never fatal: the channel still comes down below, which
+            // is the half that matters for safety. What is lost is the sentence at the next
+            // launch, and that is exactly what this line tells whoever reads the log.
+            eprintln!(
+                "[richos] the phone's refusal could not be written down ({e}); this Mac will \
+                 stop serving as it should, but the next launch will not say why"
+            );
+        }
         *self.rejected.lock().unwrap() = true;
         if let Err(e) = self.forget() {
             // The device record is already gone (the route took it), so this is the socket, the

@@ -354,6 +354,63 @@ struct State {
     audio: VecDeque<(String, PathBuf)>,
 }
 
+// =========================================================================================
+// "THEY DO NOT MATCH", REMEMBERED ACROSS A RELAUNCH
+// =========================================================================================
+//
+// **Two halves, and only one of them survived quitting the app.**
+//
+// The half that already survives is the REFUSAL, and it survives by construction rather than
+// by a flag: `routes.rs` drops the device record synchronously before it rings the stop
+// switch, [`DeviceDesk::forget`] deletes `device.json`, and
+// [`DeviceDesk::listener_should_run`] reads what is on disk — so the next launch finds nothing
+// paired, `PhoneRuntime::resume_if_paired` starts no socket, and the phone that said the words
+// did not match is refused because there is nothing left for it to reach. That is asserted in
+// this module rather than trusted: see
+// `a_rejected_phone_is_still_refused_after_a_relaunch_and_the_notice_goes_with_it`.
+//
+// The half that did NOT survive is the SENTENCE. `PhoneStatus::rejected` was a `Mutex<bool>`
+// on the runtime, seeded `false` at every `PhoneRuntime::install`, so quitting RichOS after
+// refusing a phone brought the settings screen back reading as though nothing had happened —
+// which is Ray's `.8` defect 1, *"he has no way to know the Mac heard him"*, one launch later.
+// So the refusal is written down here, beside `device.json`, in the one directory that holds
+// what this Mac remembers about phones.
+//
+// **The file's EXISTENCE is the fact; its contents are for a person reading it.** A record
+// this build cannot parse is still a refusal — the OPPOSITE default from the device record
+// above, deliberately: a damaged `device.json` must never be guessed into a paired phone, and
+// a damaged `rejected.json` must never be guessed into a Mac that forgot.
+
+/// Where the refusal is written. Derived in one place, so nothing else knows the name.
+fn rejection_path(dir: &Path) -> PathBuf {
+    dir.join("phone").join("rejected.json")
+}
+
+/// Write down that the phone answered `They do not match`. `at` is `now_millis()`.
+///
+/// It runs on the teardown path, after the credential is already gone, so the caller treats a
+/// failure as something to SAY and never as something to stop for: a disk that will not take
+/// one small file must not be able to keep a channel up.
+pub fn record_rejection(dir: &Path, at: u64) -> Result<(), PhoneError> {
+    let path = rejection_path(dir);
+    if let Some(home) = path.parent() {
+        std::fs::create_dir_all(home)?;
+    }
+    std::fs::write(&path, format!("{{\"rejected_at\":{at}}}\n"))?;
+    Ok(())
+}
+
+/// Did a phone refuse this Mac's six words, with nobody having asked to pair since?
+pub fn rejection_recorded(dir: &Path) -> bool {
+    rejection_path(dir).exists()
+}
+
+/// Asking to pair a phone is how the rejection screen is left, and this is the durable half of
+/// that one act (`PhoneRuntime::begin_pairing`).
+pub fn clear_rejection(dir: &Path) {
+    let _ = std::fs::remove_file(rejection_path(dir));
+}
+
 impl DeviceDesk {
     /// Open the desk, reading any paired device off disk.
     ///
@@ -1451,6 +1508,74 @@ pub(crate) mod tests {
         desk.forget().unwrap();
         assert!(!dir.0.join("phone/device.json").exists());
         assert!(!DeviceDesk::open(&dir.0).unwrap().is_paired());
+    }
+
+    // --- "They do not match", across a relaunch --------------------------------------------
+
+    /// **THE WHOLE OF THE REJECTION, AS A SECOND LAUNCH SEES IT.**
+    ///
+    /// Both halves in one test, because they are one promise to the person who pressed the
+    /// button: the phone he refused is still refused, AND the Mac still says it heard him.
+    ///
+    /// The teardown is reproduced here rather than called: `stop_because_the_phone_rejected_
+    /// the_words` needs a `tauri::AppHandle`, a Keychain and a tailnet. Its two durable acts
+    /// are the two lines below, in its own order — the device record goes (the route does this
+    /// synchronously before it rings), then the refusal is written down.
+    ///
+    /// EVERY ASSERTION HAS ITS POSITIVE CONTROL IN THE SAME TEST: before the rejection the same
+    /// directory answers `listener_should_run() == true` and `rejection_recorded() == false`, so
+    /// a version of this that passed because the path was wrong would fail on the first line.
+    #[test]
+    fn a_rejected_phone_is_still_refused_after_a_relaunch_and_the_notice_goes_with_it() {
+        let (dir, desk, phone, device, _c) = paired("rejected");
+
+        // POSITIVE CONTROL: a paired Mac serves, and remembers no refusal.
+        assert!(desk.listener_should_run(), "a paired Mac was not going to serve at all");
+        assert!(!rejection_recorded(&dir.0), "a refusal was recorded before anything was refused");
+
+        // The rejection, in the order the product does it.
+        desk.forget().unwrap();
+        record_rejection(&dir.0, 1_758_000_000_000).unwrap();
+
+        // --- THE RELAUNCH. Nothing of the first process survives but the directory. ---------
+        let after = DeviceDesk::open(&dir.0).unwrap();
+        assert!(
+            !after.listener_should_run(),
+            "the next launch would have started a socket for a phone that was refused"
+        );
+        assert!(!after.is_paired(), "the refused phone came back paired");
+        assert!(
+            rejection_recorded(&dir.0),
+            "the Mac forgot that a person stood at it and said the words did not match"
+        );
+
+        // AND THE REFUSED PHONE'S CREDENTIAL IS STILL NO CREDENTIAL. The socket is the real
+        // answer — there is none — but if anything ever reaches this desk with the old id, it
+        // is refused rather than served.
+        let refused = after.verify(&present(
+            &phone,
+            &device.id,
+            "a-challenge-from-the-last-life",
+            "GET",
+            "/api/events",
+            b"",
+        ));
+        assert!(refused.is_err(), "the refused phone was verified by the next launch");
+
+        // AND ASKING TO PAIR IS WHAT CLEARS IT — the one act, `PhoneRuntime::begin_pairing`.
+        clear_rejection(&dir.0);
+        assert!(!rejection_recorded(&dir.0), "the notice outlived the press that clears it");
+    }
+
+    /// The opposite default from `a_damaged_device_record_means_unpaired_rather_than_some_other
+    /// _phone`, and it is deliberate: a record that cannot be read must never be guessed into a
+    /// Mac that FORGOT a refusal.
+    #[test]
+    fn a_damaged_rejection_record_still_counts_as_a_refusal() {
+        let dir = TempDir::new("damaged-rejection");
+        std::fs::create_dir_all(dir.0.join("phone")).unwrap();
+        std::fs::write(dir.0.join("phone/rejected.json"), "{ this is not json").unwrap();
+        assert!(rejection_recorded(&dir.0));
     }
 
     #[test]
