@@ -98,7 +98,24 @@ const BANNED = [
   { pattern: /self[\s-]?signed/i, why: "a certificate this Mac signs for a phone to install" },
   { pattern: /certificate[\s-]?profile/i, why: "the Apple profile the trust page served" },
   { pattern: /Remove Profile/i, why: "walking the user out of a profile nothing installs" },
-  { pattern: /sixteen/i, why: "the sixteen certificate taps" },
+  {
+    /// **NARROWED 2026-09-20, and the narrowing is the finding.** The bare `/sixteen/i` was
+    /// the only pattern here that banned an ENGLISH NUMBER rather than a thing, and a number
+    /// belongs to whoever writes it. It matched `web/web-app/test/queue.test.js:209` —
+    /// *"the retry schedule doubles from a second and stops at sixteen"* — which is the
+    /// outbox's retry cap, argued in `lib/queue.js:96-98`, months older than the trust walk
+    /// and unrelated to a certificate in every way but the numeral. Measured on pristine
+    /// `049d8790`: `node no-home-network.js` → check `1.web-app` FAIL, one hit, that line.
+    ///
+    /// **A check whose only failure in a clean tree is a false one gets waived, and a waived
+    /// check is a dead check** — this project has three recorded instances of that in a day.
+    /// So the number is tied to the thing it counted: the TAPS of the trust walk. A
+    /// reintroduction has to write them, and every other shape of it — the port, the `.local`
+    /// origin, the trust QR, the profile, the self-signed certificate — is banned by name in
+    /// the ten patterns above and does not depend on this one at all.
+    pattern: /\b(?:sixteen|16)\b[^\n]{0,40}?\btaps?\b|\bcertificate[-\s]taps?\b/i,
+    why: "the sixteen certificate taps of the trust walk",
+  },
 ];
 
 /// **Strip comments, and nothing else.** String and template literals survive intact, because
@@ -341,7 +358,14 @@ function hitsIn(file, kind) {
       'const h = "a self-signed certificate";',
       'const i = "certificate profile";',
       'const j = "then Remove Profile";',
+      // FOUR SHAPES OF THE TAP COUNT, because the pattern that catches it was narrowed on
+      // 2026-09-20 and a narrowing is only safe when the things it still has to catch are
+      // written down. The first two are the product's own words; the last two are what a
+      // reintroduction would plausibly write instead.
       'const k = "sixteen taps";',
+      'const l = "the sixteen certificate taps";',
+      'const m = "16 more taps in Settings";',
+      'const n = "one certificate tap after another";',
     ].join("\n");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "richos-nohome-"));
     const file = path.join(dir, "planted.js");
@@ -366,6 +390,32 @@ function hitsIn(file, kind) {
       "this suite's own header trips it, so a comment recording the ruling is not safe anywhere"
     );
     return "header clean; the patterns and probes below it are code and are expected to match";
+  });
+
+  await run.check("7  a number that counted something else is not a violation", async () => {
+    // THE NEGATIVE CONTROL FOR THE 2026-09-20 NARROWING, and the counterpart to check 5.
+    // Check 5 proves the scanner can still see a reintroduction; this proves it has stopped
+    // seeing the outbox's retry cap, which is the false positive that made check 1 red on a
+    // clean tree at 049d8790. The first line is `web/web-app/test/queue.test.js:209`
+    // verbatim — the exact byte sequence that failed — so this check goes red again if the
+    // pattern is ever widened back over it.
+    const benign = [
+      "test('the retry schedule doubles from a second and stops at sixteen — the arithmetic, not a sleep', async () => {",
+      "const WORDS_PER_ROW = 16;",
+      "const cap = Math.min(next, sixteen);",
+      "const rows = 16; // sixteen rows of sixteen, countable by eye",
+    ].join("\n");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "richos-nohome-"));
+    const file = path.join(dir, "benign.js");
+    fs.writeFileSync(file, benign);
+    const hits = hitsIn(file, "js");
+    fs.rmSync(dir, { recursive: true, force: true });
+    assertEqual(
+      hits.map((h) => h.at + " " + JSON.stringify(h.found) + " — " + h.why),
+      [],
+      "a number that counts retries or word-list rows was read as the trust walk's tap count"
+    );
+    return "4 lines of arithmetic naming the number, 0 hits";
   });
 
   const failed = run.report();
