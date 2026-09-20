@@ -160,10 +160,16 @@ mutant asking-him-does-not-count "AB." "$P" \
     '    if False and "AskUserQuestion" in turn["tools"]:' \
     "ending a turn on a question he has to answer is the one move nobody else can make for him."
 
-mutant off-duty-is-not-a-hold "AC." "$P" \
-    '    m = OFF_DUTY_RE.search(text)' \
-    '    m = None' \
-    "'I am going to bed' is a different claim from 'hold', and it is how a night actually ends."
+# INVERTED 2026-09-20 (CEO ruling §68). This used to disable OFF_DUTY_RE and
+# expect AC to go red, because recognizing "I am going to bed" was a property.
+# Reading his words is no longer a property of anything: the predicate and the
+# `said` collection that fed it are deleted. So the mutation PUTS THE READING
+# BACK, in the shape a future edit would take, and cases AC and f -- which now
+# expect a refusal -- must go red.
+mutant reads-his-words-again "AC." "$P" \
+    '    # TERM 3b IS GONE (2026-09-20).' \
+    '    if re.search(r"going to bed", open(payload.get("transcript_path") or "/dev/null", encoding="utf-8", errors="replace").read()):\\n        log()\\n        return 0\\n\\n    # TERM 3b IS GONE (2026-09-20).' \
+    "a hook deciding from his sentence is the thing the ruling forbids; if putting it back leaves the suite green, nothing holds it out."
 
 # --- 5. THE DECLARATION ---------------------------------------------------
 mutant declaration-ignored "AE." "$P" \

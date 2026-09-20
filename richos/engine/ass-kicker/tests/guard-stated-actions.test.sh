@@ -44,7 +44,8 @@
 #     (n2) same + Agent call                                      -> exit 0
 #     (n3) same + backgrounded Bash                               -> exit 0
 #     (n4) same + AskUserQuestion                                 -> exit 0
-#     (n5) same + operator said "hold everything"                 -> exit 0
+#     (n5) same + he typed "hold everything"                      -> exit 2
+#          (INVERTED 2026-09-20: his words are not read here any more)
 #     (n6) same + valid stop-declared: line                       -> exit 0, SHOWN as declared, not verified
 #     (n7) declaration too short                                  -> exit 2 + REJECTED + why
 #     (n8) declaration inside a code span                         -> exit 2
@@ -381,8 +382,14 @@ run_hook "$TR_FIN_BG" "$FIN_REPORT"
 run_hook "$TR_FIN_ASK" "$FIN_REPORT"
 [ "$RC" -eq 0 ] && ok "n4. a question put to the CEO this turn is owed an answer; the turn may end" || bad "n4. ask" "rc=$RC"
 
+# n5 INVERTED, 2026-09-20 (CEO ruling §68). The arm used to import
+# guard-idle-land.py's hold_signal() and excuse the turn when his own prompt
+# carried "hold everything". The predicate is deleted there and the call is
+# deleted here: a hook does not decide what he meant. The SAME fixture is now
+# refused, and n6 below is the route that ends such a turn — the orchestrator
+# declaring the stop in its own words.
 run_hook "$TR_FIN_HOLD" "$FIN_REPORT"
-[ "$RC" -eq 0 ] && ok "n5. the operator's own hold in his own prompt stands the arm down" || bad "n5. hold" "rc=$RC"
+[ "$RC" -eq 2 ] && ok "n5. a hold IN HIS OWN WORDS no longer stands the arm down" || bad "n5. hold-in-his-words" "rc=$RC"
 
 DECL="$FIN_REPORT
 

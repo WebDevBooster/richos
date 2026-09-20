@@ -43,7 +43,9 @@ terms are read from the same functions the hook uses:
 read_turn -> landing_ops -> confirm_landing      term 1a
              agent_finishes                      term 1b
              started_work                        term 2
-             "AskUserQuestion" in tools / hold_signal   term 3
+             "AskUserQuestion" in tools                 term 3
+               (hold_signal was term 3's other half; deleted 2026-09-20 —
+                a hook does not read the CEO's words to decide anything)
              parse_record(<the record AS IT STOOD>)     term 4
 ```
 
