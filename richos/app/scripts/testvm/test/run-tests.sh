@@ -767,6 +767,20 @@ login_env() {
   printf '%s\n' "TESTVM_HOST_SECURITY=$TMP/host-security.sh"
 }
 
+t "engine payload: untarred with --strip-components 1, and CHECKED afterwards"
+  # Ray's vm9 audit: `--engine` had never worked. The release tarball's only
+  # top-level member is `engine/`, so the guest got $PAYLOAD/engine/engine/... and
+  # the app said "the RichOS engine isn't on this Mac" — which is what .7 and .8
+  # both reported. The flag is the fix; the check is the reason it cannot quietly
+  # rot again, and it asks the app's own question.
+  src="$(cat "$TESTVM_DIR/run.sh")"
+  has "$src" "--strip-components 1 -xzf"
+  has "$src" "/engine/scripts/hooks"
+  has "$src" "/engine/VERSION"
+  has "$src" "THE ENGINE PAYLOAD IS NOT AN ENGINE IN THE GUEST"
+  hasnt "$src" "tar -C '\$PAYLOAD/engine' -xzf"
+t_done
+
 t "claude login: the host being signed out is a refusal that names the one action"
   err="$(env $(login_env) HOST_SECURITY_LOGGED_OUT=1 "$TESTVM_DIR/claude-login.sh" host-check 2>&1)"; no $?
   has "$err" "/login on the host first"
@@ -806,12 +820,42 @@ t "claude login: the item is written under BOTH names the guest could look up"
   hasnt "$payload" '-a "alex"'
 t_done
 
-t "claude login: a read-back that finds nothing says NOT logged in and does not pretend"
+t "claude login: the keychain route alone is still enough — two stores, either one"
+  # The file is the primary since Ray's finding, and the keychain write is kept
+  # because it is a DIFFERENT mechanism from the one that failed him: `security
+  # -i` with `-X <hex>` on stdin, not `add-generic-password -w`. Here the file
+  # store holds nothing and the keychain item is there, and that is a login.
   out="$(env $(login_env) STUB_LOG=/dev/null STUB_SECURITY_STDIN="$TMP/login.stdin2" \
+         STUB_CLAUDE_LOGIN=present STUB_CREDENTIAL_EMPTY=1 \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>/dev/null)"
+  ok $? "the keychain item alone must be enough"
+  eq "$out" "claude login: guest logged in"
+t_done
+
+t "claude login: the credential file is the primary route, and it carries the VALUE"
+  # Ray's vm9 audit, 2026-09-20: `security add-generic-password -w` from a pipe
+  # with no tty stores an EMPTY password and exits 0 — success reported, nothing
+  # stored. So the file store is the primary and its SIZE is checked against the
+  # host's, which is the one check that catches a store that lies.
+  : > "$TMP/login.log"
+  out="$(env $(login_env) STUB_LOG="$TMP/login.log" STUB_SECURITY_STDIN="$TMP/login.stdin3" \
          STUB_CLAUDE_LOGIN=absent \
          "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>/dev/null)"
-  no $? "an absent item must not exit 0"
+  ok $? "the file route alone must be enough"
+  eq "$out" "claude login: guest logged in"
+  eq "$(cat "$STUB_GUEST_FS/credentials.json")" "$FAKE_CRED"
+  has "$(cat "$TMP/login.log")" ".claude/.credentials.json"
+  has "$(cat "$TMP/login.log")" "umask 077"
+  hasnt "$(cat "$TMP/login.log")" "not-a-real-token"
+t_done
+
+t "claude login: a store that reports success and holds NOTHING is caught here, not at the first model turn"
+  out="$(env $(login_env) STUB_LOG=/dev/null STUB_SECURITY_STDIN="$TMP/login.stdin4" \
+         STUB_CLAUDE_LOGIN=absent STUB_CREDENTIAL_EMPTY=1 \
+         "$TESTVM_DIR/claude-login.sh" push richos-test-a "/Users/admin/testvm/richos-test-a/home" 2>"$TMP/login.err")"
+  no $? "an empty store must not be reported as a login"
   eq "$out" "claude login: guest NOT logged in"
+  has "$(cat "$TMP/login.err")" "bytes where"
 t_done
 
 t "claude login: a home that is not the guest's is refused before anything is read"

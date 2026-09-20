@@ -169,7 +169,20 @@ report() {  # report <logged in|NOT logged in>
   printf 'claude login: guest %s\n' "$1"
 }
 
+# The credential file's size in the guest, and nothing about its contents. A
+# size is a fact that can be compared with the host's without the value ever
+# being read back out of the guest — and it is precisely the check that catches
+# Ray's failure mode, where a store reports success and holds nothing.
+guest_credential_bytes() {
+  cg "wc -c < '$GUEST_HOME/.claude/.credentials.json' 2>/dev/null || echo 0" 2>/dev/null \
+    | tr -d '[:space:]'
+}
+
 if [ "$CMD" = "check" ]; then
+  FB="$(guest_credential_bytes)"
+  if [ "${FB:-0}" -gt 1 ] 2>/dev/null; then
+    report "logged in"; exit 0
+  fi
   if guest_logged_in "$SVC_SCOPED" || guest_logged_in "$TESTVM_CLAUDE_KC_SERVICE"; then
     report "logged in"; exit 0
   fi
@@ -183,19 +196,47 @@ if ! host_logged_in; then
   exit 2
 fi
 
-# THE ONLY PLACE THE VALUE EXISTS: read from the host keychain straight into a
-# hex string, written to no file, printed nowhere, and handed to the guest on
-# stdin below. `-w` prints the value, so this pipeline is the one line in the
-# harness that must never gain a `tee`, a log, or a debug echo.
-HEX="$(perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
+# THE ONLY PLACE THE VALUE EXISTS: read from the host keychain straight into
+# this process's memory, written to no file on this Mac, printed nowhere, and
+# handed to the guest on stdin below. `-w` prints the value, so this pipeline is
+# the one place in the harness that must never gain a `tee`, a log, or a debug
+# echo.
+SECRET="$(perl -e 'alarm shift; exec @ARGV' "$TESTVM_CLAUDE_LOGIN_SECONDS" \
         "$TESTVM_HOST_SECURITY" find-generic-password \
           -s "$TESTVM_CLAUDE_KC_SERVICE" -a "$TESTVM_HOST_CLAUDE_ACCOUNT" -w 2>/dev/null \
-       | perl -0777 -pe 's/\n\z//' | xxd -p | tr -d '\n')"
-if [ -z "$HEX" ]; then
+       | perl -0777 -pe 's/\n\z//')"
+if [ -z "$SECRET" ]; then
   report "NOT logged in"
   printf '[testvm] the host credential could not be read (locked keychain, or a dialog was waiting)\n' >&2
   exit 3
 fi
+SECRET_BYTES="${#SECRET}"
+HEX="$(printf '%s' "$SECRET" | xxd -p | tr -d '\n')"
+
+# --- THE FILE STORE, which is the route that is known to work in a guest ------
+# Ray's vm9 audit, 2026-09-20: `security add-generic-password -w` reading from a
+# pipe with no tty stores an EMPTY password AND EXITS 0 — a sign-in that reports
+# success and is not one. That is the route this file never took (it uses
+# `security -i` with `-X <hex>`, which round-trips a real value; proved on this
+# host against a throwaway keychain), but his finding names the right primary:
+# `claude` keeps a FILE store as well, and a file has no tty, no securityd and no
+# session to be on the wrong side of.
+#
+# Where: `.credentials.json` inside the config dir — CLAUDE_CONFIG_DIR when set,
+# `~/.claude` otherwise. `run.sh` sets it to the fixture home's `.claude`, and a
+# `claude` started by hand over ssh uses the guest user's own. Both are written,
+# for the same reason both keychain service names are.
+#
+# The value goes in on STDIN once and is copied inside the guest, so it is never
+# an argument and never crosses the wire twice. `umask 077` before the write,
+# because the file IS the credential.
+log "writing the login into the guest's credential file (stdin only, never argv)"
+FILE_BYTES="$(printf '%s' "$SECRET" | cg_stdin "umask 077; \
+  mkdir -p '$GUEST_HOME/.claude' ~/.claude && \
+  cat > '$GUEST_HOME/.claude/.credentials.json' && \
+  cp '$GUEST_HOME/.claude/.credentials.json' ~/.claude/.credentials.json && \
+  chmod 600 '$GUEST_HOME/.claude/.credentials.json' ~/.claude/.credentials.json && \
+  wc -c < '$GUEST_HOME/.claude/.credentials.json'" 2>/dev/null | tr -d '[:space:]')"
 
 PAYLOAD="$(printf 'add-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\nadd-generic-password -U -a "%s" -s "%s" -X "%s" "%s"\n' \
   "$TESTVM_GUEST_USER" "$SVC_SCOPED"               "$HEX" "$GUEST_HOME/Library/Keychains/login.keychain-db" \
@@ -230,12 +271,28 @@ printf '%s\n' "$PAYLOAD" | cg_stdin "env HOME='$GUEST_HOME' perl -e 'alarm shift
   '$GUEST_HOME/Library/Keychains/login.keychain-db' >/dev/null 2>&1; security -i\"" >/dev/null 2>&1
 PUSH_RC=$?
 # Gone from this process the moment it is no longer needed.
-HEX=""; PAYLOAD=""
+HEX=""; PAYLOAD=""; SECRET=""
 
-# Read BACK, because "the write returned 0" and "the item is there under the
-# name the app will ask for" are two different claims — the whole lesson of
-# this harness's freshness rules.
-if guest_logged_in "$SVC_SCOPED"; then
+# Read BACK, because "the write returned 0" and "the store holds what the app
+# will ask for" are two different claims — the whole lesson of this harness's
+# freshness rules, and exactly the gap Ray found in the `-w` route, which
+# reports success while storing nothing.
+#
+# The file's SIZE is compared with the host credential's, so a store that took
+# the write and kept an empty value fails here instead of at the first model
+# turn. The contents are never read back out of the guest.
+FILE_OK=0
+if [ "${FILE_BYTES:-0}" = "$SECRET_BYTES" ]; then
+  FILE_OK=1
+else
+  GB="$(guest_credential_bytes)"
+  [ "${GB:-0}" = "$SECRET_BYTES" ] && FILE_OK=1
+fi
+KC_OK=0
+guest_logged_in "$SVC_SCOPED" && KC_OK=1
+
+if [ "$FILE_OK" -eq 1 ] || [ "$KC_OK" -eq 1 ]; then
+  log "login stored: credential file $([ "$FILE_OK" -eq 1 ] && echo "yes ($SECRET_BYTES bytes, matching this Mac's)" || echo no), keychain item $([ "$KC_OK" -eq 1 ] && echo yes || echo no)"
   report "logged in"
   exit 0
 fi
@@ -243,6 +300,8 @@ fi
 report "NOT logged in"
 cat >&2 <<EOF
 [testvm] WARNING: $VM is NOT signed in to claude (write rc=$PUSH_RC).
+         Neither store took it: the credential file is ${FILE_BYTES:-0} bytes where
+         this Mac's credential is $SECRET_BYTES, and no keychain item came back.
          Everything that needs no model turn still renders and still
          screenshots. A model turn in the guest will answer
          "Not logged in - Please run /login".

@@ -74,6 +74,24 @@ case "$CMD" in
     daemon_is_absent && no_daemon ;;
 esac
 
+case "$CMD" in
+  *".credentials.json"*)
+    # The FILE store, which is the route Ray's vm9 audit named: the write takes
+    # the value on stdin and the guest answers with its SIZE. `STUB_CREDENTIAL_
+    # EMPTY=1` is his failure mode exactly — a store that takes the write,
+    # reports success, and holds nothing.
+    cred="${STUB_GUEST_FS:-/tmp}/credentials.json"
+    case "$CMD" in
+      *"cat > "*)
+        if [ -n "${STUB_CREDENTIAL_EMPTY:-}" ]; then cat >/dev/null; : > "$cred"
+        else cat > "$cred"; fi ;;
+    esac
+    case "$CMD" in
+      *"wc -c"*) wc -c < "$cred" 2>/dev/null || echo 0 ;;
+    esac
+    exit 0 ;;
+esac
+
 # stdin is consumed for the commands that take it, exactly as ssh would, so a
 # test can assert what was written rather than what was intended.
 case "$CMD" in
