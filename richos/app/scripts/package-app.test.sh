@@ -90,21 +90,28 @@
 #   E5  an exported RICHOS_SIGNING_IDENTITY does not reach discovery       [shim]
 #   Z   the operator's real keychain inventory is unchanged by this suite
 #
-# THIS SUITE OPENS NO WINDOW, and it says so because `run-tests.test.sh` case S6 scans this
-# directory for anything that could put one on the operator's Mac and refuses silence. The
-# match here is line 262, `cp /bin/echo "$b/Contents/MacOS/RichOS"` — a bundle FIXTURE whose
-# executable is /bin/echo, copied into place and never run. Nothing in this file executes a
-# bundle, calls `open`, or drives System Events; every `richos-tauri` in it is a string in a
-# Cargo.toml it writes.
-# run-tests: no-host-screen: every bundle here is a fixture whose executable is /bin/echo, copied and never launched
-# run-tests: inputs richos/app/scripts/package-app.test.sh richos/app/scripts/package-app.sh richos/app/scripts/install-signing-cert.sh richos/app/scripts/nightly-local.py richos/app/src-tauri/Cargo.toml richos/app/src-tauri/Info.plist richos/app/src-tauri/Entitlements.plist
+# No application window is opened. Signed bundles contain a native fixture
+# that prints a source stamp. The isolation test runs a headless file reader.
+# run-tests: no-host-screen: bundles contain a native fixture; the isolated probe runs only that fixture and the headless compiler
+# run-tests: inputs richos/app/scripts/package-app.test.sh richos/app/scripts/package-app.sh richos/app/scripts/lib/bundle_invariants.py richos/app/scripts/lib/no_host_paths.py richos/app/scripts/lib/probe_packaged.py richos/app/scripts/lib/probe_packaged.test.py richos/engine/scripts/lib/named-persons.py richos/app/scripts/install-signing-cert.sh richos/app/scripts/nightly-local.py richos/app/src-tauri/Cargo.toml richos/app/src-tauri/Info.plist richos/app/src-tauri/Entitlements.plist
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SRC_DIR/package-app.sh"
 
-TMP="$(mktemp -d -t package-app-test.XXXXXX)"
+TMP="$(python3 -c 'import tempfile; print(tempfile.mkdtemp(prefix="package-app-test-"))')"
 trap 'rm -rf "$TMP"' EXIT
+# The private roster is never read by these synthetic bundle cases.
+export RICHOS_NAMED_PERSONS_FILE="$TMP/named-persons"
+printf 'name: Synthetic Forbiddenperson\n' > "$RICHOS_NAMED_PERSONS_FILE"
+chmod 600 "$RICHOS_NAMED_PERSONS_FILE"
+
+# Native, headless fixture with a real compiled source stamp.
+cat > "$TMP/fixture.c" <<'C'
+#include <stdio.h>
+int main(void) { puts("0123456789abcdef0123456789abcdef01234567"); return 0; }
+C
+cc "$TMP/fixture.c" -o "$TMP/fixture" || exit 2
 
 REAL_IDS_BEFORE="$(security find-identity -v -p codesigning 2>/dev/null || true)"
 
@@ -256,6 +263,7 @@ echo "=== D. verify_bundle, against a real signed bundle ==="
 # against. The bundle below is signed by the real codesign.
 SB="$TMP/sandbox"; mkdir -p "$SB/scripts" "$SB/src-tauri/icons"
 ln -s "$SCRIPT" "$SB/scripts/package-app.sh"
+ln -s "$SRC_DIR/lib" "$SB/scripts/lib"
 head -c 4096 /dev/urandom > "$SB/src-tauri/icons/icon.icns"
 # THE VERSION THE SANDBOX INTENDS. `verify_bundle` compares the bundle's
 # CFBundleShortVersionString against this, which is what stops a manifest announcing one
@@ -268,7 +276,7 @@ SBS="$SB/scripts/package-app.sh"
 make_bundle() {   # make_bundle <dir>
   local b="$1"
   rm -rf "$b"; mkdir -p "$b/Contents/MacOS" "$b/Contents/Resources"
-  cp /bin/echo "$b/Contents/MacOS/RichOS"
+  cp "$TMP/fixture" "$b/Contents/MacOS/RichOS"
   cp "$SB/src-tauri/icons/icon.icns" "$b/Contents/Resources/icon.icns"
   cat > "$b/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -277,6 +285,7 @@ make_bundle() {   # make_bundle <dir>
 <key>CFBundleExecutable</key><string>RichOS</string>
 <key>CFBundleIdentifier</key><string>com.richos.app</string>
 <key>CFBundleName</key><string>RichOS</string>
+<key>RichOSSourceCommit</key><string>0123456789abcdef0123456789abcdef01234567</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>NSMicrophoneUsageDescription</key><string>Rich listens when you tap the talk button.</string>
 <key>CFBundleShortVersionString</key><string>9.9.9</string>
@@ -332,6 +341,50 @@ expect "D6 a bundle whose signature was removed fails" 1 "codesign --verify --de
 make_bundle "$BUNDLE"
 run bash "$SBS" --verify-only "$BUNDLE" --sign developer-id --expect-notarized
 expect "D7 --expect-notarized runs the stapled-ticket check" 1 "no valid stapled notarization ticket"
+
+# Each added invariant is defeated independently with a freshly signed bundle.
+resign() { codesign --force --sign - --timestamp=none "$BUNDLE" >/dev/null 2>&1; }
+make_bundle "$BUNDLE"
+/usr/libexec/PlistBuddy -c 'Delete :RichOSSourceCommit' "$BUNDLE/Contents/Info.plist"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I1 missing source stamp refuses" 1 "bundle-source-identity"
+make_bundle "$BUNDLE"
+/usr/libexec/PlistBuddy -c 'Set :RichOSSourceCommit ffffffffffffffffffffffffffffffffffffffff' "$BUNDLE/Contents/Info.plist"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I2 inconsistent compiled source stamp refuses" 1 "bundle-source-identity"
+make_bundle "$BUNDLE"
+printf '\0/Users/fixture-builder/project\0' > "$BUNDLE/Contents/Resources/leak.bin"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I3 binary home path refuses during verify-only" 1 "bundle-home-paths"
+make_bundle "$BUNDLE"
+printf '\0Synthetic Forbiddenperson\0' > "$BUNDLE/Contents/Resources/leak.bin"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I4 binary private name refuses" 1 "bundle-private-names"
+make_bundle "$BUNDLE"
+touch "$BUNDLE/Contents/Resources/Synthetic Forbiddenperson"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I5 private member name refuses" 1 "bundle-private-names"
+make_bundle "$BUNDLE"
+run env RICHOS_NAMED_PERSONS_FILE="$TMP/absent-list" bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I6 missing private list cannot look clean" 1 "bundle-private-names"
+make_bundle "$BUNDLE"
+ln -s "$SB/src-tauri/icons/icon.icns" "$BUNDLE/Contents/Resources/outside"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I7 a member resolving outside the bundle refuses" 1 "bundle-contained-paths"
+make_bundle "$BUNDLE"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable ../MacOS/RichOS' "$BUNDLE/Contents/Info.plist"
+resign
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I8 executable path traversal refuses" 1 "bundle-executable-path"
+make_bundle "$BUNDLE"
+run bash "$SBS" --verify-only "$BUNDLE" --release
+expect "I9 intact positive control recovers" 0 "diagnostic only"
 
 # ---- D13-D17: THE BUNDLE HOLDS NO STATE (spec point 17) -------------------------------
 #
@@ -418,6 +471,7 @@ expect "D11 an explicit version overlay is the intended version, not a mismatch"
 # A second sandbox, because the first one is deliberately not a repository at all.
 SBG="$TMP/sandbox-tagged"; mkdir -p "$SBG/scripts" "$SBG/src-tauri/icons"
 ln -s "$SCRIPT" "$SBG/scripts/package-app.sh"
+ln -s "$SRC_DIR/lib" "$SBG/scripts/lib"
 cp "$SB/src-tauri/icons/icon.icns" "$SBG/src-tauri/icons/icon.icns"
 printf '[package]\nname = "richos-tauri"\nversion = "9.9.9"\n' > "$SBG/src-tauri/Cargo.toml"
 # HOOKS OFF FOR THE FIXTURE, and not as a convenience. This machine sets
@@ -458,6 +512,7 @@ expect "F2 --release declares intent and the same bare version is accepted" 0 "O
 # because `make_bundle`'s fixed 9.9.9 Cargo.toml would otherwise disagree with it.
 NIGHTLY_SB="$TMP/sandbox-nightly"; mkdir -p "$NIGHTLY_SB/scripts" "$NIGHTLY_SB/src-tauri/icons"
 ln -s "$SCRIPT" "$NIGHTLY_SB/scripts/package-app.sh"
+ln -s "$SRC_DIR/lib" "$NIGHTLY_SB/scripts/lib"
 cp "$SB/src-tauri/icons/icon.icns" "$NIGHTLY_SB/src-tauri/icons/icon.icns"
 printf '[package]\nname = "richos-tauri"\nversion = "9.9.9-nightly.20260917.1"\n' > "$NIGHTLY_SB/src-tauri/Cargo.toml"
 NIGHTLY_BUNDLE="$TMP/RichOS-nightly.app"
@@ -511,6 +566,7 @@ expect "F11 --nightly with the version Cargo.toml already carries resolves" 0 "v
 # this repository's own tree -------------------------------------------------------------
 DEV_SB="$TMP/sandbox-dev"; mkdir -p "$DEV_SB/scripts" "$DEV_SB/src-tauri/icons"
 ln -s "$SCRIPT" "$DEV_SB/scripts/package-app.sh"
+  ln -s "$SRC_DIR/lib" "$DEV_SB/scripts/lib"
 cp "$SB/src-tauri/icons/icon.icns" "$DEV_SB/src-tauri/icons/icon.icns"
 printf '[package]\nname = "richos-tauri"\nversion = "9.9.9"\n' > "$DEV_SB/src-tauri/Cargo.toml"
 "${FIXTURE_GIT[@]}" -C "$DEV_SB" init -q . >/dev/null 2>&1
@@ -577,6 +633,9 @@ if [ "$REAL_IDS_AFTER" = "$REAL_IDS_BEFORE" ]; then
 else
   bad "Z THE SUITE CHANGED THE REAL KEYCHAIN" "before='$REAL_IDS_BEFORE' after='$REAL_IDS_AFTER'"
 fi
+
+run python3 "$SRC_DIR/lib/probe_packaged.test.py"
+expect "I10 filesystem guard: intact, outside copy blocked, defense defeated, restored" 0 "OK"
 
 echo ""
 if [ "$FAIL" -gt 0 ]; then

@@ -589,6 +589,12 @@ except Exception: print("")' 2>/dev/null || true)"
                   "${#state_paths[@]}" "$(printf '%s ' "${state_paths[@]}")")")
   fi
 
+  # Finished-bundle checks also run for --verify-only. Engine delivery, phone
+  # embedding and release-channel rules remain with their existing owners.
+  if ! python3 "$here/lib/bundle_invariants.py" "$app"; then
+    failures+=("named bundle invariants failed (see diagnostics above)")
+  fi
+
   if [ ${#failures[@]} -gt 0 ]; then
     warn ""
     warn "FAILED — the bundle is not shippable:"
