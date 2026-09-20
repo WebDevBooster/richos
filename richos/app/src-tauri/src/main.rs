@@ -117,6 +117,7 @@ mod phone;
 /// than a URL opener: the how-to screens need five fixed destinations, so the command takes the
 /// address as a key into a table rather than as data to act on.
 mod opener;
+mod emission_trace;
 
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
@@ -128,7 +129,12 @@ struct TauriEmitter {
 impl TurnObserver for TauriEmitter {
     fn on_event(&self, event: &StreamEvent) {
         // Best-effort: a dropped/absent webview never affects the turn (ledger is truth).
-        let _ = self.app.emit(event.event_name(), event.payload());
+        let _ = emission_trace::emit(
+            event,
+            hop_trace_is_on(),
+            || self.app.emit(event.event_name(), event.payload()),
+            |receipt| eprintln!("[richos] ui-emit {receipt}"),
+        );
     }
 }
 
