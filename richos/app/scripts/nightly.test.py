@@ -565,6 +565,37 @@ class OneCodePathTests(unittest.TestCase):
         self.assertGreaterEqual(len(refused), 20, refused)
 
 
+class PromotionRecordTests(unittest.TestCase):
+    """The COMMITTED record, not a fixture of one.
+
+    Every other case about promotions passes `promotion_decision` text it wrote itself,
+    which proves the parser and says nothing about the file the command actually reads.
+    A record that has stopped being readable JSON refuses every stable release, and the
+    place to find that out is here rather than on the morning he decides to promote one.
+    """
+
+    def record(self):
+        return json.loads((n.ROOT / n.PROMOTIONS).read_text())
+
+    def test_the_committed_record_is_a_list_this_command_can_read(self):
+        self.assertIsInstance(self.record(), list)
+
+    def test_every_recorded_decision_is_one_this_command_accepts(self):
+        """Each entry is fed to the real check, so a malformed one cannot sit unnoticed.
+
+        Empty today, and that is the correct state: nothing has been promoted. This case
+        is written for the day it is not empty, and it costs nothing until then.
+        """
+        text = (n.ROOT / n.PROMOTIONS).read_text()
+        for entry in self.record():
+            with self.subTest(tag=entry.get("tag")):
+                accepted = n.promotion_decision(entry["tag"], text)
+                self.assertEqual(accepted["tag"], entry["tag"])
+                self.assertTrue(accepted["words"].strip())
+                # A promotion names a NIGHTLY, never a stable tag or a branch.
+                n.nightly_key(entry["tag"].removeprefix("v"))
+
+
 class StableChannelTests(GitFixture):
     """Stable is a REBUILD of a published nightly's commit, never its bytes re-tagged.
 
