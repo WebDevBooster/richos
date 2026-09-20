@@ -298,7 +298,42 @@ if [ -n "$ENGINE" ] && [ -e "$ENGINE" ]; then
   log "copying the engine payload in..."
   scp "${TESTVM_SSH_OPTS[@]}" -O -i "$TESTVM_SSH_KEY" "$ENGINE" \
     "$TESTVM_GUEST_USER@$IP:$PAYLOAD/engine.tar.gz" >/dev/null
-  guest_ssh "$VM" "mkdir -p '$PAYLOAD/engine' && tar -C '$PAYLOAD/engine' -xzf '$PAYLOAD/engine.tar.gz'"
+  # --strip-components 1, AND A CHECK — FIXED 2026-09-20, from Ray's vm9 audit.
+  #
+  # `--engine` had never worked. The release tarball's only top-level member is
+  # `engine/` (`tar -tzf richos-engine-1.2.0.tar.gz | head -1` → `engine/`), so
+  # untarring it into `$PAYLOAD/engine` produced `$PAYLOAD/engine/engine/…`.
+  # `setup::engine_looks_valid` asks for `<dir>/scripts/hooks` and `<dir>/VERSION`
+  # and found neither one level up, so the app said *"the RichOS engine isn't on
+  # this Mac"* — which is exactly what nightlies .7 and .8 both reported, and why
+  # neither could measure Mac → phone.
+  #
+  # The check after the untar is the point, not the flag: a silently-wrong
+  # directory shape is what cost two walks, and a flag alone would be another
+  # thing believed rather than measured. Same predicate as the app's, so this
+  # cannot pass while the app disagrees.
+  guest_ssh "$VM" "mkdir -p '$PAYLOAD/engine' && tar -C '$PAYLOAD/engine' --strip-components 1 -xzf '$PAYLOAD/engine.tar.gz'"
+  ENGINE_SHAPE="$(guest_ssh "$VM" "if [ -d '$PAYLOAD/engine/scripts/hooks' ] && [ -f '$PAYLOAD/engine/VERSION' ]; then echo ok; else echo bad; fi" | tr -d '[:space:]')"
+  if [ "$ENGINE_SHAPE" != "ok" ]; then
+    NESTED="$(guest_ssh "$VM" "ls '$PAYLOAD/engine' 2>/dev/null | head -5 | tr '\n' ' '")"
+    cat >&2 <<EOF
+
+========================================================================
+[testvm] REFUSED: THE ENGINE PAYLOAD IS NOT AN ENGINE IN THE GUEST
+========================================================================
+  $PAYLOAD/engine holds: $NESTED
+
+  The app asks for <dir>/scripts/hooks and <dir>/VERSION (setup::engine_looks_valid)
+  and would answer "the RichOS engine isn't on this Mac", which is how nightlies
+  .7 and .8 both lost the Mac -> phone half of the walk. The tarball is expected to
+  have ONE top-level member; check it with:
+    tar -tzf $ENGINE | head -3
+========================================================================
+EOF
+    clean_up_this_runs_clone
+    exit 1
+  fi
+  log "engine payload verified in the guest (scripts/hooks + VERSION present)"
 fi
 
 # --- 4. launch --------------------------------------------------------------
