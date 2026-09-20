@@ -1,4 +1,5 @@
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,19 @@ import state
 
 
 class Execution(unittest.TestCase):
+    def test_lock_wait_counts_toward_command_deadline(self):
+        with tempfile.TemporaryDirectory(prefix='lint-cache-lock-') as tmp:
+            path = Path(tmp) / 'cache.lock'
+            command = [sys.executable, '-c',
+                       'import fcntl,sys; f=open(sys.argv[1]); fcntl.flock(f,fcntl.LOCK_EX); print("acquired")', str(path)]
+            with path.open('w') as owner:
+                fcntl.flock(owner, fcntl.LOCK_EX)
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    run(command, cwd=tmp, timeout=.2)
+            result, _ = run(command, cwd=tmp, timeout=2)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.strip(), 'acquired')
+
     def test_missing_tool(self):
         with self.assertRaises(FileNotFoundError):
             run(['/nonexistent/lint-tool'], cwd=Path.cwd())
@@ -73,6 +87,9 @@ while True: time.sleep(1)
                  patch('driver.rust.collect', side_effect=lambda *a: (calls.append(a) or ({}, []))), \
                  patch('driver.enforce'), patch('driver.checked', return_value='a' * 40):
                 driver.tauri(root, args, rows, {}, {})
+                remaining = calls[0][2] - time.monotonic()
+                self.assertGreater(remaining, 170)
+                self.assertLessEqual(remaining, 180)
                 driver.tauri(root, args, rows, {}, {})
                 self.assertEqual(len(calls), 1)
                 for changed in ('core-changed', 'tauri-changed', 'toolchain-changed', 'lint-changed'):
