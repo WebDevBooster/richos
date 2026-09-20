@@ -7406,7 +7406,7 @@ fn not_retained() -> serde_json::Value {
 /// preference lookup and fails open to the calm answer. Same question, two different jobs,
 /// and collapsing them would drag one of the two to the wrong side.
 fn techy_company_of(state: &State<AppState>, thread_id: &str) -> Option<String> {
-    let spine = state.spine.try_lock().ok()?;
+    let spine = state.reader.snapshot();
     let binding = spine.ledger().thread_binding(thread_id).ok()?;
     Some(binding.entity_id().as_str().to_string())
 }
