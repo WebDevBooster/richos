@@ -7,10 +7,24 @@
 # WHY THIS EXISTS
 # =========================================================================================
 # After an edit an engineer in this tree has three options and all three are bad: run the
-# browser suites (19 minutes for 55 of them), run `run-tests.sh` (the two heaviest suites
-# alone are 286 s by that script's own header, and a full pass is several times that), or
-# guess. Guessing is what usually happens, and a guess is how a fix reaches a candidate
-# without the one suite that would have caught it.
+# browser suites, run `run-tests.sh`, or guess. Guessing is what usually happens, and a guess
+# is how a fix reaches a candidate without the one suite that would have caught it.
+#
+# THE TWO COSTS, WITH THE FILE EACH IS READ FROM, because a number in a header with no source
+# beside it is a number nobody can check:
+#
+#   * `ui/tests/suite-weights.tsv`, its own line 10: "55 suite(s), 1510 s serial, measured
+#     2026-09-20" — twenty-five minutes, re-measured on this Mac. (Summing the rows gives
+#     1512; the file's header is rounded. Either way it is twenty-five minutes.)
+#   * `run-tests.sh`, its own header: `make-release.test.sh` and `make-engine-asset.test.sh`
+#     are "286 s between them, 30% of a whole build".
+#
+# AND THE SAVING IS NOT UNIFORM, which is the honest half. Against those weights, summed over
+# the suites this script names: the harness1 land (e7facc99) costs ONE suite that measures
+# under a second, instead of 1512; the phonelive3 land (315baf03) costs 1076 s of 1512,
+# because it touched `ui/mock.js` and the whole-manifest gates read everything (`contrast.js`
+# alone is 150 s); the shots1 land (62e5affd) costs all 1512, and the output says which one
+# file made it so. A tool that claimed a uniform saving would be lying about the third case.
 #
 # T3 Code's agent contract is the reference here — *"smallest proof that the change works"*
 # and *"do not run repo-wide checks"* (adoption ledger §2.5, ADOPT AS-IS). What that
