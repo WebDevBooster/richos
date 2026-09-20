@@ -52,6 +52,7 @@ const {
   leaveHome,
   loadPlaywright,
   shot,
+  awaitWorkerChipSettled,
   createRun,
   assert,
   assertEqual,
@@ -165,6 +166,36 @@ async function settled(page) {
   await shellSettled(page);
   await awaitSettled(page);
   await flushFrames(page);
+}
+
+/// ONE SHUTTER FOR EVERY COMMITTED SHOT IN THIS SUITE, and it waits for the one piece of the
+/// shell this suite never drove.
+///
+/// `main.js:3113` polls `get_worker_status` every 3,000 ms and rebuilds the drill chip from
+/// the answer, with NO leading call — so for up to three seconds after the app opens a
+/// conversation the chip zone is empty, and then a whole line of text arrives in it. Every
+/// shot in this file is a full-page picture of that shell, taken seconds after the app came
+/// up, which is precisely that window.
+///
+/// MEASURED, 2026-09-20, on this tree: a probe that reached `updates-cue-absent`'s state and
+/// read `document.body.innerText` three times 1.6 s apart found the line `⋯ 1 working · 1
+/// done · 1 I can't see` absent at the first two reads and present at the third. Nothing this
+/// suite asserts is about the work chip, and a picture that has it in one run and not the
+/// next cannot show a real change to the cue this file exists to prove.
+///
+/// The wait is the harness's own, on the PRODUCT'S re-render agreeing with itself rather than
+/// on a duration — the same call `memory-strategy.js` puts in front of all nine of its
+/// committed shots. It THROWS rather than photographing a surface that is still moving.
+async function evidence(page, name) {
+  const chip = await awaitWorkerChipSettled(page);
+  if (!chip.settled) {
+    throw new Error(
+      name + ": the work chip was still changing after the budget (" + chip.renders +
+        " re-renders, last text " + JSON.stringify(chip.text) + "). A shot of a surface that " +
+        "is still moving is evidence of a moment, not of a state."
+    );
+  }
+  return shot(page, name);
 }
 
 /// A COMMAND'S ROUND TRIP, WAITED OUT ON ITS OWN END STATE.
@@ -531,7 +562,7 @@ async function main() {
     assert(sig.check !== "Try again", "a refused signature must NOT offer a retry — it got: " + sig.check);
     assert(/not signed by RichOS/.test(sig.headline), "and says what happened: " + sig.headline);
     assert(sig.install === null && sig.relaunch === null, "nothing offers to install it anyway");
-    await shot(page, SHOTS + "/updates-signature-refused");
+    await evidence(page, SHOTS + "/updates-signature-refused");
 
     for (const kind of ["offline", "network", "manifest", "install", "configuration", "other"]) {
       await setState(
@@ -616,7 +647,7 @@ async function main() {
     await setState(page, view({ state: "available", availableVersion: "0.1.1", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x", checkedAt: Date.now() }));
     assertEqual(await page.getAttribute("#set-btn", "data-update-mark"), "available", "marked while the menu is shut");
     assertEqual(await page.locator("#update-mark").count(), 1, "one mark, not a stack of them");
-    await shot(page, SHOTS + "/updates-mark-on-the-button");
+    await evidence(page, SHOTS + "/updates-mark-on-the-button");
 
     await setState(page, view({ state: "ready", availableVersion: "0.1.1", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" }));
     assertEqual(await page.getAttribute("#set-btn", "data-update-mark"), "ready", "and changes meaning for ready");
@@ -746,7 +777,7 @@ async function main() {
       "the accessible name carries the visible label verbatim and then says what pressing it does: " + cue.ariaLabel
     );
     await settled(page);
-    await shot(page, SHOTS + "/updates-cue-available");
+    await evidence(page, SHOTS + "/updates-cue-available");
 
     await setState(page, view({ state: "ready", availableVersion: "0.1.2", endpointIsPlaceholder: false, endpoint: "https://u.example.com/x" }));
     cue = await readCue(page);
@@ -754,7 +785,7 @@ async function main() {
     assertEqual(cue.cueState, "ready", "and it changed meaning");
     assert(/RichOS 0\.1\.2 is ready\./.test(cue.text), "naming the version again: " + cue.text);
     await settled(page);
-    await shot(page, SHOTS + "/updates-cue-ready");
+    await evidence(page, SHOTS + "/updates-cue-ready");
 
     // AND BACK. A build that only ever ADDS the element passes the half above and is the
     // exact failure the ruling names, so the return trip is asserted rather than assumed.
@@ -771,7 +802,7 @@ async function main() {
       assertEqual(gone.count, 0, s + " must leave NO element behind — a placeholder is the defect, not the fix");
     }
     await settled(page);
-    await shot(page, SHOTS + "/updates-cue-absent");
+    await evidence(page, SHOTS + "/updates-cue-absent");
     await page.close();
     return "available and ready raise exactly one element with the menu shut; the other eight states raise none";
   });
@@ -837,7 +868,7 @@ async function main() {
     assertEqual(cue.text, cue.rowLine, "the cue's words ARE the row's words — one sentence, not two that agree today");
     assertEqual(row.headline, cue.text, "and the row agrees when read on its own terms");
     assertEqual(row.install, "Download update", "and the row's own control is the offer");
-    await shot(page, SHOTS + "/updates-cue-opened-the-row");
+    await evidence(page, SHOTS + "/updates-cue-opened-the-row");
 
     // NOTHING WAS INSTALLED BY PRESSING THE ANNOUNCEMENT. §26's mode 1 — install with no
     // click at all — was ruled a separate design session on 2026-09-04, and an announcement
@@ -965,7 +996,7 @@ async function main() {
     await observe(p2, 200, "an install that starts itself would start from a timer, and a timer needs time to fire");
     const after = await p2.evaluate(() => window.__RICHOS_MOCK__.updateCalls());
     assertEqual(after.indexOf("update_install"), -1, "nothing installed itself: " + after.slice(before).join(","));
-    await shot(p2, SHOTS + "/updates-working-no-control");
+    await evidence(p2, SHOTS + "/updates-working-no-control");
     await p2.close();
     return "idle -> pill + control + mark + install issued; working -> none of the four, and the row still names the update and why it waits";
   });
@@ -1019,7 +1050,7 @@ async function main() {
     assertEqual(w.noteText, w.label, "and the painted words ARE the announced words, one string");
     assertEqual(w.noteAriaHidden, "true", "so it is not announced twice");
     assertEqual(w.noteFontPx, 16, "16px — the floor for text meant to be easily read");
-    await shot(page, SHOTS + "/updates-waiting-cue-focused");
+    await evidence(page, SHOTS + "/updates-waiting-cue-focused");
 
     // ESCAPE CLOSES IT, the same key that dismisses everything else transient here.
     await page.keyboard.press("Escape");
@@ -1066,7 +1097,7 @@ async function main() {
       "the gap is stated rather than papered over: " + row.sub
     );
     assert(row.sub.indexOf("It has been ready for 3 days.") >= 0, "and the wait is not silent: " + row.sub);
-    await shot(page, SHOTS + "/updates-unchecked-and-long-wait");
+    await evidence(page, SHOTS + "/updates-unchecked-and-long-wait");
     await page.close();
 
     // UNDER A DAY, NOTHING. A duration line that always appears is a line nobody reads, and

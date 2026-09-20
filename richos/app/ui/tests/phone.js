@@ -75,6 +75,34 @@ const READY_TAILNET = {
   account: "Google as someone@gmail.com",
 };
 
+/// **THE COUNTDOWN, PINNED — FOR THE TWO COMMITTED SHOTS AND NOTHING ELSE.**
+///
+/// The pairing window is 300 s and the harness's clock starts when `mock.js` loads
+/// (`mockPhone.openedAt = now()`), so what the sheet says depends on how long this file took
+/// to get from `page.goto` to the paint: `Math.ceil((300000 - elapsed) / 1000)` is 300 for the
+/// first second of the page's life and 299 after it, and `remaining()` floors that to `5 more
+/// minutes` and `4 more minutes` — a different sentence on either side of ONE millisecond
+/// boundary that the walk lands within a hair of.
+///
+/// MEASURED, 2026-09-20. A probe that opened this sheet twelve times reached the countdown at
+/// 879–1,055 ms after `goto` — straddling the boundary — and with the five owning suites of
+/// the seven undeclared unstable shots run concurrently (the contention the gate's shards
+/// have), `phone-light.png` and `phone-dark.png` came back different in three rounds out of
+/// three: 775 of 1,330,000 pixels, worst channel delta 164 and 128, inside one 120x13 box at
+/// x[751..870] y[210..222] — `This code lasts 5 more minutes.` against `…4 more minutes.`
+///
+/// 270 s is `4 more minutes` with THIRTY SECONDS of margin to either edge of its minute, so a
+/// shutter anywhere in the first half-minute of the sheet's life photographs one sentence.
+/// `settings-fit.js` pins the same knob at 245 for the same reason and gets the same sentence;
+/// this one is further from an edge because these pages are photographed rather than read, and
+/// the product's own one-second ticker walks `left` down between the sheet's two-second polls.
+///
+/// IT PINS THE ANSWER, IT DOES NOT MOVE THE CLOCK (`mock.js`'s `phonePairingSecondsLeft`), and
+/// it is passed ONLY to the pages the two shots are taken on. Every other check in this file
+/// keeps the running clock it was written against — check 7 reads a live countdown and check
+/// 25 walks G13's four values, and neither is a question about a photograph.
+const SHOT_SECONDS_LEFT = 270;
+
 async function openSheet(browser, theme, preset) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
   const errors = [];
@@ -257,7 +285,14 @@ async function openSheet(browser, theme, preset) {
         results.push(which + "/" + theme);
       }
 
-      const page2 = await openSheet(browser, theme);
+      // THE PICTURE'S OWN PAGE, with the countdown pinned — see `SHOT_SECONDS_LEFT`. The page
+      // above, which READS the canvas back, keeps the running clock: the QR is not drawn from
+      // the countdown and the measurement must not be taken through a knob.
+      const page2 = await openSheet(browser, theme, {
+        phonePairing: true,
+        phoneTailnet: READY_TAILNET,
+        phonePairingSecondsLeft: SHOT_SECONDS_LEFT,
+      });
       const s = await shot(page2, "phone-" + theme, { fullPage: false });
       publishShotFile(s.file, path.join(SHOTS, "phone-" + theme + ".png"));
       await page2.close();

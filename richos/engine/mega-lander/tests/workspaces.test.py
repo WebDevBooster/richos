@@ -134,11 +134,12 @@ class Base(unittest.TestCase):
         ws.confirm_cc(self.sid, name, path, True)
         return path
 
-    def spawn(self, name, cc=None, extra="", native=True, agent_id=None, sid=None):
+    def spawn(self, name, cc=None, extra="", native=True, agent_id=None, sid=None,
+              stype="zach"):
         sid = sid or self.sid
         prompt = "do it\n" + ("cross-repo-worktree: %s\n" % cc if cc else "") + extra
         payload = {"session_id": sid, "tool_use_id": "tu-" + name, "tool_name": "Agent",
-                   "tool_input": {"name": name, "subagent_type": "zach", "prompt": prompt,
+                   "tool_input": {"name": name, "subagent_type": stype, "prompt": prompt,
                                   "isolation": "worktree" if native else ""}}
         ws.register_spawn(payload, self.entity)
         aid = agent_id or ("a" + name.replace("-", "")[:12] + "0000")
@@ -2134,6 +2135,109 @@ class Point14_IntegrationBranch(Base):
         # The superseded body of work is still readable — an agent spawned for
         # it lands against it, so it is not history.
         self.assertIn(first["id"], ws.all_bodies_of_work())
+
+
+class QAToolkitAtTheLand(Base):
+    """What a QA walk wrote from scratch is said at its land.
+
+    The CEO, 2026-09-20: "what else must be done to ensure the QA toolkit
+    actually gets used?" The spawn carries the toolkit's index in
+    (scripts/lib/qa-toolkit.py); this is the other end. The type decides, the
+    transcript is the evidence, and a count that could not be taken says so —
+    an absent count and a clean walk are opposite facts that must never print
+    the same way."""
+
+    def _transcript(self, aid, rows):
+        d = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects",
+                         "-some-project", self.sid, "subagents")
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, "agent-%s.jsonl" % aid)
+        with open(p, "w", encoding="utf-8") as fh:
+            for r in rows:
+                fh.write(json.dumps(r) + "\n")
+        return p
+
+    @staticmethod
+    def _write(path):
+        return {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t", "name": "Write",
+             "input": {"file_path": path, "content": "x"}}]}}
+
+    def test_qa_type_land_names_what_the_walk_wrote(self):
+        aid, _ = self.spawn("ray-opus-q1", agent_id="aray000000010000",
+                              stype="ray", sid=self.sid)
+        self._transcript(aid, [self._write("/scratch/ray/contrast.py"),
+                               self._write("/scratch/ray/ocrgate.py"),
+                               self._write("/scratch/ray/audit.md")])
+        lines = ws.qa_throwaway_lines("ray-opus-q1", self.sid)
+        joined = "\n".join(lines)
+        self.assertIn("2 helper scripts", joined)
+        self.assertIn("contrast.py", joined)
+        self.assertIn("ocrgate.py", joined)
+        self.assertNotIn("audit.md", joined)       # a document is not a helper
+
+    def test_a_clean_walk_says_zero_rather_than_nothing(self):
+        aid, _ = self.spawn("kai-opus-q2", agent_id="akai000000020000",
+                              stype="kai", sid=self.sid)
+        self._transcript(aid, [self._write("/scratch/kai/audit.md")])
+        joined = "\n".join(ws.qa_throwaway_lines("kai-opus-q2", self.sid))
+        self.assertIn("0 helper scripts", joined)
+
+    def test_a_non_qa_type_prints_nothing_at_all(self):
+        aid, _ = self.spawn("zach-opus-q3", agent_id="azach00000030000",
+                              stype="zach", sid=self.sid)
+        self._transcript(aid, [self._write("/scratch/zach/deploy.sh")])
+        # An engineer writing a script is an engineer doing its job. The walk
+        # toolkit says nothing about it, so neither does its land.
+        self.assertEqual(ws.qa_throwaway_lines("zach-opus-q3", self.sid), [])
+
+    def test_a_missing_transcript_is_said_never_silent(self):
+        self.spawn("quint-opus-q4", agent_id="aquint0000040000",
+                     stype="quint", sid=self.sid)
+        joined = "\n".join(ws.qa_throwaway_lines("quint-opus-q4", self.sid))
+        self.assertIn("no transcript found", joined)
+        self.assertIn("NOT taken", joined)
+
+    def test_it_never_breaks_the_land(self):
+        """A counter that could break the deleter it hangs off would be a worse
+        defect than the one it reports."""
+        aid, _ = self.spawn("ray-opus-q5", agent_id="aray000000050000",
+                              stype="ray", sid=self.sid)
+        p = self._transcript(aid, [self._write("/scratch/ray/one.sh")])
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("not json at all\n")          # the counter raises on this
+        lines = ws.qa_throwaway_lines("ray-opus-q5", self.sid)
+        self.assertTrue(lines and "could not be taken" in lines[0], lines)
+
+    def test_an_unknown_agent_does_not_raise(self):
+        lines = ws.qa_throwaway_lines("nobody-opus-q6", self.sid)
+        self.assertTrue(all("Traceback" not in l for l in lines))
+
+    def test_the_land_command_itself_prints_it(self):
+        """The wiring, not just the function: `workspaces.sh land <agent>` is
+        what Rich runs, and a count no command prints is a count nobody reads.
+
+        sweep_scratch_after_land is patched out because it sweeps the MACHINE's
+        declared scratch roots through scripts/scratch-sweep.sh — live peers'
+        included — and no unit test has any business reaching outside its
+        sandbox to do that."""
+        import contextlib
+        import io
+        aid, npath = self.spawn("ray-opus-q7", agent_id="aray000000070000",
+                                stype="ray", sid=self.sid)
+        self._transcript(aid, [self._write("/scratch/ray/contrast.py")])
+        self.commit(npath)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        buf = io.StringIO()
+        with patch.object(ws, "sweep_scratch_after_land", lambda: None):
+            with contextlib.redirect_stdout(buf):
+                rc = ws.main(["--session", self.sid, "land", "ray-opus-q7"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0, out)
+        self.assertIn("landed: ray-opus-q7", out)
+        self.assertIn("qa toolkit:", out)
+        self.assertIn("contrast.py", out)
 
 
 class _Result(unittest.TextTestResult):
