@@ -89,7 +89,7 @@ class LocalTests(unittest.TestCase):
 
         with patch.object(m.subprocess, "run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
-        self.assertEqual(len(seen), 6)
+        self.assertEqual(len(seen), 7)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
@@ -446,11 +446,18 @@ class LocalTests(unittest.TestCase):
 
     def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
         r, seen = self.gate_commands()
-        self.assertEqual(len(seen), 6)
+        self.assertEqual(len(seen), 7)
         self.assertEqual(r.skipped, {})
+        # ORDER IS PART OF THE ASSERTION, not incidental. The release smoke is first
+        # because it is the cheapest refusal in the build (0.2 s against ~950 s), and the
+        # defect class it catches -- a release-only step that rotted since the last
+        # release -- is otherwise found by the release that needed it.
         self.assertEqual([name for name, _, _ in r.timings],
-                         ["gates/core-tests", "gates/updater-tests",
+                         ["gates/release-smoke", "gates/core-tests", "gates/updater-tests",
                           "gates/script-suites", m.UI_SUITE_GATE, "gates/privacy-sweep"])
+        smoke = [argv for argv in seen if "release-smoke" in " ".join(argv)]
+        self.assertEqual(len(smoke), 1, seen)
+        self.assertTrue([a for a in smoke[0] if a.endswith("nightly.py")], smoke)
         # THE UI SUITE IS ONE SUBPROCESS, not a fan-out written beside `command()`. If this
         # ever counts more than one `run.js`, the shards have been hoisted back into this
         # file and every assertion in this class about a gate's argv and environment has
@@ -488,8 +495,11 @@ class LocalTests(unittest.TestCase):
         self.assertTrue([c for c in joined if "named-persons.sh" in c], joined)
         self.assertIn(m.LAND_PROVEN_GATE, r.skipped)
         self.assertIn("a" * 40, r.skipped[m.LAND_PROVEN_GATE])
+        # The release smoke is NEVER dropped by this flag. A land does not run it, and
+        # its input is the release path itself rather than a tree whose sha was proved.
+        self.assertTrue([c for c in joined if "release-smoke" in c], joined)
         # NO PROOF ON THIS MACHINE: the UI suite runs, and is NOT recorded as skipped.
-        self.assertEqual(len(seen), 5)
+        self.assertEqual(len(seen), 6)
         self.assertTrue([c for c in joined if "run.js" in c], joined)
         self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
 

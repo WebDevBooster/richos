@@ -887,6 +887,22 @@ class Runner:
         # notary key answers questions the suites ask precisely because the answer
         # should be absent. See split_credentials() and package-app.test.sh section E.
         self.announce("Running core, updater and packaging checks...")
+        # FIRST, AND IT COSTS A QUARTER OF A SECOND. Every step a release performs and an
+        # ordinary day does not -- the version written into the manifest, the endpoint
+        # compiled into the binary, the candidate's digests, the updater metadata, the
+        # CEO's promotion record -- exercised against a throwaway directory before a
+        # single crate is compiled. See `nightly.py`'s `release_smoke` for what is in it
+        # and what is deliberately not.
+        #
+        # AHEAD OF `cargo test` DELIBERATELY. The gates below already put the cheap
+        # refusals first; this is the cheapest refusal there is, and the class it catches
+        # -- a release-only step that rotted since the last release -- would otherwise be
+        # found forty minutes in, by the release that needed it. It is NEVER skipped for a
+        # candidate: skipping is for work whose inputs are unchanged, and this gate's
+        # input is the release path itself.
+        with self.phase("gates/release-smoke"):
+            self.command(sys.executable, self.source / SCRIPTS / "nightly.py",
+                         "release-smoke", "--out", self.state / "release-smoke")
         if checks_done_at_land:
             self.skip(LAND_PROVEN_GATE,
                       f"the land already ran `cargo test -p richos-core` on {checks_done_at_land}, "

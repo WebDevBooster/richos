@@ -809,6 +809,17 @@ def release_smoke(out):
     the refusals compile, not that they refuse.
     """
     out.mkdir(parents=True, exist_ok=True)
+    # EVERY BYTE THIS WRITES IS REMOVED, however this ends (CEO ruling §54: garbage is
+    # always cleaned up, and a mechanism rather than a habit). `TemporaryDirectory` does
+    # that on the exception path too, which is the path that matters -- a gate that
+    # refuses is a gate that left fixtures behind if it cleans up only on success. `out`
+    # itself is a parent this never removes, so no caller can point it at something
+    # precious and lose it.
+    with tempfile.TemporaryDirectory(prefix="release-smoke-", dir=out) as tmp:
+        return _release_smoke(Path(tmp))
+
+
+def _release_smoke(work):
     for name in RELEASE_STEP_CALLS:
         RELEASE_STEP_CALLS[name] = 0
     checked = []
@@ -891,7 +902,7 @@ def release_smoke(out):
                 {**json.loads(config_text), "plugins": {"updater": {"endpoints": [ENDPOINT]}}})))
 
     # --- the release commit itself ----------------------------------------------------
-    repo = out / "fixture-repo"
+    repo = work / "fixture-repo"
     repo.mkdir()
     with hermetic_git(repo):
         (repo / "seed").write_text("fixture\n")
@@ -908,7 +919,7 @@ def release_smoke(out):
     checked.append(f"release commit carries {len(nightly_files)} files over its parent")
 
     # --- the candidate's recorded bytes, and the tamper check over them ---------------
-    candidate = out / "candidate"
+    candidate = work / "candidate"
     candidate.mkdir()
     (candidate / "RichOS.app.tar.gz").write_bytes(b"fixture artifact")
     (candidate / "RichOS.app.tar.gz.sig").write_bytes(b"fixture signature")
@@ -924,7 +935,7 @@ def release_smoke(out):
     refuses("a candidate missing a file it recorded",
             lambda: verify_candidate_manifest(nightly_info, candidate))
     refuses("a directory that was never built here",
-            lambda: verify_candidate_manifest(nightly_info, out / "never-built"))
+            lambda: verify_candidate_manifest(nightly_info, work / "never-built"))
     checked.append("candidate digests: recorded, verified, and every tamper refused")
 
     # --- the updater metadata every installed copy fetches ----------------------------
