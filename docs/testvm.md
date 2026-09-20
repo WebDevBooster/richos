@@ -156,6 +156,37 @@ Everything takes `--json` and prints the guest's own one-object-per-line stream,
 what to pipe into `python3 -c` when a walk needs to compute rather than read. A walk that
 hits the node cap says so rather than handing back a tree that merely looks complete.
 
+### Measured, 2026-09-20, on `v1.2.0-nightly.20260920.1`
+
+One guest (`vmtools2`, `--no-tailnet`), ready in **111 s**, then:
+
+```
+$ ./guest.sh vmtools2 uname -a
+Darwin Manageds-Virtual-Machine.local 24.6.0 ... RELEASE_ARM64_VMAPPLE arm64
+
+$ ./ax.sh vmtools2 tree                                    # 3.6 s, 29 nodes
+# app=richos-tauri pid=890 windows=1 mode=tree
+AXWindow/AXStandardWindow title='RichOS' ... pos=438 92 size=1024 700
+  ...
+          AXGroup/AXApplicationDialog title="There's one thing I need on this Mac." ...
+            AXButton title='Set it up' ... pos=757 443 size=88 35
+            AXButton title='Not now'   ... pos=852 443 size=90 35
+
+$ ./ax.sh vmtools2 click --title 'Not now'
+pressed AXButton title='Not now' desc='' pos=852 443 size=90 35 (matches=1)
+```
+
+and the next `tree` showed the app had moved on to *"Where should I keep what you tell
+me?"* — the press drove the app, rather than merely reporting that it had found a button.
+`tree --app Dock` answered `windows=0 nodes=0` (the Dock has no `AXWindow`, and saying so
+is not an error); `tree --app NoSuchApp` refused with `noprocess`; `guest.sh vmtools2
+'exit 42'` returned **42**; `--pull` brought the guest's `app.log` back. `stop.sh` then
+reported `clean: app quit, VM stopped, clone deleted, state removed` and `tart list`
+shows nothing but the base.
+
+The window's own geometry is the reason for all of this: **`size=1024 700`**, which
+AppleScript would have handed over as `1024700`.
+
 ---
 
 ## Does the Mac have to be left unlocked? No.
