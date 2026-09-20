@@ -3,11 +3,12 @@
 
   timeline.py capture <outdir> <seconds> --region x,y,w,h
                       [--also-region x,y,w,h]
-                      [--click X,Y | --key CODE | --wait-only]
+                      [--click X,Y | --native-click X,Y | --key CODE | --wait-only]
                       [--baseline SECONDS] [--interval SECONDS]
   timeline.py report  <outdir> [--tol N] [--step N]
   timeline.py at      <outdir> <frame> [<frame> ...]
   timeline.py stats   <label=ms> [<label=ms> ...]
+  timeline.py bounds <outdir> <last-absent-frame> <first-present-frame> <limit-ms>
   timeline.py --help
 
 Exit 0 on an answer, 1 when there is no answer to give (no repaint, no
@@ -73,6 +74,27 @@ pick a frame, and a hand-rolled subtraction is exactly where an off-by-one
 baseline creeps in.
 
 ===========================================================================
+`bounds` — CONSERVATIVE VISIBLE-FEEDBACK INTERVALS
+===========================================================================
+Every new capture also writes bounds.json: monotonic nanoseconds before and
+AFTER each screencapture command, plus the same bounds around input posting.
+Select consecutive last-absent and first-present frames by reading the target
+region, then use `bounds <outdir> <absent> <present> <limit-ms>`. It checks the
+frame hashes and uses capture COMPLETION for the upper bound. The caller must
+verify causal, event-specific presence; a sidebar label is not a new breadcrumb.
+
+`--native-click` prepares Quartz before capture, then posts down/up without
+AppleScript process startup inside the action window. The guest must already
+have event-posting permission. It does not change permissions. Coordinates are
+global display points, as for --click; calibrate the crop and display scale.
+
+Posting is not app acquisition. A passing post-to-visible upper bound also
+bounds acquisition-to-visible. A straddling interval is unproven; a slower
+post-to-visible result cannot separate delivery delay from app response. Do not
+combine monotonic origins across processes or treat legacy meta.tsv's point
+offsets as these bounds. `bounds` exits 1 when acquisition timing is unproven.
+
+===========================================================================
 WHY `capture` REFUSES TO RUN WITHOUT BEING TOLD
 ===========================================================================
 It takes a picture of a screen and it can synthesize a click. On the
@@ -84,6 +106,8 @@ RICHOS_QA_CAPTURE=allow set deliberately by the caller.
 
 import getpass
 import hashlib
+import json
+import math
 import os
 import subprocess
 import sys
@@ -95,6 +119,105 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import qaimg                                             # noqa: E402
 
 GUEST_USER = os.environ.get("TESTVM_GUEST_USER", "admin")
+
+
+def native_click(position):
+    """Prepare a Quartz click before timing starts. Never grant permissions here.
+
+    The returned operation posts down/up without starting an AppleScript process.
+    Posting is not application acquisition: a passing post-to-visible upper bound
+    also bounds acquisition-to-visible, but a slow post-to-visible result cannot
+    establish that the application missed an acquisition-based target.
+    """
+    import ctypes
+    class Point(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+    x, y = map(float, position.split(","))
+    if not all(math.isfinite(v) for v in (x, y)):
+        raise ValueError("click coordinates must be finite")
+    cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    cg.CGPreflightPostEventAccess.restype = ctypes.c_bool
+    if not cg.CGPreflightPostEventAccess():
+        raise ValueError("native click permission unavailable; no event posted")
+    cg.CGEventCreateMouseEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, Point, ctypes.c_uint32]
+    cg.CGEventCreateMouseEvent.restype = ctypes.c_void_p
+    cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+    cg.CGEventPost.restype = None
+    cg.CGEventSetIntegerValueField.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int64]
+    cg.CGEventSetIntegerValueField.restype = None
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+    cf.CFRelease.restype = None
+
+    def post():
+        events = []
+        try:
+            for kind in (1, 2):  # left down, left up, global display coordinates
+                event = cg.CGEventCreateMouseEvent(None, kind, Point(x, y), 0)
+                if not event:
+                    raise RuntimeError("could not create native click event")
+                events.append(event)
+                cg.CGEventSetIntegerValueField(event, 1, 1)  # single click
+            for event in events:
+                cg.CGEventPost(0, event)
+        finally:
+            for event in events:
+                cf.CFRelease(event)
+    return post
+
+
+def visibility_bounds(record, absent, present, limit):
+    """Conservative intervals on one monotonic clock, never an OCR verdict.
+
+    The caller must inspect consecutive frames in a stable region and establish
+    event-specific absence/presence. Capture-start alone is not visibility time.
+    """
+    if record.get("clock") != "monotonic_ns" or not math.isfinite(limit) or limit <= 0:
+        raise ValueError("monotonic capture and positive finite limit required")
+    if record["action"]["kind"] == "none":
+        raise ValueError("wait-only capture has no input action")
+    frames = record["frames"]
+    indexes = [i for i, f in enumerate(frames) if f["number"] == absent]
+    if len(indexes) != 1 or indexes[0] + 1 >= len(frames):
+        raise ValueError("last absent frame must have a following frame")
+    a, b = frames[indexes[0]:indexes[0] + 2]
+    if b["number"] != present or present != absent + 1:
+        raise ValueError("absence and presence must be consecutive frames")
+    start, end = record["action"]["before_ns"], record["action"]["after_ns"]
+    values = [start, end, a["before_ns"], a["after_ns"], b["before_ns"], b["after_ns"]]
+    if any(type(v) is not int or v < 0 for v in values):
+        raise ValueError("invalid monotonic timestamp")
+    if not (start <= end and a["before_ns"] <= a["after_ns"] <= b["before_ns"] <= b["after_ns"]):
+        raise ValueError("capture/action timestamps are reversed")
+    if b["after_ns"] < start:
+        raise ValueError("visible event predates the input")
+    low = max(0, a["before_ns"] - end) / 1e6
+    high = (b["after_ns"] - start) / 1e6
+    return {"milliseconds": [low, high], "limit_ms": limit,
+            "post_to_visible": "PASS" if high <= limit else "over target" if low > limit else "unproven",
+            "acquisition_to_visible": "PASS" if high <= limit else "unproven",
+            "action_window_ms": (end - start) / 1e6,
+            "note": "Input posting is bounded, application acquisition is not observed."}
+
+
+def cmd_bounds(args):
+    if len(args) != 4:
+        qaimg.die("usage: timeline.py bounds <outdir> <last-absent> <first-present> <limit-ms>")
+    out, absent, present, limit = args
+    try:
+        with open(os.path.join(out, "bounds.json")) as fh:
+            record = json.load(fh)
+        result = visibility_bounds(record, int(absent), int(present), float(limit))
+        for n in (int(absent), int(present)):
+            row = next(f for f in record["frames"] if f["number"] == n)
+            with open(os.path.join(out, "%04d.png" % n), "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest() != row["sha256"]:
+                    raise ValueError("frame bytes changed since capture")
+    except (OSError, ValueError, KeyError, StopIteration) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0 if result["acquisition_to_visible"] == "PASS" else 1
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +242,9 @@ def cmd_capture(args):
         elif a == "--click":
             action = ("click", args[i + 1] if i + 1 < len(args) else "")
             i += 2
+        elif a == "--native-click":
+            action = ("native-click", args[i + 1] if i + 1 < len(args) else "")
+            i += 2
         elif a == "--key":
             action = ("key", args[i + 1] if i + 1 < len(args) else "")
             i += 2
@@ -138,6 +264,8 @@ def cmd_capture(args):
     if len(rest) != 2:
         qaimg.die("usage: timeline.py capture <outdir> <seconds> --region x,y,w,h ...")
     out, secs = rest[0], float(rest[1])
+    if not all(math.isfinite(v) and v >= 0 for v in (secs, baseline, interval)):
+        qaimg.die("capture durations must be finite and nonnegative")
     if not region or len(region.split(",")) != 4:
         qaimg.die("--region is required, as x,y,w,h")
     if also is not None and len(also.split(",")) != 4:
@@ -155,6 +283,9 @@ def cmd_capture(args):
             "never a test surface.\n"
             "To override deliberately: RICHOS_QA_CAPTURE=allow")
 
+    # Preparation stays outside the action interval and behind the screen guard.
+    post = native_click(action[1]) if action[0] == "native-click" else None
+
     if not os.path.isdir(out):
         os.makedirs(out)
     out_b = os.path.join(out, "b")
@@ -163,47 +294,62 @@ def cmd_capture(args):
 
     frames = []
     frames_b = []
+    bounded = []
+    bounded_b = []
+    errors = []
     stop = threading.Event()
 
-    def loop(rect, where, sink):
+    def loop(rect, where, sink, bounds):
         n = 0
         while not stop.is_set():
             t = time.time()
-            subprocess.run(["screencapture", "-x", "-o", "-R" + rect,
-                            os.path.join(where, "%04d.png" % n)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           check=False)
+            before = time.monotonic_ns()
+            try:
+                subprocess.run(["screencapture", "-x", "-o", "-R" + rect,
+                                os.path.join(where, "%04d.png" % n)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               check=True, timeout=10)
+            except (OSError, subprocess.SubprocessError) as exc:
+                errors.append(str(exc))
+                stop.set()
+                return
+            after = time.monotonic_ns()
             sink.append((n, t))
+            bounds.append({"number": n, "before_ns": before, "after_ns": after})
             n += 1
             if interval:
-                time.sleep(interval)
+                stop.wait(interval)
 
-    th = threading.Thread(target=loop, args=(region, out, frames), daemon=True)
+    th = threading.Thread(target=loop, args=(region, out, frames, bounded), daemon=True)
     th.start()
     th_b = None
     if also is not None:
-        th_b = threading.Thread(target=loop, args=(also, out_b, frames_b), daemon=True)
+        th_b = threading.Thread(target=loop, args=(also, out_b, frames_b, bounded_b), daemon=True)
         th_b.start()
     time.sleep(baseline)
 
     t0 = time.time()
+    m0 = time.monotonic_ns()
     kind, arg = action
-    if kind == "click":
-        subprocess.run(["osascript", "-e",
-                        'tell application "System Events" to click at {%s}'
-                        % arg.replace(",", ", ")],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    elif kind == "key":
-        subprocess.run(["osascript", "-e",
-                        'tell application "System Events" to key code %s' % arg],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    t1 = time.time()
-
-    time.sleep(secs)
-    stop.set()
-    th.join(timeout=15)
-    if th_b is not None:
-        th_b.join(timeout=15)
+    try:
+        if errors:
+            raise RuntimeError(errors[0])
+        if post:
+            post()
+        elif kind in ("click", "key"):
+            script = ('click at {%s}' % arg.replace(",", ", ")) if kind == "click" else 'key code %s' % arg
+            subprocess.run(["osascript", "-e", 'tell application "System Events" to ' + script],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True, timeout=10)
+        m1 = time.monotonic_ns()
+        t1 = time.time()
+        stop.wait(secs)
+    finally:
+        stop.set()
+        th.join(timeout=15)
+        if th_b is not None:
+            th_b.join(timeout=15)
+    if errors:
+        qaimg.die("capture failed: " + errors[0])
 
     if not frames:
         qaimg.die("not one frame was captured — screencapture produced nothing")
@@ -215,7 +361,7 @@ def cmd_capture(args):
         gaps = sorted((fr[i + 1][1] - fr[i][1]) * 1000 for i in range(len(fr) - 1))
         return gaps[len(gaps) // 2] if gaps else -1.0
 
-    def _write(where, rect, fr):
+    def _write(where, rect, fr, bounds):
         with open(os.path.join(where, "meta.tsv"), "w") as fh:
             fh.write("action\t%s %s\n" % (kind, arg))
             fh.write("region\t%s\n" % rect)
@@ -225,14 +371,22 @@ def cmd_capture(args):
             fh.write("t_action_after\t%.1f\n" % (t1 * 1000))
             for n, t in fr:
                 fh.write("frame\t%d\t%.1f\n" % (n, t * 1000))
+        # Hash only after capture: no OCR/analysis competes with timing samples.
+        for row in bounds:
+            with open(os.path.join(where, "%04d.png" % row["number"]), "rb") as frame:
+                row["sha256"] = hashlib.sha256(frame.read()).hexdigest()
+        with open(os.path.join(where, "bounds.json"), "w") as fh:
+            json.dump({"clock": "monotonic_ns", "region": rect,
+                       "action": {"kind": kind, "before_ns": m0, "after_ns": m1},
+                       "frames": bounds}, fh, indent=2)
 
     med = _median_gap(frames)
-    _write(out, region, frames)
+    _write(out, region, frames, bounded)
     print("frames %d   median gap %.1f ms   action window %.1f ms"
           % (len(frames), med, (t1 - t0) * 1000))
     print("wrote %s" % os.path.join(out, "meta.tsv"))
     if also is not None:
-        _write(out_b, also, frames_b)
+        _write(out_b, also, frames_b, bounded_b)
         print("also   %d   median gap %.1f ms   region %s"
               % (len(frames_b), _median_gap(frames_b), also))
         print("wrote %s" % os.path.join(out_b, "meta.tsv"))
@@ -427,7 +581,7 @@ def cmd_stats(args):
 
 
 COMMANDS = {"capture": cmd_capture, "report": cmd_report, "at": cmd_at,
-            "stats": cmd_stats}
+            "stats": cmd_stats, "bounds": cmd_bounds}
 
 
 def main(argv):
@@ -437,7 +591,11 @@ def main(argv):
     if argv[0] not in COMMANDS:
         qaimg.die("timeline.py: no such command %r. One of: %s"
                   % (argv[0], ", ".join(sorted(COMMANDS))))
-    return COMMANDS[argv[0]](list(argv[1:]))
+    try:
+        return COMMANDS[argv[0]](list(argv[1:]))
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

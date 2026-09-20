@@ -2088,7 +2088,9 @@ async function stopTurn() {
     }
   } catch (e) {
     if (openingThread === stoppedOpening && stoppedOpening) {
-      openingThread.stopError = "I couldn't stop the previous conversation. Press Stop again.";
+      openingThread.stopError = openingThread.previousModel.threadId === openingThread.threadId
+        ? "I couldn't stop this conversation. Press Stop again."
+        : "I couldn't stop the previous conversation. Press Stop again.";
       renderWaitBand();
       announce(openingThread.stopError);
     }
@@ -2689,13 +2691,15 @@ function renderWaitBand() {
   if (!band) return;
   waitLastPaintAt = Date.now();
   const pendingMs = pending ? waitLastPaintAt - pending.startedAt : 0;
+  const returning = opening && opening.previousModel.threadId === opening.threadId;
   const copy = opening ? {
     head: "Opening conversation",
     time: window.RichTimeline.formatDuration(waitLastPaintAt - opening.startedAt) || "",
     detail: opening.stopError || ([...opening.previousModel.turns.values()].some(t => t.live && t.status === "stopping")
-      ? "Stopping work in the previous conversation"
+      ? (returning ? "Stopping work in this conversation" : "Stopping work in the previous conversation")
       : [...opening.previousModel.turns.values()].some(t => t.live)
-      ? "The previous conversation is still working. Press Stop to stop that work."
+      ? (returning ? "This conversation is still working. Press Stop to stop that work."
+        : "The previous conversation is still working. Press Stop to stop that work.")
       : opening.cached ? "" : "Waiting for its saved messages"),
     tone: waitLastPaintAt - opening.startedAt >= QUIET_AFTER_MS ? "quiet" : "queued",
     pace: null,

@@ -998,6 +998,20 @@ const FIXTURES = {
     await page.waitForSelector('#composer-row[data-mode="opening"]');
     return page;
   },
+  async "returning-conversation"(browser) {
+    const page = await FIXTURES["opening-conversation"](browser);
+    const thread = await page.evaluate(() => window.RichBridge.invoke("active_context"));
+    await page.locator(`.nav-thread[data-thread-id="${thread.thread_id}"]`).click();
+    await page.waitForFunction(() => document.querySelector(".wait-detail").textContent.startsWith("This conversation"));
+    return page;
+  },
+  async "returning-stop-failed"(browser) {
+    const page = await FIXTURES["returning-conversation"](browser);
+    await page.evaluate(() => { window.__overrides.stop_turn = { reject: true, value: "temporary disk error" }; });
+    await page.click("#stop");
+    await page.waitForFunction(() => document.querySelector(".wait-detail").textContent.includes("couldn't stop this"));
+    return page;
+  },
   async "opening-stop-failed"(browser) {
     const page = await FIXTURES["opening-conversation"](browser);
     await page.evaluate(() => { window.__overrides.stop_turn = { reject: true, value: "temporary disk error" }; });
@@ -1454,6 +1468,8 @@ const TEXT_RENDERING_FIXTURES = new Set([
   "first-run-partial",
   "opening-conversation",
   "opening-stop-failed",
+  "returning-conversation",
+  "returning-stop-failed",
   "first-run-unusable",
   "first-run-decline-refused",
   // The first-run setup sheet renders the BACKEND's words — `Component::why`,
