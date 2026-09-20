@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rust and shell lint entry point. Run lint.sh --help for modes."""
 import argparse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -40,6 +41,13 @@ def versions(root, cargo=False):
 def record(commands, tool_versions, rules, rows, counts):
     return dict(schema=1, limitation=ratchet.NOTE, commands=commands, versions=tool_versions,
                 rules=rules, inventory=rows, counts=counts or {"no-diagnostics": 0})
+
+
+def summarize(name, counts, diagnostics):
+    print(name + ": " + (", ".join(f"{key}={value}" for key, value in sorted(counts.items()) if value) or "no blocking diagnostics"), flush=True)
+    advisory = Counter(d["rule"] for d in diagnostics if d.get("classification") == "advisory")
+    if advisory:
+        print("Advisory candidates (review required): " + ", ".join(f"{key}={value}" for key, value in sorted(advisory.items())), flush=True)
 
 
 def custom(root, rows):
@@ -131,6 +139,8 @@ def tauri(root, args, rows, tools, report):
         return
     print("Tauri Clippy running (180-second cap, including Cargo lock waiting)", flush=True)
     counts, diagnostics = rust.collect(root, rust.TAURI, deadline)
+    report["tauri"] = dict(seconds=time.monotonic() - started, counts=counts, diagnostics=diagnostics)
+    summarize("Tauri Clippy", counts, diagnostics)
     actual = record({"clippy": rust.TAURI}, tools, {"compiler-diagnostics": "blocking"},
                     {p: r for p, r in rows.items() if r["language"] == "rust"}, counts)
     enforce(root, "tauri", actual, args)
@@ -183,25 +193,28 @@ def main(argv=None):
             tick = time.monotonic()
             print("ShellCheck and custom rules running", flush=True)
             counts, diagnostics = shellcheck(ROOT, rows)
+            report["shell"] = dict(counts=counts, diagnostics=diagnostics)
+            summarize("ShellCheck", counts, diagnostics)
             shell_rows = {p: r for p, r in rows.items() if r["language"] == "shell"}
             shell_record = record({"shellcheck": ["shellcheck", "--format=json", "--rcfile=" + APP + ".shellcheckrc", "<shell-inventory>"]},
                                   {"shellcheck": tool_versions["shellcheck"]}, {"shellcheck-diagnostics": "blocking"}, shell_rows, counts)
             enforce(ROOT, "shell", shell_record, args)
-            report["shell"] = dict(counts=counts, diagnostics=diagnostics)
             counts, diagnostics = custom(ROOT, rows)
+            report["custom"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
+            summarize("Project rules", counts, diagnostics)
             custom_record = record({"custom": ["python3", APP + "scripts/lint/driver.py", "<rust-and-shell-inventory>"]},
                                    {"python": tool_versions["python"]}, RULES,
                                    {p: r for p, r in rows.items() if r["language"] != "javascript"}, counts)
             enforce(ROOT, "custom", custom_record, args)
-            report["custom"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
             print(f"Static checks complete in {time.monotonic() - tick:.2f}s", flush=True)
             if not args.static:
                 tick = time.monotonic()
                 print("Rust fast set running", flush=True)
                 counts, diagnostics = rust.collect(ROOT, rust.FAST)
+                report["rust-fast"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
+                summarize("Rust fast set", counts, diagnostics)
                 enforce(ROOT, "rust-fast", record({"clippy": rust.FAST}, tool_versions,
                         {"compiler-diagnostics": "blocking"}, {p: r for p, r in rows.items() if r["language"] == "rust"}, counts), args)
-                report["rust-fast"] = dict(counts=counts, diagnostics=diagnostics, seconds=time.monotonic() - tick)
         if args.all or args.nightly:
             tauri(ROOT, args, rows, tool_versions, report)
         print(f"Lint passed in {time.monotonic() - started:.2f}s", flush=True)
