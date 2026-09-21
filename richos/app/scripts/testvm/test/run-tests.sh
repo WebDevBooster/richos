@@ -1240,14 +1240,18 @@ t_done
 
 t "guest.sh copies literal remote paths through legacy scp's shell parse"
   : > "$TMP/scp.log"
+  # shellcheck disable=SC2016 -- $HOME is an intentional literal remote filename.
   PATH="$TMP/bin:$PATH" FAKE_SCP_LOG="$TMP/scp.log" \
     "$TESTVM_DIR/guest.sh" "$GVM" --pull '/Users/admin/Application Support/$HOME' "$TMP/app.log" >/dev/null 2>&1
   ok $?
+  # shellcheck disable=SC2016 -- assert the literal escaped remote filename.
   has "$(cat "$TMP/scp.log")" 'admin@10.0.0.9:/Users/admin/Application\ Support/\$HOME'
   : > "$TMP/scp.log"
+  # shellcheck disable=SC2016 -- $HOME is an intentional literal remote filename.
   PATH="$TMP/bin:$PATH" FAKE_SCP_LOG="$TMP/scp.log" \
     "$TESTVM_DIR/guest.sh" "$GVM" --push "$TMP/payload.txt" '/Users/admin/Application Support/$HOME' >/dev/null 2>&1
   ok $?
+  # shellcheck disable=SC2016 -- assert the literal escaped remote filename.
   has "$(cat "$TMP/scp.log")" 'admin@10.0.0.9:/Users/admin/Application\ Support/\$HOME'
 t_done
 
