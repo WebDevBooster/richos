@@ -6,7 +6,7 @@ in the same way that syncing a second Mac through GitHub is optional.
 **What a mobile app is, here:** an app that lets you use RichOS while you are on the go and away from
 the office, outside your home network. Inside your home network the desktop app is the better tool.
 
-Native mobile apps for iOS and Android are coming soon.
+The iOS development foundation is under construction here. See [the mobile development loop](DEVELOPMENT.md) for shared core, CLI and simulator commands. This is not yet a released iOS app. Android is a later decision.
 
 Until then, the web app can already be used for talking to Rich from your phone. It has similar looks
 and functionality to a native mobile app: open it once, add it to your home screen, and it runs like an
