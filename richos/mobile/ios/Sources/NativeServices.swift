@@ -31,6 +31,22 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         NotificationCenter.default.addObserver(self, selector: #selector(interrupted), name: AVAudioSession.interruptionNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(routeChanged), name: AVAudioSession.routeChangeNotification, object: nil)
     }
+    #if DEBUG
+    // Only the disposable integration app may reset its session for a new lab server.
+    // Keep the same run marker through relaunch so persistence is still exercised.
+    func prepareIntegrationTest() throws {
+        guard Bundle.main.bundleIdentifier == "dev.richos.mobile.integration",
+              let arg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--integration-session=") }) else { return }
+        let run = String(arg.dropFirst("--integration-session=".count))
+        guard UUID(uuidString: run) != nil else { throw fail("Invalid integration run") }
+        let marker = folder.appendingPathComponent("integration-run")
+        if (try? String(contentsOf: marker, encoding: .utf8)) != run {
+            let sessionFile = folder.appendingPathComponent("session.json")
+            if FileManager.default.fileExists(atPath: sessionFile.path) { try FileManager.default.removeItem(at: sessionFile) }
+            try protectedWrite(Data(run.utf8), to: marker)
+        }
+    }
+    #endif
     private func fail(_ message: String) -> NSError { NSError(domain: "RichOSMobile", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     private func audioTrace(_ stage: String) {
         #if DEBUG
