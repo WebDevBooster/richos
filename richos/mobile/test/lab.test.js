@@ -47,3 +47,17 @@ test('isolated lab verifies real signatures, deduplicates a send and shuts down 
   assert.equal(existsSync(join(dir, 'lab.cli.lock')), false);
   await assert.rejects(fetch(base + '/api/challenge'));
 });
+
+test('independent update lab uses the publication path and stops its service and timers', { timeout: 15000 }, async t => {
+  const dir = createScratch('update-lab');
+  const child = spawn(process.execPath, [join(__dirname, '../cli/mobile.mjs'), 'lab', 'updates'], { env: { ...process.env, RICHOS_MOBILE_CACHE: dir, TMPDIR: dir + '/' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const stopped = once(child, 'close'); let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
+  t.after(async () => { if (child.exitCode === null) child.kill('SIGTERM'); await stopped; rmSync(dir, { recursive: true, force: true }); });
+  const first = await new Promise((resolve, reject) => {
+    let output = ''; child.once('error', reject); child.once('exit', code => reject(Error(`Lab exited ${code}: ${stderr}`)));
+    child.stdout.on('data', chunk => { output += chunk; if (output.includes('\n')) resolve(JSON.parse(output.split('\n')[0])); });
+  });
+  const url = `http://127.0.0.1:${first.policyLab.port}/v1/policy`;
+  const policy = await (await fetch(url)).json(); assert.equal(policy.severity, 'none'); assert.equal(policy.features.recording, true);
+  child.kill('SIGTERM'); const [code] = await stopped; assert.equal(code, 0, stderr); await assert.rejects(fetch(url));
+});

@@ -8,9 +8,13 @@ import { device } from './device.mjs';
 const require = createRequire(import.meta.url);
 const { createRuntime } = require('../dev/runtime.js');
 const usage = `Mobile development loop (JSON output; nonzero exit on failure)
-  node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption
-  node richos/mobile/cli/mobile.mjs lab serve|mac
-  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording]
+  node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption|update-controls
+  node richos/mobile/cli/mobile.mjs lab serve|mac|updates
+  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|updates]
+  node richos/mobile/cli/mobile.mjs update preview|publish <request.json>
+  node richos/mobile/cli/mobile.mjs update serve|metrics
+  node richos/mobile/cli/mobile.mjs release-config-check
+  node richos/mobile/cli/mobile.mjs sim policy '<policy JSON>'
   node richos/mobile/cli/mobile.mjs doctor
   node richos/mobile/cli/mobile.mjs headless state|reset|restart
   node richos/mobile/cli/mobile.mjs headless fixture offline|online|queued|interrupted|revoked
@@ -40,6 +44,7 @@ function payload(command, arg) {
     case 'fixture': case 'scenario': if (!arg) throw new Error(`${command} needs a name`); return { command, name: arg };
     case 'transport': return { command, mode: arg };
     case 'advance': return { command, ms: Number(arg) };
+    case 'policy': return { command, policy: JSON.parse(arg) };
     case 'action': return { command, action: JSON.parse(arg) };
     default: throw new Error(`Unknown command: ${command}. Use --help.`);
   }
@@ -55,13 +60,16 @@ try {
     process.exit(0);
   }
   const cache = simulator.cacheRoot();
-  const proposedLock = join(cache, mode === 'lab' ? 'lab.cli.lock' : mode === 'pwa' ? 'pwa.cli.lock' : 'cli.lock');
+  const proposedLock = join(cache, mode === 'lab' ? 'lab.cli.lock' : mode === 'pwa' ? 'pwa.cli.lock' : mode === 'update' ? (command === 'serve' ? 'update-service.cli.lock' : 'update-admin.cli.lock') : 'cli.lock');
   try { mkdirSync(proposedLock); lock = proposedLock; writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, mode, command })); }
   catch { throw new Error(`Another mobile CLI command owns ${proposedLock}. If it crashed, verify its owner.json PID is gone before removing that directory.`); }
   let result;
-  if (mode === 'client' && command === 'scenario') result = await require('../dev/client-runtime.js').scenario(arg);
+  if (mode === 'update') result = await (await import('../service/policy.mjs')).command(command, arg, cache);
+  else if (mode === 'client' && command === 'scenario') result = await require('../dev/client-runtime.js').scenario(arg);
+  else if (mode === 'lab' && command === 'updates') result = await (await import('../dev/policy-lab.mjs')).policyLab(cache);
   else if (mode === 'lab' && command === 'mac') result = await (await import('../dev/mac-server.mjs')).serveMac(cache);
   else if (mode === 'lab' && command === 'serve') result = await (await import('../dev/lab.mjs')).serve(cache);
+  else if (mode === 'release-config-check') result = (await import('./release.mjs')).configuration(undefined, true);
   else if (mode === 'doctor') result = simulator.doctor();
   else if (mode === 'device') result = await device(command, arg);
   else if (mode === 'build') result = simulator.build(command || 'Debug');

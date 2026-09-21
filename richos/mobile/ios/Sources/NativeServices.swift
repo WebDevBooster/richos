@@ -3,11 +3,18 @@ import WebKit
 import CryptoKit
 import Security
 import AVFoundation
+import UIKit
+import Network
 
 // Device services only. Session, queue, pairing and retry actions live in shared JavaScript.
-final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessionDataDelegate, AVAudioRecorderDelegate {
+final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessionDataDelegate, AVAudioRecorderDelegate, AVAudioPlayerDelegate {
     weak var webView: WKWebView?
     private var origin: URL?
+    private var pendingLink: String?
+    private var player: AVAudioPlayer?
+    private let updates = UpdateService()
+    private let network = NWPathMonitor()
+    private var lastNetwork: NWPath.Status?
     private var stream: URLSessionDataTask?
     private var streamID: String?
     private var recorder: AVAudioRecorder?
@@ -27,6 +34,15 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     override init() {
         folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RichOSMobile", isDirectory: true)
         super.init()
+        updates.emit = { [weak self] event in self?.emit(event) }
+        network.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if path.status == .satisfied && self.lastNetwork != .satisfied { self.emit(["kind": "network-recovered"]) }
+                self.lastNetwork = path.status
+            }
+        }
+        network.start(queue: DispatchQueue(label: "dev.richos.mobile.network"))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
         NotificationCenter.default.addObserver(self, selector: #selector(interrupted), name: AVAudioSession.interruptionNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(routeChanged), name: AVAudioSession.routeChangeNotification, object: nil)
@@ -73,6 +89,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
               let args = body["args"] as? [String: Any] else { reply(nil, "Invalid native request"); return }
         do {
             switch method {
+            case "incomingLink": reply(pendingLink as Any? ?? NSNull(), nil); pendingLink = nil
             case "configure":
                 let value = try string(args, "origin")
                 guard let u = URL(string: value), u.scheme == "https", u.host != nil, u.user == nil, u.password == nil,
@@ -99,15 +116,49 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                     guard ["authorization", "content-type"].contains(name.lowercased()) else { throw fail("Unsupported header") }
                     request.setValue(value, forHTTPHeaderField: name)
                 }
+                let client = updates.info()
+                request.setValue("1", forHTTPHeaderField: "X-RichOS-Protocol")
+                request.setValue(client["version"] as? String, forHTTPHeaderField: "X-RichOS-Client-Version")
+                request.setValue(client["build"] as? String, forHTTPHeaderField: "X-RichOS-Client-Build")
                 if !text.isEmpty { request.httpBody = Data(text.utf8) }
                 let task = session.dataTask(with: request); requestReplies[task.taskIdentifier] = reply; requestBuffers[task.taskIdentifier] = Data(); task.resume()
             case "streamOpen":
                 let url = try endpoint(string(args, "url")); guard url.path == "/api/events" else { throw fail("Invalid stream route") }
                 closeStream(); streamID = try string(args, "id")
                 var request = URLRequest(url: url); request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                request.setValue("1", forHTTPHeaderField: "X-RichOS-Protocol")
                 stream = session.dataTask(with: request); stream?.resume(); reply(true, nil)
             case "streamClose":
                 if args["id"] as? String == streamID { closeStream() }; reply(true, nil)
+            case "updateInfo": reply(updates.info(), nil)
+            case "updateMetric": updates.metric(try string(args, "event"), revision: args["revision"] as? Int ?? 0); reply(true, nil)
+            case "updateFetch": updates.fetch(reply)
+            case "updateSubscribe": updates.subscribe(try string(args, "id")); reply(true, nil)
+            case "updateUnsubscribe": updates.close(try string(args, "id")); reply(true, nil)
+            case "openStore": updates.open("store", reply: reply)
+            case "openSupport": updates.open("support", reply: reply)
+            case "openSettings":
+                UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!, options: [:]) { opened in reply(opened, nil) }
+            case "openLink":
+                let value = try string(args, "url")
+                guard let url = URL(string: value), url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
+                      !value.contains("\\"), !value.contains(where: { $0.isWhitespace }) else { throw fail("Only HTTPS links can be opened") }
+                UIApplication.shared.open(url, options: [:]) { opened in reply(opened ? true : nil, opened ? nil : "Could not open this link") }
+            case "scanPair":
+                guard let controller = webView?.window?.rootViewController, controller.presentedViewController == nil else { throw fail("Camera is unavailable") }
+                let scanner = PairScanner(); scanner.completion = reply
+                controller.present(scanner, animated: true); scanner.presentationController?.delegate = scanner
+            case "recordPlay":
+                let id = try string(args, "id")
+                guard recorder == nil, UUID(uuidString: id) != nil else { throw fail("Stop recording before playback") }
+                player?.stop(); try AVAudioSession.sharedInstance().setCategory(.playback)
+                try AVAudioSession.sharedInstance().setActive(true)
+                do {
+                    player = try AVAudioPlayer(contentsOf: folder.appendingPathComponent(id + ".wav")); player?.delegate = self
+                    guard player?.play() == true else { throw fail("This recording cannot be played") }; reply(true, nil)
+                } catch {
+                    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation); throw error
+                }
             case "recordStart": startRecording(reply)
             case "recordStop": try stopRecording(cancel: false); reply(true, nil)
             case "recordCancel": permissionGeneration += 1; try stopRecording(cancel: true); reply(true, nil)
@@ -154,7 +205,11 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         webView?.callAsyncJavaScript("globalThis.RichOSNativeEvent?.(event)", arguments: ["event": value], in: nil, in: .page, completionHandler: nil)
     }
     private func closeStream() { let old = stream; stream = nil; streamID = nil; old?.cancel() }
-    func background() { permissionGeneration += 1; try? stopRecording(cancel: false); closeStream(); emit(["kind": "background"]) }
+    func receiveLink(_ url: URL) {
+        guard url.absoluteString.count <= 4096 else { return }
+        pendingLink = url.absoluteString; emit(["kind": "incoming-link"])
+    }
+    func background() { updates.close(); player?.stop(); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation); permissionGeneration += 1; try? stopRecording(cancel: false); closeStream(); emit(["kind": "background"]) }
     func foreground() { emit(["kind": "foreground"]) }
     @objc private func interrupted(_ notification: Notification) {
         if notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue { try? stopRecording(cancel: false) }
@@ -163,13 +218,25 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         if notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { try? stopRecording(cancel: false) }
     }
     private func recordings() throws -> [[String: Any]] {
-        try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        for url in try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) where url.pathExtension == "wav" {
+            let id = url.deletingPathExtension().lastPathComponent, metadata = url.deletingPathExtension().appendingPathExtension("json")
+            if id != recordingID && UUID(uuidString: id) != nil && !FileManager.default.fileExists(atPath: metadata.path),
+               let file = try? AVAudioFile(forReading: url) {
+                let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+                let value: [String: Any] = ["id": id, "seconds": Double(file.length) / file.processingFormat.sampleRate,
+                    "bytes": attributes[.size] as? Int ?? 0, "sampleRate": 16000, "codec": "wav16k", "recovered": true,
+                    "createdAt": ISO8601DateFormatter().string(from: attributes[.creationDate] as? Date ?? Date())]
+                try protectedWrite(JSONSerialization.data(withJSONObject: value), to: metadata)
+            }
+        }
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
             .compactMap { try JSONSerialization.jsonObject(with: Data(contentsOf: $0)) as? [String: Any] }
             .sorted { ($0["createdAt"] as? String ?? "") < ($1["createdAt"] as? String ?? "") }
     }
     private func startRecording(_ reply: @escaping (Any?, String?) -> Void) {
         guard recorder == nil else { reply(nil, "Already recording"); return }
+        player?.stop()
         permissionGeneration += 1; let generation = permissionGeneration
         audioTrace("requesting permission")
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
@@ -222,6 +289,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         }
         emit(["kind": "record-finished"])
     }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) { try? stopRecording(cancel: !flag) }
     func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) { try? stopRecording(cancel: true) }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }

@@ -41,6 +41,24 @@
     }
     return {
       native: call, EventSource: NativeEvents,
+      updates: async () => {
+        const clientInfo = () => call('updateInfo', {}), client = await clientInfo();
+        return { client, clientInfo, authority: client.authority, metric: (event, revision) => client.metrics ? call('updateMetric', { event, revision }) : Promise.resolve(), ...(client.configured ? {
+          fetchPolicy: () => call('updateFetch', {}),
+          subscribe: async signal => {
+            const id = crypto.randomUUID(); let closed = false, timer;
+            const open = () => call('updateSubscribe', { id }).catch(() => reconnect());
+            const reconnect = () => { clearTimeout(timer); if (!closed) timer = setTimeout(open, 15000); };
+            const unsubscribe = subscribe(event => {
+              if (closed || event.id !== id) return;
+              if (event.kind === 'update-signal') signal();
+              if (event.kind === 'update-stream-closed') reconnect();
+            });
+            await open();
+            return { close() { closed = true; clearTimeout(timer); unsubscribe(); call('updateUnsubscribe', { id }).catch(() => {}); } };
+          }
+        } : {}) };
+      },
       fetch: async (url, options = {}) => {
         const result = await call('request', { url, method: options.method || 'GET', headers: options.headers || {}, body: options.body || '' });
         return new Response([204, 205, 304].includes(result.status) ? null : result.body, { status: result.status, headers: result.headers });

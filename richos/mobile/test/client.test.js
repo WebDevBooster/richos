@@ -123,3 +123,19 @@ test('pairing accepts the production Mac colon-separated SHA-256 fingerprint', a
   await client.dispatch({ type: 'pair', link: 'https://mac.example/#pair=secret' });
   assert.equal(client.state().words, require('../../web/web-app/lib/fingerprint.js').phraseFromHex('ab'.repeat(32)));
 });
+
+test('native update subscriptions cannot close or receive data from the Mac event stream', async () => {
+  const { createPorts } = require('../platform/native.js'); const calls = [], listeners = new Set();
+  const ports = createPorts(async (method, args) => {
+    calls.push({ method, args });
+    if (method === 'updateInfo') return { version: '0.1.0', build: '2', osVersion: '16.7.16', configured: true };
+    return true;
+  }, listener => { listeners.add(listener); return () => listeners.delete(listener); });
+  const mac = new ports.EventSource('https://mac.example/api/events');
+  let signals = 0; const update = await ports.updates(), stream = await update.subscribe(() => { signals++; });
+  const updateId = calls.find(call => call.method === 'updateSubscribe').args.id;
+  for (const listener of listeners) listener({ kind: 'update-signal', id: updateId });
+  assert.equal(signals, 1); assert.equal(mac.readyState, 0);
+  stream.close(); assert.equal(calls.filter(call => call.method === 'streamClose').length, 0);
+  mac.close(); assert.equal(calls.filter(call => call.method === 'streamClose').length, 1);
+});

@@ -109,6 +109,9 @@ try {
     assert.equal(refreshed.state.online, true);
     assert.equal(refreshed.state.revoked, false);
     pass('page restart and source refresh retain the paired session');
+    const client = await (await import('./client-ui.mjs')).clientUI();
+    assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
+    pass('bundled native UI preserves rapid typing with delayed storage and fits both phone themes');
   } else {
     cli('sim', 'prepare');
     const verified = cli('sim', 'verify');
@@ -128,6 +131,13 @@ try {
     cli('sim', 'action', JSON.stringify({ type: 'compose', text: 'Native client refresh proof' }));
     assert.equal(cli('sim', 'refresh').state.draft, 'Native client refresh proof');
     pass('native client actions and protected-file persistence survive a UI refresh');
+    const { policy } = require('../dev/update-fixture.js');
+    const revision = Date.now();
+    assert.equal(cli('sim', 'policy', JSON.stringify(policy('banner', revision))).state.updates.mode, 'banner');
+    assert.equal(cli('sim', 'action', JSON.stringify({ type: 'update-dismiss' })).state.updates.mode, 'none');
+    assert.equal(cli('sim', 'policy', JSON.stringify(policy('blocking', revision + 1))).state.updates.mode, 'blocking');
+    assert.equal(cli('sim', 'policy', JSON.stringify(policy('none', revision + 2))).state.updates.blocked, false);
+    pass('real client update policy decisions and dismissal use the simulator action path');
     assert.equal(cli('check-release').developmentBridgeExcluded, true);
     pass('Release excludes development runtime and native command access');
   }
