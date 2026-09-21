@@ -433,7 +433,14 @@ cmd_app() {
   shipped from a tree that was never committed.
 
 $(printf '%s' "$dirty" | sed 's/^/    /')" 1
-    tag_sha="$(git -C "$repo_root" rev-parse "$TAG^{commit}" 2>/dev/null || true)"
+    # Hidden candidates have no public tag yet. Plain rev-parse prints an
+    # unresolved expression before failing, so its stdout is not an existence test.
+    # Check the tag namespace explicitly; a same-named branch is not a release tag.
+    tag_sha=""
+    if git -C "$repo_root" show-ref --verify --quiet "refs/tags/$TAG"; then
+      tag_sha="$(git -C "$repo_root" rev-parse --verify "refs/tags/$TAG^{commit}" 2>/dev/null)" \
+        || die "$TAG exists but does not name a commit." 1
+    fi
     if [ -n "$tag_sha" ] && [ "$tag_sha" != "$head_sha" ]; then
       die "HEAD is $head_sha and $TAG is $tag_sha. GitHub publishes the TAG's tree as the
   source beside this release, so it would not be the source this binary was built from." 1

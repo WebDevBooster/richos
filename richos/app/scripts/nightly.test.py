@@ -1282,6 +1282,95 @@ EOF
                                '--out', str(self.out)], env={**self.env, **env},
                               capture_output=True, text=True)
 
+    def app_source_fixture(self):
+        """Reach the real app source guard with a real Git checkout, not a Git stub."""
+        root = self.scripts.parents[2]
+        checker = root / 'richos/engine/scripts/named-persons.sh'
+        checker.parent.mkdir(parents=True)
+        checker.write_text('#!/bin/sh\nexit 0\n')
+        checker.chmod(0o755)
+        (self.scripts / 'package-app.sh').write_text(
+            '#!/bin/sh\necho "fixture reached packaging" >&2\nexit 23\n')
+        (root / '.gitignore').write_text('/out/\n/remote/\n/bin/\n')
+        digest = 'a' * 64
+        url = n.candidate_engine_asset(digest)[1]
+        (self.out / 'engine-pin.env').write_text(
+            f'export RICHOS_ENGINE_VERSION=1.2.0\n'
+            f'export RICHOS_ENGINE_SHA256={digest}\n'
+            f'export RICHOS_ENGINE_URL={url}\n')
+        (self.out / 'engine-published.ok').write_text(f'sha256={digest}\nurl={url}\n')
+        self.env = {key: value for key, value in self.env.items()
+                    if key not in ('GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME',
+                                   'GIT_COMMITTER_EMAIL', 'EMAIL', 'GIT_INDEX_FILE')}
+        self.env['TAURI_SIGNING_PRIVATE_KEY_PATH'] = str(root / 'fixture-unused.key')
+
+        def git(*args, input=None):
+            return subprocess.run(['git', *args], cwd=root, env=self.env, input=input,
+                                  text=True, capture_output=True, check=True).stdout.strip()
+        git('init', '-q', '-b', 'main')
+        git('config', 'core.hooksPath', os.devnull)
+        git('config', 'user.name', 'Fixture')
+        git('config', 'user.email', 'fixture@example.invalid')
+        git('add', 'richos', '.gitignore')
+        git('commit', '-qm', 'release source fixture')
+        return root, git
+
+    def test_unpublished_candidate_without_tag_reaches_packaging(self):
+        _, git = self.app_source_fixture()
+        self.assertEqual(git('tag', '--list'), '')
+        result = self.call('app')
+        self.assertIn('fixture reached packaging', result.stderr)
+        self.assertIn('does not exist locally yet', result.stdout)
+
+    def test_app_accepts_lightweight_and_annotated_tags_at_head(self):
+        _, git = self.app_source_fixture()
+        tag = 'v' + self.version
+        for annotated in (False, True):
+            with self.subTest(annotated=annotated):
+                git('tag', *(['-a', '-m', 'fixture'] if annotated else []), tag)
+                result = self.call('app')
+                self.assertIn('fixture reached packaging', result.stderr)
+                self.assertIn('which is ' + tag, result.stdout)
+                git('tag', '-d', tag)
+
+    def test_app_refuses_a_tag_on_a_different_commit(self):
+        root, git = self.app_source_fixture()
+        git('tag', 'v' + self.version)
+        (root / 'change').write_text('new source')
+        git('add', 'change')
+        git('commit', '-qm', 'source moved')
+        result = self.call('app')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("GitHub publishes the TAG's tree", result.stderr)
+        self.assertNotIn('fixture reached packaging', result.stderr)
+
+    def test_app_refuses_a_tag_that_does_not_name_a_commit(self):
+        _, git = self.app_source_fixture()
+        blob = git('hash-object', '-w', '--stdin', input='not a commit')
+        git('tag', 'v' + self.version, blob)
+        result = self.call('app')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('exists but does not name a commit', result.stderr)
+        self.assertNotIn('fixture reached packaging', result.stderr)
+
+    def test_app_does_not_mistake_a_branch_for_the_public_tag(self):
+        root, git = self.app_source_fixture()
+        git('branch', 'v' + self.version)
+        (root / 'change').write_text('new source')
+        git('add', 'change')
+        git('commit', '-qm', 'source moved')
+        result = self.call('app')
+        self.assertIn('fixture reached packaging', result.stderr)
+        self.assertIn('does not exist locally yet', result.stdout)
+
+    def test_app_still_refuses_uncommitted_source(self):
+        root, _ = self.app_source_fixture()
+        (root / 'change').write_text('uncommitted source')
+        result = self.call('app')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('working tree has uncommitted changes', result.stderr)
+        self.assertNotIn('fixture reached packaging', result.stderr)
+
     def test_nightly_plan_requires_nightly_endpoint(self):
         result = self.call('plan')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
