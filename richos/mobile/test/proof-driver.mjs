@@ -123,6 +123,11 @@ try {
     assert.equal(controls.visibleSendVerifiedInCore, true);
     assert.equal(controls.state.outbox[0].text, 'Typed through the visible composer');
     pass(`XCUITest visible composer and Send: ${controls.result}`);
+    const client = cli('sim', 'client-prepare');
+    assert.equal(client.state.confirmed, false);
+    cli('sim', 'action', JSON.stringify({ type: 'compose', text: 'Native client refresh proof' }));
+    assert.equal(cli('sim', 'refresh').state.draft, 'Native client refresh proof');
+    pass('native client actions and protected-file persistence survive a UI refresh');
     assert.equal(cli('check-release').developmentBridgeExcluded, true);
     pass('Release excludes development runtime and native command access');
   }

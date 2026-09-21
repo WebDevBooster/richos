@@ -78,6 +78,59 @@ PWA actions use visible controls for compose, send, conversation selection and r
 
 The shared production module today is `web-app/lib/queue.js`. The PWA retains its existing controller; it does not yet run the minimal native shell's entire `core/app.js`. Both use one CLI and the same queue implementation. Browser checks use real browser time and random signing/message IDs, so their trace is checked for behavior rather than exact equality with the deterministic native/headless trace. `advance` and synthetic lost-ack commands belong to the headless/simulator targets. As further behavior is extracted or added, keep it headless and shared where applicable. Android microphone, push, installation and background behavior still need physical-phone verification.
 
+## Native client feasibility
+
+The Swift/WKWebView client uses the PWA's API, signing-input contract, fingerprint phrase,
+single event-stream owner and durable queue. `core/client.js` owns pairing confirmation,
+messages, reconnect cursors and recording actions. `platform/native.js` adapts those ports
+to protected files, Keychain signing, URLSession and AVAudioRecorder. The private key and
+recording bytes stay behind the native boundary. The current voice control saves bounded
+recordings locally; it does not claim the Mac accepts uploaded voice.
+
+```sh
+node richos/mobile/cli/mobile.mjs client scenario connection-restart
+node richos/mobile/cli/mobile.mjs client scenario recording-interruption
+node richos/mobile/cli/mobile.mjs sim client-prepare
+node richos/mobile/cli/mobile.mjs sim action '{"type":"compose","text":"Client action check"}'
+node richos/mobile/cli/mobile.mjs sim state
+node richos/mobile/cli/mobile.mjs sim refresh
+```
+
+The client scenarios use replaceable transport/recording ports and execute the actual
+client actions. They cannot prove microphone permission or hardware behavior. The simulator
+client commands use real native adapters. `sim prepare` returns to the original deterministic
+fixture host. Both screens support source refresh through the same CLI.
+
+Physical builds and focused checks use the connected device identifier and signing team:
+
+```sh
+RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> node richos/mobile/cli/mobile.mjs device build
+RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> node richos/mobile/cli/mobile.mjs device verify recording
+RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> RICHOS_MOBILE_TEST_CONFIG=<external-json-path> node richos/mobile/cli/mobile.mjs device verify text
+```
+
+The external JSON has `pairLink` and `words` for an isolated test server. It is copied only
+into the test bundle. `lab serve` starts an expiring loopback protocol server with its own
+identity, pairing and synthetic replies; it never opens the user's real Mac identity or
+conversation store. `RICHOS_LAB_PORT` optionally fixes its loopback port. For a phone,
+expose that loopback port through a private HTTPS test route such as Tailscale Serve.
+The lab uses a verified TLS upstream; it does not bypass certificate validation. Its
+mode-0600 `lab.json` contains a single-use pairing code and test status. Stop the owned lab
+process with SIGTERM and stop its separately started Serve process after testing.
+
+Physical test logs stream to the external cache as the test runs. The runner monitors
+the pre-existing host USB devices, stops its own process group if one disappears or resets,
+enforces a time limit and never resets USB or retries a failed physical test automatically.
+That detects a disruption; it does not prove the initiating cause or prevent every USB fault.
+XCUITest stops on its first assertion failure and terminates its app during teardown.
+Recording-start failure also releases the audio session and removes its partial file.
+
+Simulator proofs explicitly skip live microphone recording, which would use the host Mac's
+microphone. Run the named physical recording check for that evidence. A missing remote
+configuration is an explicit skipped remote test, never evidence of connectivity. The
+headless suite tests supervision and orchestration with substituted process/device ports;
+it does not claim those tests exercise Xcode or a physical USB device.
+
 ## Registered repository proofs
 
 The repository runner discovers these suites under `richos/app/scripts`:
@@ -105,10 +158,10 @@ Each suite has dependency `inputs` and exact-file `covers` rows. Coverage descri
 ## Boundaries
 
 - `core/`: real application actions and state, backed by the PWA queue. Add new behavior here before wiring controls.
-- `ui/`: rendering and input events. Its release entry has no fake Mac connection and keeps sending disabled until real pairing adapters exist.
+- `ui/`: rendering and input events. The release client starts unpaired and enables sending only after the user confirms pairing.
 - `dev/`: deterministic environment adapters, persistent synthetic receipts and scenarios. The simulated Mac's receipt table models deduplication; it does not test a real Mac server.
 - `cli/`: headless persistence, resource packaging and simulator orchestration. The same request envelope reaches the development runtime in both modes.
-- `ios/`: minimal host and one focused visible-control test.
+- `ios/`: native services and focused visible-control checks; physical recording and remote text are separate selectable tests.
 
 Development fixture access and commands are compiled only for Debug simulator builds. The native bridge polls for UUID-named local sandbox command files while the Debug simulator app is running. It uses no URL scheme or confirmation dialogs. It exposes neither a network listener nor arbitrary JavaScript evaluation. The webview loads local resources only. Debug assets are separate from Release assets; `check-release` builds Release and inspects its executable, Info.plist and resources for development markers and URL registration. This simulator Release check is not signed App Store artifact verification.
 
