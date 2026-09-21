@@ -300,6 +300,54 @@ async function main() {
     return "approve on the second assignment and decline on the first, each carrying its own request id";
   });
 
+  await run.check("live and durable notice delivery is single and stays on its origin", async () => {
+    const vm = require("node:vm");
+    const src = fs.readFileSync(MAIN_JS, "utf8");
+    const events = {};
+    let pending = [], delayed = null;
+    const context = vm.createContext({window: {}, console, Date, Map, Promise,
+      activeThreadId: "a", followBottom: false, scheduleRender() {}, busy: false,
+      Bridge: {listen(name, cb) { events[name] = cb; }, async invoke(name, args) {
+        assertEqual(name, "take_work_notices", "only durable notice consumption");
+        const result = pending; pending = [];
+        if (delayed) await delayed;
+        return result;
+      }}});
+    vm.runInContext(fs.readFileSync(path.join(UI_DIR, "timeline.js"), "utf8"), context);
+    vm.runInContext(`
+      let timelineModel = window.RichTimeline.createModel();
+      window.RichTimeline.bind(timelineModel, "company", "a", 1);
+      const origin = timelineModel;
+      function anyLiveTurn() { return busy; }
+    `, context);
+    vm.runInContext(src.slice(src.indexOf("let voiceBusy = false;"), src.indexOf("/// A line Rich says LOCALLY")), context);
+    const eventStart = src.indexOf('Bridge.listen("rich://work-notice"');
+    vm.runInContext(src.slice(eventStart, src.indexOf("\n});", eventStart) + 4), context);
+    const notice = {assignmentId: "one", kind: "failed", text: "Nothing was landed.", raisedAtMs: 100};
+    pending = [notice];
+    events["rich://work-notice"]({payload: {threadId: "a", notice}});
+    await vm.runInContext("drainWorkNotices()", context);
+    assertEqual(vm.runInContext("origin.items.size", context), 1, "push followed by saved drain must not duplicate");
+    // A real second notice with identical words must survive, not be text-deduplicated.
+    pending = [{...notice, assignmentId: "two", raisedAtMs: 101}];
+    await vm.runInContext("drainWorkNotices()", context);
+    assertEqual(vm.runInContext("origin.items.size", context), 2, "another assignment is another notice");
+    // Hold a response over navigation, then hold its delivery over a working turn.
+    let release;
+    delayed = new Promise(resolve => { release = resolve; });
+    pending = [{...notice, assignmentId: "three", raisedAtMs: 102}];
+    const heldDrain = vm.runInContext("busy = true; drainWorkNotices()", context);
+    await Promise.resolve();
+    vm.runInContext(`activeThreadId = "b"; timelineModel = window.RichTimeline.createModel();
+      window.RichTimeline.bind(timelineModel, "company", "b", 1);`, context);
+    release(); delayed = null;
+    await heldDrain;
+    vm.runInContext("busy = false; flushWorkNotices()", context);
+    assertEqual(vm.runInContext("timelineModel.items.size", context), 0, "held notice must not leak into destination");
+    assertEqual(vm.runInContext("origin.items.size", context), 3, "origin retains delayed notice");
+    return "one durable consumer; equal text from another assignment survives; delayed notice keeps origin";
+  });
+
   await run.check("a background result is HELD while a turn runs, and never dropped", async () => {
     // Read from the source, not driven: the hold lives in the shell, and running a real
     // turn needs a live Tauri bridge. A suite that mocked one would be asserting about the
@@ -340,10 +388,10 @@ async function main() {
     // would have made a build that never calls the function pass with one call site.
     assertEqual(
       (src.match(/^\s*drainWorkNotices\(\);/gm) || []).length,
-      2,
-      "the durable read is not called at both the thread open and the turn boundary"
+      3,
+      "the durable read must run on thread open, turn boundary and live wakeup"
     );
-    return "held on a live turn or a live voice exchange, flushed at both boundaries, and read durably twice";
+    return "held on a live turn or a live voice exchange, flushed at both boundaries, and read durably on open, boundary and push";
   });
 
   await browser.close();
