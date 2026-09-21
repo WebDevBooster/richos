@@ -290,6 +290,17 @@ fn stream_emits_chunks_in_order_and_ledger_holds_full_reply() {
         assert_eq!(tur, &turn_id, "chunk carries the current turn id");
     }
 
+    // Compare the actual live event against the separately persisted JSONL record.
+    let durable: Vec<serde_json::Value> = std::fs::read_to_string(&path).unwrap().lines()
+        .map(|line| serde_json::from_str(line).unwrap()).collect();
+    for event in &events {
+        if let StreamEvent::Chunk { turn_id, seq, at, .. } = event {
+            let row = durable.iter().find(|row| row["event"] == "AssistantDelta"
+                && row["turn_id"] == *turn_id && row["seq"] == *seq).unwrap();
+            assert_eq!(row["at"].as_u64(), Some(*at), "emit metadata must date the persisted delta");
+        }
+    }
+
     // Concatenating textDelta in seq order reproduces the full reply...
     let streamed: String = chunks.iter().map(|(_, _, _, t)| t.clone()).collect();
     assert_eq!(streamed, "Hello CEO, I am Rich and I am here.");
