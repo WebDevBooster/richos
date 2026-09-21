@@ -26,12 +26,37 @@ NOW = datetime(2026, 9, 11, 23, 59, tzinfo=timezone.utc)
 
 
 class VersionTests(unittest.TestCase):
-    def test_numeric_suffix_and_day_reset(self):
+    def test_counter_continues_across_days_and_base_versions(self):
         tags = [f"v5.1.0-nightly.20260911.{i}" for i in range(1, 12)]
         tags += ["v5.2.0-nightly.20260911.999", "v5.1.0-nightly.20260910.999"]
-        self.assertEqual(n.next_version("5.1.0", "20260911", tags), "5.1.0-nightly.20260911.12")
-        self.assertEqual(n.next_version("5.1.0", "20260912", tags), "5.1.0-nightly.20260912.1")
+        self.assertEqual(n.next_version("5.1.0", "20260911", tags), "5.1.0-nightly.20260911.1000")
+        self.assertEqual(n.next_version("5.1.0", "20260912", tags), "5.1.0-nightly.20260912.1000")
+        self.assertEqual(n.next_version("6.0.0", "20260912", tags), "6.0.0-nightly.20260912.1000")
         self.assertGreater(n.nightly_key("5.1.0-nightly.20260911.10"), n.nightly_key("5.1.0-nightly.20260911.9"))
+
+    def test_empty_history_and_unrelated_tags(self):
+        self.assertEqual(n.next_version("5.1.0", "20260911",
+                                       {"nightly", "v5.0.0", "v5.1.0-beta.999"}),
+                         "5.1.0-nightly.20260911.1")
+
+    def test_reservations_survive_missing_release_and_exceed_four_digits(self):
+        tags = {"v5.1.0-nightly.20260911.8"}
+        self.assertEqual(n.next_version("5.2.0", "20260912", tags, {9999}),
+                         "5.2.0-nightly.20260912.10000")
+
+    def test_23_legacy_candidates_seed_24_without_counting_aliases_or_stable(self):
+        tags = {f"v1.2.0-nightly.202609{day}.{number}"
+                for day, count in ((17, 6), (18, 6), (19, 8), (20, 3))
+                for number in range(1, count + 1)}
+        tags.update({"nightly", "v1.0.0", "v1.0.1", "v1.0.2"})
+        self.assertEqual(n.next_version("1.2.0", "20260921", tags),
+                         "1.2.0-nightly.20260921.24")
+        tags.add("v1.2.0-nightly.20260921.24")
+        self.assertEqual(n.next_version("1.3.0", "20260922", tags, {24}),
+                         "1.3.0-nightly.20260922.25")
+        # A reserved failed attempt with no release/version entry still consumes 25.
+        self.assertEqual(n.next_version("1.3.0", "20260922", tags, {24, 25}),
+                         "1.3.0-nightly.20260922.26")
 
     def test_invalid_versions_and_dates(self):
         for version in ("5.1.0-nightly.20260911.01", "5.1.0-nightly.20260911.0",
@@ -105,6 +130,49 @@ class GitFixture(unittest.TestCase):
         n.git("commit", "-qm", "source")
         n.git("push", "-q", "origin", "main")
         self.source = n.git("rev-parse", "HEAD")
+        self.releases = {n.CHANNEL_TAG: {"id": 1, "tag_name": n.CHANNEL_TAG,
+                                       "prerelease": True, "draft": False}}
+        self.asset_bytes = {}
+        for name, replacement in (("get_release", lambda tag: self.releases.get(tag)),
+                                  ("release_assets", self.fake_release_assets),
+                                  ("verify_served_asset", self.fake_verify_asset)):
+            patcher = patch.object(n, name, side_effect=replacement)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.stub_execute.side_effect = self.fake_external
+
+    def fake_release_assets(self, release_id):
+        tag = next(tag for tag, release in self.releases.items() if release["id"] == release_id)
+        return [{"name": name} for stored_tag, name in self.asset_bytes if stored_tag == tag]
+
+    def fake_verify_asset(self, url, path):
+        tag, name = url.split("/releases/download/", 1)[1].split("/", 1)
+        if self.asset_bytes.get((tag, name)) != Path(path).read_bytes():
+            raise ValueError("published asset differs from the candidate")
+
+    def fake_external(self, *args, **kwargs):
+        # Only network/build boundaries are simulated. Reservation, candidate hashes,
+        # promotion tags, capacity/reuse and resume decisions run their real code.
+        if args[:3] == ("gh", "release", "create"):
+            tag = args[3]
+            self.assertTrue(n.git("ls-remote", "origin", f"refs/tags/{tag}"))
+            self.releases[tag] = {"id": len(self.releases) + 1, "tag_name": tag,
+                                  "prerelease": True, "draft": False}
+        elif args[:3] == ("gh", "release", "upload"):
+            tag = args[3]
+            paths = args[args.index("--repo") + 2:]
+            for item in paths:
+                if item.startswith("--"):
+                    continue
+                path = Path(item)
+                self.asset_bytes[tag, path.name] = path.read_bytes()
+        elif args[0] == "bash" and args[2] == "engine":
+            out = Path(args[args.index("--out") + 1])
+            (out / "richos-engine-1.2.0.tar.gz").write_bytes(b"fixture engine")
+        elif args[0] == "bash" and args[2] == "app":
+            out = Path(args[args.index("--out") + 1])
+            info = json.loads((out / "build-info.json").read_text())
+            (out / "latest.json").write_text(n.json_text(self.manifest(info)))
 
     def plan(self, **kwargs):
         return n.plan(now=NOW, **kwargs)
@@ -173,7 +241,8 @@ class GitTests(GitFixture):
         conf = json.loads((self.repo / n.CONFIG).read_text())
         self.assertEqual(conf["plugins"]["updater"]["endpoints"], [n.ENDPOINT])
         self.assertEqual(json.loads((self.repo / n.PROVENANCE).read_text())["source_commit"], self.source)
-        self.assertIn(info["tag"], n.remote_tags())
+        self.assertEqual(n.remote_tags(), set())
+        self.assertEqual(n.candidate_refs(), {1: info["build_commit"]})
         n.git("checkout", "-q", "main")
         self.assertEqual(self.plan()["version"], "5.1.0-nightly.20260911.2")
 
@@ -185,20 +254,104 @@ class GitTests(GitFixture):
             n.prepare(second)
         self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
 
-    def test_tag_created_during_allocation_cannot_be_overwritten(self):
+    def test_stale_plan_on_another_day_cannot_reuse_a_number(self):
+        next_day = n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc))
+        self.reserve()
+        n.git("checkout", "-q", "main")
+        with self.assertRaisesRegex(ValueError, "reserved|stale"):
+            n.prepare(next_day)
+        self.assertNotIn(next_day["tag"], n.remote_tags())
+
+    def test_fresh_clone_recovers_hidden_candidate_and_next_number(self):
+        info = self.reserve()
+        clone = Path(self.temp.name) / "fresh"
+        n.git("clone", "--no-tags", "--branch", "main", str(self.remote), str(clone))
+        with patch.object(n, "ROOT", clone):
+            self.assertEqual(n.remote_tags(), set())
+            self.assertEqual(n.candidate_refs(), {1: info["build_commit"]})
+            self.assertEqual(n.next_version("5.1.0", "20260912", n.remote_tags(), n.candidate_refs()),
+                             "5.1.0-nightly.20260912.2")
+            n.git("fetch", "--no-tags", "origin", info["candidate_ref"])
+            self.assertEqual(n.git("rev-parse", "FETCH_HEAD"), info["build_commit"])
+            provenance = json.loads(n.git("show", f"FETCH_HEAD:{n.PROVENANCE}"))
+            self.assertEqual(provenance["candidate_ref"], "refs/candidates/1")
+
+    def test_different_date_wins_during_reservation_without_any_public_tag(self):
+        ours = self.plan()
+        theirs = n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc))
+        original = n.commit_files
+        winner = None
+        def race(*args):
+            nonlocal winner
+            files = n.release_files(theirs, (self.repo / n.MANIFEST).read_text(),
+                                    (self.repo / n.LOCK).read_text(), (self.repo / n.CONFIG).read_text())
+            winner = original(files, self.source, "competing date")
+            n.git("push", "origin", f"{winner}:refs/candidates/1")
+            return original(*args)
+        with patch.object(n, "commit_files", side_effect=race):
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.prepare(ours)
+        self.assertEqual(n.remote_tags(), set())
+        self.assertEqual(n.candidate_refs(), {1: winner})
+
+    def test_global_number_race_rejects_full_version_tag_atomically(self):
+        # A different candidate wins AFTER prepare's remote read. Neither changing
+        # the date nor changing the base version may evade the shared reservation.
         info = self.plan()
         original = n.commit_files
-
-        def competing_tag(*args):
+        def competing_number(*args):
             commit = original(*args)
-            n.git("push", "origin", f"{self.source}:refs/tags/{info['tag']}")
+            # The winning ref even points to our candidate's ancestor: an ordinary
+            # fast-forward push would overwrite it. The create-only lease must refuse.
+            n.git("push", "origin", f"{self.source}:refs/candidates/1")
             return commit
-
-        with patch.object(n, "commit_files", side_effect=competing_tag):
+        with patch.object(n, "commit_files", side_effect=competing_number):
             with self.assertRaises(subprocess.CalledProcessError):
                 n.prepare(info)
+        self.assertNotIn(info["tag"], n.remote_tags())
         self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
+        self.assertEqual(self.plan()["version"], "5.1.0-nightly.20260911.2")
+
+    def test_failed_candidate_consumes_number_across_date_and_base_bump(self):
+        first = self.reserve()
+        with patch.object(n, "execute", side_effect=RuntimeError("build failed")):
+            with self.assertRaisesRegex(RuntimeError, "build failed"):
+                n.build(first, Path(self.temp.name) / "failed-candidate")
+        n.git("checkout", "-q", "main")
+        for path in (n.MANIFEST, n.LOCK):
+            file = self.repo / path
+            file.write_text(file.read_text().replace('"5.1.0"', '"5.2.0"'))
+        n.git("commit", "-qam", "next base")
+        second = n.prepare(n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc)))
+        self.assertEqual(second["version"], "5.2.0-nightly.20260912.2")
+        self.assertEqual(n.remote_tags(), set())
+        self.assertEqual(n.candidate_refs(), {1: first["build_commit"], 2: second["build_commit"]})
+        self.assertEqual(n.channel(), (None, None))
+
+    def test_migration_starts_above_all_historical_suffixes(self):
+        legacy = {"v5.0.0-nightly.20260909.8", "v5.1.0-nightly.20260910.3"}
+        n.git("push", "origin", *(f"{self.source}:refs/tags/{tag}" for tag in legacy))
+        info = self.reserve()
+        self.assertEqual(info["version"], "5.1.0-nightly.20260911.9")
+        self.assertTrue(legacy <= n.remote_tags())
+        self.assertEqual(n.candidate_refs(), {9: info["build_commit"]})
+
+    def test_remote_without_atomic_push_cannot_partially_reserve(self):
+        n.git("config", "receive.advertiseAtomic", "false", cwd=self.remote)
+        info = self.plan()
+        with self.assertRaises(subprocess.CalledProcessError):
+            n.prepare(info)
+        self.assertEqual(n.remote_tags(), set())
+        self.assertEqual(n.candidate_refs(), {})
+        self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
+
+    def test_public_tag_pointing_elsewhere_refuses_promotion(self):
+        info = self.reserve()
+        n.git("push", "origin", f"{self.source}:refs/tags/{info['tag']}")
+        with self.assertRaisesRegex(ValueError, "different commit"):
+            n.ensure_version_tag(info)
         self.assertEqual(n.git("ls-remote", "origin", f"refs/tags/{info['tag']}").split()[0], self.source)
+        self.assertEqual(n.candidate_refs(), {1: info["build_commit"]})
 
     def test_dirty_and_released_sources_are_refused(self):
         (self.repo / "untracked").write_text("dirty")
@@ -223,7 +376,7 @@ class GitTests(GitFixture):
         self.assertEqual(self.plan(force=True)["version"], "5.1.0-nightly.20260911.2")
         later = n.plan(force=True,
                        now=datetime(2026, 9, 12, tzinfo=timezone.utc))
-        self.assertEqual(later["version"], "5.1.0-nightly.20260912.1")
+        self.assertEqual(later["version"], "5.1.0-nightly.20260912.2")
 
     def test_promotion_never_rolls_back(self):
         old = self.reserve()
@@ -279,6 +432,7 @@ class GitTests(GitFixture):
                 def fake(*args, **kwargs):
                     if args[0] == "bash" and args[2] == failure:
                         raise subprocess.CalledProcessError(1, args)
+                    self.fake_external(*args, **kwargs)
                 with patch.object(n, "execute", side_effect=fake), patch.object(n, "promote") as promote:
                     with self.assertRaises(subprocess.CalledProcessError):
                         n.publish(info, out)
@@ -290,6 +444,7 @@ class GitTests(GitFixture):
         def fake(*args, **kwargs):
             if args[:3] == ("gh", "release", "upload"):
                 raise subprocess.CalledProcessError(1, args)
+            self.fake_external(*args, **kwargs)
         with patch.object(n, "execute", side_effect=fake), patch.object(n, "promote") as promote:
             with self.assertRaises(subprocess.CalledProcessError):
                 n.publish(info, Path(self.temp.name) / "upload-failure")
@@ -301,21 +456,23 @@ class GitTests(GitFixture):
         calls = []
         def fake(*args, **kwargs):
             calls.append(args)
-            if args[0] == "bash" and args[2] == "app":
-                (out / "latest.json").write_text(n.json_text(self.manifest(info)))
+            self.fake_external(*args, **kwargs)
         with patch.object(n, "execute", side_effect=fake):
             n.publish(info, out)
         stages = [c[2] for c in calls if c[0] == "bash"]
         self.assertEqual(stages, ["engine", "verify-engine", "app", "verify-assets"])
-        self.assertIn("--prerelease", calls[1])
-        self.assertIn("--latest=false", calls[1])
+        create = next(c for c in calls if c[:3] == ("gh", "release", "create"))
+        self.assertIn("--prerelease", create)
+        self.assertIn("--latest=false", create)
         # The immutable release gets its manifest last of its own assets, and only then
         # is anything verified. The channel comes after that, and last of everything:
         # `verify-assets` is what earns the right to move it.
-        manifest_upload = calls[-3]
+        manifest_upload = next(c for c in calls if c[:4] == ("gh", "release", "upload", info["tag"])
+                               and c[-1].endswith("/latest.json"))
         self.assertEqual(manifest_upload[:5], ("gh", "release", "upload", info["tag"], "--repo"))
         self.assertTrue(manifest_upload[-1].endswith("/latest.json"))
-        self.assertEqual(calls[-2][2], "verify-assets")
+        self.assertLess(calls.index(manifest_upload),
+                        next(i for i, c in enumerate(calls) if c[0] == "bash" and c[2] == "verify-assets"))
         # Last call of the whole publish: the rolling channel release's asset, replaced.
         self.assertEqual(calls[-1][:6], ("gh", "release", "upload", n.CHANNEL_TAG,
                                          "--repo", n.REPO))
@@ -325,14 +482,13 @@ class GitTests(GitFixture):
         self.assertEqual(current, info)
         self.assertEqual(json.loads(n.git("show", f"{oid}:latest.json")), self.manifest(info))
         # The branch ruleset is read back on the way through, not merely documented.
-        self.stub_verify_repository_rules.assert_called_once_with()
+        self.assertGreaterEqual(self.stub_verify_repository_rules.call_count, 1)
 
     def fake_execute(self, out, calls=None):
         calls = calls if calls is not None else []
         def fake(*args, **kwargs):
             calls.append(args)
-            if args[0] == "bash" and args[2] == "app":
-                (out / "latest.json").write_text(n.json_text(self.manifest_for(out)))
+            self.fake_external(*args, **kwargs)
         return fake, calls
 
     def manifest_for(self, out):
@@ -354,9 +510,38 @@ class GitTests(GitFixture):
         # Only the engine asset -- never the app archive, the .sig or latest.json.
         self.assertEqual(len(uploads), 1)
         self.assertTrue(uploads[0][-1].endswith(".tar.gz"))
+        self.assertEqual(uploads[0][3], n.CHANNEL_TAG)
+        self.assertEqual(n.remote_tags(), set())
+        self.assertEqual(set(self.releases), {n.CHANNEL_TAG})
         promote.assert_not_called()
         self.assertEqual(n.channel(), (None, None))
         self.assertTrue((out / n.CANDIDATE_MANIFEST).exists())
+
+    def test_rejected_candidates_leave_gaps_and_publish_preserves_tested_build(self):
+        for number in (1, 2):
+            rejected = self.reserve()
+            self.assertEqual(n.nightly_key(rejected["version"])[-1], number)
+            out = Path(self.temp.name) / f"rejected-{number}"
+            fake, _ = self.fake_execute(out)
+            with patch.object(n, "execute", side_effect=fake):
+                n.build(rejected, out)
+            n.git("checkout", "-q", "main")
+        accepted = n.prepare(n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc)))
+        self.assertEqual(accepted["version"], "5.1.0-nightly.20260912.3")
+        out = Path(self.temp.name) / "accepted"
+        fake, calls = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.build(accepted, out)
+        before = n._candidate_files(out)
+        tags_before = n.remote_tags()
+        calls.clear()
+        with patch.object(n, "execute", side_effect=fake), patch.object(n, "prepare") as prepare:
+            n.finish(accepted, out)
+        prepare.assert_not_called()
+        self.assertEqual([c[2] for c in calls if c[0] == "bash"], ["verify-assets"])
+        self.assertEqual(n._candidate_files(out), before)
+        self.assertEqual(n.remote_tags(), tags_before | {n.CHANNEL_TAG, accepted["tag"]})
+        self.assertEqual(n.channel()[1], accepted)
 
     def test_finish_refuses_a_tampered_candidate(self):
         info = self.reserve()
@@ -371,6 +556,70 @@ class GitTests(GitFixture):
             with self.assertRaisesRegex(ValueError, "changed since it was built"):
                 n.finish(info, out)
             promote.assert_not_called()
+        self.assertEqual(n.channel(), (None, None))
+
+    def test_finish_refuses_an_unrecorded_extra_artifact(self):
+        info = self.reserve()
+        out = Path(self.temp.name) / "extra"
+        n.build(info, out)
+        (out / "unexpected.txt").write_text("never tested")
+        with self.assertRaisesRegex(ValueError, "changed since"):
+            n.finish(info, out)
+        self.assertEqual(n.remote_tags(), set())
+
+    def test_promotion_resumes_after_tag_and_after_partial_upload(self):
+        info = self.reserve()
+        out = Path(self.temp.name) / "resume"
+        n.build(info, out)
+        before = n._candidate_files(out)
+        engine_assets = dict(self.asset_bytes)
+        calls = []
+        def fail_create(*args, **kwargs):
+            if args[:3] == ("gh", "release", "create"):
+                raise subprocess.CalledProcessError(1, args)
+            self.fake_external(*args, **kwargs)
+        with patch.object(n, "execute", side_effect=fail_create):
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.finish(info, out)
+        self.assertEqual(n.remote_tags(), {info["tag"]})
+        self.assertEqual(n.channel(), (None, None))
+        self.assertNotIn(info["tag"], self.releases)
+        def fail_manifest(*args, **kwargs):
+            if args[:4] == ("gh", "release", "upload", info["tag"]) and args[-1].endswith("/latest.json"):
+                raise subprocess.CalledProcessError(1, args)
+            self.fake_external(*args, **kwargs)
+        with patch.object(n, "execute", side_effect=fail_manifest):
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.finish(info, out)
+        uploaded = {name for tag, name in self.asset_bytes if tag == info["tag"]}
+        self.assertTrue(uploaded)
+        self.assertNotIn("latest.json", uploaded)
+        self.assertEqual(n.channel(), (None, None))
+        def finish(*args, **kwargs):
+            calls.append(args)
+            self.fake_external(*args, **kwargs)
+        with patch.object(n, "execute", side_effect=finish), patch.object(n, "prepare") as prepare:
+            n.finish(info, out)
+        prepare.assert_not_called()
+        uploads = [c for c in calls if c[:4] == ("gh", "release", "upload", info["tag"])]
+        self.assertEqual([Path(c[-1]).name for c in uploads], ["latest.json"])
+        self.assertEqual([c[2] for c in calls if c[0] == "bash"], ["verify-assets"])
+        self.assertEqual(n._candidate_files(out), before)
+        self.assertEqual(n.candidate_refs(), {1: info["build_commit"]})
+        self.assertEqual(n.channel()[1], info)
+        for key, value in engine_assets.items():
+            self.assertEqual(self.asset_bytes[key], value)
+
+    def test_retry_refuses_conflicting_existing_artifact_without_clobber(self):
+        info = self.reserve()
+        out = Path(self.temp.name) / "conflict"
+        n.build(info, out)
+        n.ensure_version_tag(info)
+        n.ensure_nightly_release(info)
+        self.asset_bytes[info["tag"], "build-info.json"] = b"different bytes"
+        with self.assertRaisesRegex(ValueError, "differs"):
+            n.finish(info, out)
+        self.assertEqual(self.asset_bytes[info["tag"], "build-info.json"], b"different bytes")
         self.assertEqual(n.channel(), (None, None))
 
     def test_finish_publishes_an_untouched_candidate(self):
@@ -502,6 +751,122 @@ class GitTests(GitFixture):
                          self.manifest(split_info))
 
 
+class EngineStorageTests(GitFixture):
+    def archive(self, contents=b"candidate engine"):
+        path = Path(self.temp.name) / "engine.tar.gz"
+        path.write_bytes(contents)
+        return path
+
+    def test_upload_then_reuse_verifies_bytes_without_clobber(self):
+        archive = self.archive()
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        n.stage_candidate_engine(archive, name, url)
+        calls = self.stub_execute.call_count
+        n.stage_candidate_engine(archive, name, url)
+        self.assertEqual(self.stub_execute.call_count, calls)
+        self.assertEqual(self.asset_bytes, {(n.CHANNEL_TAG, name): archive.read_bytes()})
+        self.assertEqual(n.remote_tags(), set())
+        self.assertEqual(set(self.releases), {n.CHANNEL_TAG})
+        self.assertNotIn("--clobber", self.stub_execute.call_args.args)
+
+    def test_existing_digest_name_with_wrong_bytes_is_never_overwritten(self):
+        archive = self.archive()
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        self.asset_bytes[n.CHANNEL_TAG, name] = b"corrupt"
+        with self.assertRaisesRegex(ValueError, "differs"):
+            n.stage_candidate_engine(archive, name, url)
+        self.stub_execute.assert_not_called()
+        self.assertEqual(self.asset_bytes[n.CHANNEL_TAG, name], b"corrupt")
+
+    def test_capacity_refuses_new_assets_but_allows_verified_reuse(self):
+        archive = self.archive()
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        full = [{"name": f"old-{i}"} for i in range(998)]
+        with patch.object(n, "release_assets", return_value=full):
+            with self.assertRaisesRegex(ValueError, "capacity"):
+                n.stage_candidate_engine(archive, name, url)
+        self.stub_execute.assert_not_called()
+        self.asset_bytes[n.CHANNEL_TAG, name] = archive.read_bytes()
+        with patch.object(n, "release_assets", return_value=[*full, {"name": name}]):
+            n.stage_candidate_engine(archive, name, url)
+        self.stub_execute.assert_not_called()
+
+    def test_missing_draft_or_immutable_channel_never_creates_a_release(self):
+        archive = self.archive()
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        for release in (None, {"draft": True}, {"immutable": True}):
+            with self.subTest(release=release), patch.object(n, "get_release", return_value=release):
+                with self.assertRaisesRegex(ValueError, "existing public"):
+                    n.stage_candidate_engine(archive, name, url)
+        self.stub_execute.assert_not_called()
+
+    def test_concurrent_identical_upload_is_verified_and_reused(self):
+        archive = self.archive()
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        def race(*args, **kwargs):
+            self.fake_external(*args, **kwargs)
+            raise subprocess.CalledProcessError(1, args)
+        with patch.object(n, "execute", side_effect=race):
+            n.stage_candidate_engine(archive, name, url)
+        self.assertEqual(self.asset_bytes[n.CHANNEL_TAG, name], archive.read_bytes())
+
+    def test_failed_upload_is_not_mistaken_for_reuse(self):
+        archive = self.archive()
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        with patch.object(n, "execute", side_effect=subprocess.CalledProcessError(1, "gh")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.stage_candidate_engine(archive, name, url)
+        self.assertEqual(self.asset_bytes, {})
+
+    def test_channel_promotion_preserves_all_older_engine_downloads(self):
+        retained = {}
+        for contents in (b"engine one", b"engine two"):
+            archive = self.archive(contents)
+            name, url = n.candidate_engine_asset(n.sha256_file(archive))
+            n.stage_candidate_engine(archive, name, url)
+            retained[n.CHANNEL_TAG, name] = contents
+            info = n.prepare(self.plan(force=True))
+            n.promote(info, self.manifest(info))
+            n.git("checkout", "-q", "main")
+            for key, expected in retained.items():
+                self.assertEqual(self.asset_bytes[key], expected)
+        self.assertIn((n.CHANNEL_TAG, "latest.json"), self.asset_bytes)
+
+
+class AssetApiTests(unittest.TestCase):
+    def test_inventory_uses_every_page(self):
+        with patch.object(n, "run", return_value=json.dumps([[{"name": "first"}], [{"name": "last"}]])) as run:
+            self.assertEqual(n.release_assets(123), [{"name": "first"}, {"name": "last"}])
+        self.assertIn("--paginate", run.call_args.args)
+        self.assertIn("--slurp", run.call_args.args)
+
+    def test_only_404_is_a_missing_release(self):
+        for status in ("404", "403", "500"):
+            result = subprocess.CompletedProcess([], 1, json.dumps({"status": status}), "failed")
+            with self.subTest(status=status), patch.object(n.subprocess, "run", return_value=result):
+                if status == "404":
+                    self.assertIsNone(n.get_release("absent"))
+                else:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        n.get_release("absent")
+
+    def test_invalid_success_response_cannot_trigger_release_creation(self):
+        result = subprocess.CompletedProcess([], 0, "not json", "")
+        with patch.object(n.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(ValueError, "invalid release response"):
+                n.get_release("absent")
+
+    def test_readback_compares_downloaded_bytes_not_the_asset_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "archive"
+            archive.write_bytes(b"expected")
+            def download(*args):
+                Path(args[args.index("--output") + 1]).write_bytes(b"wrong")
+            with patch.object(n, "execute", side_effect=download):
+                with self.assertRaisesRegex(ValueError, "differs"):
+                    n.verify_served_asset("https://example.invalid/digest-name", archive)
+
+
 class OneCodePathTests(unittest.TestCase):
     """The smoke and the release run the SAME functions, and that is not a convention.
 
@@ -622,6 +987,7 @@ class StableChannelTests(GitFixture):
     def publish_a_nightly(self):
         """A published nightly in the fixture remote, with its provenance in its tag."""
         info = n.prepare(self.plan())
+        n.ensure_version_tag(info)
         n.git("checkout", "-q", "main")
         return info
 
@@ -862,6 +1228,45 @@ else:
                     'FAKE_CHANNEL_ENDPOINT': n.ENDPOINT,
                     'FAKE_REFUSALS': str(root / 'refused-urls')}
         self.assets()
+
+    def test_candidate_engine_pin_and_receipt_keep_the_digest_url(self):
+        checker = self.scripts.parents[1] / "engine/scripts/named-persons.sh"
+        checker.parent.mkdir(parents=True)
+        checker.write_text("#!/bin/sh\nexit 0\n")
+        checker.chmod(0o755)
+        generator = self.scripts / "make-engine-asset.sh"
+        generator.write_text('''#!/bin/bash
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --out) dest="$2"; shift 2 ;;
+    --tag) tag="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf 'fixture engine bytes' > "$dest/richos-engine-1.2.0.tar.gz"
+digest=$(shasum -a 256 "$dest/richos-engine-1.2.0.tar.gz" | awk '{print $1}')
+cat > "$dest/engine-pin.env" <<EOF
+export RICHOS_ENGINE_VERSION=1.2.0
+export RICHOS_ENGINE_URL=https://github.com/WebDevBooster/richos/releases/download/$tag/richos-engine-1.2.0.tar.gz
+export RICHOS_ENGINE_SHA256=$digest
+EOF
+''')
+        result = subprocess.run(['bash', str(self.scripts / 'make-release.sh'), 'engine',
+                                 '--out', str(self.out), '--candidate-engine'],
+                                env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        archive = self.out / 'richos-engine-1.2.0.tar.gz'
+        name, url = n.candidate_engine_asset(n.sha256_file(archive))
+        pin = self.out / 'engine-pin.env'
+        self.assertIn(f'export RICHOS_ENGINE_URL={url}\n', pin.read_text())
+        shutil.copy(archive, self.remote / name)
+        verified = self.call('verify-engine')
+        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
+        self.assertIn(f'url={url}\n', (self.out / 'engine-published.ok').read_text())
+        pin.write_text(pin.read_text().replace(url, url + '-changed'))
+        refused = self.call('app')
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn('URL changed after verification', refused.stderr)
 
     def assets(self, manifest_version=None):
         values = {'latest.json': n.json_text({'version': manifest_version or self.version}),

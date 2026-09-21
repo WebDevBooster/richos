@@ -1108,8 +1108,9 @@ class Runner:
         # first-install archive's arch component is always "aarch64" --
         # make-release.sh's own ARCH mapping (arm64|aarch64 -> aarch64).
         bundle_zip = out / f"RichOS-{info['version']}-macos-aarch64.zip"
-        scratch = f"/tmp/richos-qa-{info['run_id']}"
-        print(f"Candidate {info['tag']} ({info['version']}), source {info['source_commit']}", flush=True)
+        scratch = str(Path(tempfile.gettempdir()) / f"richos-qa-{info['run_id']}")
+        number = info['version'].rsplit('.', 1)[-1]
+        print(f"Candidate build {number}: {info['tag']}, source {info['source_commit']}", flush=True)
         print(f"  staged at : {out}", flush=True)
         print(f"  bundle zip: {bundle_zip}", flush=True)
         print("", flush=True)
@@ -1122,9 +1123,13 @@ class Runner:
         print(f"  HOME={scratch}/home RICHOS_ACTIVATION=regular \\", flush=True)
         print(f"      '{scratch}/RichOS.app/Contents/MacOS/richos-tauri'", flush=True)
         print("", flush=True)
-        print("Nothing here is installed, published, or reachable by an existing install's", flush=True)
-        print("auto-updater: the release exists on GitHub only as a prerelease carrying the", flush=True)
-        print("engine asset build compiled its pin against; the update channel has not moved.", flush=True)
+        if info.get("candidate_ref"):
+            print("The candidate has no public version tag or release-list entry. Its digest-named", flush=True)
+            print("engine is public on the existing nightly channel release. The app is not", flush=True)
+            print("installed or offered as an update; the update channel has not moved.", flush=True)
+        else:
+            print("This legacy candidate has an engine-only prerelease. The app is not installed", flush=True)
+            print("or offered as an update; the update channel has not moved.", flush=True)
         print("", flush=True)
         print(f"Publish only on a READY verdict:  nightly-local.py publish --run {info['run_id']}", flush=True)
 
