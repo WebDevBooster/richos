@@ -53,6 +53,21 @@ class WalkTests(unittest.TestCase):
             with patch.object(rollback,'receipts',side_effect=RuntimeError('missing')),patch.object(rollback,'relaunch') as launch:
                 with self.assertRaises(Failure) as raised:rollback.exercise('demo','1.0.1','1.0.2','https://example.invalid/releases/download/v1.0.2/update.json',check_only=True)
                 self.assertEqual(raised.exception.outcome,'prerequisite unavailable');launch.assert_not_called()
+    def test_rollback_keeps_partial_evidence_and_clears_development_engine_override(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,TESTVM_ROOT=tmp):
+            state=Path(tmp)/'run/demo';state.mkdir(parents=True);(state/'payload').write_text('/Users/admin/testvm/demo')
+            evidence=[];launches=[]
+            def guest(vm,command,*args):
+                if 'PlistBuddy' in command:return '1.0.1'
+                if command.startswith('cat '):return 'boot without activation marker'
+                return ''
+            def launch(vm,app,env):launches.append(env);return {'log':'/guest/boot.log'}
+            with patch.object(rollback,'guest',side_effect=guest),patch.object(rollback,'relaunch',side_effect=launch),patch.object(rollback,'wait_log',return_value='RICHOS-UPDATE-SELFTEST exit=0'),patch.object(rollback,'receipts',return_value={'current':'1.0.2','previous':'1.0.1'}),patch.object(rollback.time,'sleep'):
+                with self.assertRaisesRegex(Failure,'activation direction'):
+                    rollback.exercise('demo','1.0.1','1.0.2','https://example.invalid/releases/download/v1.0.2/latest.json','/guest/Old.app',progress=lambda r:evidence.append(json.loads(json.dumps(r))))
+            self.assertEqual([s['action'] for s in evidence[-1]['steps']],['update','activate'])
+            self.assertEqual(evidence[-1]['steps'][-1]['log'],'boot without activation marker')
+            self.assertTrue(all(e['RICHOS_ENGINE_DIR']=='' and e['RICHOS_ENGINE_ROOT']=='' for e in launches))
     def test_rollback_rejects_moving_channel_before_accessing_guest(self):
         with patch.object(rollback,'guest') as guest:
             with self.assertRaises(ValueError):rollback.exercise('demo','1.0.1','1.0.2','https://example.invalid/latest.json')
