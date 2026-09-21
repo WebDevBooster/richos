@@ -113,6 +113,11 @@ mod voice_provision;
 /// rule somebody has to remember.
 mod phone;
 
+// Headless integration harness; absent from the shipped executable.
+#[cfg(test)]
+#[path = "../../../mobile/dev/mac-server.rs"]
+mod mobile_mac_server;
+
 /// **Opening one of five known addresses, and nothing else** (CEO §61.1). An allowlist rather
 /// than a URL opener: the how-to screens need five fixed destinations, so the command takes the
 /// address as a key into a table rather than as data to act on.

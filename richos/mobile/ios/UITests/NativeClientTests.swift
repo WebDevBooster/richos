@@ -5,9 +5,12 @@ final class NativeClientTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    private var serverRun: String?
+
     private func launchClient() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--native-client"]
+        if let serverRun { app.launchArguments.append("--integration-session=" + serverRun) }
         // Always release the app's microphone/session, including an assertion failure.
         addTeardownBlock { app.terminate() }
         app.launch()
@@ -36,6 +39,7 @@ final class NativeClientTests: XCTestCase {
             throw XCTSkip("Physical HTTPS pairing config is unavailable; this test does not claim remote connectivity")
         }
         let config = try JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as! [String: String]
+        serverRun = config["serverRun"]
         let app = launchClient()
         XCTAssertTrue(app.webViews.buttons["Record"].waitForExistence(timeout: 15))
         if app.webViews.buttons["Pair with Mac"].exists {
@@ -43,6 +47,7 @@ final class NativeClientTests: XCTestCase {
             field.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
             app.typeText(config["pairLink"]!)
+            XCTAssertTrue((field.value as? String) == config["pairLink"], "The entered pairing link must match this run's configuration")
             app.webViews.buttons["Pair with Mac"].tap()
             XCTAssertTrue(app.webViews.buttons["They match"].waitForExistence(timeout: 20))
             XCTAssertTrue(app.webViews.staticTexts[config["words"]!].exists, "The phone must derive the test server's exact fingerprint phrase")
@@ -55,11 +60,19 @@ final class NativeClientTests: XCTestCase {
         let message = "Native phone check " + String(UUID().uuidString.prefix(8))
         app.typeText(message)
         app.webViews.buttons["Send"].tap()
-        let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, "That is the whole answer.")).firstMatch
+        let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 20), "Reply must arrive through the authenticated native event stream")
         app.terminate(); app.launch()
         XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout: 20))
         XCTAssertTrue(reply.waitForExistence(timeout: 10), "Cached reply must survive process termination")
+        // A cached bubble alone cannot prove the restarted stream works.
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.2)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let resumedMessage = "Native resume check " + String(UUID().uuidString.prefix(8))
+        app.typeText(resumedMessage)
+        app.webViews.buttons["Send"].tap()
+        let resumedReply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", resumedMessage, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
+        XCTAssertTrue(resumedReply.waitForExistence(timeout: 20), "A fresh reply must cross the restarted stream")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Signed text and stream after relaunch"; shot.lifetime = .keepAlways; add(shot)
     }
     func testNativeRecordingAndRelaunch() throws {

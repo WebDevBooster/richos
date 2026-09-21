@@ -9,11 +9,13 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 export const mobile = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const key = createHash('sha256').update(mobile).digest('hex').slice(0, 10);
-export const bundleId = 'dev.richos.mobile.loop';
+// A separate installed test app keeps previous phone sessions intact.
+export const bundleId = process.env.RICHOS_MOBILE_TEST_APP === 'integration' ? 'dev.richos.mobile.integration' : 'dev.richos.mobile.loop';
 export function cacheRoot() {
   const volume = '/Volumes/E1TB';
   if (!existsSync(volume) || statSync(volume).dev === statSync(dirname(volume)).dev) throw new Error('Mount /Volumes/E1TB before running mobile tools');
-  const path = process.env.RICHOS_MOBILE_CACHE || join(volume, 'caches', 'richos-mobile', key);
+  const base = process.env.RICHOS_MOBILE_CACHE || join(volume, 'caches', 'richos-mobile', key);
+  const path = process.env.RICHOS_MOBILE_TEST_APP === 'integration' ? join(base, 'integration') : base;
   if (!resolve(path).startsWith(volume + '/')) throw new Error('RICHOS_MOBILE_CACHE must be on /Volumes/E1TB');
   mkdirSync(path, { recursive: true });
   if (!realpathSync(path).startsWith(realpathSync(volume) + '/')) throw new Error('RICHOS_MOBILE_CACHE must be on /Volumes/E1TB');
@@ -224,7 +226,7 @@ export function checkRelease() {
   const info = run('plutil', ['-convert', 'json', '-o', '-', join(result.app, 'Info.plist')]).stdout;
   assert(!JSON.parse(info).CFBundleURLTypes, 'Development URL registration leaked into Release');
   const binary = readFileSync(join(result.app, 'RichOSMobile'));
-  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready']) {
+  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', 'prepareIntegrationTest']) {
     assert(!binary.includes(Buffer.from(marker)), `Development bridge marker in Release: ${marker}`);
   }
   return { ...result, developmentBridgeExcluded: true, files };

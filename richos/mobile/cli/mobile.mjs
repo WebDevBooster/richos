@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 const { createRuntime } = require('../dev/runtime.js');
 const usage = `Mobile development loop (JSON output; nonzero exit on failure)
   node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption
-  node richos/mobile/cli/mobile.mjs lab serve
+  node richos/mobile/cli/mobile.mjs lab serve|mac
   node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording]
   node richos/mobile/cli/mobile.mjs doctor
   node richos/mobile/cli/mobile.mjs headless state|reset|restart
@@ -31,6 +31,7 @@ const usage = `Mobile development loop (JSON output; nonzero exit on failure)
 Stateful headless commands share a session under the external cache.
 Sim prepare builds/installs/boots a dedicated simulator; refresh copies JS/CSS without a native build.
 RICHOS_MOBILE_CACHE overrides the per-checkout cache, on /Volumes/E1TB only.
+RICHOS_MOBILE_TEST_APP=integration selects a separate installed app and cache namespace.
 Simulator device data defaults to an external set. Where permitted, set
 RICHOS_MOBILE_SIMULATOR_STORAGE=system before its first creation to use Apple's default system device storage. The choice persists per cache.`;
 function payload(command, arg) {
@@ -59,6 +60,7 @@ try {
   catch { throw new Error(`Another mobile CLI command owns ${proposedLock}. If it crashed, verify its owner.json PID is gone before removing that directory.`); }
   let result;
   if (mode === 'client' && command === 'scenario') result = await require('../dev/client-runtime.js').scenario(arg);
+  else if (mode === 'lab' && command === 'mac') result = await (await import('../dev/mac-server.mjs')).serveMac(cache);
   else if (mode === 'lab' && command === 'serve') result = await (await import('../dev/lab.mjs')).serve(cache);
   else if (mode === 'doctor') result = simulator.doctor();
   else if (mode === 'device') result = await device(command, arg);

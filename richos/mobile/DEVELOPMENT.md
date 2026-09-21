@@ -2,7 +2,7 @@
 
 The mobile UI and CLI run the same `core/app.js` action handlers. That core imports the existing PWA's `lib/queue.js` directly. Packaging copies that exact file into the iOS app; there is no second queue implementation or source fork.
 
-The minimal Swift/WKWebView host proves the development workflow. It is not yet a complete phone client. Pairing, native microphone integration, real Mac transport, notifications and update-policy behavior are subsequent slices. The final client framework remains a feasibility decision.
+The Swift/WKWebView host now supports native recording, protected signing, pairing and text sessions through the shared client. It is not yet a complete phone client. Full PWA UI parity, voice submission, notifications, managed access and update-policy behavior remain subsequent slices.
 
 ## Headless first
 
@@ -174,3 +174,15 @@ Projects, DerivedData, generated resources, command results and screenshots are 
 Keep measured timings and private verification reports in `richos-hq`. Measure these separately: a fresh Node process running a focused scenario, direct core execution, JavaScript screen refresh, Swift incremental build, cold build/install/boot and native UI automation. Cold simulator boot and UI automation are not part of a routine application-logic edit. Establish budgets from measured results; a green fixture is not evidence about real microphone permissions, radio transitions, APNs or App Store installation.
 
 For new platform behavior, add a narrow adapter and controllable outcomes without importing platform APIs into the core. Update-policy evaluation belongs in the same core and must be runnable headlessly when implemented. Validate actual store availability and installation separately on real devices.
+
+## Real Mac protocol integration
+
+`bash richos/app/scripts/mobile-mac.test.sh` runs the actual client actions and native-shaped transport adapter against the production Rust phone listener, authentication, intake, Spine and gated timeline. It verifies fingerprint confirmation, signed messages, invalid-signature refusal, deduplication and a fresh reply after client restart. The provider produces deterministic replies and a test adapter replaces the desktop AppHandle bridge. This proves the transport/core integration without using an AI account or a person's conversations.
+
+For a physical test, start `node richos/mobile/cli/mobile.mjs lab mac` with `RICHOS_MOBILE_MAC_ORIGIN` set to your separate HTTPS test origin. Wait for its ready result before reading `mac.json` for the loopback proxy port. Expose that port using a separately owned Tailscale Serve endpoint. The proxy verifies the Rust server's private test CA; the phone verifies the public endpoint with system TLS. No trust bypass is required.
+
+The server writes `mac-test-config.json` in its cache. Pass that path through `RICHOS_MOBILE_TEST_CONFIG`, set `RICHOS_MOBILE_TEST_APP=integration`, `RICHOS_IOS_DEVICE` and `RICHOS_APPLE_TEAM`, then run `node richos/mobile/cli/mobile.mjs device verify text`. Pairing codes expire after five minutes. Stop and restart the lab for a fresh code if needed.
+
+The integration profile installs `dev.richos.mobile.integration` and uses an `integration` subdirectory beneath the selected cache. A Debug-only launch argument clears this app's saved session once per new server run. It preserves recordings and does not affect the ordinary app or the Android pairing. Relaunches with the same run marker keep their session, which the physical test verifies by receiving another fresh reply after restart. Release verification checks that this reset mechanism is absent.
+
+Stop the foreground lab and its separately owned Tailscale Serve endpoint after testing. The lab closes its sockets, retains synthetic timeline/intake/ledger evidence in the cache and deletes its scratch data. `lab serve` remains the faster JavaScript protocol fixture; it is not the production Rust server.

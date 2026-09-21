@@ -166,3 +166,16 @@ test('PWA proof reports NOT RUN when its browser executable is missing', (t) => 
   assert.match(result.stdout, /NOT RUN.*mobile-pwa.*Chromium/);
   assert.doesNotMatch(result.stdout, /PASS/);
 });
+
+
+test('integration profile preserves the ordinary CLI session and uses a separate build cache', t => {
+  const { run, env, cache } = session(t);
+  run('headless', 'action', '{"type":"compose","text":"Ordinary session"}');
+  const result = spawnSync(process.execPath, [join(mobile, 'cli/mobile.mjs'), 'headless', 'action', '{"type":"compose","text":"Integration session"}'], {
+    env: { ...env, RICHOS_MOBILE_TEST_APP: 'integration' }, encoding: 'utf8', timeout: 15000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).result.state.draft, 'Integration session');
+  assert.equal(run('headless', 'state').state.draft, 'Ordinary session');
+  assert(existsSync(join(cache, 'integration/headless.json')));
+});

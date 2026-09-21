@@ -70,7 +70,7 @@
       link = Link.createLink({ refresh: () => api.refreshChallenge(),
         open: handlers => {
           const incomplete = data.messages.filter(x => x.complete === false && Number.isSafeInteger(x.cursor)).map(x => Math.max(0, x.cursor - 1));
-          return api.openEvents(data.session.selectedThreadId, Math.min(data.cursor, ...incomplete), handlers);
+          return api.openEvents(data.session.selectedThreadId, data.cursor > 0 ? Math.min(data.cursor, ...incomplete) : null, handlers);
         },
         handlers: Object.fromEntries(['hello', 'message', 'delta', 'heartbeat', 'state'].map(name => [name, frame => receive(name, frame)])),
         // A quiet resumed stream may send no frame until its next heartbeat.
@@ -109,7 +109,7 @@
             await configure();
             const key = await ports.native('publicKey', {});
             const result = await api.pair(code, key, 'iPhone');
-            if (typeof result.device_id !== 'string' || !/^[a-f0-9]{64}$/i.test(result.ca_fingerprint_sha256 || '') || !Array.isArray(result.threads)) throw new Error('Invalid pairing response');
+            if (typeof result.device_id !== 'string' || Fingerprint.bytesFromHex(result.ca_fingerprint_sha256).length !== 32 || !Array.isArray(result.threads)) throw new Error('Invalid pairing response');
             data.session.threads = result.threads;
             data.session.selectedThreadId = result.threads[0]?.id || null;
             data.fingerprint = result.ca_fingerprint_sha256;

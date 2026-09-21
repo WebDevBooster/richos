@@ -108,3 +108,18 @@ test('native fetch accepts a bodyless HTTP response', async () => {
   const response = await ports.fetch('https://mac.example/api/pair');
   assert.equal(response.status, 204); assert.equal(await response.text(), '');
 });
+
+
+test('pairing accepts the production Mac colon-separated SHA-256 fingerprint', async t => {
+  const h = harness();
+  const fetch = h.ports.fetch;
+  h.ports.fetch = async (...args) => {
+    const response = await fetch(...args);
+    const body = await response.json();
+    if (body.ca_fingerprint_sha256) body.ca_fingerprint_sha256 = Array(32).fill('AB').join(':');
+    return Response.json(body);
+  };
+  const client = await createClient(h.ports); t.after(() => client.close());
+  await client.dispatch({ type: 'pair', link: 'https://mac.example/#pair=secret' });
+  assert.equal(client.state().words, require('../../web/web-app/lib/fingerprint.js').phraseFromHex('ab'.repeat(32)));
+});

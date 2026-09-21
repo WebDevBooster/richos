@@ -14,6 +14,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
     #endif
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        #if DEBUG
+        do { try native.prepareIntegrationTest() }
+        catch { NSLog("Integration setup failed: %@", error.localizedDescription); return false }
+        #endif
         let controller = UIViewController()
         controller.view.backgroundColor = .systemBackground
         let configuration = WKWebViewConfiguration()
