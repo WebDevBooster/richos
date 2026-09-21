@@ -49,29 +49,27 @@ path and is unchanged by this: it is `build` immediately followed by
 python3 richos/app/scripts/nightly-local.py build
 ```
 
-Does everything `release` does up to and including compiling the signed,
-notarized, engine-pinned app against a verified engine pin, and stops. It
-still touches the network — the engine asset has to actually be published at
-the URL the app's Developer-ID-signed pin claims, or the app cannot be
-compiled against it (`make-release.sh` `verify-engine`, which `build` runs
-itself, immediately before compiling) — but nothing here uploads the app
-archive, writes `latest.json`, or advances the update channel. Nobody's
-existing install can see or fetch anything `build` produced. It prints the run
-id, the staged candidate's path and exactly how to walk it:
+Builds the signed, notarized app against a verified engine pin, then stops for QA.
+The candidate has a continuous number and a remote `refs/candidates/<number>`
+reservation. It creates no public version tag or release-list entry. The engine
+is uploaded under its digest on the existing `nightly` channel release and read
+back before compilation. These assets are publicly downloadable and visible in
+that release's Assets section. The candidate app is local and the update channel
+does not move. It prints the number, run ID, staged path and instructions for QA:
 
 ```
-Candidate build 1: v1.2.0-nightly.20260917.1, source aa0165cc...
-  staged at : ~/.richos-nightly/releases/v1.2.0-nightly.20260917.1
-  bundle zip: .../RichOS-1.2.0-nightly.20260917.1-macos-aarch64.zip
+Candidate build 24: v1.2.0-nightly.20260921.24, source aa0165cc...
+  staged at : ~/.richos-nightly/releases/v1.2.0-nightly.20260921.24
+  bundle zip: .../RichOS-1.2.0-nightly.20260921.24-macos-aarch64.zip
 
 To walk it: unpack into a scratch HOME so it never touches the operator's own
 app data (README.md's activation invariant D), and run it directly rather than
 via `open`, so a harness/terminal holds the process (invariant P). Set
 RICHOS_ACTIVATION=regular so the window is visible instead of accessory-hidden:
 
-  mkdir -p /tmp/richos-qa-<run-id> && ditto -x -k '<bundle zip>' /tmp/richos-qa-<run-id>
-  HOME=/tmp/richos-qa-<run-id>/home RICHOS_ACTIVATION=regular \
-      '/tmp/richos-qa-<run-id>/RichOS.app/Contents/MacOS/richos-tauri'
+  mkdir -p "$TMPDIR/richos-qa-<run-id>" && ditto -x -k '<bundle zip>' "$TMPDIR/richos-qa-<run-id>"
+  HOME="$TMPDIR/richos-qa-<run-id>/home" RICHOS_ACTIVATION=regular \
+      "$TMPDIR/richos-qa-<run-id>/RichOS.app/Contents/MacOS/richos-tauri"
 
 Publish only on a READY verdict:  nightly-local.py publish --run <run-id>
 ```
@@ -248,20 +246,24 @@ Readiness checks and planning alone do not reserve numbers.
 
 Failed builds and rejected candidates keep their numbers. If candidates 43 and 44
 are rejected and 45 passes, installed users can go from build 42 directly to 45.
-Gaps are expected. The current engine-first process can leave an engine-only
-prerelease for an unsuccessful candidate; it is never offered as an app update.
+Gaps are expected. A rejected candidate keeps its number but never receives a
+public nightly version tag or release-list entry.
 
-Reservations are remote Git tags, so they survive local state loss and machine
-changes. `v<version>` and `nightly-build-<number>` point to the same build commit
-and are created in one atomic push. A competing candidate claiming the same number
-rejects the whole push, even across different dates or base versions. Retry with
-a fresh plan. Never delete or overwrite either reservation tag to reclaim a number.
-The rolling `nightly` channel tag remains separate.
+Reservations are create-only remote refs at `refs/candidates/<number>`, pointing
+to the candidate's build commit. They survive local state loss and machine changes.
+An atomic push with an empty expected value refuses competing reservations, even
+across dates and base versions or when a normal push could fast-forward the ref.
+Retry a collision with a fresh plan. Never delete or overwrite a reservation to
+reclaim a number. These refs are absent from branch, tag and release lists, but
+remain publicly discoverable through Git and GitHub's API. They are not private.
+
+Only `publish` creates `v<version>`, pointing to that same candidate commit, then
+creates its GitHub prerelease. The rolling `nightly` channel tag remains separate.
 
 Migration preserves all existing release versions and tags. The next number is
 one greater than the larger of the number of distinct historical nightly version
-tags and the highest number in any version tag or `nightly-build-<number>`
-reservation. Failed and unpublished attempts count too. Reservation aliases,
+tags and the highest number in any version tag or `refs/candidates/<number>`
+reservation. Failed and unpublished attempts count too. Hidden reservations,
 stable releases and the rolling channel entry do not add to the candidate count.
 The 23 nightly candidates present at migration therefore seed **build 24**, even
 though the largest old daily suffix was 8. Later reservations continue from there.
@@ -347,10 +349,12 @@ candidate in between:
 1. Fetches and checks out a fixed remote `main` commit in the dedicated worktree.
 2. Checks local signing, notarization and GitHub access.
 3. Builds/verifies runtimes and runs core, updater, packaging and privacy gates.
-4. Creates a tagged child commit with the nightly Cargo version, lockfile entry,
-   nightly endpoint and source/run provenance. It does not bump `main`.
-5. Publishes the reproducible engine asset to a versioned GitHub prerelease and
-   downloads it to verify the digest before compiling that pin into the app.
+4. Creates a child commit with the candidate's nightly version, lockfile entry,
+   nightly endpoint and provenance, reserved by `refs/candidates/<number>`.
+   It creates no public version tag and does not bump `main`.
+5. Uploads or reuses the reproducible engine on the existing channel release under
+   `richos-engine-sha256-<digest>.tar.gz`, then downloads and verifies it before
+   compiling that URL and digest into the app. Reused assets are also verified.
 6. Builds, signs, notarizes and staples the app locally. It verifies both the
    plist version and the executable's compiled update identity, and records a
    SHA-256 of every staged file so `finish` can detect tampering later.
@@ -359,9 +363,11 @@ candidate in between:
 
 7. Refuses if any of the files `build` recorded no longer match what is on
    disk, or if the built source commit is no longer an ancestor of the
-   current `main`. Otherwise uploads immutable artifacts, provenance and
-   checksums, with the release's manifest last, then downloads them again and
-   verifies bytes and signatures.
+   current `main`. Checks that the remote reservation still names this build.
+   Creates the public version tag and prerelease, then uploads immutable artifacts,
+   provenance and checksums with the manifest last. Downloads them again to verify
+   bytes and signatures. The engine URL compiled into the tested app is unchanged;
+   an additional engine copy is included on the versioned release for its checksums.
 8. Advances the update channel, in that order: a Git compare-and-swap push moves
    the rolling `nightly` release tag to a commit carrying the new `latest.json`
    and `build-info.json`, and only then is that `latest.json` uploaded over the
@@ -377,17 +383,31 @@ candidate in between:
    lease was ever taken for.
 
 The release is marked prerelease and `--latest=false`, so stable updates are
-unaffected. An engine-only partial release is not offered to nightly users.
+unaffected. A partial publication is not offered to nightly users.
 Existing tags and artifacts are never overwritten. Do not delete old release
 assets automatically: installed apps may still need their pinned engine URLs.
 
-Note that `build` (step 5) already makes the release for this tag exist on
-GitHub as a prerelease carrying only the engine asset — that is unavoidable,
-because the app's compiled pin is a claim about bytes already served from
-that exact tag's release, and the only way to make the claim true is to put
-them there first. What a walker's candidate does NOT yet have is an
-installable app archive, a `latest.json`, or any effect on the update channel
-— those three are `finish`'s alone.
+If promotion stops after creating the tag or uploading some files, run `publish`
+again for the same run ID. It accepts only a tag naming the tested commit, compares
+existing remote assets with the staged bytes and uploads only missing assets.
+Conflicting tags or bytes are refused, never overwritten. No rebuild or new number
+is needed. A partially published release does not advance the update channel.
+
+### Engine storage and retention
+
+Candidate engines use stable digest-named URLs on the existing `nightly` release.
+Never delete that release or overwrite or remove an engine asset an installable
+build uses. Moving the channel tag or replacing `latest.json` does not remove them.
+Candidates reuse identical archives after verifying the served bytes. A missing,
+draft or immutable channel release is a refusal, not permission to create another.
+
+GitHub permits at most 1,000 assets on one release. The runner reads the complete
+paginated inventory and permits a new engine only if total assets after upload
+remain at most 998, leaving two slots for channel metadata. Reuse consumes no slot
+and is still allowed at capacity. Upload races never clobber an existing asset.
+At capacity, stop and decide on approved overflow storage; no automatic deletion
+or fallback creates a new visible release. The cap applies to distinct engine
+archives, not candidate numbers. See [GitHub's release limits](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas).
 
 ## Installing and leaving the channel
 

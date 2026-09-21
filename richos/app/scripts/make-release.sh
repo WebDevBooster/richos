@@ -22,6 +22,9 @@
 #
 # A pin is not a promise. It is a claim about bytes that are already there, and the only
 # way to know is to fetch them.
+# Nightly candidates use --candidate-engine for a digest-named engine on the
+# existing channel release. The runner uploads it before verify-engine; no public
+# candidate version tag is needed. Stable releases keep the per-version URL below.
 #
 # WHAT UPLOADS, AND IN WHICH ORDER
 #
@@ -75,6 +78,7 @@ NOTES="${RICHOS_UPDATE_NOTES:-}"
 OUT=""
 SIGN_MODE="developer-id"
 NOTARIZE=1
+CANDIDATE_ENGINE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,6 +91,7 @@ while [ $# -gt 0 ]; do
     --sign)         SIGN_MODE="${2:-}"; shift 2 ;;
     --sign=*)       SIGN_MODE="${1#*=}"; shift ;;
     --no-notarize)  NOTARIZE=0; shift ;;
+    --candidate-engine) CANDIDATE_ENGINE=1; shift ;;
     -h|--help)      sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -176,6 +181,11 @@ case "$VERSION" in
     [ "$TAG" = "v$VERSION" ] || die "nightly tag must be v$VERSION"
     ;;
 esac
+
+if [ "$CANDIDATE_ENGINE" = 1 ]; then
+  [ "$IS_NIGHTLY" = 1 ] && [ "$cmd" = engine ] \
+    || die "--candidate-engine is only for a nightly engine build"
+fi
 
 PIN_FILE="$OUT/engine-pin.env"
 RECEIPT="$OUT/engine-published.ok"
@@ -270,6 +280,25 @@ cmd_engine() {
   local local_digest; local_digest="$(sha256_of "$OUT/$ENGINE_ASSET")"
   [ "$RICHOS_ENGINE_SHA256" = "$local_digest" ] \
     || die "the pin says $RICHOS_ENGINE_SHA256 and the file on disk is $local_digest" 1
+  if [ "$CANDIDATE_ENGINE" = 1 ]; then
+    # The archive is unchanged. Only its delivery URL differs: a digest-named asset
+    # on the existing channel release, available before any nightly version tag.
+    ENGINE_URL="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import nightly; print(nightly.candidate_engine_asset(sys.argv[2])[1])' "$here" "$local_digest")" \
+      || die "could not resolve the candidate engine URL"
+    python3 - "$PIN_FILE" "$ENGINE_URL" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+matches = [i for i, line in enumerate(lines) if line.startswith('export RICHOS_ENGINE_URL=')]
+if len(matches) != 1:
+    raise SystemExit('engine pin must contain exactly one URL')
+lines[matches[0]] = 'export RICHOS_ENGINE_URL=' + sys.argv[2]
+path.write_text('\n'.join(lines) + '\n')
+PY
+    [ "$?" = 0 ] || die "could not record the candidate engine URL"
+    RICHOS_ENGINE_URL="$ENGINE_URL"
+  fi
   [ "$RICHOS_ENGINE_URL" = "$ENGINE_URL" ] \
     || die "the pin's URL is
     $RICHOS_ENGINE_URL
@@ -282,6 +311,13 @@ cmd_engine() {
   rule
   say "NEXT, and nothing here did it:"
   say ""
+  if [ "$CANDIDATE_ENGINE" = 1 ]; then
+    say "  The candidate runner uploads or reuses the digest-named engine on the existing"
+    say "  nightly channel release, then verifies its served bytes before compiling the app."
+    say "  No public version tag or candidate release entry is created here."
+    rule
+    return
+  fi
   say "  gh release create $TAG --repo $REPO --title 'RichOS $VERSION' --notes '...'"
   say "  gh release upload $TAG '$OUT/$ENGINE_ASSET' --repo $REPO"
   say "  richos/app/scripts/make-release.sh verify-engine --tag $TAG"
@@ -369,6 +405,9 @@ cmd_app() {
   [ "$receipt_sha" = "$RICHOS_ENGINE_SHA256" ] \
     || die "the receipt is for $receipt_sha and the pin is now $RICHOS_ENGINE_SHA256.
   The engine asset was rebuilt after it was verified. Re-upload and re-verify."
+  local receipt_url; receipt_url="$(sed -n 's/^url=//p' "$RECEIPT")"
+  [ "$receipt_url" = "$RICHOS_ENGINE_URL" ] \
+    || die "the engine URL changed after verification. Verify the current pinned URL before building."
 
   [ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}${TAURI_SIGNING_PRIVATE_KEY:-}" ] \
     || die "no updater signing key. Export TAURI_SIGNING_PRIVATE_KEY_PATH — app/RELEASING.md

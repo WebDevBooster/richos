@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Allocate immutable nightly releases and advance their verified update channel.
 
-Python 3.11+, git and gh are required. Remote writes happen only in prepare/run.
+Python 3.11+, git and gh are required. Planning is read-only; build and finish write remotely.
 The manual local runner serializes runs; Git ref creation/CAS rejects competing writers.
 """
 import argparse
@@ -13,9 +13,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import tomllib
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[3]
 APP = Path("richos/app")
@@ -48,10 +50,11 @@ RULESET = "main-only"
 ALLOWED_RULESET_EXCLUSIONS = ["refs/heads/main"]
 BASE_RE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
 NIGHTLY_RE = re.compile(BASE_RE + r"-nightly\.([0-9]{8})\.([1-9][0-9]*)")
-# Immutable aliases make the number unique even when competing plans have different
-# dates or base versions. Both tags are created in one atomic push before building.
-BUILD_TAG_PREFIX = "nightly-build-"
-BUILD_TAG_RE = re.compile(BUILD_TAG_PREFIX + r"([1-9][0-9]*)")
+# Candidate reservations do not appear in GitHub's branch, tag or release lists.
+# They are public references, not confidential storage. Creation uses an empty lease.
+CANDIDATE_REF_PREFIX = "refs/candidates/"
+RELEASE_ASSET_LIMIT = 1000
+CHANNEL_ASSET_HEADROOM = 2
 
 
 # =======================================================================================
@@ -265,23 +268,20 @@ def nightly_key(version):
 
 
 @release_step
-def next_version(base, day, tags):
+def next_version(base, day, tags, candidates=()):
     if not re.fullmatch(BASE_RE, base):
         raise ValueError("Cargo.toml must contain the next unreleased stable version")
     datetime.strptime(day, "%Y%m%d")
-    numbers = []
+    numbers = list(candidates)
     candidate_count = 0
     for tag in set(tags):
-        reservation = BUILD_TAG_RE.fullmatch(tag)
-        if reservation:
-            numbers.append(int(reservation[1]))
-        elif tag.startswith("v") and NIGHTLY_RE.fullmatch(tag[1:]):
+        if tag.startswith("v") and NIGHTLY_RE.fullmatch(tag[1:]):
             # Include pre-migration tags and failed/unpublished candidates, across
             # every date and base version. Existing versions are never rewritten.
             numbers.append(nightly_key(tag[1:])[-1])
             candidate_count += 1
     # Daily counters reused suffixes: 23 historical candidates must seed build 24,
-    # even if the largest old suffix was 8. Reservation aliases are not extra builds.
+    # even if the largest old suffix was 8. Hidden reservations are not extra builds.
     # Keep any higher reserved number so gaps and missing release entries stay spent.
     number = max(candidate_count, max(numbers, default=0)) + 1
     return f"{base}-nightly.{day}.{number}"
@@ -291,6 +291,29 @@ def remote_tags():
     refs = git("ls-remote", "--tags", "origin")
     return {line.split()[1].removeprefix("refs/tags/") for line in refs.splitlines()
             if not line.endswith("^{}")}
+
+
+def candidate_refs():
+    refs = git("ls-remote", "origin", f"{CANDIDATE_REF_PREFIX}*")
+    result = {}
+    for line in refs.splitlines():
+        oid, ref = line.split()
+        suffix = ref.removeprefix(CANDIDATE_REF_PREFIX)
+        if re.fullmatch(r"[1-9][0-9]*", suffix):
+            result[int(suffix)] = oid
+    return result
+
+
+def candidate_ref(version):
+    return f"{CANDIDATE_REF_PREFIX}{nightly_key(version)[-1]}"
+
+
+def verify_candidate_ref(info):
+    ref = candidate_ref(info["version"])
+    if info.get("candidate_ref") != ref:
+        raise ValueError("candidate reservation does not match its version")
+    if candidate_refs().get(nightly_key(info["version"])[-1]) != info["build_commit"]:
+        raise ValueError("remote candidate reservation does not match the tested build")
 
 
 def channel():
@@ -361,12 +384,13 @@ def plan(force=False, now=None):
     _, previous = channel()
     if previous and previous["source_commit"] == source and not force:
         return {"build": False, "reason": "source already has a successful nightly"}
-    version = next_version(base, now.strftime("%Y%m%d"), tags)
+    version = next_version(base, now.strftime("%Y%m%d"), tags, candidate_refs())
     if previous:
         if nightly_key(version) <= nightly_key(previous["version"]):
             raise ValueError("candidate version would move the nightly channel backwards")
         git("merge-base", "--is-ancestor", previous["source_commit"], source)
     return {"build": True, "version": version, "tag": f"v{version}",
+            "candidate_ref": candidate_ref(version),
             "source_commit": source, "created_at": now.isoformat(),
             "run_id": os.environ.get("RICHOS_NIGHTLY_RUN_ID", "manual"),
             "run_attempt": "1",
@@ -572,21 +596,24 @@ def prepare(info):
     if info["channel"] == "nightly":
         nightly_key(version)
         day = version.rsplit(".", 2)[1]
-        if version != next_version(base, day, tags):
+        if info.get("candidate_ref") != candidate_ref(version):
+            raise ValueError("nightly plan needs a matching candidate reservation; plan again")
+        if version != next_version(base, day, tags, candidate_refs()):
             raise ValueError("build number is already reserved or plan is stale; plan again")
     # ONE ENTRY POINT, TWO CALLERS. The smoke calls this same function with the same three
     # files; see `release_step`'s note on why it is not two copies of one procedure.
     files = release_files(info, (ROOT / MANIFEST).read_text(), (ROOT / LOCK).read_text(),
                           (ROOT / CONFIG).read_text())
     commit = commit_files(files, info["source_commit"], f"Build {info['tag']}")
-    refs = [f"{commit}:refs/tags/{info['tag']}"]
     if info["channel"] == "nightly":
-        refs.append(f"{commit}:refs/tags/{BUILD_TAG_PREFIX}{nightly_key(version)[-1]}")
-    # Reserve the global number and full version together. A collision on EITHER
-    # tag rejects BOTH, including races across UTC midnight or a base-version bump.
-    # Never force or delete these tags, even after failed or rejected candidates.
-    git("push", "--atomic", "origin", *refs)
-    git("fetch", "origin", f"refs/tags/{info['tag']}:refs/tags/{info['tag']}")
+        ref = info["candidate_ref"]
+        # Unlike a tag, an ordinary ref may fast-forward. The empty lease requires
+        # ABSENCE, including when a competing candidate is an ancestor of this one.
+        git("push", "--atomic", f"--force-with-lease={ref}:", "origin", f"{commit}:{ref}")
+        git("fetch", "--no-tags", "origin", ref)
+    else:
+        git("push", "origin", f"{commit}:refs/tags/{info['tag']}")
+        git("fetch", "origin", f"refs/tags/{info['tag']}:refs/tags/{info['tag']}")
     git("checkout", "--detach", commit)
     return {**info, "build_commit": commit}
 
@@ -640,8 +667,10 @@ def channel_release_notes():
             f"`latest.json` on this release is the manifest every installed nightly "
             f"fetches. It is replaced on each publish and always names the newest "
             f"nightly build.\n\nThe nightly builds themselves are the `v*-nightly.*` "
-            f"prereleases; this release deliberately carries no application archive, "
-            f"and its tag moves.\n")
+            f"prereleases. This release also retains digest-named engine assets used by "
+            f"candidates and installed nightlies, but no application archive. Engine "
+            f"assets are public and appear in its Assets list; they must never be "
+            f"overwritten or deleted. The channel tag moves without replacing them.\n")
 
 
 def serve_channel_manifest(manifest):
@@ -661,6 +690,9 @@ def serve_channel_manifest(manifest):
     if not succeeds("gh", "release", "view", CHANNEL_TAG, "--repo", REPO):
         execute("gh", "release", "create", CHANNEL_TAG, "--repo", REPO, "--verify-tag",
                 "--prerelease", "--latest=false", "--title", "RichOS nightly channel",
+                "--notes", channel_release_notes())
+    else:
+        execute("gh", "release", "edit", CHANNEL_TAG, "--repo", REPO,
                 "--notes", channel_release_notes())
     with tempfile.TemporaryDirectory(prefix="richos-channel-asset-") as tmp:
         path = Path(tmp) / "latest.json"
@@ -695,9 +727,11 @@ def verify_candidate_manifest(info, out):
     recorded = json.loads(path.read_text())
     if recorded["info"] != info:
         raise ValueError("candidate was built for a different plan than the one given to publish")
-    mismatched = [f"{rel}: recorded {digest}, now {_candidate_files(out).get(rel, 'MISSING')}"
-                  for rel, digest in recorded["files"].items()
-                  if _candidate_files(out).get(rel) != digest]
+    actual = _candidate_files(out)
+    mismatched = [f"{rel}: recorded {recorded['files'].get(rel, 'UNRECORDED')}, "
+                  f"now {actual.get(rel, 'MISSING')}"
+                  for rel in recorded["files"].keys() | actual.keys()
+                  if recorded["files"].get(rel) != actual.get(rel)]
     if mismatched:
         raise ValueError("candidate has changed since it was built; refusing to publish it:\n  "
                          + "\n  ".join(mismatched))
@@ -721,46 +755,164 @@ def describe_release(info):
             else f"RichOS {info['version']}")
 
 
-def build(info, out):
-    """Produce the signed, notarized, engine-pinned candidate under `out`, and stop.
+def sha256_file(path):
+    with Path(path).open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
 
-    This is everything `publish` does up to and including compiling the app against
-    a verified engine pin. It still touches the network: the app's pin is a claim
-    about bytes already served from this release's tag
-    (make-release.sh:15-24), and the only way to make that claim true is to create
-    the (still-prerelease) release for this tag and put the engine asset there --
-    `verify-engine` inside `make-release.sh` (:296-317) is what actually refuses if
-    those bytes are not back on the wire; that refusal, not anything in
-    make-engine-asset.sh, is what makes an unpublished pin unbuildable. What `build`
-    does NOT do: upload the app itself, write `latest.json`, or move
-    the update channel -- nobody can install what this produces until `finish` runs.
+
+@release_step
+def candidate_engine_asset(digest):
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("candidate engine needs a SHA-256 digest")
+    name = f"richos-engine-sha256-{digest}.tar.gz"
+    return name, f"https://github.com/{REPO}/releases/download/{CHANNEL_TAG}/{name}"
+
+
+def github_json(path, missing_ok=False):
+    args = ["gh", "api", path]
+    result = subprocess.run(args, text=True, capture_output=True)
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        data = None
+    if result.returncode:
+        if missing_ok and isinstance(data, dict) and str(data.get("status")) == "404":
+            return None
+        raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
+    if not isinstance(data, dict):
+        raise ValueError("GitHub returned an invalid release response")
+    return data
+
+
+def get_release(tag):
+    return github_json(f"repos/{REPO}/releases/tags/{quote(tag, safe='')}", missing_ok=True)
+
+
+def release_assets(release_id):
+    # The release response's embedded array is not a complete inventory. Pagination
+    # matters both for reuse and for GitHub's 1,000-assets-per-release ceiling.
+    pages = json.loads(run("gh", "api", "--paginate", "--slurp",
+                           f"repos/{REPO}/releases/{release_id}/assets?per_page=100"))
+    return [asset for page in pages for asset in page]
+
+
+def verify_served_asset(url, source):
+    with tempfile.TemporaryDirectory(prefix="richos-asset-verify-") as tmp:
+        downloaded = Path(tmp) / "asset"
+        execute("curl", "--fail", "--location", "--silent", "--show-error",
+                "--max-time", "600", "--output", str(downloaded), url)
+        if sha256_file(downloaded) != sha256_file(source):
+            raise ValueError(f"published asset differs from the candidate: {url}; never overwrite it")
+
+
+def stage_candidate_engine(archive, name, url):
+    release = get_release(CHANNEL_TAG)
+    if (not release or release.get("draft") or release.get("immutable")
+            or not release.get("prerelease") or release.get("tag_name") != CHANNEL_TAG):
+        raise ValueError("candidate engines require the existing public, mutable nightly channel release")
+    assets = release_assets(release["id"])
+    exists = any(asset["name"] == name for asset in assets)
+    if not exists:
+        if len(assets) + 1 > RELEASE_ASSET_LIMIT - CHANNEL_ASSET_HEADROOM:
+            raise ValueError("nightly channel engine storage is at capacity; retain existing engines "
+                             "and choose approved overflow storage before building more candidates")
+        with tempfile.TemporaryDirectory(prefix="richos-engine-upload-") as tmp:
+            upload = Path(tmp) / name
+            shutil.copyfile(archive, upload)
+            try:
+                execute("gh", "release", "upload", CHANNEL_TAG, "--repo", REPO, str(upload))
+            except subprocess.CalledProcessError:
+                # Another candidate can upload the same digest concurrently. Only
+                # existing, verified bytes make that a success; never use --clobber.
+                if not any(a["name"] == name for a in release_assets(release["id"])):
+                    raise
+    verify_served_asset(url, archive)
+
+
+def ensure_version_tag(info):
+    ref = f"refs/tags/{info['tag']}"
+    current = git("ls-remote", "origin", ref).split()
+    if current:
+        if current != [info["build_commit"], ref]:
+            raise ValueError("public version tag points to a different commit; refusing promotion")
+        return
+    git("push", f"--force-with-lease={ref}:", "origin", f"{info['build_commit']}:{ref}")
+
+
+def release_notes(info):
+    notes = (f"{describe_release(info)}\n\nSource: {info['source_commit']}\n"
+             f"Build: {info['build_commit']}\nRun: {info['run_id']} / {info['run_attempt']}\n")
+    if info["channel"] == "nightly":
+        notes += f"Build number: {nightly_key(info['version'])[-1]}\n"
+    else:
+        notes += (f"Rebuild of: {info['promoted_from']}\n"
+                  f"Promoted by the CEO on {info['promotion_decided_on']}\n")
+    return notes
+
+
+def ensure_nightly_release(info):
+    release = get_release(info["tag"])
+    if release is None:
+        try:
+            execute("gh", "release", "create", info["tag"], "--repo", REPO, "--verify-tag",
+                    "--prerelease", "--latest=false", "--title", f"RichOS {info['version']}",
+                    "--notes", release_notes(info))
+        except subprocess.CalledProcessError:
+            if get_release(info["tag"]) is None:
+                raise
+        release = get_release(info["tag"])
+    if not release or release.get("draft") or not release.get("prerelease"):
+        raise ValueError("candidate publication requires a public prerelease")
+    return release
+
+
+def upload_candidate_assets(info, out, assets):
+    release = ensure_nightly_release(info)
+    existing = {a["name"] for a in release_assets(release["id"])}
+    # latest.json is deliberately last. A retry compares existing files and only
+    # uploads missing ones, without overwriting even one tested byte.
+    for path in [*(Path(p) for p in assets), out / "latest.json"]:
+        url = f"https://github.com/{REPO}/releases/download/{info['tag']}/{path.name}"
+        if path.name not in existing:
+            try:
+                execute("gh", "release", "upload", info["tag"], "--repo", REPO, str(path))
+            except subprocess.CalledProcessError:
+                if not any(a["name"] == path.name for a in release_assets(release["id"])):
+                    raise
+                verify_served_asset(url, path)
+        else:
+            verify_served_asset(url, path)
+
+
+def build(info, out):
+    """Build a candidate without a public nightly tag or release-list entry.
+
+    New candidates pin a digest-named engine on the existing channel release.
+    Stable and legacy candidates keep their original engine delivery path.
     """
     scripts = ROOT / APP / "scripts"
     release = str(scripts / "make-release.sh")
     out.mkdir(parents=True, exist_ok=False)
     (out / "build-info.json").write_text(json_text(info))
-    notes = out / "notes.txt"
-    # WHAT THIS RELEASE IS, in its own words. Hard-coded as "Nightly" until the stable
-    # channel existed, which would have labeled a stable release "Nightly 1.2.0" on the
-    # public releases page and in the bundle's own notes.
     label = describe_release(info)
-    notes.write_text(f"{label}\n\nSource: {info['source_commit']}\n"
-                     f"Build: {info['build_commit']}\nRun: {info['run_id']} / {info['run_attempt']}\n")
-    if info["channel"] == "nightly":
-        notes.write_text(notes.read_text() + f"Build number: {nightly_key(info['version'])[-1]}\n")
-    if info["channel"] == "stable":
-        notes.write_text(notes.read_text() +
-                         f"Rebuild of: {info['promoted_from']}\n"
-                         f"Promoted by the CEO on {info['promotion_decided_on']}\n")
-    # Publish the engine first: the app embeds its verified public URL and digest.
-    execute("bash", release, "engine", "--out", str(out))
-    execute("gh", "release", "create", info["tag"], "--repo", REPO, "--verify-tag",
-            "--prerelease", "--latest=false", "--title", f"RichOS {info['version']}",
-            "--notes-file", str(notes))
-    notes.unlink()  # Release notes are not a downloadable artifact.
     engine_version = (ROOT / "richos/engine/VERSION").read_text().strip()
-    execute("gh", "release", "upload", info["tag"], "--repo", REPO,
-            str(out / f"richos-engine-{engine_version}.tar.gz"))
+    if info.get("candidate_ref"):
+        verify_candidate_ref(info)
+        execute("bash", release, "engine", "--out", str(out), "--candidate-engine")
+        archive = out / f"richos-engine-{engine_version}.tar.gz"
+        name, url = candidate_engine_asset(sha256_file(archive))
+        stage_candidate_engine(archive, name, url)
+    else:
+        # Stable promotion and already-staged legacy nightly versions are unchanged.
+        notes = out / "notes.txt"
+        notes.write_text(release_notes(info))
+        execute("bash", release, "engine", "--out", str(out))
+        execute("gh", "release", "create", info["tag"], "--repo", REPO, "--verify-tag",
+                "--prerelease", "--latest=false", "--title", f"RichOS {info['version']}",
+                "--notes-file", str(notes))
+        notes.unlink()
+        execute("gh", "release", "upload", info["tag"], "--repo", REPO,
+                str(out / f"richos-engine-{engine_version}.tar.gz"))
     execute("bash", release, "verify-engine", "--out", str(out))
     execute("bash", release, "app", "--out", str(out), "--notes", label)
     if git("rev-parse", "HEAD") != info["build_commit"] or git("status", "--porcelain"):
@@ -786,14 +938,22 @@ def finish(info, out):
                          "commit; run \"nightly-local.py build\" again before publishing")
     verify_candidate_manifest(info, out)
     verify_source_is_current(info["source_commit"])
+    if info.get("candidate_ref"):
+        verify_candidate_ref(info)
+        verify_repository_rules()
     scripts = ROOT / APP / "scripts"
     release = str(scripts / "make-release.sh")
     engine_version = (ROOT / "richos/engine/VERSION").read_text().strip()
-    assets = [str(p) for p in sorted(out.iterdir()) if p.name not in
-              {"engine-pin.env", "engine-published.ok", "latest.json",
-               f"richos-engine-{engine_version}.tar.gz", CANDIDATE_MANIFEST}]
-    execute("gh", "release", "upload", info["tag"], "--repo", REPO, *assets)
-    execute("gh", "release", "upload", info["tag"], "--repo", REPO, str(out / "latest.json"))
+    excluded = {"engine-pin.env", "engine-published.ok", "latest.json", CANDIDATE_MANIFEST}
+    if not info.get("candidate_ref"):
+        excluded.add(f"richos-engine-{engine_version}.tar.gz")
+    assets = [str(p) for p in sorted(out.iterdir()) if p.is_file() and p.name not in excluded]
+    if info.get("candidate_ref"):
+        ensure_version_tag(info)
+        upload_candidate_assets(info, out, assets)
+    else:
+        execute("gh", "release", "upload", info["tag"], "--repo", REPO, *assets)
+        execute("gh", "release", "upload", info["tag"], "--repo", REPO, str(out / "latest.json"))
     # This validates published bytes and their updater signature before the pointer moves.
     execute("bash", release, "verify-assets", "--out", str(out))
     manifest = json.loads((out / "latest.json").read_text())
@@ -914,14 +1074,18 @@ def _release_smoke(work):
     if nightly_key(third) <= nightly_key(first):
         raise ValueError("release-smoke: nightly ordering is not monotonic")
     continuous = next_version(base, "20260921", tags={
-        "v0.0.0-nightly.20260919.8", f"v{base}-nightly.{day}.2",
-        f"{BUILD_TAG_PREFIX}9"})
+        "v0.0.0-nightly.20260919.8", f"v{base}-nightly.{day}.2"}, candidates={9})
     if continuous != f"{base}-nightly.20260921.10":
         raise ValueError("release-smoke: build counter reset across dates or base versions")
     refuses("a version on a day that does not exist", lambda: next_version(base, "20260231", set()))
     refuses("a base version that is itself a prerelease",
             lambda: next_version(f"{base}-nightly.{day}.1", day, set()))
     checked.append(f"version resolution: {first}, then {third}")
+    digest = hashlib.sha256(b"engine smoke").hexdigest()
+    name, url = candidate_engine_asset(digest)
+    if digest not in name or not url.endswith(f"/{CHANNEL_TAG}/{name}"):
+        raise ValueError("release-smoke: candidate engine URL is not content-addressed")
+    refuses("an invalid candidate engine digest", lambda: candidate_engine_asset("not-a-digest"))
 
     # --- the files a release commit carries, on both channels -------------------------
     nightly_info = {"build": True, "version": third, "tag": f"v{third}",
