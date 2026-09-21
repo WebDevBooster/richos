@@ -603,7 +603,7 @@ if [ -s "$WORK/engine" ]; then
     UNITS="$("$CI_AFFECTED" --paths "$LIST" 2>/dev/null || true)"
     if [ -n "$UNITS" ]; then
       printf '%s\n' "$UNITS" | while IFS= read -r u; do
-        [ -n "$u" ] && cmd "cd richos/engine && bash scripts/ci-units.sh run $u"
+        [ -n "$u" ] && cmd "cd richos/engine && bash scripts/ci-shard.sh --only-units $u"
       done
     else
       say "  (that script maps these to no unit — see it with --explain)"

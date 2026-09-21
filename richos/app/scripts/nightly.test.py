@@ -1291,7 +1291,9 @@ EOF
         checker.chmod(0o755)
         (self.scripts / 'package-app.sh').write_text(
             '#!/bin/sh\necho "fixture reached packaging" >&2\nexit 23\n')
-        (root / '.gitignore').write_text('/out/\n/remote/\n/bin/\n')
+        # Match the real repository's generated-bytecode exclusions. make-release
+        # imports nightly before checking Git status, even in a clean fixture.
+        (root / '.gitignore').write_text('/out/\n/remote/\n/bin/\n__pycache__/\n*.pyc\n')
         digest = 'a' * 64
         url = n.candidate_engine_asset(digest)[1]
         (self.out / 'engine-pin.env').write_text(
@@ -1365,6 +1367,26 @@ EOF
 
     def test_app_still_refuses_uncommitted_source(self):
         root, _ = self.app_source_fixture()
+        (root / 'change').write_text('uncommitted source')
+        result = self.call('app')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('working tree has uncommitted changes', result.stderr)
+        self.assertNotIn('fixture reached packaging', result.stderr)
+
+    def test_app_accepts_generated_bytecode_but_refuses_uncommitted_source(self):
+        root, git = self.app_source_fixture()
+        # The real release suppresses bytecode; standalone tests need not. Let the
+        # real Python import in make-release create its cache in this fixture.
+        self.env.pop('PYTHONDONTWRITEBYTECODE', None)
+        self.env.pop('PYTHONPYCACHEPREFIX', None)
+        cache = self.scripts / '__pycache__'
+        self.assertFalse(cache.exists())
+        for state in ('clean', 'cached'):
+            with self.subTest(cache=state):
+                result = self.call('app')
+                self.assertIn('fixture reached packaging', result.stderr)
+                self.assertTrue(list(cache.glob('nightly.*.pyc')))
+                self.assertEqual(git('status', '--porcelain'), '')
         (root / 'change').write_text('uncommitted source')
         result = self.call('app')
         self.assertEqual(result.returncode, 1)

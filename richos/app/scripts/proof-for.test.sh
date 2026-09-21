@@ -24,8 +24,8 @@
 # would be worse than none, so the assertion is that it says 55 AND names the one file that
 # caused it.
 #
-# run-tests: inputs richos/app/scripts/proof-for.test.sh richos/app/scripts/proof-for.sh richos/app/scripts/proof-for.ui-inputs richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py
-# run-tests: covers richos/app/scripts/proof-for.sh richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py
+# run-tests: inputs richos/app/scripts/proof-for.test.sh richos/app/scripts/proof-for.sh richos/app/scripts/proof-for.ui-inputs richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py richos/engine
+# run-tests: covers richos/app/scripts/proof-for.sh richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,6 +59,12 @@ if PYTHONDONTWRITEBYTECODE=1 python3 "$DIR/proof-for-declarations.test.py"; then
   ok "J1 script dependencies and behavioral coverage reconcile independently"
 else
   bad "J1 script declaration contract"
+fi
+
+if PYTHONDONTWRITEBYTECODE=1 python3 "$DIR/proof-for-engine.test.py"; then
+  ok "J2 generated engine commands execute and preserve scoped verdicts"
+else
+  bad "J2 generated engine command contract"
 fi
 
 echo "=== proof-for: the three real lands ==="
