@@ -48,6 +48,10 @@ RULESET = "main-only"
 ALLOWED_RULESET_EXCLUSIONS = ["refs/heads/main"]
 BASE_RE = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
 NIGHTLY_RE = re.compile(BASE_RE + r"-nightly\.([0-9]{8})\.([1-9][0-9]*)")
+# Immutable aliases make the number unique even when competing plans have different
+# dates or base versions. Both tags are created in one atomic push before building.
+BUILD_TAG_PREFIX = "nightly-build-"
+BUILD_TAG_RE = re.compile(BUILD_TAG_PREFIX + r"([1-9][0-9]*)")
 
 
 # =======================================================================================
@@ -265,8 +269,15 @@ def next_version(base, day, tags):
     if not re.fullmatch(BASE_RE, base):
         raise ValueError("Cargo.toml must contain the next unreleased stable version")
     datetime.strptime(day, "%Y%m%d")
-    prefix = f"v{base}-nightly.{day}."
-    numbers = [nightly_key(t[1:])[-1] for t in tags if t.startswith(prefix)]
+    numbers = []
+    for tag in tags:
+        reservation = BUILD_TAG_RE.fullmatch(tag)
+        if reservation:
+            numbers.append(int(reservation[1]))
+        elif tag.startswith("v") and NIGHTLY_RE.fullmatch(tag[1:]):
+            # Include pre-migration tags and failed/unpublished candidates, across
+            # every date and base version. Existing versions are never rewritten.
+            numbers.append(nightly_key(tag[1:])[-1])
     return f"{base}-nightly.{day}.{max(numbers, default=0) + 1}"
 
 
@@ -552,14 +563,23 @@ def prepare(info):
     # `info["tag"] in tags` above, which is the same tag.
     if info["channel"] == "nightly" and f"v{base}" in tags:
         raise ValueError("version is already reserved or its stable release exists")
+    if info["channel"] == "nightly":
+        nightly_key(version)
+        day = version.rsplit(".", 2)[1]
+        if version != next_version(base, day, tags):
+            raise ValueError("build number is already reserved or plan is stale; plan again")
     # ONE ENTRY POINT, TWO CALLERS. The smoke calls this same function with the same three
     # files; see `release_step`'s note on why it is not two copies of one procedure.
     files = release_files(info, (ROOT / MANIFEST).read_text(), (ROOT / LOCK).read_text(),
                           (ROOT / CONFIG).read_text())
     commit = commit_files(files, info["source_commit"], f"Build {info['tag']}")
-    # Creating a remote tag reserves the number even if the build later fails.
-    # A competing writer cannot overwrite an existing tag. Never force a tag push.
-    git("push", "origin", f"{commit}:refs/tags/{info['tag']}")
+    refs = [f"{commit}:refs/tags/{info['tag']}"]
+    if info["channel"] == "nightly":
+        refs.append(f"{commit}:refs/tags/{BUILD_TAG_PREFIX}{nightly_key(version)[-1]}")
+    # Reserve the global number and full version together. A collision on EITHER
+    # tag rejects BOTH, including races across UTC midnight or a base-version bump.
+    # Never force or delete these tags, even after failed or rejected candidates.
+    git("push", "--atomic", "origin", *refs)
     git("fetch", "origin", f"refs/tags/{info['tag']}:refs/tags/{info['tag']}")
     git("checkout", "--detach", commit)
     return {**info, "build_commit": commit}
@@ -720,6 +740,8 @@ def build(info, out):
     label = describe_release(info)
     notes.write_text(f"{label}\n\nSource: {info['source_commit']}\n"
                      f"Build: {info['build_commit']}\nRun: {info['run_id']} / {info['run_attempt']}\n")
+    if info["channel"] == "nightly":
+        notes.write_text(notes.read_text() + f"Build number: {nightly_key(info['version'])[-1]}\n")
     if info["channel"] == "stable":
         notes.write_text(notes.read_text() +
                          f"Rebuild of: {info['promoted_from']}\n"
@@ -885,6 +907,11 @@ def _release_smoke(work):
         raise ValueError(f"release-smoke: version resolution produced {first} and {third}")
     if nightly_key(third) <= nightly_key(first):
         raise ValueError("release-smoke: nightly ordering is not monotonic")
+    continuous = next_version(base, "20260921", tags={
+        "v0.0.0-nightly.20260919.8", f"v{base}-nightly.{day}.2",
+        f"{BUILD_TAG_PREFIX}9"})
+    if continuous != f"{base}-nightly.20260921.10":
+        raise ValueError("release-smoke: build counter reset across dates or base versions")
     refuses("a version on a day that does not exist", lambda: next_version(base, "20260231", set()))
     refuses("a base version that is itself a prerelease",
             lambda: next_version(f"{base}-nightly.{day}.1", day, set()))

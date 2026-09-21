@@ -1109,7 +1109,8 @@ class Runner:
         # make-release.sh's own ARCH mapping (arm64|aarch64 -> aarch64).
         bundle_zip = out / f"RichOS-{info['version']}-macos-aarch64.zip"
         scratch = f"/tmp/richos-qa-{info['run_id']}"
-        print(f"Candidate {info['tag']} ({info['version']}), source {info['source_commit']}", flush=True)
+        number = info['version'].rsplit('.', 1)[-1]
+        print(f"Candidate build {number}: {info['tag']}, source {info['source_commit']}", flush=True)
         print(f"  staged at : {out}", flush=True)
         print(f"  bundle zip: {bundle_zip}", flush=True)
         print("", flush=True)

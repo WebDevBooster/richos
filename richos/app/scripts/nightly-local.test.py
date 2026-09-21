@@ -536,6 +536,7 @@ while True: time.sleep(.02)
         r.checkout.assert_not_called()
         r.plan.assert_not_called()
         self.assertIn(str(out), buf.getvalue())
+        self.assertIn("Candidate build 1:", buf.getvalue())
         self.assertIn("RICHOS_ACTIVATION=regular", buf.getvalue())
         self.assertIn(f"publish --run {self.CANDIDATE_INFO['run_id']}", buf.getvalue())
 

@@ -26,12 +26,23 @@ NOW = datetime(2026, 9, 11, 23, 59, tzinfo=timezone.utc)
 
 
 class VersionTests(unittest.TestCase):
-    def test_numeric_suffix_and_day_reset(self):
+    def test_counter_continues_across_days_and_base_versions(self):
         tags = [f"v5.1.0-nightly.20260911.{i}" for i in range(1, 12)]
         tags += ["v5.2.0-nightly.20260911.999", "v5.1.0-nightly.20260910.999"]
-        self.assertEqual(n.next_version("5.1.0", "20260911", tags), "5.1.0-nightly.20260911.12")
-        self.assertEqual(n.next_version("5.1.0", "20260912", tags), "5.1.0-nightly.20260912.1")
+        self.assertEqual(n.next_version("5.1.0", "20260911", tags), "5.1.0-nightly.20260911.1000")
+        self.assertEqual(n.next_version("5.1.0", "20260912", tags), "5.1.0-nightly.20260912.1000")
+        self.assertEqual(n.next_version("6.0.0", "20260912", tags), "6.0.0-nightly.20260912.1000")
         self.assertGreater(n.nightly_key("5.1.0-nightly.20260911.10"), n.nightly_key("5.1.0-nightly.20260911.9"))
+
+    def test_empty_history_and_unrelated_tags(self):
+        self.assertEqual(n.next_version("5.1.0", "20260911",
+                                       {"nightly", "v5.0.0", "v5.1.0-beta.999"}),
+                         "5.1.0-nightly.20260911.1")
+
+    def test_reservations_survive_missing_release_and_exceed_four_digits(self):
+        tags = {"v5.1.0-nightly.20260911.8", "nightly-build-9999"}
+        self.assertEqual(n.next_version("5.2.0", "20260912", tags),
+                         "5.2.0-nightly.20260912.10000")
 
     def test_invalid_versions_and_dates(self):
         for version in ("5.1.0-nightly.20260911.01", "5.1.0-nightly.20260911.0",
@@ -174,6 +185,8 @@ class GitTests(GitFixture):
         self.assertEqual(conf["plugins"]["updater"]["endpoints"], [n.ENDPOINT])
         self.assertEqual(json.loads((self.repo / n.PROVENANCE).read_text())["source_commit"], self.source)
         self.assertIn(info["tag"], n.remote_tags())
+        self.assertEqual(n.git("ls-remote", "origin", "refs/tags/nightly-build-1").split()[0],
+                         info["build_commit"])
         n.git("checkout", "-q", "main")
         self.assertEqual(self.plan()["version"], "5.1.0-nightly.20260911.2")
 
@@ -183,6 +196,65 @@ class GitTests(GitFixture):
         n.git("checkout", "-q", "main")
         with self.assertRaisesRegex(ValueError, "reserved"):
             n.prepare(second)
+        self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
+
+    def test_stale_plan_on_another_day_cannot_reuse_a_number(self):
+        next_day = n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc))
+        self.reserve()
+        n.git("checkout", "-q", "main")
+        with self.assertRaisesRegex(ValueError, "reserved|stale"):
+            n.prepare(next_day)
+        self.assertNotIn(next_day["tag"], n.remote_tags())
+
+    def test_global_number_race_rejects_full_version_tag_atomically(self):
+        # A different candidate wins AFTER prepare's remote read. Neither changing
+        # the date nor changing the base version may evade the shared reservation.
+        info = self.plan()
+        competitor = "v6.0.0-nightly.20260912.1"
+        original = n.commit_files
+        def competing_number(*args):
+            commit = original(*args)
+            n.git("push", "--atomic", "origin",
+                  f"{self.source}:refs/tags/{competitor}",
+                  f"{self.source}:refs/tags/nightly-build-1")
+            return commit
+        with patch.object(n, "commit_files", side_effect=competing_number):
+            with self.assertRaises(subprocess.CalledProcessError):
+                n.prepare(info)
+        self.assertNotIn(info["tag"], n.remote_tags())
+        self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
+        self.assertEqual(self.plan()["version"], "5.1.0-nightly.20260911.2")
+
+    def test_failed_candidate_consumes_number_across_date_and_base_bump(self):
+        first = self.reserve()
+        with patch.object(n, "execute", side_effect=RuntimeError("build failed")):
+            with self.assertRaisesRegex(RuntimeError, "build failed"):
+                n.build(first, Path(self.temp.name) / "failed-candidate")
+        n.git("checkout", "-q", "main")
+        for path in (n.MANIFEST, n.LOCK):
+            file = self.repo / path
+            file.write_text(file.read_text().replace('"5.1.0"', '"5.2.0"'))
+        n.git("commit", "-qam", "next base")
+        second = n.prepare(n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc)))
+        self.assertEqual(second["version"], "5.2.0-nightly.20260912.2")
+        self.assertTrue({first["tag"], second["tag"], "nightly-build-1", "nightly-build-2"}
+                        <= n.remote_tags())
+        self.assertEqual(n.channel(), (None, None))
+
+    def test_migration_starts_above_all_historical_suffixes(self):
+        legacy = {"v5.0.0-nightly.20260909.8", "v5.1.0-nightly.20260910.3"}
+        n.git("push", "origin", *(f"{self.source}:refs/tags/{tag}" for tag in legacy))
+        info = self.reserve()
+        self.assertEqual(info["version"], "5.1.0-nightly.20260911.9")
+        self.assertTrue(legacy <= n.remote_tags())
+        self.assertIn("nightly-build-9", n.remote_tags())
+
+    def test_remote_without_atomic_push_cannot_partially_reserve(self):
+        n.git("config", "receive.advertiseAtomic", "false", cwd=self.remote)
+        info = self.plan()
+        with self.assertRaises(subprocess.CalledProcessError):
+            n.prepare(info)
+        self.assertFalse({info["tag"], "nightly-build-1"} & n.remote_tags())
         self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
 
     def test_tag_created_during_allocation_cannot_be_overwritten(self):
@@ -199,6 +271,7 @@ class GitTests(GitFixture):
                 n.prepare(info)
         self.assertEqual(n.git("rev-parse", "HEAD"), self.source)
         self.assertEqual(n.git("ls-remote", "origin", f"refs/tags/{info['tag']}").split()[0], self.source)
+        self.assertNotIn("nightly-build-1", n.remote_tags())
 
     def test_dirty_and_released_sources_are_refused(self):
         (self.repo / "untracked").write_text("dirty")
@@ -223,7 +296,7 @@ class GitTests(GitFixture):
         self.assertEqual(self.plan(force=True)["version"], "5.1.0-nightly.20260911.2")
         later = n.plan(force=True,
                        now=datetime(2026, 9, 12, tzinfo=timezone.utc))
-        self.assertEqual(later["version"], "5.1.0-nightly.20260912.1")
+        self.assertEqual(later["version"], "5.1.0-nightly.20260912.2")
 
     def test_promotion_never_rolls_back(self):
         old = self.reserve()
@@ -357,6 +430,32 @@ class GitTests(GitFixture):
         promote.assert_not_called()
         self.assertEqual(n.channel(), (None, None))
         self.assertTrue((out / n.CANDIDATE_MANIFEST).exists())
+
+    def test_rejected_candidates_leave_gaps_and_publish_preserves_tested_build(self):
+        for number in (1, 2):
+            rejected = self.reserve()
+            self.assertEqual(n.nightly_key(rejected["version"])[-1], number)
+            out = Path(self.temp.name) / f"rejected-{number}"
+            fake, _ = self.fake_execute(out)
+            with patch.object(n, "execute", side_effect=fake):
+                n.build(rejected, out)
+            n.git("checkout", "-q", "main")
+        accepted = n.prepare(n.plan(now=datetime(2026, 9, 12, tzinfo=timezone.utc)))
+        self.assertEqual(accepted["version"], "5.1.0-nightly.20260912.3")
+        out = Path(self.temp.name) / "accepted"
+        fake, calls = self.fake_execute(out)
+        with patch.object(n, "execute", side_effect=fake):
+            n.build(accepted, out)
+        before = n._candidate_files(out)
+        tags_before = n.remote_tags()
+        calls.clear()
+        with patch.object(n, "execute", side_effect=fake), patch.object(n, "prepare") as prepare:
+            n.finish(accepted, out)
+        prepare.assert_not_called()
+        self.assertEqual([c[2] for c in calls if c[0] == "bash"], ["verify-assets"])
+        self.assertEqual(n._candidate_files(out), before)
+        self.assertEqual(n.remote_tags(), tags_before | {n.CHANNEL_TAG})
+        self.assertEqual(n.channel()[1], accepted)
 
     def test_finish_refuses_a_tampered_candidate(self):
         info = self.reserve()

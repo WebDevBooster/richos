@@ -60,7 +60,7 @@ existing install can see or fetch anything `build` produced. It prints the run
 id, the staged candidate's path and exactly how to walk it:
 
 ```
-Candidate v1.2.0-nightly.20260917.1 (1.2.0-nightly.20260917.1), source aa0165cc...
+Candidate build 1: v1.2.0-nightly.20260917.1, source aa0165cc...
   staged at : ~/.richos-nightly/releases/v1.2.0-nightly.20260917.1
   bundle zip: .../RichOS-1.2.0-nightly.20260917.1-macos-aarch64.zip
 
@@ -228,16 +228,42 @@ it cannot build a stable release of itself.
 The base is the next release version in `src-tauri/Cargo.toml`:
 
 ```text
-1.2.0-nightly.20260911.1
-1.2.0-nightly.20260911.9
-1.2.0-nightly.20260911.10
-1.2.0-nightly.20260912.1
+1.2.0-nightly.20260921.42
+1.2.0-nightly.20260921.43
+1.2.0-nightly.20260922.44
+1.3.0-nightly.20260923.45
 ```
 
-The UTC date is captured at allocation after checks finish. The counter resets
-each day for each base version and is never padded. Failed attempts may leave
-gaps. Tags reserve numbers permanently. After publishing stable `v1.2.0`, bump
-the base version before creating more nightlies.
+The final number is one continuous candidate/build counter across **all dates and
+base versions**. It never resets, is never padded and can grow beyond four digits.
+The UTC date is captured at allocation after checks finish. After publishing stable
+`v1.2.0`, bump the base version before creating more nightlies; the counter continues.
+
+The number is reserved before building the candidate. Candidate 43 and published
+nightly build 43 are the same build: `publish --run <run-id>` uploads the staged,
+tested artifacts with their existing version, date and number. It does not rebuild
+or allocate another number. A fresh build attempt gets a fresh number, even for
+unchanged source (`--force` is needed if that source was already published).
+Readiness checks and planning alone do not reserve numbers.
+
+Failed builds and rejected candidates keep their numbers. If candidates 43 and 44
+are rejected and 45 passes, installed users can go from build 42 directly to 45.
+Gaps are expected. The current engine-first process can leave an engine-only
+prerelease for an unsuccessful candidate; it is never offered as an app update.
+
+Reservations are remote Git tags, so they survive local state loss and machine
+changes. `v<version>` and `nightly-build-<number>` point to the same build commit
+and are created in one atomic push. A competing candidate claiming the same number
+rejects the whole push, even across different dates or base versions. Retry with
+a fresh plan. Never delete or overwrite either reservation tag to reclaim a number.
+The rolling `nightly` channel tag remains separate.
+
+Migration preserves all existing release versions and tags. The next number is
+one greater than the highest suffix in **any** historical nightly version tag or
+`nightly-build-<number>` reservation, including failed and unpublished attempts.
+Old daily counters can contain repeated numbers; identify those legacy builds by
+their full version. Newly allocated numbers are globally unique. A candidate
+already staged before migration retains its original version when published.
 
 ## Existing local credentials
 
