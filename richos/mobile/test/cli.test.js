@@ -1,20 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
-const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } = require('node:fs');
+const { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } = require('node:fs');
 const { join, resolve } = require('node:path');
-const { tmpdir } = require('node:os');
+const { createScratch, proofCache } = require('./storage.cjs');
 const vm = require('node:vm');
 const { createApp } = require('../core/app');
 const mobile = resolve(__dirname, '..');
 
 function session(t) {
   // The real CLI enforces the mounted external volume. Never use a user's session.
-  assert(tmpdir().startsWith('/Volumes/E1TB/'), 'Configure TMPDIR on the external SSD');
-  const dir = mkdtempSync(join(tmpdir(), 'richos-mobile-cli-'));
+  const dir = createScratch('cli');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const cache = join(dir, 'cache');
-  const env = { ...process.env, RICHOS_MOBILE_CACHE: cache };
+  const env = { ...process.env, TMPDIR: dir + '/', RICHOS_MOBILE_CACHE: cache };
   function raw(...args) {
     const result = spawnSync(process.execPath, [join(mobile, 'cli/mobile.mjs'), ...args], { env, encoding: 'utf8', timeout: 15000 });
     assert.ifError(result.error);
@@ -44,6 +43,42 @@ test('separate CLI processes persist the selected conversation, draft and queued
   const online = run('headless', 'action', '{"type":"network","online":true}').state;
   assert.equal(online.outbox.length, 0);
   assert.equal(online.environment.receipts[0].clientId, sent.outbox[0].clientId);
+});
+
+test('suite storage ignores an ordinary shell TMPDIR and preserves incompatible saved policies', (t) => {
+  const { dir } = session(t);
+  const result = spawnSync(process.execPath, ['-e',
+    'const fs=require("node:fs"); const {createScratch}=require(process.argv[1]); const p=createScratch("ordinary-shell"); console.log(p); fs.rmdirSync(p);',
+    join(__dirname, 'storage.cjs')], { env: { ...process.env, TMPDIR: '/var/empty' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^\/Volumes\/E1TB\/tmp\/codex\//);
+  assert(!existsSync(result.stdout.trim()));
+  const legacy = join(dir, 'legacy');
+  mkdirSync(legacy);
+  const policy = join(legacy, 'simulator-storage.json');
+  writeFileSync(policy, '{"storage":"external"}');
+  assert.equal(proofCache(legacy, 'system'), legacy + '-system');
+  assert.equal(readFileSync(policy, 'utf8'), '{"storage":"external"}');
+  assert.equal(proofCache(legacy, 'external'), legacy);
+  assert.equal(proofCache(legacy, 'system', dir), dir);
+  writeFileSync(policy, '{"storage":"system"}');
+  assert.equal(proofCache(legacy, 'system'), legacy);
+});
+
+test('suite launcher gives descendants SSD scratch and removes it for unset or unsuitable TMPDIR', (t) => {
+  const { dir, env } = session(t);
+  const bin = join(dir, 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'npm'), '#!/bin/sh\nprintf \'%s\\n\' "$TMPDIR"\n', { mode: 0o755 });
+  for (const value of [undefined, '/var/empty']) {
+    const childEnv = { ...env, PATH: `${bin}:${env.PATH}` };
+    if (value) childEnv.TMPDIR = value;
+    else delete childEnv.TMPDIR;
+    const result = spawnSync(process.execPath, [join(__dirname, 'run-suite.cjs'), 'headless'], { env: childEnv, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /^\/Volumes\/E1TB\/tmp\/codex\//);
+    assert(!existsSync(result.stdout.trim()), 'Suite scratch must be removed after child exit');
+  }
 });
 
 test('CLI scenarios expose their real traces and durable results', (t) => {

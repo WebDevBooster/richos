@@ -89,10 +89,14 @@ The repository runner discovers these suites under `richos/app/scripts`:
 ```sh
 bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-headless.test.sh
 bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-pwa.test.sh
-RICHOS_MOBILE_SIMULATOR_STORAGE=system bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-ios.test.sh
+bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-ios.test.sh
 ```
 
-The last command uses Apple's system simulator storage only where the owner has authorized it. Native proof builds and its dedicated device metadata use `/Volumes/E1TB/caches/richos-mobile-ios-proof/<checkout-hash>/`, separate from interactive development state. `RICHOS_MOBILE_IOS_TEST_CACHE` can select another external proof cache. The suite locks that cache for its whole run and shuts down only its selected simulator. Browser and headless test scratch directories are unique and removed after completion.
+All three suites choose unique scratch on the mounted external SSD and pass a scoped `TMPDIR` to their descendants. An existing external `TMPDIR` is respected; an unset or non-external value uses `/Volumes/E1TB/tmp/codex/`. The caller's environment and nightly configuration are unchanged. Scratch is removed after child processes finish. An absent SSD reports `NOT RUN`, exit 2, consistently.
+
+The iOS proof suite defaults explicitly to Apple's system device storage, using the owner's approved simulator exception. The external custom device set fails on this development Mac with CoreSimulator `NSCocoaErrorDomain 513`/`EPERM` and simctl exit 22. No environment override is needed for an ordinary suite run. `RICHOS_MOBILE_SIMULATOR_STORAGE=external` remains an explicit opt-in for hosts that support it; a failed creation is still a failure, never a silent fallback or pass. The interactive CLI's existing storage defaults are unchanged.
+
+Native proof builds remain external under `/Volumes/E1TB/caches/richos-mobile-ios-proof/<checkout-hash>-<storage>/`. A matching older `<checkout-hash>/` cache is reused. An incompatible saved policy is preserved and gets a separate policy-specific cache instead of being overwritten. `RICHOS_MOBILE_IOS_TEST_CACHE` can explicitly select another external cache, subject to the CLI's saved-policy checks. The suite locks that cache for its whole run and shuts down only its selected simulator. Reusable build caches remain available; tests do not delete another run's cache.
 
 An unavailable host never earns a passing proof. `run-tests.sh` refuses undeclared exit-2 gaps. To record a known missing runtime without treating it as a product failure, set `RUN_TESTS_DECLARED_GAPS='mobile-ios.test.sh: <actual host reason>'`. A stale declaration on a capable host is rejected too. Both missing-runtime and missing-browser paths have regression tests.
 

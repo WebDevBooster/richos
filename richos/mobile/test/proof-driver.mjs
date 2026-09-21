@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { existsSync, statSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { mobile, cacheRoot } from '../cli/simulator.mjs';
 
 const require = createRequire(import.meta.url);
+const { createScratch, proofCache } = require('./storage.cjs');
 const target = process.argv[2];
 assert(['pwa', 'ios'].includes(target), 'Expected pwa or ios');
 const label = `mobile-${target}`;
@@ -41,14 +41,17 @@ if (target === 'ios') {
   if (!existsSync(playwright.chromium.executablePath())) notRun('Playwright Chromium is not installed');
 }
 if (!existsSync('/Volumes/E1TB') || statSync('/Volumes/E1TB').dev === statSync('/Volumes').dev) notRun('mount /Volumes/E1TB for test storage');
-if (!tmpdir().startsWith('/Volumes/E1TB/')) notRun('configure TMPDIR on /Volumes/E1TB');
 
 const key = createHash('sha256').update(mobile).digest('hex').slice(0, 10);
 // Browser proofs are disposable. Native builds use an isolated reusable cache and
 // device per checkout, separate from the developer's interactive CLI session.
+// Apple's default device storage was approved for this workflow. This is an
+// explicit suite default, not a fallback after an external creation failure.
+const storage = process.env.RICHOS_MOBILE_SIMULATOR_STORAGE || 'system';
+if (target === 'ios') process.env.RICHOS_MOBILE_SIMULATOR_STORAGE = storage;
 const cache = target === 'ios'
-  ? (process.env.RICHOS_MOBILE_IOS_TEST_CACHE || `/Volumes/E1TB/caches/richos-mobile-ios-proof/${key}`)
-  : mkdtempSync(join(tmpdir(), 'richos-mobile-pwa-proof-'));
+  ? proofCache(`/Volumes/E1TB/caches/richos-mobile-ios-proof/${key}`, storage, process.env.RICHOS_MOBILE_IOS_TEST_CACHE)
+  : createScratch('pwa-proof');
 process.env.RICHOS_MOBILE_CACHE = cache;
 cacheRoot(); // Enforce the CLI's external path and symlink checks.
 const lock = join(cache, 'suite.lock');
