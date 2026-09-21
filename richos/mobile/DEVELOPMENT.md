@@ -52,6 +52,32 @@ node richos/mobile/cli/mobile.mjs check-release
 
 `sim ui-test` resets to the offline fixture, uses XCUITest to type into the visible composer and tap Send, then checks the resulting queue through the CLI bridge. This is intentionally separate from direct action execution. It stores an `.xcresult` including a screenshot in the external cache. `sim screenshot` captures the current screen without opening a desktop window.
 
+## Android PWA through the same CLI
+
+The Android PWA remains supported. `pwa` serves the actual `richos/web/web-app` source in Chromium at a 360 × 800 touch viewport, using the existing test Mac over loopback HTTPS. It performs the real pairing flow and verifies the certificate words. Its TLS exception accepts only that test certificate's public key; nothing is added to a keychain. The server binds only to `127.0.0.1`. Commands travel through local files, not a network control endpoint.
+
+```sh
+node richos/mobile/cli/mobile.mjs pwa prepare
+node richos/mobile/cli/mobile.mjs pwa fixture offline
+node richos/mobile/cli/mobile.mjs pwa action '{"type":"select-thread","threadId":"planning"}'
+node richos/mobile/cli/mobile.mjs pwa action '{"type":"compose","text":"Hello Rich"}'
+node richos/mobile/cli/mobile.mjs pwa action '{"type":"send"}'
+node richos/mobile/cli/mobile.mjs pwa state
+node richos/mobile/cli/mobile.mjs pwa screenshot
+node richos/mobile/cli/mobile.mjs pwa action '{"type":"network","online":true}'
+node richos/mobile/cli/mobile.mjs pwa verify
+node richos/mobile/cli/mobile.mjs pwa refresh
+node richos/mobile/cli/mobile.mjs pwa stop
+```
+
+`prepare` starts a reusable browser session with the offline fixture. Set `RICHOS_PWA_HEADED=1` on that first command to open its window. Playwright is resolved through the repository's existing browser harness, including the main checkout's install for linked worktrees; `RICHOS_PLAYWRIGHT` can explicitly name its module. Chromium must be installed in that Playwright's browser cache. No dependency is added to the shipped PWA or mobile app. Missing tooling fails explicitly.
+
+PWA actions use visible controls for compose, send, conversation selection and retry. The `network` action changes browser connectivity. Fixtures are `offline`, `online`, `queued` and `revoked`; the last configures the test Mac to reject subsequent authenticated requests. `transport accept|unreachable|revoked` controls that server. `reset` starts a fresh paired offline context. `restart` closes and reopens the page in the same browser context; it is not a full browser-process restart. `refresh` brings the test network online, clears only shell caches and reloads current source while preserving IndexedDB and pairing. `stop` closes the browser and server. Sessions are disposable and do not touch a user's phone or real Mac identity.
+
+`pwa verify` (also `pwa scenario offline-reconnect`) first runs the shared deterministic headless scenario, then uses the actual PWA's conversation picker, composer and Send button. It proves that a queued message survives an offline page reload through the service worker and IndexedDB, then reaches the synthetic Mac once after reconnect with the same client ID and conversation. It reports semantic snapshots and checks for uncaught browser exceptions. Screenshots are under the external cache's `pwa/output/playwright/` directory.
+
+The shared production module today is `web-app/lib/queue.js`. The PWA retains its existing controller; it does not yet run the minimal native shell's entire `core/app.js`. Both use one CLI and the same queue implementation. Browser checks use real browser time and random signing/message IDs, so their trace is checked for behavior rather than exact equality with the deterministic native/headless trace. `advance` and synthetic lost-ack commands belong to the headless/simulator targets. As further behavior is extracted or added, keep it headless and shared where applicable. Android microphone, push, installation and background behavior still need physical-phone verification.
+
 ## Boundaries
 
 - `core/`: real application actions and state, backed by the PWA queue. Add new behavior here before wiring controls.
@@ -60,9 +86,9 @@ node richos/mobile/cli/mobile.mjs check-release
 - `cli/`: headless persistence, resource packaging and simulator orchestration. The same request envelope reaches the development runtime in both modes.
 - `ios/`: minimal host and one focused visible-control test.
 
-Development fixture access and commands are compiled only for Debug simulator builds. The native bridge accepts a UUID referencing a local sandbox command file. It exposes neither a network listener nor arbitrary JavaScript evaluation. The webview loads local resources only. Debug assets are separate from Release assets; `check-release` builds Release and inspects its executable, Info.plist and resources for development markers and URL registration. This simulator Release check is not signed App Store artifact verification.
+Development fixture access and commands are compiled only for Debug simulator builds. The native bridge polls for UUID-named local sandbox command files while the Debug simulator app is running. It uses no URL scheme or confirmation dialogs. It exposes neither a network listener nor arbitrary JavaScript evaluation. The webview loads local resources only. Debug assets are separate from Release assets; `check-release` builds Release and inspects its executable, Info.plist and resources for development markers and URL registration. This simulator Release check is not signed App Store artifact verification.
 
-Each CLI invocation locks its checkout's cache to prevent overlapping resets or installs. On a crash, inspect `cli.lock/owner.json` and confirm the PID is gone before removing the lock. A timed-out simulator request is a failure, not a successful action; inspect state before retrying a send.
+Each CLI invocation locks its checkout's target session to prevent overlapping resets or installs. The browser target has its own `pwa.cli.lock`, so it can run alongside native checks. On a crash, inspect `cli.lock/owner.json` and confirm the PID is gone before removing the lock. A timed-out simulator request is a failure, not a successful action; inspect state before retrying a send.
 
 ## Storage and measurements
 

@@ -9,5 +9,6 @@ Every mobile feature, fix and refactor must preserve this development loop:
 - Keep fixtures and external development commands out of Release builds. Run `check-release` when changing the native bridge or packaging.
 - Record actual feedback times privately in `richos-hq`. Keep build output and generated projects outside source on the external SSD. Follow the user's simulator-storage choice rather than silently changing system storage.
 - Preserve the existing PWA. The current Swift/WKWebView shell is the minimal development host; it does not settle the final mobile framework or prove real-device microphone, APNs or managed networking behavior.
+- Keep the Android PWA in the same development workflow. Use the CLI's `pwa` target for its actual UI and browser adapters. Shared behavior belongs in reusable headless modules; platform differences need explicit checks, not a second implementation of shared rules.
 
 See `DEVELOPMENT.md` for commands and the verification boundaries.

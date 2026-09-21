@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, rmSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, readdirSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { arch } from 'node:os';
@@ -43,10 +43,12 @@ const simctl = (...args) => {
   const set = devicePolicy();
   return run('xcrun', ['simctl', ...(set ? ['--set', set] : []), ...args]).stdout.trim();
 };
-export function stageAssets(destination, development) {
+export function stageAssets(destination, development, allowedContainer) {
   const volume = realpathSync('/Volumes/E1TB');
-  if (basename(destination) !== 'mobile-ui' || !realpathSync(dirname(destination)).startsWith(volume + '/')) {
-    throw new Error('Asset staging requires a mobile-ui directory on /Volumes/E1TB');
+  const parent = realpathSync(dirname(destination));
+  const sandboxDocuments = allowedContainer && realpathSync(join(allowedContainer, 'Documents'));
+  if (basename(destination) !== 'mobile-ui' || !(parent.startsWith(volume + '/') || parent === sandboxDocuments)) {
+    throw new Error('Asset staging requires an external mobile-ui directory or the selected simulator sandbox');
   }
   rmSync(destination, { recursive: true, force: true });
   mkdirSync(destination, { recursive: true });
@@ -63,8 +65,7 @@ function project() {
   const output = join(cache, 'project');
   mkdirSync(output, { recursive: true });
   const base = '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.0.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
-  const url = '<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>richos-mobile-dev</string></array></dict></array>';
-  writeFileSync(join(output, 'Debug.plist'), plist(base + url));
+  writeFileSync(join(output, 'Debug.plist'), plist(base));
   writeFileSync(join(output, 'Release.plist'), plist(base));
   const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
   const spec = {
@@ -132,10 +133,10 @@ export async function request(payload, refresh = false) {
   const token = randomUUID();
   const input = join(dir, `${token}.request.json`);
   const output = join(dir, `${token}.response.json`);
-  writeFileSync(input, JSON.stringify(payload));
+  writeFileSync(input + '.new', JSON.stringify({ ...payload, refreshAssets: refresh }));
+  renameSync(input + '.new', input);
   const start = performance.now();
   try {
-    simctl('openurl', id, `richos-mobile-dev://${refresh ? 'refresh' : 'command'}/${token}`);
     while (!existsSync(output)) {
       if (performance.now() - start > 15000) throw new Error('Simulator command timed out. Use sim prepare to install the Debug shell.');
       await new Promise((r) => setTimeout(r, 20));
@@ -149,12 +150,14 @@ export async function prepare() {
   const compiled = build();
   const id = boot();
   simctl('install', id, compiled.app);
-  stageAssets(join(container(id), 'Documents', 'mobile-ui'), true);
+  const sandbox = container(id);
+  stageAssets(join(sandbox, 'Documents', 'mobile-ui'), true, sandbox);
   simctl('launch', '--terminate-running-process', id, bundleId);
   return { ...compiled, device: id, ...(await request({ command: 'state' })) };
 }
 export async function refresh() {
-  stageAssets(join(container(device()), 'Documents', 'mobile-ui'), true);
+  const sandbox = container(device());
+  stageAssets(join(sandbox, 'Documents', 'mobile-ui'), true, sandbox);
   return request({ command: 'state' }, true);
 }
 export async function restart() {
@@ -180,6 +183,7 @@ export async function verify() {
   return { scenarios: results, processRestartPreservedOutbox: true };
 }
 export async function uiTest() {
+  await restart();
   await request({ command: 'fixture', name: 'offline' });
   const cache = cacheRoot();
   const result = join(cache, `ui-${Date.now()}.xcresult`);
@@ -187,7 +191,8 @@ export async function uiTest() {
   run('xcodebuild', ['-project', project(), '-scheme', 'RichOSMobile', '-configuration', 'Debug', '-derivedDataPath', join(cache, 'derived-data'),
     '-destination', `platform=iOS Simulator,id=${device()}`, '-parallel-testing-enabled', 'NO', '-resultBundlePath', result,
     'CODE_SIGNING_ALLOWED=NO', 'test'], { log });
-  const { state } = await request({ command: 'state' });
+  // XCUITest terminates its app on completion. Relaunch to inspect durable state.
+  const { state } = await restart();
   assert.equal(state.outbox.length, 1);
   assert.equal(state.outbox[0].text, 'Typed through the visible composer');
   return { result, log, visibleSendVerifiedInCore: true, state };

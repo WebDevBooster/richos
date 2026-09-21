@@ -9,6 +9,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
     #if DEBUG && targetEnvironment(simulator)
     private var pendingRefresh: String?
     private var busy = false
+    private var commandTimer: Timer?
     #endif
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -28,6 +29,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         window?.rootViewController = controller
         window?.makeKeyAndVisible()
         loadContent()
+        #if DEBUG && targetEnvironment(simulator)
+        commandTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.pollCommands() }
+        #endif
         return true
     }
 
@@ -54,15 +58,19 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
     private var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
     private var inbox: URL { documents.appendingPathComponent("mobile-commands", isDirectory: true) }
 
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        guard url.scheme == "richos-mobile-dev", ["command", "refresh"].contains(url.host ?? ""),
-              UUID(uuidString: url.lastPathComponent) != nil else { return false }
-        let id = url.lastPathComponent
-        guard !busy else { reply(id, ["ok": false, "error": "Another development command is running"]); return true }
-        busy = true
-        if url.host == "refresh" { pendingRefresh = id; loadContent() }
-        else { execute(id, attempts: 100) }
-        return true
+    private func pollCommands() {
+        guard !busy, let files = try? FileManager.default.contentsOfDirectory(atPath: inbox.path) else { return }
+        for file in files.sorted() where file.hasSuffix(".request.json") {
+            let id = String(file.dropLast(".request.json".count))
+            guard UUID(uuidString: id) != nil,
+                  !FileManager.default.fileExists(atPath: inbox.appendingPathComponent("\(id).response.json").path),
+                  let data = try? Data(contentsOf: inbox.appendingPathComponent(file)),
+                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            busy = true
+            if request["refreshAssets"] as? Bool == true { pendingRefresh = id; loadContent() }
+            else { execute(id, attempts: 100) }
+            break
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

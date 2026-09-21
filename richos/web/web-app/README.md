@@ -99,3 +99,7 @@ in both themes.
 - **No pagination, ever.** Older messages load behind a scroll.
 - **American English**, in every string he reads, including the name under the icon.
 - **The visual language of the shipped app** — the tokens are `app/ui/style.css`'s own.
+
+## Shared development workflow
+
+The PWA remains supported on Android alongside the iOS app. Use the [mobile development loop](../../mobile/DEVELOPMENT.md#android-pwa-through-the-same-cli) for headless checks and the `pwa` browser target. It drives this actual UI, with fixtures, semantic state, offline/reconnect verification and source refresh through one CLI.
