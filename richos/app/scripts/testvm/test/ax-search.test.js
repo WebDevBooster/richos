@@ -23,9 +23,9 @@ console.log('AX search: early exit, duplicate labels, explicit nth, scopes and c
 const vm = require('node:vm');
 const fs = require('node:fs');
 function exercise(mode, extra={}) {
-  let value='', focused=false, front=true, pressed=0, typed=0, clicked='', pending=null;
+  let value='', focused=false, front=true, pressed=0, typed=0, clicked='', pending=null, clipboard='original clipboard';
   const area={role:()=> 'AXTextArea',title:()=> 'Message',description:()=> '',
-    value:()=>value,enabled:()=>true,uiElements:()=>[],position:()=>[10,20],size:()=>[100,30]};
+    value:()=>extra.toxicValue ? {toString(){throw new Error("cannot coerce AX specifier");}} : value,enabled:()=>true,uiElements:()=>[],position:()=>[10,20],size:()=>[100,30]};
   Object.defineProperty(area,'focused',{get:()=>()=>focused,set:v=>{focused=!extra.rejectFocus && v;}});
   const actions=()=>[{name:()=> 'AXPress'}];actions.byName=()=>({perform:()=>pressed++});area.actions=actions;
   const dialog={role:()=> 'AXGroup',subrole:()=> 'AXApplicationDialog',title:()=> 'Modal',uiElements:()=>[area]};
@@ -34,13 +34,13 @@ function exercise(mode, extra={}) {
   Object.defineProperty(proc,'frontmost',{set:v=>{front=v;}});
   const se={processes:{byName:n=>n==='SecurityAgent'?{exists:()=>!!extra.blocked,windows:()=>[{}]}:proc,
     whose:query=>query.frontmost?[{unixId:()=>front?71:99}]:[proc]},
-    keystroke:(text,opts)=>{if(opts)value='';else{if(extra.delayedValue)pending=text;else if(!extra.dropInput)value+=text;typed++;}}};
-  const app=()=>se;app.currentApplication=()=>({doShellScript:s=>{clicked=s;}});
+    keystroke:(text,opts)=>{if(opts && text==='a')value='';else if(opts && text==='v'){if(extra.delayedValue)pending=clipboard;else if(!extra.dropInput)value+=clipboard;typed++;}else throw new Error('literal input must use paste');}};
+  const app=()=>se;app.currentApplication=()=>({doShellScript:s=>{clicked=s;},theClipboard:()=>clipboard,setTheClipboardTo:v=>{clipboard=v;}});
   const context={Application:app,delay:()=>{if(pending!==null){value+=pending;pending=null;}},AX_PARAMS:{mode,pid:71,text:'Message',value:null,first:true,nth:null,max:100,depth:16,
     input:'some text',replace:true,atx:12,aty:34,...extra}};
   vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../ax.js'),'utf8'),context);
   const records=JSON.parse('['+vm.runInContext('run()',context).split('\n').join(',')+']');
-  return {records,pressed,typed,value,clicked};
+  return {records,pressed,typed,value,clicked,clipboard};
 }
 assert.equal(exercise('focus').records.at(-1).verified,true);
 assert.equal(exercise('type').value,'some text');
@@ -56,3 +56,11 @@ assert.equal(exercise('find',{text:'Absent',dialog:true}).records.at(-1).error,'
 assert.equal(exercise('find',{text:'Absent'}).records.at(-1).error,'notfound');
 assert.equal(axSearch([root],{...p,first:false,depth:1},api).exhaustive,false);
 console.log('AX actions: verified focus/type, failed focus refuses typing, AXPress, coordinate dispatch and modal refusal passed');
+
+const literal = exercise('type',{input:'Keep "quotes", `ticks`, $money and\nnewlines exactly.'});
+assert.equal(literal.records.at(-1).verified,true);
+assert.equal(literal.clipboard,'original clipboard');
+assert.equal(exercise('type',{dropInput:true}).clipboard,'original clipboard');
+assert.equal(exercise('find',{toxicValue:true}).records.at(-1).value,'');
+assert.equal(exercise('find',{toxicValue:true,value:'expected'}).records.at(-1).error,'notfound');
+console.log('AX scalar read refuses object coercion; literal paste preserves text and restores clipboard');
