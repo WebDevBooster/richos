@@ -69,7 +69,8 @@ const write = fs.writeFileSync;
 fs.writeFileSync = function(file, ...args) {
   if (String(file).endsWith('/owner.pid')) {
     if (EMPTY) write(file, '');
-    write(READY, String(file));
+    write(READY + '.pending', String(file));
+    fs.renameSync(READY + '.pending', READY);
     const deadline = Date.now() + 15000;
     while (!fs.existsSync(RELEASE)) {
       if (Date.now() > deadline) throw new Error('publication barrier expired');
