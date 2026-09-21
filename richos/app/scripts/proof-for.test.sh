@@ -24,7 +24,7 @@
 # would be worse than none, so the assertion is that it says 55 AND names the one file that
 # caused it.
 #
-# run-tests: inputs richos/app/scripts/proof-for.test.sh richos/app/scripts/proof-for.sh richos/app/scripts/proof-for.ui-inputs richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py richos/engine/scripts/ci-affected-units.sh richos/engine/scripts/ci-shard.sh richos/engine/scripts/ci-units.sh richos/engine/scripts/locate-engine.test.sh richos/engine/scripts/lib/ci-receipts.py richos/engine/scripts/lib/leak-canary.sh richos/engine/scripts/lib/record-canary.sh richos/engine/scripts/lib/tree-witness.sh
+# run-tests: inputs richos/app/scripts/proof-for.test.sh richos/app/scripts/proof-for.sh richos/app/scripts/proof-for.ui-inputs richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py richos/engine
 # run-tests: covers richos/app/scripts/proof-for.sh richos/app/scripts/lib/proof_declarations.py richos/app/scripts/proof-for-declarations.test.py richos/app/scripts/proof-for-engine.test.py
 set -uo pipefail
 
