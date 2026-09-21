@@ -716,6 +716,18 @@ impl WorkHost {
 
         advance(AssignmentState::Preparing, "Opening the work connection.");
 
+        // Resolve the frozen request before spending a work lease. The display title is
+        // intentionally shortened and cannot carry all of the user's constraints.
+        let instruction = match instruction_for(&self.state, record) {
+            Ok(text) => text,
+            Err(why) => {
+                advance(AssignmentState::Failed, why);
+                self.raise(record, NoticeKind::Failed,
+                    &assignment::says::failure(record.kind, &record.title, why, false));
+                return;
+            }
+        };
+
         // 1. The lease. Spawning it is seconds, and this is where those seconds belong —
         //    after the turn, never inside it.
         if let Err(why) = self.ensure_lease(backend, binding) {
@@ -817,7 +829,7 @@ impl WorkHost {
         // only place it can be consumed. They are accumulated locally and written to the
         // back end once, after the turn — a lock per streamed item would be the one cost
         // this file has spent a module doc avoiding.
-        let prompt = brief_for(record, resumed);
+        let prompt = brief_for(record, resumed, &instruction);
         // The SAME measure the spine takes, deliberately: the prompt sent plus the reply
         // that came back, in bytes (`spine.rs:2114-2118`). It is an undercount — by 2.3× to
         // 40.6×, measured (`spine.rs:138-143`) — which is exactly why it is the FALLBACK
@@ -2111,7 +2123,38 @@ pub enum Outcome {
 /// assignment, Rich owns internal obligation and receipt ids. The seat and the frozen
 /// instruction reference reach the child through its scope file, not through its prompt,
 /// so a model that decided to quote its own prompt back cannot leak either.
-fn brief_for(record: &Assignment, resumed: bool) -> String {
+fn instruction_for(state: &Path, record: &Assignment) -> Result<String, &'static str> {
+    use sha2::{Digest, Sha256};
+    use std::io::BufRead;
+    const UNAVAILABLE: &str = "The original request could not be verified. Nothing was started.";
+    let prefix = format!("ledger:{}:", record.thread_id);
+    let turn = record.instruction_ledger_ref.strip_prefix(&prefix)
+        .filter(|turn| !turn.is_empty()).ok_or(UNAVAILABLE)?;
+    let path = state.parent().ok_or(UNAVAILABLE)?.join("conversation-ledger.jsonl");
+    let file = std::fs::File::open(path).map_err(|_| UNAVAILABLE)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    let mut found = None;
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).map_err(|_| UNAVAILABLE)? == 0 { break; }
+        // A concurrent append may not have completed its last record yet.
+        if !line.ends_with('\n') { break; }
+        let Ok(row) = serde_json::from_str::<serde_json::Value>(&line) else { continue; };
+        if row["event"] != "PromptReceived" || row["turn_id"] != turn { continue; }
+        let text = row["text"].as_str().ok_or(UNAVAILABLE)?;
+        if found.is_some() || row["thread_id"] != record.thread_id
+            || row["entity_id"] != record.entity_id
+            || !matches!(row["source"].as_str(), Some("text" | "jam"))
+            || format!("{:x}", Sha256::digest(text.as_bytes())) != record.instruction_sha256
+        { return Err(UNAVAILABLE); }
+        found = Some(text.to_owned());
+    }
+    found.ok_or(UNAVAILABLE)
+}
+
+fn brief_for(record: &Assignment, resumed: bool, instruction: &str) -> String {
+    let request = format!("{}\n\nOriginal request (verbatim):\n{}", record.title, instruction);
     let repositories = if record.repositories.is_empty() {
         String::new()
     } else {
@@ -2127,7 +2170,7 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
              could approve. He has now approved it.{repositories}\n\nThe assignment: {}\n\n\
              Carry out the step it stopped at and then report. Everything else still needs \
              his approval, and nothing about this approval carries to another action.",
-            record.title
+            request
         );
     }
     // **A QUESTION IS ASKED AS A QUESTION — the CEO's ruling §58, 2026-09-18.**
@@ -2160,7 +2203,7 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
              a likely answer as a settled one. Do not do any work, do not change anything, \
              do not land anything and do not open an assignment of your own: if answering \
              him reveals work that needs doing, say so in the answer and leave it to him.",
-            record.title
+            request
         );
     }
     // **THE SENTENCE THE CEO'S RULING §52 REPLACED, and it is the whole feature in one
@@ -2194,7 +2237,7 @@ fn brief_for(record: &Assignment, resumed: bool) -> String {
          what you actually landed: the branch, the repository and the reviewer's verdict. If \
          the land did not go through, say so and say why, and never describe unlanded work \
          as landed or an open assignment as finished.",
-        record.title
+        request
     )
 }
 
@@ -2645,6 +2688,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("work-host-{}", uuid::Uuid::new_v4()));
         let state = root.join("engine-state");
         std::fs::create_dir_all(&state).unwrap();
+        let lines = ["thread-one", "thread-two"].map(|thread| serde_json::json!({
+            "event":"PromptReceived", "turn_id":if thread == "thread-one" { "turn-7" } else { "turn-8" }, "thread_id":thread,
+            "entity_id":"depot", "source":"text", "text":"landing the three branches"
+        }).to_string()).join("\n") + "\n";
+        std::fs::write(root.join("conversation-ledger.jsonl"), lines).unwrap();
         let binding =
             ThreadBinding::new(PersonId::default_ceo(), EntityId::parse("depot").unwrap(), "thread-one", 1);
         let bound = Arc::new(Mutex::new(Vec::new()));
@@ -2694,10 +2742,69 @@ mod tests {
             thread_id: harness.binding.thread_id().to_string(),
             obligation_id: "obligation-7".into(),
             instruction_ledger_ref: "ledger:thread-one:turn-7".into(),
-            instruction_sha256: "a".repeat(64),
+            instruction_sha256: { use sha2::Digest; format!("{:x}", sha2::Sha256::digest(b"landing the three branches")) },
             title: "landing the three branches".into(),
             repositories: vec!["/fictional/project".into()],
             needs_screen: false,
+        }
+    }
+
+    #[test]
+    fn background_receives_verbatim_constraints_beyond_the_display_title() {
+        use sha2::Digest;
+        let h = harness(1);
+        let text = format!("{}\nLand only on integration. Run python3 -m unittest. Do not push.",
+            "Make the scoped arithmetic change without changing other behavior. ".repeat(5));
+        let request = Registration {
+            title: text.clone(),
+            instruction_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
+            ..registration(&h)
+        };
+        let row = serde_json::json!({"event":"PromptReceived", "turn_id":"turn-7",
+            "thread_id":"thread-one", "entity_id":"depot", "source":"text", "text":text});
+        std::fs::write(h.root.join("conversation-ledger.jsonl"), row.to_string()+"\n").unwrap();
+        witnessed(&h.state, "work-session-one");
+        let _runner = h.host.start();
+        let receipt = h.host.register(&h.binding, &request).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let prompts = h.work_prompts.lock().unwrap();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].contains(&text), "the actual work lease lost the original constraints");
+        let saved = assignment::read(&h.state,"depot","thread-one",&receipt.id).unwrap();
+        assert!(!saved.title.contains("integration"), "positive control: title must be truncated");
+        drop(prompts);
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    #[test]
+    fn unverifiable_original_request_never_opens_a_work_lease() {
+        for bad in ["digest", "entity", "thread", "internal", "missing", "duplicate"] {
+            let h = harness(1);
+            let mut request = registration(&h);
+            let mut row = serde_json::json!({"event":"PromptReceived", "turn_id":"turn-7",
+                "thread_id":"thread-one", "entity_id":"depot", "source":"text",
+                "text":"landing the three branches"});
+            match bad {
+                "digest" => request.instruction_sha256 = "0".repeat(64),
+                "entity" => row["entity_id"] = "another-company".into(),
+                "thread" => row["thread_id"] = "another-thread".into(),
+                "internal" => row["source"] = "internal".into(),
+                _ => (),
+            }
+            let lines = if bad == "missing" { String::new() } else {
+                (row.to_string()+"\n").repeat(if bad == "duplicate" {2} else {1})
+            };
+            std::fs::write(h.root.join("conversation-ledger.jsonl"), lines).unwrap();
+            let _runner = h.host.start();
+            let receipt = h.host.register(&h.binding, &request).unwrap();
+            assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "{bad}");
+            assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "{bad}");
+            assert!(h.work_prompts.lock().unwrap().is_empty(), "{bad}");
+            assert_eq!(assignment::read(&h.state,"depot","thread-one",&receipt.id).unwrap().state,
+                AssignmentState::Failed, "{bad}");
+            h.host.shutdown();
+            std::fs::remove_dir_all(h.root).unwrap();
         }
     }
 
@@ -3349,7 +3456,7 @@ mod tests {
             repository_pins: Vec::new(),
             needs_screen: false,
         };
-        let brief = brief_for(&record, false);
+        let brief = brief_for(&record, false, &record.title);
         assert!(brief.contains("landing the three branches"));
         assert!(brief.contains("/fictional/project"));
         assert!(!brief.contains("assignment-id-that-must-not-appear"));
@@ -3373,7 +3480,7 @@ mod tests {
         // **The resumed brief carries the same discretion and one fact more**, and it names
         // the boundary of what he approved: the approval is for the step it stopped at and
         // for nothing else (spec §5.7's standing decision is one action, once).
-        let resumed = brief_for(&record, true);
+        let resumed = brief_for(&record, true, &record.title);
         assert!(resumed.contains("landing the three branches"));
         assert!(!resumed.contains("assignment-id-that-must-not-appear"));
         assert!(!resumed.contains("work-seat:"));
@@ -3918,7 +4025,7 @@ mod tests {
             work_session: None,
             repository_pins: Vec::new(),
         };
-        let brief = brief_for(&record, false);
+        let brief = brief_for(&record, false, &record.title);
         assert!(brief.contains("This is a QUESTION from the CEO"));
         assert!(brief.contains("why the nightly has been red since Tuesday"));
         assert!(brief.contains("/fictional/project"), "a repository he named did not travel");
@@ -4305,7 +4412,7 @@ mod tests {
                     obligation_id: "obligation-9".into(),
                     // The ledger reference names the turn it came from, and the turn is on
                     // THAT conversation (`assignment::register` checks the two agree).
-                    instruction_ledger_ref: "ledger:thread-two:turn-7".into(),
+                    instruction_ledger_ref: "ledger:thread-two:turn-8".into(),
                     ..registration(&h)
                 },
             )
@@ -4409,7 +4516,7 @@ mod tests {
                     obligation_id: "obligation-9".into(),
                     // The ledger reference names the turn it came from, and the turn is on
                     // THAT conversation (`assignment::register` checks the two agree).
-                    instruction_ledger_ref: "ledger:thread-two:turn-7".into(),
+                    instruction_ledger_ref: "ledger:thread-two:turn-8".into(),
                     ..registration(&h)
                 },
             )
