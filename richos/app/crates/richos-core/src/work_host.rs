@@ -2764,7 +2764,7 @@ mod tests {
             "thread_id":"thread-one", "entity_id":"depot", "source":"text", "text":text});
         std::fs::write(h.root.join("conversation-ledger.jsonl"), row.to_string()+"\n").unwrap();
         witnessed(&h.state, "work-session-one");
-        let _runner = h.host.start();
+        h.host.start();
         let receipt = h.host.register(&h.binding, &request).unwrap();
         assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         let prompts = h.work_prompts.lock().unwrap();
@@ -2796,7 +2796,7 @@ mod tests {
                 (row.to_string()+"\n").repeat(if bad == "duplicate" {2} else {1})
             };
             std::fs::write(h.root.join("conversation-ledger.jsonl"), lines).unwrap();
-            let _runner = h.host.start();
+            h.host.start();
             let receipt = h.host.register(&h.binding, &request).unwrap();
             assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "{bad}");
             assert_eq!(h.spawns.load(Ordering::SeqCst), 0, "{bad}");
