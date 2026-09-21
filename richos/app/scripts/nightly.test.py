@@ -44,6 +44,21 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(n.next_version("5.2.0", "20260912", tags),
                          "5.2.0-nightly.20260912.10000")
 
+    def test_23_legacy_candidates_seed_24_without_counting_aliases_or_stable(self):
+        tags = {f"v1.2.0-nightly.202609{day}.{number}"
+                for day, count in ((17, 6), (18, 6), (19, 8), (20, 3))
+                for number in range(1, count + 1)}
+        tags.update({"nightly", "v1.0.0", "v1.0.1", "v1.0.2"})
+        self.assertEqual(n.next_version("1.2.0", "20260921", tags),
+                         "1.2.0-nightly.20260921.24")
+        tags.update({"v1.2.0-nightly.20260921.24", "nightly-build-24"})
+        self.assertEqual(n.next_version("1.3.0", "20260922", tags),
+                         "1.3.0-nightly.20260922.25")
+        # A reserved failed attempt with no release/version entry still consumes 25.
+        tags.add("nightly-build-25")
+        self.assertEqual(n.next_version("1.3.0", "20260922", tags),
+                         "1.3.0-nightly.20260922.26")
+
     def test_invalid_versions_and_dates(self):
         for version in ("5.1.0-nightly.20260911.01", "5.1.0-nightly.20260911.0",
                         "05.1.0-nightly.20260911.1", "5.1.0-nightly.20260230.1", "5.1.0"):

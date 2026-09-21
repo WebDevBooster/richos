@@ -259,11 +259,19 @@ a fresh plan. Never delete or overwrite either reservation tag to reclaim a numb
 The rolling `nightly` channel tag remains separate.
 
 Migration preserves all existing release versions and tags. The next number is
-one greater than the highest suffix in **any** historical nightly version tag or
-`nightly-build-<number>` reservation, including failed and unpublished attempts.
+one greater than the larger of the number of distinct historical nightly version
+tags and the highest number in any version tag or `nightly-build-<number>`
+reservation. Failed and unpublished attempts count too. Reservation aliases,
+stable releases and the rolling channel entry do not add to the candidate count.
+The 23 nightly candidates present at migration therefore seed **build 24**, even
+though the largest old daily suffix was 8. Later reservations continue from there.
 Old daily counters can contain repeated numbers; identify those legacy builds by
 their full version. Newly allocated numbers are globally unique. A candidate
 already staged before migration retains its original version when published.
+
+If a Preview channel is introduced later, it should share this candidate counter
+and its atomic reservations: nightly 24, preview 25, nightly 26. Each new candidate
+gets its own number regardless of channel. Preview releases are not implemented yet.
 
 ## Existing local credentials
 

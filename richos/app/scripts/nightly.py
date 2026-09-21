@@ -270,7 +270,8 @@ def next_version(base, day, tags):
         raise ValueError("Cargo.toml must contain the next unreleased stable version")
     datetime.strptime(day, "%Y%m%d")
     numbers = []
-    for tag in tags:
+    candidate_count = 0
+    for tag in set(tags):
         reservation = BUILD_TAG_RE.fullmatch(tag)
         if reservation:
             numbers.append(int(reservation[1]))
@@ -278,7 +279,12 @@ def next_version(base, day, tags):
             # Include pre-migration tags and failed/unpublished candidates, across
             # every date and base version. Existing versions are never rewritten.
             numbers.append(nightly_key(tag[1:])[-1])
-    return f"{base}-nightly.{day}.{max(numbers, default=0) + 1}"
+            candidate_count += 1
+    # Daily counters reused suffixes: 23 historical candidates must seed build 24,
+    # even if the largest old suffix was 8. Reservation aliases are not extra builds.
+    # Keep any higher reserved number so gaps and missing release entries stay spent.
+    number = max(candidate_count, max(numbers, default=0)) + 1
+    return f"{base}-nightly.{day}.{number}"
 
 
 def remote_tags():
