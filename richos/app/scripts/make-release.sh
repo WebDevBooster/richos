@@ -285,7 +285,7 @@ cmd_engine() {
     # on the existing channel release, available before any nightly version tag.
     ENGINE_URL="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import nightly; print(nightly.candidate_engine_asset(sys.argv[2])[1])' "$here" "$local_digest")" \
       || die "could not resolve the candidate engine URL"
-    python3 - "$PIN_FILE" "$ENGINE_URL" <<'PY'
+    if ! python3 - "$PIN_FILE" "$ENGINE_URL" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
@@ -296,7 +296,9 @@ if len(matches) != 1:
 lines[matches[0]] = 'export RICHOS_ENGINE_URL=' + sys.argv[2]
 path.write_text('\n'.join(lines) + '\n')
 PY
-    [ "$?" = 0 ] || die "could not record the candidate engine URL"
+    then
+      die "could not record the candidate engine URL"
+    fi
     RICHOS_ENGINE_URL="$ENGINE_URL"
   fi
   [ "$RICHOS_ENGINE_URL" = "$ENGINE_URL" ] \
