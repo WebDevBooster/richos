@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# The actual PWA browser worker is a separate proof, never inferred from Node tests.
+# run-tests: no-host-screen: proof-driver forces a headless browser and stops it on exit
+# run-tests: inputs richos/app/scripts/mobile-pwa.test.sh richos/mobile/cli richos/mobile/core richos/mobile/dev/runtime.js richos/mobile/test/proof-driver.mjs richos/web/web-app richos/tools/phone-probe/lib richos/app/ui/tests/lib
+# run-tests: covers richos/mobile/cli/pwa.mjs richos/mobile/cli/pwa-worker.mjs richos/mobile/test/proof-driver.mjs
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$DIR/../../.." && pwd)"
+if ! command -v node >/dev/null 2>&1; then
+  echo '  NOT RUN  mobile-pwa: Node is unavailable'
+  exit 2
+fi
+node "$ROOT/richos/mobile/test/proof-driver.mjs" pwa

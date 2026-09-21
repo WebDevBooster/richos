@@ -78,6 +78,26 @@ PWA actions use visible controls for compose, send, conversation selection and r
 
 The shared production module today is `web-app/lib/queue.js`. The PWA retains its existing controller; it does not yet run the minimal native shell's entire `core/app.js`. Both use one CLI and the same queue implementation. Browser checks use real browser time and random signing/message IDs, so their trace is checked for behavior rather than exact equality with the deterministic native/headless trace. `advance` and synthetic lost-ack commands belong to the headless/simulator targets. As further behavior is extracted or added, keep it headless and shared where applicable. Android microphone, push, installation and background behavior still need physical-phone verification.
 
+## Registered repository proofs
+
+The repository runner discovers these suites under `richos/app/scripts`:
+
+- `mobile-headless.test.sh`: `npm test` runs the core and CLI tests in disposable external sessions. It verifies persistence across real CLI processes, structured errors, locking, resource selection and the unpaired Release bootstrap. It needs Node and npm, with no simulator or browser.
+- `mobile-pwa.test.sh`: runs the actual Chromium PWA target through pairing, visible Send, offline reload, reconnect, page restart and source refresh. Playwright/Chromium absence is `NOT RUN`, exit 2. The suite forces headless mode and stops its worker.
+- `mobile-ios.test.sh`: builds a dedicated simulator app, compares all three native/headless traces, checks process persistence and refresh, runs the visible-control XCUITest and verifies Release exclusion. Missing macOS/Xcode/XcodeGen or an available iOS runtime is `NOT RUN`, exit 2. Build/test failures on a capable host exit 1.
+
+```sh
+bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-headless.test.sh
+bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-pwa.test.sh
+RICHOS_MOBILE_SIMULATOR_STORAGE=system bash richos/app/scripts/run-tests.sh --no-host-screen --only mobile-ios.test.sh
+```
+
+The last command uses Apple's system simulator storage only where the owner has authorized it. Native proof builds and its dedicated device metadata use `/Volumes/E1TB/caches/richos-mobile-ios-proof/<checkout-hash>/`, separate from interactive development state. `RICHOS_MOBILE_IOS_TEST_CACHE` can select another external proof cache. The suite locks that cache for its whole run and shuts down only its selected simulator. Browser and headless test scratch directories are unique and removed after completion.
+
+An unavailable host never earns a passing proof. `run-tests.sh` refuses undeclared exit-2 gaps. To record a known missing runtime without treating it as a product failure, set `RUN_TESTS_DECLARED_GAPS='mobile-ios.test.sh: <actual host reason>'`. A stale declaration on a capable host is rejected too. Both missing-runtime and missing-browser paths have regression tests.
+
+Each suite has dependency `inputs` and exact-file `covers` rows. Coverage describes the assertions above, not all behavior in a directory. A new unproved module remains `UNCOVERED` even if an input directory selects a suite. On an integration merge, `bash richos/app/scripts/proof-for.sh HEAD^1..HEAD` must exit 0; that command selects proofs but does not execute them.
+
 ## Boundaries
 
 - `core/`: real application actions and state, backed by the PWA queue. Add new behavior here before wiring controls.
