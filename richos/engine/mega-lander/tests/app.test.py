@@ -61,6 +61,29 @@ class DesktopWork(unittest.TestCase):
         self.assertFalse((self.repo/"result.txt").exists())
         self.assertEqual(len(self.call("inspect")["records"]),1)
         with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"brief":"Different task"})
+    def test_preflight_refusal_allows_a_corrected_request_without_claiming_a_start(self):
+        subprocess.run(["git", "-C", str(self.repo), "branch", "-m", "integration"], check=True)
+        missing = {k:v for k,v in self.args.items() if k != "integration"}
+        with self.assertRaisesRegex(ValueError, "will not guess the branch"):
+            self.call("prepare", missing)
+        refused = self.call("inspect")["records"][0]
+        self.assertEqual(refused["status"], "blocked")
+        self.assertTrue(refused["preparation_refused"])
+        self.assertNotIn("agent_payload", refused)
+        self.assertIsNone(self.app.W.load_agent(self.app.W.named_key(self.session, refused["name"])))
+        ready = self.call("prepare", {**self.args, "request_id":"corrected", "integration":"integration"})
+        self.assertEqual(ready["status"], "prepared")
+        self.assertIn("agent_payload", ready)
+
+    def test_unstructured_spawn_failure_still_blocks_duplicate_work(self):
+        command = [sys.executable, "-c", "import sys; print('spawn: refused - NOTHING WAS CREATED.'); sys.exit(1)"]
+        with patch.object(self.app, "build_spawn_command", return_value=command):
+            with self.assertRaises(ValueError): self.call("prepare", self.args)
+        record = self.call("inspect")["records"][0]
+        self.assertEqual(record["status"], "unknown")
+        with self.assertRaisesRegex(ValueError, "unresolved"):
+            self.call("prepare", {**self.args, "request_id":"must-not-duplicate"})
+
     def test_build_spawn_command_one_repository_is_byte_identical_to_todays_command(self):
         # POSITIVE CONTROL: the exact list `prepare()` built before this
         # function existed, for one repository. Any change to this function

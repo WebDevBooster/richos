@@ -174,9 +174,15 @@ def carried_obligation(scope):
     return carried
 
 
+class RunFailure(ValueError):
+    def __init__(self, result):
+        super().__init__((result.stderr or result.stdout or "engine operation refused")[-12000:])
+        self.stdout = result.stdout
+
+
 def run(command, *, body=None, cwd=None):
     result = subprocess.run(command, input=body, text=True, capture_output=True, cwd=cwd, timeout=120)
-    if result.returncode: raise ValueError((result.stderr or result.stdout or "engine operation refused")[-12000:])
+    if result.returncode: raise RunFailure(result)
     return result.stdout
 
 
@@ -436,8 +442,19 @@ def prepare(scope_path, scope, args):
         base_value = record.get("review_target", record.get("continuation", {})).get("commit", base_value)
         command = build_spawn_command(repo_dests, name, role, brief_path, title,
                                        integration=args.get("integration"), base=base_value)
+        preparation_refused = False
         try:
-            ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
+            try:
+                ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
+            except RunFailure as error:
+                # Trust the spawn producer's structured preflight result, never prose.
+                # Other failures remain unknown because creation may already have happened.
+                try:
+                    outcome = json.loads(error.stdout)
+                except (ValueError, TypeError):
+                    outcome = None
+                preparation_refused = outcome == {"ready": False, "phase": "preflight", "created": []}
+                raise
             read_scope(scope_path)  # Stop cannot turn preparation into permission to dispatch.
             if ready.get("ready") is not True or any(g.get("verdict") != "ok" for g in ready.get("guards",[])):
                 # THE APP'S OWN WORDS, because this sentence can reach a person.
@@ -477,7 +494,9 @@ def prepare(scope_path, scope, args):
             return view(record,include_payload=True)
         except Exception as error:
             # Workspace creation may already have happened. Never claim rollback here.
-            record.update(status="unknown",problem=str(error)[-12000:]);save(path,record)
+            record.update(status="blocked" if preparation_refused else "unknown", problem=str(error)[-12000:])
+            if preparation_refused: record["preparation_refused"] = True
+            save(path,record)
             raise
 
 

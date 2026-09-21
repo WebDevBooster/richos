@@ -849,11 +849,12 @@ def main(argv):
         payload["prompt"], qa_notes = QATOOLS.annotate(payload["prompt"], args["type"], repos)
         for _n in qa_notes:
             notes.append("qa tools:    %s" % _n)
-    except Refusal as exc:
+    except (Refusal, W.SpecError) as exc:
         report_problems("refused", [{"headline": str(exc), "detail": ""}])
-        return 1
-    except W.SpecError as exc:
-        report_problems("refused", [{"headline": str(exc), "detail": ""}])
+        if args["json"]:
+            # Only this phase can attest that no workspace creation was attempted.
+            # Later failures may leave state behind even when rollback was attempted.
+            print(json.dumps({"ready": False, "phase": "preflight", "created": []}))
         return 1
 
     registered = collect_guards(project_dir)
