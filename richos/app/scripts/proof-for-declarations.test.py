@@ -101,6 +101,22 @@ class Declarations(unittest.TestCase):
         self.assertIn("lint.test.sh", result.stdout)
         self.assertIn("UNCOVERED", result.stderr)
 
+    def test_mobile_paths_select_their_actual_proofs_without_hiding_new_code(self):
+        for path, suite in [
+            ("richos/mobile/test/cli.test.js", "mobile-headless.test.sh"),
+            ("richos/mobile/package.json", "mobile-headless.test.sh"),
+            ("richos/mobile/cli/pwa-worker.mjs", "mobile-pwa.test.sh"),
+            ("richos/mobile/ios/Sources/AppDelegate.swift", "mobile-ios.test.sh"),
+            ("richos/mobile/ios/UITests/ComposerTests.swift", "mobile-ios.test.sh"),
+        ]:
+            with self.subTest(path=path):
+                result = self.select(path)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("--only " + suite, result.stdout)
+        result = self.select("richos/mobile/core/new-unproved-feature.js")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UNCOVERED", result.stderr)
+
     def test_narrower_directories_cannot_replace_a_blanket_claim(self):
         for directory in ["src", "src/nested"]:
             with self.subTest(directory=directory):

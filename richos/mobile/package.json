@@ -1,0 +1,11 @@
+{
+  "name": "richos-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Shared mobile actions and headless/simulator development loop",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "mobile": "node cli/mobile.mjs"
+  }
+}

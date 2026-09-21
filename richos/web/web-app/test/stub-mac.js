@@ -511,7 +511,7 @@ function createStubMac(options) {
 		listen(port) {
 			return new Promise((resolve, reject) => {
 				server.once('error', reject);
-				server.listen(port, () => resolve(server.address().port));
+				server.listen(port, opts.bindHost, () => resolve(server.address().port));
 			});
 		},
 		close() {
