@@ -82,7 +82,12 @@ function makeEventSource() {
 function makeMac() {
 	const mac = { issued: 0, challenge: 'challenge-one', probes: 0 };
 	mac.expire = () => { mac.issued += 1; mac.challenge = `challenge-live-${mac.issued}`; };
-	mac.fetchImpl = async () => {
+	mac.fetchImpl = async (url) => {
+		if (!new URL(url).pathname.endsWith('/api/challenge')) {
+			return { status: mac.revoked ? 403 : 200, ok: !mac.revoked,
+				headers: { get: () => null }, json: async () => ({ revoked: !!mac.revoked }),
+				clone() { return this; } };
+		}
 		mac.probes += 1;
 		return {
 			status: 404,
@@ -174,7 +179,7 @@ test('after an error past the challenge\'s ten minutes, the next attempt is NEWL
 	assert.strictEqual(p.mac.probes, 1, 'the retry did not ask the Mac for a live challenge');
 	assert.strictEqual(p.state.challenge, 'challenge-live-1');
 	assert.ok(p.signer.signed[0].startsWith('challenge-one\n'), p.signer.signed[0]);
-	assert.ok(p.signer.signed[1].startsWith('challenge-live-1\n'), p.signer.signed[1]);
+	assert.ok(p.signer.signed.at(-1).startsWith('challenge-live-1\n'), p.signer.signed.at(-1));
 
 	// And exactly one source is alive through all of it.
 	assert.strictEqual(p.Stub.alive().length, 1);
@@ -493,4 +498,22 @@ test('an `open` that throws is an outage like any other, and the loop survives i
 	assert.strictEqual(p.link.isPending(), true, 'a throwing open left the phone with no way back');
 	assert.deepStrictEqual(p.states, ['opening', 'away']);
 	assert.deepStrictEqual(failures, ['this browser has no event stream']);
+});
+
+
+test('a revoked event stream stops retries and reports the explicit refusal without caller intervention', async () => {
+	const errors = [];
+	const p = makePhone({ onFailure: (err) => errors.push(err) });
+	p.link.connect();
+	await settle();
+	p.mac.revoked = true;
+	p.Stub.made[0].fail();
+	await settle();
+	assert.strictEqual(errors.length, 1);
+	assert.strictEqual(errors[0].reason, 'revoked');
+	assert.strictEqual(p.link.isPending(), false);
+	p.link.wake();
+	await p.clock.advance(60000);
+	assert.strictEqual(p.Stub.made.length, 1);
+	assert.strictEqual(p.Stub.alive().length, 0);
 });

@@ -438,13 +438,23 @@ impl DeviceDesk {
             Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
         };
+        let revoked_path = home.join("revoked.json");
+        let mut revoked: VecDeque<String> = match std::fs::read_to_string(&revoked_path) {
+            Ok(text) => serde_json::from_str(&text)
+                .map_err(|e| PhoneError::Malformed(format!("could not read forgotten phones: {e}")))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => VecDeque::new(),
+            Err(e) => return Err(e.into()),
+        };
+        while revoked.len() > 8 { revoked.pop_front(); }
+        // A durable revocation wins even if the process stopped before deleting device.json.
+        let device = device.filter(|d| !revoked.contains(&d.id));
         Ok(DeviceDesk {
             path,
             state: Mutex::new(State {
                 device,
                 pairing: None,
                 challenges: VecDeque::new(),
-                revoked: VecDeque::new(),
+                revoked,
                 answered: VecDeque::new(),
                 requests: VecDeque::new(),
                 streams: 0,
@@ -593,6 +603,13 @@ impl DeviceDesk {
             // says so until the phone comes back (Ray's defect 2).
             fingerprint_confirmed: false,
         };
+        // Pairing is explicit authorization to use this key again. Device IDs are key-derived.
+        if state.revoked.contains(&device.id) {
+            let mut revoked = state.revoked.clone();
+            revoked.retain(|id| id != &device.id);
+            self.write_revoked(&revoked)?;
+            state.revoked = revoked;
+        }
         state.device = Some(device.clone());
         self.write(&state)?;
         Ok(device)
@@ -603,17 +620,37 @@ impl DeviceDesk {
     /// and the caller destroys the Keychain keys and closes the listener.
     pub fn forget(&self) -> Result<(), PhoneError> {
         let mut state = self.state.lock().unwrap();
-        if let Some(device) = state.device.take() {
-            state.revoked.push_back(device.id);
-            while state.revoked.len() > 8 {
-                state.revoked.pop_front();
-            }
+        if let Some(device) = &state.device {
+            let mut revoked = state.revoked.clone();
+            revoked.push_back(device.id.clone());
+            while revoked.len() > 8 { revoked.pop_front(); }
+            // Persist before forgetting in memory. A failed write leaves the current pairing
+            // intact and reports failure; a crash after rename still cannot revive its key.
+            self.write_revoked(&revoked)?;
+            state.revoked = revoked;
+            state.device = None;
         }
         state.pairing = None;
         state.answered.clear();
         state.challenges.clear();
         state.audio.clear();
-        let _ = std::fs::remove_file(&self.path);
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    }
+
+    fn write_revoked(&self, revoked: &VecDeque<String>) -> Result<(), PhoneError> {
+        let bytes = serde_json::to_vec(revoked)
+            .map_err(|e| PhoneError::Malformed(e.to_string()))?;
+        let pending = self.path.with_file_name("revoked.pending");
+        let mut file = std::fs::File::create(&pending)?;
+        std::io::Write::write_all(&mut file, &bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&pending, self.path.with_file_name("revoked.json"))?;
+        std::fs::File::open(self.path.parent().unwrap())?.sync_all()?;
         Ok(())
     }
 
@@ -632,18 +669,11 @@ impl DeviceDesk {
         }
         state.requests.push_back(now);
 
-        // 1. the device
-        let device = match state.device.clone() {
-            Some(d) => d,
-            None => {
-                // A phone this Mac HAS forgotten gets the one honest non-404 in the whole
-                // surface. A phone that was never paired gets the flat refusal.
-                if state.revoked.iter().any(|id| id == presented.device_id) {
-                    return Err(Refusal::Revoked);
-                }
-                return Err(Refusal::NoDevice);
-            }
-        };
+        // 1. A known forgotten phone gets a final answer, including after a new pairing.
+        if state.revoked.iter().any(|id| id == presented.device_id) {
+            return Err(Refusal::Revoked);
+        }
+        let device = state.device.clone().ok_or(Refusal::NoDevice)?;
         if !constant_time_eq(device.id.as_bytes(), presented.device_id.as_bytes()) {
             return Err(Refusal::UnknownDevice);
         }
@@ -1241,13 +1271,71 @@ pub(crate) mod tests {
         // The one deliberate non-404 in the surface, and its negative control in the same
         // test: the phone the Mac remembers forgetting is told so, and a device id that was
         // never paired still learns nothing.
-        let (_dir, desk, phone, device, _c) = paired("revoked");
+        let (dir, desk, phone, device, _c) = paired("revoked");
+        let saved_device = std::fs::read(&desk.path).unwrap();
         desk.forget().unwrap();
+        // Simulate interruption after the revocation was persisted but before key deletion.
+        std::fs::write(&desk.path, saved_device).unwrap();
+        drop(desk);
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        assert!(desk.paired().is_none());
         let challenge = desk.issue_challenge().unwrap();
         let known = present(&phone, &device.id, &challenge, "POST", "/api/messages", b"{}");
         assert_eq!(desk.verify(&known), Err(Refusal::Revoked));
         let stranger = present(&phone, "dev_never_seen", &challenge, "POST", "/api/messages", b"{}");
         assert_eq!(desk.verify(&stranger), Err(Refusal::NoDevice));
+        let window = desk.open_pairing().unwrap();
+        let replacement = Phone::new();
+        desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(replacement.jwk()), "new phone", PairedVia::TAILNET, Platform::IOS).unwrap();
+        drop(desk);
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        assert!(desk.paired().is_some());
+        assert_eq!(desk.verify(&known), Err(Refusal::Revoked));
+        assert_eq!(desk.verify(&stranger), Err(Refusal::UnknownDevice));
+    }
+
+    #[test]
+    fn forgotten_phone_history_is_bounded_and_malformed_history_refuses_to_open() {
+        let dir = TempDir::new("revoked-history");
+        let phone = Phone::new();
+        let mut ids = Vec::new();
+        for _ in 0..9 {
+            let phone = Phone::new();
+            let desk = DeviceDesk::open(&dir.0).unwrap();
+            let window = desk.open_pairing().unwrap();
+            let device = desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "phone", PairedVia::TAILNET, Platform::IOS).unwrap();
+            ids.push(device.id);
+            desk.forget().unwrap();
+        }
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let challenge = desk.issue_challenge().unwrap();
+        assert_eq!(desk.state.lock().unwrap().revoked.len(), 8);
+        assert_eq!(desk.verify(&present(&phone, &ids[0], &challenge, "GET", "/api/events", b"")), Err(Refusal::NoDevice));
+        assert_eq!(desk.verify(&present(&phone, &ids[8], &challenge, "GET", "/api/events", b"")), Err(Refusal::Revoked));
+        std::fs::write(dir.0.join("phone/revoked.json"), b"damaged").unwrap();
+        assert!(DeviceDesk::open(&dir.0).is_err());
+    }
+
+    #[test]
+    fn explicit_pairing_can_authorize_a_forgotten_key_again() {
+        let (dir, desk, phone, _, _) = paired("re-pair");
+        desk.forget().unwrap();
+        let window = desk.open_pairing().unwrap();
+        let device = desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "phone", PairedVia::TAILNET, Platform::IOS).unwrap();
+        drop(desk);
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let challenge = desk.issue_challenge().unwrap();
+        assert!(desk.verify(&present(&phone, &device.id, &challenge, "GET", "/api/events", b"")).is_ok());
+    }
+
+    #[test]
+    fn a_failed_revocation_write_reports_failure_and_preserves_the_pairing() {
+        let (dir, desk, phone, device, challenge) = paired("revoke-write-failed");
+        std::fs::create_dir(dir.0.join("phone/revoked.pending")).unwrap();
+        assert!(desk.forget().is_err());
+        let presented = present(&phone, &device.id, &challenge, "GET", "/api/events", b"");
+        assert!(desk.verify(&presented).is_ok());
+        assert!(DeviceDesk::open(&dir.0).unwrap().paired().is_some());
     }
 
     #[test]

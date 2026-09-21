@@ -641,3 +641,39 @@ test('the backfill recovers from a stale credential too — the retry lives in `
 	assert.ok(back.calls[1].url.includes('auth='), 'the retry dropped the query credential');
 	assert.ok(decodeURIComponent(back.calls[1].url).includes('.challenge-live.'), 'the retry re-used the dead challenge');
 });
+
+test('a failed event stream reads the authenticated revocation answer and closes browser retries', async () => {
+	const Stub = makeEventSource();
+	const { api, calls } = makeApi(() => response(403, { revoked: true }), {}, Stub);
+	const errors = [];
+	await api.openEvents('t-1', 0, { error: (err) => errors.push(err) });
+	await Stub.made[0].onerror();
+	assert.strictEqual(Stub.made[0].closed, true);
+	assert.strictEqual(errors[0].reason, REVOKED);
+	const probe = new URL(calls[0].url);
+	assert.strictEqual(probe.pathname, '/api/events');
+	assert.strictEqual(probe.searchParams.get('before'), '0');
+	assert.ok(probe.searchParams.get('auth'));
+	await Stub.made[0].onerror();
+	assert.strictEqual(calls.length, 1);
+});
+
+test('an event stream network failure remains retryable and a closed stream ignores a late probe', async () => {
+	const Stub = makeEventSource();
+	let reject;
+	const { api } = makeApi(() => new Promise((_, no) => { reject = no; }), {}, Stub);
+	const errors = [];
+	const source = await api.openEvents('t-1', 0, { error: (err) => errors.push(err) });
+	const pending = source.onerror();
+	await new Promise((resolve) => setImmediate(resolve));
+	reject(new Error('offline'));
+	await pending;
+	assert.deepStrictEqual(errors, [undefined]);
+	const second = await api.openEvents('t-1', 0, { error: (err) => errors.push(err) });
+	const late = second.onerror();
+	await new Promise((resolve) => setImmediate(resolve));
+	second.close();
+	reject(new Error('offline'));
+	await late;
+	assert.strictEqual(errors.length, 1);
+});
