@@ -19,10 +19,18 @@
       return copy({ ...model, outbox: queue.all(), dueInMs: queue.dueInMs(), lastSend });
     }
     function emit() { const value = state(); for (const fn of listeners) fn(value); return value; }
-    async function flush() {
+    let draining;
+    function flush() {
+      if (draining) return ports.deferDrain ? undefined : draining;
+      draining = drain().finally(() => { draining = null; emit(); });
+      if (ports.deferDrain) { draining.catch(error => ports.onError?.(error)); return; }
+      return draining;
+    }
+    async function drain() {
       if (!model.online) return;
       lastSend = await queue.flush(transport);
       if (lastSend.reason === 'revoked') model.paired = false;
+      await ports.onFlush?.(lastSend);
     }
     // Serialize user/CLI actions. Each send captures its selected thread before awaiting IO.
     let pending = Promise.resolve();
@@ -74,7 +82,7 @@
       pending = result.catch(() => {});
       return result;
     }
-    return { state, dispatch, subscribe(fn) { listeners.add(fn); fn(state()); return () => listeners.delete(fn); } };
+    return { state, dispatch, settle: async () => { await pending; await draining; }, subscribe(fn) { listeners.add(fn); fn(state()); return () => listeners.delete(fn); } };
   }
   return { createApp };
 });

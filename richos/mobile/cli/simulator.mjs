@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { arch } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { configuration as releaseConfiguration } from './release.mjs';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 export const mobile = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,14 +57,15 @@ export function stageAssets(destination, development, allowedContainer) {
   mkdirSync(destination, { recursive: true });
   const files = { 'queue.js': '../web/web-app/lib/queue.js', 'app.js': 'core/app.js', 'view.js': 'ui/view.js',
     'style.css': 'ui/style.css', 'entry.js': development ? 'dev/entry.js' : 'ui/entry.js' };
-  if (development) { files['runtime.js'] = 'dev/runtime.js'; files['client-inspect.js'] = 'dev/client-inspect.js'; }
+  if (development) { files['runtime.js'] = 'dev/runtime.js'; files['client-inspect.js'] = 'dev/client-inspect.js'; files['update-fixture.js'] = 'dev/update-fixture.js'; }
   {
     files['client.html'] = 'ui/client.html';
-    Object.assign(files, { 'client.js': 'core/client.js', 'native.js': 'platform/native.js', 'client-entry.js': 'ui/client-entry.js' });
-    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
+    Object.assign(files, { 'client.js': 'core/client.js', 'updates.js': 'core/updates.js', 'mobile-links.js': 'core/links.js', 'release-config.json': 'release-config.json', 'client.css': 'ui/client.css', 'styles.css': '../web/web-app/styles.css', 'native.js': 'platform/native.js', 'client-entry.js': 'ui/client-entry.js' });
+    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
   }
   for (const [name, source] of Object.entries(files)) copyFileSync(join(mobile, source), join(destination, name));
-  const clientHTML = readFileSync(join(mobile, 'ui/client.html'), 'utf8').replace('<!-- CLIENT_DEV -->', development ? '<script src="client-inspect.js"></script>' : '');
+  writeFileSync(join(destination, 'release-config.json'), JSON.stringify(releaseConfiguration()));
+  const clientHTML = readFileSync(join(mobile, 'ui/client.html'), 'utf8').replace('<!-- CLIENT_DEV -->', development ? '<script src="update-fixture.js"></script><script src="client-inspect.js"></script>' : '');
   writeFileSync(join(destination, 'client.html'), clientHTML);
   const entry = (development ? '<script src="runtime.js"></script>\n  ' : '') + '<script src="entry.js"></script>';
   writeFileSync(join(destination, 'index.html'), (development ? readFileSync(join(mobile, 'ui/index.html'), 'utf8') : clientHTML).replace('<!-- ENTRY -->', entry));
@@ -73,7 +75,13 @@ export function project() {
   const cache = cacheRoot();
   const output = join(cache, 'project');
   mkdirSync(output, { recursive: true });
-  const base = '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.0.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/><key>NSMicrophoneUsageDescription</key><string>Record a voice message for Rich.</string><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
+  const release = releaseConfiguration();
+  for (const name of ['version', 'build']) if (typeof release[name] !== 'string' || !/^\d+(\.\d+){0,2}$/.test(release[name])) throw Error('Invalid release version or build');
+  const catalog = join(output, 'Brand.xcassets'), appIcon = join(catalog, 'AppIcon.appiconset');
+  mkdirSync(appIcon, { recursive: true });
+  copyFileSync(join(mobile, '../web/web-app/icons/apple-touch-icon.png'), join(appIcon, 'iphone-180.png'));
+  writeFileSync(join(appIcon, 'Contents.json'), JSON.stringify({ images: [{ idiom: 'iphone', size: '60x60', scale: '3x', filename: 'iphone-180.png' }], info: { version: 1, author: 'xcode' } }));
+  const base = '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>' + release.version + '</string><key>CFBundleVersion</key><string>' + release.build + '</string><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>richos</string></array><key>CFBundleURLName</key><string>RichOS conversation</string></dict></array><key>LSRequiresIPhoneOS</key><true/><key>NSCameraUsageDescription</key><string>Scan the pairing code shown on your Mac.</string><key>NSMicrophoneUsageDescription</key><string>Record a voice message for Rich.</string><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
   writeFileSync(join(output, 'Debug.plist'), plist(base));
   writeFileSync(join(output, 'Release.plist'), plist(base));
   const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -81,8 +89,8 @@ export function project() {
     name: 'RichOSMobile', options: { deploymentTarget: { iOS: '16.7' } },
     settings: { base: { SWIFT_VERSION: '5.0', CODE_SIGNING_ALLOWED: 'YES', CODE_SIGN_IDENTITY: '-', TARGETED_DEVICE_FAMILY: '1', ENABLE_USER_SCRIPT_SANDBOXING: 'NO' } },
     targets: {
-      RichOSMobile: { type: 'application', platform: 'iOS', sources: [{ path: join(mobile, 'ios/Sources') }],
-        settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: bundleId }, configs: {
+      RichOSMobile: { type: 'application', platform: 'iOS', sources: [{ path: join(mobile, 'ios/Sources') }, { path: catalog, buildPhase: 'resources' }],
+        settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: bundleId, ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon' }, configs: {
           Debug: { INFOPLIST_FILE: join(output, 'Debug.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG' },
           Release: { INFOPLIST_FILE: join(output, 'Release.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: '' }
         } },
@@ -93,6 +101,11 @@ export function project() {
     },
     schemes: { RichOSMobile: { build: { targets: { RichOSMobile: 'all' } }, test: { targets: ['RichOSMobileUITests'], gatherCoverageData: false } } }
   };
+  if (release.universalHosts.length) {
+    const entitlements = join(output, 'Links.entitlements');
+    writeFileSync(entitlements, plist('<key>com.apple.developer.associated-domains</key><array>' + release.universalHosts.map(host => '<string>applinks:' + host + '</string>').join('') + '</array>'));
+    spec.targets.RichOSMobile.settings.base.CODE_SIGN_ENTITLEMENTS = entitlements;
+  }
   const testConfig = process.env.RICHOS_MOBILE_TEST_CONFIG;
   if (testConfig) {
     const source = realpathSync(testConfig);
@@ -221,12 +234,15 @@ export function checkRelease() {
   const assets = join(result.app, 'mobile-ui');
   const files = readdirSync(assets);
   assert(!files.includes('runtime.js'));
+  assert(!files.includes('update-fixture.js'));
+  assert(!files.includes('client-inspect.js'));
+  assert(!files.includes('native-test-config.json'));
   const joined = files.map((file) => readFileSync(join(assets, file), 'utf8')).join('\n');
   assert(!/RichOSDev|RichOSFixtures|mobile-commands|lose-ack/.test(joined), 'Development JS leaked into Release');
   const info = run('plutil', ['-convert', 'json', '-o', '-', join(result.app, 'Info.plist')]).stdout;
-  assert(!JSON.parse(info).CFBundleURLTypes, 'Development URL registration leaked into Release');
+  assert.deepEqual(JSON.parse(info).CFBundleURLTypes.flatMap(value => value.CFBundleURLSchemes), ['richos'], 'Unexpected URL registration in Release');
   const binary = readFileSync(join(result.app, 'RichOSMobile'));
-  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', 'prepareIntegrationTest']) {
+  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', 'prepareIntegrationTest', '--update-fixture=']) {
     assert(!binary.includes(Buffer.from(marker)), `Development bridge marker in Release: ${marker}`);
   }
   return { ...result, developmentBridgeExcluded: true, files };

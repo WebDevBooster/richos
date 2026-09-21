@@ -31,6 +31,7 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
       case 'load': return structuredClone(disk);
       case 'save': disk = structuredClone(args.value); return true;
       case 'recordings': return [];
+      case 'updateInfo': return { version: '0.1.0', build: '2', osVersion: '16.7.16', appId: null, storefront: null, configured: false };
       case 'hash': return createHash('sha256').update(args.value).digest('hex');
       case 'publicKey': return publicKey.export({ format: 'jwk' });
       case 'sign': return sign('sha256', Buffer.from(args.input), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');

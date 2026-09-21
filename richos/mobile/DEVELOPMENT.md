@@ -2,7 +2,7 @@
 
 The mobile UI and CLI run the same `core/app.js` action handlers. That core imports the existing PWA's `lib/queue.js` directly. Packaging copies that exact file into the iOS app; there is no second queue implementation or source fork.
 
-The Swift/WKWebView host now supports native recording, protected signing, pairing and text sessions through the shared client. It is not yet a complete phone client. Full PWA UI parity, voice submission, notifications, managed access and update-policy behavior remain subsequent slices.
+The Swift/WKWebView client now includes native recording/playback, protected signing, pairing, conversation history, drafts, offline text delivery and update controls. It reuses the PWA stylesheet and its API, thread, fingerprint, stream and queue modules. Voice submission and notifications belong to Part 4; managed RichOS Connect belongs to Part 3. This is an installable technical pilot, not the public consumer release.
 
 ## Headless first
 
@@ -76,9 +76,9 @@ PWA actions use visible controls for compose, send, conversation selection and r
 
 `pwa verify` (also `pwa scenario offline-reconnect`) first runs the shared deterministic headless scenario, then uses the actual PWA's conversation picker, composer and Send button. It proves that a queued message survives an offline page reload through the service worker and IndexedDB, then reaches the synthetic Mac once after reconnect with the same client ID and conversation. It reports semantic snapshots and checks for uncaught browser exceptions. Screenshots are under the external cache's `pwa/output/playwright/` directory.
 
-The shared production module today is `web-app/lib/queue.js`. The PWA retains its existing controller; it does not yet run the minimal native shell's entire `core/app.js`. Both use one CLI and the same queue implementation. Browser checks use real browser time and random signing/message IDs, so their trace is checked for behavior rather than exact equality with the deterministic native/headless trace. `advance` and synthetic lost-ack commands belong to the headless/simulator targets. As further behavior is extracted or added, keep it headless and shared where applicable. Android microphone, push, installation and background behavior still need physical-phone verification.
+The shared production modules include the PWA queue, API, thread model, inbound validation, fingerprint and stream owner. The PWA retains its existing controller; it does not yet run the minimal native shell's entire `core/app.js`. Both use one CLI and the same queue implementation. Browser checks use real browser time and random signing/message IDs, so their trace is checked for behavior rather than exact equality with the deterministic native/headless trace. `advance` and synthetic lost-ack commands belong to the headless/simulator targets. As further behavior is extracted or added, keep it headless and shared where applicable. Android microphone, push, installation and background behavior still need physical-phone verification.
 
-## Native client feasibility
+## Native client
 
 The Swift/WKWebView client uses the PWA's API, signing-input contract, fingerprint phrase,
 single event-stream owner and durable queue. `core/client.js` owns pairing confirmation,
@@ -163,7 +163,7 @@ Each suite has dependency `inputs` and exact-file `covers` rows. Coverage descri
 - `cli/`: headless persistence, resource packaging and simulator orchestration. The same request envelope reaches the development runtime in both modes.
 - `ios/`: native services and focused visible-control checks; physical recording and remote text are separate selectable tests.
 
-Development fixture access and commands are compiled only for Debug simulator builds. The native bridge polls for UUID-named local sandbox command files while the Debug simulator app is running. It uses no URL scheme or confirmation dialogs. It exposes neither a network listener nor arbitrary JavaScript evaluation. The webview loads local resources only. Debug assets are separate from Release assets; `check-release` builds Release and inspects its executable, Info.plist and resources for development markers and URL registration. This simulator Release check is not signed App Store artifact verification.
+Development fixture access and commands are compiled only for Debug simulator builds. The native bridge polls for UUID-named local sandbox command files while the Debug simulator app is running. Development commands use no URL scheme. The production `richos://conversation/` scheme accepts only validated conversation destinations; it cannot execute commands or initiate pairing. It exposes neither a network listener nor arbitrary JavaScript evaluation. The webview loads local resources only. Debug assets are separate from Release assets; `check-release` builds Release and inspects its executable, Info.plist and resources for development markers and unexpected URL registrations. This simulator Release check is not signed App Store artifact verification.
 
 Each CLI invocation locks its checkout's target session to prevent overlapping resets or installs. The browser target has its own `pwa.cli.lock`, so it can run alongside native checks. On a crash, inspect `cli.lock/owner.json` and confirm the PID is gone before removing the lock. A timed-out simulator request is a failure, not a successful action; inspect state before retrying a send.
 
@@ -173,7 +173,7 @@ Projects, DerivedData, generated resources, command results and screenshots are 
 
 Keep measured timings and private verification reports in `richos-hq`. Measure these separately: a fresh Node process running a focused scenario, direct core execution, JavaScript screen refresh, Swift incremental build, cold build/install/boot and native UI automation. Cold simulator boot and UI automation are not part of a routine application-logic edit. Establish budgets from measured results; a green fixture is not evidence about real microphone permissions, radio transitions, APNs or App Store installation.
 
-For new platform behavior, add a narrow adapter and controllable outcomes without importing platform APIs into the core. Update-policy evaluation belongs in the same core and must be runnable headlessly when implemented. Validate actual store availability and installation separately on real devices.
+For new platform behavior, add a narrow adapter and controllable outcomes without importing platform APIs into the core. Update-policy evaluation runs in `core/updates.js` and is exercised through the same client actions in Node and the simulator. Validate actual store availability and installation separately on real devices.
 
 ## Real Mac protocol integration
 
@@ -186,3 +186,28 @@ The server writes `mac-test-config.json` in its cache. Pass that path through `R
 The integration profile installs `dev.richos.mobile.integration` and uses an `integration` subdirectory beneath the selected cache. A Debug-only launch argument clears this app's saved session once per new server run. It preserves recordings and does not affect the ordinary app or the Android pairing. Relaunches with the same run marker keep their session, which the physical test verifies by receiving another fresh reply after restart. Release verification checks that this reset mechanism is absent.
 
 Stop the foreground lab and its separately owned Tailscale Serve endpoint after testing. The lab closes its sockets, retains synthetic timeline/intake/ledger evidence in the cache and deletes its scratch data. `lab serve` remains the faster JavaScript protocol fixture; it is not the production Rust server.
+
+
+## Part 2 actions and persistence
+
+`client scenario update-controls` drives banner, dialog, blocking and withdrawn policies through the actual client. `sim client-prepare` opens the actual native renderer. In a Debug simulator, `sim policy '<JSON>'` installs a policy through substituted update-service ports; it does not rewrite the policy evaluator. The fixture client identifier is deliberately synthetic and is never bundled in a physical-device or Release build.
+
+The client caches server-ordered history per conversation and keeps each conversation's draft. The outbox remains the PWA queue, including its idempotency IDs and retry schedule. An active send does not hold up typing, navigation or suspension. Retries have a foreground timer. Version-unsupported responses and disabled actions are retained for attention rather than retried indefinitely. The Mac's existing protocol is version 1 when a legacy hello omits `protocol_version`; incompatible explicit versions disable text. Native requests advertise protocol, marketing version and build.
+
+Session schema 2 migrates the Part 1 cache without deleting drafts or the outbox. Unknown schemas and corrupt stored data fail with a recovery message and leave the file intact. Only the replaceable conversation cache is evicted to bound disk use. Unsent work is never evicted. The app refuses to change pairing while unresolved text remains. Local forgetting is separate from revoking the device on the Mac.
+
+Pairing accepts a pasted HTTPS link or a native QR scan, followed by the existing fingerprint comparison. A scan only fills the link field; it does not automatically trust the Mac. Conversation links accept `richos://conversation/#thread=<id>&at=<id>` and explicitly configured universal-link hosts. The PWA's inbound validator checks the payload. Universal links require the matching associated-domain website file before deployment. External HTTPS links open outside the privileged webview. Remote HTML and scripts cannot enter that view.
+
+Recording files are protected native files. Record, stop, cancel, play and delete are native actions. Microphone denial has a Settings recovery button. Playable files left by process termination are recovered into the recording list. Recording is limited to 60 seconds, ten files and two megabytes per file. A critical policy stops and retains captured audio; uploaded voice is not implemented by this slice.
+
+## Release configuration and update service
+
+`release-config.json` contains marketing version, build, numeric `appId`, `policyURL`, `supportURL`, optional `universalHosts` and the `metrics` switch. `RICHOS_MOBILE_RELEASE_CONFIG` can supply an external build configuration. The selected configuration is validated and bundled with the app; it cannot be changed by remote policy data. Development defaults have no App Store ID or hosted policy endpoint and metrics are off. Do not invent an ID to fill them.
+
+`node richos/mobile/cli/mobile.mjs release-config-check` fails until the listing and HTTPS policy/support destinations are configured. This checks configuration only. It does not certify licensing, App Review eligibility, signing, artwork completeness or successful distribution. The pilot reuses the PWA's 180-pixel home-screen artwork for the iPhone X; complete the store artwork set before submission. `check-release` separately verifies that fixture scripts, synthetic update data and native development commands are absent from Release.
+
+See [the update-service runbook](service/README.md) for schema, publication, expiry recovery, availability receipts, metrics and deployment boundaries. The service has a separate native network session from the paired Mac. It uses HTTPS policy fetches plus foreground SSE change hints. Hints trigger a coalesced refetch; a 60-second fallback remains active if streaming fails. Cold start, foreground return and network recovery also trigger checks. Invalid data and service outages do not introduce a lockout. Previously validated policy remains authoritative only until its expiry, at most 24 hours after issue.
+
+For the physical service proof, start `lab updates` in a separate cache, expose its printed loopback port through an isolated private HTTPS route and supply that `/v1/policy` URL in an external release configuration. Pass a test-bundle JSON with `{"updateServiceTest":"true"}` and run `device verify updates`. The fixture publishes a recording pause after the first policy fetch, then withdraws it with a higher revision. The XCUITest checks both visible action states with the real native adapter. The lab retains publication/request timestamps. It never supplies a fabricated App Store destination. Stop its owned process and route after the check.
+
+Actual App Store listing navigation, storefront download availability and an old-to-new Store installation remain distribution checks that require the real listing and released builds. Managed-route verification requires Part 3. A simulated notice or successful development install cannot stand in for those checks.

@@ -34,6 +34,24 @@ final class NativeClientTests: XCTestCase {
         #endif
     }
 
+    func testUpdateNoticeControls() throws {
+        #if targetEnvironment(simulator)
+        let app = XCUIApplication(); addTeardownBlock { app.terminate() }
+        app.launchArguments = ["--native-client", "--update-fixture=banner"]; app.launch()
+        XCTAssertTrue(app.webViews.buttons["Update in App Store"].waitForExistence(timeout: 15))
+        app.webViews.buttons["Later"].tap()
+        XCTAssertFalse(app.webViews.buttons["Update in App Store"].exists)
+        app.terminate(); app.launchArguments = ["--native-client", "--update-fixture=blocking"]; app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Update required"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.webViews.buttons["Update in App Store"].exists)
+        XCTAssertFalse(app.webViews.buttons["Later"].exists)
+        XCTAssertTrue(app.webViews.buttons["Check again"].exists)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Mandatory update controls"; shot.lifetime = .keepAlways; add(shot)
+        #else
+        throw XCTSkip("Synthetic App Store policies are confined to the development simulator")
+        #endif
+    }
+
     func testAuthenticatedTextAndStreamResume() throws {
         guard let configURL = Bundle(for: Self.self).url(forResource: "native-test-config", withExtension: "json") else {
             throw XCTSkip("Physical HTTPS pairing config is unavailable; this test does not claim remote connectivity")
@@ -59,9 +77,11 @@ final class NativeClientTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         let message = "Native phone check " + String(UUID().uuidString.prefix(8))
         app.typeText(message)
+        XCTAssertEqual(editor.value as? String, message, "Typing must preserve every character before send")
         app.webViews.buttons["Send"].tap()
         let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 20), "Reply must arrive through the authenticated native event stream")
+        XCTAssertEqual(app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", message)).count, 1, "The sent message must appear once")
         app.terminate(); app.launch()
         XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout: 20))
         XCTAssertTrue(reply.waitForExistence(timeout: 10), "Cached reply must survive process termination")
@@ -70,11 +90,30 @@ final class NativeClientTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         let resumedMessage = "Native resume check " + String(UUID().uuidString.prefix(8))
         app.typeText(resumedMessage)
+        XCTAssertEqual(editor.value as? String, resumedMessage, "Relaunch must preserve normal typing")
         app.webViews.buttons["Send"].tap()
         let resumedReply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", resumedMessage, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
         XCTAssertTrue(resumedReply.waitForExistence(timeout: 20), "A fresh reply must cross the restarted stream")
+        XCTAssertEqual(app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", resumedMessage)).count, 1, "Acknowledgement and projection must produce one bubble")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Signed text and stream after relaunch"; shot.lifetime = .keepAlways; add(shot)
     }
+    func testIndependentUpdateService() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("The independent HTTPS service is verified through the physical device lab")
+        #else
+        guard let url = Bundle(for: Self.self).url(forResource: "native-test-config", withExtension: "json"),
+              let config = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: String],
+              config["updateServiceTest"] == "true" else { throw XCTSkip("Independent policy lab is not configured") }
+        let app = launchClient()
+        let paused = app.webViews.staticTexts["Update service test: recording temporarily paused."]
+        XCTAssertTrue(paused.waitForExistence(timeout: 25), "A foreground policy signal must arrive independently of the paired Mac")
+        XCTAssertFalse(app.webViews.buttons["Record"].isEnabled)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Independent policy received on iPhone"; shot.lifetime = .keepAlways; add(shot)
+        let restored = NSPredicate { _, _ in !paused.exists && app.webViews.buttons["Record"].isEnabled }
+        expectation(for: restored, evaluatedWith: nil); waitForExpectations(timeout: 25)
+        #endif
+    }
+
     func testNativeRecordingAndRelaunch() throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Recording is verified on the physical iPhone with device verify recording; a simulator would capture the Mac microphone")

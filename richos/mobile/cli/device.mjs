@@ -19,8 +19,8 @@ export async function device(command, selection = 'all', ports = {}) {
   if (!id || !/^[a-fA-F0-9-]{20,64}$/.test(id)) throw Error('Set RICHOS_IOS_DEVICE to the connected physical device identifier');
   if (!team || !/^[A-Z0-9]{10}$/.test(team)) throw Error('Set RICHOS_APPLE_TEAM to the signing team identifier');
   if (!['build', 'verify'].includes(command)) throw Error('device expects build or verify');
-  const tests = { all: 'NativeClientTests', text: 'NativeClientTests/testAuthenticatedTextAndStreamResume', recording: 'NativeClientTests/testNativeRecordingAndRelaunch' };
-  if (!tests[selection]) throw Error('Device test selection must be all, text or recording');
+  const tests = { updates: 'NativeClientTests/testIndependentUpdateService', all: 'NativeClientTests', text: 'NativeClientTests/testAuthenticatedTextAndStreamResume', recording: 'NativeClientTests/testNativeRecordingAndRelaunch' };
+  if (!tests[selection]) throw Error('Device test selection must be all, text, recording or updates');
   const cache = cacheRoot();
   const stamp = Date.now();
   const log = join(cache, `device-${command}-${stamp}.log`);

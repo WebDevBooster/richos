@@ -38,6 +38,17 @@ function harness() {
 }
 
 async function scenario(name) {
+  if (name === 'update-controls') {
+    const fixture = require('./update-fixture.js'), environment = harness(); environment.ports.now = Date.now;
+    const wrapped = await fixture.wrap(environment.ports), app = await createClient(wrapped.ports);
+    try {
+      const trace = [];
+      for (const [index, mode] of ['banner', 'dialog', 'blocking', 'none'].entries()) {
+        await wrapped.install(fixture.policy(mode, index + 1), app); trace.push({ mode, state: app.state() });
+      }
+      return { name, trace, state: app.state() };
+    } finally { app.close(); }
+  }
   if (!['connection-restart', 'recording-interruption'].includes(name)) throw Error('Unknown client scenario');
   const environment = harness();
   let app = await createClient(environment.ports);

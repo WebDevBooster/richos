@@ -36,6 +36,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         window = UIWindow(frame: UIScreen.main.bounds)
         window?.rootViewController = controller
         window?.makeKeyAndVisible()
+        if let url = options?[.url] as? URL { native.receiveLink(url) }
         loadContent()
         #if DEBUG && targetEnvironment(simulator)
         commandTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.pollCommands() }
@@ -43,6 +44,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         return true
     }
 
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        guard url.scheme == "richos" else { return false }; native.receiveLink(url); return true
+    }
+    func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL else { return false }
+        native.receiveLink(url); return true
+    }
     func applicationDidEnterBackground(_ application: UIApplication) { native.background() }
     func applicationWillEnterForeground(_ application: UIApplication) { native.foreground() }
 
@@ -86,9 +94,23 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if let arg = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--update-fixture=") }) {
+            let mode = String(arg.dropFirst("--update-fixture=".count))
+            if ["banner", "dialog", "blocking"].contains(mode) { updateFixture(mode, attempts: 100) }
+        }
         if let id = pendingRefresh { pendingRefresh = nil; execute(id, attempts: 100) }
     }
 
+    private func updateFixture(_ mode: String, attempts: Int) {
+        webView.evaluateJavaScript("Boolean(globalThis.RichOSDev)") { [weak self] value, _ in
+            guard let self else { return }
+            if value as? Bool == true {
+                self.webView.callAsyncJavaScript("return await RichOSDev.execute({command: 'policy', policy: RichOSUpdateFixture.policy(mode, Date.now())})", arguments: ["mode": mode], in: nil, in: .page, completionHandler: nil)
+            } else if attempts > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.updateFixture(mode, attempts: attempts - 1) }
+            }
+        }
+    }
     private func execute(_ id: String, attempts: Int) {
         webView.evaluateJavaScript("Boolean(globalThis.RichOSDev)") { [weak self] value, error in
             guard let self else { return }
