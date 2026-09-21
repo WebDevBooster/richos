@@ -440,6 +440,19 @@ class DesktopWork(unittest.TestCase):
         path.write_text(json.dumps({**self.scope,"binding":binding,"seat":seat}))
         return path,seat
 
+    def test_reused_work_lease_cannot_inspect_or_land_another_assignment(self):
+        ready=self.call("prepare",self.args)
+        current,_=self.work_lease()
+        self.assertEqual(self.app.call(current,"inspect",{})["records"][0]["id"],ready["id"])
+        other,_=self.work_lease("another-assignment")
+        self.assertEqual(self.app.call(other,"inspect",{}),{"records":[],"next_offset":None})
+        with patch.object(self.app,"land_lock") as lock:
+            with self.assertRaisesRegex(ValueError,"another assignment"):
+                self.app.call(other,"integrate",{"worker_id":ready["id"],"reviewer_id":"unread"})
+            lock.assert_not_called()
+        # The conversation still owns the combined history.
+        self.assertEqual(len(self.call("inspect")["records"]),1)
+
     def test_a_background_assignment_still_reports_after_three_ceo_turns(self):
         """Acceptance 7.2, and the half that fails is the REPORT, not the read.
 

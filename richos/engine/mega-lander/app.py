@@ -841,6 +841,12 @@ def land_lock(scope, repo):
         handle.close()
 
 
+def require_current_assignment(scope, record):
+    obligation = carried_obligation(scope)
+    if obligation is not None and record.get("request", {}).get("obligation_id") != obligation:
+        raise ValueError("receipt belongs to another assignment; prepare work for the assignment this connection carries")
+
+
 def integrate(scope_path,scope,args):
     if set(args)!={"worker_id","reviewer_id"}: raise ValueError("integration needs the worker and reviewer receipts")
     # The repository is read under this conversation's own receipt lock, which
@@ -849,16 +855,21 @@ def integrate(scope_path,scope,args):
     # across this one's prepare/inspect/observe. Nothing but the repository path
     # crosses the gap, and it is asserted again on the far side.
     with locked(scope) as root:
-        repository=read_record(root,args["worker_id"])["request"]["repo"]
+        worker=read_record(root,args["worker_id"])
+        require_current_assignment(scope,worker)
+        require_current_assignment(scope,read_record(root,args["reviewer_id"]))
+        repository=worker["request"]["repo"]
     with land_lock(scope,repository) as land:
         with locked(scope) as root:
             worker=refresh(read_record(root,args["worker_id"]))
+            require_current_assignment(scope,worker)
             # The repository is fixed on a receipt at prepare time, so this can
             # only be an impossible state -- and an unchecked impossible state
             # here would mean landing one repository under another's lock.
             if worker["request"]["repo"]!=repository:
                 raise ValueError("this receipt named another repository between being read and being locked")
             reviewer=refresh(read_record(root,args["reviewer_id"]))
+            require_current_assignment(scope,reviewer)
             path=root/(worker["id"]+".json")
             existing=worker.get("integration")
             if existing and existing["reviewer_id"] != reviewer["id"]:
@@ -1202,7 +1213,9 @@ def call(scope_path, name, args):
         offset,limit = args.get("offset",0),args.get("limit",20)
         if type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=50: raise ValueError("invalid inspection page")
         with locked(scope) as root:
-            rows = list(receipts(root)); result=[]
+            obligation = carried_obligation(scope)
+            rows = [(path,record) for path,record in receipts(root)
+                    if obligation is None or record["request"]["obligation_id"] == obligation]; result=[]
             for path,record in rows[offset:offset+limit]:
                 refresh(record);save(path,record);project(scope,path,record);result.append(view(record))
             page = {"records":result,"next_offset":offset+limit if offset+limit<len(rows) else None}
