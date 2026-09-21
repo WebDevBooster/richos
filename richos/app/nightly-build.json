@@ -1,0 +1,140 @@
+{
+  "build": true,
+  "version": "1.2.0-nightly.20260921.24",
+  "tag": "v1.2.0-nightly.20260921.24",
+  "candidate_ref": "refs/candidates/24",
+  "source_commit": "6044a39f4ae694720ce4b40190e7d9a1221fd324",
+  "created_at": "2026-09-21T10:49:53.628129+00:00",
+  "run_id": "20260921T103738Z-1d5792ee",
+  "run_attempt": "1",
+  "channel": "nightly",
+  "platform": "darwin-aarch64",
+  "no_host_screen": true,
+  "script_suites": {
+    "jobs": 3,
+    "seconds": 222,
+    "run_id": "20260921T103738Z-1d5792ee",
+    "commit": "6044a39f4ae694720ce4b40190e7d9a1221fd324",
+    "suites": [
+      {
+        "name": "front-door.test.sh",
+        "state": "notrun",
+        "seconds": 0,
+        "where": "host",
+        "reason": "no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+      },
+      {
+        "name": "frontend-payload.test.sh",
+        "state": "passed",
+        "seconds": 0,
+        "where": "host",
+        "inputs_sha256": "7f42997f4a4f74c61f9b81a77b62f4c3ad5d243fbdc4096e3e39215ebfce3617"
+      },
+      {
+        "name": "gui-boot.test.sh",
+        "state": "notrun",
+        "seconds": 0,
+        "where": "host",
+        "reason": "no screen this run may use; --no-host-screen is in effect and RICHOS_GUI_HOST is unset"
+      },
+      {
+        "name": "lint.test.sh",
+        "state": "passed",
+        "seconds": 43,
+        "where": "host",
+        "inputs_sha256": "a94bac699def736e6da66786c6afaffa3a9bc90398d51207b0cb1112383454ac"
+      },
+      {
+        "name": "make-engine-asset.test.sh",
+        "state": "passed",
+        "seconds": 112,
+        "where": "host",
+        "inputs_sha256": "194c7266d7d7593fb56885d7799c3b4941f4edd6d287694fa32bfd229eea2c22"
+      },
+      {
+        "name": "make-release.test.sh",
+        "state": "passed",
+        "seconds": 123,
+        "where": "host",
+        "inputs_sha256": "3169ad8c7e5a6893a0663f765c7f280c432a4c1dd239c7032f5b7b1cb56b96b4"
+      },
+      {
+        "name": "nightly-local.test.sh",
+        "state": "passed",
+        "seconds": 7,
+        "where": "host",
+        "inputs_sha256": "925ea156935bcfdc6110a9a013fd053dbc068da5586da1b2fe55ad729705c36f"
+      },
+      {
+        "name": "nightly.test.sh",
+        "state": "passed",
+        "seconds": 39,
+        "where": "host",
+        "inputs_sha256": "b6bf80c38ee8c94d1b85a9bc731548961790fd83f8f685b8a74c81347415236b"
+      },
+      {
+        "name": "no-compile-time-paths.test.sh",
+        "state": "passed",
+        "seconds": 2,
+        "where": "host",
+        "inputs_sha256": "7506d92b39a722add87dd17aa8ebadc78e081c6968a2f94e412c20ff35711c69"
+      },
+      {
+        "name": "package-app.test.sh",
+        "state": "passed",
+        "seconds": 6,
+        "where": "host",
+        "inputs_sha256": "868722bc94350ce6e748f71fb8bed968c830ed3f37af751b9c5857e557446101"
+      },
+      {
+        "name": "proof-for.test.sh",
+        "state": "passed",
+        "seconds": 125,
+        "where": "host",
+        "inputs_sha256": "63da8183ad7fe520edbf929b96ffa6bb206abc6212eb7d3a9d4d982fb6a7c78c"
+      },
+      {
+        "name": "qa.test.sh",
+        "state": "passed",
+        "seconds": 12,
+        "where": "host",
+        "inputs_sha256": "c3f5a4f3eb64afd0ece7c65157fb9b0d1f5e14c52b24b400b51eda3a27c2fe19"
+      },
+      {
+        "name": "rebuild-survival.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host",
+        "inputs_sha256": "4927085bcd7c7c4c0f9b02b39bab93b937cbddeb5bc0c6d0a20b847315129419"
+      },
+      {
+        "name": "run-tests.test.sh",
+        "state": "passed",
+        "seconds": 17,
+        "where": "host",
+        "inputs_sha256": "52efaadbc951704d73b7aec2dd72a52bad75f1307c72cb3c84641daf51583cd0"
+      },
+      {
+        "name": "signing-setup.test.sh",
+        "state": "passed",
+        "seconds": 1,
+        "where": "host",
+        "inputs_sha256": "012a9b27def50f53f5d3dbacf743fd4d0ccbdfdaf08e3c7fb5c31f59670d6385"
+      },
+      {
+        "name": "updater-setup.test.sh",
+        "state": "passed",
+        "seconds": 33,
+        "where": "host",
+        "inputs_sha256": "48f0035126d03bd41dc8bbde279b2fcbcba8337f426e6bb1639da300abaae1e0"
+      },
+      {
+        "name": "voice-component.test.sh",
+        "state": "passed",
+        "seconds": 18,
+        "where": "host",
+        "inputs_sha256": "2a5d0a704d984087e71a0e6e18f8e52579476dd9f6bc1cb125f7d1f36bd764ff"
+      }
+    ]
+  }
+}
