@@ -479,7 +479,7 @@ fs.writeFileSync(ledgerFile, "");
 //
 // So the sweep happens at startup, where there is nothing to block it, and it is precise
 // rather than time-based: each directory records the pid that owns it, and a directory
-// whose owner is gone is residue by definition. Never a heuristic about age — a long
+// whose recorded owner is confirmed gone is residue. Never a heuristic about age — a long
 // legitimate run must not have its ledger deleted out from under it by the next one.
 fs.writeFileSync(path.join(ledgerDir, "owner.pid"), String(process.pid));
 (function sweepAbandonedLedgers() {
@@ -489,11 +489,16 @@ fs.writeFileSync(path.join(ledgerDir, "owner.pid"), String(process.pid));
     if (dir === ledgerDir) continue;
     let owner;
     try {
-      owner = Number(fs.readFileSync(path.join(dir, "owner.pid"), "utf8").trim());
+      const recorded = fs.readFileSync(path.join(dir, "owner.pid"), "utf8").trim();
+      if (!/^[1-9][0-9]*$/.test(recorded)) continue;
+      owner = Number(recorded);
+      if (!Number.isSafeInteger(owner)) continue;
     } catch (_e) {
-      // Written before this file recorded an owner, or a directory that never got one:
-      // nothing claims it, so nothing is lost by removing it.
-      owner = null;
+      // Another shard can be between mkdtemp and writing its owner, including
+      // the moment when owner.pid exists but is still empty. Missing, unreadable
+      // or invalid ownership is unknown, not dead. The enclosing scratch owner
+      // handles any residue that never acquired a readable PID.
+      continue;
     }
     if (owner) {
       // ONLY `ESRCH` MEANS GONE, and the first version of this treated every throw as gone.
