@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -75,6 +76,21 @@ class WalkTests(unittest.TestCase):
         self.assertEqual(w.bound([-100,500],1000,signed=True)['milliseconds'],[-100,500])
         with self.assertRaises(Failure):w.bound([-100],1000)
         with self.assertRaises(Failure):w.bound([1001],1000)
+    def test_ocr_marker_separates_the_prompt_and_tolerates_only_spacing(self):
+        walk=module('delta-walk');token='probeabcdef'
+        pattern=re.compile(walk.marker_pattern(token),re.I)
+        self.assertIsNone(pattern.search('Reverse this sequence: '+token[::-1]))
+        self.assertIsNotNone(pattern.search(' '.join(token)))
+        self.assertIsNotNone(pattern.search(token))
+        self.assertIsNone(pattern.search(token.replace('b','6')))
+        self.assertIsNone(pattern.search('x'+token+'x'))
+    def test_timing_interval_refuses_uncertainty_and_subtracts_conservatively(self):
+        walk=module('delta-walk');w=object.__new__(walk.Walk)
+        self.assertEqual(w.interval_bound([[0,100]],100)['intervals_ms'],[[0,100]])
+        with self.assertRaises(Failure) as raised:w.interval_bound([[99,101]],100)
+        self.assertEqual(raised.exception.outcome,'harness failure')
+        with self.assertRaises(Failure) as raised:w.interval_bound([[101,102]],100)
+        self.assertEqual(raised.exception.outcome,'product failure')
     def test_deadline_preserves_stdout_stderr_and_status(self):
         r=subprocess.run([sys.executable,str(HERE/'ax-deadline.py'),'3',sys.executable,'-c','import sys;print("partial");print("cause",file=sys.stderr);sys.exit(17)'],input=b'',capture_output=True)
         self.assertEqual(r.returncode,17);self.assertIn(b'partial',r.stdout);self.assertIn(b'cause',r.stderr)
@@ -108,7 +124,7 @@ class WalkTests(unittest.TestCase):
             def read(path,active=True):
                 name=Path(path).name
                 if name.startswith('switch-header-'):return 'Scenario B' if int(name[-8:-4])>=4 else 'Scenario A'
-                if name=='0003.png':return 'Working' if active else 'Done'
+                if name=='0003.png':return 'Rich is working' if active else 'Done'
                 return ''
             with patch.object(driver.timeline,'_read_meta',return_value=({},frames)),patch.object(driver.qaimg,'load',return_value=img),patch.object(driver.qaimg,'save'),patch.object(driver.qaocr,'text',side_effect=read):
                 self.assertEqual(w.work_chip({},None)['visible_switch_ms'],400)
