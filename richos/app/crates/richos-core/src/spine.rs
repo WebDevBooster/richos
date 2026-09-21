@@ -2724,10 +2724,10 @@ impl Spine {
                     // Ledger stays the source of truth: persist the delta BEFORE emitting
                     // — and persist it AT its shared-sequence position, so the
                     // interleaving of text and machinery survives the process (§1.4 G1).
-                    if let Err(e) = ledger.append_assistant_delta(turn_id, c, seq) {
-                        persist_err = Some(e);
-                        return;
-                    }
+                    let at = match ledger.append_assistant_delta(turn_id, c, seq) {
+                        Ok(at) => at,
+                        Err(e) => { persist_err = Some(e); return; }
+                    };
                     // Then emit it live (clean output: assistant text only ever reaches here).
                     if let Some(obs) = observer {
                         obs.on_event(&StreamEvent::Chunk {
@@ -2735,7 +2735,7 @@ impl Spine {
                             turn_id: turn_id.to_string(),
                             seq,
                             text_delta: c.to_string(),
-                            at: now_millis(),
+                            at,
                         });
                     }
                     // ADDITIVE (§13): message-started / message-delta, keyed to the run the

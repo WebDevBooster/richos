@@ -6,6 +6,7 @@ under --out; no model turn is retried automatically. Run --help for inputs.
 """
 import argparse
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -28,6 +29,21 @@ from rollback import exercise
 import importlib.util
 spec=importlib.util.spec_from_file_location('walk_timeline',QA/'timeline.py')
 timeline=importlib.util.module_from_spec(spec);spec.loader.exec_module(timeline)
+
+
+def marker_pattern(token):
+    # OCR can collapse or insert spaces. Do not accept lookalike characters.
+    return r'(?<![a-z0-9])'+r'\s*'.join(map(re.escape,token))+r'(?![a-z0-9])'
+
+
+def visibility(directory, present):
+    directory=Path(directory);record=json.loads((directory/'bounds.json').read_text())
+    bounds=timeline.visibility_bounds(record,present-1,present,1e12)
+    rows=[f for f in record['frames'] if f['number'] in (present-1,present)]
+    for f in rows:
+        if hashlib.sha256((directory/('%04d.png'%f['number'])).read_bytes()).hexdigest()!=f['sha256']:
+            raise Failure('harness failure','frame bytes changed since capture')
+    return bounds['milliseconds']
 
 
 def command(argv,timeout=30):
@@ -109,9 +125,16 @@ class Walk:
             admission=cpu_admission(wait_seconds=self.a.admission_wait_seconds)
         except BlockingIOError as exc:
             raise Failure('prerequisite unavailable',str(exc)+' No send issued.') from exc
+        # Refuse stale layout before spending a turn. Coordinates are screen
+        # coordinates; each capture/crop below relies on this exact placement.
+        for app,want in [('richos-tauri',(0,25,1024,700)),('Safari',(1024,25,656,700))]:
+            node=next((x for x in self.ax('find','--role','AXWindow','--first',app=app) if x.get('role')=='AXWindow'),{})
+            actual=tuple(node.get(k) for k in ('x','y','w','h'))
+            if actual!=want:raise Failure('harness failure','window geometry changed; recalibrate before send: '+str((app,actual,want)))
         number=budget.take() # Counts the attempt even if the send later fails.
         token='probe'+uuid.uuid4().hex[:10]
-        prompt='Reply with these characters joined without spaces: '+' '.join(token)
+        input_token=token[::-1]
+        prompt='Reverse this character sequence and reply with only the reversed sequence: '+input_token
         if switch:prompt+=' Before replying, use your terminal tool to run sleep 12.'
         app='Safari' if origin=='phone' else None
         selector=['--role','AXTextArea','--first']
@@ -139,7 +162,7 @@ class Walk:
             if thread:thread.join(timeout=30)
         # Transfer the immutable sequence once, then perform all analysis locally.
         command([HERE/'guest.sh',self.vm,'--pull',remote,self.out/label],120)
-        row={'number':number,'token':token,'prompt':prompt,'directory':str(self.out/label),'origin':origin,**admission,
+        row={'number':number,'token':token,'input_token':input_token,'prompt':prompt,'directory':str(self.out/label),'origin':origin,**admission,
              'capture':output,'switch':switched}
         (self.out/(label+'.json')).write_text(json.dumps(row,indent=2))
         return row
@@ -152,36 +175,46 @@ class Walk:
         directory=Path(row['directory'])/('b' if side=='phone' else '')
         argv=[sys.executable,QA/'ocr-find.py',pattern,directory,'--first','--quiet','--timeline','--json','--flat']
         r=subprocess.run(list(map(str,argv)),capture_output=True,text=True,timeout=180)
-        if r.returncode==1:raise Failure('product failure','expected event never appeared: '+pattern)
+        if r.returncode==1:raise Failure('harness failure','OCR did not establish the event; inspect retained pixels before judging the product: '+pattern)
         if r.returncode:raise Failure('harness failure',r.stderr)
-        return json.loads(r.stdout.splitlines()[0])
+        hit=json.loads(r.stdout.splitlines()[0])
+        try:hit['milliseconds']=visibility(directory,int(Path(hit['frame']).stem))
+        except (ValueError,KeyError,OSError) as exc:raise Failure('harness failure','event has no verified consecutive absence/presence frames: '+str(exc)) from exc
+        return hit
     def bound(self,values,limit,signed=False):
         evidence={'milliseconds':values,'limit_ms':limit}
         if any((x<0 and not signed) or x>limit for x in values):raise Failure('product failure',json.dumps(evidence))
         return evidence
+    def interval_bound(self,values,limit):
+        evidence={'intervals_ms':values,'limit_ms':limit}
+        if any(lo>limit for lo,hi in values):raise Failure('product failure',json.dumps(evidence))
+        if any(hi>limit for lo,hi in values):raise Failure('harness failure','capture interval straddles target; result unproven: '+json.dumps(evidence))
+        return evidence
     def typed_to_phone(self,step,budget):
-        return self.bound([self.hit(x,re.escape(' '.join(x['token'])),'phone')['offset_ms'] for x in self.samples],step['limit_ms'])
+        return self.interval_bound([self.hit(x,marker_pattern(x['input_token']),'phone')['milliseconds'] for x in self.samples],step['limit_ms'])
     def first_words(self,step,budget):
-        return self.bound([self.hit(x,x['token'])['offset_ms'] for x in self.samples],step['limit_ms'])
+        return self.interval_bound([self.hit(x,marker_pattern(x['token']))['milliseconds'] for x in self.samples],step['limit_ms'])
     def reply_to_phone(self,step,budget):
         x=self.samples[0]
-        return self.bound([self.hit(x,x['token'],'phone')['offset_ms']-self.hit(x,x['token'])['offset_ms']],step['limit_ms'],signed=True)
+        mac=self.hit(x,marker_pattern(x['token']))['milliseconds']
+        phone=self.hit(x,marker_pattern(x['token']),'phone')['milliseconds']
+        return self.interval_bound([[phone[0]-mac[1],phone[1]-mac[0]]],step['limit_ms'])
     def wait_band(self,step,budget):
         x=self.samples[0];directory=Path(x['directory'])/('b' if self.a.band_side=='phone' else '')
         # Full coverage of every captured frame for the negative claim.
-        first=self.hit(x,r'Working|Writing the reply',self.a.band_side)
+        first=self.hit(x,r'(?m)^\s*(?:Rich is working|Writing the reply)[.\s]*$',self.a.band_side)
         result=subprocess.run([str(QA/'ocr-find.sh'),'Nothing.has.come.back',x['directory'],'--quiet'],capture_output=True,text=True,timeout=180)
         if result.returncode==0:raise Failure('product failure','old wait-band detail line appeared')
         if result.returncode!=1:raise Failure('harness failure',result.stderr)
         # Inspect every band-visible desktop frame. OCR is cached from the full scan.
         frames=sorted(directory.glob('*.png'))
-        visible=[f for f in frames if re.search(r'Working|Writing the reply',qaocr.text(f),re.I)]
+        visible=[f for f in frames if re.search(r'(?m)^\s*(?:Rich is working|Writing the reply)[.\s]*$',qaocr.text(f),re.I)]
         if len(visible)<2:raise Failure('prerequisite unavailable','fewer than two band-visible frames')
         boxes=[]
         for frame in visible:
             result=command([sys.executable,QA/'frame.py','box',frame,*map(str,self.a.band_box),self.a.band_color,'--tol','0'])
             match=re.search(r'x (\d+)\.\.(\d+) .* y (\d+)\.\.(\d+)',result)
-            if not match:raise Failure('harness failure','boundary color was not measured')
+            if not match:raise Failure('harness failure','boundary color was not measured; recalibrate the supplied region/color against the current active frame')
             boxes.append(tuple(map(int,match.groups())))
         if len(set(boxes))!=1:raise Failure('product failure','wait-band boundary changed: '+json.dumps(boxes))
         return {'detail_hits':0,'frames':len(frames),'band_visible_frames':len(visible),'band_box':boxes[0]}
@@ -189,7 +222,7 @@ class Walk:
         self.press(self.a.thread_a)
         self.phone=self.capture('phone-0','phone',budget,switch=True)
         self.switch=self.phone['switch']
-        return self.bound([self.hit(self.phone,re.escape(' '.join(self.phone['token'])))['offset_ms']],step['limit_ms'])
+        return self.interval_bound([self.hit(self.phone,marker_pattern(self.phone['input_token']))['milliseconds']],step['limit_ms'])
     def work_chip(self,step,budget):
         if not self.phone or not self.switch or 'failure' in self.switch:raise Failure('prerequisite unavailable','no successful mid-turn switch capture')
         meta,frames=timeline._read_meta(self.phone['directory'])
@@ -211,7 +244,7 @@ class Walk:
         if index==0 or switched_at-frames[index-1][1]>1500:
             raise Failure('harness failure','no frame immediately before the visible switch')
         last=Path(self.phone['directory'])/('%04d.png'%frames[index-1][0])
-        if not re.search(r'Working|Writing the reply',qaocr.text(last),re.I):
+        if not re.search(r'(?m)^\s*(?:Rich is working|Writing the reply)[.\s]*$',qaocr.text(last),re.I):
             raise Failure('prerequisite unavailable','work was not visibly active immediately before the switch')
         chosen=[n for n,t in frames if switched_at<=t<=switched_at+3000]
         if not chosen:raise Failure('harness failure','capture does not cover post-switch interval')

@@ -54,8 +54,8 @@
 	// the attempt after an outage begins lands at t = 1 s, then 3 s, 7 s, 15 s, 31 s, 61 s, and
 	// every 30 s after that. Five attempts inside the first minute, two a minute thereafter.
 	//
-	// Each attempt is at most two requests — one unauthenticated challenge probe and one stream
-	// open — so the worst first minute is 5 signed requests against the Mac's limit of 60 per
+	// A failed stream also makes one authenticated JSON probe (with at most one challenge
+	// retry) to read a revocation refusal. Five retries therefore use at most 15 signed requests against the Mac's limit of 60 per
 	// rolling minute (`device.rs`, RATE_LIMIT = 60), and at most ONE live stream against its limit
 	// of 4 (MAX_STREAMS). A phone that reconnects all day cannot crowd out the phone.
 	//
@@ -163,9 +163,15 @@
 				delta: forward('delta'),
 				state: forward('state'),
 				heartbeat: forward('heartbeat'),
-				error: () => {
+				error: (err) => {
 					if (mine !== generation || stopped) return;
 					dropSource();
+					if (err && err.reason === 'revoked') {
+						stopped = true;
+						cancelRetry();
+						onFailure(err);
+						return;
+					}
 					onState('away');
 					if (handlers.error) handlers.error();
 					scheduleRetry();

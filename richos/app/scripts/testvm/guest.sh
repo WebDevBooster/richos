@@ -93,13 +93,15 @@ case "$1" in
     # -O forces the legacy SCP protocol, for the same reason every other copy in
     # this harness does: some macOS images ship an sftp-server that is disabled,
     # and the modern default fails there without saying why.
+    # Legacy scp passes the remote path through a shell. Quote for that
+    # second parse as well, including spaces and shell metacharacters.
     if [ "$DIRECTION" = "--pull" ]; then
       scp "${TESTVM_SSH_OPTS[@]}" -O -r -i "$TESTVM_SSH_KEY" \
-          "$TESTVM_GUEST_USER@$IP:$SRC" "$DST"
+          "$TESTVM_GUEST_USER@$IP:$(printf '%q' "$SRC")" "$DST"
     else
       [ -e "$SRC" ] || die "no such file on this Mac: $SRC"
       scp "${TESTVM_SSH_OPTS[@]}" -O -r -i "$TESTVM_SSH_KEY" \
-          "$SRC" "$TESTVM_GUEST_USER@$IP:$DST"
+          "$SRC" "$TESTVM_GUEST_USER@$IP:$(printf '%q' "$DST")"
     fi
     exit $?
     ;;

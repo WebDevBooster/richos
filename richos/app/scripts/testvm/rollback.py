@@ -31,7 +31,7 @@ def wait_log(vm,path,needle,seconds=180):
     raise RuntimeError('deadline waiting for '+needle+' in '+path)
 
 
-def exercise(vm,previous,current,endpoint,previous_app=None,check_only=False):
+def exercise(vm,previous,current,endpoint,previous_app=None,check_only=False,progress=None):
     for version in (previous,current):
         if not re.fullmatch(r'[0-9A-Za-z.+-]+',version): raise ValueError('invalid pinned version')
     if previous==current: raise ValueError('previous and current must differ')
@@ -40,8 +40,12 @@ def exercise(vm,previous,current,endpoint,previous_app=None,check_only=False):
         raise ValueError('endpoint must name the pinned current release tag')
     state=Path(os.environ.get('TESTVM_ROOT',str(Path.home()/'.richos-testvm')))/'run'/vm
     payload=(state/'payload').read_text().strip();home=payload+'/home'
-    env={'RICHOS_UPDATE_ENDPOINT':endpoint}
+    # A retained development override cannot prove either release's engine pin.
+    env={'RICHOS_UPDATE_ENDPOINT':endpoint,'RICHOS_ENGINE_DIR':'','RICHOS_ENGINE_ROOT':''}
     result={'previous':previous,'current':current,'steps':[]}
+    def step(record):
+        result['steps'].append(record)
+        if progress:progress(result)
     if check_only:
         try:result['receipts']=receipts(vm,home)
         except (RuntimeError,KeyError,ValueError) as exc:
@@ -59,30 +63,31 @@ def exercise(vm,previous,current,endpoint,previous_app=None,check_only=False):
     guest(vm,'mkdir -p '+shlex.quote(home+'/Applications')+' && ditto '+shlex.quote(previous_app)+' '+shlex.quote(dest),120)
     started=relaunch(vm,dest,{**env,'RICHOS_UPDATE_SELFTEST':'install'})
     log=wait_log(vm,started['log'],'RICHOS-UPDATE-SELFTEST exit=')
-    result['steps'].append({'action':'update','log':log})
+    step({'action':'update','log':log})
     if 'RICHOS-UPDATE-SELFTEST exit=0' not in log: raise Failure('product failure','real update did not stage successfully: '+log)
     activated=relaunch(vm,dest,env)
     time.sleep(2)
     record=receipts(vm,home)
     if record!={'current':current,'previous':previous}:raise Failure('product failure','real update did not produce the expected history: '+str(record))
     boot=guest(vm,'cat '+shlex.quote(activated['log']))
+    step({'action':'activate','receipts':record,'log':boot})
     if '[richos] update activated: '+previous+' -> '+current not in boot:
         raise Failure('product failure','update boot log does not name the exact activation direction')
-    result['steps'].append({'action':'activate','receipts':record,'log':boot})
     started=relaunch(vm,dest,{**env,'RICHOS_UPDATE_SELFTEST':'rollback'})
     log=wait_log(vm,started['log'],'RICHOS-UPDATE-SELFTEST exit=')
+    step({'action':'stage-rollback','log':log})
     if 'RICHOS-UPDATE-SELFTEST exit=0' not in log: raise Failure('product failure','real rollback did not stage successfully: '+log)
     activated=relaunch(vm,dest,env);time.sleep(2)
     boot=guest(vm,'cat '+shlex.quote(activated['log']))
     record=receipts(vm,home)
     if record!={'current':previous,'previous':current}:raise Failure('product failure','rollback did not exchange the expected releases')
+    step({'action':'rollback','receipts':record,'log':boot})
     if '[richos] rollback activated: '+current+' -> '+previous not in boot:
         raise Failure('product failure','rollback boot log does not name the exact activation direction')
-    result['steps'].append({'action':'rollback','receipts':record,'log':boot})
     started=relaunch(vm,dest,{**env,'RICHOS_UPDATE_SELFTEST':'check'})
     log=wait_log(vm,started['log'],'RICHOS-UPDATE-SELFTEST exit=')
     if 'available='+current not in log or 'back=-' not in log:raise Failure('product failure','rollback did not restore update offer with no second rollback')
-    result['steps'].append({'action':'check-again','log':log})
+    step({'action':'check-again','log':log})
     return result
 
 
@@ -92,9 +97,13 @@ if __name__=='__main__':
     p.add_argument('--endpoint',required=True);p.add_argument('--previous-app');p.add_argument('--check-only',action='store_true')
     p.add_argument('--output',type=Path,required=True)
     a=p.parse_args()
+    partial={}
+    def save(result):
+        partial.update(result)
+        a.output.write_text(json.dumps({'outcome':'in progress',**partial},indent=2))
     try:
-        result=exercise(a.vm,a.previous,a.current,a.endpoint,a.previous_app,a.check_only)
+        result=exercise(a.vm,a.previous,a.current,a.endpoint,a.previous_app,a.check_only,save)
         a.output.write_text(json.dumps({'outcome':'PASS',**result},indent=2));print(a.output)
     except (Failure,ValueError,RuntimeError,OSError,KeyError) as exc:
-        a.output.write_text(json.dumps({'outcome':getattr(exc,'outcome','prerequisite unavailable' if a.check_only else 'harness failure'),'detail':str(exc)},indent=2))
+        a.output.write_text(json.dumps({**partial,'outcome':getattr(exc,'outcome','prerequisite unavailable' if a.check_only else 'harness failure'),'detail':str(exc)},indent=2))
         print(str(exc),file=sys.stderr);sys.exit(2)

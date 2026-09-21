@@ -125,6 +125,20 @@ function axSearch(roots, P, api) {
 function run() {
   var P = AX_PARAMS, se = Application("System Events"), proc, wins;
   function get(el, attr, fallback) { try { return el[attr](); } catch(e) { return fallback; } }
+  // AXValue may be an object specifier whose coercion itself raises. Export
+  // only JSON scalars; an unsupported attribute must not abort the whole tree.
+  function scalar(el, name, fallback, attribute) {
+    try {
+      var v = attribute ? attr(el,name,fallback) : get(el,name,fallback);
+      return typeof v === "string" || typeof v === "boolean" ||
+        (typeof v === "number" && isFinite(v)) ? v : fallback;
+    } catch(e) { return fallback; }
+  }
+  function text(el, name) { return String(scalar(el,name,"")); }
+  function coordinate(el, name, index) {
+    try { var v=get(el,name,[])[index]; return typeof v === "number" && isFinite(v) ? v : null; }
+    catch(e) { return null; }
+  }
   function attr(el, name, fallback) { try { return el.attributes.byName(name).value(); } catch(e) { return fallback; } }
   function error(code, detail) { return JSON.stringify({error:code, detail:String(detail)}); }
   try {
@@ -158,22 +172,24 @@ function run() {
   function match(el) {
     if (P.role && get(el,"role","") !== P.role) return false;
     if (P.sub && get(el,"subrole","") !== P.sub) return false;
-    if (P.text !== null && !axTextHit(P, get(el,"title",""), P.text) && !axTextHit(P, get(el,"description",""), P.text)) return false;
-    if (P.value !== null && !axTextHit(P, String(get(el,"value","")), P.value)) return false;
+    if (P.text !== null && !axTextHit(P, text(el,"title"), P.text) && !axTextHit(P, text(el,"description"), P.text)) return false;
+    if (P.value !== null && !axTextHit(P, text(el,"value"), P.value)) return false;
     return true;
   }
   function scope(el, which) {
     var role = get(el,"role","");
     if (which === "dialog") return role === "AXSheet" || (role === "AXGroup" && get(el,"subrole","") === "AXApplicationDialog");
     if (which === "composer") return role === "AXTextArea" || (role === "AXGroup" && attr(el,"AXDOMIdentifier","") === "composer");
-    if (which === "sidebar") return role === "AXGroup" && (get(el,"description","") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail");
+    if (which === "sidebar") return role === "AXGroup" && (text(el,"description") === "Entities and threads" || attr(el,"AXDOMIdentifier","") === "rail");
     return false;
   }
   function full(q) {
-    var el=q.el, pos=get(el,"position",[]), size=get(el,"size",[]);
-    return {d:q.d,role:get(el,"role",""),sub:get(el,"subrole",""),title:get(el,"title",""),
-      desc:get(el,"description",""),value:String(get(el,"value","")).slice(0,203),enabled:get(el,"enabled",null),current:attr(el,"AXARIACurrent",null),selected:get(el,"selected",null),
-      x:pos[0],y:pos[1],w:size[0],h:size[1]};
+    var el=q.el;
+    return {d:q.d,role:text(el,"role"),sub:text(el,"subrole"),title:text(el,"title"),
+      desc:text(el,"description"),value:text(el,"value").slice(0,203),
+      enabled:scalar(el,"enabled",null),current:scalar(el,"AXARIACurrent",null,true),selected:scalar(el,"selected",null),
+      x:coordinate(el,"position",0),y:coordinate(el,"position",1),
+      w:coordinate(el,"size",0),h:coordinate(el,"size",1)};
   }
   function missing(detail) {
     // A modal web dialog hides the underlying composer from the AX tree.
@@ -228,19 +244,28 @@ function run() {
     el.focused = true;
     if (!front() || !get(el,"focused",false)) return meta+"\n"+error("focusfailed", "target did not receive focus; no text sent");
     if (P.mode === "type") {
-      if (P.replace) se.keystroke("a", {using:"command down"});
-      se.keystroke(P.input);
+      // Paste literal text so macOS smart quotes cannot rewrite instructions.
+      // This tool runs only in the owned guest. Preserve its text clipboard and
+      // refuse before changing it if it cannot be read as text.
+      var clipboardApp=Application.currentApplication(); clipboardApp.includeStandardAdditions=true;
+      var savedClipboard=clipboardApp.theClipboard();
+      if (typeof savedClipboard !== "string") return meta+"\n"+error("typefailed", "guest clipboard is not text; left unchanged");
+      try {
+        clipboardApp.setTheClipboardTo(P.input);
+        if (P.replace) se.keystroke("a", {using:"command down"});
+        se.keystroke("v", {using:"command down"});
       // WebKit updates AXValue asynchronously after System Events returns.
       // Observe the effect without resending text; the outer deadline still
       // bounds this entire operation, including these short verification polls.
       var value, verified=false;
       for (var attempt=0; attempt<20; attempt++) {
-        value=String(get(el,"value",""));
+        value=text(el,"value");
         verified=P.replace ? value === P.input : value.indexOf(P.input) >= 0;
         if (verified) break;
         delay(0.05);
       }
-      if (!verified) return meta+"\n"+error("typefailed", "field value does not contain the requested text");
+        if (!verified) return meta+"\n"+error("typefailed", "field value does not contain the requested text");
+      } finally { clipboardApp.setTheClipboardTo(savedClipboard); }
     }
     return meta+"\n"+JSON.stringify({action:P.mode,verified:true,node:full(target)});
   } catch(e) { return meta+"\n"+error(P.mode+"failed", e); }

@@ -174,9 +174,15 @@ def carried_obligation(scope):
     return carried
 
 
+class RunFailure(ValueError):
+    def __init__(self, result):
+        super().__init__((result.stderr or result.stdout or "engine operation refused")[-12000:])
+        self.stdout = result.stdout
+
+
 def run(command, *, body=None, cwd=None):
     result = subprocess.run(command, input=body, text=True, capture_output=True, cwd=cwd, timeout=120)
-    if result.returncode: raise ValueError((result.stderr or result.stdout or "engine operation refused")[-12000:])
+    if result.returncode: raise RunFailure(result)
     return result.stdout
 
 
@@ -436,8 +442,19 @@ def prepare(scope_path, scope, args):
         base_value = record.get("review_target", record.get("continuation", {})).get("commit", base_value)
         command = build_spawn_command(repo_dests, name, role, brief_path, title,
                                        integration=args.get("integration"), base=base_value)
+        preparation_refused = False
         try:
-            ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
+            try:
+                ready = json.loads(run(command,cwd=os.environ["RICHOS_ENTITY_ROOT"]))
+            except RunFailure as error:
+                # Trust the spawn producer's structured preflight result, never prose.
+                # Other failures remain unknown because creation may already have happened.
+                try:
+                    outcome = json.loads(error.stdout)
+                except (ValueError, TypeError):
+                    outcome = None
+                preparation_refused = outcome == {"ready": False, "phase": "preflight", "created": []}
+                raise
             read_scope(scope_path)  # Stop cannot turn preparation into permission to dispatch.
             if ready.get("ready") is not True or any(g.get("verdict") != "ok" for g in ready.get("guards",[])):
                 # THE APP'S OWN WORDS, because this sentence can reach a person.
@@ -477,7 +494,9 @@ def prepare(scope_path, scope, args):
             return view(record,include_payload=True)
         except Exception as error:
             # Workspace creation may already have happened. Never claim rollback here.
-            record.update(status="unknown",problem=str(error)[-12000:]);save(path,record)
+            record.update(status="blocked" if preparation_refused else "unknown", problem=str(error)[-12000:])
+            if preparation_refused: record["preparation_refused"] = True
+            save(path,record)
             raise
 
 
@@ -841,6 +860,12 @@ def land_lock(scope, repo):
         handle.close()
 
 
+def require_current_assignment(scope, record):
+    obligation = carried_obligation(scope)
+    if obligation is not None and record.get("request", {}).get("obligation_id") != obligation:
+        raise ValueError("receipt belongs to another assignment; prepare work for the assignment this connection carries")
+
+
 def integrate(scope_path,scope,args):
     if set(args)!={"worker_id","reviewer_id"}: raise ValueError("integration needs the worker and reviewer receipts")
     # The repository is read under this conversation's own receipt lock, which
@@ -849,16 +874,21 @@ def integrate(scope_path,scope,args):
     # across this one's prepare/inspect/observe. Nothing but the repository path
     # crosses the gap, and it is asserted again on the far side.
     with locked(scope) as root:
-        repository=read_record(root,args["worker_id"])["request"]["repo"]
+        worker=read_record(root,args["worker_id"])
+        require_current_assignment(scope,worker)
+        require_current_assignment(scope,read_record(root,args["reviewer_id"]))
+        repository=worker["request"]["repo"]
     with land_lock(scope,repository) as land:
         with locked(scope) as root:
             worker=refresh(read_record(root,args["worker_id"]))
+            require_current_assignment(scope,worker)
             # The repository is fixed on a receipt at prepare time, so this can
             # only be an impossible state -- and an unchecked impossible state
             # here would mean landing one repository under another's lock.
             if worker["request"]["repo"]!=repository:
                 raise ValueError("this receipt named another repository between being read and being locked")
             reviewer=refresh(read_record(root,args["reviewer_id"]))
+            require_current_assignment(scope,reviewer)
             path=root/(worker["id"]+".json")
             existing=worker.get("integration")
             if existing and existing["reviewer_id"] != reviewer["id"]:
@@ -1202,7 +1232,9 @@ def call(scope_path, name, args):
         offset,limit = args.get("offset",0),args.get("limit",20)
         if type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=50: raise ValueError("invalid inspection page")
         with locked(scope) as root:
-            rows = list(receipts(root)); result=[]
+            obligation = carried_obligation(scope)
+            rows = [(path,record) for path,record in receipts(root)
+                    if obligation is None or record["request"]["obligation_id"] == obligation]; result=[]
             for path,record in rows[offset:offset+limit]:
                 refresh(record);save(path,record);project(scope,path,record);result.append(view(record))
             page = {"records":result,"next_offset":offset+limit if offset+limit<len(rows) else None}

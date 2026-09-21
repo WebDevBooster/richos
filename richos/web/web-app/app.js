@@ -362,6 +362,7 @@ function makeLink() {
 	return globalThis.RichOSLink.createLink({
 		open: (handlers) => api.openEvents(currentThreadId, thread.latestCursor(), handlers),
 		refresh: () => api.refreshChallenge(),
+		onFailure: handleApiError,
 
 		// The sentence on screen, and nothing else decides it.
 		onState: (which) => {

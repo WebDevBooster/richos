@@ -498,18 +498,24 @@
 				};
 				['hello', 'message', 'delta', 'state', 'heartbeat'].forEach(wire);
 				source.onopen = () => { if (handlers.open) handlers.open(); };
-				// STILL A REPORT AND NEVER A RECONNECT, and the reason has changed.
-				//
-				// It used to be "an `EventSource` reconnects by itself, so leave it to the browser".
-				// It does, and that is now the defect rather than the feature: the browser reopens
-				// the URL IT WAS GIVEN, and this URL carries a signature over a challenge that is
-				// dead ten minutes later. So the browser's loop reconnects forever to a Mac that
-				// refuses it, and never learns why, because an `EventSource` cannot read a header.
-				//
-				// The owner above this file (`lib/link.js`) answers this by CLOSING the source,
-				// which is what stops the browser's own retry, and opening a newly signed one under
-				// backoff. Exactly one loop, and it is not this one.
-				source.onerror = () => { if (handlers.error) handlers.error(); };
+				// EventSource hides HTTP refusal bodies. Stop its built-in retry immediately,
+				// then ask the same authenticated route for an empty JSON page to distinguish
+				// a forgotten phone from a temporary network failure.
+				let closed = false;
+				let probing = false;
+				const closeSource = source.close.bind(source);
+				source.close = () => { closed = true; closeSource(); };
+				source.onerror = async () => {
+					if (closed || probing) return;
+					probing = true;
+					closeSource();
+					let refusal;
+					try {
+						await json('GET', '/api/events' + query({ thread_id: threadId, before: 0, limit: 1 }),
+							undefined, undefined, { credential: 'query' });
+					} catch (err) { if (err.reason === REVOKED) refusal = err; }
+					if (!closed && handlers.error) handlers.error(refusal);
+				};
 				return source;
 			},
 

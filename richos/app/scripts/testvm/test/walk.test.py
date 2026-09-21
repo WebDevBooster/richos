@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -52,6 +53,21 @@ class WalkTests(unittest.TestCase):
             with patch.object(rollback,'receipts',side_effect=RuntimeError('missing')),patch.object(rollback,'relaunch') as launch:
                 with self.assertRaises(Failure) as raised:rollback.exercise('demo','1.0.1','1.0.2','https://example.invalid/releases/download/v1.0.2/update.json',check_only=True)
                 self.assertEqual(raised.exception.outcome,'prerequisite unavailable');launch.assert_not_called()
+    def test_rollback_keeps_partial_evidence_and_clears_development_engine_override(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,TESTVM_ROOT=tmp):
+            state=Path(tmp)/'run/demo';state.mkdir(parents=True);(state/'payload').write_text('/Users/admin/testvm/demo')
+            evidence=[];launches=[]
+            def guest(vm,command,*args):
+                if 'PlistBuddy' in command:return '1.0.1'
+                if command.startswith('cat '):return 'boot without activation marker'
+                return ''
+            def launch(vm,app,env):launches.append(env);return {'log':'/guest/boot.log'}
+            with patch.object(rollback,'guest',side_effect=guest),patch.object(rollback,'relaunch',side_effect=launch),patch.object(rollback,'wait_log',return_value='RICHOS-UPDATE-SELFTEST exit=0'),patch.object(rollback,'receipts',return_value={'current':'1.0.2','previous':'1.0.1'}),patch.object(rollback.time,'sleep'):
+                with self.assertRaisesRegex(Failure,'activation direction'):
+                    rollback.exercise('demo','1.0.1','1.0.2','https://example.invalid/releases/download/v1.0.2/latest.json','/guest/Old.app',progress=lambda r:evidence.append(json.loads(json.dumps(r))))
+            self.assertEqual([s['action'] for s in evidence[-1]['steps']],['update','activate'])
+            self.assertEqual(evidence[-1]['steps'][-1]['log'],'boot without activation marker')
+            self.assertTrue(all(e['RICHOS_ENGINE_DIR']=='' and e['RICHOS_ENGINE_ROOT']=='' for e in launches))
     def test_rollback_rejects_moving_channel_before_accessing_guest(self):
         with patch.object(rollback,'guest') as guest:
             with self.assertRaises(ValueError):rollback.exercise('demo','1.0.1','1.0.2','https://example.invalid/latest.json')
@@ -75,6 +91,21 @@ class WalkTests(unittest.TestCase):
         self.assertEqual(w.bound([-100,500],1000,signed=True)['milliseconds'],[-100,500])
         with self.assertRaises(Failure):w.bound([-100],1000)
         with self.assertRaises(Failure):w.bound([1001],1000)
+    def test_ocr_marker_separates_the_prompt_and_tolerates_only_spacing(self):
+        walk=module('delta-walk');token='probeabcdef'
+        pattern=re.compile(walk.marker_pattern(token),re.I)
+        self.assertIsNone(pattern.search('Reverse this sequence: '+token[::-1]))
+        self.assertIsNotNone(pattern.search(' '.join(token)))
+        self.assertIsNotNone(pattern.search(token))
+        self.assertIsNone(pattern.search(token.replace('b','6')))
+        self.assertIsNone(pattern.search('x'+token+'x'))
+    def test_timing_interval_refuses_uncertainty_and_subtracts_conservatively(self):
+        walk=module('delta-walk');w=object.__new__(walk.Walk)
+        self.assertEqual(w.interval_bound([[0,100]],100)['intervals_ms'],[[0,100]])
+        with self.assertRaises(Failure) as raised:w.interval_bound([[99,101]],100)
+        self.assertEqual(raised.exception.outcome,'harness failure')
+        with self.assertRaises(Failure) as raised:w.interval_bound([[101,102]],100)
+        self.assertEqual(raised.exception.outcome,'product failure')
     def test_deadline_preserves_stdout_stderr_and_status(self):
         r=subprocess.run([sys.executable,str(HERE/'ax-deadline.py'),'3',sys.executable,'-c','import sys;print("partial");print("cause",file=sys.stderr);sys.exit(17)'],input=b'',capture_output=True)
         self.assertEqual(r.returncode,17);self.assertIn(b'partial',r.stdout);self.assertIn(b'cause',r.stderr)
@@ -108,7 +139,7 @@ class WalkTests(unittest.TestCase):
             def read(path,active=True):
                 name=Path(path).name
                 if name.startswith('switch-header-'):return 'Scenario B' if int(name[-8:-4])>=4 else 'Scenario A'
-                if name=='0003.png':return 'Working' if active else 'Done'
+                if name=='0003.png':return 'Rich is working' if active else 'Done'
                 return ''
             with patch.object(driver.timeline,'_read_meta',return_value=({},frames)),patch.object(driver.qaimg,'load',return_value=img),patch.object(driver.qaimg,'save'),patch.object(driver.qaocr,'text',side_effect=read):
                 self.assertEqual(w.work_chip({},None)['visible_switch_ms'],400)

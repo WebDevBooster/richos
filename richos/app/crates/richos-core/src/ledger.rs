@@ -1739,16 +1739,19 @@ impl Ledger {
     /// `seq` is not invented here: it is the value the lease assigned at its drain point
     /// and handed over on `TurnItem::Text` (§1.4 G1). The spine passes it straight
     /// through, so there is still exactly ONE counter in the system.
-    pub fn append_assistant_delta(&mut self, turn_id: &str, text: &str, seq: u64) -> Result<(), LedgerError> {
+    /// Returns the persisted event timestamp for the live event and emission trace.
+    pub fn append_assistant_delta(&mut self, turn_id: &str, text: &str, seq: u64) -> Result<u64, LedgerError> {
+        let at = now_millis();
         self.append(
             Event::AssistantDelta {
                 turn_id: turn_id.to_string(),
                 text: text.to_string(),
-                at: now_millis(),
+                at,
                 seq: Some(seq),
             },
             false,
-        )
+        )?;
+        Ok(at)
     }
 
     pub fn complete_turn(&mut self, turn_id: &str, stop_reason: &str) -> Result<(), LedgerError> {

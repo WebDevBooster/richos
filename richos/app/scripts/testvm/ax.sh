@@ -429,7 +429,8 @@ case "${1:-}" in
     [ -n "$PID" ] || die "no app pid recorded for $VM"
     case "$CODE" in *[!0-9]*) die "keycode must be numeric" ;; esac
     SCRIPT="tell application \"System Events\"
-      if unix id of first process whose frontmost is true is not $PID then error \"refusing to send a key to another process\"
+      set frontProcess to first process whose frontmost is true
+      if (unix id of frontProcess) is not $PID then error \"refusing to send a key to another process\"
       key code $CODE
     end tell"
     ;;

@@ -1238,6 +1238,27 @@ t "guest.sh --push: the host side is the source, and it must exist here first"
   has "$(cat "$TMP/guest.err")" "no such file on this Mac"
 t_done
 
+t "guest.sh copies literal remote paths through legacy scp's shell parse"
+  : > "$TMP/scp.log"
+  # $HOME is an intentional literal remote filename.
+  # shellcheck disable=SC2016
+  PATH="$TMP/bin:$PATH" FAKE_SCP_LOG="$TMP/scp.log" \
+    "$TESTVM_DIR/guest.sh" "$GVM" --pull '/Users/admin/Application Support/$HOME' "$TMP/app.log" >/dev/null 2>&1
+  ok $?
+  # Assert the literal escaped remote filename.
+  # shellcheck disable=SC2016
+  has "$(cat "$TMP/scp.log")" 'admin@10.0.0.9:/Users/admin/Application\ Support/\$HOME'
+  : > "$TMP/scp.log"
+  # $HOME is an intentional literal remote filename.
+  # shellcheck disable=SC2016
+  PATH="$TMP/bin:$PATH" FAKE_SCP_LOG="$TMP/scp.log" \
+    "$TESTVM_DIR/guest.sh" "$GVM" --push "$TMP/payload.txt" '/Users/admin/Application Support/$HOME' >/dev/null 2>&1
+  ok $?
+  # Assert the literal escaped remote filename.
+  # shellcheck disable=SC2016
+  has "$(cat "$TMP/scp.log")" 'admin@10.0.0.9:/Users/admin/Application\ Support/\$HOME'
+t_done
+
 t "guest.sh: a copy with one path is refused, and names both"
   PATH="$TMP/bin:$PATH" "$TESTVM_DIR/guest.sh" "$GVM" --pull /only/one >/dev/null 2>"$TMP/guest.err"
   no $?

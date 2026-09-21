@@ -3653,6 +3653,7 @@ function renderVoiceState(state, noAudio) {
 // that ends a turn; nothing here times out and nothing discards.
 let voiceBusy = false;
 let heldWorkNotices = [];
+const workNoticeDrains = new Map();
 
 /// Can a background result be said right now? A live turn or a live voice exchange means no.
 function calmEnoughForANotice() {
@@ -3669,28 +3670,29 @@ function calmEnoughForANotice() {
 /// failures raised at `08:13:10Z` and `08:14` come back, after the relaunch at `08:19:35Z`,
 /// BELOW an answer given at about `08:16` — "his scrollback no longer matches the order of
 /// events". Omitted (the live `rich://` lane, a relayed refusal) it still means now.
-function sayWorkNotice(text, raisedAt) {
+function sayWorkNotice(text, raisedAt, model = timelineModel) {
   if (!text) return;
-  richVoiceSays(text, raisedAt);
+  window.RichTimeline.addLocalNotice(model, text, typeof raisedAt === "number" ? raisedAt : Date.now());
+  if (model === timelineModel) { followBottom = true; scheduleRender(); }
 }
 
 function flushWorkNotices() {
   if (!heldWorkNotices.length || !calmEnoughForANotice()) return;
   const pending = heldWorkNotices;
   heldWorkNotices = [];
-  for (const held of pending) sayWorkNotice(held.text, held.raisedAt);
+  for (const held of pending) sayWorkNotice(held.text, held.raisedAt, held.model);
 }
 
-function receiveWorkNotice(text, raisedAt) {
+function receiveWorkNotice(text, raisedAt, model = timelineModel) {
   if (!text) return;
   // HELD WITH ITS OWN TIME. A notice that waits for a turn boundary can wait minutes, and
   // stamping it at the moment the boundary arrives would misplace it for the same reason the
   // relaunch did.
   if (!calmEnoughForANotice()) {
-    heldWorkNotices.push({ text, raisedAt });
+    heldWorkNotices.push({ text, raisedAt, model });
     return;
   }
-  sayWorkNotice(text, raisedAt);
+  sayWorkNotice(text, raisedAt, model);
 }
 
 /// Everything he has not been told yet on this conversation. Called when a thread opens and
@@ -3698,19 +3700,21 @@ function receiveWorkNotice(text, raisedAt) {
 /// marks each notice delivered as it hands it over, so this can be called freely and he
 /// still hears each one exactly once.
 async function drainWorkNotices() {
-  if (!activeThreadId) return;
-  let pending = [];
-  try {
-    pending = await Bridge.invoke("take_work_notices", {threadId: activeThreadId});
-  } catch (error) {
-    // "Another conversation is working" and "your assignments are changing" are both
-    // honest, temporary answers (§3.2). The notices stay on disk; the next call gets them.
-    return;
-  }
-  // `raisedAtMs` comes straight off `assignment::PendingNotice` and is what puts the card where
-  // it happened rather than at the end of his thread (audit-7 row 9). These are the notices that
-  // may be OLD — this read is the durable half, and it is the one a relaunch takes.
-  for (const notice of pending || []) receiveWorkNotice(notice.text, notice.raisedAtMs);
+  const model = timelineModel;
+  const threadId = activeThreadId;
+  if (!threadId || model.threadId !== threadId) return;
+  // Pushes wake the same durable consumer as thread-open and turn-end. Serialize
+  // reads per thread so overlapping wakeups cannot both claim the same notice.
+  const previous = workNoticeDrains.get(threadId) || Promise.resolve();
+  const drain = previous.then(async () => {
+    let pending;
+    try { pending = await Bridge.invoke("take_work_notices", {threadId}); }
+    catch (_) { return; } // Still durable; a later boundary can collect it.
+    for (const notice of pending || []) receiveWorkNotice(notice.text, notice.raisedAtMs, model);
+  });
+  workNoticeDrains.set(threadId, drain);
+  try { await drain; }
+  finally { if (workNoticeDrains.get(threadId) === drain) workNoticeDrains.delete(threadId); }
 }
 
 /// A line Rich says LOCALLY — a voice-mode failure he explains himself. Not a turn and not
@@ -4152,7 +4156,7 @@ Bridge.listen("rich://voice-notice", ({ payload }) => {
 Bridge.listen("rich://work-notice", ({ payload }) => {
   if (!payload || !payload.notice || !payload.notice.text) return;
   if (payload.threadId !== activeThreadId) return;
-  receiveWorkNotice(payload.notice.text, payload.notice.raisedAtMs);
+  drainWorkNotices();
 });
 
 // Relay the reply stream to the speaker. Separate listeners so the render path above is
