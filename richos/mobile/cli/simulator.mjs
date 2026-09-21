@@ -54,23 +54,30 @@ export function stageAssets(destination, development, allowedContainer) {
   mkdirSync(destination, { recursive: true });
   const files = { 'queue.js': '../web/web-app/lib/queue.js', 'app.js': 'core/app.js', 'view.js': 'ui/view.js',
     'style.css': 'ui/style.css', 'entry.js': development ? 'dev/entry.js' : 'ui/entry.js' };
-  if (development) files['runtime.js'] = 'dev/runtime.js';
+  if (development) { files['runtime.js'] = 'dev/runtime.js'; files['client-inspect.js'] = 'dev/client-inspect.js'; }
+  {
+    files['client.html'] = 'ui/client.html';
+    Object.assign(files, { 'client.js': 'core/client.js', 'native.js': 'platform/native.js', 'client-entry.js': 'ui/client-entry.js' });
+    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
+  }
   for (const [name, source] of Object.entries(files)) copyFileSync(join(mobile, source), join(destination, name));
+  const clientHTML = readFileSync(join(mobile, 'ui/client.html'), 'utf8').replace('<!-- CLIENT_DEV -->', development ? '<script src="client-inspect.js"></script>' : '');
+  writeFileSync(join(destination, 'client.html'), clientHTML);
   const entry = (development ? '<script src="runtime.js"></script>\n  ' : '') + '<script src="entry.js"></script>';
-  writeFileSync(join(destination, 'index.html'), readFileSync(join(mobile, 'ui/index.html'), 'utf8').replace('<!-- ENTRY -->', entry));
+  writeFileSync(join(destination, 'index.html'), (development ? readFileSync(join(mobile, 'ui/index.html'), 'utf8') : clientHTML).replace('<!-- ENTRY -->', entry));
 }
 function plist(content) { return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>${content}</dict></plist>`; }
-function project() {
+export function project() {
   const cache = cacheRoot();
   const output = join(cache, 'project');
   mkdirSync(output, { recursive: true });
-  const base = '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.0.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
+  const base = '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>0.0.0</string><key>CFBundleVersion</key><string>1</string><key>LSRequiresIPhoneOS</key><true/><key>NSMicrophoneUsageDescription</key><string>Record a voice message for Rich.</string><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
   writeFileSync(join(output, 'Debug.plist'), plist(base));
   writeFileSync(join(output, 'Release.plist'), plist(base));
   const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
   const spec = {
     name: 'RichOSMobile', options: { deploymentTarget: { iOS: '16.7' } },
-    settings: { base: { SWIFT_VERSION: '5.0', CODE_SIGNING_ALLOWED: 'NO', TARGETED_DEVICE_FAMILY: '1', ENABLE_USER_SCRIPT_SANDBOXING: 'NO' } },
+    settings: { base: { SWIFT_VERSION: '5.0', CODE_SIGNING_ALLOWED: 'YES', CODE_SIGN_IDENTITY: '-', TARGETED_DEVICE_FAMILY: '1', ENABLE_USER_SCRIPT_SANDBOXING: 'NO' } },
     targets: {
       RichOSMobile: { type: 'application', platform: 'iOS', sources: [{ path: join(mobile, 'ios/Sources') }],
         settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: bundleId }, configs: {
@@ -84,6 +91,15 @@ function project() {
     },
     schemes: { RichOSMobile: { build: { targets: { RichOSMobile: 'all' } }, test: { targets: ['RichOSMobileUITests'], gatherCoverageData: false } } }
   };
+  const testConfig = process.env.RICHOS_MOBILE_TEST_CONFIG;
+  if (testConfig) {
+    const source = realpathSync(testConfig);
+    if (!source.startsWith(realpathSync('/Volumes/E1TB') + '/')) throw new Error('Test configuration must be on the external SSD');
+    JSON.parse(readFileSync(source, 'utf8'));
+    const destination = join(output, 'native-test-config.json');
+    copyFileSync(source, destination);
+    spec.targets.RichOSMobileUITests.sources.push({ path: destination, buildPhase: 'resources' });
+  }
   const specPath = join(output, 'project.json');
   const serialized = JSON.stringify(spec, null, 2);
   if (!existsSync(specPath) || readFileSync(specPath, 'utf8') !== serialized || !existsSync(join(output, 'RichOSMobile.xcodeproj'))) {
@@ -98,7 +114,7 @@ export function build(configuration = 'Debug', extra = []) {
   const log = join(cache, `build-${configuration}.log`);
   const args = ['-project', project(), '-scheme', 'RichOSMobile', '-configuration', configuration,
     '-derivedDataPath', join(cache, 'derived-data'), '-sdk', 'iphonesimulator',
-    '-destination', 'generic/platform=iOS Simulator', 'CODE_SIGNING_ALLOWED=NO', ...extra, 'build'];
+    '-destination', 'generic/platform=iOS Simulator', 'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', ...extra, 'build'];
   run('xcodebuild', args, { log });
   return { app: join(cache, 'derived-data', 'Build/Products', `${configuration}-iphonesimulator/RichOSMobile.app`), log };
 }
@@ -146,15 +162,16 @@ export async function request(payload, refresh = false) {
     return response.result;
   } finally { rmSync(input, { force: true }); rmSync(output, { force: true }); }
 }
-export async function prepare() {
+export async function prepare(client = false) {
   const compiled = build();
   const id = boot();
   simctl('install', id, compiled.app);
   const sandbox = container(id);
   stageAssets(join(sandbox, 'Documents', 'mobile-ui'), true, sandbox);
-  simctl('launch', '--terminate-running-process', id, bundleId);
+  simctl('launch', '--terminate-running-process', id, bundleId, ...(client ? ['--native-client'] : []));
   return { ...compiled, device: id, ...(await request({ command: 'state' })) };
 }
+export async function prepareClient() { return prepare(true); }
 export async function refresh() {
   const sandbox = container(device());
   stageAssets(join(sandbox, 'Documents', 'mobile-ui'), true, sandbox);
@@ -190,7 +207,7 @@ export async function uiTest() {
   const log = join(cache, 'ui-test.log');
   run('xcodebuild', ['-project', project(), '-scheme', 'RichOSMobile', '-configuration', 'Debug', '-derivedDataPath', join(cache, 'derived-data'),
     '-destination', `platform=iOS Simulator,id=${device()}`, '-parallel-testing-enabled', 'NO', '-resultBundlePath', result,
-    'CODE_SIGNING_ALLOWED=NO', 'test'], { log });
+    'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'test'], { log });
   // XCUITest terminates its app on completion. Relaunch to inspect durable state.
   const { state } = await restart();
   assert.equal(state.outbox.length, 1);

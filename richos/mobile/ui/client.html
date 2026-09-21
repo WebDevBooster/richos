@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'"><title>RichOS</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><h1>RichOS</h1><p id="connection" role="status">Opening…</p></header>
+<section id="pairing"><form id="pair-form"><label for="pair-link">Pairing link from your Mac</label><input id="pair-link" type="url" autocomplete="off" autocapitalize="none" placeholder="https://…/#pair=…"><button type="submit">Pair with Mac</button></form>
+<div id="fingerprint" hidden><p>Compare these words with your Mac:</p><p id="words"></p><button id="confirm">They match</button><button id="reject">They do not match</button></div></section>
+<label for="thread">Conversation</label><select id="thread" aria-label="Conversation"></select><ul id="history" aria-label="Conversation messages"></ul>
+<form id="composer"><label for="message">Message</label><textarea id="message" aria-label="Message" placeholder="Talk to Rich" rows="3"></textarea><div class="actions"><button id="send" type="submit">Send</button><button id="retry" type="button">Retry</button></div></form>
+<ul id="outbox" aria-label="Messages waiting to send"></ul>
+<section><h2>Voice recording</h2><p id="record-status" role="status"></p><div class="actions"><button id="record-start">Record</button><button id="record-stop">Stop</button><button id="record-cancel">Cancel</button></div><ul id="recordings" aria-label="Saved recordings"></ul></section>
+<p id="error" role="alert"></p>
+</main><script src="wordlist.js"></script><script src="fingerprint.js"></script><script src="inbound.js"></script><script src="api.js"></script><script src="link.js"></script><script src="queue.js"></script><script src="app.js"></script><script src="client.js"></script><script src="native.js"></script><!-- CLIENT_DEV --><script src="client-entry.js"></script></body></html>

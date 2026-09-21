@@ -6,6 +6,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
     var window: UIWindow?
     private var webView: WKWebView!
     private var contentRoot: URL!
+    private let native = NativeServices()
     #if DEBUG && targetEnvironment(simulator)
     private var pendingRefresh: String?
     private var busy = false
@@ -15,7 +16,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let controller = UIViewController()
         controller.view.backgroundColor = .systemBackground
-        webView = WKWebView(frame: .zero)
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.addScriptMessageHandler(native, contentWorld: .page, name: "richos")
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        native.webView = webView
         webView.navigationDelegate = self
         webView.translatesAutoresizingMaskIntoConstraints = false
         controller.view.addSubview(webView)
@@ -35,6 +39,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         return true
     }
 
+    func applicationDidEnterBackground(_ application: UIApplication) { native.background() }
+    func applicationWillEnterForeground(_ application: UIApplication) { native.foreground() }
+
     private func loadContent() {
         var root = Bundle.main.url(forResource: "mobile-ui", withExtension: nil)!
         #if DEBUG && targetEnvironment(simulator)
@@ -42,7 +49,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         if FileManager.default.fileExists(atPath: development.appendingPathComponent("index.html").path) { root = development }
         #endif
         contentRoot = root.standardizedFileURL
-        webView.loadFileURL(root.appendingPathComponent("index.html"), allowingReadAccessTo: root)
+        let page = ProcessInfo.processInfo.arguments.contains("--native-client") ? "client.html" : "index.html"
+        webView.loadFileURL(root.appendingPathComponent(page), allowingReadAccessTo: root)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

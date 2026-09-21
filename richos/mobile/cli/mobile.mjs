@@ -4,9 +4,13 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import * as simulator from './simulator.mjs';
 import * as pwa from './pwa.mjs';
+import { device } from './device.mjs';
 const require = createRequire(import.meta.url);
 const { createRuntime } = require('../dev/runtime.js');
 const usage = `Mobile development loop (JSON output; nonzero exit on failure)
+  node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption
+  node richos/mobile/cli/mobile.mjs lab serve
+  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording]
   node richos/mobile/cli/mobile.mjs doctor
   node richos/mobile/cli/mobile.mjs headless state|reset|restart
   node richos/mobile/cli/mobile.mjs headless fixture offline|online|queued|interrupted|revoked
@@ -15,7 +19,7 @@ const usage = `Mobile development loop (JSON output; nonzero exit on failure)
   node richos/mobile/cli/mobile.mjs headless transport accept|unreachable|lose-ack|revoked
   node richos/mobile/cli/mobile.mjs headless advance 1000
   node richos/mobile/cli/mobile.mjs headless scenario offline-reconnect|revoked|interrupted
-  node richos/mobile/cli/mobile.mjs sim prepare|refresh|restart|verify|ui-test|screenshot
+  node richos/mobile/cli/mobile.mjs sim prepare|client-prepare|refresh|restart|verify|ui-test|screenshot
   node richos/mobile/cli/mobile.mjs sim <same state/action/fixture/scenario commands>
   node richos/mobile/cli/mobile.mjs pwa prepare|state|reset|refresh|restart|verify|screenshot|stop
   node richos/mobile/cli/mobile.mjs pwa fixture offline|online|queued|revoked
@@ -50,11 +54,14 @@ try {
     process.exit(0);
   }
   const cache = simulator.cacheRoot();
-  const proposedLock = join(cache, mode === 'pwa' ? 'pwa.cli.lock' : 'cli.lock');
+  const proposedLock = join(cache, mode === 'lab' ? 'lab.cli.lock' : mode === 'pwa' ? 'pwa.cli.lock' : 'cli.lock');
   try { mkdirSync(proposedLock); lock = proposedLock; writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, mode, command })); }
   catch { throw new Error(`Another mobile CLI command owns ${proposedLock}. If it crashed, verify its owner.json PID is gone before removing that directory.`); }
   let result;
-  if (mode === 'doctor') result = simulator.doctor();
+  if (mode === 'client' && command === 'scenario') result = await require('../dev/client-runtime.js').scenario(arg);
+  else if (mode === 'lab' && command === 'serve') result = await (await import('../dev/lab.mjs')).serve(cache);
+  else if (mode === 'doctor') result = simulator.doctor();
+  else if (mode === 'device') result = await device(command, arg);
   else if (mode === 'build') result = simulator.build(command || 'Debug');
   else if (mode === 'check-release') result = simulator.checkRelease();
   else if (mode === 'headless') {
@@ -66,7 +73,7 @@ try {
     result = await pwa.command(['prepare', 'refresh', 'verify', 'screenshot', 'stop'].includes(command)
       ? { command } : payload(command, arg));
   } else if (mode === 'sim') {
-    const native = { prepare: simulator.prepare, refresh: simulator.refresh, restart: simulator.restart,
+    const native = { prepare: simulator.prepare, 'client-prepare': simulator.prepareClient, refresh: simulator.refresh, restart: simulator.restart,
       verify: simulator.verify, 'ui-test': simulator.uiTest, screenshot: simulator.screenshot };
     result = native[command] ? await native[command]() : await simulator.request(payload(command, arg));
   } else throw new Error(`Unknown mode: ${mode}. Use --help.`);
