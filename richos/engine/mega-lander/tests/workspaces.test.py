@@ -561,6 +561,66 @@ class Point05_Guarantee(Base):
         self.assertEqual(ws.load_agent(ws.named_key(self.sid, "zach-opus-other"))["disposition"]["kind"], "landed")
         self.assertIsNone(self.rec("zach-opus-ceo")["disposition"])              # still waiting on his word
 
+    def _merged_but_pending(self, name="zach-opus-p5", extra=""):
+        """Finished, merged into the integration branch locally, and still
+        pending: an uncommitted file keeps the automatic land from finishing
+        (point 8), which is how a merged land sits pending while its checks run."""
+        aid, npath = self.spawn(name, extra=extra)
+        self.commit(npath)
+        self.finish(aid)
+        with open(os.path.join(npath, "residue.txt"), "w") as f:
+            f.write("not committed\n")
+        self.merge(self.entity, "worktree-agent-" + aid)
+        self.assertIn(name, self.names())                 # the auto-land could not finish it
+        return aid, npath
+
+    def test_point_05_a_land_under_way_does_not_block_new_work(self):
+        """CEO ruling §77: "Finished work whose land is under way (merged locally
+        or with its checks running, and recorded as such) no longer blocks new
+        agents." Merged but not recorded still blocks; recorded and merged does
+        not; the item stays pending by name; and rewinding the merge (a failed
+        check) makes it block again — the way back out."""
+        self._merged_but_pending()
+        with self.assertRaises(ws.SpecError) as cm:       # merged, nothing recorded: blocks
+            self.spawn("zach-opus-n1")
+        self.assertIn("zach-opus-p5", str(cm.exception))
+        ws.wait("zach-opus-p5", "started", "land checks running on the merged tree", "", self.sid)
+        self.spawn("zach-opus-n2")                        # recorded AND merged: allowed
+        self.assertIsNone(self.rec("zach-opus-p5")["disposition"])
+        self.assertIn("zach-opus-p5", self.names())       # still pending, never forgotten
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])   # turn end: as before
+        run("git", "-C", self.entity, "reset", "-q", "--hard", "HEAD~1")         # the check failed: rewound
+        with self.assertRaises(ws.SpecError) as cm:
+            self.spawn("zach-opus-n3")
+        self.assertIn("zach-opus-p5", str(cm.exception))
+
+    def test_point_05_a_started_record_with_no_merge_still_blocks_new_work(self):
+        """The record alone is a promise, not a land (§77 needs it merged or
+        its checks running on the merge): unmerged work recorded as started
+        lets the turn end, as point 5 always allowed, and still blocks new work."""
+        self._pending_one()
+        ws.wait("zach-opus-p5", "started", "about to merge it", "", self.sid)
+        self.assertTrue(ws.gate_stop({"session_id": self.sid}, self.entity)[0])
+        with self.assertRaises(ws.SpecError) as cm:
+            self.spawn("zach-opus-n4")
+        self.assertIn("zach-opus-p5", str(cm.exception))
+
+    def test_point_05_only_a_started_land_counts_as_under_way(self):
+        """A wait on something outside Rich's reach, or on the CEO's word, is
+        not a land in progress: merged or not, new work stays blocked."""
+        self._merged_but_pending()
+        ws.wait("zach-opus-p5", "outside", "GitHub is down", "CEO-TODOs 9.9", self.sid)
+        with self.assertRaises(ws.SpecError) as cm:
+            self.spawn("zach-opus-n5")
+        self.assertIn("zach-opus-p5", str(cm.exception))
+
+    def test_point_05_a_ceo_word_wait_is_not_a_land_under_way(self):
+        self._merged_but_pending("zach-opus-p5c", extra="ceo-ordered: 'Implement spec.'\n")
+        ws.wait("zach-opus-p5c", "ceo-discard", "May I discard it?", "CEO-TODOs 1.1", self.sid)
+        with self.assertRaises(ws.SpecError) as cm:
+            self.spawn("zach-opus-n6")
+        self.assertIn("zach-opus-p5c", str(cm.exception))
+
     def test_point_05_an_agent_started_to_land_it_lets_the_turn_end(self):
         self._pending_one()
         self.spawn("zach-opus-helper", extra="lands-pending: zach-opus-p5\n")

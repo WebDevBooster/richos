@@ -2393,6 +2393,59 @@ def _deferred(report, rec):
         report.setdefault("deferred", []).append(rec.get("name") or rec["key"])
 
 
+def _land_under_way(rec, kind):
+    """(under_way, why): CEO ruling §77. Finished work whose land is under way
+    does not block new agents. Under way needs BOTH of these, and nothing else.
+
+    1. THE RECORD. The item waits on something Rich has started to get it
+       landed: `kind == "started"` (`workspaces.sh wait <name> --started '...'`,
+       or a live `lands-pending:`/`continues:` agent). No other wait counts:
+       the CEO's word and something outside Rich's reach are not a land.
+    2. THE GIT FACT. Every branch of the chain and every live workspace HEAD
+       is already contained in the branch this work integrates on, the
+       recorded ref point 14 says every consumer asks about, at its LOCAL tip.
+       That is "merged locally", the observable half of §77's "merged locally
+       or with its checks running": Rich's land recipe merges first and runs
+       its checks on the merged tree, so checks running is a state of merged
+       work. A record with no merge behind it is a promise, not a land, and it
+       keeps blocking exactly as it did before §77.
+
+    The way back is built in: a land whose checks fail is rewound, the branch
+    stops being contained, and the item blocks new work again. Any failure to
+    read git answers "not under way", which is the safe answer."""
+    if kind != "started":
+        return False, "no land has been recorded as started"
+    chain = _chain(rec)
+    targets, proved = {}, 0
+    try:
+        refs = []
+        for r in chain:
+            for w in live_workspaces(r):
+                if w.get("path") and os.path.isdir(w["path"]):
+                    rc, out, _ = git(w["path"], "rev-parse", "HEAD")
+                    if rc != 0:
+                        return False, "the HEAD of %s cannot be read" % w["path"]
+                    refs.append((w.get("repo"), out.strip(), w["path"]))
+        for repo, b in _branch_targets(chain):
+            t = branch_tip(repo, b)
+            if t:
+                refs.append((repo, t, b))
+        for repo, sha, label in refs:
+            if repo not in targets:
+                targets[repo] = integration_target(chain, repo)
+            branch, tip, why_not = targets[repo]
+            if why_not:
+                return False, why_not
+            if not is_ancestor(repo, sha, tip):
+                return False, "%s is not merged into %s yet" % (label, branch)
+            proved += 1
+    except (OSError, SpecError, subprocess.SubprocessError) as exc:
+        return False, "its merge state cannot be read: %s" % exc
+    if not proved:
+        return False, "no branch or workspace is left to prove the merge against"
+    return True, "recorded as started and merged locally"
+
+
 def _item(rec, why, cache, me):
     waiting = rec.get("waiting") or {}
     helpers = [a for a in all_agents() if rec["name"] in (a.get("lands_pending") or [])
@@ -2401,17 +2454,32 @@ def _item(rec, why, cache, me):
     kind = waiting.get("kind", "")
     if not kind and started:
         kind, waiting = "started", {"on": "agent %s is working to land it" % started[0].get("name")}
-    # POINT 5, BOTH SENTENCES AT ONCE. "that one item then waits on him, is on
-    # his TODO list, and blocks nothing else" governs the OTHER pending items
-    # and the turn; "New work stays blocked either way" governs new work, and
-    # its own parenthesis names this very case ("the CEO's word"). Until round
-    # 8 this read `kind != "ceo-discard"` — Rich's inverted paraphrase of the
-    # page, built into the library in round 7 (brief-audit-sage-round8 §3:
-    # with one item waiting on his word an unrelated spawn returned rc=0).
-    # A pending item, whatever it waits on, blocks new work.
+    # POINT 5, BOTH SENTENCES AT ONCE, AS AMENDED BY CEO RULING §77.
+    # "that one item then waits on him, is on his TODO list, and blocks nothing
+    # else" governs the OTHER pending items and the turn; "New work stays
+    # blocked either way" governs new work, and its own parenthesis names this
+    # very case ("the CEO's word"). Until round 8 this read
+    # `kind != "ceo-discard"` — Rich's inverted paraphrase of the page, built
+    # into the library in round 7 (brief-audit-sage-round8 §3: with one item
+    # waiting on his word an unrelated spawn returned rc=0). Round 8 therefore
+    # made EVERY pending item block new work, and that stays the rule for every
+    # kind of wait: the CEO's word, something outside Rich's reach, and
+    # finished work nobody has started landing. Nothing may be forgotten.
+    #
+    # THE ONE EXCEPTION IS THE CEO'S OWN AMENDMENT, NOT A RELAXATION TO UNDO.
+    # richos-hq/wiki/ceo-decisions.md §77 (2026-09-22, his word "go", after
+    # five agents were refused for about 35 minutes behind one land whose
+    # checks were queued): "Finished work whose land is under way (merged
+    # locally or with its checks running, and recorded as such) no longer
+    # blocks new agents." `_land_under_way` is that sentence and needs BOTH
+    # halves: the record (a `started` wait) and the git fact (merged locally).
+    # Do not "fix" this back to `True`: that restores the freeze he ruled out.
+    # `blocks_turn_end` is untouched by §77.
+    under_way = _land_under_way(rec, kind)[0]
     return {"key": rec["key"], "name": rec.get("name") or rec["key"], "why": why,
             "waiting": kind, "waiting_on": waiting.get("on", ""),
-            "blocks_new_work": True,
+            "land_under_way": under_way,
+            "blocks_new_work": not under_way,
             "blocks_turn_end": kind not in ("ceo-discard", "started", "outside"),
             "workspaces": [(w.get("path") or "(branch only)", w.get("branch")) for w in live_workspaces(rec)]}
 
@@ -2429,6 +2497,9 @@ def gate_message(items, what, spawn=False):
               "       uncommitted — `workspaces.sh integration` says which branch that is (point 14))",
               "       or  workspaces.sh discard <name> --reason '...' (--ceo-word '...' | --not-ceo-ordered '...')",
               "       or spawn the work that lands it, naming it:  lands-pending: <name>  /  continues: <name>"]
+    if spawn:
+        lines += ["  A land UNDER WAY does not block new work (CEO ruling §77): once its branch is merged",
+                  "       locally, record it:  workspaces.sh wait <name> --started '<checks running on the merge>'"]
     if not spawn:
         lines += ["  Allowed while it waits (point 5): answer the CEO naming this work, or record",
                   "       workspaces.sh wait <name> --started '...'  |  --outside '...' --todo '<CEO TODO ref>'",
@@ -4728,8 +4799,10 @@ def _print_status(me, entity):
     if not items:
         print("pending: none")
     for i in items:
-        print("PENDING  %s  %s%s" % (i["name"], i["why"],
-                                     ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else ""))
+        print("PENDING  %s  %s%s%s" % (i["name"], i["why"],
+                                       ("  [waiting %s: %s]" % (i["waiting"], i["waiting_on"])) if i["waiting"] else "",
+                                       "  [land under way: does not block new work, §77]"
+                                       if i.get("land_under_way") else ""))
         for p, b in i["workspaces"]:
             print("           %s  %s" % (p, b or ""))
     for r in all_agents():
