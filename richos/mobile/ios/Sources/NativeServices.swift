@@ -64,6 +64,25 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         if (try? String(contentsOf: marker, encoding: .utf8)) != run {
             let sessionFile = folder.appendingPathComponent("session.json")
             if FileManager.default.fileExists(atPath: sessionFile.path) { try FileManager.default.removeItem(at: sessionFile) }
+            // An explicitly requested integration fixture may reuse the operator's previous
+            // spoken check in a fresh isolated test conversation. Copy it, never mutate the
+            // original recording or relax production origin/conversation ownership.
+            let arguments = ProcessInfo.processInfo.arguments
+            if let targetArg = arguments.first(where: { $0.hasPrefix("--integration-copy-voice-to=") }),
+               let originArg = arguments.first(where: { $0.hasPrefix("--integration-copy-voice-origin=") }) {
+                let target = String(targetArg.dropFirst("--integration-copy-voice-to=".count))
+                let origin = String(originArg.dropFirst("--integration-copy-voice-origin=".count))
+                guard target.range(of: "^thr_[a-f0-9]{32}$", options: .regularExpression) != nil,
+                      URL(string: origin)?.scheme == "https" else { throw fail("Invalid recovery fixture destination") }
+                if var previous = try recordings().filter({ $0["origin"] as? String == origin }).max(by: { ($0["bytes"] as? Int ?? 0) < ($1["bytes"] as? Int ?? 0) }),
+                   let source = previous["id"] as? String, UUID(uuidString: source) != nil {
+                    let id = UUID().uuidString
+                    try FileManager.default.copyItem(at: folder.appendingPathComponent(source + ".wav"), to: folder.appendingPathComponent(id + ".wav"))
+                    previous["id"] = id; previous["threadId"] = target
+                    previous["createdAt"] = ISO8601DateFormatter().string(from: Date())
+                    try protectedWrite(JSONSerialization.data(withJSONObject: previous), to: folder.appendingPathComponent(id + ".json"))
+                } else { throw fail("No saved spoken integration recording is available") }
+            }
             try protectedWrite(Data(run.utf8), to: marker)
         }
     }
@@ -286,8 +305,12 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private func recordings() throws -> [[String: Any]] {
         for url in try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) where url.pathExtension == "wav" {
             let id = url.deletingPathExtension().lastPathComponent, metadata = url.deletingPathExtension().appendingPathExtension("json")
-            if id != recordingID && UUID(uuidString: id) != nil,
-               let file = try? AVAudioFile(forReading: url) {
+            if id != recordingID && UUID(uuidString: id) != nil {
+                if (try? AVAudioFile(forReading: url).length) ?? 0 == 0,
+                   let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maxRecordingBytes,
+                   let bytes = try? Data(contentsOf: url, options: .mappedIfSafe),
+                   let repaired = recoverInterruptedRecording(bytes) { try protectedWrite(repaired, to: url) }
+                guard let file = try? AVAudioFile(forReading: url) else { continue }
                 let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
                 var value: [String: Any] = ["id": id, "seconds": Double(file.length) / file.processingFormat.sampleRate,
                     "bytes": attributes[.size] as? Int ?? 0, "sampleRate": 16000, "codec": "wav16k", "recovered": true,

@@ -89,7 +89,7 @@ export function project() {
     name: 'RichOSMobile', options: { deploymentTarget: { iOS: '16.7' } },
     settings: { base: { SWIFT_VERSION: '5.0', CODE_SIGNING_ALLOWED: 'YES', CODE_SIGN_IDENTITY: '-', TARGETED_DEVICE_FAMILY: '1', ENABLE_USER_SCRIPT_SANDBOXING: 'NO' } },
     targets: {
-      RichOSMobile: { type: 'application', platform: 'iOS', sources: [{ path: join(mobile, 'ios/Sources') }, { path: catalog, buildPhase: 'resources' }],
+      RichOSMobile: { type: 'application', platform: 'iOS', sources: [...readdirSync(join(mobile, 'ios/Sources')).filter(name=>name.endsWith('.swift')).sort().map(name=>({path:join(mobile,'ios/Sources',name)})), { path: catalog, buildPhase: 'resources' }],
         settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: bundleId, ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon' }, configs: {
           Debug: { INFOPLIST_FILE: join(output, 'Debug.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG' },
           Release: { INFOPLIST_FILE: join(output, 'Release.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: '' }
@@ -243,7 +243,7 @@ export function checkRelease() {
   const info = run('plutil', ['-convert', 'json', '-o', '-', join(result.app, 'Info.plist')]).stdout;
   assert.deepEqual(JSON.parse(info).CFBundleURLTypes.flatMap(value => value.CFBundleURLSchemes), ['richos'], 'Unexpected URL registration in Release');
   const binary = readFileSync(join(result.app, 'RichOSMobile'));
-  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', 'prepareIntegrationTest', '--update-fixture=']) {
+  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', '--integration-copy-voice-to=', '--integration-copy-voice-origin=', 'prepareIntegrationTest', '--update-fixture=']) {
     assert(!binary.includes(Buffer.from(marker)), `Development bridge marker in Release: ${marker}`);
   }
   return { ...result, developmentBridgeExcluded: true, files };

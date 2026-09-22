@@ -113,6 +113,11 @@ try {
     assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
     pass('bundled native UI preserves rapid typing with delayed storage and fits both phone themes');
   } else {
+    const recovery = join(cache, 'recording-recovery-test');
+    const compiled = hostTool('xcrun', ['swiftc', '-module-cache-path', join(cache,'swift-module-cache'), join(mobile,'ios/Sources/RecordingRecovery.swift'), join(mobile,'ios/Tests/RecordingRecoveryTests.swift'), '-o', recovery]);
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const checked = hostTool(recovery, []); assert.equal(checked.status, 0, checked.stderr);
+    pass('interrupted WAV recovery preserves audio bytes and rejects other formats');
     cli('sim', 'prepare');
     const verified = cli('sim', 'verify');
     assert.equal(verified.scenarios.length, 3);

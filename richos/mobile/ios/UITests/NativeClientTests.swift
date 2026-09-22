@@ -6,11 +6,16 @@ final class NativeClientTests: XCTestCase {
     }
 
     private var serverRun: String?
+    private var recoveredVoiceTarget: String?
+    private var recoveredVoiceOrigin: String?
 
     private func launchClient() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--native-client"]
         if let serverRun { app.launchArguments.append("--integration-session=" + serverRun) }
+        if let recoveredVoiceTarget, let recoveredVoiceOrigin {
+            app.launchArguments += ["--integration-copy-voice-to=" + recoveredVoiceTarget, "--integration-copy-voice-origin=" + recoveredVoiceOrigin]
+        }
         // Always release the app's microphone/session, including an assertion failure.
         addTeardownBlock { app.terminate() }
         app.launch()
@@ -21,7 +26,7 @@ final class NativeClientTests: XCTestCase {
         #if targetEnvironment(simulator)
         let app = launchClient()
         XCTAssertTrue(app.webViews.buttons["Scan your Mac’s code"].waitForExistence(timeout: 15))
-        app.webViews.buttons["Use a pairing link instead"].tap()
+        app.webViews.descendants(matching: .any).matching(identifier: "Use a pairing link instead").firstMatch.tap()
         let field = app.webViews.textFields.firstMatch
         field.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
@@ -58,10 +63,14 @@ final class NativeClientTests: XCTestCase {
         }
         let config = try JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as! [String: String]
         serverRun = config["serverRun"]
+        if config["useRecoveredRecording"] == "true" {
+            recoveredVoiceTarget = config["threadId"]
+            recoveredVoiceOrigin = config["origin"]
+        }
         let app = launchClient()
         XCTAssertTrue(app.webViews.buttons["Settings"].waitForExistence(timeout: 15))
-        if app.webViews.buttons["Use a pairing link instead"].exists {
-            app.webViews.buttons["Use a pairing link instead"].tap()
+        if app.webViews.descendants(matching: .any).matching(identifier: "Use a pairing link instead").firstMatch.exists {
+            app.webViews.descendants(matching: .any).matching(identifier: "Use a pairing link instead").firstMatch.tap()
             let field = app.webViews.textFields.firstMatch
             field.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
@@ -129,10 +138,20 @@ final class NativeClientTests: XCTestCase {
               let config = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: String],
               let phrase = config["spokenPhrase"], !phrase.isEmpty else { throw XCTSkip("An agreed spoken phrase is required for this live microphone check") }
         let (app, _) = try pairedClient()
-        try lockMicrophone(app)
-        // Deliberate interval for the operator's agreed spoken sentence, on the iPhone.
-        Thread.sleep(forTimeInterval: 10)
-        app.webViews.buttons["Send voice message"].tap()
+        if config["useRecoveredRecording"] == "true" {
+            let saved = app.webViews.buttons.matching(identifier: "Send unsent recording")
+            XCTAssertTrue(saved.firstMatch.waitForExistence(timeout: 10), "The previous phone recording must still be available; never request another recording silently")
+            let send = saved.allElementsBoundByIndex.last!
+            expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: send); waitForExpectations(timeout: 10)
+            send.tap()
+        } else {
+            try lockMicrophone(app)
+            // Deliberate interval for the operator's agreed spoken sentence, on the iPhone.
+            Thread.sleep(forTimeInterval: 10)
+            app.webViews.buttons["Send voice message"].tap()
+            let finished = NSPredicate { _, _ in !app.webViews.buttons["Send voice message"].exists }
+            expectation(for: finished, evaluatedWith: nil); waitForExpectations(timeout: 5)
+        }
         let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS[cd] %@ AND label CONTAINS %@", phrase, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
         XCTAssertTrue(reply.waitForExistence(timeout: 55), "The actual phone recording must be transcribed by the Mac and enter the Rich turn")
         app.webViews.buttons.matching(identifier: "Play reply").allElementsBoundByIndex.last!.tap()
@@ -209,6 +228,8 @@ final class NativeClientTests: XCTestCase {
         let initialCount = app.webViews.buttons.matching(identifier: "Discard unsent recording").count
         try lockMicrophone(app)
         Thread.sleep(forTimeInterval: 2)
+        app.webViews.firstMatch.swipeUp()
+        XCTAssertTrue(app.webViews.buttons["Send voice message"].exists,"Scrolling must leave locked recording active")
         XCUIDevice.shared.press(.home)
         app.activate()
         let count = NSPredicate { _, _ in app.webViews.buttons.matching(identifier: "Discard unsent recording").count == initialCount + 1 }
@@ -221,6 +242,20 @@ final class NativeClientTests: XCTestCase {
         XCTAssertEqual(app.webViews.buttons.matching(identifier: "Discard unsent recording").count, initialCount + 1)
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Interrupted voice survives relaunch"; shot.lifetime = .keepAlways; add(shot)
         app.webViews.buttons.matching(identifier: "Discard unsent recording").element(boundBy: initialCount).tap()
+        // Button activation and touch-release are separate physical checks. No
+        // spoken phrase is needed to prove that each creates exactly one bubble.
+        let bubbles = app.webViews.buttons.matching(identifier: "Play voice message")
+        let before = bubbles.count
+        try lockMicrophone(app)
+        app.webViews.buttons["Send voice message"].tap()
+        let sentLocked = NSPredicate { _, _ in bubbles.count == before + 1 && !app.webViews.buttons["Send voice message"].exists }
+        expectation(for: sentLocked, evaluatedWith: nil); waitForExpectations(timeout: 10)
+        let mic = app.webViews.buttons["Hold to record"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 5))
+        mic.press(forDuration: 2)
+        let sentHeld = NSPredicate { _, _ in bubbles.count == before + 2 && !app.webViews.buttons["Send voice message"].exists }
+        expectation(for: sentHeld, evaluatedWith: nil); waitForExpectations(timeout: 10)
+        let sentShot = XCTAttachment(screenshot: app.screenshot()); sentShot.name = "Locked Send and held release each submit once"; sentShot.lifetime = .keepAlways; add(sentShot)
         #endif
     }
 }
