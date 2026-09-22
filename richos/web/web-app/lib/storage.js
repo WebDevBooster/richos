@@ -34,11 +34,12 @@
 	'use strict';
 
 	const DB_NAME = 'richos-phone';
-	const DB_VERSION = 1;
+	const DB_VERSION = 2;
 	const SETTINGS = 'settings';
 	const QUEUE = 'queue';
 	const MESSAGES = 'messages';
 	const KEYS = 'keys';
+	const VOICE_DRAFTS='voice-drafts';
 
 	// How much conversation is kept for the train. Enough to open the app away from the Mac and read
 	// the last exchange; not so much that the phone starts to feel like a second record of a
@@ -70,6 +71,7 @@
 				if (!db.objectStoreNames.contains(SETTINGS)) db.createObjectStore(SETTINGS);
 				if (!db.objectStoreNames.contains(QUEUE)) db.createObjectStore(QUEUE, { keyPath: 'clientId' });
 				if (!db.objectStoreNames.contains(MESSAGES)) db.createObjectStore(MESSAGES, { keyPath: 'id' });
+				if (!db.objectStoreNames.contains(VOICE_DRAFTS)) db.createObjectStore(VOICE_DRAFTS, {keyPath:'clientId'});
 				if (!db.objectStoreNames.contains(KEYS)) db.createObjectStore(KEYS);
 			};
 			req.onsuccess = () => resolve(req.result);
@@ -111,11 +113,8 @@
 			},
 			async put(item) {
 				const tx = db.transaction(QUEUE, 'readwrite');
-				// Structured-clone safe: a `Uint8Array` survives, but it is stored as a plain array
-				// so the record is the same shape whether it was written by the page or read back
-				// from a version of this app that did not exist yet.
+				// Typed bytes remain compatible with older array records without expanding long audio.
 				const record = Object.assign({}, item);
-				if (record.bytes && record.bytes instanceof Uint8Array) record.bytes = Array.from(record.bytes);
 				tx.objectStore(QUEUE).put(record);
 				return done(tx);
 			},
@@ -127,6 +126,13 @@
 		};
 	}
 
+	function voiceDrafts(db) {
+        return {
+            async all() { const tx=db.transaction(VOICE_DRAFTS,'readonly');return request(tx.objectStore(VOICE_DRAFTS).getAll()); },
+            async put(item) {const tx=db.transaction(VOICE_DRAFTS,'readwrite');tx.objectStore(VOICE_DRAFTS).put(item);return done(tx);},
+            async remove(id) {const tx=db.transaction(VOICE_DRAFTS,'readwrite');tx.objectStore(VOICE_DRAFTS).delete(id);return done(tx);}
+        };
+    }
 	function messages(db) {
 		return {
 			/// Called by the page on every merge AND by the service worker when a push arrives with
@@ -197,7 +203,7 @@
 	/// credential that cannot be used again is a credential worth deleting, and a queue that can
 	/// never drain is worth deleting with it.
 	async function forgetEverything(db) {
-		for (const name of [SETTINGS, QUEUE, MESSAGES, KEYS]) {
+		for (const name of [SETTINGS, QUEUE, MESSAGES, KEYS, VOICE_DRAFTS]) {
 			const tx = db.transaction(name, 'readwrite');
 			tx.objectStore(name).clear();
 			await done(tx);
@@ -245,7 +251,7 @@
 
 	return {
 		DB_NAME, DB_VERSION, MESSAGE_CACHE_LIMIT,
-		open, settings, queueStorage, messages, keys, forgetEverything,
+		open, settings, queueStorage, voiceDrafts, messages, keys, forgetEverything,
 		generateDeviceKey, createSigner, base64url, hex
 	};
 });

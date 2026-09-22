@@ -547,3 +547,12 @@ body.revoked .offer { display: none; }
 @media (prefers-reduced-motion: reduce) {
 	* { transition: none !important; animation: none !important; }
 }
+
+/* Voice gestures keep the conversation scrollable while locked. */
+#hold {touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
+#voice-actions {display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+#voice-timer {font-variant-numeric:tabular-nums;}
+#voice-drafts {padding:10px;border:1px solid var(--line-control);border-radius:12px;}
+#voice-drafts button {margin:4px;min-height:44px;}
+
+#voice-actions[hidden], #voice-drafts[hidden] {display:none;}

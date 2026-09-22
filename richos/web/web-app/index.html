@@ -85,6 +85,8 @@
 	     (contract §5.3) — there is no path through this app that shows it by omission, by an error,
 	     or in the seconds before the stream opens. A control that cannot work is worse than an
 	     absent one, and this one sat on screen as one of the two biggest things on it. -->
+	<div id="voice-actions" hidden><span id="voice-timer" aria-label="Recording duration">0:00</span><button id="voice-lock">Lock recording</button><button id="voice-cancel">Cancel recording</button><button id="voice-send">Send voice message</button></div>
+	<div id="voice-drafts" hidden></div>
 	<button class="hold" id="hold" hidden>Hold to record</button>
 	<p class="hold-note" id="hold-note" hidden>Hold the button, speak, and let go to send.</p>
 </footer>
@@ -122,6 +124,7 @@
 	<p class="takeover-detail" id="revoked-detail"></p>
 </section>
 
+<script src="/lib/voice.js"></script>
 <script src="/lib/pcm.js"></script>
 <script src="/lib/wordlist.js"></script>
 <script src="/lib/fingerprint.js"></script>
