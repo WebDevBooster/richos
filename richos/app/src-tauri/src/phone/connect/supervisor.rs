@@ -98,8 +98,9 @@ fn stop_guard(child: &mut std::process::Child) {
 /// Entered before Tauri initialization. Never opens a window or reads conversation state.
 pub fn guard_main() -> i32 {
     let Ok(helper) = crate::phone::connect_helper() else { return 2 };
+    let metrics = format!("127.0.0.1:{}", super::METRICS_PORT);
     let Ok(mut child) = Command::new(helper)
-        .args(["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:18444", "--loglevel", "error", "run"])
+        .args(["tunnel", "--no-autoupdate", "--metrics", &metrics, "--loglevel", "error", "run"])
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else { return 2 };
     let (closed, rx) = mpsc::channel();
     if std::thread::Builder::new().name("connect-parent-pipe".into()).spawn(move || {
