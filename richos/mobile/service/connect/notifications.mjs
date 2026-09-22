@@ -47,19 +47,20 @@ export class Notifications {
     const job=await this.store.statement('SELECT * FROM push_jobs WHERE host_id=? AND event_ref=?',host.id,data.eventRef).first();
     if (!job) return {status:429,error:'queue_full'};
     if (job.thread_ref!==data.threadRef || job.revision!==data.revision) return {status:409,error:'event_conflict'};
-    await this.deliver(host,binding,job);
-    return {status:202,accepted:true};
+    const result=await this.deliver(host,binding,job);
+    return {status:202,accepted:true,delivery:result || {outcome:job.state}};
   }
   // Caller holds the same host lease used for revocation and token rotation.
   async deliver(host,binding,job) {
     const now=this.store.now();
     if (job.state!=='pending' || job.next_at>now || job.expires_at<=now) return;
     if (!this.valid(host,binding) || job.revision!==binding.revision) { await this.invalidate(host.id); return; }
-    const {outcome}=await this.apns.send(binding,job);
-    if (outcome==='invalid') { await this.invalidate(host.id); return; }
+    const result=await this.apns.send(binding,job), {outcome}=result;
+    if (outcome==='invalid') { await this.invalidate(host.id); return result; }
     const attempts=job.attempts+1;
     const state=outcome==='sent' ? 'sent' : outcome==='retry' && attempts<5 ? 'pending' : 'failed';
     await this.store.statement('UPDATE push_jobs SET state=?,attempts=?,next_at=? WHERE host_id=? AND event_ref=?',state,attempts,now+Math.min(900000,60000*2**attempts),host.id,job.event_ref).run();
+    return result;
   }
   async reconcile() {
     const now=this.store.now();

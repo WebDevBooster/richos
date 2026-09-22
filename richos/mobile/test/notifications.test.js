@@ -65,3 +65,11 @@ test('APNs signs only the chosen environment and sends a generic alert with opaq
  assert.equal(request.options.redirect,'manual');assert.equal(request.options.headers['apns-topic'],env.APNS_TOPICS);
  assert(!request.options.body.includes('private'));assert(!request.options.body.includes(key));
 });
+test('default provider transport calls global fetch with its native receiver',async()=>{
+ const {APNs}=await import('../service/connect/apns.mjs');const original=globalThis.fetch;
+ try {
+  globalThis.fetch=function(){assert.equal(this,globalThis,'Worker fetch must not receive the APNs adapter as its receiver');return Promise.resolve(Response.json({reason:'BadDeviceToken'},{status:400}));};
+  const provider=new APNs({APNS_TEAM_ID:'A123456789',APNS_SANDBOX_KEY_ID:'B123456789',APNS_SANDBOX_KEY:'fixture',APNS_TOPICS:'dev.richos.mobile.integration'});provider.token=async()=> 'signed-fixture';
+  const result=await provider.send({token:'a'.repeat(64),environment:'sandbox',topic:'dev.richos.mobile.integration'},{event_ref:'b'.repeat(64),expires_at:Date.now()+1000});assert.equal(result.outcome,'invalid');
+ }finally{globalThis.fetch=original;}
+});

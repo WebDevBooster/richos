@@ -9,7 +9,7 @@ export function configuredPush(env, registration) {
     && /^[A-Z0-9]{10}$/.test(env[`APNS_${name}_KEY_ID`] || '') && env[`APNS_${name}_KEY`]);
 }
 export class APNs {
-  constructor(env, { fetchImpl = fetch, now = Date.now } = {}) { this.env = env; this.fetch = fetchImpl; this.now = now; this.tokens = new Map(); }
+  constructor(env, { fetchImpl = (url, options) => fetch(url, options), now = Date.now } = {}) { this.env = env; this.fetch = fetchImpl; this.now = now; this.tokens = new Map(); }
   async token(environment) {
     const name = environment === 'sandbox' ? 'SANDBOX' : 'PRODUCTION', now = Math.floor(this.now()/1000);
     const cached = this.tokens.get(environment);
@@ -24,10 +24,12 @@ export class APNs {
   async send(binding, job) {
     if (!configuredPush(this.env,binding)) return { outcome:'configuration' };
     const host = binding.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';
+    let bearer;
+    try {bearer=await this.token(binding.environment);} catch {return {outcome:'configuration',code:'signing'};}
     try {
       const response = await this.fetch(`https://${host}/3/device/${binding.token}`, {
         method:'POST', redirect:'manual', signal:AbortSignal.timeout(10000), headers:{
-          authorization:'bearer '+await this.token(binding.environment), 'content-type':'application/json',
+          authorization:'bearer '+bearer, 'content-type':'application/json',
           'apns-topic':binding.topic, 'apns-push-type':'alert', 'apns-priority':'10',
           'apns-expiration':String(Math.floor(job.expires_at/1000)), 'apns-collapse-id':job.event_ref,
         }, body:JSON.stringify({aps:{alert:{title:'RichOS',body:'Rich has replied.'},sound:'default'},
@@ -36,8 +38,8 @@ export class APNs {
       if (response.status === 200) return {outcome:'sent'};
       const reason = (await response.json().catch(()=>({}))).reason;
       if (response.status === 410 || ['BadDeviceToken','DeviceTokenNotForTopic','Unregistered'].includes(reason)) return {outcome:'invalid'};
-      if (response.status === 429 || response.status >= 500) return {outcome:'retry'};
-      return {outcome:'configuration'};
-    } catch { return {outcome:'retry'}; }
+      if (response.status === 429 || response.status >= 500) return {outcome:'retry',code:'http_'+response.status};
+      return {outcome:'configuration',code:'http_'+response.status};
+    } catch(error) { return {outcome:'retry',code:error.name==='TimeoutError'?'timeout':'transport'}; }
   }
 }
