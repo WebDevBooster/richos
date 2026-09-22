@@ -8,12 +8,10 @@ import dev.richos.android.core.Pairing
 import dev.richos.android.core.PairingPhase
 import dev.richos.android.core.Route
 import dev.richos.android.core.Session
+import dev.richos.android.core.isoMillis
 import dev.richos.android.core.protocol.Fingerprint
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 
 // Development-only deterministic world: a fixed clock, a scripted Mac and the outbox, all in
 // one document. The port of `richos/mobile/dev/runtime.js` `fixture()`, with the same five
@@ -143,8 +141,3 @@ object Fixtures {
         )
     }
 }
-
-private val ISO_MILLIS: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
-
-/** JavaScript's `Date.prototype.toISOString`, which always prints milliseconds. */
-fun isoMillis(epochMillis: Long): String = ISO_MILLIS.format(Instant.ofEpochMilli(epochMillis))

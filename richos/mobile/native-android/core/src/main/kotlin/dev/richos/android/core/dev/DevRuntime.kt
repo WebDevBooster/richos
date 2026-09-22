@@ -16,6 +16,7 @@ import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
 import dev.richos.android.core.Transport
 import dev.richos.android.core.TransportFailure
+import dev.richos.android.core.OutboxState
 import dev.richos.android.core.PairingPhase
 import dev.richos.android.core.parseAction
 import dev.richos.android.core.protocol.DeviceKeys
@@ -188,9 +189,12 @@ class DevRuntime private constructor(
             DevRequest.Reset -> { doc = Fixtures.fixture(); persist(); open() }
             DevRequest.Restart -> open()
             is DevRequest.SetTransport -> doc = doc.copy(mode = request.mode)
-            // Moves the scripted clock. Once the outbox lands this also dispatches `sync`, as
-            // `runtime.js` does, so a retry schedule is tested without sleeping.
-            is DevRequest.Advance -> doc = doc.copy(now = doc.now + request.ms)
+            // Moves the scripted clock, then `sync`, as `runtime.js` does, so a retry schedule is
+            // tested without sleeping.
+            is DevRequest.Advance -> {
+                doc = doc.copy(now = doc.now + request.ms)
+                core.dispatch(Action.Sync)
+            }
             is DevRequest.Scenario -> throw CoreError("scenario runs through execute()")
         }
         persist()
@@ -224,6 +228,39 @@ class DevRuntime private constructor(
                 check(s.draft == "Hello Rich", "the draft must survive a restart")
                 s = step(DevRequest.Dispatch(Action.Compose("   ")))
                 check(s.composerAction == ComposerAction.RECORD, "whitespace is not a message; the microphone returns")
+            }
+            // The three scenarios of `richos/mobile/dev/runtime.js`, step for step and check for
+            // check, so the native outbox is held to the same rules as the preserved one.
+            "offline-reconnect" -> {
+                step(DevRequest.Fixture("offline"))
+                step(DevRequest.Dispatch(Action.SelectThread("planning")))
+                step(DevRequest.Dispatch(Action.Compose("A message queued offline")))
+                var s = step(DevRequest.Dispatch(Action.Send))
+                check(s.outbox.size == 1 && doc.calls.isEmpty(), "offline send must persist without IO")
+                step(DevRequest.Restart)
+                step(DevRequest.SetTransport(TransportMode.LOSE_ACK))
+                s = step(DevRequest.Dispatch(Action.Network(true)))
+                check(s.outbox.size == 1 && doc.receipts.size == 1 && s.dueInMs == 1000L, "lost acknowledgement must retain message and schedule retry")
+                step(DevRequest.Restart)
+                step(DevRequest.Advance(999))
+                check(doc.calls.size == 1, "retry must respect backoff")
+                s = step(DevRequest.Advance(1))
+                check(s.outbox.isEmpty() && doc.calls.size == 2 && doc.receipts.size == 1, "retry must deduplicate")
+                check(doc.receipts[0].threadId == "planning" && s.lastSend?.duplicates == 1, "selected thread and acknowledgement preserved")
+            }
+            "revoked" -> {
+                step(DevRequest.Fixture("revoked"))
+                step(DevRequest.Dispatch(Action.Compose("Do not retry a revoked device")))
+                var s = step(DevRequest.Dispatch(Action.Send))
+                check(!s.paired && s.outbox.firstOrNull()?.state == OutboxState.BLOCKED, "revocation must stop delivery")
+                step(DevRequest.Advance(60_000))
+                check(doc.calls.size == 1, "revocation must not loop")
+            }
+            "interrupted" -> {
+                var s = step(DevRequest.Fixture("interrupted"))
+                check(s.outbox.firstOrNull()?.state == OutboxState.WAITING && s.outbox[0].resumedAfterInterruptedSend == true, "interrupted send must recover")
+                s = step(DevRequest.Dispatch(Action.Sync))
+                check(s.outbox.isEmpty() && doc.receipts.size == 1 && s.lastSend?.duplicates == 1, "interrupted delivery must deduplicate")
             }
             // Pairing (contract §2): the link goes out, the six words come back computed on the
             // phone from the Mac's hash, "They match" makes the pairing, and the key survives.
@@ -261,7 +298,8 @@ class DevRuntime private constructor(
     }
 
     companion object {
-        val SCENARIOS: List<String> = listOf("draft-survives-restart", "pair-and-confirm", "pair-refused")
+        val SCENARIOS: List<String> =
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused")
 
         suspend fun create(
             initial: DevDoc? = null,

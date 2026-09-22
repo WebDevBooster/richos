@@ -20,17 +20,18 @@ import java.net.URI
  * lock for the request, then re-takes it to commit the outcome — unless a later action has
  * superseded it, in which case the outcome is dropped. So typing is never stuck behind a slow Mac.
  *
- * Built so far: `select-thread`, `compose`, `network`, `theme`, and pairing (`pair`,
- * `confirm-words`, `forget`, phone protocol contract §2). The outbox actions (`send`,
- * `send-voice`, `retry`, `sync`, `discard`) are refused with a sentence until the text-send
- * stream ports `queue.js` (build plan §5.1 A1, second item).
+ * Built so far: `select-thread`, `compose`, `network`, `theme`; pairing (`pair`,
+ * `confirm-words`, `forget`, phone protocol contract §2); and text sending through the durable
+ * [Outbox] (`send`, `sync`, `retry`, `discard`, the `queue.js` rules). `send-voice` is refused
+ * with a sentence until the voice recording lifecycle lands.
  */
 class RichCore private constructor(
     private val ports: Ports,
     private var session: Session,
-    private var outbox: List<OutboxItem>,
+    private val outbox: Outbox,
 ) {
     private val mutex = Mutex()
+    private var lastSend: SendReport? = null
     private val flow = MutableStateFlow(snapshot())
     private val api = MacApi(ports.http, ports.keys)
     private var generation = 0
@@ -44,18 +45,73 @@ class RichCore private constructor(
         is Action.Pair -> pair(action.link)
         is Action.ConfirmWords -> confirmWords(action.match)
         Action.Forget -> forget()
-        else -> mutex.withLock {
-            val next = when (action) {
-                is Action.SelectThread -> {
-                    if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
-                    session.copy(selectedThreadId = action.threadId)
-                }
-                is Action.Compose -> session.copy(draft = action.text)
-                is Action.Network -> session.copy(online = action.online)
-                is Action.SetTheme -> session.copy(theme = action.theme)
-                else -> throw CoreError("${actionName(action)} is not built yet: the outbox arrives with the text-send stream")
+        Action.Send -> send()
+        Action.Sync -> if (session.paired) flush() else flow.value
+        Action.Retry -> {
+            mutex.withLock {
+                if (!session.paired) throw CoreError("Pairing has been revoked")
+                outbox.retryEverythingNow()
+                emit()
             }
-            commit(next)
+            flush()
+        }
+        is Action.Discard -> mutex.withLock {
+            outbox.discard(action.clientId)
+            emit()
+        }
+        is Action.Network -> {
+            mutex.withLock { commit(session.copy(online = action.online)) }
+            if (action.online && session.paired) flush() else flow.value
+        }
+        is Action.SendVoice -> throw CoreError("send-voice is not built yet: it arrives with the voice recording lifecycle")
+        is Action.SelectThread, is Action.Compose, is Action.SetTheme -> mutex.withLock {
+            commit(
+                when (action) {
+                    is Action.SelectThread -> {
+                        if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
+                        session.copy(selectedThreadId = action.threadId)
+                    }
+                    is Action.Compose -> session.copy(draft = action.text)
+                    is Action.SetTheme -> session.copy(theme = action.theme)
+                    else -> error("unreachable")
+                },
+            )
+        }
+    }
+
+    // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
+
+    private suspend fun send(): AppState {
+        mutex.withLock {
+            if (!session.paired) throw CoreError("Pair this device before sending")
+            val text = session.draft.trim()
+            if (text.isEmpty()) throw CoreError("Message is empty")
+            val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
+            outbox.enqueue(
+                OutboxItem(
+                    clientId = ports.ids.next(),
+                    threadId = threadId,
+                    kind = "text",
+                    text = text,
+                    queuedAt = isoMillis(ports.clock.now()),
+                ),
+            )
+            commit(session.copy(draft = ""))
+        }
+        return flush()
+    }
+
+    /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
+    private suspend fun flush(): AppState {
+        if (!session.online) return flow.value
+        val report = outbox.flush { item -> ports.transport.sendText(item) }
+        return mutex.withLock {
+            lastSend = report
+            if (report.reason == "revoked") {
+                commit(session.copy(paired = false, pairing = session.pairing.copy(problem = "revoked")))
+            } else {
+                emit()
+            }
         }
     }
 
@@ -64,7 +120,7 @@ class RichCore private constructor(
     private suspend fun pair(text: String): AppState {
         val link = PairLink.parse(text)
         val mine = mutex.withLock {
-            if (outbox.isNotEmpty()) throw CoreError(UNSENT_BEFORE_PAIRING)
+            if (!outbox.isEmpty()) throw CoreError(UNSENT_BEFORE_PAIRING)
             if (session.pairing.phase == PairingPhase.EXCHANGING) throw CoreError("A pairing code is already on its way to the Mac")
             val previous = session.pairing.apiBase.takeIf { session.pairing.phase != PairingPhase.UNPAIRED && it != link.origin }
             commit(
@@ -148,7 +204,7 @@ class RichCore private constructor(
     }
 
     private suspend fun forget(): AppState = mutex.withLock {
-        if (outbox.isNotEmpty()) throw CoreError(UNSENT_BEFORE_FORGET)
+        if (!outbox.isEmpty()) throw CoreError(UNSENT_BEFORE_FORGET)
         val origin = session.pairing.apiBase
         ++generation
         val next = commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null, pairing = Pairing()))
@@ -165,13 +221,23 @@ class RichCore private constructor(
         return flow.value
     }
 
-    private fun snapshot() = AppState.of(session, outbox.sortedBy { it.queuedAt }, dueInMs = null, lastSend = null)
+    /** Publishes the current state without writing the session (outbox-only changes). */
+    private fun emit(): AppState {
+        flow.value = snapshot()
+        return flow.value
+    }
+
+    private fun snapshot() = AppState.of(session, outbox.all(), outbox.dueInMs(), lastSend)
 
     companion object {
         const val UNSENT_BEFORE_PAIRING = "A message is still waiting for the Mac this phone is paired with. Send it or discard it, then pair."
         const val UNSENT_BEFORE_FORGET = "A message is still waiting to be sent. Send it or discard it, then forget this pairing."
 
-        suspend fun open(ports: Ports): RichCore = RichCore(ports, ports.session.read(), ports.storage.all())
+        suspend fun open(ports: Ports): RichCore {
+            val outbox = Outbox(ports.storage, ports.clock)
+            outbox.load()
+            return RichCore(ports, ports.session.read(), outbox)
+        }
 
         /** The route a pairing origin names (contract §1.1), or null for any other host. */
         fun routeOf(origin: String): Route? {

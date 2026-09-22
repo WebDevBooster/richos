@@ -73,12 +73,9 @@ class CoreTest {
     }
 
     @Test
-    fun `outbox actions are refused with a sentence until the outbox is built`() = runTest {
-        val core = DevRuntime.create().core
-        for (action in listOf(Action.Send, Action.Retry, Action.Sync, Action.Discard("x"), Action.SendVoice(Recording("r", 1.0)))) {
-            val error = assertFailsWith<CoreError> { core.dispatch(action) }
-            assertTrue(error.message!!.contains("not built yet"), error.message)
-        }
+    fun `voice sending is refused with a sentence until the recording lifecycle is built`() = runTest {
+        val error = assertFailsWith<CoreError> { DevRuntime.create().core.dispatch(Action.SendVoice(Recording("r", 1.0))) }
+        assertTrue(error.message!!.contains("not built yet"), error.message)
     }
 
     @Test

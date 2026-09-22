@@ -118,7 +118,8 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
             response.status == 403 -> TransportFailure("refused", retryable = false)
             response.status == 429 -> TransportFailure("rate-limited", retryable = true)
             response.status == 404 && afterResign -> TransportFailure("refused", retryable = false)
-            (json?.get("retry") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == false -> TransportFailure("refused", retryable = false)
+            (json?.get("retry") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == false ->
+                TransportFailure("refused", retryable = false, aboutThisMessage = true)
             else -> TransportFailure("fault", retryable = true)
         }
     }
