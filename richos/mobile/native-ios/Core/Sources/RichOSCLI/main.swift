@@ -15,8 +15,17 @@ RichOS native iPhone development loop (JSON output; nonzero exit on failure)
   bin/rios headless action '{"type":"compose","text":"Hello"}'
   bin/rios headless action '{"type":"set-appearance","appearance":"light"}'
   bin/rios headless scenario \(Scenario.all.map(\.name).joined(separator: "|"))
-  bin/rios sim prepare|launch|restart|verify|ui-test|screenshot [path]|check-release|stop|doctor
-  bin/rios sim <the same state/reset/fixture/action/scenario commands, run inside the Debug app>
+  bin/rios sim prepare [fixture]      generate, build, create+boot the simulator, install, launch
+  bin/rios sim launch [fixture]       relaunch the app process (optionally straight into a fixture)
+  bin/rios sim restart                relaunch the app process
+  bin/rios sim verify                 headless and simulator results must be byte-identical
+  bin/rios sim screenshot [path]      capture the screen; default name <screen>-<appearance>.png
+  bin/rios sim ui-test                the XCUITest target on this simulator
+  bin/rios sim check-release          prove fixtures and the bridge are absent from Release
+  bin/rios sim build Debug|Release    build only
+  bin/rios sim stop                   terminate the app, shut the simulator down and delete it
+  bin/rios sim doctor                 tool versions and the cache path
+  bin/rios sim state|reset|fixture|action|scenario   the headless commands, inside the Debug app
   bin/rios test [swift test arguments]      the core's unit tests on this Mac, no simulator
 Headless commands share one session under the external cache. `sim` uses only the simulator this
 command created (recorded in the cache); it never addresses "booted".
@@ -118,6 +127,17 @@ func run() async -> Int32 {
                 return try await CommandRunner.execute(try payload(command, args.count > 2 ? args[2] : nil), on: host)
             }
             emit(Output(mode: mode, command: command, elapsedMs: elapsedMs(), result: result), to: .standardOutput)
+        case "sim":
+            #if os(macOS)
+            let cache = try cacheDirectory()
+            let report = try await withLock(cache, "sim.lock") {
+                let simulator = try Simulator(cache: cache)
+                return try await simulator.run(command, args.count > 2 ? args[2] : nil)
+            }
+            emit(Output(mode: mode, command: command, elapsedMs: elapsedMs(), result: report), to: .standardOutput)
+            #else
+            throw CoreError("sim mode runs on macOS only")
+            #endif
         default:
             throw CoreError("Unknown mode: \(mode). Use --help.")
         }
