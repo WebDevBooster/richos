@@ -141,6 +141,7 @@ struct MessageRow: View {
     let calendar: Calendar
     let send: (Intent) -> Void
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var mine: Bool { row.author == .me }
 
@@ -285,7 +286,7 @@ struct MessageRow: View {
 
     private var attentionLine: some View {
         HStack(spacing: 8) {
-            (Text("Not sent").fontWeight(.semibold).foregroundColor(palette.danger)
+            (Text("Not sent").run(Typography.read.weight(600), dynamicTypeSize).foregroundColor(palette.danger)
              + Text(" · needs attention").foregroundColor(palette.ink))
             Button { send(.discard(id: row.id)) } label: { QuietLabel(text: "Discard") }
                 .buttonStyle(.plain)

@@ -10,6 +10,7 @@ struct TakeoverView: View {
     let smallDevice: Bool
     let send: (Intent) -> Void
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         TakeoverScaffold(topPadding: isBlocking ? 40 : 28) {
@@ -53,8 +54,8 @@ struct TakeoverView: View {
                 EmptyView()
             }
             VStack(alignment: .leading, spacing: 14) {
-                Step(n: 1, text: Text("On your Mac, open ") + Text("Use Rich from your phone").fontWeight(.semibold)
-                     + Text(" and choose ") + Text("RichOS Connect").fontWeight(.semibold) + Text("."))
+                Step(n: 1, text: Text("On your Mac, open ") + Text("Use Rich from your phone").run(Typography.body.weight(600), dynamicTypeSize)
+                     + Text(" and choose ") + Text("RichOS Connect").run(Typography.body.weight(600), dynamicTypeSize) + Text("."))
                 Step(n: 2, text: Text("Scan the code it shows you."))
             }
             .padding(.top, 22)

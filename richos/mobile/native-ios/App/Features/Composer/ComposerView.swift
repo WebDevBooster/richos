@@ -176,10 +176,9 @@ struct ComposerView: View {
                 .tint(palette.signal)
                 .lineLimit(1...6)
                 .focused($fieldFocused)
-                .background(GeometryReader { p in
-                    Color.clear.preference(key: FieldHeightKey.self, value: p.size.height)
-                })
-                .onPreferenceChange(FieldHeightKey.self) { fieldHeight = $0 }
+                // Its natural height, not the capsule's: the capsule grows from what this measures.
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
                 .accessibilityLabel(hasPending ? "Add a message" : "Message")
                 .accessibilityIdentifier("composer.field")
                 .padding(.vertical, 12)
