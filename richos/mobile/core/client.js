@@ -358,7 +358,7 @@
         latestError = null;transientError=false;
         switch (action.type) {
           case 'notification-focused':
-            if(data.focusMessage===action.id)data.focusMessage=null;break;
+            if(data.focusMessage===action.id){data.focusMessage=null;await persist();}break;
           case 'notifications-previews':
             await ports.native('pushPreview',{enabled:action.enabled===true});
             data.push.previews=action.enabled===true;await persist();void syncNotifications(true);break;

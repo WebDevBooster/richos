@@ -47,6 +47,6 @@ test('notification return focuses the referenced reply after it arrives',async t
  await f.app.dispatch({type:'notification-open',value});assert.equal(f.app.state().focusMessage,null);
  f.h.opened.at(-1).event('message',{id:'reply-42',text:'Your approval is needed',role:'rich',cursor:42,complete:true});await f.settle();
  assert.equal(f.app.state().focusMessage,'reply-42');
- await f.app.dispatch({type:'notification-focused',id:'reply-42'});assert.equal(f.app.state().focusMessage,null);
+ await f.app.dispatch({type:'notification-focused',id:'reply-42'});assert.equal(f.app.state().focusMessage,null);assert.equal(f.h.disk().focusMessage,null);
  f.h.opened.at(-1).event('message',{id:'reply-43',text:'Later reply',role:'rich',cursor:43,complete:true});await f.settle();assert.equal(f.app.state().focusMessage,null,'Later traffic must not refocus an already opened notification');
 });
