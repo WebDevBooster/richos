@@ -20,7 +20,7 @@ The operator owns a mode-0700 directory. Publication uses a local exclusive lock
 
 Release builds read `https://updates.richos.ceo/v1/policy`, served by the Worker `richos-update-policy` from the D1 database `richos-update-policy`, on Cloudflare's network and independent of every user's Mac. Both the Connect and Tailscale routes reach it the same way: the app's update session goes straight to that public HTTPS name, never through the paired Mac.
 
-- `policy-worker.mjs` (main module), `policy-store.mjs` and `../core/updates.js` are the whole upload. The Worker serves `GET /v1/policy` (newest revision, revalidated), `GET /v1/events` (change hints) and `GET /healthz`. Every other method returns 405 without reading the body. It holds SELECT statements only, reads no header, cookie, query or address and logs nothing. Upload with logs, traces and Logpush off, no tail consumers, and workers.dev and preview URLs disabled.
+- `policy-worker.mjs` (main module), `policy-store.mjs` and `../core/updates.js` are the whole upload. The Worker serves `GET /v1/policy` (newest revision for the preserved app, revalidated), `GET /v1/events` (change hints), the same pair per native app under `/<target>` (see Targets below) and `GET /healthz`. Every other method returns 405 without reading the body. It holds SELECT statements only, reads no header, cookie, query or address and logs nothing. Upload with logs, traces and Logpush off, no tail consumers, and workers.dev and preview URLs disabled.
 - The store is append-only (`policy-schema.sql`): one row per revision with its audit record; triggers refuse UPDATE and DELETE. The served policy is always the highest revision, so an older row can never be served over a newer one.
 - Each hint stream polls the store every 3 seconds, sends a keepalive every 12 seconds (inside the iPhone client's 15-second idle timeout) and ends after 105 seconds (before its 120-second resource timeout). The client reconnects 15 seconds after a close and keeps its 60-second foreground fallback. One stream costs at most 36 D1 queries, under the Workers Free limit of 50 per invocation. The current iPhone client refetches on any stream bytes, so each keepalive also produces one policy request per active phone.
 - `POST /v1/metrics` is not hosted: client metrics stay off (`metrics: false`) until the privacy review above is done. Cloudflare's aggregate request analytics are the only delivery counts.
@@ -35,6 +35,22 @@ RICHOS_POLICY_PROFILE=<profile.json> RICHOS_POLICY_TOKEN_FILE=<token> node richo
 ```
 
 `publish-hosted` applies the same authorization as `publish` (matching preview digest, operator identity, availability receipt for a release) before any network call, then inserts one row with a single statement that succeeds only if its revision is higher than every stored one, reads it back and reports what the public route serves. Rollback and withdrawal are a new, higher revision, as with the local store. Deploy and withdrawal steps: `richos-hq/docs/operations/2026-09-22-richos-update-policy-service.md`.
+
+### Targets: one record, one app
+
+Every record is for exactly one app, named by the policy's optional `target` field:
+
+| `target` | App | Routes (hosted and local) |
+| --- | --- | --- |
+| absent, or `ios-preserved` | the preserved iPhone app (`mobile/ios`) | `GET /v1/policy`, `GET /v1/events`, unchanged |
+| `ios-native` | the new native iPhone app | `GET /v1/policy/ios-native`, `GET /v1/events/ios-native` |
+| `android-native` | the new native Android app | `GET /v1/policy/android-native`, `GET /v1/events/android-native` |
+
+Isolation is enforced by the service, not by the clients: the preserved app's routes only ever serve untargeted or `ios-preserved` records and announce only their revisions, so a notice, block or feature switch meant for a native app can never reach it, whatever its code does with fields it does not know. Every record published before targets existed is untargeted, so the preserved app sees no change. The target is part of the previewed and digested policy, and the hosted store reads it from the stored policy JSON, so the D1 schema is unchanged.
+
+Revisions are one increasing sequence across all targets (the insert statement is unchanged), so each app's own revisions still only increase. A native client must also check that a served policy's `target` is its own and refuse it otherwise. `ios-native` uses the App Store rules above. `android-native` uses the same rules except that `latest` names a Google Play release, `{packageName, version, build, minimumSdk, verifiedAt}`, where `build` is the Android version code as a decimal string and `minimumSdk` is the lowest supported API level, and its availability receipt attests those same fields. Preview evaluates client decisions with the shared JavaScript rules, which know App Store listings only, so an `android-native` preview takes no `clients`; the Android core evaluates them.
+
+Locally, `publish` writes an `ios-native` or `android-native` record to `active-<target>.json` beside `active.json`, and `serve` answers the same six routes.
 
 `node --test richos/mobile/test/policy-worker-runtime.test.js` runs the exact upload in workerd, Cloudflare's runtime, through the Miniflare that ships with an installed Wrangler (or `RICHOS_MINIFLARE`). It is skipped, with that reason, where no local runtime exists.
 

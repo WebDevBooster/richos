@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { authorize, digest } from './policy.mjs';
-import { LATEST } from './policy-store.mjs';
+import { LATEST, PRESERVED, TARGET_LATEST, scope, targetOf } from './policy-store.mjs';
 
 // One statement: the insert happens only if it is newer than every stored revision, so two
 // operators racing, a replayed request or an out-of-order rollback can never lower the latest.
@@ -89,16 +89,18 @@ export async function publishHosted(profile, request, { token, fetch: fetchImpl 
   if (policy.revision <= hosted) throw Error(`Publication and rollback require a new increasing revision (hosted revision is ${hosted})`);
   const inserted = await query(PUBLISH, [String(policy.revision), JSON.stringify(policy), audit.digest, JSON.stringify(audit), audit.publishedAt]);
   if (inserted.meta?.changes !== 1) throw Error('A newer revision was published concurrently; preview again with a higher revision');
-  const stored = (await query(LATEST)).results?.[0];
+  // Readback through the target's own query and route: a record is only published if its app reads it.
+  const target = targetOf(policy), path = target === PRESERVED ? '/v1/policy' : `/v1/policy/${target}`;
+  const stored = (await query(TARGET_LATEST, scope(target))).results?.[0];
   if (stored?.revision !== policy.revision || digest(JSON.parse(stored.policy)) !== audit.digest) throw Error('Hosted readback does not match the published revision');
   // Public readback through the served route. The insert is already durable if this fails.
   let served = null, servedError = null;
   try {
-    const response = await fetchImpl(`https://${profile.hostname}/v1/policy`, { redirect: 'error', cache: 'no-store', headers: { Accept: 'application/json' } });
+    const response = await fetchImpl(`https://${profile.hostname}${path}`, { redirect: 'error', cache: 'no-store', headers: { Accept: 'application/json' } });
     if (!response.ok) throw Error(`HTTP ${response.status}`);
     served = (await response.json()).revision;
   } catch (error) { servedError = error.message; }
-  return { revision: policy.revision, digest: audit.digest, operator: audit.operator, publishedAt: audit.publishedAt, stored: true, served, servedError };
+  return { revision: policy.revision, target, digest: audit.digest, operator: audit.operator, publishedAt: audit.publishedAt, stored: true, served, servedError };
 }
 
 // Idempotent (IF NOT EXISTS). Verifies the table and both append-only triggers exist afterwards.
