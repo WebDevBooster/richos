@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Writes shares into the App Group the app reads them from, and (once the core's signer exists)
+     reads the device key from the Keychain group it shares with the app. Nothing else. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(RICHOS_APP_GROUP)</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(RICHOS_KEYCHAIN_GROUP)</string>
+	</array>
+</dict>
+</plist>

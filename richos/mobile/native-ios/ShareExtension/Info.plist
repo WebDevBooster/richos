@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- "Share to Rich". RichOS appears in the share sheet only when EVERY shared item is a type the
+     Mac accepts (Echo, cc/echo-opus-m1 22e59ed8: JPEG, PNG, HEIC, HEIF, GIF, WebP, PDF, Markdown,
+     CSV, DOCX, XLSX, PPTX), so a person is never offered a share that would be refused.
+     Plain text is left out on purpose: a text selection in Notes or Safari reports the same type as
+     a .txt file, and round 12 leaves "sharing links and plain text" out of v1 (attachments NOTES).
+     The rule is checked by the platform tests (ShareExtension/Tests) against item shapes. -->
+<plist version="1.0">
+<dict>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>NSExtensionActivationRule</key>
+			<string>SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a, ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.jpeg" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.png" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.heic" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.heif" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.compuserve.gif" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.webmproject.webp" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "net.daringfireball.markdown" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.comma-separated-values-text" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.wordprocessingml.document" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.spreadsheetml.sheet" OR ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.presentationml.presentation").@count == $item.attachments.@count AND $item.attachments.@count >= 1 AND $item.attachments.@count &lt;= 10).@count >= 1</string>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+	</dict>
+	<key>RichOSAppGroup</key>
+	<string>$(RICHOS_APP_GROUP)</string>
+</dict>
+</plist>
