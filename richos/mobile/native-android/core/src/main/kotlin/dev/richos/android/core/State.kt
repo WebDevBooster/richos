@@ -21,7 +21,48 @@ enum class Theme {
     @SerialName("light") LIGHT,
 }
 
-/** What the user owns on this phone and what survives a restart. `app.js`'s `model`, plus `theme`. */
+/** Where pairing stands (phone protocol contract §2). */
+@Serializable
+enum class PairingPhase {
+    /** No Mac. The pairing screens show. */
+    @SerialName("unpaired") UNPAIRED,
+
+    /** The code is on its way to the Mac (round-12 `pair-progress`). */
+    @SerialName("exchanging") EXCHANGING,
+
+    /** The Mac answered; the six words wait for the user's "They match" (round-12 `pair-words`). */
+    @SerialName("confirming") CONFIRMING,
+
+    /** Confirmed. Messages may be sent. */
+    @SerialName("paired") PAIRED,
+}
+
+/** Which of the two routes the pairing link chose (contract §1.1). Fixed for the whole pairing. */
+@Serializable
+enum class Route {
+    @SerialName("tailnet") TAILNET,
+    @SerialName("connect") CONNECT,
+}
+
+/**
+ * The pairing, and what must survive a restart for it (contract §2.2 "What the phone must
+ * persist"). [problem] names the last pairing outcome that was not a success, as a stable code a
+ * screen chooses its words from: `refused` (a wrong or expired code, or the Mac already has a
+ * phone), `rate-limited`, `unreachable`, `fault`, `revoked`.
+ */
+@Serializable
+data class Pairing(
+    val phase: PairingPhase = PairingPhase.UNPAIRED,
+    val apiBase: String? = null,
+    val route: Route? = null,
+    val deviceId: String? = null,
+    val caFingerprint: String? = null,
+    val words: List<String> = emptyList(),
+    val challenge: String? = null,
+    val problem: String? = null,
+)
+
+/** What the user owns on this phone and what survives a restart: `app.js`'s `model`, plus `theme` and `pairing`. */
 @Serializable
 data class Session(
     val threads: List<ConversationThread> = emptyList(),
@@ -30,6 +71,7 @@ data class Session(
     val online: Boolean = false,
     val paired: Boolean = false,
     val theme: Theme = Theme.DARK,
+    val pairing: Pairing = Pairing(),
 )
 
 @Serializable
@@ -78,6 +120,7 @@ data class AppState(
     val online: Boolean,
     val paired: Boolean,
     val theme: Theme,
+    val pairing: Pairing,
     val outbox: List<OutboxItem>,
     val dueInMs: Long?,
     val lastSend: SendReport?,
@@ -98,6 +141,7 @@ data class AppState(
             online = session.online,
             paired = session.paired,
             theme = session.theme,
+            pairing = session.pairing,
             outbox = outbox,
             dueInMs = dueInMs,
             lastSend = lastSend,

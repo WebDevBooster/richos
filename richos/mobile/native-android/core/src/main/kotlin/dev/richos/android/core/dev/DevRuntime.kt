@@ -16,7 +16,11 @@ import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
 import dev.richos.android.core.Transport
 import dev.richos.android.core.TransportFailure
+import dev.richos.android.core.PairingPhase
 import dev.richos.android.core.parseAction
+import dev.richos.android.core.protocol.DeviceKeys
+import dev.richos.android.core.protocol.Http
+import java.io.IOException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -134,6 +138,30 @@ class DevRuntime private constructor(
                 doc = doc.copy(sequence = doc.sequence + 1)
                 "mobile-${doc.sequence}"
             },
+            http = Http { request ->
+                if (doc.mode == TransportMode.UNREACHABLE) throw IOException("the scripted Mac is unreachable")
+                val (next, response) = DevMacRoutes.handle(doc, request)
+                doc = next
+                persist()
+                response
+            },
+            keys = object : DeviceKeys {
+                override suspend fun publicPoint(origin: String): ByteArray {
+                    if (origin !in doc.keys) {
+                        doc = doc.copy(keys = doc.keys + origin)
+                        persist()
+                    }
+                    return DevKeys.point
+                }
+                override suspend fun sign(origin: String, data: ByteArray): ByteArray {
+                    if (origin !in doc.keys) throw CoreError("no key for $origin")
+                    return DevKeys.sign(data)
+                }
+                override suspend fun delete(origin: String) {
+                    doc = doc.copy(keys = doc.keys - origin)
+                    persist()
+                }
+            },
         )
         core = RichCore.open(ports)
         onCore(core)
@@ -197,6 +225,32 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.Compose("   ")))
                 check(s.composerAction == ComposerAction.RECORD, "whitespace is not a message; the microphone returns")
             }
+            // Pairing (contract §2): the link goes out, the six words come back computed on the
+            // phone from the Mac's hash, "They match" makes the pairing, and the key survives.
+            "pair-and-confirm" -> {
+                step(DevRequest.Fixture("unpaired"))
+                var s = step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
+                check(s.pairing.phase == PairingPhase.CONFIRMING, "a good code must reach the six words")
+                check(s.pairing.words.joinToString(" ") == "cobra morning cargo moose grape bonus", "the words must come from the Mac's hash")
+                check(s.threads.isNotEmpty() && s.selectedThreadId == s.threads.first().id, "the Mac's conversations arrive with the answer")
+                s = step(DevRequest.Dispatch(Action.ConfirmWords(true)))
+                check(s.pairing.phase == PairingPhase.PAIRED && s.paired, "They match must pair")
+                check(doc.mac.confirmed, "the Mac must have recorded the confirmation")
+                s = step(DevRequest.Restart)
+                check(s.pairing.phase == PairingPhase.PAIRED && s.pairing.deviceId == DevKeys.DEVICE_ID, "a pairing survives a restart")
+            }
+            // A wrong code is refused with an empty 404, nothing is paired, and the window stays
+            // open, so the right code still works (contract §2.3).
+            "pair-refused" -> {
+                step(DevRequest.Fixture("unpaired"))
+                var s = step(DevRequest.Dispatch(Action.Pair("${Fixtures.ORIGIN}/#pair=WRONG234")))
+                check(s.pairing.phase == PairingPhase.UNPAIRED && s.pairing.problem == "refused" && !s.paired, "a wrong code must be refused")
+                s = step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
+                check(s.pairing.phase == PairingPhase.CONFIRMING, "the window survives a wrong code")
+                s = step(DevRequest.Dispatch(Action.ConfirmWords(false)))
+                check(s.pairing.phase == PairingPhase.UNPAIRED && Fixtures.ORIGIN !in doc.keys && doc.mac.devicePoint == null,
+                    "They do not match must forget the pairing on both sides and discard the key")
+            }
             else -> throw CoreError("Unknown scenario: $name (known: ${SCENARIOS.joinToString()})")
         }
         return buildJsonObject {
@@ -207,7 +261,7 @@ class DevRuntime private constructor(
     }
 
     companion object {
-        val SCENARIOS: List<String> = listOf("draft-survives-restart")
+        val SCENARIOS: List<String> = listOf("draft-survives-restart", "pair-and-confirm", "pair-refused")
 
         suspend fun create(
             initial: DevDoc? = null,
