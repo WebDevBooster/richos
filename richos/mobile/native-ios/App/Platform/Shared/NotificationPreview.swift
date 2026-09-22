@@ -1,8 +1,10 @@
 import CryptoKit
 import Foundation
+import RichOSCore
 import Security
 
 // Compiled into the app, the notification service extension, and the macOS platform tests.
+// base64url is the core's (`RichOSCore.Base64URL`), so the preview key is encoded one way everywhere.
 //
 // THE DESIGN IS THE PRESERVED APP'S, PORTED (richos/mobile/ios/Shared/NotificationPreview.swift,
 // read at aa8d28e3 and never modified): the Mac seals the first 240 characters of Rich's reply with a
@@ -157,21 +159,5 @@ struct PreviewKeyStore: Sendable {
     func erase() throws {
         let status = SecItemDelete(query() as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
-    }
-}
-
-/// base64url without padding, the form the Mac uses for nonces, bodies and the preview key.
-enum Base64URL {
-    static func encode(_ data: Data) -> String {
-        data.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
-    }
-
-    static func decode(_ text: String) -> Data? {
-        guard text.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return nil }
-        let standard = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        return Data(base64Encoded: standard + String(repeating: "=", count: (4 - standard.count % 4) % 4))
     }
 }

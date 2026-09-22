@@ -1,15 +1,14 @@
 import Foundation
+import RichOSCore
 
 // Compiled into the app and the macOS platform tests. Foundation only.
 
-/// The body of the signed `POST /api/pair` that registers this phone for reply notifications
-/// (phone protocol contract §7.2), and the reading of its answer.
-///
-/// APNs shape, unchanged by the Mac's FCM work (Echo, `cc/echo-opus-m1` 65952d16):
-/// `{"native_push":{"token","environment","topic","preview_key"?,"previews"?}}`; `null` unregisters.
-/// The topic is this app's bundle identifier, which the Mac must list (it lists
-/// `dev.richos.native.ios` since 65952d16; a production identifier is one more entry there and in
-/// the Worker's `APNS_TOPICS`).
+/// The platform facts of the signed `POST /api/pair` that registers this phone for reply
+/// notifications (phone protocol contract §7.2) — the token's form and this build's APNs environment —
+/// and the reading of its answer. The BODY is the core's (`RichOSCore.PairingWire.pushRegistrationBody`,
+/// stream I1), so its bytes have one author; the topic `dev.richos.native.ios` is on the Mac's list
+/// since Echo's 65952d16 (a production identifier is one more entry there and in the Worker's
+/// `APNS_TOPICS`).
 enum PushRegistration {
     enum Environment: String, Sendable {
         case sandbox, production
@@ -29,21 +28,6 @@ enum PushRegistration {
     static func token(_ deviceToken: Data) -> String {
         deviceToken.map { String(format: "%02x", $0) }.joined()
     }
-
-    static func body(token: String, environment: Environment, topic: String, previewKey: Data?, previews: Bool) throws -> Data {
-        guard (32...512).contains(token.utf8.count),
-              token.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
-            throw CocoaError(.coderInvalidValue)
-        }
-        var push: [String: Any] = ["token": token, "environment": environment.rawValue, "topic": topic, "previews": previews]
-        if let previewKey {
-            guard previewKey.count == 32 else { throw CocoaError(.coderInvalidValue) }
-            push["preview_key"] = Base64URL.encode(previewKey)
-        }
-        return try JSONSerialization.data(withJSONObject: ["native_push": push], options: [.sortedKeys])
-    }
-
-    static let unregisterBody = Data(#"{"native_push":null}"#.utf8)
 
     enum Answer: Equatable, Sendable {
         /// 200: registered (or unregistered), with the Mac's push host id to check taps against.

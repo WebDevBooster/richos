@@ -136,23 +136,29 @@ check("C4 the context round-trips through the App Group", ShareContext.read(cont
 check("C5 no context file reads as unpaired", ShareContext.read(container: scratch.appendingPathComponent("none")) == .unpaired)
 
 // --- delivery against a fake Mac -----------------------------------------------------------------
-final class FakeMac: SignedTransport, @unchecked Sendable {
+struct Sent: Equatable {
+    var method: String
+    var pathAndQuery: String
+    var contentType: String
+    var body: Data
+}
+final class FakeMac: MacRequests, @unchecked Sendable {
     let lock = NSLock()
-    var requests: [SignedRequest] = []
-    let answer: (SignedRequest, Int) -> SignedResponse
+    var requests: [Sent] = []
+    let answer: (Sent, Int) -> HTTPResponse
     var delayMs: UInt64 = 0
-    init(_ answer: @escaping (SignedRequest, Int) -> SignedResponse) { self.answer = answer }
-    func send(_ request: SignedRequest) async throws -> SignedResponse {
+    init(_ answer: @escaping (Sent, Int) -> HTTPResponse) { self.answer = answer }
+    func send(_ method: String, _ target: String, body: Data, contentType: String) async throws -> HTTPResponse {
         if delayMs > 0 { try await Task.sleep(nanoseconds: delayMs * 1_000_000) }
-        return record(request)
+        return record(Sent(method: method, pathAndQuery: target, contentType: contentType, body: body))
     }
-    private func record(_ request: SignedRequest) -> SignedResponse {
+    private func record(_ request: Sent) -> HTTPResponse {
         lock.lock(); defer { lock.unlock() }
         requests.append(request)
         return answer(request, requests.count)
     }
 }
-func json(_ status: Int, _ text: String) -> SignedResponse { SignedResponse(status: status, body: Data(text.utf8)) }
+func json(_ status: Int, _ text: String) -> HTTPResponse { HTTPResponse(status: status, body: Data(text.utf8)) }
 let two = try inbox.write(caption: "Two", files: [try staged("x.jpg", "image/jpeg"), try staged("y.pdf", "application/pdf", fill: 1)],
                           threadID: "thr_5c1e", nowMs: 1_758_000_000_000, newID: nextID)
 let happy = FakeMac { _, _ in json(200, #"{"duplicate":false}"#) }
@@ -164,10 +170,10 @@ check("D2 upload, commit, upload, commit — in outbox order",
 check("D3 an upload carries the file's own media type and exact bytes",
       try happy.requests[0].contentType == "image/jpeg" && happy.requests[0].body == (try Data(contentsOf: inbox.fileURL(for: two.items.first { $0.isPhoto }!)!)))
 check("D4 the commit is the stored bytes, byte for byte", happy.requests[1].body == Data(two.messages[0].commitBody.utf8))
-check("D5 a name with spaces and & cannot change the query",
+check("D5 a name with spaces and & cannot change the query (the core's form encoding; the Mac reads + as a space)",
       AttachmentDelivery.uploadPath(clientID: "c", item: SharedItem(id: "a", fileName: "Q3 plan & notes.pdf", mediaType: "application/pdf",
                                                                    relativePath: "", byteCount: 1, sha256: ""))
-          == "/api/messages?kind=attachment&client_id=c&attachment_id=a&name=Q3%20plan%20%26%20notes.pdf")
+          == "/api/messages?kind=attachment&client_id=c&attachment_id=a&name=Q3+plan+%26+notes.pdf")
 // The Mac lost a file (evicted): 422 missing, upload that one, then the SAME commit bytes again.
 let evictedID = two.messages[0].itemIDs[0]
 final class Counter: @unchecked Sendable { var value = 0 }
@@ -265,6 +271,12 @@ check("R8 not a mix with something the Mac refuses", !offered([["public.jpeg"], 
 check("R9 not eleven photos (the Mac takes ten)", !offered(Array(repeating: ["public.jpeg"], count: 11)))
 check("R10 ten photos", offered(Array(repeating: ["public.jpeg"], count: 10)))
 check("R11 not legacy Word", !offered([["com.microsoft.word.doc"]]))
+
+// --- the recorder's level, which the voice bubble and halo draw (App/Platform/Shared/VoiceLevel) ----
+check("V1 silence is 0", VoiceLevel.level(averagePowerDB: -160) == 0 && VoiceLevel.level(averagePowerDB: -50) == 0)
+check("V2 full scale is 1", VoiceLevel.level(averagePowerDB: 0) == 1 && VoiceLevel.level(averagePowerDB: 3) == 1)
+check("V3 speech at -20 dBFS reads 0.6", abs(VoiceLevel.level(averagePowerDB: -20) - 0.6) < 1e-6)
+check("V4 a meter that reports no number reads 0", VoiceLevel.level(averagePowerDB: -.infinity) == 0 && VoiceLevel.level(averagePowerDB: .nan) == 0)
 
 if failures.isEmpty {
     print("Share platform: \(passed) checks passed")

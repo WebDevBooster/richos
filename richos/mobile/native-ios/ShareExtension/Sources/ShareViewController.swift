@@ -8,7 +8,7 @@ import RichOSCore
 /// No signed connection to the Mac exists in this build yet: the device key and the request signer
 /// are the core's (stream I1) and not written. So `transport` is `nil`, every share is written to
 /// the inbox and the sheet says "Saved for Rich … the next time you open RichOS" — never "Sent" —
-/// until the core's `SignedTransport` is passed here. Everything after that (uploads, the commit,
+/// until the core's `APIClient` (a `MacRequests`) is passed here. Everything after that (uploads, the commit,
 /// the 3-second rule, "Sent to Rich" only on the commit's 200) is built and tested now.
 final class ShareViewController: UIViewController {
     private var model: ShareModel?

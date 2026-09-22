@@ -1,4 +1,5 @@
 import Foundation
+import RichOSCore
 import UniformTypeIdentifiers
 
 /// Reads what the host app shared into files this extension owns.
@@ -19,16 +20,18 @@ struct SharePayloadLoader: Sendable {
 
     /// Where staged files go; removed by the caller when the sheet closes.
     let directory: URL
+    /// What the paired Mac advertised (or its published defaults).
+    let limits: AttachmentLimits
 
     func load(_ providers: [NSItemProvider]) async -> Loaded {
         var loaded = Loaded()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for provider in providers {
-            guard let (identifier, mediaType) = Self.acceptedType(of: provider) else {
+            guard let (identifier, mediaType) = Self.acceptedType(of: provider, limits: limits) else {
                 loaded.unsupported += 1
                 continue
             }
-            guard loaded.files.count + loaded.tooLarge.count < AttachmentRules.maxFilesPerMessage else {
+            guard loaded.files.count + loaded.tooLarge.count < limits.maxFilesPerMessage else {
                 loaded.overLimit += 1
                 continue
             }
@@ -50,9 +53,9 @@ struct SharePayloadLoader: Sendable {
 
     /// The first type the provider offers that the Mac accepts, in the provider's own order (the
     /// original representation comes first: a camera photo's HEIC before a derived JPEG).
-    static func acceptedType(of provider: NSItemProvider) -> (String, String)? {
+    static func acceptedType(of provider: NSItemProvider, limits: AttachmentLimits) -> (String, String)? {
         for identifier in provider.registeredTypeIdentifiers {
-            if let mediaType = AttachmentRules.mediaType(forTypeIdentifier: identifier) { return (identifier, mediaType) }
+            if let mediaType = AttachmentRules.mediaType(forTypeIdentifier: identifier, accepting: limits.mediaTypes) { return (identifier, mediaType) }
         }
         return nil
     }
@@ -66,6 +69,7 @@ struct SharePayloadLoader: Sendable {
     private func copy(_ provider: NSItemProvider, identifier: String) async -> Copy {
         let suggested = provider.suggestedName
         let directory = self.directory
+        let maxFileBytes = limits.maxFileBytes
         return await withCheckedContinuation { continuation in
             _ = provider.loadFileRepresentation(forTypeIdentifier: identifier) { url, _ in
                 guard let url else {
@@ -78,7 +82,7 @@ struct SharePayloadLoader: Sendable {
                         ? "\(name).\(url.pathExtension)" : name
                 } ?? url.lastPathComponent
                 let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                guard bytes <= AttachmentRules.maxFileBytes else {
+                guard bytes <= maxFileBytes else {
                     continuation.resume(returning: .tooLarge(name, bytes))
                     return
                 }

@@ -10,19 +10,21 @@ import RichOSCore
 enum SharePlatform {
     /// What the extension reads, derived from the app's state. Pure, so the headless tests can
     /// check it against fixtures.
-    static func context(for state: AppState, macAcceptsAttachments: Bool) -> ShareContext {
+    static func context(for state: AppState, macAcceptsAttachments: Bool, limits: AttachmentLimits? = nil) -> ShareContext {
         let paired = state.pairing == .paired && state.consentGiven
         return ShareContext(paired: paired,
                             macName: paired ? state.mac?.name : nil,
                             threadID: paired ? state.mac?.threadID : nil,
                             macAcceptsAttachments: paired && macAcceptsAttachments,
-                            appearance: state.appearance.rawValue)
+                            appearance: state.appearance.rawValue,
+                            attachmentLimits: paired ? limits : nil)
     }
 
     /// Writes the context when it changed. Called after every state change; cheap when nothing did.
-    static func mirror(_ state: AppState, macAcceptsAttachments: Bool, inbox: ShareInbox? = .shared) {
+    static func mirror(_ state: AppState, macAcceptsAttachments: Bool, limits: AttachmentLimits? = nil,
+                       inbox: ShareInbox? = .shared) {
         guard let inbox else { return }
-        let next = context(for: state, macAcceptsAttachments: macAcceptsAttachments)
+        let next = context(for: state, macAcceptsAttachments: macAcceptsAttachments, limits: limits)
         guard ShareContext.read(container: inbox.container) != next else { return }
         try? next.write(container: inbox.container)
     }

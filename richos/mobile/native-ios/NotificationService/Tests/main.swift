@@ -108,17 +108,17 @@ check("T12 the mailbox hands a cold-launch tap over once", mailbox.take() == tar
 
 // --- the registration body and its answers (contract §7.2) --------------------------------------
 let token = String(repeating: "ab", count: 32)
-let body = try PushRegistration.body(token: token, environment: .sandbox, topic: "dev.richos.native.ios", previewKey: key, previews: true)
+let body = PairingWire.pushRegistrationBody(tokenHex: token, sandbox: true, previewKey: key, previews: true)
 let decoded = try JSONSerialization.jsonObject(with: body) as! [String: [String: Any]]
 let push = decoded["native_push"]!
-check("R1 registration carries exactly the Mac's APNs fields",
+check("R1 the core's registration body carries exactly the Mac's APNs fields",
       Set(push.keys) == ["token", "environment", "topic", "preview_key", "previews"])
-check("R2 the preview key is base64url of the 32 bytes (fixture key round-trips)", push["preview_key"] as? String == fixture["key"] as? String)
+check("R2 the preview key the extension decrypts with is the one registered (fixture key round-trips)", push["preview_key"] as? String == fixture["key"] as? String)
 check("R3 the topic is this app's bundle id, which the Mac allows since 65952d16", push["topic"] as? String == "dev.richos.native.ios")
-check("R4 an uppercase token is refused before sending",
-      (try? PushRegistration.body(token: token.uppercased(), environment: .sandbox, topic: "t", previewKey: nil, previews: true)) == nil)
+check("R4 an unregistration's answer is read as not registered",
+      PushRegistration.answer(status: 200, body: Data(#"{"host_id":null,"registered":false}"#.utf8)) == .registered(hostID: nil, registered: false))
 check("R5 the device token becomes lowercase hex", PushRegistration.token(Data([0xAB, 0x01, 0xFF])) == "ab01ff")
-check("R6 unregister is native_push null", String(decoding: PushRegistration.unregisterBody, as: UTF8.self) == #"{"native_push":null}"#)
+check("R6 unregister is native_push null", String(decoding: PairingWire.pushUnregistrationBody, as: UTF8.self) == #"{"native_push":null}"#)
 check("R7 200 keeps the host id",
       PushRegistration.answer(status: 200, body: Data(#"{"host_id":"\#(host)","registered":true}"#.utf8)) == .registered(hostID: host, registered: true))
 check("R8 200 with a malformed host id keeps none",

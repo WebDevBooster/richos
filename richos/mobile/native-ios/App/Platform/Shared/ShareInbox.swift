@@ -1,8 +1,10 @@
 import CryptoKit
 import Foundation
+import RichOSCore
 import UniformTypeIdentifiers
 
-// Compiled into the app, the Share extension, and the macOS platform tests. Foundation only.
+// Compiled into the app, the Share extension, and the macOS platform tests. The wire shapes and the
+// Mac's advertised limits are the core's (`RichOSCore.PairingWire`, `AttachmentLimits`, stream I1).
 //
 // "Share to Rich" (ceo-decisions §75; round-12 `attachments-NOTES.md` "Share Extension honesty"):
 // the extension writes what was shared into the App Group FIRST, then tries to send it, and says
@@ -20,13 +22,23 @@ import UniformTypeIdentifiers
 // is serialized once (the Mac's receipt binds its exact bytes, contract §5.2), and T3's "the
 // extension never sends" is replaced by §75's "send now, or say Saved".
 
-/// What the Mac accepts, from its own table (`richos/app/src-tauri/src/phone/attachments.rs`,
-/// `cc/echo-opus-m1` at 22e59ed8; advertised in `hello` as `attachment_limits` at 194fcb75).
-/// These replace round 12's proposed 100 MB (attachments NOTES gap A1).
+/// What the Mac accepts: its advertised `attachment_limits` (the core's `AttachmentLimits`), and
+/// until a Mac has advertised them, the values its own table publishes
+/// (`richos/app/src-tauri/src/phone/attachments.rs`, `cc/echo-opus-m1` at 22e59ed8). These replace
+/// round 12's proposed 100 MB (attachments NOTES gap A1).
+extension AttachmentLimits {
+    /// Built through the core's own decoder (its memberwise initializer is not public), from the
+    /// exact `attachment_limits` object the Mac advertises (194fcb75).
+    static let macDefault: AttachmentLimits = {
+        let types = AttachmentRules.accepted.map { "\"\($0.mediaType)\"" }.joined(separator: ",")
+        let json = #"{"max_file_bytes":26214400,"max_files_per_message":10,"max_message_bytes":104857600,"upload_seconds":300,"media_types":["# + types + "]}"
+        return try! JSONDecoder().decode(AttachmentLimits.self, from: Data(json.utf8))
+    }()
+}
+
 enum AttachmentRules {
-    static let maxFileBytes = 25 * 1024 * 1024          // 26,214,400
-    static let maxFilesPerMessage = 10
-    static let maxMessageBytes = 100 * 1024 * 1024
+    static var maxFileBytes: Int { AttachmentLimits.macDefault.maxFileBytes }   // 26,214,400
+    static var maxFilesPerMessage: Int { AttachmentLimits.macDefault.maxFilesPerMessage }
     /// The Mac's model reads JPEG, PNG, GIF and WebP; it stores HEIC as HEIC. So the phone sends a
     /// HEIC photo as a JPEG no longer than this on its long edge (Echo, 22e59ed8 "NOT DONE, SAID").
     static let photoLongEdge = 2576
@@ -51,10 +63,12 @@ enum AttachmentRules {
     /// The Mac's media type for a type identifier, or `nil` when the Mac would refuse it. An exact
     /// match first; then conformance, for the system's own subtypes (a camera's `public.jpeg`
     /// variants). Legacy Office (`.doc`, `.xls`, `.ppt`) and iWork are refused by the Mac, so here.
-    static func mediaType(forTypeIdentifier identifier: String) -> String? {
-        if let row = accepted.first(where: { $0.types.contains(identifier) }) { return row.mediaType }
+    /// `accepting` narrows to what a Mac advertised (a Mac may take fewer types than this table).
+    static func mediaType(forTypeIdentifier identifier: String, accepting: [String]? = nil) -> String? {
+        let rows = accepted.filter { accepting?.contains($0.mediaType) ?? true }
+        if let row = rows.first(where: { $0.types.contains(identifier) }) { return row.mediaType }
         guard let type = UTType(identifier) else { return nil }
-        for row in accepted {
+        for row in rows {
             for name in row.types {
                 if let known = UTType(name), type.conforms(to: known) { return row.mediaType }
             }
@@ -158,10 +172,11 @@ struct ShareInbox: Sendable {
     /// message's commit body once, and writes the manifest last. On any failure the directory is
     /// removed, so a half-written share never exists. The staged files are the caller's to remove.
     func write(caption: String, files: [StagedShareFile], threadID: String, nowMs: Int64,
+               limits: AttachmentLimits = .macDefault,
                id: String = UUID().uuidString.lowercased(),
                newID: () -> String = { UUID().uuidString.lowercased() }) throws -> ShareEnvelope {
         guard !files.isEmpty else { throw ShareInboxError.nothingToSend }
-        guard files.count <= AttachmentRules.maxFilesPerMessage else { throw ShareInboxError.tooMany(count: files.count) }
+        guard files.count <= limits.maxFilesPerMessage else { throw ShareInboxError.tooMany(count: files.count) }
         let directory = root.appendingPathComponent(id, isDirectory: true)
         let fm = FileManager.default
         do {
@@ -173,12 +188,12 @@ struct ShareInbox: Sendable {
             for (index, file) in files.enumerated() {
                 let fallback = "shared-\(index + 1).\(AttachmentRules.fileExtension(forMediaType: file.mediaType))"
                 let name = Self.safeFileName(file.suggestedName, fallback: fallback)
-                guard AttachmentRules.accepted.contains(where: { $0.mediaType == file.mediaType }) else {
+                guard limits.mediaTypes.contains(file.mediaType) else {
                     throw ShareInboxError.unsupported(fileName: name)
                 }
                 let data = try Data(contentsOf: file.url)
                 guard !data.isEmpty else { throw ShareInboxError.unsupported(fileName: name) }
-                guard data.count <= AttachmentRules.maxFileBytes else {
+                guard data.count <= limits.maxFileBytes else {
                     throw ShareInboxError.tooLarge(fileName: name, bytes: data.count)
                 }
                 let itemID = newID()
@@ -188,7 +203,8 @@ struct ShareInbox: Sendable {
                                         relativePath: "\(Self.relativeRoot)/\(id)/\(stored)", byteCount: data.count,
                                         sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()))
             }
-            let messages = try Self.plan(items: items, caption: caption, threadID: threadID, sentAtMs: nowMs, newID: newID)
+            let messages = try Self.plan(items: items, caption: caption, threadID: threadID, sentAtMs: nowMs,
+                                         maxMessageBytes: limits.maxMessageBytes, newID: newID)
             let envelope = ShareEnvelope(schemaVersion: ShareEnvelope.schemaVersion, id: id, createdAtMs: nowMs,
                                          caption: caption, threadID: threadID, items: items, messages: messages, delivery: .saved)
             try Self.encoder.encode(envelope).write(to: directory.appendingPathComponent(Self.manifestName), options: .atomic)
@@ -201,6 +217,7 @@ struct ShareInbox: Sendable {
 
     /// The album, then each file, each with its commit body serialized now.
     static func plan(items: [SharedItem], caption: String, threadID: String, sentAtMs: Int64,
+                     maxMessageBytes: Int = AttachmentLimits.macDefault.maxMessageBytes,
                      newID: () -> String) throws -> [ShareMessage] {
         let photos = items.filter(\.isPhoto)
         let files = items.filter { !$0.isPhoto }
@@ -210,7 +227,7 @@ struct ShareInbox: Sendable {
         var bytesInMessage = 0
         return try groups.enumerated().map { index, group in
             bytesInMessage = group.reduce(0) { $0 + $1.byteCount }
-            guard bytesInMessage <= AttachmentRules.maxMessageBytes else {
+            guard bytesInMessage <= maxMessageBytes else {
                 throw ShareInboxError.tooLarge(fileName: group[0].fileName, bytes: bytesInMessage)
             }
             // The caption rides on the album (the first group when there are photos), otherwise on
@@ -223,31 +240,13 @@ struct ShareInbox: Sendable {
         }
     }
 
-    /// `{"client_id","thread_id","kind":"attachments","text"?,"attachments":[{"id","sha256"}],"sent_at"}`
-    /// (Echo, 22e59ed8). Keys sorted so the same inputs always give the same bytes.
+    /// The core's commit body (`PairingWire.attachmentCommitBody`, Echo's 22e59ed8 shape), serialized
+    /// once here and stored: its bytes are what the Mac's receipt binds.
     static func commitBody(clientID: String, threadID: String, text: String?, items: [SharedItem], sentAtMs: Int64) -> String {
-        struct Ref: Encodable { var id: String; var sha256: String }
-        struct Body: Encodable {
-            var client_id: String
-            var thread_id: String
-            var kind = "attachments"
-            var text: String?
-            var attachments: [Ref]
-            var sent_at: String
-        }
-        let body = Body(client_id: clientID, thread_id: threadID, text: text,
-                        attachments: items.map { Ref(id: $0.id, sha256: $0.sha256) }, sent_at: iso8601(ms: sentAtMs))
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return String(decoding: (try? encoder.encode(body)) ?? Data(), as: UTF8.self)
-    }
-
-    /// ISO 8601 UTC with milliseconds, the Mac's own timestamp form (contract §8).
-    static func iso8601(ms: Int64) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        return formatter.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+        let body = PairingWire.attachmentCommitBody(clientID: clientID, threadID: threadID, text: text,
+                                                    files: items.map { (id: $0.id, sha256Hex: $0.sha256) },
+                                                    sentAtISO: ConversationReducer.isoMillis(sentAtMs))
+        return String(decoding: body, as: UTF8.self)
     }
 
     /// Every complete share, oldest first. A directory without a readable manifest is a share the
@@ -349,6 +348,10 @@ struct ShareContext: Codable, Equatable, Sendable {
     /// The app's own appearance setting, `dark` or `light` (`AppState.appearance`), so the sheet
     /// matches the app rather than the system. Dark when unknown (ceo-decisions §15).
     var appearance: String = "dark"
+    /// What the Mac advertised (`attachment_limits`, Echo 194fcb75); `nil` until it has.
+    var attachmentLimits: AttachmentLimits?
+
+    var limits: AttachmentLimits { attachmentLimits ?? .macDefault }
 
     static let unpaired = ShareContext(paired: false, macName: nil, threadID: nil, macAcceptsAttachments: false)
 

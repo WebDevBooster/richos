@@ -72,6 +72,10 @@ targets:
     sources:
       - path: ../NotificationService/Sources
       - path: ../App/Platform/Shared
+    dependencies:
+      # The shared platform code speaks the core's types (base64url, wire shapes); Foundation only.
+      - package: RichOSCore
+        product: RichOSCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID).notification-service

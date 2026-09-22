@@ -1,13 +1,13 @@
 import RichOSCore
 import UIKit
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// Apple's side of reply notifications for the app: the permission, the device token, and the tap.
 ///
 /// What this does NOT do: send the registration to the Mac. That is a signed `POST /api/pair`
-/// through the core's transport (stream I1), which does not exist yet. When it does, the effect
-/// `.requestNotifications(previews:)` is performed by asking `authorize()`, then `configurePreviews`,
-/// then sending `PushRegistration.body(…)`; the answer goes back as `.notificationsResult`.
+/// through the core's `APIClient` with the core's `PairingWire.pushRegistrationBody` (stream I1):
+/// `PlatformEffects` asks `authorize()`, the network handler then calls `configurePreviews` for the
+/// key and sends the body; the answer (`PushRegistration.answer`) goes back as `.notificationsResult`.
 @MainActor
 final class NotificationPlatform: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationPlatform()

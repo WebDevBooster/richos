@@ -1,34 +1,27 @@
 import Foundation
+import RichOSCore
 
-// Compiled into the app, the Share extension, and the macOS platform tests. Foundation only.
+// Compiled into the app, the Share extension, and the macOS platform tests.
 //
 // The phone's half of the Mac's attachment intake (Echo, `cc/echo-opus-m1` 22e59ed8), for one
 // share: upload each file, then send the message that commits them. Only the commit's 200 means the
 // Mac accepted the message (Echo's commit message: "an upload 200 means the file is held").
 //
-// Signing, the challenge, the origin and the connection are NOT here: they are the core's transport
-// (stream I1), reached through `SignedTransport`. This file decides WHAT to send and what each answer
-// means; it never touches a key.
+// Signing, the challenge, the origin and the connection are the core's `APIClient`; the upload target,
+// the commit body and the classification of an answer are the core's too (`PairingWire`,
+// `ClientAction`, stream I1). This file only decides the ORDER: every file of a message, then its
+// commit, one message after another, and what a 422 naming missing files means.
 
-/// One request to the paired Mac, before signing. `pathAndQuery` is the wire form, exactly as it
-/// will be signed and sent (contract §3.1: the Mac verifies percent-encoding as sent).
-struct SignedRequest: Equatable, Sendable {
-    var method: String
-    var pathAndQuery: String
-    var contentType: String
-    var body: Data
-    /// The Mac allows 300 s for one upload (attachments.rs `UPLOAD_SECONDS`).
-    var timeoutSeconds: Double
+/// A signed request to the paired Mac and its answer, whatever the status. The core's `APIClient`
+/// is the real one (signing, the challenge rule and its one re-sign, the origin); tests use a fake.
+protocol MacRequests: Sendable {
+    func send(_ method: String, _ target: String, body: Data, contentType: String) async throws -> HTTPResponse
 }
 
-struct SignedResponse: Equatable, Sendable {
-    var status: Int
-    var body: Data
-}
-
-/// The core's signed connection to the paired Mac. A thrown error means no answer arrived.
-protocol SignedTransport: Sendable {
-    func send(_ request: SignedRequest) async throws -> SignedResponse
+extension APIClient: MacRequests {
+    func send(_ method: String, _ target: String, body: Data, contentType: String) async throws -> HTTPResponse {
+        try await signed(method, target, body: body, contentType: contentType)
+    }
 }
 
 enum AttachmentDelivery {
@@ -44,12 +37,12 @@ enum AttachmentDelivery {
     }
 
     static func uploadPath(clientID: String, item: SharedItem) -> String {
-        "/api/messages?kind=attachment&client_id=\(encode(clientID))&attachment_id=\(encode(item.id))&name=\(encode(item.fileName))"
+        PairingWire.attachmentUploadTarget(clientID: clientID, attachmentID: item.id, name: item.fileName)
     }
 
     /// Delivers every message of the share, in order. Stops at the first message that is not
     /// accepted: a later message must never overtake an earlier one (the reference outbox's rule 2).
-    static func deliver(_ envelope: ShareEnvelope, inbox: ShareInbox, via transport: any SignedTransport) async -> Outcome {
+    static func deliver(_ envelope: ShareEnvelope, inbox: ShareInbox, via transport: any MacRequests) async -> Outcome {
         for message in envelope.messages {
             let outcome = await deliver(message, envelope: envelope, inbox: inbox, via: transport)
             guard outcome == .accepted else { return outcome }
@@ -58,7 +51,7 @@ enum AttachmentDelivery {
     }
 
     private static func deliver(_ message: ShareMessage, envelope: ShareEnvelope, inbox: ShareInbox,
-                                via transport: any SignedTransport) async -> Outcome {
+                                via transport: any MacRequests) async -> Outcome {
         let items = message.itemIDs.compactMap { id in envelope.items.first { $0.id == id } }
         guard items.count == message.itemIDs.count else { return .refused(reason: nil) }
         var toUpload = items
@@ -69,9 +62,8 @@ enum AttachmentDelivery {
                 let uploaded = await upload(item, clientID: message.clientID, inbox: inbox, via: transport)
                 guard uploaded == .accepted else { return uploaded }
             }
-            let commit = SignedRequest(method: "POST", pathAndQuery: "/api/messages", contentType: "application/json",
-                                       body: Data(message.commitBody.utf8), timeoutSeconds: 30)
-            guard let answer = try? await transport.send(commit) else { return .retryLater }
+            guard let answer = try? await transport.send("POST", "/api/messages", body: Data(message.commitBody.utf8),
+                                                         contentType: "application/json") else { return .retryLater }
             switch answer.status {
             case 200:
                 return .accepted
@@ -90,25 +82,24 @@ enum AttachmentDelivery {
     }
 
     private static func upload(_ item: SharedItem, clientID: String, inbox: ShareInbox,
-                               via transport: any SignedTransport) async -> Outcome {
+                               via transport: any MacRequests) async -> Outcome {
         guard let url = inbox.fileURL(for: item), let bytes = try? Data(contentsOf: url) else {
             return .refused(reason: "This file is no longer on your iPhone.")
         }
-        let request = SignedRequest(method: "POST", pathAndQuery: uploadPath(clientID: clientID, item: item),
-                                    contentType: item.mediaType, body: bytes, timeoutSeconds: 300)
-        guard let answer = try? await transport.send(request) else { return .retryLater }
+        guard let answer = try? await transport.send("POST", uploadPath(clientID: clientID, item: item), body: bytes,
+                                                     contentType: item.mediaType) else { return .retryLater }
         return answer.status == 200 ? .accepted : classify(answer)
     }
 
-    /// The contract's status table (§4.2) as it applies to these two requests.
-    static func classify(_ answer: SignedResponse) -> Outcome {
-        let refusal = Refusal(answer.body)
-        switch answer.status {
-        case 200: return .accepted
-        case 403: return .revoked
-        case 409, 413, 422: return .refused(reason: refusal.reason ?? (answer.status == 413 ? "This file is larger than your Mac accepts." : nil))
-        case 503: return refusal.retry == true ? .retryLater : .refused(reason: refusal.reason)
-        default: return .retryLater   // 404 (a stale challenge or a restarted Mac), 429, anything unknown
+    /// The core's classification (`ClientAction`, stream I1), in the share's terms. A 403/404 that
+    /// survived the client's one re-sign stops the core's queue; here it means "not accepted now",
+    /// and the app's outbox takes it from there.
+    static func classify(_ answer: HTTPResponse) -> Outcome {
+        switch ClientAction.classify(answer, attempt: 1) {
+        case .delivered: return .accepted
+        case .retrySameBytes, .finalStopQueue: return .retryLater
+        case .finalForThisItem(let reason): return .refused(reason: reason)
+        case .phoneForgotten: return .revoked
         }
     }
 
@@ -122,13 +113,6 @@ enum AttachmentDelivery {
             reason = object?["reason"] as? String
             missing = object?["missing"] as? [String]
         }
-    }
-
-    /// RFC 3986 unreserved characters pass; everything else is percent-encoded, so a name like
-    /// "Q3 plan & notes.pdf" cannot change the query's structure.
-    static func encode(_ text: String) -> String {
-        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        return text.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
     }
 }
 
@@ -156,7 +140,7 @@ enum ShareOutcome: Equatable, Sendable {
 enum ShareAttempt {
     static let waitMs: Int64 = 3000
 
-    static func run(_ envelope: ShareEnvelope, inbox: ShareInbox, transport: (any SignedTransport)?,
+    static func run(_ envelope: ShareEnvelope, inbox: ShareInbox, transport: (any MacRequests)?,
                     online: Bool, waitMs: Int64 = waitMs) async -> ShareOutcome {
         guard online else { return .saved(.offline) }
         guard let transport else { return .saved(.cannotSendHere) }

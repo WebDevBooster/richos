@@ -150,7 +150,7 @@ struct ShareSheetView: View {
         HStack(alignment: .top, spacing: 10) {
             IconView(.alert, size: 20).foregroundStyle(palette.danger).padding(.top, 1)
             (Text("Too large to send.").fontWeight(.semibold).foregroundColor(palette.danger)
-                + Text(" Rich can take files up to \(FileCard.megabytes(AttachmentRules.maxFileBytes)) each; this one is \(FileCard.megabytes(large.bytes)). Send a smaller part of it, or share it from your Mac."))
+                + Text(" Rich can take files up to \(FileCard.megabytes(model.context.limits.maxFileBytes)) each; this one is \(FileCard.megabytes(large.bytes)). Send a smaller part of it, or share it from your Mac."))
                 .type(Typography.read)
                 .foregroundStyle(palette.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -393,7 +393,8 @@ struct FileGlyph: View {
 }
 
 /// An SVG path in a `width` × `height` box, stretched to the frame (`SVGShape` is square-only).
-struct FramedSVG: Shape {
+/// `@unchecked Sendable`: a CGPath is immutable once built.
+struct FramedSVG: Shape, @unchecked Sendable {
     let cgPath: CGPath
     let width: CGFloat
     let height: CGFloat

@@ -2,6 +2,7 @@ import Foundation
 import ImageIO
 import Network
 import Observation
+import RichOSCore
 import UIKit
 
 /// The Share sheet's state (round-12 group 16/17 `share-*`), on the main actor because SwiftUI reads
@@ -44,7 +45,7 @@ final class ShareModel {
 
     @ObservationIgnored private var staged: [StagedShareFile] = []
     @ObservationIgnored private let inbox: ShareInbox?
-    @ObservationIgnored private let transport: (any SignedTransport)?
+    @ObservationIgnored private let transport: (any MacRequests)?
     @ObservationIgnored private let stagingDirectory: URL
     @ObservationIgnored private let finish: @MainActor () -> Void
 
@@ -53,7 +54,7 @@ final class ShareModel {
 
     /// `transport` is the core's signed connection when this build has one; `nil` means every share
     /// is saved for the app to send (and the sheet says so, `ShareOutcome.SavedReason.cannotSendHere`).
-    init(inbox: ShareInbox?, transport: (any SignedTransport)?, finish: @escaping @MainActor () -> Void) {
+    init(inbox: ShareInbox?, transport: (any MacRequests)?, finish: @escaping @MainActor () -> Void) {
         self.inbox = inbox
         self.transport = transport
         self.finish = finish
@@ -71,7 +72,9 @@ final class ShareModel {
             phase = .unpaired
             return
         }
-        let loaded = await SharePayloadLoader(directory: stagingDirectory).load(providers)
+        // The providers belong to this request; the loader is their only user from here on.
+        nonisolated(unsafe) let providers = providers
+        let loaded = await SharePayloadLoader(directory: stagingDirectory, limits: context.limits).load(providers)
         staged = loaded.files
         previews = loaded.files.map { file in
             Preview(name: file.suggestedName ?? file.url.lastPathComponent, mediaType: file.mediaType,
@@ -104,7 +107,7 @@ final class ShareModel {
             let now = Int64((Date().timeIntervalSince1970 * 1000).rounded())
             let envelope: ShareEnvelope
             do {
-                envelope = try inbox.write(caption: caption, files: files, threadID: threadID, nowMs: now)
+                envelope = try inbox.write(caption: caption, files: files, threadID: threadID, nowMs: now, limits: context.limits)
             } catch {
                 phase = .failed("RichOS could not keep this on your iPhone, so nothing was sent. Try sharing it again.")
                 return
