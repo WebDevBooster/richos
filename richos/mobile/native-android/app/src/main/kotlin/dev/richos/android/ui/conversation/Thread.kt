@@ -70,7 +70,13 @@ private sealed interface Item {
  * Holds the list's scroll state together with the follow rule, so the conversation, the
  * composer's send and the Latest pill share one [FollowState].
  */
-class ThreadController(val list: LazyListState, val follow: FollowState)
+class ThreadController(val list: LazyListState, val follow: FollowState) {
+    /** The list's keys, newest first, as the thread last laid them out. */
+    internal var keys: List<String> = emptyList()
+
+    /** Where a message sits in the list, for a jump back to it (a reference chip), or -1. */
+    fun indexOf(messageId: String): Int = keys.indexOf("m:$messageId")
+}
 
 @Composable
 fun rememberThreadController(startFollowing: Boolean = true): ThreadController {
@@ -96,6 +102,7 @@ fun Thread(
     modifier: Modifier = Modifier,
 ) {
     val items = remember(messages, edge, dayLabel) { buildItems(messages, edge, dayLabel) }
+    controller.keys = items.map { it.key }
     val state = controller.list
     val follow = controller.follow
     val thresholdPx = with(LocalDensity.current) { FollowThreshold.toPx() }

@@ -1,6 +1,7 @@
 package dev.richos.android.ui
 
 import dev.richos.android.core.Action
+import dev.richos.android.core.Sheet
 import dev.richos.android.core.Theme
 
 /**
@@ -24,18 +25,21 @@ sealed interface UiEvent {
     data class ChooseTheme(val theme: Theme) : UiEvent
 
     // --- voice: raw finger events; core owns every threshold and decides what they mean ----------
-    data object VoiceDown : UiEvent
+    /** Touch-down: [id] names the new recording, [widthDp] is the composer's, [at] epoch ms. */
+    data class VoiceDown(val id: String, val widthDp: Float, val at: Long) : UiEvent
     /** Finger travel from the touch-down point in dp; negative is left / up. */
-    data class VoiceMove(val dxDp: Float, val dyDp: Float, val widthDp: Float) : UiEvent
-    data object VoiceUp : UiEvent
-    /** The system took the touch (a call, the app leaving the screen). Never a send. */
-    data object VoiceInterrupted : UiEvent
-    data object VoiceCancelTapped : UiEvent
+    data class VoiceMove(val dxDp: Float, val dyDp: Float, val at: Long) : UiEvent
+    data class VoiceUp(val at: Long) : UiEvent
+    /** The system took the touch away (another gesture, a dialog). Never a send. */
+    data class VoiceTouchCanceled(val at: Long) : UiEvent
+    data class VoiceCancelTapped(val at: Long) : UiEvent
     /** TalkBack's double-tap on the microphone: a hands-free (locked) recording, no hold needed. */
-    data object VoiceStartHandsFree : UiEvent
-    data object VoiceSendTapped : UiEvent
-    data object RecordingSend : UiEvent
-    data object RecordingDiscard : UiEvent
+    data class VoiceStartHandsFree(val id: String, val widthDp: Float, val at: Long) : UiEvent
+    data class VoiceSendTapped(val at: Long) : UiEvent
+    /** A transition the screen plays after core ended the recording has finished. */
+    data object VoiceSettled : UiEvent
+    data class RecordingSend(val id: String) : UiEvent
+    data class RecordingDiscard(val id: String) : UiEvent
     data object RecordingPlay : UiEvent
 
     // --- the conversation ---------------------------------------------------------------------
@@ -59,6 +63,22 @@ sealed interface UiEvent {
     data object SendWaitingFirst : UiEvent
     data object DiscardAndPair : UiEvent
     data object KeepThisPairing : UiEvent
+
+    // --- photos and files ---------------------------------------------------------------------
+    data object AttachMenu : UiEvent
+    data class AttachPick(val source: String) : UiEvent
+    data class AttachRemove(val id: String) : UiEvent
+    data object SendAttachments : UiEvent
+    data class UploadStop(val messageId: String) : UiEvent
+    data class UploadRetry(val messageId: String) : UiEvent
+    data class OpenReference(val messageId: String) : UiEvent
+    data class OpenViewer(val messageId: String, val index: Int) : UiEvent
+    data object CloseViewer : UiEvent
+    data object ChooseAnotherFile : UiEvent
+    data object AttachCardNotNow : UiEvent
+    data object ShareSend : UiEvent
+    data object ShareCancel : UiEvent
+    data object ShareOpenToPair : UiEvent
 
     // --- settings, notifications, updates -----------------------------------------------------
     data object OpenSettings : UiEvent
@@ -88,19 +108,44 @@ fun UiEvent.toAction(): Action? = when (this) {
     is UiEvent.PairWithLink -> Action.Pair(link)
     UiEvent.WordsMatch -> Action.ConfirmWords(true)
     UiEvent.WordsDoNotMatch -> Action.ConfirmWords(false)
-    UiEvent.ForgetConfirmed -> Action.Forget
+    // Voice (core `Voice.kt`, the round-12 thresholds).
+    is UiEvent.VoiceDown -> Action.VoicePress(id, widthDp.toDouble(), at)
+    is UiEvent.VoiceMove -> Action.VoiceMove(dxDp.toDouble(), dyDp.toDouble(), at)
+    is UiEvent.VoiceUp -> Action.VoiceRelease(at)
+    is UiEvent.VoiceTouchCanceled -> Action.VoiceTouchCanceled(at)
+    is UiEvent.VoiceCancelTapped -> Action.VoiceLockedCancel(at)
+    is UiEvent.VoiceSendTapped -> Action.VoiceLockedSend(at)
+    is UiEvent.VoiceStartHandsFree -> Action.VoiceStartLocked(id, widthDp.toDouble(), at)
+    UiEvent.VoiceSettled -> Action.VoiceSettled
+    is UiEvent.RecordingSend -> Action.SendKept(id)
+    is UiEvent.RecordingDiscard -> Action.DiscardKept(id)
+    // Settings, notifications, updates (core `Settings.kt`).
+    UiEvent.OpenSettings -> Action.OpenSheet(Sheet.SETTINGS)
+    UiEvent.CloseOverlay -> Action.CloseSheet
+    UiEvent.ShowWaiting -> Action.CloseSheet
+    UiEvent.WhereMessagesGo -> Action.OpenSheet(Sheet.WHERE_MESSAGES_GO)
+    UiEvent.UsePairingLink -> Action.OpenSheet(Sheet.PAIRING_LINK)
+    UiEvent.ForgetPairing -> Action.ForgetPairing
+    UiEvent.ForgetConfirmed -> Action.ConfirmForget
+    UiEvent.OpenSystemSettings -> Action.OpenSystemSettings
+    is UiEvent.Notifications -> if (on) Action.TurnOnNotifications else Action.TurnOffNotifications
+    is UiEvent.Previews -> Action.SetPreviews(on)
+    UiEvent.NotificationsNotNow -> Action.DismissNotificationOffer
+    UiEvent.UpdateInStore -> Action.OpenAppStore
+    UiEvent.UpdateLater -> Action.DismissUpdate
+    UiEvent.Support -> Action.OpenSupport
     else -> null
 }
 
 /** Screen events that need a core action before they do anything (reported to stream A1). */
 val NOT_YET_IN_CORE: List<String> = listOf(
-    "voice gesture (down/move/up/interrupted, locked cancel, locked send) with the round-12 thresholds",
-    "kept recording (send, discard, play)",
+    "(built: the voice gesture, kept recordings, notifications, settings sheet, updates — core 5351078e, c7207408)",
+    "play a kept recording, a voice message, a reply (platform audio)",
     "play a voice message; hear / stop a reply",
     "load older history on reaching the oldest message",
     "pairing surfaces core does not model: the camera scan result, consent, pair again, the blocked-by-unsent choices",
     "(built: pair with a link, words match / do not match, forget — core c2a1a20a)",
-    "notifications on/off, previews on/off, not now",
-    "updates (check, update in store, later, support)",
+    "check for updates (the Settings row)",
     "show the waiting messages (from the forget refusal)",
+    "photos and files: pick, tray, send, stop, retry, the Mac's limits and types; Share to Rich",
 )

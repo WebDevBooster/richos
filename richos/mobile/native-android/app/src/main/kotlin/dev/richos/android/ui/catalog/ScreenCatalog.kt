@@ -1,6 +1,8 @@
 package dev.richos.android.ui.catalog
 
 import dev.richos.android.core.AppState
+import dev.richos.android.core.ConnectionReason
+import dev.richos.android.core.ConnectionState
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
 import dev.richos.android.core.Pairing
@@ -12,23 +14,25 @@ import dev.richos.android.core.dev.Fixtures
 import dev.richos.android.core.isoMillis
 import dev.richos.android.core.protocol.Row
 import dev.richos.android.ui.model.ComposerCard
-import dev.richos.android.ui.model.ConnectionNotice
+import dev.richos.android.core.KeptRecording as CoreKept
+import dev.richos.android.core.KeptReason as CoreKeptReason
+import dev.richos.android.core.Microphone
+import dev.richos.android.core.NotificationStatus as CoreNotifications
+import dev.richos.android.core.Notifications
+import dev.richos.android.core.Sheet
+import dev.richos.android.core.Toast
+import dev.richos.android.core.UpdateNotice as CoreUpdate
+import dev.richos.android.core.VoiceEnding
+import dev.richos.android.core.VoiceSession
+import dev.richos.android.core.VoicePhase as CorePhase
 import dev.richos.android.ui.model.HistoryEdge
 import dev.richos.android.ui.model.InlineNotice
-import dev.richos.android.ui.model.KeptReason
-import dev.richos.android.ui.model.KeptRecording
-import dev.richos.android.ui.model.NotificationStatus
 import dev.richos.android.ui.model.Overlay
 import dev.richos.android.ui.model.PairingSurface
 import dev.richos.android.ui.model.ReplyAudio
 import dev.richos.android.ui.model.ScreenModel
 import dev.richos.android.ui.model.ScrollPose
-import dev.richos.android.ui.model.SettingsInfo
 import dev.richos.android.ui.model.ShadeNotification
-import dev.richos.android.ui.model.UpdateNotice
-import dev.richos.android.ui.model.VoiceMoment
-import dev.richos.android.ui.model.VoicePhase
-import dev.richos.android.ui.model.VoicePose
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -77,7 +81,7 @@ object ScreenCatalog {
         1 to "Pairing", 2 to "The conversation", 3 to "The composer", 4 to "Voice, mode 1: hold to record",
         5 to "Voice, mode 2: slide up to lock", 6 to "Recording recovery", 7 to "Connection", 8 to "Notifications",
         9 to "Settings", 10 to "Update notices", 11 to "Launch",
-    )
+    ) + AttachCatalog.groups
 
     /** The fixtures' clock: 9:41 AM on the day round 12 was drawn, in UTC so frames never move. */
     val NOW: Long = Instant.parse("2026-09-22T09:41:00Z").toEpochMilli()
@@ -85,7 +89,19 @@ object ScreenCatalog {
 
     private fun app(fixture: String = "online", edit: (AppState) -> AppState = { it }): AppState {
         val doc = Fixtures.fixture(fixture)
-        return edit(AppState.of(doc.session, doc.items, dueInMs = null, lastSend = null))
+        val connected = ConnectionState(reason = ConnectionReason.CONNECTED, hasConnected = true)
+        val base = AppState.of(doc.session, doc.items, dueInMs = null, lastSend = null, connection = connected).copy(
+            notifications = Notifications(status = CoreNotifications.ON),
+            attachmentLimits = AttachCatalog.limits,
+            microphone = Microphone.GRANTED,
+            canRecord = true,
+        )
+        return edit(base)
+    }
+
+    /** Core's connection with a notice showing (after its 3 s of trouble, or at once where core says so). */
+    private fun trouble(reason: ConnectionReason, hasConnected: Boolean = true): (AppState) -> AppState = {
+        it.copy(connection = ConnectionState(reason = reason, notice = reason, hasConnected = hasConnected))
     }
 
     /** An outbox item queued half a minute ago (so it reads "Now"). */
@@ -103,10 +119,11 @@ object ScreenCatalog {
         kind: String = "text",
         hasAudio: Boolean = false,
         streaming: Boolean = false,
+        durationMs: Long? = null,
     ) = Row(
         id = id, threadId = "general", cursor = (day.replace("-", "") + time.replace(":", "")).toLong(), role = role, kind = kind, text = text,
         createdAt = "${day}T$time:00.000Z", hasAudio = hasAudio, fromMicrophone = kind == "voice",
-        state = if (streaming) "streaming" else "complete", complete = !streaming,
+        state = if (streaming) "streaming" else "complete", complete = !streaming, durationMs = durationMs,
     )
 
     private fun rich(id: String, text: String, time: String, day: String = "2026-09-22", hasAudio: Boolean = false) = row(id, "rich", text, time, day, hasAudio = hasAudio)
@@ -117,7 +134,7 @@ object ScreenCatalog {
         rich("c1", "Morning. Three things moved overnight: the Henderson proposal came back signed, payroll cleared, and the offsite venue is confirmed for the 14th. Nothing needs you before ten.", "08:02"),
         me("c2", "Push my 10:30 with Dana to Thursday and tell her why.", "08:14"),
         rich("c3", "Done. Dana has Thursday at 2:00 PM and knows it’s board prep. I also moved your prep block to Wednesday afternoon so it isn’t the night before.", "08:15"),
-        row("c4", "ceo", "", "08:31", kind = "voice"),
+        row("c4", "ceo", "", "08:31", kind = "voice", durationMs = 8_000),
         rich("c5", "Got it. I’ll draft the note to the Portland team tonight and have it in your inbox by seven tomorrow. Want me to copy Priya?", "08:32"),
         me("c6", "Yes. And keep it short.", "08:33"),
         rich("c7", "Short it is.", "08:33"),
@@ -130,11 +147,8 @@ object ScreenCatalog {
         rich("o3", "One thing for tomorrow: the lease amendment still needs your signature. I’ve put it first in your inbox.", "21:40", "2026-09-21"),
     )
 
-    /** Voice rows carry no length on the wire (contract §5.4): the fixture supplies it (stand-in). */
-    private val voiceLengths = mapOf("c4" to 8_000L)
-
     private fun with(rows: List<Row>, edit: (AppState) -> AppState = { it }) =
-        ScreenModel(app = app { edit(it.copy(messages = rows)) }, voiceMs = voiceLengths, nowMs = NOW, zone = ZONE)
+        ScreenModel(app = app { edit(it.copy(messages = rows)) }, nowMs = NOW, zone = ZONE)
 
     private fun convoModel(edit: ScreenModel.() -> ScreenModel = { this }): ScreenModel = with(convo).edit()
     private fun fullModel(edit: ScreenModel.() -> ScreenModel = { this }): ScreenModel = with(older + convo).edit()
@@ -151,6 +165,38 @@ object ScreenCatalog {
     /** The cancel distance round 12 poses its slide-left frame with (fixture data: `min(35% W, 140)`). */
     private fun poseCancelDistance(widthDp: Float) = minOf(0.35f * widthDp, 140f)
 
+    /**
+     * Core's recording at [phase], [elapsedMs] into it, the finger at ([dx], [dy]) dp with core's
+     * progress toward cancel and lock; an [ending] with [wasLocked] plays its transition.
+     */
+    private fun voiceAt(
+        phase: CorePhase,
+        elapsedMs: Long = 0,
+        dx: Float = 0f,
+        dy: Float = 0f,
+        cancel: Float = 0f,
+        lock: Float = 0f,
+        ending: VoiceEnding? = null,
+        wasLocked: Boolean = false,
+        width: Float = 412f,
+    ): (AppState) -> AppState = { a ->
+        val started = NOW - elapsedMs
+        a.copy(
+            voice = VoiceSession(
+                id = "rec-1", phase = phase, ending = ending, startedAtMs = started - 200, nowMs = NOW,
+                recordingStartedAtMs = if (phase == CorePhase.PRESSED) null else started,
+                dx = dx.toDouble(), dy = dy.toDouble(), width = width.toDouble(),
+                cancelProgress = cancel.toDouble(), lockProgress = lock.toDouble(), wasLocked = wasLocked || phase == CorePhase.LOCKED,
+            ),
+            voiceElapsedMs = if (phase == CorePhase.PRESSED) null else elapsedMs,
+        )
+    }
+
+    /** A recording core kept on the phone, unsent. */
+    private fun kept(ms: Long, reason: CoreKeptReason): (AppState) -> AppState = {
+        it.copy(keptRecordings = listOf(CoreKept(id = "kept-1", durationMs = ms, reason = reason, recordedAt = NOW - ms)))
+    }
+
     /** A voice message just sent: core's outbox holds it, sending. */
     private fun justSent(ms: Long, edit: ScreenModel.() -> ScreenModel): ScreenModel =
         with(convo) { it.copy(outbox = listOf(pending("sent-voice", "", OutboxState.SENDING, kind = "voice"))) }
@@ -158,7 +204,8 @@ object ScreenCatalog {
 
     private const val PORTLAND = "Here it is. Portland team: thank you for the sprint on the Henderson bid. It landed, and it landed because of you."
 
-    val all: List<ScreenSpec> = listOf(
+    /** Round 12's 67, in `shared/screens.js` order. */
+    val round12: List<ScreenSpec> = listOf(
         // ---- 1 · Pairing ------------------------------------------------------------------------
         ScreenSpec("pair-intro", 1, "1", "Pairing intro", Applies.Adapted("“this phone” for “this iPhone”")) { unpaired() },
         ScreenSpec("pair-scanner", 1, "2", "QR scanner", Applies.Adapted("the camera preview is the platform stream's; review frames draw round 12's pretend Mac")) {
@@ -210,7 +257,7 @@ object ScreenCatalog {
         ScreenSpec("conv-scrolled", 2, "19", "Reading older · Latest pill") { fullModel { copy(scroll = ScrollPose.READING_OLDER) } },
         ScreenSpec("conv-focused", 2, "20", "Opened from a notification") {
             with(convo + me("f1", "Did the lease amendment go through?", "09:02") + rich("f2", "Signed and countersigned at 9:18. The landlord’s copy is in your inbox.", "09:20"))
-                .copy(focusedId = "f2")
+                .let { it.copy(app = it.app.copy(focusMessageId = "f2")) }
         },
         ScreenSpec("conv-retry", 2, "21", "Retry unsent messages") {
             with(convo) {
@@ -218,7 +265,7 @@ object ScreenCatalog {
                     outbox = listOf(pending("mobile-1", "Book the 7:10 to Denver, aisle.", OutboxState.WAITING)),
                     lastSend = SendReport(waiting = 1, reason = "unreachable"),
                 )
-            }.copy(connection = ConnectionNotice.RECONNECTING)
+            }.let { it.copy(app = trouble(ConnectionReason.RECONNECTING)(it.app)) }
         },
 
         // ---- 3 · The composer -------------------------------------------------------------------
@@ -229,81 +276,80 @@ object ScreenCatalog {
         ScreenSpec("comp-keyboard", 3, "25", "Keyboard open", Applies.Adapted("Android draws its own keyboard; review frames draw round 12's")) {
             with(convo) { it.copy(draft = "Move the Friday review to 3") }.copy(keyboardDrawn = true)
         },
-        ScreenSpec("comp-disabled", 3, "26", "Composer disabled") { convoModel { copy(connection = ConnectionNotice.MAC_NEEDS_UPDATE) } },
+        ScreenSpec("comp-disabled", 3, "26", "Composer disabled") { with(convo, trouble(ConnectionReason.INCOMPATIBLE)) },
         ScreenSpec("comp-too-long", 3, "27", "Message too long") {
             with(convo) {
                 it.copy(draft = "Here is the full agenda for the offsite, with every session, owner and the questions I want answered by the end of each block. Start with the morning: strategy review, then the Henderson debrief, then…")
-            }.copy(inlineNotice = InlineNotice.TooLong(4000))
+            }.copy(localNotice = InlineNotice.TooLong(4000))
         },
 
         // ---- 4 · Voice, hold --------------------------------------------------------------------
-        ScreenSpec("voice-press", 4, "28", "Press (the first 200 ms)") { convoModel { copy(voice = VoicePose(VoicePhase.PRESSED)) } },
+        ScreenSpec("voice-press", 4, "28", "Press (the first 200 ms)") { with(convo, voiceAt(CorePhase.PRESSED)) },
         ScreenSpec("voice-permission", 4, "29", "First recording: microphone permission", Applies.SystemSurface("Android's own permission dialog; drawn for review")) {
-            convoModel { copy(voice = VoicePose(VoicePhase.PRESSED), overlay = Overlay.MicrophonePermission) }
+            with(convo) { voiceAt(CorePhase.PRESSED)(it.copy(microphone = Microphone.UNKNOWN, microphonePrompt = true)) }.copy(overlay = Overlay.MicrophonePermission)
         },
         ScreenSpec("voice-holding", 4, "30", "Holding", frames = listOf(0, 40, 75, 175, 275, 5500)) {
-            convoModel { copy(voice = VoicePose(VoicePhase.HELD, elapsedMs = 5500, level = 0.55f)) }
+            with(convo, voiceAt(CorePhase.HELD, 5500)).copy(voiceLevel = 0.55f)
         },
         ScreenSpec("voice-slide-left", 4, "31", "Sliding left") { w ->
             val cp = 0.72f
-            convoModel { copy(voice = VoicePose(VoicePhase.HELD, elapsedMs = 11_800, level = 0.45f, dxDp = -cp * poseCancelDistance(w), cancelProgress = cp)) }
+            with(convo, voiceAt(CorePhase.HELD, 11_800, dx = -cp * poseCancelDistance(w), cancel = cp, width = w)).copy(voiceLevel = 0.45f)
         },
         ScreenSpec("voice-bin", 4, "32", "Canceled: the bin ritual", frames = listOf(0, 150, 250, 420, 600, 760)) { w ->
-            convoModel { copy(voice = VoicePose(VoicePhase.HELD, elapsedMs = 900, level = 0.4f, dxDp = -poseCancelDistance(w), cancelProgress = 1f, moment = VoiceMoment.BIN, momentMs = 250)) }
+            with(convo, voiceAt(CorePhase.ENDING, 900, dx = -poseCancelDistance(w), cancel = 1f, ending = VoiceEnding.CANCELED, width = w)).copy(voiceLevel = 0.4f, voiceMomentMs = 250)
         },
         ScreenSpec("voice-sent", 4, "33", "Released: sent", frames = listOf(0, 60, 120, 160)) {
-            justSent(2_600) { copy(voice = VoicePose(VoicePhase.HELD, elapsedMs = 2600, level = 0.5f, moment = VoiceMoment.SEND, momentMs = 60)) }
+            justSent(2_600) { copy(app = voiceAt(CorePhase.ENDING, 2600, ending = VoiceEnding.SENT)(app), voiceLevel = 0.5f, voiceMomentMs = 60) }
         },
-        ScreenSpec("voice-too-short", 4, "34", "Too short") { convoModel { copy(inlineNotice = InlineNotice.TooShort) } },
+        ScreenSpec("voice-too-short", 4, "34", "Too short") { with(convo) { it.copy(toast = Toast.TOO_SHORT) } },
 
         // ---- 5 · Voice, lock --------------------------------------------------------------------
         ScreenSpec("voice-slide-up", 5, "35", "Sliding up") {
-            convoModel { copy(voice = VoicePose(VoicePhase.HELD, elapsedMs = 3200, level = 0.5f, dyDp = -40f, lockProgress = 40f / 60f)) }
+            with(convo, voiceAt(CorePhase.HELD, 3200, dy = -40f, lock = 40f / 60f)).copy(voiceLevel = 0.5f)
         },
         ScreenSpec("voice-lock-transition", 5, "36", "Lock transition", frames = listOf(0, 60, 120, 200, 300, 450)) {
-            convoModel { copy(voice = VoicePose(VoicePhase.LOCKED, elapsedMs = 700, level = 0.5f, moment = VoiceMoment.LOCKING, momentMs = 200)) }
+            with(convo, voiceAt(CorePhase.LOCKED, 700)).copy(voiceLevel = 0.5f, voiceMomentMs = 200)
         },
-        ScreenSpec("voice-locked", 5, "37", "Locked") { convoModel { copy(voice = VoicePose(VoicePhase.LOCKED, elapsedMs = 27_900, level = 0.5f)) } },
+        ScreenSpec("voice-locked", 5, "37", "Locked") { with(convo, voiceAt(CorePhase.LOCKED, 27_900)).copy(voiceLevel = 0.5f) },
         ScreenSpec("voice-locked-scrolled", 5, "38", "Locked, reading older messages") {
-            fullModel { copy(voice = VoicePose(VoicePhase.LOCKED, elapsedMs = 41_300, level = 0.45f), scroll = ScrollPose.READING_OLDER) }
+            with(older + convo, voiceAt(CorePhase.LOCKED, 41_300)).copy(voiceLevel = 0.45f, scroll = ScrollPose.READING_OLDER)
         },
         ScreenSpec("voice-locked-cancel", 5, "39", "Locked → Cancel", frames = listOf(0, 100, 300, 600, 710, 900)) {
-            convoModel { copy(voice = VoicePose(VoicePhase.LOCKED, elapsedMs = 14_200, level = 0.5f, moment = VoiceMoment.LOCKED_CANCEL, momentMs = 300)) }
+            with(convo, voiceAt(CorePhase.ENDING, 14_200, ending = VoiceEnding.CANCELED, wasLocked = true)).copy(voiceLevel = 0.5f, voiceMomentMs = 300)
         },
         ScreenSpec("voice-locked-send", 5, "40", "Locked → Send", frames = listOf(0, 60, 120, 160)) {
-            justSent(22_600) { copy(voice = VoicePose(VoicePhase.LOCKED, elapsedMs = 22_600, level = 0.5f, moment = VoiceMoment.SEND, momentMs = 60)) }
+            justSent(22_600) { copy(app = voiceAt(CorePhase.ENDING, 22_600, ending = VoiceEnding.SENT, wasLocked = true)(app), voiceLevel = 0.5f, voiceMomentMs = 60) }
         },
         ScreenSpec("voice-ceiling-warning", 5, "42", "Ceiling warning (29:00)") {
-            convoModel { copy(voice = VoicePose(VoicePhase.LOCKED, elapsedMs = 29 * 60_000L + 400, level = 0.5f), inlineNotice = InlineNotice.CeilingWarning) }
+            with(convo) { voiceAt(CorePhase.LOCKED, 29 * 60_000L + 400)(it).copy(toast = Toast.CEILING_WARNING) }.copy(voiceLevel = 0.5f)
         },
-        ScreenSpec("voice-ceiling-reached", 5, "42", "Ceiling reached (30:00)") { convoModel { copy(keptRecording = KeptRecording(30 * 60_000L, KeptReason.CEILING)) } },
-        ScreenSpec("voice-interrupted", 5, "41", "Locked, app sent to background") { convoModel { copy(keptRecording = KeptRecording(42_000, KeptReason.INTERRUPTED)) } },
+        ScreenSpec("voice-ceiling-reached", 5, "42", "Ceiling reached (30:00)") { with(convo, kept(30 * 60_000L, CoreKeptReason.CEILING)) },
+        ScreenSpec("voice-interrupted", 5, "41", "Locked, app sent to background") { with(convo, kept(42_000, CoreKeptReason.INTERRUPTED)) },
 
         // ---- 6 · Recovery -----------------------------------------------------------------------
-        ScreenSpec("rec-card", 6, "43", "Unsent recording kept") { convoModel { copy(keptRecording = KeptRecording(42_000)) } },
+        ScreenSpec("rec-card", 6, "43", "Unsent recording kept") { with(convo, kept(42_000, CoreKeptReason.UNSENT)) },
         ScreenSpec("rec-unsupported", 6, "44", "Voice not supported by this Mac") {
             // Core's hello capabilities without "voice" (contract §5.4), and a kept recording.
-            with(convo) { it.copy(capabilities = listOf("text", "native-push")) }.copy(keptRecording = KeptRecording(42_000))
+            with(convo) { kept(42_000, CoreKeptReason.UNSENT)(it.copy(capabilities = listOf("text", "native-push"), canRecord = false)) }
         },
-        ScreenSpec("rec-mic-denied", 6, "45", "Microphone denied", Applies.Adapted("“Settings” for “iPhone Settings”")) { convoModel { copy(cards = listOf(ComposerCard.MicrophoneOff)) } },
+        ScreenSpec("rec-mic-denied", 6, "45", "Microphone denied", Applies.Adapted("“Settings” for “iPhone Settings”")) { with(convo) { it.copy(microphone = Microphone.DENIED) }.copy(cards = listOf(ComposerCard.MicrophoneOff)) },
 
         // ---- 7 · Connection ---------------------------------------------------------------------
-        ScreenSpec("conn-reconnecting", 7, "47", "Reconnecting") { convoModel { copy(connection = ConnectionNotice.RECONNECTING) } },
-        ScreenSpec("conn-offline", 7, "48", "Phone offline") { with(convo) { it.copy(online = false) } },
-        ScreenSpec("conn-service", 7, "49", "Service unavailable") { convoModel { copy(connection = ConnectionNotice.SERVICE_UNAVAILABLE) } },
-        ScreenSpec("conn-mac", 7, "50", "Mac unreachable") { convoModel { copy(connection = ConnectionNotice.MAC_UNREACHABLE) } },
+        ScreenSpec("conn-reconnecting", 7, "47", "Reconnecting") { with(convo, trouble(ConnectionReason.RECONNECTING)) },
+        ScreenSpec("conn-offline", 7, "48", "Phone offline") { with(convo) { trouble(ConnectionReason.PHONE_OFFLINE)(it.copy(online = false)) } },
+        ScreenSpec("conn-service", 7, "49", "Service unavailable") { with(convo, trouble(ConnectionReason.SERVICE_UNAVAILABLE)) },
+        ScreenSpec("conn-mac", 7, "50", "Mac unreachable") { with(convo, trouble(ConnectionReason.MAC_UNREACHABLE)) },
         ScreenSpec("conn-revoked", 7, "51", "Removed from the Mac") { with(convo, pairingAt(PairingPhase.UNPAIRED, problem = "revoked")) },
         ScreenSpec("conn-incompatible", 7, "52", "Mac needs a newer app") {
-            with(convo) { it.copy(outbox = listOf(pending("mobile-1", "Send the Q4 deck to the board.", OutboxState.WAITING))) }
-                .copy(connection = ConnectionNotice.MAC_NEEDS_UPDATE)
+            with(convo) { trouble(ConnectionReason.INCOMPATIBLE)(it.copy(outbox = listOf(pending("mobile-1", "Send the Q4 deck to the board.", OutboxState.WAITING)))) }
         },
-        ScreenSpec("conn-cached", 7, "53", "Cached history while offline") { with(older + convo) { it.copy(online = false) }.copy(cachedWhileOffline = true) },
+        ScreenSpec("conn-cached", 7, "53", "Cached history while offline") { with(older + convo) { trouble(ConnectionReason.PHONE_OFFLINE, hasConnected = false)(it.copy(online = false)) } },
 
         // ---- 8 · Notifications ------------------------------------------------------------------
-        ScreenSpec("notif-offer", 8, "54", "Notification offer") { convoModel { copy(cards = listOf(ComposerCard.NotificationOffer)) } },
+        ScreenSpec("notif-offer", 8, "54", "Notification offer") { with(convo) { it.copy(notifications = Notifications(status = CoreNotifications.NOT_ASKED)) } },
         ScreenSpec("notif-pwa-install", 8, "55", "PWA on iPhone: add to Home Screen", Applies.NotApplicable("web app on iPhone only: a native app receives notifications without being added to the Home Screen")) { convoModel() },
         ScreenSpec("notif-settings", 8, "56", "Notification statuses in Settings", Applies.Adapted("“Android Settings”; Google's notification service for Apple's")) {
-            convoModel { copy(overlay = Overlay.Settings, settings = SettingsInfo(notifications = NotificationStatus.DENIED)) }
+            with(convo) { it.copy(sheet = Sheet.SETTINGS, notifications = Notifications(status = CoreNotifications.DENIED)) }
         },
         ScreenSpec("notif-lock-preview", 8, "58", "Lock-screen notification, with preview", Applies.SystemSurface("Android draws the notification; the app supplies its title and text")) {
             convoModel { copy(shade = ShadeNotification("Signed and countersigned at 9:18. The landlord’s copy is in your inbox.")) }
@@ -313,8 +359,8 @@ object ScreenCatalog {
         },
 
         // ---- 9 · Settings -----------------------------------------------------------------------
-        ScreenSpec("settings", 9, "59", "Settings sheet", Applies.Adapted("“This phone” and “App permissions”; adds the Appearance row, declared")) { convoModel { copy(overlay = Overlay.Settings) } },
-        ScreenSpec("settings-forget", 9, "60", "Forget pairing?") { convoModel { copy(overlay = Overlay.ForgetPairing) } },
+        ScreenSpec("settings", 9, "59", "Settings sheet", Applies.Adapted("“This phone” and “App permissions”; adds the Appearance row, declared")) { with(convo) { it.copy(sheet = Sheet.SETTINGS) } },
+        ScreenSpec("settings-forget", 9, "60", "Forget pairing?") { with(convo) { it.copy(sheet = Sheet.FORGET) } },
         ScreenSpec("settings-forget-blocked", 9, "60", "Forget refused: unsent work") {
             with(convo) {
                 it.copy(outbox = listOf(
@@ -326,17 +372,20 @@ object ScreenCatalog {
 
         // ---- 10 · Updates -----------------------------------------------------------------------
         ScreenSpec("upd-banner", 10, "61", "Update banner", Applies.Adapted("Google Play for the App Store")) {
-            convoModel { copy(update = UpdateNotice.Banner("1.1", "Faster voice messages. Update in one tap.")) }
+            with(convo) { it.copy(update = CoreUpdate(CoreUpdate.Prominence.BANNER, "1.1", "Faster voice messages. Update in one tap.")) }
         },
         ScreenSpec("upd-dialog", 10, "62", "Update dialog", Applies.Adapted("Google Play for the App Store")) {
-            convoModel { copy(update = UpdateNotice.Dialog("1.1", "Version 1.1 fixes voice messages that were cut off on cellular.")) }
+            with(convo) { it.copy(update = CoreUpdate(CoreUpdate.Prominence.DIALOG, "1.1", "Version 1.1 fixes voice messages that were cut off on cellular.")) }
         },
-        ScreenSpec("upd-blocking", 10, "63", "Update required", Applies.Adapted("Google Play for the App Store")) { convoModel { copy(update = UpdateNotice.Required("1.1")) } },
-        ScreenSpec("upd-feature-off", 10, "64", "Feature switched off") { convoModel { copy(connection = ConnectionNotice.VOICE_PAUSED) } },
+        ScreenSpec("upd-blocking", 10, "63", "Update required", Applies.Adapted("Google Play for the App Store")) { with(convo) { it.copy(update = CoreUpdate(CoreUpdate.Prominence.REQUIRED, "1.1", "Version 1.1 is in Google Play now.")) } },
+        ScreenSpec("upd-feature-off", 10, "64", "Feature switched off") { with(convo) { it.copy(voicePaused = true, canRecord = false) } },
 
         // ---- 11 · Launch ------------------------------------------------------------------------
         ScreenSpec("launch-cached", 11, "67", "Launch with cached history") { fullModel() },
     )
+
+    /** Round 12's 67, then the attachments append's 39 (`attach/screens.js`), every id unique. */
+    val all: List<ScreenSpec> = round12 + AttachCatalog.specs({ edit -> convoModel(edit) }, { edit -> fullModel(edit) })
 
     fun byId(id: String): ScreenSpec = all.firstOrNull { it.id == id } ?: throw IllegalArgumentException("Unknown screen: $id. Known: ${all.joinToString(" ") { it.id }}")
 

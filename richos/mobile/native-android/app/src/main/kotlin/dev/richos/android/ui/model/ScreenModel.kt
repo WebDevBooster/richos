@@ -2,6 +2,15 @@ package dev.richos.android.ui.model
 
 import androidx.compose.runtime.Immutable
 import dev.richos.android.core.AppState
+import dev.richos.android.core.ConnectionReason
+import dev.richos.android.core.Microphone
+import dev.richos.android.core.NotificationStatus as CoreNotifications
+import dev.richos.android.core.Sheet
+import dev.richos.android.core.Toast
+import dev.richos.android.core.UpdateNotice as CoreUpdate
+import dev.richos.android.core.VoiceEnding
+import dev.richos.android.core.VoicePhase as CorePhase
+import dev.richos.android.core.KeptReason as CoreKept
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
 import dev.richos.android.core.PairingPhase
@@ -20,7 +29,9 @@ import java.util.Locale
  * with audio), the draft, the theme, whether the phone is online, the pairing (intro, the code on its way,
  * the six words, a refusal, removal from the Mac), the outbox (every pending bubble, and whether
  * pairing or forgetting is blocked by unsent work, the "Waiting to send" card), what the Mac can
- * do (voice), and whether the gold circle is a microphone or a send arrow. [refusal] is the
+ * do (voice, photos and files), whether the gold circle is a microphone or a send arrow, and the
+ * connection (the one nameplate line, only after core's 3 s of trouble; the composer off for a Mac
+ * that needs a newer app; cached history before this launch reached the Mac). [refusal] is the
  * sentence core gave for the last refused action.
  *
  * Every other field is a STAND-IN for state core does not own yet (escalation
@@ -33,22 +44,16 @@ import java.util.Locale
 @Immutable
 data class ScreenModel(
     val app: AppState,
-    /** STAND-IN (protocol: a voice row carries no length). Milliseconds by row id or outbox client id. */
+    /** STAND-IN (core: outbox voice items carry no length). Milliseconds by outbox client id. */
     val voiceMs: Map<String, Long> = emptyMap(),
     /** STAND-IN (platform: audio playback). Hearing a reply: preparing or playing, by row id. */
     val replyAudio: Map<String, ReplyAudio> = emptyMap(),
     /** STAND-IN (platform: audio playback). The voice message playing and how far, 0..1. */
     val playing: Pair<String, Float>? = null,
-    /** STAND-IN (core: notifications). The reply the user opened from a notification. */
-    val focusedId: String? = null,
     /** Where times are shown (the phone's zone; fixed in fixtures so frames never move). */
     val zone: ZoneId = ZoneId.systemDefault(),
     /** STAND-IN (core: conversation backfill). What sits above the oldest message. */
     val history: HistoryEdge = HistoryEdge.MORE_AVAILABLE,
-    /** STAND-IN (core: connection). History shown from this phone while the Mac is out of reach. */
-    val cachedWhileOffline: Boolean = false,
-    /** STAND-IN (core: connection). The one line in the nameplate; OFFLINE is also derived from [AppState.online]. */
-    val connection: ConnectionNotice = ConnectionNotice.NONE,
     /** Core's sentence for the last action it refused (`AppStore.lastRefusal`), or null. */
     val refusal: String? = null,
     /**
@@ -57,22 +62,36 @@ data class ScreenModel(
      * from a newer app. Every other pairing screen derives from [AppState.pairing].
      */
     val pairingSurface: PairingSurface? = null,
-    /** STAND-IN (core: voice). The recording, as core will report it; null when not recording. */
-    val voice: VoicePose? = null,
-    /** STAND-IN (core: voice). A recording kept on the phone, unsent. */
-    val keptRecording: KeptRecording? = null,
-    /** STAND-IN (core: conversation/voice). A one-line inline notice above the composer. */
-    val inlineNotice: InlineNotice? = null,
-    /** STAND-IN (core: several). Cards above the composer, in order. */
+    /**
+     * REVIEW POSE, not state: how far into a transition (the bin, the lock, the send) a frame is
+     * drawn, in ms. Null at run time: the screen then animates it from 0 when core's recording
+     * ends, and tells core when the transition has played (`voice-settled`).
+     */
+    val voiceMomentMs: Int? = null,
+    /** REVIEW POSE: the microphone level and halo wobble a frame is drawn at (the live app reads the microphone). */
+    val voiceLevel: Float? = null,
+    /** STAND-IN (core: composer limits, attachments). A one-line notice core has no toast for yet. */
+    val localNotice: InlineNotice? = null,
+    /** STAND-IN (core: microphone card). The microphone-off card, shown after a press while denied. */
     val cards: List<ComposerCard> = emptyList(),
-    /** STAND-IN (core: updates). An update notice at one of its three prominences. */
-    val update: UpdateNotice? = null,
-    /** STAND-IN (core: notifications). What the Settings sheet reports. */
+    /** STAND-IN (core: updates check, pairing name). What the Settings sheet reports beyond core's notifications. */
     val settings: SettingsInfo = SettingsInfo(),
-    /** Navigation: a sheet or dialog the user opened (Settings, the Forget confirmation). Decides nothing. */
+    /** Review frames only: Android's microphone prompt drawn over the press. */
     val overlay: Overlay? = null,
     /** STAND-IN (core: notifications). A reply notification as the system shade shows it (review frame). */
     val shade: ShadeNotification? = null,
+    /** STAND-IN (core: attachments). The + menu, the tray, refusals, the Mac-can't card. */
+    val attach: AttachState = AttachState(),
+    /** STAND-IN (core: attachments). Attachment messages and the replies quoting them, shown after [extraAfter]. */
+    val extra: List<Message> = emptyList(),
+    /** The row id the [extra] messages follow; null puts them after the last row. */
+    val extraAfter: String? = null,
+    /** Navigation: the photo or file opened full screen. */
+    val viewer: Viewer? = null,
+    /** STAND-IN (platform: share target). Share to Rich, over the app the user shared from. */
+    val share: ShareSheet? = null,
+    /** Review frames only: the system surface the attach flow has handed to. */
+    val picker: SystemPicker? = null,
     /** Review frames only: draw a keyboard so the composer's ride above it can be judged. */
     val keyboardDrawn: Boolean = false,
     /** Initial scroll pose. At runtime the reader owns the scroll; this only poses a frame. */
@@ -80,6 +99,101 @@ data class ScreenModel(
     /** Presentation clock for "Now" labels on pending messages: epoch ms, or null. */
     val nowMs: Long? = null,
 ) {
+    /** The reply opened from a notification (core `focusMessageId`), which glows once. */
+    val focusedId: String? get() = app.focusMessageId
+
+    /** Voice switched off by policy while a problem is fixed (core `voicePaused`). */
+    val voicePaused: Boolean get() = app.voicePaused
+
+    /** The update notice at its prominence (core `update`). */
+    val update: UpdateNotice?
+        get() = app.update?.let { u ->
+            when (u.prominence) {
+                CoreUpdate.Prominence.BANNER -> UpdateNotice.Banner(u.version, u.message)
+                CoreUpdate.Prominence.DIALOG -> UpdateNotice.Dialog(u.version, u.message)
+                CoreUpdate.Prominence.REQUIRED -> UpdateNotice.Required(u.version)
+            }
+        }
+
+    /** Which sheet or dialog core has open. */
+    val sheet: Sheet? get() = app.sheet
+
+    /** The notifications row as the Settings sheet says it (core `notifications`). */
+    val notificationStatus: NotificationStatus
+        get() = when (app.notifications.status) {
+            CoreNotifications.ON -> NotificationStatus.ON
+            CoreNotifications.OFF, CoreNotifications.NOT_ASKED -> NotificationStatus.OFF
+            CoreNotifications.TURNING_ON -> NotificationStatus.TURNING_ON
+            CoreNotifications.DENIED -> NotificationStatus.DENIED
+            CoreNotifications.UNSUPPORTED -> NotificationStatus.UNSUPPORTED
+            CoreNotifications.PLATFORM_UNAVAILABLE -> NotificationStatus.PROVIDER_UNAVAILABLE
+            CoreNotifications.SERVICE_UNAVAILABLE -> NotificationStatus.SERVICE_UNAVAILABLE
+        }
+
+    /** The notification offer: asked once, until answered or "Not now" (core `offerDismissed`). */
+    val notificationOffer: Boolean
+        get() = app.notifications.status == CoreNotifications.NOT_ASKED && !app.notifications.offerDismissed && app.pairing.phase == PairingPhase.PAIRED
+
+    /**
+     * The recording as the screen draws it, from core's `voice`: the phase, the finger, the
+     * progress toward cancel and lock, the elapsed time; an ending plays its transition (the bin
+     * for a cancel, the locked cancel, the send) at [voiceMomentMs].
+     */
+    val voice: VoicePose?
+        get() {
+            val v = app.voice ?: return null
+            val level = voiceLevel ?: v.levels.lastOrNull()?.toFloat() ?: 0.4f
+            val base = VoicePose(
+                phase = when (v.phase) {
+                    CorePhase.PRESSED -> VoicePhase.PRESSED
+                    CorePhase.HELD -> VoicePhase.HELD
+                    CorePhase.LOCKED -> VoicePhase.LOCKED
+                    CorePhase.ENDING -> if (v.wasLocked) VoicePhase.LOCKED else VoicePhase.HELD
+                },
+                elapsedMs = app.voiceElapsedMs ?: v.elapsedMs,
+                level = level,
+                dxDp = v.dx.toFloat(),
+                dyDp = v.dy.toFloat(),
+                cancelProgress = v.cancelProgress.toFloat(),
+                lockProgress = v.lockProgress.toFloat(),
+            )
+            // The lock transition: the screen plays it when core's phase turns locked (a review
+            // frame poses it with [voiceMomentMs]).
+            if (v.phase == CorePhase.LOCKED && voiceMomentMs != null) return base.copy(moment = VoiceMoment.LOCKING, momentMs = voiceMomentMs)
+            if (v.phase != CorePhase.ENDING) return base
+            return when (v.ending) {
+                VoiceEnding.SENT -> base.copy(moment = VoiceMoment.SEND, momentMs = voiceMomentMs ?: 0)
+                VoiceEnding.CANCELED -> base.copy(moment = if (v.wasLocked) VoiceMoment.LOCKED_CANCEL else VoiceMoment.BIN, momentMs = voiceMomentMs ?: 0)
+                // Too short: the button springs back and the line explains (the toast); the ceiling: the card.
+                else -> null
+            }
+        }
+
+    /** The recording kept on the phone, unsent (core `keptRecordings`; the newest shows). */
+    val keptRecording: KeptRecording?
+        get() = app.keptRecordings.lastOrNull()?.let { k ->
+            KeptRecording(
+                durationMs = k.durationMs,
+                reason = when (k.reason) {
+                    CoreKept.CEILING -> KeptReason.CEILING
+                    CoreKept.INTERRUPTED -> KeptReason.INTERRUPTED
+                    else -> KeptReason.KEPT
+                },
+                id = k.id,
+            )
+        }
+
+    /** The one-line notice above the composer: core's toast, else a local one. */
+    val inlineNotice: InlineNotice?
+        get() = when (app.toast) {
+            Toast.TOO_SHORT -> InlineNotice.TooShort
+            Toast.CEILING_WARNING -> InlineNotice.CeilingWarning
+            else -> localNotice
+        }
+
+    /** Android's microphone prompt is up (core `microphonePrompt`). */
+    val microphonePrompt: Boolean get() = app.microphonePrompt || overlay == Overlay.MicrophonePermission
+
     /** The pairing screen to draw, from core's pairing phase and problem (or a platform surface). */
     val pairingStep: PairingStep?
         get() {
@@ -98,27 +212,54 @@ data class ScreenModel(
             }
         }
 
-    /** The one terminal takeover: the Mac forgot this phone (core: unpaired with problem `revoked`). */
-    val removedFromMac: Boolean get() = app.pairing.phase == PairingPhase.UNPAIRED && app.pairing.problem == PROBLEM_REVOKED
+    /** The one terminal takeover: the Mac forgot this phone (core: unpaired with problem `revoked`, or the link said revoked). */
+    val removedFromMac: Boolean
+        get() = (app.pairing.phase == PairingPhase.UNPAIRED && app.pairing.problem == PROBLEM_REVOKED) ||
+            app.connection.reason == ConnectionReason.REVOKED
+
+    /** History shown from this phone before this launch has reached the Mac, while there is trouble. */
+    val cachedWhileOffline: Boolean
+        get() = !app.connection.hasConnected && app.connection.notice != null && app.messages.isNotEmpty()
 
     /** Pairing was refused because a message still waits: the dialog with its way out. */
     val pairingBlocked: Int? get() = if (refusal == RichCore.UNSENT_BEFORE_PAIRING && app.outbox.isNotEmpty()) app.outbox.size else null
 
-    /** Forgetting was refused because messages still wait. */
-    val forgetBlocked: Int? get() = if (refusal == RichCore.UNSENT_BEFORE_FORGET && app.outbox.isNotEmpty()) app.outbox.size else null
+    /** Forgetting was refused because messages still wait (core's forget-blocked sheet, or its refusal). */
+    val forgetBlocked: Int?
+        get() = if ((app.sheet == Sheet.FORGET_BLOCKED || refusal == RichCore.UNSENT_BEFORE_FORGET) && app.outbox.isNotEmpty()) app.outbox.size else null
+
+    /** The Mac's per-file limit in whole MB (core `attachmentLimits`, from its hello; 25 MiB when it has not said). */
+    val attachLimitMb: Int get() = ((app.attachmentLimits?.maxFileBytes ?: 26_214_400L) / 1_048_576L).toInt()
+
+    /** How many photos and files one message may carry (core `attachmentLimits`). */
+    val attachMaxItems: Int get() = app.attachmentLimits?.maxFilesPerMessage ?: 10
+
+    /** The Mac takes photos and files: its hello listed "attachments" (`phone/attachments.rs`), or it has not said yet. */
+    val attachmentsSupported: Boolean get() = app.capabilities.isEmpty() || "attachments" in app.capabilities
 
     /** The Mac takes voice: its last hello listed "voice" (contract §5.4), or it has not said yet. */
     val voiceSupported: Boolean get() = app.capabilities.isEmpty() || "voice" in app.capabilities
 
     /**
-     * The nameplate line: the stand-in; else OFFLINE when core says the phone is offline; else, when
-     * a kept recording cannot go because the Mac does not take voice, the line that says so.
+     * The nameplate line: core's connection notice (null until 3 s of trouble, at once for offline,
+     * service, revoked and incompatible); else voice paused by policy; else, when a kept recording
+     * or a tapped + cannot go because the Mac does not take it, the line that says so.
      */
     val notice: ConnectionNotice
+        get() = when (app.connection.notice) {
+            ConnectionReason.RECONNECTING -> ConnectionNotice.RECONNECTING
+            ConnectionReason.PHONE_OFFLINE -> ConnectionNotice.OFFLINE
+            ConnectionReason.SERVICE_UNAVAILABLE -> ConnectionNotice.SERVICE_UNAVAILABLE
+            ConnectionReason.MAC_UNREACHABLE -> ConnectionNotice.MAC_UNREACHABLE
+            ConnectionReason.INCOMPATIBLE -> ConnectionNotice.MAC_NEEDS_UPDATE
+            else -> nameplateLocal
+        }
+
+    private val nameplateLocal: ConnectionNotice
         get() = when {
-            connection != ConnectionNotice.NONE -> connection
-            !app.online -> ConnectionNotice.OFFLINE
+            voicePaused -> ConnectionNotice.VOICE_PAUSED
             keptRecording != null && !voiceSupported -> ConnectionNotice.VOICE_UNSUPPORTED
+            attach.macOffCard && !attachmentsSupported -> ConnectionNotice.ATTACHMENTS_UNSUPPORTED
             else -> ConnectionNotice.NONE
         }
 
@@ -137,14 +278,20 @@ data class ScreenModel(
     /** Why the composer takes nothing, or null. Derived from the notice, never decided here. */
     val composerDisabledReason: String? get() = if (notice == ConnectionNotice.MAC_NEEDS_UPDATE) "Sending is off until your Mac updates" else null
 
-    val voiceAvailable: Boolean get() = voiceSupported && notice != ConnectionNotice.VOICE_PAUSED && composerDisabledReason == null
+    /** A press may record (core `canRecord` once paired; the policy and the Mac's voice otherwise). */
+    val voiceAvailable: Boolean
+        get() = (if (app.pairing.phase == PairingPhase.PAIRED) app.canRecord || app.voice != null else voiceSupported) &&
+            !voicePaused && composerDisabledReason == null
 
     /** The thread as drawn: core's rows, then every pending outbox item for this conversation. */
     val thread: List<Message>
         get() {
             val thread = app.selectedThreadId
             val pending = app.outbox.filter { thread == null || it.threadId == thread }.map { pendingBubble(it) }
-            return app.messages.map { bubble(it) } + pending
+            val rows = app.messages.map { bubble(it) }
+            if (extra.isEmpty()) return rows + pending
+            val at = extraAfter?.let { id -> rows.indexOfFirst { it.id == id } + 1 }?.takeIf { it > 0 } ?: rows.size
+            return rows.take(at) + extra + rows.drop(at) + pending
         }
 
     /** One of the Mac's rows as a bubble (contract §5.4: `role` ceo|rich, `kind` text|voice, `state`). */
@@ -154,7 +301,8 @@ data class ScreenModel(
         return Message(
             id = row.id,
             speaker = if (rich) Speaker.RICH else Speaker.ME,
-            body = if (row.kind == "voice") Body.Voice(voiceMs[row.id] ?: 0L, Waves.forSeed(row.id.hashCode(), 42)) else Body.Text(row.text),
+            // A voice row's length is core's (`duration_ms`); absent, the bubble shows no length, never 0:00.
+            body = if (row.kind == "voice") Body.Voice(row.durationMs ?: voiceMs[row.id] ?: 0L, Waves.forSeed(row.id.hashCode(), 42)) else Body.Text(row.text),
             time = TimeLabels.row(row.createdAt, nowMs, zone),
             replying = arriving && row.text.isEmpty(),
             streaming = arriving && row.text.isNotEmpty(),
@@ -189,6 +337,10 @@ sealed interface Body {
     data class Text(val text: String) : Body
     /** [wave] is the recording's own level, resampled to bars in 0..1 (NOTES "What an engineer should know"). */
     data class Voice(val durationMs: Long, val wave: List<Float>) : Body
+    /** Photos sent as one album, with the caption riding on it. */
+    data class Album(val photos: List<Photo>, val caption: String = "") : Body
+    /** A file, with the caption when it is the batch's last. */
+    data class File(val file: FileInfo, val caption: String = "") : Body
 }
 
 enum class Delivery { SENT, SENDING, WAITING, ATTENTION }
@@ -213,6 +365,13 @@ data class Message(
     val focused: Boolean = false,
     /** Set for a bubble drawn from core's outbox, so Discard names the item. */
     val outboxClientId: String? = null,
+    /** An attachment message's upload: its state and how many bytes have gone, 0..1. */
+    val upload: UploadStatus? = null,
+    val progress: Float = 0f,
+    /** Rich's quote of what he is answering. */
+    val ref: Reference? = null,
+    /** "Shared from Photos": where a shared item came from. */
+    val via: String? = null,
 )
 
 enum class HistoryEdge { MORE_AVAILABLE, LOADING_OLDER, BEGINNING }
@@ -220,7 +379,7 @@ enum class HistoryEdge { MORE_AVAILABLE, LOADING_OLDER, BEGINNING }
 enum class ScrollPose { FOLLOWING, READING_OLDER, TOP }
 
 enum class ConnectionNotice {
-    NONE, RECONNECTING, OFFLINE, SERVICE_UNAVAILABLE, MAC_UNREACHABLE, MAC_NEEDS_UPDATE, VOICE_UNSUPPORTED, VOICE_PAUSED,
+    NONE, RECONNECTING, OFFLINE, SERVICE_UNAVAILABLE, MAC_UNREACHABLE, MAC_NEEDS_UPDATE, VOICE_UNSUPPORTED, VOICE_PAUSED, ATTACHMENTS_UNSUPPORTED,
 }
 
 /** Every pairing screen. Most derive from core; see [PairingSurface] for the ones that do not. */
@@ -269,19 +428,20 @@ data class VoicePose(
 enum class KeptReason { KEPT, CEILING, INTERRUPTED }
 
 @Immutable
-data class KeptRecording(val durationMs: Long, val reason: KeptReason = KeptReason.KEPT, val playing: Boolean = false)
+data class KeptRecording(val durationMs: Long, val reason: KeptReason = KeptReason.KEPT, val playing: Boolean = false, val id: String = "")
 
 @Immutable
 sealed interface InlineNotice {
     data class TooLong(val limit: Int) : InlineNotice
     data object TooShort : InlineNotice
     data object CeilingWarning : InlineNotice
+    /** The tray is full: "Up to 10 at a time." [max] is the Mac's per-message limit. */
+    data class AttachLimit(val max: Int) : InlineNotice
 }
 
 @Immutable
 sealed interface ComposerCard {
     data object MicrophoneOff : ComposerCard
-    data object NotificationOffer : ComposerCard
 }
 
 @Immutable
@@ -297,8 +457,6 @@ enum class UpdateCheck { UP_TO_DATE, AVAILABLE, COULD_NOT_CHECK }
 
 @Immutable
 data class SettingsInfo(
-    val notifications: NotificationStatus = NotificationStatus.ON,
-    val previews: Boolean = true,
     val updateCheck: UpdateCheck = UpdateCheck.UP_TO_DATE,
     val availableVersion: String = "1.1",
     val macName: String = "Alex’s Mac",
@@ -306,8 +464,6 @@ data class SettingsInfo(
 
 @Immutable
 sealed interface Overlay {
-    data object Settings : Overlay
-    data object ForgetPairing : Overlay
     data object MicrophonePermission : Overlay
 }
 

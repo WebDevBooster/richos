@@ -18,7 +18,6 @@ import dev.richos.android.ui.catalog.Applies
 import dev.richos.android.ui.catalog.ScreenCatalog
 import dev.richos.android.ui.catalog.ScreenSpec
 import dev.richos.android.ui.model.ScreenModel
-import dev.richos.android.ui.model.VoiceMoment
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -79,12 +78,8 @@ class ScreensTest {
         val shots = specs.flatMap { spec ->
             spec.frames.map { ms ->
                 val base = ScreenCatalog.model(spec.id, Theme.DARK, 412f)
-                val pose = base.voice
-                val posed = when {
-                    pose == null -> base
-                    pose.moment == VoiceMoment.NONE -> base.copy(voice = pose.copy(elapsedMs = ms.toLong()))
-                    else -> base.copy(voice = pose.copy(momentMs = ms))
-                }
+                // A transition's frame is its review pose; a held recording's is its elapsed time.
+                val posed = if (base.voiceMomentMs != null) base.copy(voiceMomentMs = ms) else base.copy(app = base.app.copy(voiceElapsedMs = ms.toLong()))
                 Shot("${spec.id}--dark-large-f${"%04d".format(ms)}", posed)
             }
         }

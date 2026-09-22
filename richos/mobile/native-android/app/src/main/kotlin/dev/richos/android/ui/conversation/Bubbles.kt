@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import dev.richos.android.design.Rich
+import dev.richos.android.design.RichColors
 import dev.richos.android.design.RichIcon
 import dev.richos.android.design.RichIcons
 import dev.richos.android.design.RichMotion
@@ -67,6 +68,10 @@ import dev.richos.android.design.pressScale
 import dev.richos.android.design.signalUnderline
 import dev.richos.android.design.touchTarget
 import dev.richos.android.ui.UiEvent
+import dev.richos.android.ui.attach.AlbumContent
+import dev.richos.android.ui.attach.FileContent
+import dev.richos.android.ui.attach.ReferenceChip
+import dev.richos.android.ui.model.UploadStatus
 import dev.richos.android.ui.model.Body
 import dev.richos.android.ui.model.Delivery
 import dev.richos.android.ui.model.Message
@@ -82,18 +87,24 @@ import dev.richos.android.ui.model.Waves
 @Composable
 fun MessageRow(message: Message, tail: Boolean, onEvent: (UiEvent) -> Unit, modifier: Modifier = Modifier) {
     val mine = message.speaker == Speaker.ME
-    val voice = message.body is Body.Voice
-    val fraction = when {
-        voice -> 0.74f
-        mine -> 0.78f
-        else -> 0.84f
+    val body = message.body
+    val full = body is Body.Voice || body is Body.Album || body is Body.File
+    val fraction = when (body) {
+        is Body.Voice, is Body.Album -> 0.74f
+        else -> if (mine) 0.78f else 0.84f
+    }
+    // Albums stop at 290 dp and files at 300 dp (attachments NOTES), whatever the phone's width.
+    val cap = when (body) {
+        is Body.Album -> 290.dp
+        is Body.File -> 300.dp
+        else -> androidx.compose.ui.unit.Dp.Unspecified
     }
     Box(modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
-            Modifier.fillMaxWidth(fraction),
+            Modifier.fillMaxWidth(fraction).then(if (cap != androidx.compose.ui.unit.Dp.Unspecified) Modifier.widthIn(max = cap) else Modifier),
             horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
         ) {
-            Bubble(message, tail, onEvent, Modifier.then(if (voice) Modifier.fillMaxWidth() else Modifier))
+            Bubble(message, tail, onEvent, Modifier.then(if (full) Modifier.fillMaxWidth() else Modifier))
             if (message.delivery == Delivery.ATTENTION) AttentionLine(message, onEvent)
         }
     }
@@ -132,6 +143,22 @@ private fun Bubble(message: Message, tail: Boolean, onEvent: (UiEvent) -> Unit, 
     when (val body = message.body) {
         is Body.Text -> TextBubble(message, body, Modifier.then(m).padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 8.dp), onEvent)
         is Body.Voice -> VoiceBubble(message, body, Modifier.then(m).padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), onEvent)
+        is Body.Album -> Box(Modifier.then(m)) {
+            AlbumContent(
+                body.photos, body.caption, message.upload, message.progress,
+                meta = { onPhoto -> Meta(message, onPhoto = onPhoto) },
+                onOpen = { i -> onEvent(UiEvent.OpenViewer(message.id, i)) },
+                onDisc = { onEvent(if (message.upload == UploadStatus.ATTENTION) UiEvent.UploadRetry(message.id) else UiEvent.UploadStop(message.id)) },
+            )
+        }
+        is Body.File -> Box(Modifier.then(m)) {
+            FileContent(
+                body.file, body.caption, message.upload, message.progress,
+                meta = { Meta(message) },
+                onOpen = { onEvent(UiEvent.OpenViewer(message.id, 0)) },
+                onDisc = { onEvent(if (message.upload == UploadStatus.ATTENTION) UiEvent.UploadRetry(message.id) else UiEvent.UploadStop(message.id)) },
+            )
+        }
     }
 }
 
@@ -152,6 +179,7 @@ private fun TextBubble(message: Message, body: Body.Text, modifier: Modifier, on
     val mine = message.speaker == Speaker.ME
     val style = (if (mine) t.body else t.answer).copy(color = c.ink)
     Column(modifier) {
+        message.ref?.let { ReferenceChip(it, onEvent) }
         when {
             message.replying -> Row(
                 Modifier.height(with(androidx.compose.ui.platform.LocalDensity.current) { (t.answer.fontSize.toPx() * 1.5f).toDp() })
@@ -215,9 +243,11 @@ fun ThinkingDots(modifier: Modifier = Modifier) {
 
 /** Time inside the bubble, and for your messages one honest delivery state in place of receipts. */
 @Composable
-private fun Meta(message: Message, modifier: Modifier = Modifier) {
+private fun Meta(message: Message, modifier: Modifier = Modifier, onPhoto: Boolean = false) {
     val c = Rich.colors
     val t = Rich.type
+    // On a photo the meta sits in a dark chip, the same in both themes (attachments GAP A5).
+    val soft = if (onPhoto) RichColors.Fixed.photoDiscInk else c.inkSoft
     val mine = message.speaker == Speaker.ME
     val label = when (message.delivery) {
         Delivery.SENDING -> "Sending…"
@@ -229,32 +259,34 @@ private fun Meta(message: Message, modifier: Modifier = Modifier) {
         append(message.time)
         if (mine && message.delivery == Delivery.SENT) append(", sent")
         if (mine && message.delivery == Delivery.ATTENTION) append(", not sent")
+        message.via?.let { append(", shared from ").append(it) }
     }
     FlowRow(
         modifier.clearAndSetSemantics { contentDescription = spoken },
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
+        message.via?.let { BasicText("Shared from $it", style = t.read.copy(color = soft)) }
         // A delivery state is a status line: readable text, so 16 sp (not the 14 sp stamp class).
-        if (label != null) BasicText(label, style = t.read.copy(color = c.inkSoft, fontWeight = FontWeight.Medium))
+        if (label != null) BasicText(label, style = t.read.copy(color = soft, fontWeight = FontWeight.Medium))
         // DECLARED SKIPPABLE (round-12 NOTES "Type"): the timestamp inside a bubble, 14 sp.
-        BasicText(message.time, style = t.stamp.copy(color = c.inkSoft))
-        if (mine) DeliveryGlyph(message.delivery)
+        BasicText(message.time, style = t.stamp.copy(color = soft))
+        if (mine) DeliveryGlyph(message.delivery, if (onPhoto) soft else null)
     }
 }
 
 @Composable
-private fun DeliveryGlyph(delivery: Delivery) {
+private fun DeliveryGlyph(delivery: Delivery, tint: androidx.compose.ui.graphics.Color? = null) {
     val c = Rich.colors
     when (delivery) {
-        Delivery.SENT -> RichIcon(RichIcons.Check, c.inkSoft, 15.dp)
-        Delivery.WAITING -> RichIcon(RichIcons.Clock, c.inkSoft, 15.dp)
-        Delivery.ATTENTION -> RichIcon(RichIcons.Alert, c.danger, 15.dp)
+        Delivery.SENT -> RichIcon(RichIcons.Check, tint ?: c.inkSoft, 15.dp)
+        Delivery.WAITING -> RichIcon(RichIcons.Clock, tint ?: c.inkSoft, 15.dp)
+        Delivery.ATTENTION -> RichIcon(RichIcons.Alert, tint ?: c.danger, 15.dp)
         Delivery.SENDING -> {
             val turn by rememberInfiniteTransition(label = "sending").animateFloat(
                 0f, 360f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "sending",
             )
-            RichIcon(RichIcons.Spinner, c.inkSoft, 15.dp, Modifier.graphicsLayer { rotationZ = turn })
+            RichIcon(RichIcons.Spinner, tint ?: c.inkSoft, 15.dp, Modifier.graphicsLayer { rotationZ = turn })
         }
     }
 }
@@ -278,6 +310,18 @@ private fun AttentionLine(message: Message, onEvent: (UiEvent) -> Unit) {
             modifier = Modifier.align(Alignment.CenterVertically),
         )
         val id = message.outboxClientId ?: message.id
+        if (message.upload != null) {
+            // An attachment picks up where it stopped (attachments NOTES "Try again resumes").
+            BasicText(
+                "Try again",
+                style = t.read.copy(color = c.ink, fontWeight = FontWeight.Medium),
+                modifier = Modifier
+                    .clickable(role = Role.Button) { onEvent(UiEvent.UploadRetry(message.id)) }
+                    .touchTarget()
+                    .semantics { contentDescription = "Try sending again" }
+                    .signalUnderline(),
+            )
+        }
         BasicText(
             "Discard",
             style = t.read.copy(color = c.ink, fontWeight = FontWeight.Medium),

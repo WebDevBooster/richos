@@ -170,12 +170,12 @@ private fun Chevron() = RichIcon(RichIcons.ChevronRight, Rich.colors.inkSoft, 18
  * "Daybreak" must be choosable somewhere (ceo-decisions §15).
  */
 @Composable
-fun SettingsSheet(info: SettingsInfo, theme: Theme, onEvent: (UiEvent) -> Unit) {
+fun SettingsSheet(info: SettingsInfo, notifications: NotificationStatus, previews: Boolean, theme: Theme, onEvent: (UiEvent) -> Unit) {
     val c = Rich.colors
     val t = Rich.type
     Sheet("Settings", "settings-sheet") {
         Section("Reply notifications")
-        val st = info.notifications
+        val st = notifications
         val detail = when (st) {
             NotificationStatus.ON -> null
             NotificationStatus.OFF -> "Rich cannot reach you when the app is closed."
@@ -193,7 +193,7 @@ fun SettingsSheet(info: SettingsInfo, theme: Theme, onEvent: (UiEvent) -> Unit) 
             }
         }
         SettingsRow(RichIcons.Shield, "Show reply previews", "Off shows only “Rich has replied.”") {
-            Toggle(info.previews, "Show reply previews", { onEvent(UiEvent.Previews(it)) })
+            Toggle(previews, "Show reply previews", { onEvent(UiEvent.Previews(it)) })
         }
         Section("This phone")
         SettingsRow(RichIcons.Phone, "App permissions", "Microphone and camera", onClick = { onEvent(UiEvent.OpenSystemSettings) }) { Chevron() }

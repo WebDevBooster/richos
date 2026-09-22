@@ -58,7 +58,14 @@ private fun Modifier.cardIn(): Modifier {
 
 /** `.card`: a quiet, actionable card above the composer. */
 @Composable
-fun ComposerCardFrame(title: String, body: String?, modifier: Modifier = Modifier, extra: @Composable () -> Unit = {}, actions: @Composable () -> Unit) {
+fun ComposerCardFrame(
+    title: String,
+    body: String?,
+    modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+    extra: @Composable () -> Unit = {},
+    actions: @Composable () -> Unit,
+) {
     val c = Rich.colors
     val t = Rich.type
     Column(
@@ -66,7 +73,10 @@ fun ComposerCardFrame(title: String, body: String?, modifier: Modifier = Modifie
             .plane(RoundedCornerShape(18.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        BasicText(title, style = t.bodyStrong.copy(color = c.ink), modifier = Modifier.semantics { heading() })
+        Row(verticalAlignment = Alignment.Top) {
+            leading?.invoke()
+            BasicText(title, style = t.bodyStrong.copy(color = c.ink), modifier = Modifier.semantics { heading() })
+        }
         if (body != null) BasicText(body, style = t.read.copy(color = c.inkSoft), modifier = Modifier.padding(top = 3.dp))
         extra()
         FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { actions() }
@@ -91,14 +101,17 @@ fun ComposerCardView(card: ComposerCard, onEvent: (UiEvent) -> Unit) {
             RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) })
             RichButton("Not now", { onEvent(UiEvent.MicrophoneNotNow) }, kind = ButtonKind.QUIET)
         }
-        ComposerCard.NotificationOffer -> ComposerCardFrame(
-            "Hear back when the app is closed",
-            "Notifications are off, so Rich cannot reach you until you open the app.",
-        ) {
-            RichButton("Turn on notifications", { onEvent(UiEvent.Notifications(true)) }, icon = RichIcons.Bell)
-            RichButton("Not now", { onEvent(UiEvent.NotificationsNotNow) }, kind = ButtonKind.QUIET)
-        }
     }
+}
+
+/** 54 · The notification offer: asked once, in a card, with a real Not now (core `turn-on-notifications`). */
+@Composable
+fun NotificationOfferCard(onEvent: (UiEvent) -> Unit) = ComposerCardFrame(
+    "Hear back when the app is closed",
+    "Notifications are off, so Rich cannot reach you until you open the app.",
+) {
+    RichButton("Turn on notifications", { onEvent(UiEvent.Notifications(true)) }, icon = RichIcons.Bell)
+    RichButton("Not now", { onEvent(UiEvent.NotificationsNotNow) }, kind = ButtonKind.QUIET)
 }
 
 /** A recording kept on the phone: play it, send it, or let it go. Never a library. */
@@ -121,8 +134,8 @@ fun RecoveryCard(kept: KeptRecording, onEvent: (UiEvent) -> Unit) {
             }
         },
     ) {
-        RichButton("Send", { onEvent(UiEvent.RecordingSend) }, icon = RichIcons.Send)
-        RichButton("Discard", { onEvent(UiEvent.RecordingDiscard) }, kind = ButtonKind.QUIET)
+        RichButton("Send", { onEvent(UiEvent.RecordingSend(kept.id)) }, icon = RichIcons.Send)
+        RichButton("Discard", { onEvent(UiEvent.RecordingDiscard(kept.id)) }, kind = ButtonKind.QUIET)
     }
 }
 
@@ -135,6 +148,7 @@ fun InlineNoticeView(notice: InlineNotice) {
         is InlineNotice.TooLong -> "That’s over the ${"%,d".format(notice.limit)}-character limit. Trim it, or send it as a voice message."
         InlineNotice.TooShort -> "Hold the button while you speak. Release to send."
         InlineNotice.CeilingWarning -> "One minute left on this voice message."
+        is InlineNotice.AttachLimit -> "Up to ${notice.max} at a time. Send these, then add more."
     }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         BasicText(
