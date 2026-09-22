@@ -40,6 +40,7 @@ pub mod api_base;
 pub mod assets;
 pub mod bridge;
 pub mod ca;
+pub mod connect;
 pub mod device;
 pub mod delivery;
 pub mod listen;
