@@ -179,7 +179,22 @@ async function runEngine(playwright, engine) {
 		// exception among expected noise or, worse, teach the next person to ignore the whole check.
 		const errors = [];
 		const networkNoise = [];
-		page.on('pageerror', (e) => errors.push(String(e)));
+		// WEBKIT REPORTS SOME OF THOSE FAILED REQUESTS DOWN THE EXCEPTION CHANNEL. A load that fails
+		// in CORS mode (every `EventSource`, and this app's `fetch` calls) can be logged by WebKit as
+		// "<initiator> cannot load <url> due to access control checks." with a JavaScript source
+		// (WebCore `ThreadableLoader::logError`), and Playwright's WebKit driver turns every
+		// JavaScript-source error line into `pageerror` (playwright-core `_onConsoleMessage`,
+		// `level === "error" && source === "javascript"`) — which is why these arrive as
+		// "https: /localhost…", its name/message split at the first colon. Which failed load WebKit
+		// reports this way varies run to run. So such a line is the outage ONLY when it names a
+		// request the stub Mac itself dropped, byte for byte; anything else stays an error.
+		const LOADER_REPORT = /^(?:EventSource|Fetch API|XMLHttpRequest) cannot load https?:\s?\/{1,2}[^/\s]+(\/api\/\S+) due to access control checks\.$/;
+		page.on('pageerror', (e) => {
+			const text = String(e);
+			const report = LOADER_REPORT.exec(text);
+			if (report && mac.state.dropped.has(report[1])) networkNoise.push(text);
+			else errors.push(text);
+		});
 		page.on('console', (m) => {
 			if (m.type() !== 'error') return;
 			if (/Failed to load resource|net::ERR_|status of 40[0-9]|status of 5[0-9][0-9]/.test(m.text())) networkNoise.push(m.text());

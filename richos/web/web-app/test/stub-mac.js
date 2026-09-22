@@ -118,6 +118,7 @@ function createStubMac(options) {
 		clientIds: new Map(),
 		streams: new Set(),
 		received: [],
+		dropped: new Set(),
 		pairCode: opts.pairCode || 'harness-pair-code',
 		threads: opts.threads || [{ id: threadId, title: 'Rich' }],
 		vapidPublicKey: opts.vapidPublicKey || 'BJ-harness-vapid-public-key',
@@ -285,6 +286,9 @@ function createStubMac(options) {
 		if (state.mode === 'unreachable') {
 			// Not a 503: a Mac that is asleep does not answer at all, and the difference decides
 			// whether the phone says "waiting to send" or "your Mac refused this".
+			// Every request this outage drops is recorded, exactly as the phone sent it, so a harness
+			// can tell the browser reporting THIS failure from any other one.
+			state.dropped.add(req.url);
 			req.socket.destroy();
 			return;
 		}
