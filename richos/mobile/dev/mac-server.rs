@@ -54,8 +54,29 @@ struct IsolatedBridge {
     thread: String,
     entity: EntityId,
     workers: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    voice: Option<phone::voice::VoiceDesk>,
+    devices: Arc<DeviceDesk>,
+    push: Arc<Mutex<phone::notifications::Desk>>,
+    push_client: Option<Arc<phone::connect::client::Client>>,
+    reply_delay: Duration,
+
 }
 impl Bridge for IsolatedBridge {
+    fn voice_available(&self)->bool {self.voice.as_ref().is_some_and(|v|v.available())}
+    fn transcribe(&self,bytes:&[u8])->Result<String,String>{self.voice.as_ref().ok_or("Voice test not enabled")?.transcribe(bytes)}
+    fn reply_audio(&self,thread:Option<&str>,id:&str)->Result<Vec<u8>,String> {
+        let payload=self.snapshot(thread)?;let rows=phone::rows::rows_from_payload(&payload);
+        let row=rows.iter().find(|r|r["id"]==id && r["role"]=="rich" && r["complete"]!=false).ok_or("reply unavailable")?;
+        self.voice.as_ref().ok_or("Voice test not enabled")?.synthesize(row["text"].as_str().unwrap_or(""))
+    }
+    fn native_notifications_available(&self)->bool {self.push_client.is_some()}
+    fn register_native_notifications(&self,id:&str,registration:Option<phone::notifications::Registration>)->Result<Value,String> {
+        let device=self.devices.paired().filter(|d|d.id==id && d.fingerprint_confirmed).ok_or("not paired")?;
+        let mut desk=self.push.lock().unwrap();desk.set(&device,registration)?;
+        self.devices.use_native_push(id).map_err(|_|"device unavailable")?;
+        desk.reconcile(self.push_client.as_ref().ok_or("push unavailable")?.as_ref(),Some(&device))?;Ok(desk.response())
+    }
+
     fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
         let thread = thread_id.unwrap_or(&self.thread);
         if thread != self.thread {
@@ -66,15 +87,28 @@ impl Bridge for IsolatedBridge {
             .submit_from_channel(thread, Some(self.entity.clone()), text, "phone")
             .map_err(|e| e.to_string())?;
         let spine = Arc::clone(&self.spine);
+        let devices=Arc::clone(&self.devices);let push=Arc::clone(&self.push);let client=self.push_client.clone();
+        let reply_thread=thread.to_string();let delay=self.reply_delay;
+
         self.workers
             .lock()
             .unwrap()
             .push(std::thread::spawn(move || {
+                std::thread::sleep(delay);
                 spine
                     .lock()
                     .unwrap()
                     .poll_intake()
                     .expect("isolated phone intake drain");
+                if let (Some(client),Some(device))=(client,devices.paired()) {
+                    if let Ok(payload)=crate::timeline_view::timeline_payload(&*spine.lock().unwrap(),&reply_thread) {
+                        let mut desk=push.lock().unwrap();
+                        phone::notifications::queue_reply(&mut desk,&device,&reply_thread,&payload).unwrap();
+                        let result=desk.reconcile(client.as_ref(),Some(&device));
+                        eprintln!("native notification reconciliation succeeded: {}",result.is_ok());
+                    }
+                }
+
             }));
         Ok(Accepted {
             message_id: format!("intake_{}", record.id()),
@@ -139,14 +173,23 @@ fn serve() {
     spine.set_turn_control(control.clone());
     let hub = PhoneHub::new();
     spine.set_live_observer(Box::new(PhoneLiveEmitter::new(Arc::clone(&hub))));
+    let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
+    let push_client=std::env::var_os("RICHOS_MOBILE_CONNECT_IDENTITY_FILE").map(|file| {
+        use phone::secrets::SecretStore;
+        let file=PathBuf::from(file).canonicalize().unwrap();assert!(file.starts_with("/Volumes/E1TB/"));
+        let secrets=LabSecrets{directory:dir.clone()};secrets.put("connect-host-identity-v1",&std::fs::read(file).unwrap()).unwrap();
+        Arc::new(phone::connect::client::Client::new(phone::connect::client::Identity::open(&secrets).unwrap()))
+    });
     let bridge = Arc::new(IsolatedBridge {
         spine: Arc::new(Mutex::new(spine)),
         control,
         thread,
         entity,
         workers: Mutex::new(vec![]),
+        voice:if std::env::var("RICHOS_MOBILE_VOICE_TEST").as_deref()==Ok("1") {Some(phone::voice::VoiceDesk::new(dir.join("speech")))} else {None},
+        devices:Arc::clone(&devices),push:Arc::new(Mutex::new(phone::notifications::Desk::open(&dir).unwrap())),push_client,
+        reply_delay:Duration::from_millis(std::env::var("RICHOS_MOBILE_REPLY_DELAY_MS").ok().and_then(|s|s.parse::<u64>().ok()).unwrap_or(0).min(10000)),
     });
-    let devices = Arc::new(DeviceDesk::open(&dir).unwrap());
     let channel = Arc::new(Channel {
         devices: Arc::clone(&devices),
         rejected: StopSwitch::unwired(),
@@ -187,6 +230,8 @@ fn serve() {
         std::thread::sleep(Duration::from_millis(200));
     }
     listener.stop();
+    if let Some(client)=&bridge.push_client {let mut desk=bridge.push.lock().unwrap();desk.clear().unwrap();let _=desk.reconcile(client.as_ref(),None);}
+
     for worker in bridge.workers.lock().unwrap().drain(..) {
         worker.join().unwrap();
     }

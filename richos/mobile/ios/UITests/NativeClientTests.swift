@@ -52,7 +52,7 @@ final class NativeClientTests: XCTestCase {
         #endif
     }
 
-    func testAuthenticatedTextAndStreamResume() throws {
+    private func pairedClient() throws -> (XCUIApplication, [String: String]) {
         guard let configURL = Bundle(for: Self.self).url(forResource: "native-test-config", withExtension: "json") else {
             throw XCTSkip("Physical HTTPS pairing config is unavailable; this test does not claim remote connectivity")
         }
@@ -72,6 +72,79 @@ final class NativeClientTests: XCTestCase {
             app.webViews.buttons["They match"].tap()
         }
         XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout: 20))
+        return (app, config)
+    }
+
+    func testNativeReplyNotification() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Live Apple alerts require the physical iPhone and the managed provider")
+        #else
+        guard let url = Bundle(for: Self.self).url(forResource: "native-test-config", withExtension: "json"),
+              let config = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: String],
+              config["notificationTest"] == "true" else { throw XCTSkip("Live notification lab is not configured") }
+        let (app, _) = try pairedClient()
+        let settings = app.webViews.staticTexts["Connection and settings"]
+        settings.tap()
+        let enable = app.webViews.buttons["Enable reply notifications"]
+        if enable.exists { enable.tap() }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.alerts.firstMatch.waitForExistence(timeout: 3) {
+            let allow = springboard.alerts.buttons["Allow"]
+            if allow.exists { allow.tap() }
+        }
+        XCTAssertTrue(app.webViews.staticTexts["Reply notifications are on."].waitForExistence(timeout: 30), "Apple token must be registered through the authenticated Mac and managed provider")
+        settings.tap()
+        let editor = app.webViews.textViews["Message"]
+        editor.tap()
+        let message = "Native notification check " + String(UUID().uuidString.prefix(8))
+        app.typeText(message)
+        app.webViews.buttons["Send"].tap()
+        XCUIDevice.shared.press(.home)
+        app.terminate()
+        let alert = springboard.staticTexts["Rich has replied."].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 60), "A real Apple alert must appear while RichOS is closed")
+        let shot = XCTAttachment(screenshot: springboard.screenshot()); shot.name = "Generic native reply alert"; shot.lifetime = .keepAlways; add(shot)
+        alert.tap()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 25), "Opening the opaque alert must fetch its conversation from the paired Mac")
+        settings.tap()
+        app.webViews.buttons["Disable reply notifications"].tap()
+        XCTAssertTrue(app.webViews.staticTexts["Reply notifications are off."].waitForExistence(timeout: 25))
+        #endif
+    }
+
+    func testSpokenVoiceSubmissionAndReply() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Spoken voice proof uses the phone microphone, never the Mac microphone")
+        #else
+        guard let url = Bundle(for: Self.self).url(forResource: "native-test-config", withExtension: "json"),
+              let config = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: String],
+              let phrase = config["spokenPhrase"], !phrase.isEmpty else { throw XCTSkip("An agreed spoken phrase is required for this live microphone check") }
+        let (app, _) = try pairedClient()
+        app.webViews.buttons["Record"].tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.alerts.firstMatch.waitForExistence(timeout: 2), springboard.alerts.buttons["OK"].exists { springboard.alerts.buttons["OK"].tap() }
+        XCTAssertTrue(app.webViews.staticTexts["Recording…"].waitForExistence(timeout: 10))
+        // Deliberate capture interval for the operator's agreed spoken sentence.
+        Thread.sleep(forTimeInterval: 10)
+        app.webViews.buttons["Stop"].tap()
+        let send = app.webViews.buttons.matching(identifier: "Send recording").allElementsBoundByIndex.last!
+        XCTAssertTrue(send.waitForExistence(timeout: 10)); XCTAssertTrue(send.isEnabled)
+        send.tap()
+        let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS[cd] %@ AND label CONTAINS %@", phrase, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
+        XCTAssertTrue(reply.waitForExistence(timeout: 55), "The actual phone recording must be transcribed by the Mac and enter the Rich turn")
+        app.webViews.buttons.matching(identifier: "Play reply").allElementsBoundByIndex.last!.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Playing reply…"].waitForExistence(timeout: 25))
+        app.webViews.buttons.matching(identifier: "Stop playback").allElementsBoundByIndex.last!.tap()
+        let stopped = NSPredicate { _, _ in !app.webViews.staticTexts["Playing reply…"].exists }
+        expectation(for: stopped, evaluatedWith: nil); waitForExpectations(timeout: 5)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Phone recording transcribed and answered"; shot.lifetime = .keepAlways; add(shot)
+        #endif
+    }
+
+    func testAuthenticatedTextAndStreamResume() throws {
+        let (app, config) = try pairedClient()
         let editor = app.webViews.textViews["Message"]
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.2)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))

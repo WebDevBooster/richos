@@ -64,7 +64,7 @@ export async function startMac(cache) {
     if (!binary) throw Error('Cargo did not produce the Rust test executable');
     child = spawn(binary, ['mobile_mac_server::serve', '--exact', '--ignored', '--nocapture'], { env, detached: true, stdio: ['ignore', fd, fd] });
     stopped = once(child, 'close');
-    const deadline = Date.now() + 20000;
+    const deadline = Date.now() + (process.env.RICHOS_MOBILE_VOICE_TEST === '1' ? 120000 : 20000);
     while (!existsSync(join(data, 'ready.json'))) {
       if (child.exitCode !== null || Date.now() > deadline) throw Error(`Rust server did not start. Read ${log}`);
       await pause(50);
@@ -96,7 +96,7 @@ export async function startMac(cache) {
       child = spawn(binary, ['mobile_mac_server::serve','--exact','--ignored','--nocapture'], {
         env: {...env,RICHOS_MOBILE_MAC_RESTART:'1'}, detached:true, stdio:['ignore',fd,fd] });
       stopped = once(child,'close');
-      const deadline = Date.now() + 20000;
+      const deadline = Date.now() + (process.env.RICHOS_MOBILE_VOICE_TEST === '1' ? 120000 : 20000);
       while (!existsSync(join(data,'ready.json'))) {
         if (child.exitCode !== null || Date.now() > deadline) throw Error(`Restart failed. Read ${log}`);
         await pause(50);

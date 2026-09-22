@@ -2,7 +2,7 @@
 
 The mobile UI and CLI run the same `core/app.js` action handlers. That core imports the existing PWA's `lib/queue.js` directly. Packaging copies that exact file into the iOS app; there is no second queue implementation or source fork.
 
-The Swift/WKWebView client now includes native recording/playback, protected signing, pairing, conversation history, drafts, offline text delivery and update controls. It reuses the PWA stylesheet and its API, thread, fingerprint, stream and queue modules. Voice submission and notifications belong to Part 4; managed RichOS Connect belongs to Part 3. This is an installable technical pilot, not the public consumer release.
+The Swift/WKWebView client now includes native recording/playback, protected signing, pairing, conversation history, drafts, offline text delivery and update controls. It reuses the PWA stylesheet and its API, thread, fingerprint, stream and queue modules. Voice submission and optional native reply notifications use the same client actions. Managed RichOS Connect supplies remote reach. This is an installable technical pilot, not the public consumer release.
 
 ## Headless first
 
@@ -198,7 +198,7 @@ Session schema 2 migrates the Part 1 cache without deleting drafts or the outbox
 
 Pairing accepts a pasted HTTPS link or a native QR scan, followed by the existing fingerprint comparison. A scan only fills the link field; it does not automatically trust the Mac. Conversation links accept `richos://conversation/#thread=<id>&at=<id>` and explicitly configured universal-link hosts. The PWA's inbound validator checks the payload. Universal links require the matching associated-domain website file before deployment. External HTTPS links open outside the privileged webview. Remote HTML and scripts cannot enter that view.
 
-Recording files are protected native files. Record, stop, cancel, play and delete are native actions. Microphone denial has a Settings recovery button. Playable files left by process termination are recovered into the recording list. Recording is limited to 60 seconds, ten files and two megabytes per file. A critical policy stops and retains captured audio; uploaded voice is not implemented by this slice.
+Recording files are protected native files. Record, stop, cancel, play and delete are native actions. Microphone denial has a Settings recovery button. Playable files left by process termination are recovered into the recording list. Recording is limited to 60 seconds, ten files and two megabytes per file. A critical policy stops and retains captured audio. Voice submission is described below.
 
 ## Release configuration and update service
 
@@ -234,3 +234,19 @@ The lab uses isolated test data and a separate integration app. It must never re
 The authenticated Mac route accepts at most 2 MB of mono 16 kHz PCM16 WAV and validates an actual duration of at most 60 seconds. It uses the existing local speech stack. Delivery receipts bind the device, client ID, conversation and original audio bytes. Failed transcription does not reserve a message; a lost acknowledgement reuses the durable receipt without transcribing or submitting again. Uncertain intake remains blocked for attention.
 
 `reply-play` synthesizes a completed CEO-visible reply on the Mac and plays the bounded WAV through the native audio session. Stop prevents a late download from starting playback. Audio from a previous conversation cannot begin after navigation. Read the conversation when playback is unavailable or a reply exceeds the playback length limit. Capability negotiation keeps recordings available on older Macs without claiming they can accept voice.
+
+
+## Native notification and voice proofs
+
+`client scenario voice-restart` records through substituted platform ports, queues a file reference, reconstructs the actual client and sends the same message/file after reconnecting. It proves durable application behavior without claiming a microphone or speech model.
+
+The real Rust lab can enable the installed local speech model with `RICHOS_MOBILE_VOICE_TEST=1`. Set `RICHOS_MOBILE_VOICE_FIXTURE` to a mono 16 kHz PCM16 WAV on the external SSD and `RICHOS_MOBILE_VOICE_PHRASE` to a phrase it contains when running `node --test richos/mobile/test/mac-server.test.mjs`. The test verifies authenticated upload, local transcription, one projected message and generated WAV reply audio. Model startup gets a bounded two-minute allowance; ordinary text proofs do not resolve a speech model. The optional speech check fails if the model is unavailable. It never records the Mac microphone or plays its speakers.
+
+Physical selections use the same guarded device CLI:
+
+- `device verify notifications` needs an isolated test configuration with `notificationTest: "true"`, a push-enabled Apple identifier, a signed development build and the sandbox provider key. Set the lab's `RICHOS_MOBILE_CONNECT_IDENTITY_FILE` to its private PKCS8 identity and `RICHOS_MOBILE_REPLY_DELAY_MS=8000` so the test can leave the app before its reply completes. It enables notifications through visible controls, sends a message, terminates the app, checks the real generic Apple alert, taps it and checks the fetched reply before disabling notifications.
+- `device verify voice` needs `spokenPhrase` in the isolated test configuration and a person ready to speak that phrase into the phone. It records for ten seconds, sends the saved file through visible controls, checks the Mac transcription/reply and starts then stops native playback. The speaker output itself still needs the person's confirmation.
+
+Both selections refuse missing configuration before launching Xcode. A skipped test is not a successful physical proof. Keep Android's production pairing intact by using the integration app and isolated lab. The lab's deterministic `ack:` reply does not prove a live AI provider turn.
+
+See [native notification operations](service/notifications.md) for APNs provisioning, token rotation, revocation and delivery limits. Notifications are opt-in. The Mac retains registration intent and pending opaque events for retry; the phone retains its preference and registration fingerprint, not an APNs token in shared session JSON. Phone permission denial leaves foreground conversations usable. Closed-app alerts require Apple delivery and a reachable Mac/provider; they are not an emergency-update transport guarantee.

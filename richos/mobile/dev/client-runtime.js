@@ -49,7 +49,7 @@ async function scenario(name) {
       return { name, trace, state: app.state() };
     } finally { app.close(); }
   }
-  if (!['connection-restart', 'recording-interruption'].includes(name)) throw Error('Unknown client scenario');
+  if (!['connection-restart', 'recording-interruption','voice-restart'].includes(name)) throw Error('Unknown client scenario');
   const environment = harness();
   let app = await createClient(environment.ports);
   const trace = [];
@@ -62,11 +62,16 @@ async function scenario(name) {
       await action({ type: 'pair', link: 'https://mac.example/#pair=secret' });
       await action({ type: 'confirm-pair', matched: true });
       await new Promise(resolve => setImmediate(resolve));
-      await action({ type: 'compose', text: 'Survives native client restart' }); await action({ type: 'send' });
+      if(name==='voice-restart') {
+        environment.opened.at(-1).event('hello',{capabilities:['text','voice','audio']});await app.settle();
+        await action({type:'network',online:false});await action({type:'record-start'});await action({type:'record-stop'});
+        await action({type:'record-send',id:'recording-1'});
+        const fetch=environment.ports.fetch;environment.ports.fetch=async(url,options)=>url.includes('kind=voice')?Response.json({accepted:true,id:'accepted'}):fetch(url,options);
+      } else {await action({ type: 'compose', text: 'Survives native client restart' }); await action({ type: 'send' });}
       app.close(); app = await createClient(environment.ports);
       await new Promise(resolve => setImmediate(resolve));
       trace.push({ action: 'relaunch', state: app.state() });
-      environment.opened.at(-1).event('hello', { challenge: 'fresh', capabilities: ['text'] });
+      environment.opened.at(-1).event('hello', { challenge: 'fresh', capabilities: name==='voice-restart'?['text','voice','audio']:['text'] });
       await app.settle(); trace.push({ action: 'server-hello', state: app.state() });
     }
     return { name, trace, state: app.state() };

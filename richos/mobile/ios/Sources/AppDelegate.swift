@@ -64,7 +64,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         if FileManager.default.fileExists(atPath: development.appendingPathComponent("index.html").path) { root = development }
         #endif
         contentRoot = root.standardizedFileURL
-        let page = ProcessInfo.processInfo.arguments.contains("--native-client") ? "client.html" : "index.html"
+        var page = "client.html"
+        #if DEBUG && targetEnvironment(simulator)
+        // Only the development simulator starts in the deterministic loop. Normal
+        // launches, including notification taps, must open the actual phone client.
+        if !ProcessInfo.processInfo.arguments.contains("--native-client") { page = "index.html" }
+        #endif
         webView.loadFileURL(root.appendingPathComponent(page), allowingReadAccessTo: root)
     }
 

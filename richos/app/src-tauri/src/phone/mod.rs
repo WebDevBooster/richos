@@ -1355,7 +1355,9 @@ impl PhoneRuntime {
         let gathered={
             let running=self.running.lock().unwrap();
             let Some(running)=running.as_ref() else {return};
-            if running.channel.devices.open_streams()>0 {return}
+            // A proxy can retain an SSE socket after the phone backgrounds. Native
+            // iOS suppresses foreground presentation itself; a stale socket must not
+            // suppress an alert for a closed app.
             let Some(device)=running.channel.devices.paired().filter(|d|d.fingerprint_confirmed) else {return};
             (device,Arc::clone(&running.bridge))
         };
