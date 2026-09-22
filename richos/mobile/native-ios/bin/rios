@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# bin/rios — the one command line for the RichOS native iPhone app.
+#
+#   bin/rios test [swift test args]   the core's unit tests on this Mac (loop L1, no simulator)
+#   bin/rios headless <command>       the real core, headless (loop L1')
+#   bin/rios sim <command>            the same commands inside the Debug app on a simulator
+#                                     this command created (loop L2)
+#   bin/rios --help                   every command
+#
+# Build output never lands in the repository: SwiftPM's scratch directory, DerivedData and the
+# generated Xcode project live under the per-checkout cache on /Volumes/E1TB (Part 0 practice).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CORE="$HERE/Core"
+VOLUME=/Volumes/E1TB
+
+# A real mount, not an empty directory where the volume should be.
+if [ ! -d "$VOLUME" ] || [ "$(stat -f %d "$VOLUME")" = "$(stat -f %d /Volumes)" ]; then
+  echo '{"ok":false,"error":"Mount /Volumes/E1TB before running rios"}' >&2
+  exit 2
+fi
+
+if [ -z "${RICHOS_NATIVE_IOS_CACHE:-}" ]; then
+  KEY="$(printf '%s' "$HERE" | shasum -a 256 | cut -c1-10)"
+  RICHOS_NATIVE_IOS_CACHE="$VOLUME/caches/richos-native-ios/$KEY"
+fi
+case "$RICHOS_NATIVE_IOS_CACHE" in
+  "$VOLUME"/*) ;;
+  *) echo "{\"ok\":false,\"error\":\"RICHOS_NATIVE_IOS_CACHE must be on $VOLUME\"}" >&2; exit 2 ;;
+esac
+mkdir -p "$RICHOS_NATIVE_IOS_CACHE"
+export RICHOS_NATIVE_IOS_CACHE
+export RICHOS_NATIVE_IOS_ROOT="$HERE"
+# Clang's module cache would otherwise land under the home directory.
+export CLANG_MODULE_CACHE_PATH="$RICHOS_NATIVE_IOS_CACHE/module-cache"
+SCRATCH="$RICHOS_NATIVE_IOS_CACHE/spm"
+
+if [ "${1:-}" = "test" ]; then
+  shift
+  exec swift test --package-path "$CORE" --scratch-path "$SCRATCH" "$@"
+fi
+
+# Incremental: a no-op when nothing changed. Its output goes to a log so stdout stays pure JSON.
+BUILD_LOG="$RICHOS_NATIVE_IOS_CACHE/cli-build.log"
+if ! swift build --package-path "$CORE" --scratch-path "$SCRATCH" --product rios-cli >"$BUILD_LOG" 2>&1; then
+  tail -40 "$BUILD_LOG" >&2
+  echo "{\"ok\":false,\"error\":\"rios-cli did not build; full log: $BUILD_LOG\"}" >&2
+  exit 1
+fi
+exec "$SCRATCH/debug/rios-cli" "$@"
