@@ -52,6 +52,7 @@ let signer = null;
 let apiState = { apiBase: location.origin, challenge: null, deviceId: null };
 let threads = [];
 let currentThreadId = null;
+let notificationTarget = null;
 // The ONE owner of the event stream (`lib/link.js`). It used to be a bare `stream` handle plus a
 // boolean, and both the closing and the reconnecting were spread across four places that could not
 // see each other. There is no `stream` variable any more on purpose: nothing outside the link is
@@ -72,10 +73,10 @@ let pendingPairCode = null;
 /// **IS HE READING THE NEWEST MESSAGE?** Remembered, never re-measured at the moment it matters —
 /// see `atBottom`, `stickToBottom` and the observer under `Rendering`. It starts true because an
 /// empty thread is at its own bottom.
-let pinnedToBottom = true;
+const following=RichOSFollow.attach($('thread'),$('messages'),$('latest'));
 /// Where the thread was the last time it reported a position. The scroll handler needs the
 /// DIRECTION of a move, not just the new number — see the comment there.
-let lastScrollTop = 0;
+
 
 // The recorder, and the one flag the whole permission design hangs on.
 let micStream = null;
@@ -148,7 +149,9 @@ async function boot() {
 		return;
 	}
 
+    await restoreComposer();
 	await startConversation(keys);
+    await openNotificationURL(location.pathname+location.hash);
 }
 
 async function persistState() {
@@ -335,24 +338,24 @@ async function startConversation(keys) {
 	flushQueue();
 }
 
+let connectionTimer=null;
 function setLinkState(which, detail) {
-	const el = $('link-state');
-	linkStateNow = which;
-	el.classList.toggle('away', which === 'away');
-	if (which === 'connected') { connectionDetail = null; el.textContent = 'Connected to your Mac.'; }
-	else if (which === 'opening') el.textContent = 'Looking for your Mac…';
-	else if (which === 'away') el.textContent = detail || connectionDetail || 'Your Mac isn’t reachable from here.';
-	else el.textContent = detail || '';
-    const generation = ++connectionProbeGeneration;
-    const connection = globalThis.RichOSConnection;
-    if (which === 'away' && !detail && connection?.managed(location.origin)) {
-        if (navigator.onLine === false) { connectionDetail = connection.sentence('phone-offline'); el.textContent = connectionDetail; return; }
-        if (Date.now() - lastConnectionProbe < 60000) return;
-        lastConnectionProbe = Date.now();
-        connection.probe({fetch,online:()=>navigator.onLine}).then(info => {
-            if (generation === connectionProbeGeneration && linkStateNow === 'away') { connectionDetail = connection.sentence(connection.classify(info)); el.textContent = connectionDetail; }
-        });
-    }
+    const el=$('link-state');linkStateNow=which;
+    const generation=++connectionProbeGeneration;
+    if(which==='connected'){clearTimeout(connectionTimer);connectionTimer=null;connectionDetail=null;el.textContent='';el.classList.remove('away');return;}
+    el.classList.toggle('away',which==='away');
+    if(detail){clearTimeout(connectionTimer);connectionTimer=null;el.textContent=detail;return;}
+    const show=()=>{el.textContent=RichOSConnection.sentence(navigator.onLine===false?'phone-offline':connectionDetail || 'reconnecting');};
+    if(navigator.onLine===false){show();return;}
+    if(!connectionTimer)connectionTimer=setTimeout(show,3000);
+    if(which!=='away' || !RichOSConnection.managed(location.origin) || Date.now()-lastConnectionProbe<60000)return;
+    lastConnectionProbe=Date.now();
+    RichOSConnection.probe({fetch,online:()=>navigator.onLine}).then(info=>{
+        if(generation!==connectionProbeGeneration || linkStateNow==='connected')return;
+        const reason=RichOSConnection.classify(info);
+        connectionDetail=reason==='mac-unreachable'?'reconnecting':reason;
+        if(el.textContent)show();
+    });
 }
 
 // A CONTROL IS RENDERED ONLY WHERE THE MAC HAS NAMED THE CAPABILITY BEHIND IT (plan §2 A).
@@ -377,8 +380,14 @@ function streamIsOpen() { return Boolean(link && link.isOpen()); }
 /// into an outage must sign the challenge the phone has THEN, not the one it had when the app
 /// booted. That is the whole point of the slice.
 function makeLink() {
+    let firstOpen=true;
 	return globalThis.RichOSLink.createLink({
-		open: (handlers) => api.openEvents(currentThreadId, thread.latestCursor(), handlers),
+		open: async (handlers) => {
+            if(firstOpen){firstOpen=false;await api.refreshChallenge();}
+            const incomplete=thread.view([]).filter(row=>row.complete===false && Number.isSafeInteger(row.cursor)).map(row=>Math.max(0,row.cursor-1));
+            const cursor=thread.latestCursor();
+            return api.openEvents(currentThreadId,cursor>0?Math.min(cursor-1,...incomplete):null,handlers);
+        },
 		refresh: () => api.refreshChallenge(),
 		onFailure: handleApiError,
 
@@ -440,6 +449,7 @@ function makeLink() {
 					settings.set('threads', threads).catch(() => {});
 					renderThreadPicker();
 				}
+				if(notificationTarget)void resolveNotificationTarget().catch(handleApiError);
 				flushQueue();
 			},
 			message(row) {
@@ -470,54 +480,11 @@ function scheduleRender() {
 	requestAnimationFrame(() => { renderQueued = false; render(false); });
 }
 
-function atBottom() {
-	const el = $('thread');
-	return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-}
-
-/// **THE VIEW FOLLOWS THE CONVERSATION WHEN THE COLUMN AROUND IT MOVES** — Ray's candidate .13
-/// defect R2, and the mechanism is not the one the report guessed at.
-///
-/// # What was measured, on this app, in a real browser at 360 px
-///
-/// The app reopens with a warm cache — which is what his phone does every time after the first.
-/// `startConversation` merges the cached rows and pins the view with `render(true)`, correctly
-/// and while nothing has taken any height yet. THEN `refreshPushOffer()` resolves and un-hides
-/// the notification offer ABOVE the thread, and the thread's own viewport shrinks by the offer's
-/// height. At 360x740, against a stub advertising what the shipped Mac advertises:
-///
-///     the pin      thread 598px tall, so the bottom is scrollTop 1377 of 1975
-///     settled      thread 505px tall (a 93px offer), scrollTop still 1377   ->  93px short
-///
-/// **Shrinking a scroller does not move its `scrollTop`.** The position is measured from the TOP,
-/// so the top edge of the visible region stays exactly where it was and the BOTTOM edge climbs by
-/// however much the viewport lost. Nothing is clamped, no `scroll` event fires, and the newest
-/// bubble is now 93 px below the fold. `render()`'s own `wasAtBottom` check is then false forever
-/// after (93 > its 80 px tolerance), so every message that arrives afterwards lands unseen — Ray
-/// filmed 30 frames over 15 s of a message that was in the DOM the whole time.
-///
-/// The same arithmetic applies to anything else that takes height from this column after the pin:
-/// the waiting banner, the thread picker arriving with a second conversation, the hold control
-/// when a Mac advertises voice (a further 106 px, measured), the on-screen keyboard. The harness
-/// measures 224 px of it on `a2cef8ee` with several of them at once.
-///
-/// So the fix is not "re-pin after the offer" — it is that the app REMEMBERS whether he is at the
-/// bottom and puts him back there whenever the layout moves underneath him.
-function stickToBottom() {
-	const el = $('thread');
-	// THE TARGET IS COMPUTED, NOT WRITTEN PAST THE END. `scrollTop = scrollHeight` is clamped to
-	// the scroll extent the browser has already laid out, which in the middle of a resize is the
-	// extent from BEFORE it; reading `clientHeight` here forces the layout the browser was
-	// deferring, so the number assigned is the real bottom.
-	el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-	pinnedToBottom = true;
-}
+function stickToBottom() { following.resume(); }
 
 function render(forceBottom) {
 	const list = $('messages');
-	// `pinnedToBottom` first and `atBottom()` only as a backstop: by the time a resize has
-	// stranded the view, `atBottom()` already answers "no" — which is the whole defect.
-	const wasAtBottom = forceBottom || pinnedToBottom || atBottom();
+	const before=following.capture();
 	const rows = thread.view(queue ? queue.all() : []);
 
 	// "Delivered." belongs on the LAST thing he sent and nowhere else. Repeating it under every
@@ -567,34 +534,18 @@ function render(forceBottom) {
 		list.appendChild(empty);
 	}
 
-	if (wasAtBottom) stickToBottom();
-}
-
-// **THE LAYOUT MOVED UNDER HIM.** One observer, on the two boxes whose size decides where the
-// bottom is: the scroller itself (the offer, the banner, the picker, the keyboard — anything that
-// takes height from the column) and the list inside it (a message that re-wraps as a font loads,
-// a reply growing as it streams). Neither is a `scroll`, so nothing else in this file hears them.
-//
-// It re-pins ONLY when he was already at the bottom. Scrolled up to read something, he stays
-// where he is — which is also what keeps `loadOlder`'s "keep his place" adjustment intact, since
-// that path only runs with the thread scrolled to its top.
-//
-// **THE REFERENCE IS HELD AT MODULE SCOPE, AND THAT IS NOT TIDINESS.** An observer whose only
-// reference is a `const` inside this block is collectable the moment the block ends, and a
-// collected observer simply stops delivering — silently, and not immediately. Measured exactly
-// that way while this was being built: the first resize of the session was answered and the one
-// that mattered, seconds later, was not, which reads as "the fix works sometimes".
-let threadWatcher = null;
-if (typeof ResizeObserver !== 'undefined') {
-	threadWatcher = new ResizeObserver(() => { if (pinnedToBottom) stickToBottom(); });
-	threadWatcher.observe($('thread'));
-	threadWatcher.observe($('messages'));
+	following.restore(before,{force:forceBottom});
+    if(notificationTarget?.thread===currentThreadId) {
+        const row=[...list.children].find(row=>row.dataset.messageId===notificationTarget.at);
+        if(row){following.focus(row);notificationTarget=null;}
+    }
 }
 
 function renderRow(row, isLastDelivered) {
 	const li = document.createElement('li');
 	const mine = row.role === 'ceo' || row.pending;
 	li.className = `msg ${mine ? 'msg-mine' : 'msg-rich'}`;
+    li.dataset.messageId=row.id;
 
 	if (row.kind === 'voice' && !row.text) {
 		const voice = document.createElement('p');
@@ -705,9 +656,12 @@ function renderThreadPicker() {
 	});
 }
 
-$('thread-picker').addEventListener('change', async (event) => {
+async function selectThread(id) {
+    if(!threads.some(item=>item.id===id))return;
+    await settings.set('draft:'+currentThreadId,composer.value);
 	await voiceGesture.interrupt();
-	currentThreadId = event.target.value;
+	currentThreadId = id;
+    await restoreComposer();
 	await renderVoiceDrafts();
 	await settings.set('threadId', currentThreadId);
 	thread.reset();
@@ -716,36 +670,16 @@ $('thread-picker').addEventListener('change', async (event) => {
 	renderThreadPicker();
 	render(true);
 	connectStream();
-});
+}
+$('thread-picker').addEventListener('change',event=>{notificationTarget=null;void selectThread(event.target.value).catch(handleApiError);});
+
 
 // ---------------------------------------------------------------------------------------------
 // Older messages, behind a scroll. Chunked loading, never a page number.
 // ---------------------------------------------------------------------------------------------
 
 $('thread').addEventListener('scroll', () => {
-	// **ONLY HIS THUMB LETS GO OF THE BOTTOM, AND BOTH HALVES OF THAT WERE MEASURED WRONG FIRST.**
-	//
-	// The obvious form is `pinnedToBottom = atBottom()`. Written that way, it failed on the very
-	// case it exists for: `stickToBottom()` queues ONE scroll event, dispatched in a later frame's
-	// "run the scroll steps", by which time the notification offer has already taken 93 px out of
-	// the column — so that late event reported a view short of the bottom and cleared the flag
-	// before the resize observer could act on it. Measured `pinned:false, gap:199` at 360 px: the
-	// defect intact with the fix in.
-	//
-	// The second form, `if (top < lastScrollTop - 1) unpin`, failed the OTHER direction. A band
-	// DISAPPEARING — he turns notifications on, the waiting banner clears, the keyboard closes —
-	// grows the viewport, and the browser then clamps `scrollTop` DOWN to the new, smaller
-	// maximum. That is a scroll upwards by every measure this handler has, and it unpinned a
-	// reader who had not moved at all: measured `RO clientHeight 365, pinned false`, with the
-	// next band to arrive going unanswered.
-	//
-	// So the question asked first is WHERE, and only then WHICH WAY: a view that is at the bottom
-	// is following the conversation however it got there, and only a move upwards that actually
-	// leaves the bottom is him going to read something.
-	const top = $('thread').scrollTop;
-	if (atBottom()) pinnedToBottom = true;
-	else if (top < lastScrollTop - 1) pinnedToBottom = false;
-	lastScrollTop = top;
+	const top=$('thread').scrollTop;
 	if (top > 120 || loadingOlder || !thread || thread.atTheBeginning()) return;
 	const oldest = thread.oldestCursor();
 	if (oldest === null) return;
@@ -803,7 +737,7 @@ async function loadOlder(beforeCursor) {
 	loadingOlder = true;
 	render(false);
 	const el = $('thread');
-	const heightBefore = el.scrollHeight;
+	const before = following.capture();
 	try {
 		const page = await api.backfill(currentThreadId, beforeCursor, 40);
 		thread.prependOlder(page);
@@ -815,7 +749,7 @@ async function loadOlder(beforeCursor) {
 		render(false);
 		// Keep his place: the new content went in above him, so the scroll position moves by
 		// exactly as much as the document grew.
-		el.scrollTop += el.scrollHeight - heightBefore;
+		following.restore(before,{prepend:true});
 	}
 }
 
@@ -825,7 +759,17 @@ async function loadOlder(beforeCursor) {
 
 const composer = $('composer');
 
+async function restoreComposer() {
+    composer.value=await settings.get('draft:'+currentThreadId,'');
+    resizeComposer();
+}
+function resizeComposer() {
+    $('send').disabled=composer.value.trim().length===0;
+    composer.style.height='auto';
+    composer.style.height=`${Math.min(composer.scrollHeight,window.innerHeight*0.4)}px`;
+}
 composer.addEventListener('input', () => {
+    if(settings)settings.set('draft:'+currentThreadId,composer.value).catch(()=>setHoldNote('Your draft could not be saved. Keep this app open.',true));
 	$('send').disabled = composer.value.trim().length === 0;
 	// Grow with what he writes, up to the cap the stylesheet sets.
 	composer.style.height = 'auto';
@@ -844,22 +788,19 @@ composer.addEventListener('keydown', (event) => {
 
 $('send').addEventListener('click', () => { unlockPlayer(); sendText(); });
 
+let sendingText=false;
 async function sendText() {
-	const text = composer.value.trim();
-	if (!text) return;
-	composer.value = '';
-	composer.style.height = 'auto';
-	$('send').disabled = true;
-
-	await queue.enqueue({
-		clientId: newClientId(),
-		threadId: currentThreadId,
-		kind: 'text',
-		text,
-		sentAt: new Date().toISOString()
-	});
-	render(true);
-	flushQueue();
+    const text=composer.value.trim(), threadId=currentThreadId, original=composer.value;
+    if(!text || sendingText)return;
+    sendingText=true;$('send').disabled=true;
+    try {
+        await queue.enqueue({clientId:newClientId(),threadId,kind:'text',text,sentAt:new Date().toISOString()});
+        notificationTarget=null;
+        if(currentThreadId===threadId && composer.value===original){composer.value='';resizeComposer();}
+        await settings.set('draft:'+threadId,currentThreadId===threadId?composer.value:'');
+        render(currentThreadId===threadId);flushQueue();
+    } catch(error) { setHoldNote('Your message was not saved. Your draft is still here. Try again.',true); }
+    finally {sendingText=false;$('send').disabled=composer.value.trim().length===0;}
 }
 
 /// **THE SENTENCE UNDER THE SIX WORDS. There is one of it, because there is one way in.**
@@ -1075,7 +1016,7 @@ const voiceGesture=globalThis.RichOSVoice.createGesture({
     cancel: async () => {captureGeneration++;opening=false;recording=false;clearTimeout(autoStopTimer);teardownGraph();releaseMicrophone();chunks=[];},
     error: error => {setHoldNote(error.name==='NotAllowedError'?'Microphone access was denied. Allow it in your browser settings, or type your message.':error.message,true);},
     changed: state => {
-        const active=state.phase!=='idle',locked=state.phase==='locked';
+        const active=state.phase!=='idle',locked=state.phase==='locked';document.body.dataset.voice=state.phase;
         hold.classList.toggle('recording',active);hold.classList.toggle('opening',state.phase==='preparing');
         hold.textContent=state.phase==='preparing'?'Opening microphone…':active?'Recording · release to send':'Hold to record';
         applyCapabilities();
@@ -1444,6 +1385,7 @@ $('push-on').addEventListener('click', async () => {
 		handleApiError(err);
 	} finally {
 		$('push-on').disabled = false;
+        if($('settings').open)void notificationSettings();
 	}
 });
 
@@ -1467,11 +1409,7 @@ if ('serviceWorker' in navigator) {
 			thread.merge(data.message);
 			scheduleRender();
 		}
-		if (data.type === 'notification-clicked') {
-			if (!thread) return;
-			scheduleRender();
-			$('thread').scrollTop = $('thread').scrollHeight;
-		}
+        if(data.type==='notification-clicked')void openNotificationURL(data.url).catch(handleApiError);
 	});
 	if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
 	// Registered at boot as well as at the notification offer, because the worker is also what
@@ -1501,8 +1439,51 @@ globalThis.__richosPhone = {
 	get link() { return link; },
 	/// Whether the app believes he is reading the newest message. The harness asserts the
 	/// PIXELS either way; this is here so a failure can say which half went wrong.
-	get pinnedToBottom() { return pinnedToBottom; },
+	get pinnedToBottom() { return following.following; },
 	render, flushQueue, connectStream, applyCapabilities
+};
+
+async function openNotificationURL(url) {
+    const checked=RichOSInbound.validateNavigate(url);
+    if(!checked.ok)return;
+    const params=new URLSearchParams(new URL(checked.value,location.origin).hash.slice(1));
+    const id=params.get('thread'),at=params.get('at');
+    if(!id || !at || !thread)return;
+    notificationTarget={thread:id,at};
+    await resolveNotificationTarget();
+}
+let resolvingNotification=false;
+async function resolveNotificationTarget() {
+    const target=notificationTarget;
+    if(!target || !threads.some(item=>item.id===target.thread))return;
+    if(currentThreadId!==target.thread)await selectThread(target.thread);
+    render(false);
+    if(notificationTarget!==target || resolvingNotification)return;
+    resolvingNotification=true;
+    try {
+      const row=await RichOSNotificationTarget.find({model:thread,matches:row=>row.id===target.at,isCurrent:()=>notificationTarget===target && currentThreadId===target.thread,fetchPage:async before=>{const page=await api.backfill(target.thread,before,50);await messageCache.put(page.messages || []);return page;}});
+      if(row)render(false);
+    }finally{resolvingNotification=false;}
+}
+async function notificationSettings() {
+    $('notification-previews').checked=await settings.get('notificationPreviews',true);
+    const supported='Notification' in globalThis && 'PushManager' in globalThis && 'serviceWorker' in navigator;
+    const registration=supported?await navigator.serviceWorker.getRegistration():null;
+    const subscription=registration?.pushManager?await registration.pushManager.getSubscription():null;
+    $('notification-status').textContent=!supported?'This browser does not support reply notifications.':subscription?'Reply notifications are on.':Notification.permission==='denied'?'Notifications are denied. Enable them in your phone’s settings.':'Reply notifications are off.';
+    $('notifications-enable').hidden=!!subscription;$('notifications-enable').disabled=!supported || Notification.permission==='denied';
+    $('notifications-disable').hidden=!subscription;
+}
+$('settings-open').onclick=()=>{$('notification-previews').disabled=true;$('settings').showModal();notificationSettings().catch(()=>{$('notification-status').textContent='Notification settings could not be loaded. Try again.';}).finally(()=>{$('notification-previews').disabled=false;});};
+$('settings-close').onclick=()=>$('settings').close();
+$('notifications-enable').onclick=()=>{$('push-on').click();};
+$('notifications-disable').onclick=async()=>{
+    try {const registration=await navigator.serviceWorker.getRegistration();const subscription=await registration?.pushManager.getSubscription();if(subscription && !await subscription.unsubscribe())throw Error('unsubscribe');await notificationSettings();await refreshPushOffer();}
+    catch {$('notification-status').textContent='Notifications could not be disabled. Try again.';}
+};
+$('notification-previews').onchange=async()=>{
+    try {await settings.set('notificationPreviews',$('notification-previews').checked);}
+    catch {$('notification-previews').checked=!$('notification-previews').checked;$('notification-status').textContent='Your preview preference could not be saved. Try again.';}
 };
 
 })();

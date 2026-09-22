@@ -27,13 +27,15 @@ importScripts('/lib/storage.js');
 // `api_base` with the same function and two copies of a rule are two rules.
 importScripts('/lib/inbound.js');
 
-const SHELL_CACHE = 'richos-phone-shell-v3';
+const SHELL_CACHE = 'richos-phone-shell-v4';
 
 // The whole app, and nothing that is not the app. Listed rather than discovered, because a service
 // worker that caches whatever it happens to see is a service worker that serves yesterday's
 // JavaScript to a page that expects today's.
 const SHELL = [
 	'/lib/connection.js',
+	'/lib/follow.js',
+    '/lib/notification-target.js',
 	'/',
 	'/index.html',
 	'/styles.css',
@@ -137,7 +139,7 @@ self.addEventListener('push', (event) => {
 
 	const declared = payload.notification || {};
 	const title = declared.title || 'Rich';
-	const body = declared.body || 'Rich has something for you. Open the app to read it.';
+	let body = declared.body || 'Rich has something for you. Open the app to read it.';
 
 	// THE LINK IS VALIDATED HERE, BEFORE IT REACHES ANYTHING. `target` below is handed to
 	// `clients.openWindow()` and posted to the page, and `openWindow` will open a cross-origin
@@ -157,7 +159,10 @@ self.addEventListener('push', (event) => {
 		// swipes it away, the reply is still on the phone for the next time he opens the app.
 		await rememberMessage(payload);
 
-		await self.registration.showNotification(title, {
+        let previews=false;
+        try {const db=await RichOSStorage.open();try {previews=await RichOSStorage.settings(db).get('notificationPreviews',true);}finally{db.close();}} catch {}
+        body=previews ? [...String(body).trim().replace(/\s+/g,' ')].slice(0,240).join('') : 'Rich has replied.';
+        await self.registration.showNotification(title, {
 			body,
 			tag: payload.message && payload.message.thread_id ? `richos-${payload.message.thread_id}` : 'richos',
 			renotify: true,

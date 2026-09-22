@@ -33,7 +33,7 @@
 	     flex row squeezed it to about 67 px while `overflow-wrap: anywhere` let it break wherever
 	     it liked — which on the CEO's Android rendered the thread name "Runni / ng". The picker is
 	     below it now and the title wraps at word boundaries; see styles.css for the arithmetic. -->
-	<h1 class="title" id="thread-title">Rich</h1>
+	<div class="heading-row"><h1 class="title" id="thread-title">Rich</h1><button id="settings-open" aria-label="Settings">⚙</button></div>
 	<!-- A thread picker ONLY if he has more than one thread, and it lists what exists rather
 	     than creating anything (plan §3.4). Hidden until `app.js` has more than one to show.
 	     Its caption is for a screen reader only: with the title directly above it, the visible
@@ -44,11 +44,12 @@
 	</label>
 	<!-- The honest state of the connection, in a sentence. Never an icon on its own: a red dot is
 	     something he has to have been taught, and a sentence is something he can read. -->
-	<p class="link-state" id="link-state" role="status" aria-live="polite">Opening&hellip;</p>
+	<p class="link-state" id="link-state" role="status" aria-live="polite"></p>
 </header>
 
 <!-- The notification offer. A state he can change is rendered WITH the control that changes it, so
      the sentence and its button are one thing and neither appears without the other. -->
+<button id="latest" hidden>Latest messages ↓</button>
 <div class="offer" id="push-offer" hidden>
 	<p class="offer-text" id="push-offer-text">Notifications are off, so Rich cannot reach you when this app is closed.</p>
 	<button class="primary" id="push-on">Turn on notifications</button>
@@ -85,7 +86,7 @@
 	     (contract §5.3) — there is no path through this app that shows it by omission, by an error,
 	     or in the seconds before the stream opens. A control that cannot work is worse than an
 	     absent one, and this one sat on screen as one of the two biggest things on it. -->
-	<div id="voice-actions" hidden><span id="voice-timer" aria-label="Recording duration">0:00</span><button id="voice-lock">Lock recording</button><button id="voice-cancel">Cancel recording</button><button id="voice-send">Send voice message</button></div>
+	<div id="voice-actions" hidden><span id="voice-timer" aria-label="Recording duration">0:00</span><button id="voice-lock">Lock recording</button><button id="voice-cancel" aria-label="Cancel recording">Cancel</button><button id="voice-send" aria-label="Send voice message">Send</button></div>
 	<div id="voice-drafts" hidden></div>
 	<button class="hold" id="hold" hidden>Hold to record</button>
 	<p class="hold-note" id="hold-note" hidden>Hold the button, speak, and let go to send.</p>
@@ -124,6 +125,7 @@
 	<p class="takeover-detail" id="revoked-detail"></p>
 </section>
 
+<dialog id="settings"><div class="heading-row"><h2>Settings</h2><button id="settings-close" aria-label="Close settings">×</button></div><h3>Reply notifications</h3><p id="notification-status" role="status"></p><button id="notifications-enable">Enable reply notifications</button><button id="notifications-disable">Disable reply notifications</button><p><label><input type="checkbox" id="notification-previews" checked> Show reply previews</label></p><p>See the opening of Rich’s reply. Your phone’s notification privacy settings still apply. Turn off to show only “Rich has replied.”</p></dialog>
 <script src="/lib/voice.js"></script>
 <script src="/lib/pcm.js"></script>
 <script src="/lib/wordlist.js"></script>
@@ -134,7 +136,7 @@
 <script src="/lib/api.js"></script>
 <script src="/lib/link.js"></script>
 <script src="/lib/storage.js"></script>
-<script src="/lib/connection.js"></script>
+<script src="/lib/connection.js"></script><script src="/lib/follow.js"></script><script src="/lib/notification-target.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
