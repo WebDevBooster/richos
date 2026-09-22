@@ -450,6 +450,16 @@ else
 fi
 
 echo ""
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -x "$SCRIPT_DIR/reference-ledger.mutation.sh" ]; then
+    # THE HARNESS RUNS FROM THE SUITE IT MUTATES, as guard-dialect.test.sh
+    # does. Until 2026-09-22 nothing ran it (open items 3.42/3.43, and
+    # mutation-inventory.test.sh named it an orphan). The harness sets
+    # RICHOS_MUTATION_INNER for every copy of this suite it runs, so this
+    # block does not recurse. A failing harness counts as one failure.
+    echo "=== running the mutation harness ==="
+    "$SCRIPT_DIR/reference-ledger.mutation.sh" || FAIL=$((FAIL + 1))
+fi
+echo ""
 echo "guard-reference-ledger: $PASS/$((PASS + FAIL)) cases pass"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
