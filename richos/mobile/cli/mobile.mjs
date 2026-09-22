@@ -15,6 +15,9 @@ const usage = `Mobile development loop (JSON output; nonzero exit on failure)
   node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|voice|notifications|updates|cleanup]
   node richos/mobile/cli/mobile.mjs update preview|publish <request.json>
   node richos/mobile/cli/mobile.mjs update serve|metrics
+  node richos/mobile/cli/mobile.mjs update worker-artifact <private-policy-profile.json>
+  RICHOS_POLICY_PROFILE=<profile.json> RICHOS_POLICY_TOKEN_FILE=<0600 file> node richos/mobile/cli/mobile.mjs update schema-hosted
+  RICHOS_POLICY_PROFILE=<profile.json> RICHOS_POLICY_TOKEN_FILE=<0600 file> node richos/mobile/cli/mobile.mjs update publish-hosted <request.json>
   node richos/mobile/cli/mobile.mjs release-config-check
   node richos/mobile/cli/mobile.mjs sim policy '<policy JSON>'
   node richos/mobile/cli/mobile.mjs doctor
@@ -58,7 +61,7 @@ try {
   if (!mode || mode === '--help') { console.log(usage); process.exit(0); }
   // Build's resource script re-enters only this stateless branch, never the session lock.
   if (mode === 'bundle') {
-    simulator.stageAssets(command, arg === 'Debug' && platform === 'iphonesimulator');
+    simulator.stageAssets(command, arg === 'Debug' && platform === 'iphonesimulator', undefined, arg === 'Debug' ? 'Debug' : 'Release');
     process.exit(0);
   }
   const cache = simulator.cacheRoot();

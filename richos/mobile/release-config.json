@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "build": "2",
   "appId": null,
-  "policyURL": null,
+  "policyURL": "https://updates.richos.ceo/v1/policy",
   "supportURL": null,
   "metrics": false,
   "universalHosts": []

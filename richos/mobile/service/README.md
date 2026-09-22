@@ -14,7 +14,29 @@ RICHOS_UPDATE_DIRECTORY=/Volumes/E1TB/caches/richos-policy node richos/mobile/cl
 
 The operator owns a mode-0700 directory. Publication uses a local exclusive lock, archives a revision with the operator identity and atomically activates it. HTTP has no publication route. Separate CLI locks allow publication while the service runs. A failed activation can consume a revision; the next attempt must use a higher number. Never manually replace `active.json` with an older record to roll back.
 
-`serve` defaults to an ephemeral loopback port. `RICHOS_UPDATE_PORT` can select a fixed port. Deploy the exported service independently of user Macs behind HTTPS with a supervised process, protected operator access and a persistent private policy directory. Keep proxy buffering off for SSE and use `Cache-Control: no-store`. Do not log client IPs, cookies or request bodies in application or proxy logs. No public deployment is performed by the development CLI.
+`serve` defaults to an ephemeral loopback port. `RICHOS_UPDATE_PORT` can select a fixed port. It is the development and physical-lab service; the public service is the hosted Worker below. No public deployment is performed by the development CLI.
+
+## Hosted service (Cloudflare Worker)
+
+Release builds read `https://updates.richos.ceo/v1/policy`, served by the Worker `richos-update-policy` from the D1 database `richos-update-policy`, on Cloudflare's network and independent of every user's Mac. Both the Connect and Tailscale routes reach it the same way: the app's update session goes straight to that public HTTPS name, never through the paired Mac.
+
+- `policy-worker.mjs` (main module), `policy-store.mjs` and `../core/updates.js` are the whole upload. The Worker serves `GET /v1/policy` (newest revision, revalidated), `GET /v1/events` (change hints) and `GET /healthz`. Every other method returns 405 without reading the body. It holds SELECT statements only, reads no header, cookie, query or address and logs nothing. Upload with logs, traces and Logpush off, no tail consumers, and workers.dev and preview URLs disabled.
+- The store is append-only (`policy-schema.sql`): one row per revision with its audit record; triggers refuse UPDATE and DELETE. The served policy is always the highest revision, so an older row can never be served over a newer one.
+- Each hint stream polls the store every 3 seconds, sends a keepalive every 12 seconds (inside the iPhone client's 15-second idle timeout) and ends after 105 seconds (before its 120-second resource timeout). The client reconnects 15 seconds after a close and keeps its 60-second foreground fallback. One stream costs at most 36 D1 queries, under the Workers Free limit of 50 per invocation. The current iPhone client refetches on any stream bytes, so each keepalive also produces one policy request per active phone.
+- `POST /v1/metrics` is not hosted: client metrics stay off (`metrics: false`) until the privacy review above is done. Cloudflare's aggregate request analytics are the only delivery counts.
+
+Operator commands (identifiers in a private profile `{ "accountId", "databaseId", "hostname" }`; the token lives only in a mode-0600 file named by `RICHOS_POLICY_TOKEN_FILE`, never in argv, output or records):
+
+```sh
+node richos/mobile/cli/mobile.mjs update worker-artifact <profile.json>      # exact upload, module hashes, schema
+RICHOS_POLICY_PROFILE=<profile.json> RICHOS_POLICY_TOKEN_FILE=<token> node richos/mobile/cli/mobile.mjs update schema-hosted
+node richos/mobile/cli/mobile.mjs update preview <request.json>              # review decisions, copy the digest
+RICHOS_POLICY_PROFILE=<profile.json> RICHOS_POLICY_TOKEN_FILE=<token> node richos/mobile/cli/mobile.mjs update publish-hosted <request.json>
+```
+
+`publish-hosted` applies the same authorization as `publish` (matching preview digest, operator identity, availability receipt for a release) before any network call, then inserts one row with a single statement that succeeds only if its revision is higher than every stored one, reads it back and reports what the public route serves. Rollback and withdrawal are a new, higher revision, as with the local store. Deploy and withdrawal steps: `richos-hq/docs/operations/2026-09-22-richos-update-policy-service.md`.
+
+`node --test richos/mobile/test/policy-worker-runtime.test.js` runs the exact upload in workerd, Cloudflare's runtime, through the Miniflare that ships with an installed Wrangler (or `RICHOS_MINIFLARE`). It is skipped, with that reason, where no local runtime exists.
 
 Public routes are `GET /v1/policy`, `GET /v1/events` and the bounded optional `POST /v1/metrics`. The stream checks activated revisions every second and sends keepalives every 15 seconds. Connections are capped. Native clients refetch on stream hints; the hint is not policy authority. They retain a 60-second foreground fallback and reconnect a failed hint stream after 15 seconds.
 
@@ -53,6 +75,6 @@ Client reporting is off in the development configuration. When enabled after pri
 
 `update metrics` reads the private aggregate report. Before enabling collection publicly, document the provider/proxy logging settings, retention, purpose and user-facing privacy disclosure. Review delivery failures and build adoption by counts; do not imply these counts prove installations or unique-user adoption.
 
-Before the first public release: create the actual app listing, select and deploy the independent service/support endpoints, verify distribution rights and current Apple submission requirements, complete signing/artwork/privacy records and verify the actual Store Update button on a supported iPhone. Exercise an old-to-new Store installation once two released builds exist. Keep Connect and Tailscale coverage separate. Prepare a known-good higher-revision withdrawal and evidence for an expedited-review request before enabling a mandatory production block.
+Before the first public release: create the actual app listing, deploy the hosted policy Worker and a support endpoint, verify distribution rights and current Apple submission requirements, complete signing/artwork/privacy records and verify the actual Store Update button on a supported iPhone. Exercise an old-to-new Store installation once two released builds exist. Keep Connect and Tailscale coverage separate. Prepare a known-good higher-revision withdrawal and evidence for an expedited-review request before enabling a mandatory production block.
 
 Apple's [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) and [StoreKit storefront documentation](https://developer.apple.com/documentation/storekit/skstorefront) govern the distribution and storefront checks. Remote policy controls do not bypass App Review.

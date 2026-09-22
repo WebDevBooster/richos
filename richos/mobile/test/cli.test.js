@@ -121,11 +121,15 @@ test('invalid JSON, actions and modes fail without poisoning the CLI lock', (t) 
 });
 
 test('CLI packaging selects exact shared assets and excludes Debug fixtures from Release and devices', (t) => {
-  const { dir, raw } = session(t);
+  const { dir, raw, env } = session(t);
+  delete env.RICHOS_MOBILE_RELEASE_CONFIG;
   const destination = join(dir, 'mobile-ui');
-  for (const [configuration, platform, development] of [['Debug', 'iphonesimulator', true], ['Release', 'iphonesimulator', false], ['Debug', 'iphoneos', false]]) {
+  for (const [configuration, platform, development] of [['Debug', 'iphonesimulator', true], ['Release', 'iphonesimulator', false], ['Debug', 'iphoneos', false], ['Release', 'iphoneos', false]]) {
     const result = raw('bundle', destination, configuration, platform);
     assert.equal(result.status, 0, result.stderr);
+    // The compiled policy address: hosted in Release, none in Debug unless an external configuration supplies one.
+    assert.equal(JSON.parse(readFileSync(join(destination, 'release-config.json'), 'utf8')).policyURL,
+      configuration === 'Release' ? 'https://updates.richos.ceo/v1/policy' : null, `${configuration} ${platform}`);
     assert.equal(readFileSync(join(destination, 'queue.js'), 'utf8'), readFileSync(join(mobile, '../web/web-app/lib/queue.js'), 'utf8'));
     assert.equal(existsSync(join(destination, 'runtime.js')), development);
     assert.equal(readFileSync(join(destination, 'entry.js'), 'utf8'), readFileSync(join(mobile, development ? 'dev/entry.js' : 'ui/entry.js'), 'utf8'));
