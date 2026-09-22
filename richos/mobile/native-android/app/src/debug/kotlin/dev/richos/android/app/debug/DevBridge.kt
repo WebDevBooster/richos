@@ -34,17 +34,22 @@ import java.io.File
 object DevBridge {
     private val lock = Mutex()
     private var runtime: DevRuntime? = null
+    private var owner: Context? = null
 
     fun docFile(context: Context) = File(context.filesDir, "dev/headless.json")
 
     /** Tests only: drop the cached runtime so the next command reopens from the file. */
     internal fun forget() {
         runtime = null
+        owner = null
     }
 
     private suspend fun runtime(context: Context): DevRuntime {
-        runtime?.let { return it }
         val app = context.applicationContext
+        // One runtime per application instance: a runtime bound to another instance's files and
+        // store (a test runner's previous application) is never reused.
+        if (owner === app) runtime?.let { return it }
+        owner = app
         val file = docFile(app)
         val atomic = AtomicFile(file)
         val initial = withContext(Dispatchers.IO) {
@@ -132,7 +137,9 @@ class DevBridgeReceiver : BroadcastReceiver() {
 class DevBridgeInit : ContentProvider() {
     override fun onCreate(): Boolean {
         val context = context ?: return false
-        if (DevBridge.docFile(context).exists()) DevHook.coreFactory = { DevBridge.core(context) }
+        // Always assigned, never left over: the hook is process-wide, and a stale factory from an
+        // earlier application instance (a test runner reuses the process) must not survive.
+        DevHook.coreFactory = if (DevBridge.docFile(context).exists()) ({ DevBridge.core(context) }) else null
         return true
     }
 

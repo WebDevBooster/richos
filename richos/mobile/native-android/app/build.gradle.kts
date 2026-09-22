@@ -50,6 +50,21 @@ android {
     }
 }
 
+// Robolectric's Android 36 sandbox needs a Java 21 runtime, and Gradle would otherwise pick a
+// Java 17 toolchain for the tests to match the bytecode target (measured: "Android SDK 36
+// requires Java 21 (have Java 17)" with Homebrew's openjdk@17 on this Mac). The bytecode stays 17.
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+    // Robolectric reaches into FileDescriptor internals on Java 21 (measured: IllegalAccessException
+    // on jdk.internal.access.SharedSecrets without these).
+    jvmArgs(
+        "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
+        "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+    )
+}
+
 dependencies {
     implementation(project(":core"))
     implementation(platform(libs.compose.bom))

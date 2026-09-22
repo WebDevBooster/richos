@@ -51,6 +51,14 @@ sealed interface Action {
     /** Forget this pairing on the phone. Refused while unsent work is waiting. */
     @Serializable @SerialName("forget")
     data object Forget : Action
+
+    /**
+     * Bytes from the Mac's event stream, exactly as they arrived, split anywhere (contract §5.4).
+     * The connection owner feeds the live stream through this; a scenario or the CLI can feed a
+     * recorded one, which is how the conversation is tested without a Mac.
+     */
+    @Serializable @SerialName("receive")
+    data class Receive(val wire: String) : Action
 }
 
 @Serializable
