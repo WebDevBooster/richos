@@ -28,6 +28,9 @@ import kotlinx.coroutines.launch
  */
 class RichApplication : Application() {
     private val scope = MainScope()
+
+    /** The process's scope, for work that outlives an activity (a share finishing after it closed). */
+    val appScope: kotlinx.coroutines.CoroutineScope get() = scope
     val store: AppStore by lazy { AppStore(scope) }
 
     @Volatile

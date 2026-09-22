@@ -198,6 +198,14 @@ sealed interface Action {
     @Serializable @SerialName("remove-attachment")
     data class RemoveAttachment(val id: String) : Action
 
+    /**
+     * Share to Rich from another app (CEO §75): words and/or staged files, sent as one message
+     * WITHOUT touching the composer's draft or its pending attachments. [clientId] is chosen by
+     * the caller so it can watch that message until the Mac accepts it.
+     */
+    @Serializable @SerialName("share")
+    data class Share(val clientId: String, val text: String = "", val files: List<Attachment> = emptyList()) : Action
+
     /** Photos and files to Rich (CEO §75), already staged and hashed by the platform. */
     @Serializable @SerialName("send-attachments")
     data class SendAttachments(val files: List<Attachment>, val text: String = "") : Action

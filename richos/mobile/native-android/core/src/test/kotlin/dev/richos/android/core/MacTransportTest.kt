@@ -170,6 +170,20 @@ class MacTransportTest {
     }
 
     @Test
+    fun `a share goes as its own message and never touches the composer`() = runTest {
+        val mac = FakeMac { r -> if (r.url.contains("kind=attachment")) ok("{}") else ok(receipt) }
+        val core = core(mac, files = mapOf("s1" to byteArrayOf(9)),
+            session = Fixtures.fixture("online").session.copy(capabilities = listOf("attachments"), attachmentLimits = AttachmentLimits(), draft = "half-written"))
+        var s = core.dispatch(Action.Share("share-1", "From the browser", listOf(Attachment("s1", "page.pdf", "application/pdf", 1, "h"))))
+        assertEquals("half-written", s.draft)
+        assertTrue(s.outbox.isEmpty(), "accepted")
+        assertTrue(String(mac.seen.last().body!!).startsWith("{\"client_id\":\"share-1\""))
+        s = core.dispatch(Action.Share("share-2", "just words"))
+        assertEquals("""{"client_id":"share-2","thread_id":"general","kind":"text","text":"just words","sent_at":"2023-11-14T22:13:20.000Z"}""", String(mac.seen.last().body!!))
+        assertFailsWith<CoreError> { core.dispatch(Action.Share("share-3", "  ")) }
+    }
+
+    @Test
     fun `the Mac's attachment limits are enforced before anything is queued`() = runTest {
         val limits = AttachmentLimits(maxFileBytes = 10, maxFilesPerMessage = 1, mediaTypes = listOf("image/jpeg"))
         val core = core(FakeMac { ok(receipt) }, session = Fixtures.fixture("online").session.copy(capabilities = listOf("attachments"), attachmentLimits = limits))

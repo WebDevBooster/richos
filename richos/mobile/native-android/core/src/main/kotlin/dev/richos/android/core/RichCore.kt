@@ -71,6 +71,26 @@ class RichCore private constructor(
         is Action.PushToken -> pushToken(action)
         Action.LoadOlder -> loadOlder()
         is Action.SendAttachments -> sendAttachments(action)
+        is Action.Share -> {
+            mutex.withLock {
+                if (!session.paired) throw CoreError("Pair this phone with your Mac first")
+                val text = action.text.trim()
+                if (action.files.isEmpty()) {
+                    if (text.isEmpty()) throw CoreError("There is nothing to send")
+                    val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
+                    val sentAt = isoMillis(ports.clock.now())
+                    outbox.enqueue(OutboxItem(clientId = action.clientId, threadId = threadId, kind = "text", text = text, queuedAt = sentAt,
+                        wire = Wire.text(action.clientId, threadId, text, sentAt)))
+                } else {
+                    checkAttachments(action.files)
+                    outbox.enqueue(enqueueAttachments(action.files, text).copy(clientId = action.clientId).let { item ->
+                        item.copy(wire = Wire.attachments(action.clientId, item.threadId, text, action.files, item.queuedAt))
+                    })
+                }
+                emit()
+            }
+            flush()
+        }
         is Action.Attach -> mutex.withLock {
             val all = session.pendingAttachments + action.files.filter { f -> session.pendingAttachments.none { it.id == f.id } }
             checkAttachments(all)
