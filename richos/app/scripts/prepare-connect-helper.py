@@ -57,5 +57,18 @@ if __name__ == '__main__':
     with (directory / 'prepare.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         base = prepare(directory, platform.machine())
-    license_file = Path(__file__).resolve().parent.parent / 'third-party/cloudflared/LICENSE'
-    print(json.dumps({'bundle': {'externalBin': [str(base)], 'resources': {str(license_file): 'licenses/cloudflared-LICENSE'}}}))
+    app = Path(__file__).resolve().parent.parent
+    link = app / 'src-tauri/connect-helper'
+    if link.is_symlink():
+        if not str(link.resolve()).startswith('/Volumes/E1TB/caches/richos-connect/helper/'):
+            raise SystemExit('Refusing to replace an unrelated helper link')
+        if link.resolve() != directory:
+            link.unlink(); link.symlink_to(directory, target_is_directory=True)
+    elif link.exists():
+        raise SystemExit('Refusing to replace an existing helper directory')
+    else:
+        link.symlink_to(directory, target_is_directory=True)
+    license_file = app / 'third-party/cloudflared/LICENSE'
+    # Tauri retains externalBin in generated application code. A relative source link
+    # keeps build-machine paths out of the executable while bulk bytes stay on SSD.
+    print(json.dumps({'bundle': {'externalBin': ['connect-helper/cloudflared'], 'resources': {str(license_file): 'licenses/cloudflared-LICENSE'}}}))
