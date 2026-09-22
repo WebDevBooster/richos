@@ -7,12 +7,14 @@ import RichOSCore
 ///
 /// COMPOSITION SEAM: the screens stream's (I2) `RootView` (`App/Features/Root/`) takes the state and
 /// a send function, never the store type, so the screens depend only on the core.
-/// EFFECT SEAM: `Effects.make()` is where the platform adapter (stream I3, `App/Platform/`) joins the
-/// network handler.
+/// EFFECT SEAM: the platform adapter (stream I3, `App/Platform/`) handles the microphone, recorder,
+/// notifications and Settings, and hands every network effect to the core's `NetworkEffects`.
 @main
 struct RichOSNativeApp: App {
-    @State private var store: AppStore?
+    @UIApplicationDelegateAdaptor(PlatformAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
+    @State private var store: AppStore?
+    @State private var platform: PlatformEffects?
 
     var body: some Scene {
         WindowGroup {
@@ -26,9 +28,31 @@ struct RichOSNativeApp: App {
             }
             .task {
                 guard store == nil else { return }
-                let effects = Effects.make()
-                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: effects.handler)
-                await effects.network.setSink { action in await MainActor.run { loaded.receive(action) } }
+                let transport = URLSessionTransport()
+                // The courier reads voice messages from the same files the recorder writes.
+                let network = NetworkEffects(transport: transport, stream: transport, identities: KeychainIdentityStore(),
+                                             recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()))
+                let platform = PlatformEffects(network: network)
+                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: platform)
+                platform.dispatch = { loaded.receive($0) }
+                await network.setSink { action in await MainActor.run { loaded.receive(action) } }
+                await network.setPreviewKeyProvider { origin, previews in
+                    await MainActor.run { try? NotificationPlatform.shared.configurePreviews(origin: origin, previews: previews).key }
+                }
+                NotificationPlatform.shared.onToken = { token in
+                    Task {
+                        let actions = await network.setPushToken(token, sandbox: PushRegistration.buildEnvironment == .sandbox, state: loaded.state)
+                        for action in actions { loaded.receive(action) }
+                    }
+                }
+                NotificationPlatform.shared.onOpen = { target in
+                    if let action = NotificationTapRouter.action(for: target, state: loaded.state, hostID: loaded.state.notifications.hostID) {
+                        loaded.send(action)
+                    }
+                }
+                PlatformEffects.permissionMirror().forEach { loaded.send($0) }
+                NotificationPlatform.shared.deliverPending()
+                self.platform = platform
                 #if DEBUG
                 await DevBridge.start(store: loaded)
                 #endif
@@ -47,27 +71,21 @@ struct RichOSNativeApp: App {
             .onChange(of: scenePhase) { _, phase in
                 guard let store else { return }
                 switch phase {
-                case .active: store.send(.foregrounded(at: SystemClock().nowMs()))
-                case .background: store.send(.backgrounded(at: SystemClock().nowMs()))
-                default: break
+                case .active:
+                    // The OS's microphone answer is mirrored, never stored (PRD §3).
+                    PlatformEffects.permissionMirror().forEach { store.send($0) }
+                    store.send(.foregrounded(at: SystemClock().nowMs()))
+                case .background:
+                    // Backgrounding keeps a recording in progress, never sends it (the core's rule).
+                    store.send(.backgrounded(at: SystemClock().nowMs()))
+                default:
+                    break
                 }
             }
+            .onChange(of: store?.state) { _, state in
+                guard let state else { return }
+                SharePlatform.mirror(state, macAcceptsAttachments: state.attachmentLimits != nil, limits: state.attachmentLimits)
+            }
         }
-    }
-}
-
-/// Every effect handler the app runs, composed once. The network half is here; the platform half
-/// (microphone, recorder, notifications, Settings) joins `handlers` from stream I3.
-enum Effects {
-    struct Composed {
-        var handler: any EffectHandler
-        var network: NetworkEffects
-    }
-
-    static func make() -> Composed {
-        let transport = URLSessionTransport()
-        let network = NetworkEffects(transport: transport, stream: transport, identities: KeychainIdentityStore())
-        let handlers: [any EffectHandler] = [network]  // ← I3: the platform handler joins here
-        return Composed(handler: CompositeEffectHandler(handlers), network: network)
     }
 }
