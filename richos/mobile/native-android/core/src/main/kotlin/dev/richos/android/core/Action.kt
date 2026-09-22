@@ -190,6 +190,14 @@ sealed interface Action {
     @Serializable @SerialName("load-older")
     data object LoadOlder : Action
 
+    /** Photos and files picked or shared, staged and hashed by the platform: into the composer. */
+    @Serializable @SerialName("attach")
+    data class Attach(val files: List<Attachment>) : Action
+
+    /** Take one picked file back out of the composer. */
+    @Serializable @SerialName("remove-attachment")
+    data class RemoveAttachment(val id: String) : Action
+
     /** Photos and files to Rich (CEO §75), already staged and hashed by the platform. */
     @Serializable @SerialName("send-attachments")
     data class SendAttachments(val files: List<Attachment>, val text: String = "") : Action

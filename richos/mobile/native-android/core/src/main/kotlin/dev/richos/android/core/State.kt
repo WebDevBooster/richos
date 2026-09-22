@@ -98,6 +98,8 @@ data class Session(
      * positions (Echo's measurement), so the two drift apart.
      */
     val streamCursor: Long? = null,
+    /** Photos and files chosen for the next message, staged on the phone, not yet sent. */
+    val pendingAttachments: List<Attachment> = emptyList(),
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -193,6 +195,8 @@ data class AppState(
     val loadingOlder: Boolean = false,
     /** The last live frame id delivered (see [Session.streamCursor]); a reconnect replays from it. */
     val streamCursor: Long? = null,
+    /** Photos and files waiting in the composer for the next send. */
+    val pendingAttachments: List<Attachment> = emptyList(),
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow
@@ -200,7 +204,7 @@ data class AppState(
      * keeps the microphone, because `send` refuses it (`Message is empty`, `app.js`).
      */
     val composerAction: ComposerAction
-        get() = if (draft.isBlank()) ComposerAction.RECORD else ComposerAction.SEND
+        get() = if (draft.isBlank() && pendingAttachments.isEmpty()) ComposerAction.RECORD else ComposerAction.SEND
 
     companion object {
         fun of(session: Session, outbox: List<OutboxItem>, dueInMs: Long?, lastSend: SendReport?, connection: ConnectionState = ConnectionState()) = AppState(

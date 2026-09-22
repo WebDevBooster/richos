@@ -35,6 +35,9 @@ data class Attachment(
 interface FileStore {
     suspend fun bytes(id: String): ByteArray?
 
+    /** A staged file that will never be sent (removed from the composer, or already accepted). */
+    suspend fun delete(id: String) {}
+
     companion object {
         val NONE: FileStore = object : FileStore {
             override suspend fun bytes(id: String): ByteArray? = null

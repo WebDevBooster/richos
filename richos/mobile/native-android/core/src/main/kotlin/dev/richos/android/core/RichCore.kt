@@ -71,6 +71,16 @@ class RichCore private constructor(
         is Action.PushToken -> pushToken(action)
         Action.LoadOlder -> loadOlder()
         is Action.SendAttachments -> sendAttachments(action)
+        is Action.Attach -> mutex.withLock {
+            val all = session.pendingAttachments + action.files.filter { f -> session.pendingAttachments.none { it.id == f.id } }
+            checkAttachments(all)
+            commit(session.copy(pendingAttachments = all))
+        }
+        is Action.RemoveAttachment -> mutex.withLock {
+            if (session.pendingAttachments.none { it.id == action.id }) return@withLock emit()
+            ports.files.delete(action.id)
+            commit(session.copy(pendingAttachments = session.pendingAttachments.filter { it.id != action.id }))
+        }
         is Action.Link -> link(action.status)
         is Action.Health -> mutex.withLock {
             // Only while away: a probe that lands after the socket reopened is stale.
@@ -202,6 +212,16 @@ class RichCore private constructor(
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
 
     private suspend fun send(): AppState {
+        // Photos or files waiting in the composer make this one attachments message, with the
+        // draft as its words.
+        if (session.pendingAttachments.isNotEmpty()) {
+            mutex.withLock {
+                checkAttachments(session.pendingAttachments)
+                outbox.enqueue(enqueueAttachments(session.pendingAttachments, session.draft.trim()))
+                commit(session.copy(draft = "", pendingAttachments = emptyList()))
+            }
+            return flush()
+        }
         mutex.withLock {
             if (!session.paired) throw CoreError("Pair this device before sending")
             val text = session.draft.trim()
@@ -287,26 +307,32 @@ class RichCore private constructor(
 
     // --- photos and files (CEO §75; Echo 22e59ed8) ------------------------------------------------
 
+    /** The Mac's limits, as sentences with the number that matters (round-12 `comp-too-long` style). */
+    private fun checkAttachments(files: List<Attachment>): AttachmentLimits {
+        if (!session.paired) throw CoreError("Pair this device before sending")
+        val limits = session.attachmentLimits ?: throw CoreError("This Mac cannot take photos or files yet. Update RichOS on your Mac.")
+        if (files.isEmpty()) throw CoreError("Choose a photo or a file to send")
+        if (files.size > limits.maxFilesPerMessage) throw CoreError("Up to ${limits.maxFilesPerMessage} files in one message")
+        files.firstOrNull { it.size > limits.maxFileBytes }?.let { throw CoreError("${it.name} is over the ${limits.maxFileBytes / (1024 * 1024)} MB limit for one file") }
+        if (files.sumOf { it.size } > limits.maxMessageBytes) throw CoreError("Up to ${limits.maxMessageBytes / (1024 * 1024)} MB in one message")
+        if (limits.mediaTypes.isNotEmpty()) files.firstOrNull { it.mediaType !in limits.mediaTypes }?.let { throw CoreError("${it.name} is a kind of file this Mac does not take") }
+        return limits
+    }
+
+    private fun enqueueAttachments(files: List<Attachment>, text: String): OutboxItem {
+        val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
+        val clientId = ports.ids.next()
+        val sentAt = isoMillis(ports.clock.now())
+        return OutboxItem(
+            clientId = clientId, threadId = threadId, kind = "attachments", text = text, queuedAt = sentAt,
+            attachments = files, wire = Wire.attachments(clientId, threadId, text, files, sentAt),
+        )
+    }
+
     private suspend fun sendAttachments(action: Action.SendAttachments): AppState {
         mutex.withLock {
-            if (!session.paired) throw CoreError("Pair this device before sending")
-            val limits = session.attachmentLimits ?: throw CoreError("This Mac cannot take photos or files yet. Update RichOS on your Mac.")
-            val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
-            val files = action.files
-            if (files.isEmpty()) throw CoreError("Choose a photo or a file to send")
-            if (files.size > limits.maxFilesPerMessage) throw CoreError("Up to ${limits.maxFilesPerMessage} files in one message")
-            files.firstOrNull { it.size > limits.maxFileBytes }?.let { throw CoreError("${it.name} is over the ${limits.maxFileBytes / (1024 * 1024)} MB limit for one file") }
-            if (files.sumOf { it.size } > limits.maxMessageBytes) throw CoreError("Up to ${limits.maxMessageBytes / (1024 * 1024)} MB in one message")
-            if (limits.mediaTypes.isNotEmpty()) files.firstOrNull { it.mediaType !in limits.mediaTypes }?.let { throw CoreError("${it.name} is a kind of file this Mac does not take") }
-            val clientId = ports.ids.next()
-            val sentAt = isoMillis(ports.clock.now())
-            val text = action.text.trim()
-            outbox.enqueue(
-                OutboxItem(
-                    clientId = clientId, threadId = threadId, kind = "attachments", text = text, queuedAt = sentAt,
-                    attachments = files, wire = Wire.attachments(clientId, threadId, text, files, sentAt),
-                ),
-            )
+            checkAttachments(action.files)
+            outbox.enqueue(enqueueAttachments(action.files, action.text.trim()))
             emit()
         }
         return flush()
@@ -599,6 +625,7 @@ class RichCore private constructor(
             attachmentLimits = session.attachmentLimits,
             olderAvailable = session.selectedThreadId?.let { session.olderAvailable[it] } ?: false,
             streamCursor = session.streamCursor,
+            pendingAttachments = session.pendingAttachments,
             loadingOlder = loadingOlder,
             sheet = sheet,
             focusMessageId = focusMessageId,

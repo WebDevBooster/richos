@@ -7,7 +7,12 @@ import androidx.activity.ComponentActivity
 import dev.richos.android.core.Action
 import dev.richos.android.core.ConnectionOwner
 import dev.richos.android.core.Microphone
+import dev.richos.android.platform.AttachmentPicker
+import dev.richos.android.platform.FcmPlatform
+import dev.richos.android.platform.Stager
 import dev.richos.android.platform.MicRecorder
+import dev.richos.android.platform.PreviewKeys
+import dev.richos.android.platform.Replies
 import java.lang.ref.WeakReference
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.MacApi
@@ -28,6 +33,14 @@ class RichApplication : Application() {
     @Volatile
     private var foreground: WeakReference<Activity>? = null
 
+    /**
+     * Photos and files: the composer's attach control calls [AttachmentPicker.pickPhotos] or
+     * [AttachmentPicker.pickFiles]; what is picked arrives in the core as `attach`.
+     */
+    val attachments: AttachmentPicker by lazy {
+        AttachmentPicker(Stager(this, AppPorts.stagedDir(this)), { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope)
+    }
+
     /** The live connection's owner; null until the production core has opened, and in a dev world. */
     @Volatile
     var owner: ConnectionOwner? = null
@@ -47,7 +60,14 @@ class RichApplication : Application() {
                 onPermission = { store.dispatch(Action.MicrophonePermission(it)) },
                 foreground = { foreground?.get() as? ComponentActivity },
             )
-            val ports = AppPorts.create(this, wire, recorder)
+            Replies.ensureChannel(this)
+            val platform = FcmPlatform(
+                context = this,
+                previewKeys = PreviewKeys.forApp(this),
+                dispatch = { store.dispatch(it) },
+                foreground = { foreground?.get() as? ComponentActivity },
+            )
+            val ports = AppPorts.create(this, wire, recorder, platform)
             store.open {
                 RichCore.open(ports).also { core ->
                     // The core mirrors the OS's microphone answer; a revoke in Settings is seen here.

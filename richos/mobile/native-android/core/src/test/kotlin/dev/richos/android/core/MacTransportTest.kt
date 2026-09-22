@@ -154,6 +154,22 @@ class MacTransportTest {
     }
 
     @Test
+    fun `picked files wait in the composer and go with the draft as one message on send`() = runTest {
+        val mac = FakeMac { r -> if (r.url.contains("kind=attachment")) ok("{}") else ok(receipt) }
+        val core = core(mac, files = mapOf("p1" to byteArrayOf(1)),
+            session = Fixtures.fixture("online").session.copy(capabilities = listOf("attachments"), attachmentLimits = AttachmentLimits()))
+        var s = core.dispatch(Action.Attach(listOf(Attachment("p1", "IMG.jpg", "image/jpeg", 1, "h1"))))
+        assertEquals(ComposerAction.SEND, s.composerAction, "a picked photo alone can be sent")
+        s = core.dispatch(Action.RemoveAttachment("p1"))
+        assertTrue(s.pendingAttachments.isEmpty())
+        core.dispatch(Action.Attach(listOf(Attachment("p1", "IMG.jpg", "image/jpeg", 1, "h1"))))
+        core.dispatch(Action.Compose("Look at this"))
+        s = core.dispatch(Action.Send)
+        assertTrue(s.pendingAttachments.isEmpty() && s.draft.isEmpty() && s.outbox.isEmpty())
+        assertTrue(String(mac.seen.last().body!!).contains("\"text\":\"Look at this\""))
+    }
+
+    @Test
     fun `the Mac's attachment limits are enforced before anything is queued`() = runTest {
         val limits = AttachmentLimits(maxFileBytes = 10, maxFilesPerMessage = 1, mediaTypes = listOf("image/jpeg"))
         val core = core(FakeMac { ok(receipt) }, session = Fixtures.fixture("online").session.copy(capabilities = listOf("attachments"), attachmentLimits = limits))
