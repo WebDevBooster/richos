@@ -1,0 +1,231 @@
+import Foundation
+
+/// The JSON spelling of every `Action` — the command line's and the Debug bridge's language.
+///
+/// Where the preserved mobile CLI already names an action (`richos/mobile/core/app.js`,
+/// `core/client.js`), that name and its field names are used exactly — `send`, `network`
+/// (`online`), `retry`, `discard` (`clientId`), `pair` (`link`), `scan-pair`, `confirm-pair`
+/// (`matched`), `forget-pair` (`confirm`), `older`, `notifications-enable|disable|previews`
+/// (`enabled`), `reply-play`, `record-play`, `playback-stop`, `playback-ended`, `update-dismiss`,
+/// `update-open`, `support`, `settings` — so QA's habits and the Android core (Rich's decision,
+/// build plan §9 item 4) share one grammar. The voice gesture is new; its names are the standard.
+///
+/// Time and idempotency stamps (`at`, `clientId` on `send`) are optional on the wire: omitted, they
+/// are stamped from the clock when the command arrives; given, a scenario replays exactly.
+extension Action: Codable {
+    private struct Wire: Codable {
+        var type: String
+        var text: String?
+        var link: String?
+        var appearance: Appearance?
+        var permission: Permission?
+        var sheet: Sheet?
+        var answer: PairAnswer?
+        var clientId: String?
+        var id: String?
+        var at: Int64?
+        var failure: DeliveryFailure?
+        var messages: [Message]?
+        var message: Message?
+        var reachedBeginning: Bool?
+        var value: Bool?
+        var online: Bool?
+        var matched: Bool?
+        var confirm: Bool?
+        var enabled: Bool?
+        var progress: Double?
+        var notice: ConnectionNotice?
+        var acceptsText: Bool?
+        var acceptsVoice: Bool?
+        var width: Double?
+        var dx: Double?
+        var dy: Double?
+        var level: Double?
+        var status: Notifications.Status?
+        var update: UpdateNotice?
+        var voicePaused: Bool?
+
+        init(_ type: String) { self.type = type }
+    }
+
+    public static let knownTypes = [
+        "compose", "set-appearance",
+        "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused",
+        "confirm-pair", "accept-consent", "dismiss-pairing-problem", "open-sheet", "close-sheet",
+        "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
+        "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "set-following", "set-composer-focus",
+        "notification-open", "notification-focused", "reply-play", "playback-started", "playback-progress",
+        "playback-ended", "playback-stop", "dismiss-toast",
+        "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities",
+        "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
+        "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
+        "send-kept", "discard-kept", "record-play",
+        "notifications-enable", "notifications-result", "notifications-disable", "dismiss-notification-offer",
+        "notifications-previews", "forget-request", "forget-pair", "settings",
+        "update-policy", "update-dismiss", "update-open", "support",
+    ]
+
+    public init(from decoder: Decoder) throws {
+        let w = try Wire(from: decoder)
+        func need<T>(_ value: T?, _ field: String) throws -> T {
+            guard let value else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "action '\(w.type)' needs '\(field)'"))
+            }
+            return value
+        }
+        // Omitted stamps are taken now; given ones make a replay exact.
+        let now = w.at ?? SystemClock().nowMs()
+        switch w.type {
+        case "compose": self = .compose(text: try need(w.text, "text"))
+        case "set-appearance": self = .setAppearance(try need(w.appearance, "appearance"))
+        case "scan-pair": self = .openScanner
+        case "close-scanner": self = .closeScanner
+        case "scanned": self = .scanned(text: try need(w.text, "text"))
+        case "pair": self = .submitPairingLink(text: try need(w.link ?? w.text, "link"))
+        case "camera-permission": self = .cameraPermission(try need(w.permission, "permission"))
+        case "pairing-answered": self = .pairingAnswered(try need(w.answer, "answer"))
+        case "pairing-refused": self = .pairingRefused
+        case "confirm-pair": self = try need(w.matched, "matched") ? .confirmWords : .rejectWords
+        case "accept-consent": self = .acceptConsent
+        case "dismiss-pairing-problem": self = .dismissPairingProblem
+        case "open-sheet": self = .openSheet(try need(w.sheet, "sheet"))
+        case "close-sheet": self = .closeSheet
+        case "send": self = .sendDraft(clientID: w.clientId ?? UUID().uuidString.lowercased(), at: now)
+        case "delivery-accepted": self = .deliveryAccepted(clientID: try need(w.clientId, "clientId"), at: now)
+        case "delivery-failed": self = .deliveryFailed(clientID: try need(w.clientId, "clientId"), failure: try need(w.failure, "failure"), at: now)
+        case "tick": self = .tick(at: now)
+        case "retry": self = .retryNow(at: now)
+        case "discard": self = .discardMessage(id: try need(w.clientId ?? w.id, "clientId"))
+        case "messages-arrived": self = .messagesArrived(try need(w.messages, "messages"))
+        case "reply-started": self = .replyStarted
+        case "reply-delta": self = .replyDelta(text: try need(w.text, "text"))
+        case "reply-finished": self = .replyFinished(try need(w.message, "message"))
+        case "older": self = .loadOlder
+        case "older-loaded": self = .olderLoaded(try need(w.messages, "messages"), reachedBeginning: try need(w.reachedBeginning, "reachedBeginning"))
+        case "set-following": self = .setFollowing(try need(w.value, "value"))
+        case "set-composer-focus": self = .setComposerFocus(try need(w.value, "value"))
+        case "notification-open": self = .openedFromNotification(messageID: try need(w.id, "id"))
+        case "notification-focused": self = .clearFocus
+        case "reply-play": self = .hearReply(id: try need(w.id, "id"))
+        case "playback-started": self = .playbackStarted(id: try need(w.id, "id"))
+        case "playback-progress": self = .playbackProgress(id: try need(w.id, "id"), progress: try need(w.progress, "progress"))
+        case "playback-ended": self = .playbackEnded
+        case "playback-stop": self = .stopPlayback
+        case "dismiss-toast": self = .dismissToast
+        case "network": self = .networkChanged(online: try need(w.online, "online"), at: now)
+        case "connection-lost": self = .connectionLost(at: now)
+        case "connected": self = .connected(at: now)
+        case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
+        case "mac-capabilities": self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
+        case "voice-press": self = .voicePress(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
+        case "voice-start-locked": self = .voiceStartLocked(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
+        case "microphone-permission": self = .microphonePermission(try need(w.permission, "permission"))
+        case "voice-move": self = .voiceMove(dx: try need(w.dx, "dx"), dy: try need(w.dy, "dy"), at: now)
+        case "voice-release": self = .voiceRelease(at: now)
+        case "voice-locked-send": self = .voiceLockedSend(at: now)
+        case "voice-locked-cancel": self = .voiceLockedCancel(at: now)
+        case "voice-touch-canceled": self = .voiceTouchCanceled(at: now)
+        case "voice-interrupted": self = .voiceInterrupted(at: now)
+        case "voice-level": self = .voiceLevel(try need(w.level, "level"))
+        case "voice-settled": self = .voiceSettled
+        case "send-kept": self = .sendKept(id: try need(w.id, "id"), at: now)
+        case "discard-kept": self = .discardKept(id: try need(w.id, "id"))
+        case "record-play": self = .playRecording(id: try need(w.id, "id"))
+        case "notifications-enable": self = .turnOnNotifications
+        case "notifications-result": self = .notificationsResult(try need(w.status, "status"))
+        case "notifications-disable": self = .turnOffNotifications
+        case "dismiss-notification-offer": self = .dismissNotificationOffer
+        case "notifications-previews": self = .setPreviews(try need(w.enabled, "enabled"))
+        case "forget-request": self = .forgetPairing
+        case "forget-pair":
+            // The preserved grammar requires the explicit confirmation, and so does this core.
+            guard try need(w.confirm, "confirm") else {
+                throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "forget-pair needs \"confirm\": true"))
+            }
+            self = .confirmForget
+        case "settings": self = .openSystemSettings
+        case "update-policy": self = .updatePolicy(w.update, voicePaused: try need(w.voicePaused, "voicePaused"))
+        case "update-dismiss": self = .dismissUpdate
+        case "update-open": self = .openAppStore
+        case "support": self = .openSupport
+        default:
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription:
+                "unknown action '\(w.type)'; known: \(Self.knownTypes.joined(separator: ", "))"))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var w: Wire
+        switch self {
+        case .compose(let text): w = Wire("compose"); w.text = text
+        case .setAppearance(let a): w = Wire("set-appearance"); w.appearance = a
+        case .openScanner: w = Wire("scan-pair")
+        case .closeScanner: w = Wire("close-scanner")
+        case .scanned(let text): w = Wire("scanned"); w.text = text
+        case .submitPairingLink(let link): w = Wire("pair"); w.link = link
+        case .cameraPermission(let p): w = Wire("camera-permission"); w.permission = p
+        case .pairingAnswered(let a): w = Wire("pairing-answered"); w.answer = a
+        case .pairingRefused: w = Wire("pairing-refused")
+        case .confirmWords: w = Wire("confirm-pair"); w.matched = true
+        case .rejectWords: w = Wire("confirm-pair"); w.matched = false
+        case .acceptConsent: w = Wire("accept-consent")
+        case .dismissPairingProblem: w = Wire("dismiss-pairing-problem")
+        case .openSheet(let s): w = Wire("open-sheet"); w.sheet = s
+        case .closeSheet: w = Wire("close-sheet")
+        case .sendDraft(let c, let at): w = Wire("send"); w.clientId = c; w.at = at
+        case .deliveryAccepted(let c, let at): w = Wire("delivery-accepted"); w.clientId = c; w.at = at
+        case .deliveryFailed(let c, let f, let at): w = Wire("delivery-failed"); w.clientId = c; w.failure = f; w.at = at
+        case .tick(let at): w = Wire("tick"); w.at = at
+        case .retryNow(let at): w = Wire("retry"); w.at = at
+        case .discardMessage(let id): w = Wire("discard"); w.clientId = id
+        case .messagesArrived(let m): w = Wire("messages-arrived"); w.messages = m
+        case .replyStarted: w = Wire("reply-started")
+        case .replyDelta(let text): w = Wire("reply-delta"); w.text = text
+        case .replyFinished(let m): w = Wire("reply-finished"); w.message = m
+        case .loadOlder: w = Wire("older")
+        case .olderLoaded(let m, let r): w = Wire("older-loaded"); w.messages = m; w.reachedBeginning = r
+        case .setFollowing(let v): w = Wire("set-following"); w.value = v
+        case .setComposerFocus(let v): w = Wire("set-composer-focus"); w.value = v
+        case .openedFromNotification(let id): w = Wire("notification-open"); w.id = id
+        case .clearFocus: w = Wire("notification-focused")
+        case .hearReply(let id): w = Wire("reply-play"); w.id = id
+        case .playbackStarted(let id): w = Wire("playback-started"); w.id = id
+        case .playbackProgress(let id, let p): w = Wire("playback-progress"); w.id = id; w.progress = p
+        case .playbackEnded: w = Wire("playback-ended")
+        case .stopPlayback: w = Wire("playback-stop")
+        case .dismissToast: w = Wire("dismiss-toast")
+        case .networkChanged(let online, let at): w = Wire("network"); w.online = online; w.at = at
+        case .connectionLost(let at): w = Wire("connection-lost"); w.at = at
+        case .connected(let at): w = Wire("connected"); w.at = at
+        case .connectionDiagnosed(let n): w = Wire("connection-diagnosed"); w.notice = n
+        case .macCapabilities(let t, let v): w = Wire("mac-capabilities"); w.acceptsText = t; w.acceptsVoice = v
+        case .voicePress(let id, let width, let at): w = Wire("voice-press"); w.id = id; w.width = width; w.at = at
+        case .voiceStartLocked(let id, let width, let at): w = Wire("voice-start-locked"); w.id = id; w.width = width; w.at = at
+        case .microphonePermission(let p): w = Wire("microphone-permission"); w.permission = p
+        case .voiceMove(let dx, let dy, let at): w = Wire("voice-move"); w.dx = dx; w.dy = dy; w.at = at
+        case .voiceRelease(let at): w = Wire("voice-release"); w.at = at
+        case .voiceLockedSend(let at): w = Wire("voice-locked-send"); w.at = at
+        case .voiceLockedCancel(let at): w = Wire("voice-locked-cancel"); w.at = at
+        case .voiceTouchCanceled(let at): w = Wire("voice-touch-canceled"); w.at = at
+        case .voiceInterrupted(let at): w = Wire("voice-interrupted"); w.at = at
+        case .voiceLevel(let l): w = Wire("voice-level"); w.level = l
+        case .voiceSettled: w = Wire("voice-settled")
+        case .sendKept(let id, let at): w = Wire("send-kept"); w.id = id; w.at = at
+        case .discardKept(let id): w = Wire("discard-kept"); w.id = id
+        case .playRecording(let id): w = Wire("record-play"); w.id = id
+        case .turnOnNotifications: w = Wire("notifications-enable")
+        case .notificationsResult(let st): w = Wire("notifications-result"); w.status = st
+        case .turnOffNotifications: w = Wire("notifications-disable")
+        case .dismissNotificationOffer: w = Wire("dismiss-notification-offer")
+        case .setPreviews(let v): w = Wire("notifications-previews"); w.enabled = v
+        case .forgetPairing: w = Wire("forget-request")
+        case .confirmForget: w = Wire("forget-pair"); w.confirm = true
+        case .openSystemSettings: w = Wire("settings")
+        case .updatePolicy(let n, let paused): w = Wire("update-policy"); w.update = n; w.voicePaused = paused
+        case .dismissUpdate: w = Wire("update-dismiss")
+        case .openAppStore: w = Wire("update-open")
+        case .openSupport: w = Wire("support")
+        }
+        try w.encode(to: encoder)
+    }
+}

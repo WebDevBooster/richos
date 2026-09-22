@@ -13,7 +13,12 @@ RichOS native iPhone development loop (JSON output; nonzero exit on failure)
   bin/rios headless state|reset|restart
   bin/rios headless fixture \(Fixture.all.map(\.name).joined(separator: "|"))
   bin/rios headless action '{"type":"compose","text":"Hello"}'
+  bin/rios headless action '{"type":"send"}'                  (stamps clientId and at; pass them to replay)
+  bin/rios headless action '{"type":"network","online":false}'
   bin/rios headless action '{"type":"set-appearance","appearance":"light"}'
+  Action names are the preserved mobile CLI's wherever it already names the action
+  (send, network, retry, discard, pair, confirm-pair, forget-pair, older, ...); every name is
+  listed in the error for an unknown one.
   bin/rios headless scenario \(Scenario.all.map(\.name).joined(separator: "|"))
   bin/rios sim prepare [fixture]      generate, build, create+boot the simulator, install, launch
   bin/rios sim launch [fixture]       relaunch the app process (optionally straight into a fixture)

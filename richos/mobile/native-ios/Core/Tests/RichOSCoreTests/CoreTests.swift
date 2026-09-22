@@ -124,6 +124,23 @@ let repositoryRoot: URL = {
         }
     }
 
+    @Test func thePreservedCLIsNamesAndFieldsAreUnderstood() throws {
+        func decode(_ json: String) throws -> Action { try CoreJSON.decode(Action.self, from: Data(json.utf8)) }
+        if case .sendDraft(let id, _) = try decode(#"{"type":"send"}"#) { #expect(!id.isEmpty, "an omitted clientId is stamped") } else { Issue.record("send") }
+        #expect(try decode(#"{"type":"send","clientId":"c","at":5}"#) == .sendDraft(clientID: "c", at: 5))
+        #expect(try decode(#"{"type":"network","online":false,"at":1}"#) == .networkChanged(online: false, at: 1))
+        #expect(try decode(#"{"type":"retry","at":2}"#) == .retryNow(at: 2))
+        #expect(try decode(#"{"type":"discard","clientId":"c"}"#) == .discardMessage(id: "c"))
+        #expect(try decode(#"{"type":"pair","link":"https://m.ts.net/#pair=K"}"#) == .submitPairingLink(text: "https://m.ts.net/#pair=K"))
+        #expect(try decode(#"{"type":"confirm-pair","matched":true}"#) == .confirmWords)
+        #expect(try decode(#"{"type":"confirm-pair","matched":false}"#) == .rejectWords)
+        #expect(try decode(#"{"type":"forget-pair","confirm":true}"#) == .confirmForget)
+        #expect(throws: DecodingError.self) { try decode(#"{"type":"forget-pair","confirm":false}"#) }
+        #expect(try decode(#"{"type":"notifications-previews","enabled":false}"#) == .setPreviews(false))
+        #expect(try decode(#"{"type":"older"}"#) == .loadOlder)
+        #expect(try decode(#"{"type":"reply-play","id":"r1"}"#) == .hearReply(id: "r1"))
+    }
+
     @Test func anUnknownActionNamesTheKnownOnes() throws {
         do {
             _ = try CoreJSON.decode(Action.self, from: Data(#"{"type":"fly"}"#.utf8))
