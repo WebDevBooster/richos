@@ -34,11 +34,13 @@
 #   R1-R4   redact: it covers the address, it keeps the evidence, it re-reads
 #   W1-W6   wait-for: it succeeds, and it FAILS on timeout
 #   T1-T6   timeline: first change, no change, no baseline, stats, refusals
+#   N1-N5   phone-client: a foreign Mac that refuses the credential is the
+#           answer, one that ACCEPTS it exits non-zero; argument refusals
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa
-# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh
+# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,7 +80,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -438,6 +440,62 @@ expect "OCR cache invalidation, reader failure, fresh control and multi-pattern 
 run python3 "$QA/timeline-bounds.test.py"
 expect "Monotonic visibility bounds and native input refusal" 0 "OK"
 
+echo "=== N. phone-client: the headless phone ==="
+
+if ! command -v node >/dev/null 2>&1; then
+  skip "N1-N5 phone-client" "node is not installed, and the tool is the production mobile client, which is JavaScript"
+else
+  # A stub Mac on loopback: it issues a challenge like the real listener, then answers every
+  # signed request with the status it was started with. 404 is what a RichOS listener says to
+  # a device it never paired; 200 is the defect the tool exists to catch.
+  cat > "$TMP/stub-mac.mjs" <<'JS'
+import { createServer } from 'node:http';
+import { writeFileSync } from 'node:fs';
+const [status, portFile] = process.argv.slice(2);
+const server = createServer((req, res) => {
+  if (req.url === '/api/challenge') { res.writeHead(404, { 'X-RichOS-Challenge': 'stub-challenge' }); res.end(); return; }
+  res.writeHead(Number(status), { 'Content-Type': 'application/json' }); res.end(status === '200' ? '{"accepted":true}' : '');
+});
+server.listen(0, '127.0.0.1', () => writeFileSync(portFile, String(server.address().port)));
+setTimeout(() => process.exit(0), 20000).unref?.();
+JS
+  node -e '
+    const { generateKeyPairSync } = require("node:crypto");
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    require("node:fs").writeFileSync(process.argv[1], JSON.stringify({ key: privateKey.export({ format: "jwk" }),
+      disk: { schema: 2, confirmed: true, api: { apiBase: "https://vm.example", deviceId: "dev_stub" } } }));
+  ' "$TMP/phone.json"
+  STUB_PID=""
+  stub_start() {  # stub_start <status>: sets STUB_PID and ORIGIN (never in a subshell, so the pid is ours)
+    rm -f "$TMP/stub.port"
+    node "$TMP/stub-mac.mjs" "$1" "$TMP/stub.port" &
+    STUB_PID=$!
+    for _ in $(seq 1 100); do [ -s "$TMP/stub.port" ] && break; sleep 0.05; done
+    ORIGIN="http://127.0.0.1:$(cat "$TMP/stub.port" 2>/dev/null)"
+  }
+  stub_stop() { [ -n "$STUB_PID" ] && kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null; STUB_PID=""; }
+
+  stub_start 404
+  run node "$QA/phone-client.mjs" foreign --state "$TMP/phone.json" --origin "$ORIGIN"
+  stub_stop
+  expect "N1 a foreign Mac that refuses this phone's credential is the answer, exit 0" 0 '"ok":true'
+
+  stub_start 200
+  run node "$QA/phone-client.mjs" foreign --state "$TMP/phone.json" --origin "$ORIGIN"
+  stub_stop
+  expect "N2 a foreign Mac that ACCEPTS another Mac's phone EXITS NON-ZERO" 1 '"accepted":true'
+
+  run node "$QA/phone-client.mjs" foreign --state "$TMP/phone.json" --origin "http://127.0.0.1:9"
+  expect "N3 an unreachable origin is 'could not ask', never a clean isolation verdict" 2 "cannot reach"
+
+  run node "$QA/phone-client.mjs" pair --state "$TMP/new-phone.json" --link "https://vm.example:8443/#pair=ABCDEFGH"
+  expect "N4 pair without a decision file is refused before anything is sent" 2 "--decision"
+
+  run node "$QA/phone-client.mjs" send --state "$TMP/absent.json" --text hello
+  expect "N5 a send with no paired phone state is refused by name" 2 "no phone state"
+fi
+
+echo ""
 echo "=== X. the fixtures are still the fixtures ==="
 
 if [ "$HAVE_PIL" = 0 ]; then
