@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Theme
@@ -42,13 +43,14 @@ class MainActivity : ComponentActivity() {
             // System bar icons follow the APP's theme, not the phone's: dark is the default
             // whatever the phone says (ceo-decisions §15), so light icons unless light is chosen.
             val dark = state?.theme != Theme.LIGHT
+            // Set on the window directly: re-calling enableEdgeToEdge from a composition effect did
+            // not change the window's appearance (measured on the API 34 emulator: no
+            // LIGHT_STATUS_BARS flag, white icons on the light ground).
             LaunchedEffect(dark) {
-                val bars = if (dark) {
-                    SystemBarStyle.dark(AndroidColor.TRANSPARENT)
-                } else {
-                    SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
                 }
-                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
             }
             AppRoot(state)
         }

@@ -164,6 +164,18 @@ emu_boot() {
   done
   [ "$booted" = "1" ] || fail "the emulator did not finish booting in 180 s (see $CACHE/emulator.log)"
   echo "$(( $(now_ms) - t0 ))" > "$CACHE/boot-ms"
+  emu_awake "$s"
+}
+
+# The EMULATOR's display (never the Mac's): keep it on and unlocked, so a screenshot or a UI dump
+# sees the app rather than a sleeping panel (measured: an all-black capture after the default
+# timeout). Also dismisses a system "isn't responding" dialog a loaded host can raise.
+emu_awake() {  # $1 = the serial this CLI recorded
+  "$ADB" -s "$1" shell svc power stayon true >/dev/null 2>&1 || true
+  "$ADB" -s "$1" shell settings put system screen_off_timeout 1800000 >/dev/null 2>&1 || true
+  "$ADB" -s "$1" shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+  "$ADB" -s "$1" shell wm dismiss-keyguard >/dev/null 2>&1 || true
+  "$ADB" -s "$1" shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
 }
 
 emu_install() {
@@ -201,6 +213,7 @@ PY
 }
 
 emu_restart() {
+  emu_awake "$(serial)"
   adb_s shell am force-stop "$PACKAGE"
   adb_s shell am start -W -n "$ACTIVITY" >/dev/null || fail "relaunch failed"
   emu_command state
@@ -253,9 +266,19 @@ PY
 emu_verify() {
   local expected dump
   expected="$(emu_command state | python3 -c 'import json,sys; s=json.load(sys.stdin)["result"]["state"]; print(s["draft"] or "Message Rich")')"
-  adb_s shell uiautomator dump /sdcard/randroid-ui.xml >/dev/null
-  dump="$(adb_s exec-out cat /sdcard/randroid-ui.xml)"
+  emu_awake "$(serial)"
+  adb_s shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
+  dump=""
+  local attempt
+  # A dump taken while the window is changing returns "null root node"; try a few times.
+  for attempt in 1 2 3 4 5; do
+    adb_s shell uiautomator dump /sdcard/randroid-ui.xml >/dev/null 2>&1 || true
+    dump="$(adb_s exec-out cat /sdcard/randroid-ui.xml 2>/dev/null || true)"
+    case "$dump" in "<?xml"*) break ;; esac
+    sleep 1
+  done
   adb_s shell rm -f /sdcard/randroid-ui.xml
+  case "$dump" in "<?xml"*) ;; *) fail "no UI dump from $(serial) after 5 attempts" ;; esac
   python3 - "$dump" "$expected" <<'PY'
 import json, sys, xml.etree.ElementTree as ET
 root = ET.fromstring(sys.argv[1])
