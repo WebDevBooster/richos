@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { createRuntime } = require('../dev/runtime.js');
 const usage = `Mobile development loop (JSON output; nonzero exit on failure)
   node richos/mobile/cli/mobile.mjs connect artifact
+  node richos/mobile/cli/mobile.mjs connect managed-artifact <private-profile.json>
   node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption|update-controls
   node richos/mobile/cli/mobile.mjs lab serve|mac|updates
   node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|updates]
@@ -65,7 +66,7 @@ try {
   try { mkdirSync(proposedLock); lock = proposedLock; writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, mode, command })); }
   catch { throw new Error(`Another mobile CLI command owns ${proposedLock}. If it crashed, verify its owner.json PID is gone before removing that directory.`); }
   let result;
-  if (mode === 'connect') result = await (await import('./connect.mjs')).command(command);
+  if (mode === 'connect') result = await (await import('./connect.mjs')).command(command, arg);
   else if (mode === 'update') result = await (await import('../service/policy.mjs')).command(command, arg, cache);
   else if (mode === 'client' && command === 'scenario') result = await require('../dev/client-runtime.js').scenario(arg);
   else if (mode === 'lab' && command === 'updates') result = await (await import('../dev/policy-lab.mjs')).policyLab(cache);
