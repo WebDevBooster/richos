@@ -288,7 +288,10 @@ RUNTIME="$(xcrun simctl list runtimes available | sed -n 's/.*\(com\.apple\.Core
 
 PROJECT_DIR="$CACHE/project"
 mkdir -p "$PROJECT_DIR"
-xcodegen generate --spec "$NATIVE/project.yml" --project "$PROJECT_DIR" --project-root "$NATIVE" --quiet
+# Generated exactly as `bin/rios` generates it: no --project-root, and RICHOS_NATIVE_IOS_ROOT set, which
+# I3's Release/platform.yml expands into the extensions' entitlement paths.
+export RICHOS_NATIVE_IOS_ROOT="$NATIVE"
+xcodegen generate --spec "$NATIVE/project.yml" --project "$PROJECT_DIR" --quiet
 DERIVED="$CACHE/derived"
 SHOTS="$CACHE/screenshots/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$SHOTS"
@@ -298,7 +301,9 @@ START=$(date +%s)
 nice -n 10 xcodebuild -project "$PROJECT_DIR/RichOSNative.xcodeproj" -scheme RichOSNative \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" \
   -clonedSourcePackagesDirPath "$CACHE/SourcePackages" CODE_SIGN_IDENTITY=- \
-  build-for-testing > "$WORK/build.log" 2>&1 || { grep ' error: ' "$WORK/build.log" | head -20; echo "  FAIL  native-ios-ui: build"; exit 1; }
+  build-for-testing > "$WORK/build.log" 2>&1 || {
+    { grep -E ' error: |error:' "$WORK/build.log" || tail -30 "$WORK/build.log"; } | head -30
+    echo "  FAIL  native-ios-ui: build"; exit 1; }
 echo "native-ios-ui: built for testing in $(( $(date +%s) - START )) s"
 
 STATUS=0
@@ -330,6 +335,30 @@ for DEVICE in "${DEVICES[@]}"; do
     grep -E "error:|Test Case .* failed" "$WORK/test-${TYPE##*.}.log" | head -40
     echo "  FAIL  $DEVICE: UI tests ($(( $(date +%s) - START )) s)"
   fi
+  # Counts, including skips, so a skipped test is never read as a passed one.
+  xcrun xcresulttool get test-results summary --path "$RESULT" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    s = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print("        %s passed, %s failed, %s skipped of %s" % (s.get("passedTests"), s.get("failedTests"), s.get("skippedTests"), s.get("totalTestCount")))
+' || true
+  xcrun xcresulttool get test-results tests --path "$RESULT" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    t = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+def walk(n):
+    if n.get("nodeType") == "Test Case" and n.get("result") == "Skipped":
+        reason = next((c.get("name", "") for c in n.get("children", []) if c.get("nodeType") == "Failure Message" or "Skip" in c.get("nodeType", "")), "")
+        print("        skipped: %s  %s" % (n.get("name"), reason))
+    for c in n.get("children", []):
+        walk(c)
+for n in t.get("testNodes", []):
+    walk(n)
+' || true
   mkdir -p "$SHOTS/${TYPE##*.}"
   xcrun xcresulttool export attachments --path "$RESULT" --output-path "$SHOTS/${TYPE##*.}" > /dev/null 2>&1 || true
   # Name each picture after its screen (`se-dark-conv-populated.png`) so it sits beside the mockup of
