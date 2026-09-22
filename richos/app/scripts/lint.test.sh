@@ -5,5 +5,11 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 python3 -m unittest discover -s "$DIR/lint" -p 'test_*.py'
-bash "$DIR/lint.sh" --fast
-echo '  PASS  unconditional Tauri fixtures and Rust/shell fast ratchets'
+# `--all`, not `--fast`: the nightly's gates/lint-tauri refuses on the Tauri ceiling in
+# baselines/tauri.json, and this suite is what a land runs (proof-for.sh selects it for every
+# change under richos/app). With `--fast` here, c2bfe118 passed its land and was then refused
+# by the nightly build (let_underscore_must_use 209 > 166, run 20260922T172720Z-a249dfe5).
+# A build must not discover what the land could have. Tauri Clippy costs 49 s cold / 4.6 s
+# warm (measured in 9a5b9354) under the same 180-second cap the gate uses.
+bash "$DIR/lint.sh" --all
+echo '  PASS  unconditional Tauri fixtures and Rust/shell fast and Tauri ratchets'

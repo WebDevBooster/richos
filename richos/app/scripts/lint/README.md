@@ -88,8 +88,11 @@ JavaScript ceiling. It names shell-only rules that do not cover JavaScript.
 ## Build integration
 
 The script runner discovers `lint.test.sh`, which runs the refusal/acceptance
-fixtures and the fast lint. The nightly then invokes `lint.sh --all` with its
-current suite receipt. Tauri Clippy runs every time. A passed fast-suite receipt
+fixtures and `lint.sh --all`: the fast set and Tauri Clippy. That suite is what a
+land runs (`proof-for.sh` selects it for every change under `richos/app`), so the
+land counts the same Tauri ceiling the nightly refuses on; with only the fast set,
+a merge could pass its land and then stop the build. The nightly then invokes
+`lint.sh --all` with its current suite receipt. Tauri Clippy runs every time. A passed fast-suite receipt
 from the same nightly run avoids repeating fast lint. A missing, invalid or
 skipped receipt runs fast lint again before Tauri Clippy. Receipt reuse requires
 the nightly's execution marker; standalone `--all` runs both sets.
