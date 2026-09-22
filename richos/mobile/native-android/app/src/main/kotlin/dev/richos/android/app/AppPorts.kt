@@ -10,9 +10,9 @@ import dev.richos.android.core.OutboxStorage
 import dev.richos.android.core.Ports
 import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
-import dev.richos.android.core.protocol.DeviceKeys
-import dev.richos.android.core.protocol.Http
-import java.io.IOException
+import dev.richos.android.core.FileStore
+import dev.richos.android.platform.HttpsMac
+import dev.richos.android.platform.KeystoreKeys
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -28,7 +28,11 @@ import java.util.UUID
  * Messages go to the paired Mac through the core's own transport over [Http] and [DeviceKeys].
  */
 object AppPorts {
-    fun create(context: Context): Ports {
+    /**
+     * [wire] is the HTTPS connection to the Mac (requests and the event stream); the caller keeps
+     * it to hand the same instance to the connection owner.
+     */
+    fun create(context: Context, wire: HttpsMac = HttpsMac()): Ports {
         val dir = File(context.filesDir, "core")
         val outboxFile = JsonFile(File(dir, "outbox.json"), ListSerializer(OutboxItem.serializer())) { emptyList() }
         val sessionFile = JsonFile(File(dir, "session.json"), Session.serializer()) { Session() }
@@ -46,16 +50,22 @@ object AppPorts {
             transport = null,
             clock = Clock { System.currentTimeMillis() },
             ids = IdSource { "android-" + UUID.randomUUID() },
-            // The wire to the Mac (TLS to the Mac's own authority) and the Android Keystore
-            // identity are the next production ports; until they exist, pairing ends in "fault".
-            http = Http { throw IOException("the connection to the Mac is not built yet") },
-            keys = object : DeviceKeys {
-                override suspend fun publicPoint(origin: String): ByteArray = throw IOException("the Keystore identity is not built yet")
-                override suspend fun sign(origin: String, data: ByteArray): ByteArray = throw IOException("the Keystore identity is not built yet")
-                override suspend fun delete(origin: String) = Unit
-            },
+            http = wire,
+            keys = KeystoreKeys(),
             deviceName = "Android phone",
+            files = StagedFiles(File(context.filesDir, "staged")),
         )
+    }
+}
+
+/**
+ * Recordings and attachments the platform has written, by id, in app-private storage. An id is
+ * a file name inside [dir] and nothing else: a path separator or a dot-dot never leaves it.
+ */
+class StagedFiles(private val dir: File) : FileStore {
+    override suspend fun bytes(id: String): ByteArray? = withContext(Dispatchers.IO) {
+        if (id.isEmpty() || id.contains('/') || id.contains('\\') || id == "." || id == "..") return@withContext null
+        File(dir, id).takeIf { it.isFile }?.readBytes()
     }
 }
 

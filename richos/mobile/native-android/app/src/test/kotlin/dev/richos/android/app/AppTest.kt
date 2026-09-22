@@ -31,6 +31,29 @@ class AppTest {
     }
 
     @Test
+    fun `the production app runs one connection owner, idle until paired`() {
+        compose.waitUntil(5_000) { compose.activity.richStore.states.value != null }
+        val app = ApplicationProvider.getApplicationContext<RichApplication>()
+        compose.waitUntil(5_000) { app.owner != null }
+        assertEquals(false, app.store.states.value?.paired)
+    }
+
+    @Test
+    fun `staged files are read by id and never outside their folder`() {
+        val dir = File(ApplicationProvider.getApplicationContext<RichApplication>().cacheDir, "staged-test").apply { deleteRecursively(); mkdirs() }
+        File(dir, "rec-1").writeBytes(byteArrayOf(7, 8))
+        File(dir.parentFile, "secret").writeText("outside")
+        val files = StagedFiles(dir)
+        runBlocking {
+            assertEquals(listOf<Byte>(7, 8), files.bytes("rec-1")!!.toList())
+            assertEquals(null, files.bytes("../secret"))
+            assertEquals(null, files.bytes(".."))
+            assertEquals(null, files.bytes("missing"))
+        }
+        dir.deleteRecursively()
+    }
+
+    @Test
     fun `the production ports keep the session across a new core`() {
         val context = ApplicationProvider.getApplicationContext<RichApplication>()
         runBlocking {
