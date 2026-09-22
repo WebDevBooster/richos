@@ -99,13 +99,19 @@ wait before its reply so the eight-second switch has an active-work interval to
 observe. Both clients explicitly select the same named conversation. Send attempts count before sending;
 there is no automatic retry and recovery cannot exceed six total attempts. A missing
 reply is a measured failure, not a reason to keep sending diagnostic prompts.
-On a shared host, `--admission-wait-seconds 120` allows a bounded wait for CPU use
-below 80% before each attempt. Each probe uses the second `top` sample, one second
-after the first, with a five-second command timeout. The final probe can extend the
-requested wait by at most five seconds. Actual admission time, measured CPU use and
-informational load average are recorded in each capture receipt. Admission time is
-included in the complete scenario duration. Busy CPU or an unavailable measurement
-refuses admission before consuming a turn or sending a prompt. Load average alone
+On a shared host, `--admission-wait-seconds 120` allows a bounded wait for user CPU
+below 80% before each attempt. Each probe reads the kernel's own counters in process
+(`host_statistics` and `sysctl`, no `top`, `lsof` or other subprocess) twice, one second
+apart. User CPU excludes system time: under memory pressure the compressor and pager
+inflate system time, and that condition is judged by the memory rule instead. The
+memory rule refuses while kernel pressure is CRITICAL or swap-out during the probe is
+at least 16 MB/s; pressure, free percentage and swap in use are reported beside it.
+Probes are at least 30 seconds apart, so a waiting caller never spins, and the final
+probe can extend the requested wait by about one second. Actual admission time, the
+probe count, measured CPU and memory figures and informational load average are
+recorded in each capture receipt. Admission time is included in the complete scenario
+duration. Busy CPU, hard swapping or an unavailable measurement refuses admission
+before consuming a turn or sending a prompt. Load average alone
 neither establishes another active job nor blocks work on an otherwise idle CPU.
 For an explicitly controlled benchmark, `reserve.py --max-load N` retains an opt-in
 legacy load criterion. `reserve.py` alone takes no lock (§77); `run-walk.py`'s guest
