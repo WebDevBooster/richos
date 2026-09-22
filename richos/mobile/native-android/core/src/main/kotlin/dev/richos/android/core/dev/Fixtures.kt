@@ -1,9 +1,14 @@
 package dev.richos.android.core.dev
 
 import dev.richos.android.core.ConversationThread
+import dev.richos.android.core.CoreError
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
+import dev.richos.android.core.Pairing
+import dev.richos.android.core.PairingPhase
+import dev.richos.android.core.Route
 import dev.richos.android.core.Session
+import dev.richos.android.core.protocol.Fingerprint
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -12,9 +17,9 @@ import java.time.format.DateTimeFormatter
 
 // Development-only deterministic world: a fixed clock, a scripted Mac and the outbox, all in
 // one document. The port of `richos/mobile/dev/runtime.js` `fixture()`, with the same five
-// fixture names and the same contents, so a fixture means the same thing on every client.
-// Never reached from the release app: only the CLI and the debug-only bridge
-// (`app/src/debug/`) use this package.
+// fixture names and the same contents, so a fixture means the same thing on every client, plus
+// `unpaired` (a fresh install with the Mac's pairing window open). Never reached from the
+// release app: only the CLI and the debug-only bridge (`app/src/debug/`) use this package.
 
 @Serializable
 enum class TransportMode {
@@ -25,7 +30,7 @@ enum class TransportMode {
 
     companion object {
         fun parse(id: String?): TransportMode =
-            entries.firstOrNull { it.serialName == id } ?: throw dev.richos.android.core.CoreError("Unknown transport mode")
+            entries.firstOrNull { it.serialName == id } ?: throw CoreError("Unknown transport mode")
     }
 }
 
@@ -41,6 +46,23 @@ val TransportMode.serialName: String
 @Serializable
 data class DevReceipt(val clientId: String, val threadId: String, val text: String)
 
+/**
+ * The scripted Mac's own state: its pairing window and the one phone it knows. It verifies real
+ * signatures, so a signing bug fails here exactly as it would against the real Mac.
+ */
+@Serializable
+data class DevMac(
+    val origin: String = Fixtures.ORIGIN,
+    /** The open pairing window's code; null when no window is open. */
+    val code: String? = null,
+    val caFingerprint: String = Fixtures.CA_FINGERPRINT,
+    val challenge: String = Fixtures.CHALLENGE,
+    /** The paired phone's public point, base64url; null when no phone is paired. */
+    val devicePoint: String? = null,
+    val confirmed: Boolean = false,
+    val threads: List<ConversationThread> = Fixtures.THREADS,
+)
+
 @Serializable
 data class DevDoc(
     val version: Int = 1,
@@ -51,21 +73,50 @@ data class DevDoc(
     val items: List<OutboxItem> = emptyList(),
     val receipts: List<DevReceipt> = emptyList(),
     val calls: List<String> = emptyList(),
+    val mac: DevMac = DevMac(),
+    /** Origins the phone holds a key for (the dev key store). */
+    val keys: List<String> = emptyList(),
 )
 
 object Fixtures {
-    val names: List<String> = listOf("offline", "online", "queued", "interrupted", "revoked")
+    val names: List<String> = listOf("offline", "online", "queued", "interrupted", "revoked", "unpaired")
 
     const val EPOCH: Long = 1_700_000_000_000
 
+    // The phone protocol contract's fixture values (richos-hq docs/specs/2026-09-22-phone-protocol-fixtures).
+    const val ORIGIN = "https://mm1.tail1a2b3c.ts.net:8443"
+    const val CODE = "K7M2QX9H"
+    const val PAIR_LINK = "$ORIGIN/#pair=$CODE"
+    const val CA_FINGERPRINT = "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B"
+    const val CHALLENGE = "X4zZvQZS4kl8eriGLhoxvxVwcFz5Tx40"
+    val THREADS = listOf(ConversationThread("general", "General"), ConversationThread("planning", "Planning"))
+
     fun fixture(name: String = "offline"): DevDoc {
-        if (name !in names) throw dev.richos.android.core.CoreError("Unknown fixture: $name")
+        if (name !in names) throw CoreError("Unknown fixture: $name")
+        if (name == "unpaired") {
+            return DevDoc(
+                now = EPOCH,
+                sequence = 0,
+                mode = TransportMode.ACCEPT,
+                session = Session(online = true),
+                mac = DevMac(code = CODE),
+            )
+        }
         val session = Session(
-            threads = listOf(ConversationThread("general", "General"), ConversationThread("planning", "Planning")),
+            threads = THREADS,
             selectedThreadId = "general",
             draft = "",
             online = name != "offline",
             paired = true,
+            pairing = Pairing(
+                phase = PairingPhase.PAIRED,
+                apiBase = ORIGIN,
+                route = Route.TAILNET,
+                deviceId = DevKeys.DEVICE_ID,
+                caFingerprint = CA_FINGERPRINT,
+                words = Fingerprint.words(CA_FINGERPRINT),
+                challenge = CHALLENGE,
+            ),
         )
         val queued = name == "queued" || name == "interrupted"
         val interrupted = name == "interrupted"
@@ -87,6 +138,8 @@ object Fixtures {
                 ),
             ),
             receipts = if (interrupted) listOf(DevReceipt("mobile-1", "general", "Saved before restart")) else emptyList(),
+            mac = DevMac(devicePoint = DevKeys.POINT_B64URL, confirmed = true),
+            keys = listOf(ORIGIN),
         )
     }
 }

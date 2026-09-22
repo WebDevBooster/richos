@@ -19,6 +19,9 @@ class CoreTest {
         val runtime = DevRuntime.create()
         val expected = """{"threads":[{"id":"general","title":"General"},{"id":"planning","title":"Planning"}],""" +
             """"selectedThreadId":"general","draft":"","online":false,"paired":true,"theme":"dark",""" +
+            """"pairing":{"phase":"paired","apiBase":"https://mm1.tail1a2b3c.ts.net:8443","route":"tailnet",""" +
+            """"deviceId":"dev_8d4c57b7ff82","caFingerprint":"31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B",""" +
+            """"words":["cobra","morning","cargo","moose","grape","bonus"],"challenge":"X4zZvQZS4kl8eriGLhoxvxVwcFz5Tx40","problem":null},""" +
             """"outbox":[],"dueInMs":null,"lastSend":null,""" +
             """"environment":{"now":1700000000000,"mode":"accept","receipts":[],"calls":[]}}"""
         assertEquals(expected, runtime.state().toString())

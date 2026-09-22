@@ -59,4 +59,10 @@ class Ports(
     val transport: Transport,
     val clock: Clock,
     val ids: IdSource,
+    /** The wire to the Mac, for pairing and every signed request (`protocol.MacApi`). */
+    val http: dev.richos.android.core.protocol.Http,
+    /** The phone's non-exportable P-256 identity, one key per paired origin. */
+    val keys: dev.richos.android.core.protocol.DeviceKeys,
+    /** What the Mac lists this phone as (contract §2.3: trimmed to 40 characters there). */
+    val deviceName: String = "Android phone",
 )

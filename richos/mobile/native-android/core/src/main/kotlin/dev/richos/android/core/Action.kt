@@ -39,6 +39,18 @@ sealed interface Action {
 
     @Serializable @SerialName("theme")
     data class SetTheme(val theme: Theme) : Action
+
+    /** A scanned or pasted pairing link (contract §2.1): sends the code to the Mac it names. */
+    @Serializable @SerialName("pair")
+    data class Pair(val link: String) : Action
+
+    /** The user's answer to the six words: "They match" (true) or "They do not match" (false). */
+    @Serializable @SerialName("confirm-words")
+    data class ConfirmWords(val match: Boolean) : Action
+
+    /** Forget this pairing on the phone. Refused while unsent work is waiting. */
+    @Serializable @SerialName("forget")
+    data object Forget : Action
 }
 
 @Serializable

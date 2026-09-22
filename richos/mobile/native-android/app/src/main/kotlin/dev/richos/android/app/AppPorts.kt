@@ -13,6 +13,9 @@ import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
 import dev.richos.android.core.Transport
 import dev.richos.android.core.TransportFailure
+import dev.richos.android.core.protocol.DeviceKeys
+import dev.richos.android.core.protocol.Http
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -46,6 +49,15 @@ object AppPorts {
             },
             clock = Clock { System.currentTimeMillis() },
             ids = IdSource { "android-" + UUID.randomUUID() },
+            // The wire to the Mac (TLS to the Mac's own authority) and the Android Keystore
+            // identity are the next production ports; until they exist, pairing ends in "fault".
+            http = Http { throw IOException("the connection to the Mac is not built yet") },
+            keys = object : DeviceKeys {
+                override suspend fun publicPoint(origin: String): ByteArray = throw IOException("the Keystore identity is not built yet")
+                override suspend fun sign(origin: String, data: ByteArray): ByteArray = throw IOException("the Keystore identity is not built yet")
+                override suspend fun delete(origin: String) = Unit
+            },
+            deviceName = "Android phone",
         )
     }
 }
