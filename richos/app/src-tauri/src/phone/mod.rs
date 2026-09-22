@@ -1391,11 +1391,8 @@ impl PhoneRuntime {
     /// live observer, and the alternative — the emitter sending into a channel — would put an
     /// await in the one place §13 says must never block the spine.
     ///
-    /// **SUPPRESSED WHILE AN EVENT STREAM IS OPEN, and that is a deviation with a reason.** Plan
-    /// §3.4 says *"Push: on a completed reply"* without qualification, and it was written before
-    /// anyone had watched a reply arrive on the phone. Pushing a notification about a sentence he
-    /// is at that moment reading appear is noise, and WebKit requires every push to display one —
-    /// so it cannot be made silent. Cheap to revert: delete the `open_streams` check.
+    /// A visible browser acknowledges the completed reply. Background browsers receive push
+    /// even when a proxy still holds their stream open. Older clients retain presence fallback.
     pub fn push_last_reply(&self, thread_id: &str) {
         self.push_native_reply(thread_id);
         // EVERYTHING THE PUSH NEEDS IS TAKEN OUT OF THE LOCK FIRST, and the lock is released by
@@ -1409,10 +1406,9 @@ impl PhoneRuntime {
             let Some(running) = running.as_ref() else { return };
             let Some(device) = running.channel.devices.paired() else { return };
             let Some(subscription) = device.push.clone() else { return };
-            if running.channel.devices.open_streams() > 0 {
-                return;
-            }
             Gathered {
+                devices: Arc::clone(&running.channel.devices),
+                device_id: device.id,
                 subscription,
                 delivered_cursor: device.delivered_cursor,
                 vapid: Arc::clone(&running.vapid),
@@ -1420,7 +1416,7 @@ impl PhoneRuntime {
                 bridge: Arc::clone(&running.bridge),
             }
         };
-        let Gathered { subscription, delivered_cursor, vapid, api_base, bridge } = gathered;
+        let Gathered { devices, device_id, subscription, delivered_cursor, vapid, api_base, bridge } = gathered;
         // Through the trait, deliberately: `push_last_reply` reads exactly what the phone reads,
         // through the same gated door, so a push can never carry something the stream could not.
         let bridge: &dyn routes::Bridge = bridge.as_ref();
@@ -1428,7 +1424,7 @@ impl PhoneRuntime {
         let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
         let rows = rows::rows_from_payload(&payload);
         let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich") else { return };
-        if delivered_cursor >= last["cursor"].as_u64() {
+        if delivered_cursor >= last["cursor"].as_u64() || !push::should_notify(&devices, &device_id, thread_id, last["id"].as_str().unwrap_or("")) {
             // He has already seen it. A push here would be the second time he was told.
             return;
         }
@@ -1497,6 +1493,8 @@ impl PhoneRuntime {
 /// A struct rather than a tuple of five, so the thing that makes the lock's scope a BLOCK is
 /// visible in the type rather than being a convention somebody has to keep.
 struct Gathered {
+    devices: Arc<device::DeviceDesk>,
+    device_id: String,
     subscription: push::Subscription,
     delivered_cursor: Option<u64>,
     vapid: Arc<push::VapidKey>,

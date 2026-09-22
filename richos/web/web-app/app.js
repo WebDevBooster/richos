@@ -485,6 +485,8 @@ function scheduleRender() {
 
 function stickToBottom() { following.resume(); }
 
+const acknowledgeReply=RichOSNotificationTarget.receipts((thread,id)=>api.replySeen(thread,id));
+
 function render(forceBottom) {
 	const list = $('messages');
 	const before=following.capture();
@@ -538,6 +540,7 @@ function render(forceBottom) {
 	}
 
 	following.restore(before,{force:forceBottom});
+    void acknowledgeReply(currentThreadId,rows,!document.hidden && following.following);
     if(notificationTarget?.thread===currentThreadId) {
         const row=[...list.children].find(row=>row.dataset.messageId===notificationTarget.at);
         if(row){following.focus(row);notificationTarget=null;}
@@ -1238,6 +1241,7 @@ document.addEventListener('visibilitychange', () => {
 	// them produced. `wake()` fires the retry that is ALREADY OWED, immediately, because he is
 	// looking at the screen; it opens nothing beside anything.
 	if (link) link.wake(); else connectStream();
+	if (thread) render();
 	flushQueue();
 });
 
@@ -1326,6 +1330,7 @@ async function refreshPushOffer() {
 	if (Notification.permission === 'granted') {
 		const registration = await navigator.serviceWorker.getRegistration();
 		const existing = registration ? await registration.pushManager.getSubscription() : null;
+		if (existing && api) await api.registerPush(existing.toJSON());
 		offer.hidden = Boolean(existing) || notificationsDeclined;
 		return;
 	}

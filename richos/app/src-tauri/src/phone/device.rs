@@ -119,6 +119,12 @@ pub struct Device {
     /// The last cursor the phone said it had durably seen. Advisory: it stops a push repeating
     /// something already read, and it never decides what the ledger holds.
     pub delivered_cursor: Option<u64>,
+    /// Modern browsers acknowledge completed replies actually rendered in the foreground.
+    /// An open proxied stream alone cannot establish that somebody is reading it.
+    #[serde(default)]
+    pub reply_receipts: bool,
+    #[serde(default)]
+    pub seen_replies: Vec<(String, String)>,
     /// **`push_transport` from day one**, per plan §5's list of what native reuses: *"a device
     /// record that has a `push_transport` field from day one so APNs and FCM slot in beside
     /// Web Push rather than replacing it"*. Native registration records `"apns"`.
@@ -601,6 +607,8 @@ impl DeviceDesk {
             paired_at: now,
             push: None,
             delivered_cursor: None,
+            reply_receipts: false,
+            seen_replies: Vec::new(),
             push_transport: web_push(),
             paired_via: via.to_string(),
             platform: platform.to_string(),
@@ -747,6 +755,22 @@ impl DeviceDesk {
         if let Some(device) = state.device.as_mut() {
             device.push = sub;
             device.push_transport = web_push();
+            self.write(&state)?;
+        }
+        Ok(())
+    }
+
+    pub fn record_reply_receipt(&self, seen: Option<(&str, &str)>) -> Result<(), PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(device) = state.device.as_mut() {
+            device.reply_receipts = true;
+            if let Some((thread, id)) = seen {
+                let key = (thread.to_owned(), id.to_owned());
+                if !device.seen_replies.contains(&key) {
+                    device.seen_replies.push(key);
+                    if device.seen_replies.len() > 64 { device.seen_replies.remove(0); }
+                }
+            }
             self.write(&state)?;
         }
         Ok(())

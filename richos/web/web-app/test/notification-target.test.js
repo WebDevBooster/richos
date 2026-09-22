@@ -22,3 +22,17 @@ test('a live reply arriving during history lookup is found even if absent from t
  const found=await find({model,matches:row=>row.id==='wanted',fetchPage:async()=>{model.merge({id:'wanted',cursor:10});return {messages:[],more:false};}});
  assert.equal(found.id,'wanted');
 });
+
+test('only visible completed replies are acknowledged, once per thread and message',async()=>{
+ const sent=[];const observe=require('../lib/notification-target.js').receipts(async(t,id)=>sent.push([t,id]));
+ const rows=[{id:'r',role:'rich',complete:false}];
+ await observe('a',rows,true);rows[0].complete=true;await observe('a',rows,false);assert.deepEqual(sent,[]);
+ await observe('a',rows,true);await observe('a',rows,true);await observe('b',rows,true);
+ assert.deepEqual(sent,[['a','r'],['b','r']]);
+});
+test('a failed receipt can retry and simultaneous renders do not duplicate the request',async()=>{
+ let calls=0,release;const observe=require('../lib/notification-target.js').receipts(async()=>{calls++;if(calls===1)throw Error('offline');await new Promise(r=>release=r);});
+ const rows=[{id:'r',role:'rich'}];await observe('a',rows,true);
+ const pending=observe('a',rows,true);await observe('a',rows,true);assert.equal(calls,2);release();await pending;
+ await observe('a',rows,true);assert.equal(calls,2);
+});

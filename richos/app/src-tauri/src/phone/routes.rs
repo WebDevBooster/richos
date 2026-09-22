@@ -312,16 +312,30 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
     }
 
     if let Some(push) = body.get("push") {
-        let Ok(subscription) = serde_json::from_value::<Subscription>(push.clone()) else {
+        let Ok(subscription) = serde_json::from_value::<Option<Subscription>>(push.clone()) else {
             return Outcome::NotFound;
         };
-        if !subscription.is_supported() {
+        if subscription.as_ref().is_some_and(|s| !s.is_supported()) {
             // Plan §2.6 at the edge: what cannot be stored can never be dialed.
             eprintln!("[richos] an unsupported web push subscription was refused at the edge");
             return Outcome::NotFound;
         }
-        if let Err(e) = channel.devices.set_push(Some(subscription)) {
+        if let Err(e) = channel.devices.set_push(subscription) {
             eprintln!("[richos] could not record the push subscription: {e}");
+            return Outcome::NotFound;
+        }
+    }
+    if body.get("reply_receipts").and_then(Value::as_bool) == Some(true) || body.get("seen_reply").is_some() {
+        let seen = match body.get("seen_reply") {
+            None => None,
+            Some(value) => {
+                let Some(thread) = value.get("thread").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 256) else { return Outcome::NotFound };
+                let Some(id) = value.get("id").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 256) else { return Outcome::NotFound };
+                Some((thread, id))
+            }
+        };
+        if let Err(error) = channel.devices.record_reply_receipt(seen) {
+            eprintln!("[richos] could not record the phone reply receipt: {error}");
             return Outcome::NotFound;
         }
     }
@@ -980,6 +994,42 @@ mod tests {
             content_type: None,
             body: Vec::new(),
         }
+    }
+
+
+    #[test]
+    fn reply_receipts_are_authenticated_scoped_and_survive_restart() {
+        let f=fixture("reply-receipts");
+        let body=r#"{"seen_reply":{"thread":"thread-a","id":"reply-a"}}"#;
+        let mut request=signed(&f,"POST","/api/pair","",body);
+        request.authorization=None;
+        assert!(matches!(dispatch(&f.channel,&request),Outcome::NotFound));
+        assert!(!f.channel.devices.paired().unwrap().reply_receipts);
+        assert!(matches!(dispatch(&f.channel,&signed(&f,"POST","/api/pair","",body)),Outcome::Json{status:200,..}));
+        let reopened=DeviceDesk::open(&f.dir.0).unwrap().paired().unwrap();
+        assert!(reopened.reply_receipts);
+        assert_eq!(reopened.seen_replies,vec![("thread-a".into(),"reply-a".into())]);
+        let bad=r#"{"seen_reply":{"thread":"","id":"reply-a"}}"#;
+        assert!(matches!(dispatch(&f.channel,&signed(&f,"POST","/api/pair","",bad)),Outcome::NotFound));
+    }
+
+    #[test]
+    fn web_push_disable_clears_the_stored_subscription_and_receipts_bound_presence() {
+        let f=fixture("push-disable");
+        let body=r#"{"push":{"endpoint":"https://fcm.googleapis.com/test","keys":{"p256dh":"public","auth":"secret"}},"reply_receipts":true}"#;
+        assert!(matches!(dispatch(&f.channel,&signed(&f,"POST","/api/pair","",body)),Outcome::Json{status:200,..}));
+        let slot=f.channel.devices.claim_stream().unwrap();
+        // A stale connection cannot suppress a reply this browser has not acknowledged.
+        assert!(super::super::push::should_notify(&f.channel.devices,&f.device_id,"a","r"));
+        f.channel.devices.record_reply_receipt(Some(("a","r"))).unwrap();
+        assert!(!super::super::push::should_notify(&f.channel.devices,&f.device_id,"a","r"));
+        assert!(super::super::push::should_notify(&f.channel.devices,&f.device_id,"b","r"));
+        for n in 0..70 {f.channel.devices.record_reply_receipt(Some(("a",&format!("r{n}")))).unwrap();}
+        assert_eq!(f.channel.devices.paired().unwrap().seen_replies.len(),64);
+        assert!(matches!(dispatch(&f.channel,&signed(&f,"POST","/api/pair","",r#"{"push":null}"#)),Outcome::Json{status:200,..}));
+        assert!(f.channel.devices.paired().unwrap().push.is_none());
+        assert!(!super::super::push::should_notify(&f.channel.devices,&f.device_id,"a","new"));
+        drop(slot);
     }
 
     // --- the positive control, first ------------------------------------------------------

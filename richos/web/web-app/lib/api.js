@@ -556,10 +556,13 @@
 				return json('POST', '/api/pair', {native_push:registration});
 			},
 
+            async replySeen(thread, id) {
+                return json('POST', '/api/pair', { seen_reply: { thread, id } });
+            },
 			async registerPush(subscription) {
 				return json('POST', '/api/pair', {
 					device_id: state.deviceId,
-					push_transport: 'web-push',
+					push_transport: 'web-push', reply_receipts: true,
 					push: subscription
 				});
 			},

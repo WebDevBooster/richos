@@ -104,11 +104,11 @@ impl Bridge for IsolatedBridge {
                     .poll_intake()
                     .expect("isolated phone intake drain");
                 if let Some(device)=devices.paired() {
-                    if let Some(subscription)=device.push.as_ref().filter(|_| devices.open_streams()==0) {
+                    if let Some(subscription)=device.push.as_ref() {
                         let payload=crate::timeline_view::timeline_payload(&*spine.lock().unwrap(),&reply_thread).unwrap();
                         let rows=phone::rows::rows_from_payload(&payload);
                         if let Some(last)=rows.iter().rev().find(|row|row["role"]=="rich") {
-                            if device.delivered_cursor < last["cursor"].as_u64() {
+                            if device.delivered_cursor < last["cursor"].as_u64() && phone::push::should_notify(&devices,&device.id,&reply_thread,last["id"].as_str().unwrap_or("")) {
                                 // Use the production encryption, VAPID and vendor validation against the real phone subscription.
                                 let body=json!({"notification":{"title":"Rich","body":last["text"],
                                     "navigate":format!("/#thread={}&at={}",reply_thread,last["id"].as_str().unwrap())},
