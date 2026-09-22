@@ -4,9 +4,8 @@ import RichOSCore
 /// The app entry. It loads the store, starts the Debug development bridge, and hands the store to
 /// the root view.
 ///
-/// COMPOSITION SEAM: `PlaceholderRootView` stands in until the screens stream (I2) delivers its
-/// root view under `App/Features/`. Swapping it is the one line marked below; per build plan §5.0
-/// the I2 handoff names the line and I1 applies it.
+/// COMPOSITION SEAM: the screens stream's (I2) `RootView` (`App/Features/Root/`) takes the state and
+/// a send function, never the store type, so the screens depend only on the core.
 @main
 struct RichOSNativeApp: App {
     @State private var store: AppStore?
@@ -15,7 +14,7 @@ struct RichOSNativeApp: App {
         WindowGroup {
             Group {
                 if let store {
-                    PlaceholderRootView(store: store)  // ← the composition seam
+                    RootView(state: store.state, send: { store.send($0) })  // ← the composition seam
                 } else {
                     // Loading the saved state takes milliseconds; nothing is announced meanwhile.
                     Color.clear

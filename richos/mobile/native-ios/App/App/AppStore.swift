@@ -71,6 +71,17 @@ final class AppStore {
         return perform([.persist], snapshot: newState)
     }
 
+    #if DEBUG
+    /// Development only (the Debug bridge's `fixture` and `reset`): an explicit replacement is the
+    /// one thing allowed to write over a stored state this build could not read.
+    @discardableResult
+    func replaceOverwritingUnreadable(_ newState: AppState) -> Task<Void, Never> {
+        storageIsReadOnly = false
+        persistenceProblem = nil
+        return replace(newState)
+    }
+    #endif
+
     /// Waits until every write issued so far has finished.
     func settle() async {
         await lastWrite?.value
