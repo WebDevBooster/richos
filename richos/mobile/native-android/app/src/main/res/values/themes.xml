@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The window behind the first Compose frame. Not a layout: Compose draws everything. The
+     background is the dark ground (#0C1322, design/system/tokens.css §14), because dark is what
+     a new install opens in (ceo-decisions §15), so launch never flashes white. -->
+<resources>
+    <style name="Theme.RichOS" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/launch_ground</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <color name="launch_ground">#FF0C1322</color>
+</resources>

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Owned by stream A1 (build plan §5.0; A3's platform features taken over by A1 while A3 is
+     held). No debug-only component is declared here:
+     the development bridge lives in app/src/debug/AndroidManifest.xml. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The Mac is reached over HTTPS. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice notes (round-12 groups 4-6); asked once, on the first deliberate press. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The tick when a recording locks. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Rich's replies as notifications (Android 13+ asks; FCM data messages). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".app.RichApplication"
+        android:allowBackup="false"
+        android:label="RichOS"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.RichOS">
+        <activity
+            android:name=".app.MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Share to Rich (CEO §75): photos, documents and words from any app. The types are the
+             ones the Mac takes (Echo 22e59ed8); images are sent as JPEG. No window of its own. -->
+        <activity
+            android:name=".platform.ShareActivity"
+            android:exported="true"
+            android:label="Rich"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".platform.RichMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>
