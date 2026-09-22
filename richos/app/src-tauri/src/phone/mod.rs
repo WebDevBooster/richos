@@ -53,6 +53,7 @@ pub mod secrets;
 pub mod stream;
 pub mod tailnet;
 pub mod voice;
+pub mod voice_notes;
 pub mod notifications;
 
 use std::fmt;

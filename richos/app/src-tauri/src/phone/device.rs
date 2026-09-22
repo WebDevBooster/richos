@@ -372,6 +372,8 @@ pub struct DeviceDesk {
     /// Photos and files the phone uploaded, staged until their message commits
     /// ([`super::attachments`]). Opening it does no I/O.
     pub attachments: super::attachments::AttachmentDesk,
+    /// How long each accepted phone voice note was ([`super::voice_notes`]). No I/O at open.
+    pub voice_notes: super::voice_notes::VoiceNoteDesk,
 }
 
 struct State {
@@ -490,6 +492,7 @@ impl DeviceDesk {
         Ok(DeviceDesk {
             deliveries: super::delivery::DeliveryDesk::open(dir)?,
             attachments: super::attachments::AttachmentDesk::open(dir),
+            voice_notes: super::voice_notes::VoiceNoteDesk::open(dir),
             path,
             state: Mutex::new(State {
                 device,

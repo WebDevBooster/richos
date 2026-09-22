@@ -107,6 +107,13 @@ pub trait Bridge: Send + Sync {
     fn transcribe(&self, _bytes: &[u8]) -> Result<String, String> { Err("Speech recognition is unavailable".into()) }
     fn reply_audio(&self, _thread: Option<&str>, _id: &str) -> Result<Vec<u8>, String> { Err("Audio playback is unavailable".into()) }
 
+    /// **The turn an accepted message became, by the id `submit_text` answered with — an id and
+    /// nothing else.** The one narrow reach past the gated payload, and deliberately so: it
+    /// carries no text, no event and no row, only the name of a turn whose CEO row the phone
+    /// already receives through the gate. Used to join a voice note's length to its row
+    /// ([`super::voice_notes`]). `None` when the turn does not exist yet or cannot be read now.
+    fn turn_for_intake(&self, _message_id: &str) -> Option<String> { None }
+
     /// Write the CEO's words to the durable intake log, `fsync`, and hand them to the spine.
     /// Returns as soon as the bytes are on disk — never after the turn.
     fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String>;
@@ -606,7 +613,10 @@ fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
     let Some(client) = query_value(&request.query,"client_id").and_then(|v| percent_decode_component(v).ok()) else { return Outcome::NotFound };
     let Some(thread) = query_value(&request.query,"thread_id").and_then(|v| percent_decode_component(v).ok()) else { return Outcome::NotFound };
     if client.is_empty() || client.len()>128 || !channel.bridge.threads().iter().any(|(id,_)| *id == thread) { return Outcome::NotFound; }
-    if let Err(message) = super::voice::validate(&request.body) { return refuse(422,&message); }
+    let duration_ms = match super::voice::validate(&request.body) {
+        Ok(samples) => super::voice_notes::duration_ms(samples.len()),
+        Err(message) => return refuse(422,&message),
+    };
     let Some(device) = channel.devices.paired() else { return Outcome::NotFound };
     // Bind the receipt to both the destination and the audio. Changing threads must not
     // turn an old message ID into authority to submit a second turn.
@@ -615,8 +625,14 @@ fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
         // Revocation while recognition was running must prevent a new command.
         if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
         let accepted = channel.bridge.submit_text(Some(&thread),&text)?;
+        // The length is decoration on an accepted message: failing to remember it is logged,
+        // never a reason to answer a message the Mac has already taken as anything but taken.
+        if let Err(error) = channel.devices.voice_notes.record(&accepted.message_id,&accepted.thread_id,duration_ms) {
+            eprintln!("[richos] a voice note's length could not be saved: {error}");
+        }
         Ok(json!({"message_id":accepted.message_id,"cursor":channel.hub.next_cursor(),"thread_id":accepted.thread_id,
-            "accepted_at":super::rows::iso8601(accepted.at),"text_sha256":super::hex(&super::sha256(text.as_bytes())),"duplicate":false}).to_string())
+            "accepted_at":super::rows::iso8601(accepted.at),"text_sha256":super::hex(&super::sha256(text.as_bytes())),
+            "duration_ms":duration_ms,"duplicate":false}).to_string())
     });
     use super::delivery::Delivery;
     match delivery {
@@ -769,10 +785,11 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
         // the other place the projection is counted, and it lands after every reply rather than
         // only on a reconnection.
         channel.hub.seed_cursor(all.len() as u64);
-        let earlier: Vec<Value> =
+        let mut earlier: Vec<Value> =
             all.iter().filter(|r| r["cursor"].as_u64().unwrap_or(0) < before).cloned().collect();
         let start = earlier.len().saturating_sub(limit);
         let more = start > 0;
+        annotate_voice_notes(channel, &mut earlier[start..]);
         return Outcome::Json {
             status: 200,
             body: json!({ "messages": earlier[start..], "more": more }).to_string(),
@@ -800,13 +817,20 @@ fn events(channel: &Channel, request: &Incoming) -> Outcome {
     Outcome::Stream { opening, since }
 }
 
+/// `duration_ms` on the CEO rows that were phone voice notes, joined exactly through
+/// [`Bridge::turn_for_intake`] — see [`super::voice_notes`] for why the live frame does not carry it.
+fn annotate_voice_notes(channel: &Channel, rows: &mut [Value]) {
+    channel.devices.voice_notes.annotate(rows, &|intake| channel.bridge.turn_for_intake(intake));
+}
+
 /// The `hello` the phone opens on: the challenge, the API base, the thread list and everything
 /// that is already true. Built from the gated projection and nothing else.
 fn hello_frame(channel: &Channel, thread_id: &str) -> Result<Frame, ()> {
     let payload = channel.bridge.snapshot(Some(thread_id)).map_err(|e| {
         eprintln!("[richos] the phone channel could not read the thread: {e}");
     })?;
-    let rows = rows_from_payload(&payload);
+    let mut rows = rows_from_payload(&payload);
+    annotate_voice_notes(channel, &mut rows);
     // Seed the live cursor from the projection, so a live row continues the conversation's own
     // numbering rather than starting a second sequence.
     channel.hub.seed_cursor(rows.len() as u64);
@@ -2132,6 +2156,74 @@ mod tests {
             assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body)).status(), 200);
             assert_eq!(f.channel.devices.paired().unwrap().push_transport, recorded, "{sent}");
         }
+    }
+
+    // --- how long a voice note was ---------------------------------------------------------------
+
+    /// A bridge whose projection holds the turn a voice note became (`t9:user`), a typed turn
+    /// (`t8:user`) and a desktop voice-mode turn (`t7:user`, source `jam`), and whose ledger links
+    /// `intake_42` to `t9` only once `drained` is set — the order the real drain produces.
+    struct VoiceHistory { drained: Mutex<bool> }
+    impl Bridge for VoiceHistory {
+        fn voice_available(&self) -> bool { true }
+        fn transcribe(&self, bytes: &[u8]) -> Result<String, String> { super::super::voice::validate(bytes)?; Ok("A spoken request".into()) }
+        fn submit_text(&self, thread_id: Option<&str>, _text: &str) -> Result<Accepted, String> {
+            Ok(Accepted { message_id: "intake_42".into(), thread_id: thread_id.unwrap_or("thr_5c1e").into(), at: 1_758_200_000_000 })
+        }
+        fn turn_for_intake(&self, message_id: &str) -> Option<String> {
+            (*self.drained.lock().unwrap() && message_id == "intake_42").then(|| "t9".to_string())
+        }
+        fn snapshot(&self, _thread_id: Option<&str>) -> Result<Value, String> {
+            let item = |id: &str, source: &str, text: &str, at: u64| json!({"kind":"user_message","id":id,"threadId":"thr_5c1e","turnId":"t",
+                "createdAt":at,"text":text,"source":source,"slot":"opening","visibility":"ceo","entityId":"femcboost","bindingRevision":1});
+            Ok(json!({"items":[item("t7:user","jam","said at the desk",1),item("t8:user","text","typed",2),item("t9:user","text","A spoken request",3)]}))
+        }
+        fn current_thread(&self) -> Option<(String, String)> { Some(("thr_5c1e".into(), "the proposal".into())) }
+        fn threads(&self) -> Vec<(String, String)> { vec![("thr_5c1e".into(), "the proposal".into())] }
+    }
+
+    #[test]
+    fn a_voice_notes_length_is_in_its_answer_and_on_its_own_row_in_hello_and_backfill() {
+        let mut f = fixture("voice-duration");
+        let bridge = Arc::new(VoiceHistory { drained: Mutex::new(false) });
+        f.channel.bridge = bridge.clone();
+        // 8.25 s of 16 kHz mono: 132,000 samples -> 132,000 x 1000 / 16,000 = 8,250 ms.
+        let wav = richos_voice::wav::encode_pcm16_mono(&vec![0.1; 132_000], 16000);
+        let query = "client_id=spoken-9&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=8";
+        let mut request = signed(&f, "POST", "/api/messages", query, &wav);
+        request.content_type = Some("audio/wav".into());
+        let (status, answer) = json_of(dispatch(&f.channel, &request));
+        assert_eq!((status, answer["duration_ms"].as_u64()), (200, Some(8_250)), "{answer}");
+        // A retry answers from the receipt, length included.
+        assert_eq!(json_of(dispatch(&f.channel, &request)).1["duration_ms"], 8_250);
+
+        let hello_rows = |f: &Fixture| match dispatch(&f.channel, &signed_stream(f, "thread_id=thr_5c1e")) {
+            Outcome::Stream { opening, .. } => {
+                let data: Value = serde_json::from_str(opening[0].split("data: ").nth(1).unwrap().trim_end()).unwrap();
+                data["messages"].as_array().unwrap().clone()
+            }
+            other => panic!("{other:?}"),
+        };
+        // Before the drain there is no turn to join to, and nothing is guessed.
+        assert!(hello_rows(&f).iter().all(|r| r.get("duration_ms").is_none()));
+        *bridge.drained.lock().unwrap() = true;
+        let rows = hello_rows(&f);
+        assert_eq!(rows[2]["id"], "t9:user");
+        assert_eq!(rows[2]["duration_ms"], 8_250);
+        assert_eq!(rows[2]["kind"], "text", "a voice note's row keeps the kind the preserved clients know");
+        assert!(rows[0].get("duration_ms").is_none(), "a desktop voice-mode turn has no recording length");
+        assert!(rows[1].get("duration_ms").is_none(), "a typed message got a length");
+
+        // The backfill says the same, and so does a Mac that restarted in between.
+        restart(&mut f);
+        let path = "/api/events?thread_id=thr_5c1e&before=100&limit=10";
+        let message = signing_string(&f.challenge, "GET", path, b"");
+        let auth = format!("RichOS-Device {}.{}.{}", f.device_id, f.challenge, super::super::b64url(&f.phone.sign(&message))).replace(' ', "%20");
+        let (status, page) = json_of(dispatch(&f.channel, &Incoming { method: "GET".into(), path: "/api/events".into(),
+            query: format!("thread_id=thr_5c1e&before=100&limit=10&auth={auth}"), authorization: None, last_event_id: None, content_type: None, body: Vec::new() }));
+        assert_eq!(status, 200);
+        let durations: Vec<Option<u64>> = page["messages"].as_array().unwrap().iter().map(|r| r["duration_ms"].as_u64()).collect();
+        assert_eq!(durations, [None, None, Some(8_250)]);
     }
 
     // --- the trust endpoint: REMOVED, CEO §61 -------------------------------------------------
