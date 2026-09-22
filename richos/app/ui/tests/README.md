@@ -369,6 +369,73 @@ green. It measured byte-identical across all five runs on 2026-09-19, so it is n
 and if it ever drifts again it will be written, announced, and land in `git status` as the one
 thing a reference is for.
 
+## When a page load fails: the navigation evidence bundle
+
+On 2026-09-21 one release run failed `contrast.js` on a single `page.goto: Timeout 30000ms
+exceeded.` at `entity-view/dark` — a `file://` load that normally takes under a tenth of a
+second. The isolated rerun passed, and the failed run had left nothing behind but Playwright's
+two-line call log, so the cause is still unknown. **If it happens again, the run now writes down
+what the page was doing.** The rule it follows is the one the record set: capture the failing
+state; never retry, quarantine or widen a deadline.
+
+**Every suite gets it without doing anything.** `loadPlaywright()` installs
+`lib/navigation-evidence.js` on the browser type, so every page any suite opens has an observed
+`goto` and `reload`. The deadline is the one the suite asked for (its own `timeout`, or the
+page's default), the arguments pass through untouched, and the original error is rethrown
+unchanged, so the FAIL line is the same one a suite printed before. A navigation that succeeds
+writes nothing and prints nothing.
+
+**Where the bundle lands:**
+
+| How the suites were started | Bundle directory |
+|---|---|
+| The nightly's UI gate, or anything passing `--receipts=<dir>` | `<dir>/navigation/` — beside the receipts, the directory the gate names when it refuses a build (`~/.richos-nightly/ui-receipts/navigation/` by default). Emptied at the start of each `--shards` run, like the receipts. |
+| `npm test`, `node run.js`, `node run.js --shards=N` without receipts, or one suite by hand | `.shots/navigation-failures/` in this directory (gitignored) |
+| `RICHOS_UI_NAV_EVIDENCE_DIR=<dir>` set | `<dir>`, always |
+
+The run's output names every bundle as it is written, on the failing suite's stderr, before
+that suite's PASS/FAIL report. Its shape, with illustrative values:
+
+```
+  navigation evidence: <dir>/contrast-12345-1.json
+        goto file:///…/ui/index.html failed after 30001.2 ms; reached request, response, commit, domcontentloaded; not reached load; 1 request(s) in flight
+```
+
+**How to read one.** `<suite>-<pid>-<n>.json`, plus `<suite>-<pid>-<n>.png` when the page could
+still paint. In the order to read them:
+
+- `check` and `page.context` — which check it was (the surface) and the `colorScheme` the page
+  was opened with (the theme). `dom.dataTheme` / `dom.storedTheme` are the page's own view, when
+  it could still answer.
+- `elapsedMs` against `options` — when the navigation gave up, against the deadline it was
+  given. `error` is Playwright's own message, verbatim.
+- `reached` and `lifecycle` — which of request, response, commit, `domcontentloaded` and `load`
+  happened, each with its time in ms from the start of the call. Anything marked
+  `afterFailure: true` arrived while the evidence was being collected: a `load` there means the
+  page was slow, not stuck.
+- `requests.inFlight` and `requests.failed` — what the load was still waiting for, with status
+  where a response came back. For a `file://` load, `dom.referenced` and `dom.resources` say
+  the same thing from inside the page.
+- `console` and `pageErrors` — errors and warnings during the navigation.
+- `dom.unavailable` or `screenshot.unavailable` — the page could not answer an evaluate or
+  paint within its bound (2 s and 3 s). Both together mean the page's own main thread was busy
+  or wedged, which is a finding in itself.
+- `process` and `host` — how many navigations this suite had made, the last ten passing ones
+  and their durations, and the machine around the failure: load average, the CPU-busy sample
+  `scripts/testvm/reserve.py` admits heavy work on, and the ten busiest processes.
+- `commit` — the checkout the suite ran from.
+
+**What it costs.** On a passing run, a few event listeners for the length of each navigation:
+`node lib/navigation-bench.js 100`, run twice on 2026-09-22, measured the median load of
+`index.html` at +0.711 ms and +0.336 ms with the capture (about 38 ms either way), and the p95
+difference at -3.434 ms and +4.588 ms — noise. `navigation-evidence.js` check 6 prints the same
+comparison on every run. On a failure, about two seconds of collection after the navigation has already failed (most
+of it the one-second CPU sample), and up to about eight for a page too busy to answer — bounded,
+so a wedged page cannot turn it into a second hang — and at most five bundles per suite
+process. `navigation-evidence.js` proves all of this against a local server that never
+answers, including that a failing suite stays red. `RICHOS_UI_NAV_EVIDENCE=off` removes the
+instrumentation entirely, for measuring it.
+
 ## What is here
 
 | File | What it proves |
@@ -392,6 +459,7 @@ thing a reference is for.
 | `lib/state-registry.js` | The classification, one row per state, each with its reasoning. Annotation only — the inventory above is the authority. |
 | `lib/harness.js` | WebKit launch, the fixture page, pixel-verified screenshots, the four-line runner, and the shutter's own stated conditions — settled animations, pinned loops, a parked pointer, a caught-up work chip and a pinned wall clock. |
 | `lib/shot-stability.js` | WHICH committed shots may differ from run to run, by how much, and why — one file at a time, each with its cause, its measurement and its bound. Self-tests at require time: every declared file must exist, every entry must carry a bound and a reason, and the arithmetic is probed symmetrically so a bound that held everything would fail here. |
+| `lib/navigation-evidence.js` | On a `page.goto` or `page.reload` that fails, writes the evidence bundle described in "When a page load fails" above, then rethrows the original error. Installed on every page by `loadPlaywright()`; changes no deadline and no result. |
 | `lib/fixtures.js` | Timeline payloads in the exact shape `get_timeline` puts on the wire. |
 | `steering.js` | §25 "Steering and stop", criterion by criterion, through the real shell. The `You stopped after {duration}` row from the real wire bytes, the crash that is never attributed to the CEO, a stop that reached nothing saying so, and the stop control at §20's three widths. |
 | `second-mouth.js` | A MESSAGE HE DID NOT TYPE HERE — Ray's candidate .13 defect R3. This window drew the CEO's own sentence itself, optimistically, and therefore never needed to be told what he said; his phone is a second mouth and made that assumption false, so a message typed there took **5.68 s** to reach the Mac (measured twice) and arrived in the same frame as Rich's finished answer, against 0.096 s the other way. The window is handed the exact event sequence `spine.rs` emits for a phone message — `turn-status: queued`, `rich://ceo-message`, the sidebar row — with NO composer interaction, and his sentence has to be on screen before Rich has written a word. The negative control withholds `rich://ceo-message` and nothing else, which is `a2cef8ee` exactly: the status events arrive, the rail moves, the thread stays blank. Plus the two things a new listener can break — his own typing still renders exactly ONE bubble through the optimistic path, the event and the reload, and an event fenced to another company never reaches this screen. |
@@ -439,6 +507,7 @@ thing a reference is for.
 | `settings-fit.js` | THE SETTINGS PANEL AT 1024x700, the app's own minimum and the size it restores itself to — candidate-.4 defect 3, where the panel measured 738pt in a 700pt window, did not scroll, and put **"Bust a bug!"** below the edge. CEO ruling §15 puts that button on every screen, and a button below the fold is not on the screen. THE WINDOW SIZE IS THE SUBJECT: `appearance.js` opens every page at 1400x950 and `ticker-wrap.js` at 1400x880, so neither could ever see it — three of that walk's defects are the same shape, something measured at a comfortable size and shipped to a smaller one. The panel's height depends on state (9 rows are 523px; Ray's 738px is the same panel with the Updates block opened on an error), so the negative control GROWS it to his measured height and strips the bound, reproducing his geometry rather than describing it: 104px below the edge, the button ending at y=797 in a 700px window. The positive control clamps the same panel to 616px, scrolls 122px, and reads the button back inside the window. A fourth check re-runs it at 1024x520 so a `max-height` in px could not pass. |
 | `ticker-wrap.js` | THE TEMPORARY LINE'S WRAP — candidate-.2 defect #9, where "→ 1 new memory" split with "memory" alone on the second line, and candidate-.4 defect 2, where the fix for it was still not on screen. Asserts the RENDERED FRAME and never the declaration: the repair is one CSS property, a hint, and a check reading `getComputedStyle(...).textWrapStyle` would pass on an engine that parsed the value and did nothing with it. **AND IT MEASURES THE FRAME THE OTHER ENGINE WOULD DRAW**, which is what the first version was missing: Playwright ships WebKit 26.5, Tauri renders through the system WebKit (18.6 on the CEO's Mac), and `text-wrap: pretty` is honored by the first and not the second — so this suite was green while two of four lines orphaned on his screen. It now forces each value the property can resolve to, one at a time, with `auto` as a negative control that must still orphan (394/52px and 397/61px, Ray's two lines). The shipped value is `text-wrap: balance`, which both engines have. Line boxes come from `Range.getClientRects()` grouped by top edge, and the words on the last line are counted rather than guessed from widths. The strings are not the file's: the audit's own sentence copied out of frame 33, including the `<i>` the engine wraps the domain label in, plus 24 distinct lines `__loro.ingest()` actually wrote, captured and replayed so each can be measured without racing its 2,600ms life. Two of those 24 orphaned against the unfixed stylesheet, so the reported frame was not a one-off. The first check is a negative control: the audit's sentence must still WRAP here, or everything under it passes on a sentence that happens to fit. |
 | `chrome-align.js` | THE SETTINGS BUTTON AND THE TWO COMPOSER BUTTONS LINE UP — CEO, 2026-09-19: *"the settings button needs to be properly centered vertically and the right padding for that button needs to be reduced to 15px. And the 2 buttons at the bottom need to be either vertically center aligned relative to the text input or have the same height as the text input because otherwise it looks weird."* Measured on `f918f185`, at 1024x700 and 1400x950 alike: the button's center 12px below the header's with six pixels of its box hanging through the header's bottom border, 18px of right padding, and the two controls 6px shorter than the field and 3px below its center. Asserts HIS SENTENCE and not this tree's answer to it — a control passes if its center matches the field's OR its height does, so a later redesign that centers them instead is still green. The negative control comes first and reproduces the shipped geometry exactly (12 / 18 / -6 / +3) rather than describing it; the composer is driven through idle, working with stop and send both up, stopping, voice mode, a grown field and 120% text size, each through the shipping path. Red on `f918f185` at 11 of 13, green here at 13. |
+| `navigation-evidence.js` | THE HARNESS'S OWN NAVIGATION CAPTURE, proven against a local server that never answers, after the unexplained 30-second `page.goto` timeout of 2026-09-21. The capture is installed on every page and silent on success; a load stalled on one image stays RED with Playwright's message unchanged, fails at its own 1500 ms deadline, and leaves a bundle showing `domcontentloaded` reached, `load` not, and the image in flight; with no timeout passed the page's own default decides; a page whose script never yields cannot hang the collection; `RICHOS_UI_NAV_EVIDENCE=off` removes it; and its cost on a passing load is printed against the same page without it (`lib/navigation-bench.js`). The failing runs happen in `fixtures/navigation-hang-suite.js`, a child process with its own evidence directory and no ledger. |
 
 ## Four rules, each one a thing an earlier slice got wrong
 **This table is checked, not maintained by memory.** `docs-claims.js` fails if a suite

@@ -1,0 +1,142 @@
+package dev.richos.android.ui
+
+import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import dev.richos.android.core.Action
+import dev.richos.android.core.Theme
+import dev.richos.android.core.protocol.Row
+import dev.richos.android.ui.catalog.ScreenCatalog
+import dev.richos.android.ui.model.ScreenModel
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * The screens driven by touch, headless: a tap reaches core as the same [Action] the command line
+ * sends, and the conversation follows the newest message unless the reader scrolls up — with
+ * sending always resuming it (PRD §5; adoption ledger §2.8, T3's design plus RichOS's send rule).
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [35], application = Application::class, qualifiers = "w360dp-h640dp-xhdpi")
+class InteractionTest {
+    @get:Rule
+    val compose = createComposeRule()
+
+    private val events = mutableListOf<UiEvent>()
+    private val actions get() = events.mapNotNull { it.toAction() }
+
+    private fun show(model: ScreenModel): (ScreenModel) -> Unit {
+        var current by mutableStateOf(model)
+        compose.setContent { RichApp(current, onEvent = { events += it }) }
+        compose.waitForIdle()
+        return { current = it }
+    }
+
+    private fun screen(id: String) = ScreenCatalog.model(id, Theme.DARK, 360f)
+
+    @Test
+    fun `typing and sending reach core as compose and send`() {
+        val set = show(screen("comp-idle"))
+        compose.onNodeWithTag("message-field").performTextInput("Hello Rich")
+        assertEquals(Action.Compose("Hello Rich"), actions.last())
+        // The draft is core's: show it back as core would, and the circle becomes Send.
+        set(screen("comp-typing"))
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Send message").performClick()
+        assertEquals(Action.Send, actions.last())
+    }
+
+    @Test
+    fun `try now, discard, the six words and forget reach core`() {
+        val set = show(screen("conv-retry"))
+        compose.onNodeWithText("Try now").performClick()
+        assertEquals(Action.Retry, actions.last())
+
+        set(screen("conv-pending"))
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Discard this unsent message").performClick()
+        assertEquals(Action.Discard("mobile-3"), actions.last())
+
+        set(screen("pair-words"))
+        compose.waitForIdle()
+        compose.onNodeWithText("They match").performClick()
+        assertEquals(Action.ConfirmWords(true), actions.last())
+        compose.onNodeWithText("They do not match").performClick()
+        assertEquals(Action.ConfirmWords(false), actions.last())
+
+        set(screen("settings-forget"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Forget pairing on this phone").performClick()
+        assertEquals(Action.Forget, actions.last())
+    }
+
+    @Test
+    fun `the Settings button opens the sheet and the scrim closes it`() {
+        show(screen("comp-idle"))
+        compose.onNodeWithTag("settings-button").performClick()
+        compose.onNodeWithTag("settings-sheet").assertIsDisplayed()
+        // The sheet covers the middle of the scrim; press the scrim itself, as TalkBack would.
+        compose.onNodeWithContentDescription("Close").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
+        compose.waitForIdle()
+        assertTrue(compose.onAllNodesWithTagCount("settings-sheet") == 0)
+    }
+
+    @Test
+    fun `the conversation follows new messages until the reader scrolls up, and sending resumes it`() {
+        val base = screen("conv-populated")
+        val update = show(base)
+        fun latestShown() = compose.onAllNodesWithTagCount("latest-pill") > 0
+
+        // Following: a new reply lands and the newest stays in view, no Latest pill.
+        var rows = base.app.messages + reply("n1", "A new reply.")
+        update(base.copy(app = base.app.copy(messages = rows)))
+        compose.waitForIdle()
+        compose.onNodeWithText("A new reply.").assertIsDisplayed()
+        assertTrue(!latestShown())
+
+        // The reader scrolls up: following stops and the Latest pill appears.
+        compose.onNodeWithTag("thread").performTouchInput { swipeDown(startY = centerY - 200f, endY = centerY + 600f) }
+        compose.waitForIdle()
+        assertTrue("Latest pill after scrolling up", latestShown())
+
+        // Another reply does not move the reader.
+        rows = rows + reply("n2", "Another reply, while you read.")
+        update(base.copy(app = base.app.copy(messages = rows)))
+        compose.waitForIdle()
+        assertTrue("still reading older", latestShown())
+
+        // Sending resumes following (RichOS's rule; T3 does not do this).
+        update(base.copy(app = base.app.copy(messages = rows, draft = "On my way.")))
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Send message").performClick()
+        compose.waitForIdle()
+        assertTrue("following again after a send", !latestShown())
+        compose.onNodeWithText("Another reply, while you read.").assertIsDisplayed()
+    }
+
+    private fun reply(id: String, text: String) = Row(
+        id = id, threadId = "general", cursor = 99_000_000_000L + id.hashCode().toLong(), role = "rich", text = text,
+        createdAt = "2026-09-22T09:40:00.000Z",
+    )
+
+    private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTagCount(tag: String): Int =
+        onAllNodes(androidx.compose.ui.test.hasTestTag(tag)).fetchSemanticsNodes().size
+}
