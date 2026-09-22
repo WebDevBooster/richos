@@ -85,18 +85,10 @@ pub const MAX_BODY_BYTES: usize = 65536;
 /// The code is `device::CODE_LENGTH` = 8 characters from a 30-character alphabet:
 /// `30^8 = 656,100,000,000` codes.
 ///
-/// **A guess costs the attacker the window.** `DeviceDesk::complete_pairing` does
-/// `state.pairing.take()` BEFORE it compares, so a wrong code closes the window — one guess per
-/// window, and the window is only ever opened by the user pressing a button on this Mac. So the
-/// chance of an unpaired caller on the network pairing itself is `1 / 6.561e11` per window he
-/// opens, which is `1.5e-12`, and it is the SAME number at sixty seconds and at five minutes:
-/// the duration does not appear in it. That is what makes this change cheap, and it is a
-/// property of the one-shot window rather than of the length.
-///
-/// What the extra 240 seconds does buy an attacker is exposure: four more minutes in which
-/// `/api/pair` will answer an unauthenticated POST at all, and four more minutes of a QR on a
-/// screen. Both are bounded by the rate limit (`device::RATE_LIMIT`, 60 requests a minute) and
-/// by the single-guess property above.
+/// Incorrect requests do not consume another person's window. Pairing attempts are limited
+/// to 60 per minute separately from authenticated requests. A successful durable pairing or
+/// explicit cancellation consumes the window. At most 300 guesses fit in its five minutes;
+/// the QR secret still has roughly 39 bits of entropy.
 ///
 /// **AND IT MOVES ONE OTHER PIECE OF FRAME MATH, named because it was written down.**
 /// `ui/phone.js`'s `PHONE_JOIN_GRACE_MS` is 60 s and its comment records that the phone step's

@@ -348,6 +348,7 @@ struct State {
     /// `client_id` to the answer already given for it.
     answered: VecDeque<(String, String)>,
     requests: VecDeque<u64>,
+    pairing_requests: VecDeque<u64>,
     streams: usize,
     /// Audio blobs the Mac has minted, by the message id the phone was given. Contract: *"no
     /// id it did not mint"* — the table is the authority and the request is only an index.
@@ -457,6 +458,7 @@ impl DeviceDesk {
                 revoked,
                 answered: VecDeque::new(),
                 requests: VecDeque::new(),
+                pairing_requests: VecDeque::new(),
                 streams: 0,
                 audio: VecDeque::new(),
             }),
@@ -487,7 +489,6 @@ impl DeviceDesk {
     /// holding a slot in front of them. Getting that backwards is how a bound meant to cap memory
     /// became the thing that expired the phone's credential (see [`LIVE_CHALLENGES`]).
     pub fn issue_challenge(&self) -> Result<String, PhoneError> {
-        let challenge = super::b64url(&super::random_bytes(24)?);
         let now = super::now_millis();
         let mut state = self.state.lock().unwrap();
         while state
@@ -498,6 +499,12 @@ impl DeviceDesk {
         {
             state.challenges.pop_front();
         }
+        // Anonymous traffic cannot evict a phone's live challenge by issuing more.
+        // Twenty 30-second buckets fit inside the ten-minute lifetime and the bound.
+        if let Some((challenge, issued)) = state.challenges.back() {
+            if now.saturating_sub(*issued) < 30_000 { return Ok(challenge.clone()); }
+        }
+        let challenge = super::b64url(&super::random_bytes(24)?);
         state.challenges.push_back((challenge.clone(), now));
         while state.challenges.len() > LIVE_CHALLENGES {
             state.challenges.pop_front();
@@ -578,7 +585,10 @@ impl DeviceDesk {
         let point = public_key.to_point().map_err(|e| Refusal::MalformedCredential(e.to_string()))?;
         let mut state = self.state.lock().unwrap();
         let now = super::now_millis();
-        let window = state.pairing.take().ok_or(Refusal::NoDevice)?;
+        prune_requests(&mut state.pairing_requests, now);
+        if state.pairing_requests.len() >= RATE_LIMIT { return Err(Refusal::RateLimited); }
+        state.pairing_requests.push_back(now);
+        let window = state.pairing.as_ref().ok_or(Refusal::NoDevice)?;
         if !window.is_open(now) {
             return Err(Refusal::NoDevice);
         }
@@ -611,7 +621,11 @@ impl DeviceDesk {
             state.revoked = revoked;
         }
         state.device = Some(device.clone());
-        self.write(&state)?;
+        if let Err(error) = self.write(&state) {
+            state.device = None;
+            return Err(error.into());
+        }
+        state.pairing = None;
         Ok(device)
     }
 
@@ -804,7 +818,12 @@ impl DeviceDesk {
             Some(device) => {
                 let json = serde_json::to_string_pretty(device)
                     .map_err(|e| PhoneError::Malformed(e.to_string()))?;
-                std::fs::write(&self.path, json)?;
+                let pending = self.path.with_extension("pending");
+                let mut file = std::fs::File::create(&pending)?;
+                std::io::Write::write_all(&mut file, json.as_bytes())?;
+                file.sync_all()?;
+                std::fs::rename(&pending, &self.path)?;
+                std::fs::File::open(self.path.parent().unwrap())?.sync_all()?;
             }
             None => {
                 let _ = std::fs::remove_file(&self.path);
@@ -1140,22 +1159,41 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_pairing_window_is_one_shot_and_a_wrong_code_closes_it() {
+    fn wrong_pairing_codes_do_not_consume_the_legitimate_window() {
         let dir = TempDir::new("one-shot");
         let desk = DeviceDesk::open(&dir.0).unwrap();
         let phone = Phone::new();
         let w = desk.open_pairing().unwrap();
-        assert!(matches!(
-            desk.complete_pairing("WRONGCOD", &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS),
-            Err(Refusal::BadSignature)
-        ));
-        assert!(desk
-            .complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS)
-            .is_err());
-        assert!(!desk.is_paired());
-        // POSITIVE CONTROL: a fresh window with the right code pairs.
-        let w2 = desk.open_pairing().unwrap();
-        assert!(desk.complete_pairing(&w2.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_ok());
+        assert!(matches!(desk.complete_pairing("WRONGCOD", &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS), Err(Refusal::BadSignature)));
+        assert_eq!(desk.pairing_window().unwrap().code, w.code);
+        assert!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_ok());
+        assert!(desk.pairing_window().is_none());
+        assert!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_err());
+    }
+
+    #[test]
+    fn pairing_attempts_are_bounded_without_cancelling_the_window() {
+        let dir = TempDir::new("bounded-pairing");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let phone = Phone::new();
+        let w = desk.open_pairing().unwrap();
+        for _ in 0..RATE_LIMIT {
+            assert!(desk.complete_pairing("WRONGCOD", &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_err());
+        }
+        assert!(matches!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS), Err(Refusal::RateLimited)));
+        assert_eq!(desk.pairing_window().unwrap().code, w.code);
+        desk.state.lock().unwrap().pairing_requests.clear();
+        assert!(desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::HOME, Platform::IOS).is_ok());
+    }
+
+    #[test]
+    fn anonymous_challenge_flood_cannot_evict_a_live_phone_challenge() {
+        let (_dir, desk, phone, device, challenge) = paired("flood");
+        for _ in 0..1000 { desk.issue_challenge().unwrap(); }
+        let signature = phone.sign(&signing_string(&challenge, "POST", "/api/messages", b"hello"));
+        let request = Presented { device_id: &device.id, challenge: &challenge, signature, method: "POST", path_with_query: "/api/messages", body: b"hello" };
+        assert!(desk.verify(&request).is_ok());
+        assert!(desk.state.lock().unwrap().challenges.len() < LIVE_CHALLENGES);
     }
 
     #[test]
@@ -1378,6 +1416,7 @@ pub(crate) mod tests {
         tampered.body = b"{\"a\":2}";
         assert_eq!(desk.verify(&tampered), Err(Refusal::BadSignature), "the body is not covered");
 
+        desk.state.lock().unwrap().challenges.back_mut().unwrap().1 -= 30_000;
         let second = desk.issue_challenge().unwrap();
         let mut rechallenged =
             present(&phone, &device.id, &challenge, "POST", "/api/messages", b"{\"a\":1}");
@@ -1422,6 +1461,7 @@ pub(crate) mod tests {
         // grow. The oldest one falls out and stops working.
         let (_dir, desk, phone, device, first) = paired("bounded");
         for _ in 0..LIVE_CHALLENGES {
+            desk.state.lock().unwrap().challenges.back_mut().unwrap().1 -= 30_000;
             desk.issue_challenge().unwrap();
         }
         let p = present(&phone, &device.id, &first, "GET", "/api/events", b"");
@@ -1470,6 +1510,7 @@ pub(crate) mod tests {
         // ten-minute-old entries must not be what pushes out the one the phone is using.
         let (_dir, desk, phone, device, _first) = paired("aged");
         for _ in 0..LIVE_CHALLENGES {
+            desk.state.lock().unwrap().challenges.back_mut().unwrap().1 -= 30_000;
             desk.issue_challenge().unwrap();
         }
         {
