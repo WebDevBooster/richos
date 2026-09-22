@@ -46,7 +46,7 @@ const simctl = (...args) => {
   const set = devicePolicy();
   return run('xcrun', ['simctl', ...(set ? ['--set', set] : []), ...args]).stdout.trim();
 };
-export function stageAssets(destination, development, allowedContainer) {
+export function stageAssets(destination, development, allowedContainer, build = development ? 'Debug' : 'Release') {
   const volume = realpathSync('/Volumes/E1TB');
   const parent = realpathSync(dirname(destination));
   const sandboxDocuments = allowedContainer && realpathSync(join(allowedContainer, 'Documents'));
@@ -64,7 +64,7 @@ export function stageAssets(destination, development, allowedContainer) {
     for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection', 'follow', 'notification-target', 'voice']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
   }
   for (const [name, source] of Object.entries(files)) copyFileSync(join(mobile, source), join(destination, name));
-  writeFileSync(join(destination, 'release-config.json'), JSON.stringify(releaseConfiguration()));
+  writeFileSync(join(destination, 'release-config.json'), JSON.stringify(releaseConfiguration(undefined, false, build)));
   const clientHTML = readFileSync(join(mobile, 'ui/client.html'), 'utf8').replace('<!-- CLIENT_DEV -->', development ? '<script src="update-fixture.js"></script><script src="client-inspect.js"></script>' : '');
   writeFileSync(join(destination, 'client.html'), clientHTML);
   const entry = (development ? '<script src="runtime.js"></script>\n  ' : '') + '<script src="entry.js"></script>';
@@ -247,6 +247,9 @@ export function checkRelease() {
   assert(!files.includes('update-fixture.js'));
   assert(!files.includes('client-inspect.js'));
   assert(!files.includes('native-test-config.json'));
+  const policyURL = JSON.parse(readFileSync(join(assets, 'release-config.json'), 'utf8')).policyURL;
+  assert.equal(policyURL, releaseConfiguration(undefined, false, 'Release').policyURL, 'Release must carry the hosted update-policy address');
+  assert(policyURL, 'Release has no hosted update-policy address');
   const joined = files.map((file) => readFileSync(join(assets, file), 'utf8')).join('\n');
   assert(!/RichOSDev|RichOSFixtures|mobile-commands|lose-ack/.test(joined), 'Development JS leaked into Release');
   const info = run('plutil', ['-convert', 'json', '-o', '-', join(result.app, 'Info.plist')]).stdout;

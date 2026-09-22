@@ -61,7 +61,7 @@ try {
   if (!mode || mode === '--help') { console.log(usage); process.exit(0); }
   // Build's resource script re-enters only this stateless branch, never the session lock.
   if (mode === 'bundle') {
-    simulator.stageAssets(command, arg === 'Debug' && platform === 'iphonesimulator');
+    simulator.stageAssets(command, arg === 'Debug' && platform === 'iphonesimulator', undefined, arg === 'Debug' ? 'Debug' : 'Release');
     process.exit(0);
   }
   const cache = simulator.cacheRoot();

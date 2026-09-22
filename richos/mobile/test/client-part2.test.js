@@ -70,6 +70,28 @@ test('distribution configuration rejects missing listing and unsafe service dest
   assert.throws(() => configuration(undefined, true), /Configure/);
 });
 
+test('Release carries the hosted update-policy address; development keeps its local override', async t => {
+  const { configuration } = await import('../cli/release.mjs');
+  const { writeFileSync: write, rmSync: remove } = require('node:fs'), { join } = require('node:path');
+  const saved = process.env.RICHOS_MOBILE_RELEASE_CONFIG; delete process.env.RICHOS_MOBILE_RELEASE_CONFIG;
+  t.after(() => { if (saved === undefined) delete process.env.RICHOS_MOBILE_RELEASE_CONFIG; else process.env.RICHOS_MOBILE_RELEASE_CONFIG = saved; });
+  const release = configuration(undefined, false, 'Release');
+  assert.equal(release.policyURL, 'https://updates.richos.ceo/v1/policy');
+  // A first-level name under richos.ceo stays inside the zone's Universal SSL certificate; never the Connect host.
+  assert.match(new URL(release.policyURL).hostname, /^[a-z0-9-]+\.richos\.ceo$/);
+  assert.notEqual(new URL(release.policyURL).hostname, 'connect.richos.ceo');
+  assert.equal(configuration().policyURL, release.policyURL, 'the default is the Release configuration');
+  assert.equal(configuration(undefined, false, 'Debug').policyURL, null, 'development never reads production policy by default');
+  assert.throws(() => configuration(undefined, false, 'Profile'), /Debug or Release/);
+  const dir = require('./storage.cjs').createScratch('release-config');
+  t.after(() => remove(dir, { recursive: true, force: true }));
+  const file = join(dir, 'lab.json');
+  write(file, JSON.stringify({ ...release, policyURL: 'https://policy-lab.example.net/v1/policy' }));
+  process.env.RICHOS_MOBILE_RELEASE_CONFIG = file;
+  assert.equal(configuration(undefined, false, 'Debug').policyURL, 'https://policy-lab.example.net/v1/policy');
+  assert.equal(configuration(file, false, 'Release').policyURL, 'https://policy-lab.example.net/v1/policy');
+});
+
 test('a failed durable enqueue cannot leave a ghost message for a later session write to resurrect', async t => {
   const h = harness(), save = h.ports.save; let failed = false, next = 0;
   h.ports.nextId = () => `message-${++next}`;
