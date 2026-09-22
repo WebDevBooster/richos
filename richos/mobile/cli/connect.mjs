@@ -31,7 +31,13 @@ export function managedArtifact(profile) {
   if (Object.keys(push).some(k=>!['teamId','sandboxKeyId','productionKeyId','topics'].includes(k))) throw Error('Invalid push profile');
   for (const key of ['teamId','sandboxKeyId','productionKeyId']) if (push[key] && !/^[A-Z0-9]{10}$/.test(push[key])) throw Error('Invalid push identifier');
   if (push.topics && (!Array.isArray(push.topics) || push.topics.some(t=>!['dev.richos.mobile.loop','dev.richos.mobile.integration'].includes(t)))) throw Error('Invalid push topics');
-  const names = ['connect-worker.mjs', 'connect/auth.mjs', 'connect/store.mjs', 'connect/provider.mjs', 'connect/lifecycle.mjs', 'connect/apns.mjs', 'connect/notifications.mjs'];
+  // Android push: the Firebase project ID and the allowed Android application IDs are identifiers.
+  // The service-account key is the Worker secret FCM_SERVICE_ACCOUNT, never part of a profile.
+  const fcm = profile.fcm || {};
+  if (Object.keys(fcm).some(k=>!['projectId','apps'].includes(k)) || (Object.keys(fcm).length && !fcm.projectId)) throw Error('Invalid FCM profile');
+  if (fcm.projectId && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(fcm.projectId)) throw Error('Invalid FCM project ID');
+  if (fcm.projectId && (!Array.isArray(fcm.apps) || !fcm.apps.length || fcm.apps.some(a=>typeof a !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(a)))) throw Error('Invalid FCM application IDs');
+  const names = ['connect-worker.mjs', 'connect/auth.mjs', 'connect/store.mjs', 'connect/provider.mjs', 'connect/lifecycle.mjs', 'connect/apns.mjs', 'connect/fcm.mjs', 'connect/notifications.mjs'];
   return {
     stage: 'managed',
     metadata: {
@@ -44,7 +50,8 @@ export function managedArtifact(profile) {
           HOST_CAPACITY: String(profile.capacity), ENROLLMENT_OPEN: 'false',
           ...(push.teamId ? {APNS_TEAM_ID:push.teamId,APNS_TOPICS:(push.topics || []).join(',')} : {}),
           ...(push.sandboxKeyId ? {APNS_SANDBOX_KEY_ID:push.sandboxKeyId} : {}),
-          ...(push.productionKeyId ? {APNS_PRODUCTION_KEY_ID:push.productionKeyId} : {}) }).map(([name, text]) => ({ name, type: 'plain_text', text })),
+          ...(push.productionKeyId ? {APNS_PRODUCTION_KEY_ID:push.productionKeyId} : {}),
+          ...(fcm.projectId ? {FCM_PROJECT_ID:fcm.projectId,FCM_APPS:fcm.apps.join(',')} : {}) }).map(([name, text]) => ({ name, type: 'plain_text', text })),
       ],
     },
     modules: names.map(name => {

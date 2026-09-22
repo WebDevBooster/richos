@@ -118,7 +118,7 @@ test('managed artifact preserves only server secrets and packages the tested ser
   assert.deepEqual(artifact.metadata.keep_bindings,['secret_text']);
   assert.equal(artifact.metadata.bindings.find(row=>row.name==='ENROLLMENT_OPEN').text,'false');
   assert.equal(artifact.metadata.bindings.find(row=>row.name==='DB').id,profile.databaseId);
-  assert.equal(artifact.modules.length,7);
+  assert.equal(artifact.modules.length,8); // schema 3 adds connect/fcm.mjs
   assert(artifact.modules.every(row=>/^[a-f0-9]{64}$/.test(row.sha256)));
   assert.throws(()=>managedArtifact({...profile,capacity:11}),/capacity/);
   assert.throws(()=>managedArtifact({...profile,domain:'https://example.com'}),/Invalid/);

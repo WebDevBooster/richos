@@ -33,8 +33,13 @@ CREATE TABLE IF NOT EXISTS push_bindings (
   topic TEXT,
   route TEXT,
   generation INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  platform TEXT CHECK (platform IS NULL OR platform IN ('apns','fcm'))
 );
+-- Schema 3 (native Android push) is one additive column: NULL is an APNs row written before it.
+-- An existing schema-2 database gets it once, before the schema-3 Worker is deployed, with exactly
+-- the statement on the next line (the tests execute that line against a schema-2 database):
+-- migrate 3: ALTER TABLE push_bindings ADD COLUMN platform TEXT CHECK (platform IS NULL OR platform IN ('apns','fcm'));
 CREATE TABLE IF NOT EXISTS push_jobs (
   host_id TEXT NOT NULL,
   event_ref TEXT NOT NULL,
