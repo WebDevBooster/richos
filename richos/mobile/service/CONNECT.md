@@ -34,3 +34,21 @@ A provider outage leaves a bounded error code on the host row and desired state 
 To suspend new control operations, deploy the closed bootstrap artifact while retaining the D1 database and secret. This does not revoke existing tunnels. To revoke a host, first disable its local listener and connector, then use its signed DELETE request or explicitly remove its owned provider resources and record the operator action privately. Do not treat a Worker rollback as a conversation-access revocation.
 
 Run `mobile-headless.test.sh` for signature, real SQLite schema, ownership, replay, capacity, interrupted provisioning and generation tests. Live provider and Mac/phone evidence is recorded separately; these headless tests do not establish tunnel or physical-device success.
+
+## Part 4 notification boundary
+
+The following route names are reserved and return 404 in protocol v1:
+
+- `PUT /v1/host/notification-device`: register or rotate an APNs token for the current host generation and paired device public-key hash.
+- `POST /v1/host/notifications`: request a generic reply-ready alert for that authorized phone.
+- `DELETE /v1/host/notification-device`: remove the registration.
+
+Part 4 must use the same signed host identity, replay checks and generation lease. Registration also needs proof from the paired phone's key; a caller-provided device ID is insufficient. Bind tokens to the official bundle ID and APNs environment. The Mac never receives the operator's APNs signing credential. Notification requests carry an idempotency ID and opaque thread/event references, with no prompt, transcript, title or reply body. Disable, phone replacement and revocation invalidate the registration. Retry jobs expire after one hour; invalid tokens are deleted immediately and redacted delivery diagnostics expire after seven days. These are integration requirements, not an implemented APNs service or advertised capability.
+
+## Mac lifecycle and message safety
+
+The signed Mac bundle includes a digest-pinned, separately signed Apache-2.0 cloudflared helper and its license. The connector binds only to the dedicated phone listener. A small child guard observes the Mac process's pipe: normal shutdown or abrupt process exit closes it, so the guard kills and reaps only its own helper. Restart backoff is bounded at 60 seconds. No USB, network-interface or unrelated process resets are used. Local configuration and scoped credentials survive restart; the private identity and token are held in the Mac's Keychain.
+
+Phone commands retain their existing signed protocol. Challenges are reusable for bounded concurrency and SSE reconnection, valid for ten minutes. A durable receipt binds each logical message ID to its device and exact body. A lost acknowledgement or completed Mac restart replays the original receipt without a second intake. If the Mac crashes in the narrow interval where intake acceptance is uncertain, the phone retains the text and asks the person to inspect the conversation before resending. This is a deliberate safety hold, not a promise of unlimited exactly-once delivery.
+
+The native client and PWA share connection diagnosis and queue semantics. Public service readiness does not prove that an individual Mac is reachable. An independent health probe can distinguish a reported service outage from an unreachable Mac; an ambiguous network error remains ambiguous. Existing paired clients do not need the control Worker in their normal message/SSE path.

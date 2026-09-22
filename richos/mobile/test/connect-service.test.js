@@ -212,3 +212,12 @@ test('isolated host CLI signs control requests and keeps scoped credentials out 
   await assert.rejects(lab('lab-identity','/not-external'),/external SSD/);
 });
 
+
+
+test('notification reservations remain closed until the authenticated Part 4 service exists', async t => {
+  const f=await fixture(t), a=await f.identity();
+  for(const [method,path] of [['PUT','/v1/host/notification-device'],['POST','/v1/host/notifications'],['DELETE','/v1/host/notification-device']]) {
+    assert.equal((await f.send(await a.request(method,path,'{}'))).status,404);
+  }
+  assert.equal(f.tunnels.size,0);
+});

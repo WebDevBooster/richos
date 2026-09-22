@@ -211,3 +211,18 @@ See [the update-service runbook](service/README.md) for schema, publication, exp
 For the physical service proof, start `lab updates` in a separate cache, expose its printed loopback port through an isolated private HTTPS route and supply that `/v1/policy` URL in an external release configuration. Pass a test-bundle JSON with `{"updateServiceTest":"true"}` and run `device verify updates`. The fixture publishes a recording pause after the first policy fetch, then withdraws it with a higher revision. The XCUITest checks both visible action states with the real native adapter. The lab retains publication/request timestamps. It never supplies a fabricated App Store destination. Stop its owned process and route after the check.
 
 Actual App Store listing navigation, storefront download availability and an old-to-new Store installation remain distribution checks that require the real listing and released builds. Managed-route verification requires Part 3. A simulated notice or successful development install cannot stand in for those checks.
+
+## Managed Connect integration
+
+See [Connect's protocol and deployment contract](service/CONNECT.md). The normal product flow is Mac phone settings → RichOS Connect → enable → scan or paste the pairing link → compare the six words. Tailscale remains an optional route. Pilot enrollment is closed to pre-authorized Mac public identities; a person does not need a Cloudflare account or a command-line tool.
+
+The common CLI also supports isolated real-provider checks:
+
+- `connect lab-identity <external-lab-directory>` creates a test identity. Authorize only its public host ID through the private operator procedure.
+- `connect lab-enable <external-lab-directory>` allocates a tunnel and saves its scoped token in a protected external file.
+- Start `lab mac` with `RICHOS_MOBILE_CONNECT_TOKEN_FILE` pointing to that file, `RICHOS_MOBILE_MAC_ORIGIN` set to the returned HTTPS endpoint and `RICHOS_CONNECT_HELPER` pointing to the verified pinned helper. The test listener binds to loopback port 18443.
+- `connect lab-check <external-cache/mac.json>` runs actual client actions through public HTTPS. A test-owned Mac server can instead be started by `mobile-mac.test.sh` with the same Connect environment and `RICHOS_MOBILE_USE_PUBLIC_ROUTE=1`; it additionally forces an abrupt restart of its own Rust process and verifies durable duplicate suppression and recovery.
+- The existing `device verify text` selection uses the same lab through the native transport and visible iPhone controls. Record the phone's actual network and VPN state separately. HTTPS success alone does not establish a cellular or foreign-network test.
+- Stop the owned lab, then run `connect lab-disable <external-lab-directory>`. Verify the old allocation is disabled and its owned tunnel/DNS records are removed. Remove disposable token/identity files after preserving redacted evidence privately.
+
+The lab uses isolated test data and a separate integration app. It must never replace the owner's daily Android PWA pairing. Keep the device CLI's USB health guard enabled; never recover tests by resetting hubs or unrelated devices.
