@@ -57,7 +57,7 @@
     $('older').hidden = !state.confirmed || !state.olderAvailable; $('older').disabled = state.paging || !state.online;
     $('record-start').disabled = state.recording || state.updates.blocked || !state.updates.features.recording;
     $('record-stop').hidden = !state.recording; $('record-cancel').hidden = !state.recording;
-    $('record-status').textContent = state.recording ? 'Recording…' : 'Stop to review your recording, then choose Send recording. Cancel never sends.';
+    $('record-status').textContent = state.recording ? 'Recording…' : state.confirmed && !state.canVoice ? 'Voice sending is not available on this Mac yet. Saved recordings stay on this phone.' : 'Stop to review your recording, then choose Send recording. Cancel never sends.';
     if (state.recordings.length > recordingCount) $('saved-recordings').open = true;
     recordingCount = state.recordings.length;
     const recordingsKey = JSON.stringify([state.recordings,state.canVoice,state.outbox,state.updates.blocked,state.updates.features]);
@@ -72,6 +72,13 @@
         } return e;
       })); $('recordings').dataset.value = recordingsKey;
     }
+    $('playback-status').textContent=state.playbackState==='playing'?'Playing reply…':state.playbackState==='loading'?'Preparing reply audio…':'';
+    const notifications=state.notifications;
+    const notificationText={off:'Reply notifications are off.',enabled:'Reply notifications are on.',registering:'Registering with Apple and your Mac…',denied:'Notifications are denied. Enable them in iPhone Settings.',unsupported:'Update your Mac to enable native reply notifications.',disabling:'Disabling notifications when your Mac is reachable…','apple-unavailable':'Apple registration is unavailable. Retry notifications.','service-unavailable':'The notification service is unavailable. Retry notifications; your conversation still works.'};
+    $('notification-status').textContent=notificationText[notifications.status] || 'Reply notifications are off.';
+    $('notifications-enable').hidden=notifications.enabled;
+    $('notifications-disable').hidden=!notifications.enabled;
+    $('notifications-enable').disabled=!state.confirmed;
     $('error').textContent = state.error || '';
     const update = state.updates, modal = update.mode === 'dialog' || update.mode === 'blocking';
     $('update-banner').hidden = update.mode !== 'banner';
@@ -94,6 +101,7 @@
   $('thread').onchange = () => perform({ type: 'select-thread', threadId: $('thread').value });
   $('retry').onclick = () => perform({ type: 'retry' }); $('older').onclick = () => perform({ type: 'older' });
   for (const type of ['record-start', 'record-stop', 'record-cancel']) $(type).onclick = () => perform({ type });
+  for (const type of ['notifications-enable','notifications-disable','notifications-refresh']) $(type).onclick=()=>perform({type});
   $('permissions').onclick = () => perform({ type: 'settings' }); $('support').onclick = $('dialog-support').onclick = () => perform({ type: 'support' });
   $('check-update').onclick = $('dialog-check').onclick = () => perform({ type: 'update-check' });
   for (const prefix of ['banner', 'dialog']) {
@@ -103,8 +111,13 @@
   $('forget').onclick = () => $('forget-dialog').showModal(); $('forget-cancel').onclick = () => $('forget-dialog').close();
   $('forget-confirm').onclick = async () => { $('forget-dialog').close(); await perform({ type: 'forget-pair', confirm: true }); };
   async function incoming() { const url = await call('incomingLink', {}); if (url) await perform({ type: 'navigate', url }); }
+  async function notification() { const value=await call('pushIncoming',{}); if(value) await perform({type:'notification-open',value}); }
   await incoming();
+  await notification();
   listeners.add(event => {
+    if (event.kind === 'playback-ended') perform({type:'playback-ended'});
+    if (event.kind === 'push-open') void notification();
+    if (event.kind === 'push-changed') perform({type:'notifications-refresh'});
     if (event.kind === 'incoming-link') void incoming();
     if (event.kind === 'record-finished') perform({ type: 'record-refresh' });
     if (event.kind === 'background') perform({ type: 'suspend' });

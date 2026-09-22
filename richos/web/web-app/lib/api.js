@@ -552,6 +552,10 @@
 				return body;
 			},
 
+			async registerNativePush(registration) {
+				return json('POST', '/api/pair', {native_push:registration});
+			},
+
 			async registerPush(subscription) {
 				return json('POST', '/api/pair', {
 					device_id: state.deviceId,
@@ -574,7 +578,8 @@
 			async confirmFingerprint(matched) {
 				return json('POST', '/api/pair', {
 					device_id: state.deviceId,
-					fingerprint_confirmed: matched === true
+					fingerprint_confirmed: matched === true,
+					...(opts.nativeClient ? {push_transport:'apns'} : {})
 				});
 			}
 		};

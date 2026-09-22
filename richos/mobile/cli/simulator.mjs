@@ -101,11 +101,12 @@ export function project() {
     },
     schemes: { RichOSMobile: { build: { targets: { RichOSMobile: 'all' } }, test: { targets: ['RichOSMobileUITests'], gatherCoverageData: false } } }
   };
-  if (release.universalHosts.length) {
-    const entitlements = join(output, 'Links.entitlements');
-    writeFileSync(entitlements, plist('<key>com.apple.developer.associated-domains</key><array>' + release.universalHosts.map(host => '<string>applinks:' + host + '</string>').join('') + '</array>'));
-    spec.targets.RichOSMobile.settings.base.CODE_SIGN_ENTITLEMENTS = entitlements;
-  }
+  const entitlements = join(output, 'RichOS.entitlements');
+  writeFileSync(entitlements, plist('<key>aps-environment</key><string>$(APS_ENVIRONMENT)</string>' +
+    (release.universalHosts.length ? '<key>com.apple.developer.associated-domains</key><array>' + release.universalHosts.map(host => '<string>applinks:' + host + '</string>').join('') + '</array>' : '')));
+  Object.assign(spec.targets.RichOSMobile.settings.base, {CODE_SIGN_ENTITLEMENTS:entitlements});
+  spec.targets.RichOSMobile.settings.configs.Debug.APS_ENVIRONMENT = 'development';
+  spec.targets.RichOSMobile.settings.configs.Release.APS_ENVIRONMENT = 'production';
   const testConfig = process.env.RICHOS_MOBILE_TEST_CONFIG;
   if (testConfig) {
     const source = realpathSync(testConfig);

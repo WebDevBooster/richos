@@ -870,6 +870,11 @@ async function openSheet(browser, theme, preset) {
       // same division (web/web-app/app.js, installControlName / installSentence).
       const cases = [
         {
+          platform: "ios", transport: "apns",
+          must: [/RichOS iPhone app/, /Connection and settings/],
+          mustNot: [/Add to Home Screen/, /Safari/],
+        },
+        {
           platform: "ios",
           must: [/Share menu/, /Add to Home Screen/],
           mustNot: [/Install and create shortcut/],
@@ -894,6 +899,7 @@ async function openSheet(browser, theme, preset) {
         const page = await openSheet(browser, "dark", {
           phonePaired: true,
           phonePlatform: one.platform,
+          phonePushTransport: one.transport,
           phonePairedVia: "tailnet",
         });
         const text = (await page.textContent("#phone-push-state")).replace(/\s+/g, " ").trim();

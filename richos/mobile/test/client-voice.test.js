@@ -36,11 +36,13 @@ test('cancel dispatches no voice and old Macs retain saved audio without retries
  await assert.rejects(app.dispatch({type:'record-send',id:'recording-1'}),/cannot accept voice/);
  assert.equal(app.state().recordings.length,1);assert.equal(app.state().outbox.length,0);
 });
-test('stopping playback prevents a late download from starting audio',async t=>{
+for (const action of ['playback-stop','record-play','record-start']) test(`${action} prevents a late download from starting audio`,async t=>{
  const {h,app}=await setup(t);let resolveAudio,plays=0;
- const native=h.ports.native;h.ports.native=async(method,args)=>{if(method==='playbackStop')return true;if(method==='replyPlay'){plays++;return true;}return native(method,args)};
+ const native=h.ports.native;h.ports.native=async(method,args)=>{if(['playbackStop','recordPlay'].includes(method))return true;if(method==='replyPlay'){plays++;return true;}return native(method,args)};
  const fetch=h.ports.fetch;h.ports.fetch=async(url,options)=>url.includes('/api/audio/') ? new Promise(resolve=>{resolveAudio=()=>{const response=new Response('');response.nativeAudio='audio-file';resolve(response)}}) : fetch(url,options);
- await app.dispatch({type:'reply-play',id:'reply'});await tick();await app.dispatch({type:'playback-stop'});resolveAudio();await tick();await app.settle();assert.equal(plays,0);
+ await app.dispatch({type:'reply-play',id:'reply'});await tick();await app.dispatch({type:action,id:'recording-1'});
+ if (action==='record-start') await app.dispatch({type:'record-stop'});
+ resolveAudio();await tick();await app.settle();assert.equal(plays,0);
 });
 test('native voice hashing reads the saved audio file and sends no audio through JavaScript',async()=>{
  const {createPorts}=require('../platform/native.js');const calls=[];

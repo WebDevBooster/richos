@@ -23,7 +23,7 @@ export async function clientUI() {
         if (method === 'save') { await new Promise(resolve => setTimeout(resolve, 25)); data = args.value; return true; }
         if (method === 'updateInfo') return { version: '0.1.0', build: '2', osVersion: '16.7.16', configured: false, appId: null, storefront: null };
         if (method === 'recordings') return [];
-        if (method === 'incomingLink') return null;
+        if (method === 'incomingLink' || method === 'pushIncoming') return null;
         throw Error(method);
       } } } };
     });

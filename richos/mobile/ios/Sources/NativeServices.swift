@@ -13,6 +13,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private var pendingLink: String?
     private var player: AVAudioPlayer?
     private let updates = UpdateService()
+    let push = PushService()
     private let network = NWPathMonitor()
     private var lastNetwork: NWPath.Status?
     private var stream: URLSessionDataTask?
@@ -35,6 +36,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RichOSMobile", isDirectory: true)
         super.init()
         updates.emit = { [weak self] event in self?.emit(event) }
+        push.emit = { [weak self] event in self?.emit(event) }
         network.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -80,7 +82,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private func endpoint(_ value: String) throws -> URL {
         guard let expected = origin, let url = URL(string: value), url.scheme == "https", url.user == nil, url.password == nil,
               url.host == expected.host, (url.port ?? 443) == (expected.port ?? 443), url.fragment == nil,
-              (["/api/pair", "/api/messages", "/api/events", "/api/challenge"].contains(url.path) || url.path.range(of:"^/api/audio/[A-Za-z0-9_-]{1,128}$",options:.regularExpression) != nil) else { throw fail("Request is outside the paired HTTPS endpoint") }
+              (["/api/pair", "/api/messages", "/api/events", "/api/challenge"].contains(url.path) || url.path.range(of:"^/api/audio/[A-Za-z0-9_:-]{1,256}$",options:.regularExpression) != nil) else { throw fail("Request is outside the paired HTTPS endpoint") }
         return url
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler reply: @escaping (Any?, String?) -> Void) {
@@ -89,6 +91,9 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
               let args = body["args"] as? [String: Any] else { reply(nil, "Invalid native request"); return }
         do {
             switch method {
+            case "pushInfo": push.info(reply)
+            case "pushRequest": push.request(reply)
+            case "pushIncoming": reply(push.takeIncoming() as Any? ?? NSNull(), nil)
             case "incomingLink": reply(pendingLink as Any? ?? NSNull(), nil); pendingLink = nil
             case "configure":
                 let value = try string(args, "origin")
@@ -334,7 +339,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         }
         emit(["kind": "record-finished"])
     }
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { emit(["kind":"playback-ended"]); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) { try? stopRecording(cancel: !flag) }
     func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) { try? stopRecording(cancel: true) }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }

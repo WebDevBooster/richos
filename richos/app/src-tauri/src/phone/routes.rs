@@ -101,6 +101,8 @@ pub struct Accepted {
 /// module's reach is an enumerable list. There is no path from here to the ledger, to the raw
 /// event stream or to a `Timeline`, because those are not on this trait (plan §4.2 iii).
 pub trait Bridge: Send + Sync {
+    fn native_notifications_available(&self)->bool {false}
+    fn register_native_notifications(&self,_device:&str,_registration:Option<super::notifications::Registration>)->Result<Value,String> {Err("Native notifications are unavailable".into())}
     fn voice_available(&self) -> bool { false }
     fn transcribe(&self, _bytes: &[u8]) -> Result<String, String> { Err("Speech recognition is unavailable".into()) }
     fn reply_audio(&self, _thread: Option<&str>, _id: &str) -> Result<Vec<u8>, String> { Err("Audio playback is unavailable".into()) }
@@ -298,6 +300,17 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
         return refusal;
     }
 
+    if let Some(value)=body.get("native_push") {
+        if !channel.bridge.native_notifications_available() {return Outcome::Json {status:422,body:json!({"reason":"unsupported","retryable":false}).to_string()}}
+        let Ok(registration)=serde_json::from_value::<Option<super::notifications::Registration>>(value.clone()) else {return Outcome::NotFound};
+        if registration.as_ref().is_some_and(|r|!r.validate()) {return Outcome::NotFound}
+        let Some((device_id,_,_))=parse_authorization(header) else {return Outcome::NotFound};
+        return match channel.bridge.register_native_notifications(&device_id,registration) {
+            Ok(answer)=>Outcome::Json {status:200,body:answer.to_string()},
+            Err(_)=>Outcome::Json {status:503,body:json!({"reason":"unreachable","retryable":true,"message":super::notifications::unavailable()}).to_string()},
+        };
+    }
+
     if let Some(push) = body.get("push") {
         let Ok(subscription) = serde_json::from_value::<Subscription>(push.clone()) else {
             return Outcome::NotFound;
@@ -335,6 +348,10 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             if let Err(e) = channel.devices.confirm_fingerprint() {
                 eprintln!("[richos] could not record the phone's fingerprint confirmation: {e}");
                 return Outcome::NotFound;
+            }
+            if body.get("push_transport").and_then(|v|v.as_str())==Some("apns") {
+                let Some((id,_,_))=parse_authorization(header) else {return Outcome::NotFound};
+                if channel.devices.use_native_push(&id).is_err() {return Outcome::NotFound}
             }
         } else {
             eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
@@ -622,7 +639,7 @@ fn hello_frame(channel: &Channel, thread_id: &str) -> Result<Frame, ()> {
         // rather than once at pairing, because the phone outlives the build it paired with: he
         // updates the Mac and the app on his phone is the same app, holding whatever it was last
         // told. The phone replaces its answer from each frame and never merges (`api.js`).
-        "capabilities": if channel.bridge.voice_available() { vec!["text", "voice", "audio"] } else { CAPABILITIES.to_vec() },
+        "capabilities": ({ let mut caps=if channel.bridge.voice_available() { vec!["text", "voice", "audio"] } else { CAPABILITIES.to_vec() }; if channel.bridge.native_notifications_available() {caps.push("native-push");} caps }),
         "build": BUILD,
         // The rows themselves ride along, so the first paint needs no second request. The phone
         // merges them by cursor exactly as it merges a live `message`.
@@ -641,6 +658,9 @@ fn audio(channel: &Channel, request: &Incoming, message_id: &str) -> Outcome {
     if let Err(refusal) = verified(channel, request, header, &path) {
         return refusal;
     }
+    let Ok(decoded)=percent_decode_component(message_id) else {return Outcome::NotFound};
+    if decoded.is_empty() || decoded.len()>256 || !decoded.bytes().all(|b|b.is_ascii_alphanumeric() || b"_:-".contains(&b)) {return Outcome::NotFound}
+    let message_id=decoded.as_str();
     // The id indexes a table the Mac wrote. There is no path here, no file name and nothing
     // derived from the request, so there is nothing to traverse.
     let Some(file) = channel.devices.audio_file(message_id) else {
@@ -1320,6 +1340,10 @@ mod tests {
         assert!(f.channel.devices.fingerprint_confirmed());
         assert!(f.channel.devices.is_paired(), "confirming forgot the phone");
 
+        let native=json!({"fingerprint_confirmed":true,"push_transport":"apns"}).to_string();
+        assert_eq!(dispatch(&f.channel,&signed(&f,"POST","/api/pair","",&native)).status(),200);
+        assert_eq!(f.channel.devices.paired().unwrap().push_transport,"apns");
+
         // Idempotent: a phone that says it twice, or says it again after a relaunch, is fine.
         let again = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body));
         assert_eq!(again.status(), 200);
@@ -1555,6 +1579,16 @@ mod tests {
     }
 
     // --- audio ---------------------------------------------------------------------------------
+
+    #[test]
+    fn encoded_projection_ids_resolve_without_becoming_file_paths() {
+        let f=fixture("encoded-audio");let wav=f.dir.0.join("reply.wav");std::fs::write(&wav,b"RIFF....WAVE").unwrap();
+        f.channel.devices.mint_audio("turn_9:text:0",wav);
+        assert_eq!(dispatch(&f.channel,&signed(&f,"GET","/api/audio/turn_9%3Atext%3A0","","")).status(),200);
+        for id in ["..%2Freply.wav","turn_9%253Atext%253A0","turn_9%2Ftext"] {
+            assert_eq!(dispatch(&f.channel,&signed(&f,"GET",&format!("/api/audio/{id}"),"","")).status(),404);
+        }
+    }
 
     #[test]
     fn only_an_audio_id_the_mac_minted_returns_bytes() {

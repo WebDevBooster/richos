@@ -87,6 +87,10 @@ impl PhoneBridge {
 }
 
 impl Bridge for PhoneBridge {
+    fn native_notifications_available(&self)->bool {true}
+    fn register_native_notifications(&self,device:&str,registration:Option<super::notifications::Registration>)->Result<Value,String> {
+        self.app.state::<std::sync::Arc<super::PhoneRuntime>>().register_native_notifications(device,registration)
+    }
     fn voice_available(&self) -> bool { self.voice.available() }
     fn transcribe(&self, bytes: &[u8]) -> Result<String, String> { self.voice.transcribe(bytes) }
     fn reply_audio(&self, thread: Option<&str>, id: &str) -> Result<Vec<u8>, String> {
@@ -120,6 +124,7 @@ impl Bridge for PhoneBridge {
         // reply before its POST returned would be a phone that times out on every question worth
         // asking.
         let app = self.app.clone();
+        let reply_thread=thread.clone();
         std::thread::Builder::new()
             .name("richos-phone-drain".to_string())
             .spawn(move || {
@@ -137,7 +142,7 @@ impl Bridge for PhoneBridge {
                 // await, which §13 says the live observer must never do.
                 let runtime = app.state::<std::sync::Arc<super::PhoneRuntime>>();
                 runtime.bridge_refresh();
-                runtime.push_last_reply();
+                runtime.push_last_reply(&reply_thread);
             })
             .map_err(|e| format!("could not start the drain: {e}"))?;
 

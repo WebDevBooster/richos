@@ -31,6 +31,7 @@
     data.drafts = Object.assign(Object.create(null), data.drafts);
     data.session = { threads: [], selectedThreadId: null, draft: '', ...data.session, paired: !!data.confirmed, online: false };
     data.api = { ...data.api, capabilities: [] };
+    data.push = { enabled:false, hostId:null, registrationHash:null, pendingDisable:false, ...data.push };
     // One-time migration of the pilot's single-conversation cache. Never discard unsent work.
     if (Array.isArray(data.messages) && data.session.selectedThreadId && !data.cache[data.session.selectedThreadId]) data.cache[data.session.selectedThreadId] = data.messages;
     delete data.messages; delete data.cursor;
@@ -47,6 +48,8 @@
     }
     const now = ports.now || Date.now, setTimer = ports.setTimeout || setTimeout, clearTimer = ports.clearTimeout || clearTimeout;
     let api, link, app, recording = false, recordings = [], words = null, closed = false, suspended = false;
+    let playbackState = 'idle';
+    let pushState = 'off', pushBusy = false, pushAgain = false, pushError = null;
     let connectionReason = 'connecting', lastConnectionProbe = -Infinity;
     let latestError = null, generation = 0, playbackGeneration = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
     let writes = Promise.resolve(), events = Promise.resolve(), pending = Promise.resolve();
@@ -79,7 +82,8 @@
       load: async () => data.updates, save: async value => { data.updates = value; await persist(); } });
     const state = () => copy({ ...app.state(), messages: thread().view(data.outbox.filter(x => x.threadId === data.session.selectedThreadId)),
       connectionReason: data.revoked ? 'revoked' : unsupported ? 'incompatible' : app.state().online ? 'connected' : connectionReason,
-      confirmed: data.confirmed, words, recording, recordings, capabilities: data.api.capabilities || [], error: latestError,
+      notifications: {enabled:data.push.enabled,status:pushState,error:pushError},
+      confirmed: data.confirmed, words, recording, recordings, playbackState, capabilities: data.api.capabilities || [], error: latestError,
       updates: updates.state(), unsupported, canVoice: data.confirmed && !unsupported && api?.offers('voice') === true, canText: data.confirmed && !unsupported && (!negotiated || api?.offers('text')),
       olderAvailable: !thread().atTheBeginning(), paging, focusMessage: data.focusMessage || null, migrationRequired: !data.confirmed });
     function emit() {
@@ -127,11 +131,12 @@
           if (Array.isArray(frame.threads)) data.session.threads = frame.threads.filter(x => x && typeof x.id === 'string' && typeof x.title === 'string');
         }
         await persist(); await app.dispatch({ type: 'network', online: true }); emit();
+        if (name==='hello' && (data.push.enabled || data.push.pendingDisable)) void syncNotifications();
       }).catch(failure);
     }
     async function configure() {
       await ports.native('configure', { origin: data.api.apiBase });
-      api = Api.createApi({ state: data.api, origin: data.api.apiBase,
+      api = Api.createApi({ state: data.api, origin: data.api.apiBase, nativeClient: true,
         isBodyReference: value => value && typeof value.recordingFile === 'string', voiceBody: id => ({recordingFile:id}),
         signer: { sign: input => ports.native('sign', { input }), sha256Hex: value => ports.hash(value) },
         fetchImpl: async (...args) => {
@@ -203,10 +208,56 @@
       connect();
     }
     void updates.start();
+    async function syncNotifications(force=false) {
+      if (pushBusy) {pushAgain=true;return;}
+      if (closed || suspended || !data.confirmed || !app.state().online) return;
+      if (!api?.offers('native-push')) {pushState='unsupported';emit();return;}
+      pushBusy=true; const device=data.api.deviceId, origin=data.api.apiBase;
+      try {
+        const info=await ports.native('pushInfo',{});
+        if(info.permission!=='allowed') data.push.enabled=false;
+        pushState=info.permission==='denied' ? 'denied' : info.registrationFailed ? 'apple-unavailable' : 'registering';
+        const registration=data.push.enabled && info.permission==='allowed' ? info.registration : null;
+        if (data.push.enabled && info.permission==='allowed' && !registration) return;
+        const hash=registration ? await ports.hash(JSON.stringify(registration)) : null;
+        if (!force && hash && data.push.registrationHash===hash && !data.push.pendingDisable) {pushState='enabled';return;}
+        if (!registration && !data.push.registrationHash && !data.push.pendingDisable) {if(info.permission!=='denied')pushState='off';return;}
+        const answer=await api.registerNativePush(registration);
+        if (closed || data.api.deviceId!==device || data.api.apiBase!==origin) return;
+        if (!/^[a-f0-9]{32}$/.test(answer.host_id || '') || answer.registered!==!!registration) throw Error('Notification registration could not be confirmed. Retry notifications.');
+        data.push.hostId=answer.host_id;data.push.registrationHash=hash;
+        if (!!registration !== data.push.enabled) {pushAgain=true;await persist();return;}
+        data.push.pendingDisable=false;
+        pushState=registration?'enabled':info.permission==='denied'?'denied':'off';pushError=null;await persist();
+      } catch(error) {pushState='service-unavailable';pushError=error.message || 'Notifications unavailable';}
+      finally {pushBusy=false;emit();if(pushAgain){pushAgain=false;void syncNotifications();}}
+    }
+    async function openNotification(value) {
+      if (!data.confirmed || !value || value.host!==data.push.hostId || !/^[a-f0-9]{64}$/.test(value.thread || '') || !/^[a-f0-9]{64}$/.test(value.event || '')) return;
+      for (const candidate of data.session.threads) {
+        if (await ports.hash(candidate.id)===value.thread) {
+          data.drafts[data.session.selectedThreadId]=app.state().draft;
+          await app.dispatch({type:'select-thread',threadId:candidate.id});
+          await app.dispatch({type:'compose',text:data.drafts[candidate.id] || ''});
+          data.focusMessage=null;connect();return;
+        }
+      }
+      throw Error('That conversation is no longer available on this paired Mac.');
+    }
     function dispatch(action) {
       const work = async () => {
         latestError = null;
         switch (action.type) {
+          case 'notifications-enable': {
+            if (!data.confirmed) throw Error('Pair this phone before enabling notifications.');
+            const info=await ports.native('pushRequest',{});
+            data.push.enabled=info.permission==='allowed';pushState=info.permission==='denied'?'denied':'registering';
+            await persist();void syncNotifications(true);break;
+          }
+          case 'notifications-disable':
+            data.push.enabled=false;data.push.pendingDisable=true;pushState='disabling';await persist();void syncNotifications(true);break;
+          case 'notifications-refresh': void syncNotifications(true);break;
+          case 'notification-open': await openNotification(action.value);break;
           case 'pair': {
             if (data.confirmed || data.outbox.length) throw new Error('Existing pairing or queued messages must be resolved before pairing again');
             const { origin, code } = pairingLink(action.link);
@@ -230,10 +281,16 @@
           case 'forget-pair':
             if (action.confirm !== true) throw Error('Confirm forgetting this pairing on the phone. Revoke it on your Mac too.');
             if (data.outbox.length || Object.values(data.drafts).some(Boolean) || data.session.draft) throw Error('Copy or resolve your unsent messages and drafts before changing Macs.');
+            if (data.push.registrationHash || data.push.pendingDisable) {
+              data.push.enabled=false;data.push.pendingDisable=true;await persist();await syncNotifications(true);
+              if (data.push.pendingDisable) throw Error('Connect to your Mac and disable notifications before forgetting this pairing.');
+            }
+            data.push={enabled:false,hostId:null,registrationHash:null,pendingDisable:false};pushState='off';
             closeStream(); data.confirmed = false; data.session.paired = false; data.api = {}; data.fingerprint = null; words = null;
             models.clear(); data.cache = {}; data.session.threads = []; data.session.selectedThreadId = null;
             await app.dispatch({ type: 'network', online: false }); break;
           case 'suspend':
+            playbackGeneration++; playbackState='idle';
             suspended = true; updates.stop(); closeStream(); clearTimer(retryTimer);
             await app.dispatch({ type: 'network', online: false });
             if (recording) { await ports.native('recordStop', {}); recording = false; }
@@ -242,7 +299,7 @@
             const wasSuspended = suspended; suspended = false;
             if (updatePorts.clientInfo) updates.setClient(await updatePorts.clientInfo());
             void updates.start(); recordings = await ports.native('recordings', {}); if (wasSuspended) recording = false;
-            if (!link) connect(); else link.wake(); break;
+            if (!link) connect(); else link.wake(); if(data.push.enabled || data.push.pendingDisable) void syncNotifications(); break;
           }
           case 'network-recovered':
             lastConnectionProbe = -Infinity; void updates.refresh(true); link?.wake(); break;
@@ -281,6 +338,7 @@
           }
           case 'record-start':
             gate('recording'); if (recording) throw new Error('Already recording');
+            playbackGeneration++; playbackState='idle';
             await ports.native('recordStart', {}); recording = true;
             // A policy can change while the native permission prompt is open.
             try { gate('recording'); } catch (error) { await ports.native('recordStop', {}); recording = false; recordings = await ports.native('recordings', {}); throw error; }
@@ -302,13 +360,18 @@
           case 'reply-play': {
             if (!data.confirmed || !app.state().online || !api.offers('audio') || recording) throw Error('Connect to your Mac and stop recording before playback');
             const id=data.session.selectedThreadId, mine=generation, playback=++playbackGeneration;
+            playbackState='loading';
             // Fetch outside the action queue. Late audio must not start in a different conversation.
-            void api.fetchAudio(action.id,id).then(audio=>{
-              if (!closed && !suspended && generation===mine && playback===playbackGeneration && !recording) return ports.native('replyPlay',{id:audio});
-            }).catch(error=>{if (!closed && generation===mine && playback===playbackGeneration) failure(error);}); break;
+            void api.fetchAudio(action.id,id).then(async audio=>{
+              if (!closed && !suspended && generation===mine && playback===playbackGeneration && !recording) {
+                await ports.native('replyPlay',{id:audio});
+                if (playback===playbackGeneration) {playbackState='playing';emit();}
+              } else if (playback===playbackGeneration) {playbackState='idle';emit();}
+            }).catch(error=>{if (!closed && playback===playbackGeneration) {playbackState='idle';failure(error);}}); break;
           }
-          case 'playback-stop': playbackGeneration++; await ports.native('playbackStop',{}); break;
-          case 'record-play': await ports.native('recordPlay', { id: action.id }); break;
+          case 'playback-ended': playbackState='idle'; break;
+          case 'playback-stop': playbackGeneration++; playbackState='idle'; await ports.native('playbackStop',{}); break;
+          case 'record-play': playbackGeneration++; playbackState='idle'; await ports.native('recordPlay', { id: action.id }); break;
           case 'record-delete':
             if (recording) throw new Error('Stop recording before deleting a recording');
             if (data.outbox.some(x=>x.fileId===action.id)) throw Error('Resolve the queued voice message before deleting its recording');

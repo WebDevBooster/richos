@@ -951,7 +951,9 @@
         : PAIRED_AWAITING_WORDS;
       field("phone-paired-words").textContent = (status.fingerprintWords || []).join("  ");
       field("phone-paired-words").hidden = status.fingerprintConfirmed;
-      field("phone-push-state").textContent = status.pushReady
+      field("phone-push-state").textContent = status.pushTransport === "apns"
+        ? "Manage reply notifications in the RichOS iPhone app under Connection and settings."
+        : status.pushReady
         ? "It can reach you with a notification when Rich has something for you."
         : pushNotReadyFor(status.platform);
       // **SCREEN 6, DERIVED FROM THE RECORD.** What the phone paired over is a fact the Mac

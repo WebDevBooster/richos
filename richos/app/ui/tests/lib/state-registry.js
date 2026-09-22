@@ -66,6 +66,13 @@
 "use strict";
 
 module.exports = [
+  {"s":"Manage reply notifications in the RichOS iPhone app under Connection and settings.","c":"ACTIONABLE","control":"#phone-close","fixture":null,"why":"Native preferences are on the phone. This Mac view names their exact location and retains the close control, like the existing phone-side Web Push instructions. phone.js check 9d proves the native instruction excludes Safari installation."},
+  // Native notification API states.
+  {"s": "Invalid notification registration", "c": "UNREACHABLE", "why": "Defensive duplicate validation inside the native notification desk. The authenticated route rejects malformed registrations before calling it and the native adapter supplies fixed bundle/environment values."},
+  {"s": "Native notifications are unavailable", "c": "UNREACHABLE", "why": "Default bridge refusal. Production overrides it and routes refuse unsupported native-push capability before calling the default."},
+  {"s": "Reply notifications could not reach the service. Your conversation still works. Retry notifications in settings.", "c": "ACTIONABLE", "control": "#notifications-refresh", "fixture": null, "why": "Phone notification setup failure. The native settings view contains Retry notifications alongside its status; shared client tests prove that failure does not disable text."},
+  {"s": "This phone is no longer paired.", "c": "INFORMATIONAL", "why": "A registration racing revocation is rejected. No notification registration is retained for the revoked device. The route translates it to a bounded failure response."},
+
   // Native phone voice API states.
   {"s": "I could not hear speech in that recording. Your recording is still on your phone.", "c": "ACTIONABLE", "control": "#record-start", "fixture": null, "why": "Authenticated phone voice refusal. The native conversation keeps Record, saved recordings and the typed composer available in the same view. Mobile client voice checks cover retained files and no dispatch on cancellation; the Mac renderer does not display this phone API response."},
   {"s": "I could not transcribe that recording. Your recording is still on your phone.", "c": "ACTIONABLE", "control": "#record-start", "fixture": null, "why": "Authenticated phone voice refusal. The native conversation keeps Record, saved recordings and the typed composer available in the same view. Mobile client voice checks cover retained files and no dispatch on cancellation; the Mac renderer does not display this phone API response."},
