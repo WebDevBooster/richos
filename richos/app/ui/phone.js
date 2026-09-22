@@ -945,8 +945,9 @@
       // so it waits for him to settle it. What is true before that is that the phone reached
       // this Mac and is asking him the question — so that is what the line says, and it names
       // the thing he is being asked to do rather than leaving him to work it out.
-      field("phone-paired-state").textContent = status.fingerprintConfirmed
-        ? PAIRED_CONFIRMED
+      field("phone-paired-state").textContent = status.listening === false
+        ? "Your phone's pairing is saved. RichOS is trying to restore its connection."
+        : status.fingerprintConfirmed ? PAIRED_CONFIRMED
         : PAIRED_AWAITING_WORDS;
       field("phone-paired-words").textContent = (status.fingerprintWords || []).join("  ");
       field("phone-paired-words").hidden = status.fingerprintConfirmed;

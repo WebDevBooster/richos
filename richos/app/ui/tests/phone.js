@@ -2347,6 +2347,14 @@ async function openSheet(browser, theme, preset) {
     return "Managed setup, pairing instructions, disable and alternate route controls work in WebKit";
   });
 
+  await run.check("Connect keeps a saved pairing visible while the listener recovers", async () => {
+    const page = await openSheet(browser, "dark", { phoneConnect:{enabled:true,phase:"active"}, phonePaired:true, phonePairedVia:"connect", phoneListenerStopped:true });
+    assert(await page.locator("#phone-paired").isVisible());
+    assert(/pairing is saved.*restore its connection/.test(await page.locator("#phone-paired-state").textContent()));
+    assert(!await page.locator("#phone-connect-start").isVisible(), "Recovery offers to replace the pairing");
+    await page.close(); return "Saved pairing and recovery remain distinct from first use";
+  });
+
   await browser.close();
   const failed = run.report();
   console.log("\nScreenshots: " + SHOTS + " — both themes, both states.");

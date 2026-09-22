@@ -929,17 +929,20 @@ impl PhoneRuntime {
         let tailnet = TailnetView::from(&self.tailnet_now());
         let running = self.running.lock().unwrap();
         let Some(running) = running.as_ref() else {
+            // A listener failure does not erase the saved pairing. The recovery monitor
+            // can restart it without asking the person to replace the phone's identity.
+            let device = device::DeviceDesk::open(&self.data_dir).ok().and_then(|d| d.paired());
             return PhoneStatus {
                 connect: self.connect_view(None),
                 listening: false,
-                paired: false,
-                device_name: None,
-                paired_via: None,
+                paired: device.is_some(),
+                device_name: device.as_ref().map(|d| d.name.clone()),
+                paired_via: device.as_ref().map(|d| d.paired_via.clone()),
                 // Nothing is listening, so no window is being served over anything.
                 serving_via: None,
-                platform: None,
+                platform: device.as_ref().map(|d| d.platform.clone()),
                 push_ready: false,
-                fingerprint_confirmed: false,
+                fingerprint_confirmed: device.as_ref().is_some_and(|d| d.fingerprint_confirmed),
                 pair_url: None,
                 fingerprint_words: Vec::new(),
                 fingerprint_hex: None,

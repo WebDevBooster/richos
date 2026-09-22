@@ -138,7 +138,7 @@
         : null;
     return {
       ...(mockConnect ? { connect: mockConnect } : {}),
-      listening: mockPhone.paired || mockPhone.pairing,
+      listening: window.__RICHOS_MOCK_PRESET__?.phoneListenerStopped === true ? false : mockPhone.paired || mockPhone.pairing,
       paired: mockPhone.paired,
       // WHAT THE PAIRED PHONE IS AND HOW IT GOT HERE — the two fields `PhoneStatus` grew for
       // Ray's defect 3.2, and the reason the harness can reach all four combinations. The
