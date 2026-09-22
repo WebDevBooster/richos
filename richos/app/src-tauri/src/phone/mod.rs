@@ -38,6 +38,7 @@
 
 pub mod api_base;
 pub mod assets;
+pub mod attachments;
 pub mod bridge;
 pub mod ca;
 pub mod connect;

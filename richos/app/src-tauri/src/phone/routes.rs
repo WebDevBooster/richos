@@ -225,13 +225,27 @@ pub struct Channel {
     pub pairing_path: Mutex<&'static str>,
 }
 
-pub fn body_limit(method: &str, path: &str, content_type: Option<&str>) -> usize {
-    if method == "POST" && path == "/api/messages" && content_type == Some("audio/wav") { super::voice::MAX_UPLOAD } else { MAX_BODY_BYTES }
+/// The most bytes the listener will read for this request, decided from the request line and
+/// headers BEFORE the body is read. `kind=attachment` in the query is one file upload
+/// ([`super::attachments`]); `audio/wav` is a voice note; everything else is JSON.
+pub fn body_limit(method: &str, path: &str, query: &str, content_type: Option<&str>) -> usize {
+    if method != "POST" || path != "/api/messages" { return MAX_BODY_BYTES; }
+    if query_value(query, "kind") == Some("attachment") { return super::attachments::MAX_FILE_BYTES; }
+    if content_type == Some("audio/wav") { super::voice::MAX_UPLOAD } else { MAX_BODY_BYTES }
+}
+
+/// How long the listener waits for that body. JSON gets 15 s; a voice note 120 s (60 MB at
+/// 4 Mbit/s); a file 300 s — the arithmetic is at [`super::attachments::UPLOAD_SECONDS`].
+pub fn upload_seconds(method: &str, path: &str, query: &str, content_type: Option<&str>) -> u64 {
+    if method == "POST" && path == "/api/messages" && query_value(query, "kind") == Some("attachment") {
+        return super::attachments::UPLOAD_SECONDS;
+    }
+    if body_limit(method, path, query, content_type) > MAX_BODY_BYTES { 120 } else { 15 }
 }
 
 /// **The whole route table.** One match, one fall-through, and the fall-through is a 404.
 pub fn dispatch(channel: &Channel, request: &Incoming) -> Outcome {
-    if request.body.len() > body_limit(&request.method, &request.path, request.content_type.as_deref()) {
+    if request.body.len() > body_limit(&request.method, &request.path, &request.query, request.content_type.as_deref()) {
         return Outcome::PayloadTooLarge;
     }
     match (request.method.as_str(), request.path.as_str()) {
@@ -483,6 +497,11 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
         return refusal;
     }
 
+    // A FILE, before the voice check: an attachment upload names itself in the query, and its
+    // content type is the file's own, which must never be mistaken for a voice note.
+    if query_value(&request.query, "kind") == Some("attachment") {
+        return attachment_upload(channel, request);
+    }
     if query_value(&request.query, "kind") == Some("voice") || request.content_type.as_deref().is_some_and(|v| v.starts_with("audio/")) {
         return voice_message(channel, request);
     }
@@ -492,6 +511,9 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
         return Outcome::NotFound;
     };
     if client_id.is_empty() || client_id.len() > 128 { return Outcome::NotFound; }
+    if body.get("kind").and_then(|v| v.as_str()) == Some("attachments") {
+        return attachments_message(channel, request, &body, client_id);
+    }
     if body.get("kind").and_then(|v| v.as_str()).unwrap_or("text") != "text" {
         return Outcome::NotFound;
     }
@@ -552,6 +574,109 @@ fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
         Ok(Delivery::Conflict) => refuse(409,"That recording ID already belongs to a different message. The recording remains on your phone."),
         Ok(Delivery::Uncertain) => refuse(503,"The recording could not be confirmed. Check the conversation before sending again; the recording remains on your phone."),
         _ => refuse(503,"Your Mac could not save this recording's receipt. The recording remains on your phone."),
+    }
+}
+
+/// One refusal body for the attachment routes, in the shape the text route already uses:
+/// `accepted:false`, whether a retry of THIS request can help, and a sentence for the person.
+fn attachment_refusal(status: u16, retry: bool, reason: &str) -> Outcome {
+    Outcome::Json { status, body: json!({"accepted": false, "retry": retry, "reason": reason}).to_string() }
+}
+
+/// `POST /api/messages?kind=attachment&client_id=…&attachment_id=…[&name=…]` — one file.
+/// Signed like every request (the signature covers the query and the file's SHA-256), and
+/// idempotent: the same bytes under the same id answer `duplicate: true`.
+fn attachment_upload(channel: &Channel, request: &Incoming) -> Outcome {
+    use super::attachments::{Upload, MAX_RAW_NAME_BYTES};
+    let decoded = |name: &str| query_value(&request.query, name).and_then(|v| percent_decode_component(v).ok());
+    let Some(client) = decoded("client_id").filter(|c| !c.is_empty() && c.len() <= 128) else { return Outcome::NotFound };
+    let Some(id) = decoded("attachment_id").filter(|id| super::attachments::valid_id(id)) else { return Outcome::NotFound };
+    let name = decoded("name");
+    if name.as_ref().is_some_and(|n| n.len() > MAX_RAW_NAME_BYTES) { return Outcome::NotFound; }
+    let Some(content_type) = request.content_type.as_deref() else { return Outcome::NotFound };
+    let Some(device) = channel.devices.paired() else { return Outcome::NotFound };
+    let answer = |staged: super::attachments::Staged, duplicate: bool| Outcome::Json {
+        status: 200,
+        body: json!({"attachment_id": staged.id, "name": staged.name, "media_type": staged.media_type,
+                     "size": staged.size, "sha256": staged.sha256, "duplicate": duplicate}).to_string(),
+    };
+    match channel.devices.attachments.stage(&device.id, &client, &id, name.as_deref(), content_type, &request.body) {
+        Ok(Upload::Stored(staged)) => answer(staged, false),
+        Ok(Upload::Duplicate(staged)) => answer(staged, true),
+        Ok(Upload::Conflict) => attachment_refusal(409, false, "That file ID already belongs to a different file. The file is still on your phone."),
+        Ok(Upload::Refused(reason)) | Ok(Upload::Limit(reason)) => attachment_refusal(422, false, &reason),
+        Err(error) => {
+            eprintln!("[richos] a file from the phone could not be saved: {error}");
+            attachment_refusal(503, true, "Your Mac could not save this file just now. It is still on your phone and will be sent again.")
+        }
+    }
+}
+
+/// `POST /api/messages` with `kind:"attachments"` — the message that commits uploaded files.
+///
+/// ```json
+/// {"client_id":"…","thread_id":"thr_…","kind":"attachments","text":"optional words",
+///  "attachments":[{"id":"…","sha256":"<64 lowercase hex>"}],"sent_at":"…"}
+/// ```
+///
+/// Replay-safe by the same receipt as text. A file the Mac does not hold is answered `422` with
+/// `missing: [ids]` and NO reservation, so the phone uploads those and sends the same bytes again.
+fn attachments_message(channel: &Channel, request: &Incoming, body: &Value, client_id: &str) -> Outcome {
+    use super::attachments::{describe, valid_id, MAX_FILES_PER_MESSAGE};
+    let Some(thread) = body.get("thread_id").and_then(Value::as_str) else { return Outcome::NotFound };
+    if !channel.bridge.threads().iter().any(|(id, _)| id == thread) { return Outcome::NotFound; }
+    let text = match body.get("text") {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(t)) => t.trim().to_string(),
+        Some(_) => return Outcome::NotFound,
+    };
+    let Some(list) = body.get("attachments").and_then(Value::as_array) else { return Outcome::NotFound };
+    if list.is_empty() || list.len() > MAX_FILES_PER_MESSAGE { return Outcome::NotFound; }
+    let mut wanted: Vec<(String, String)> = Vec::new();
+    for item in list {
+        let id = item.get("id").and_then(Value::as_str).filter(|id| valid_id(id));
+        let sha = item.get("sha256").and_then(Value::as_str)
+            .filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+        let (Some(id), Some(sha)) = (id, sha) else { return Outcome::NotFound };
+        if wanted.iter().any(|(seen, _)| seen == id) { return Outcome::NotFound; }
+        wanted.push((id.to_string(), sha.to_string()));
+    }
+    let Some(device) = channel.devices.paired() else { return Outcome::NotFound };
+    let desk = &channel.devices.attachments;
+    let delivery = channel.devices.deliveries.execute_prepared(
+        &device.id,
+        client_id,
+        &request.body,
+        || desk.staged(&device.id, client_id, &wanted).map_err(|_| "missing".to_string()),
+        |files| {
+            // Revocation while the files were being checked must prevent a new command.
+            if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
+            let stored = desk.commit(&device.id, client_id, thread, &files).map_err(|e| e.to_string())?;
+            let accepted = channel.bridge.submit_text(Some(thread), &describe(&text, &stored))?;
+            let files: Vec<Value> = stored.iter()
+                .map(|f| json!({"id": f.id, "name": f.name, "media_type": f.media_type, "size": f.size}))
+                .collect();
+            Ok(json!({"message_id": accepted.message_id, "cursor": channel.hub.next_cursor(), "thread_id": accepted.thread_id,
+                "accepted_at": super::rows::iso8601(accepted.at), "attachments": files, "duplicate": false}).to_string())
+        },
+    );
+    use super::delivery::Delivery;
+    match delivery {
+        Ok(Delivery::Accepted(body)) => Outcome::Json { status: 200, body },
+        Ok(Delivery::Duplicate(answer)) => {
+            let mut value: Value = serde_json::from_str(&answer).unwrap_or(Value::Null);
+            if let Some(map) = value.as_object_mut() { map.insert("duplicate".into(), json!(true)); }
+            Outcome::Json { status: 200, body: value.to_string() }
+        }
+        Ok(Delivery::Rejected(_)) => {
+            let missing = match desk.staged(&device.id, client_id, &wanted) { Err(m) => m.0, Ok(_) => Vec::new() };
+            Outcome::Json { status: 422, body: json!({"accepted": false, "retry": true, "missing": missing,
+                "reason": "Some files have not reached your Mac yet. They are still on your phone and will be sent again."}).to_string() }
+        }
+        Ok(Delivery::Conflict) => attachment_refusal(409, false, "That message ID was already used for a different message. Your files are still on your phone."),
+        Ok(Delivery::Uncertain) => attachment_refusal(503, false, "Your Mac may already have this message. Check the conversation before sending it again; your files are still on your phone."),
+        Ok(Delivery::Full) => attachment_refusal(503, false, "Your Mac's message recovery history is full. Your files are still on your phone."),
+        Err(_) => attachment_refusal(503, false, "Your Mac could not save the delivery receipt. Your files are still on your phone."),
     }
 }
 
@@ -1187,7 +1312,7 @@ mod tests {
         let mut changed=bytes.clone();changed[45]^=1;
         let mut request=signed(&f,"POST","/api/messages",query,&changed);request.content_type=Some("audio/wav".into());
         assert_eq!(dispatch(&f.channel,&request).status(),409);
-        assert_eq!(body_limit("POST","/api/pair",Some("audio/wav")),MAX_BODY_BYTES);
+        assert_eq!(body_limit("POST","/api/pair","",Some("audio/wav")),MAX_BODY_BYTES);
         let mut oversized=signed(&f,"POST","/api/messages",query,vec![0;super::super::voice::MAX_UPLOAD+1]);oversized.content_type=Some("audio/wav".into());
         assert_eq!(dispatch(&f.channel,&oversized),Outcome::PayloadTooLarge);
     }
@@ -1724,6 +1849,194 @@ mod tests {
         f.channel.assets = PhoneApp::from_files(&[]);
         assert_eq!(dispatch(&f.channel, &plain("GET", "/")), Outcome::NotFound);
         assert_eq!(dispatch(&f.channel, &plain("GET", "/index.html")), Outcome::NotFound);
+    }
+
+    // --- photos and files ------------------------------------------------------------------------
+
+    const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, b'J', b'F', b'I', b'F', 0];
+    const PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n";
+
+    fn upload(f: &Fixture, client: &str, id: &str, name: &str, media: &str, bytes: &[u8]) -> Incoming {
+        let query = format!("kind=attachment&client_id={client}&attachment_id={id}&name={name}");
+        let mut request = signed(f, "POST", "/api/messages", &query, bytes);
+        request.content_type = Some(media.into());
+        request
+    }
+
+    fn sha(bytes: &[u8]) -> String {
+        super::super::hex(&super::super::sha256(bytes))
+    }
+
+    fn json_of(outcome: Outcome) -> (u16, Value) {
+        match outcome {
+            Outcome::Json { status, body } => (status, serde_json::from_str(&body).unwrap()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn commit_body(client: &str, text: &str, files: &[(&str, &[u8])]) -> String {
+        let list: Vec<Value> = files.iter().map(|(id, bytes)| json!({"id": id, "sha256": sha(bytes)})).collect();
+        json!({"client_id": client, "thread_id": "thr_5c1e", "kind": "attachments", "text": text,
+               "attachments": list, "sent_at": "2026-09-22T20:00:00.000Z"}).to_string()
+    }
+
+    /// The Mac restarting: a fresh device desk over the same directory, and a challenge from it.
+    fn restart(f: &mut Fixture) {
+        f.channel.devices = Arc::new(DeviceDesk::open(&f.dir.0).unwrap());
+        f.challenge = f.channel.devices.issue_challenge().unwrap();
+    }
+
+    #[test]
+    fn a_photo_and_a_pdf_reach_rich_as_one_message_naming_where_each_file_is() {
+        let f = fixture("attach-happy");
+        let (status, photo) = json_of(dispatch(&f.channel, &upload(&f, "msg-1", "p1", "IMG%200001.HEIC.jpg", "image/jpeg", JPEG)));
+        assert_eq!(status, 200, "{photo}");
+        assert_eq!(photo["name"], "IMG 0001.HEIC.jpg");
+        assert_eq!((photo["size"].as_u64(), photo["duplicate"].as_bool()), (Some(JPEG.len() as u64), Some(false)));
+        assert_eq!(photo["sha256"], sha(JPEG));
+        assert_eq!(json_of(dispatch(&f.channel, &upload(&f, "msg-1", "d1", "contract.pdf", "application/pdf", PDF))).0, 200);
+        // Uploading is not sending: nothing has reached Rich yet.
+        assert!(f.bridge.submitted.lock().unwrap().is_empty());
+
+        let body = commit_body("msg-1", "  Here is the contract.  ", &[("p1", JPEG), ("d1", PDF)]);
+        let (status, answer) = json_of(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &body)));
+        assert_eq!(status, 200, "{answer}");
+        assert_eq!(answer["message_id"], "msg_new");
+        assert_eq!(answer["duplicate"], false);
+        assert_eq!(answer["attachments"], json!([
+            {"id": "p1", "name": "IMG 0001.HEIC.jpg", "media_type": "image/jpeg", "size": JPEG.len()},
+            {"id": "d1", "name": "contract.pdf", "media_type": "application/pdf", "size": PDF.len()},
+        ]));
+        let submitted = f.bridge.submitted.lock().unwrap();
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(submitted[0].0.as_deref(), Some("thr_5c1e"));
+        let folder = f.dir.0.join("attachments").join("thr_5c1e").join("msg-1");
+        assert_eq!(
+            submitted[0].1,
+            format!(
+                "Here is the contract.\n\nAttached from the phone (2 files, saved on this Mac):\n- {} (image/jpeg, {} bytes)\n- {} (application/pdf, {} bytes)",
+                folder.join("IMG 0001.HEIC.jpg").display(), JPEG.len(), folder.join("contract.pdf").display(), PDF.len()
+            )
+        );
+        // The file Rich is pointed at holds exactly what the phone sent.
+        assert_eq!(std::fs::read(folder.join("contract.pdf")).unwrap(), PDF);
+    }
+
+    #[test]
+    fn a_retried_commit_after_a_mac_restart_is_one_message_and_a_changed_one_is_refused() {
+        let mut f = fixture("attach-replay");
+        dispatch(&f.channel, &upload(&f, "msg-2", "p1", "a.jpg", "image/jpeg", JPEG));
+        let body = commit_body("msg-2", "", &[("p1", JPEG)]);
+        let (_, first) = json_of(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &body)));
+        restart(&mut f);
+        // The answer was lost; the phone sends the identical bytes again after the Mac restarted.
+        let (status, again) = json_of(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &body)));
+        assert_eq!(status, 200);
+        assert_eq!(again["duplicate"], true);
+        assert_eq!(again["message_id"], first["message_id"]);
+        assert_eq!(again["attachments"], first["attachments"]);
+        // And a late retry of the UPLOAD is harmless too: it stages a copy that nothing commits.
+        assert_eq!(json_of(dispatch(&f.channel, &upload(&f, "msg-2", "p1", "a.jpg", "image/jpeg", JPEG))).0, 200);
+        assert_eq!(json_of(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &body))).1["duplicate"], true);
+        assert_eq!(f.bridge.submitted.lock().unwrap().len(), 1, "one message reached Rich twice");
+        let changed = commit_body("msg-2", "different words", &[("p1", JPEG)]);
+        assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &changed)).status(), 409);
+        assert_eq!(f.bridge.submitted.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_retried_upload_after_a_restart_is_recognized_and_a_different_file_under_its_id_is_refused() {
+        let mut f = fixture("attach-upload-replay");
+        assert_eq!(json_of(dispatch(&f.channel, &upload(&f, "msg-3", "p1", "a.jpg", "image/jpeg", JPEG))).1["duplicate"], false);
+        restart(&mut f);
+        assert_eq!(json_of(dispatch(&f.channel, &upload(&f, "msg-3", "p1", "a.jpg", "image/jpeg", JPEG))).1["duplicate"], true);
+        let mut other = JPEG.to_vec();
+        other.push(9);
+        let (status, refusal) = json_of(dispatch(&f.channel, &upload(&f, "msg-3", "p1", "a.jpg", "image/jpeg", &other)));
+        assert_eq!((status, refusal["retry"].as_bool()), (409, Some(false)));
+    }
+
+    #[test]
+    fn a_commit_naming_a_file_the_mac_does_not_hold_lists_it_and_reserves_nothing() {
+        let f = fixture("attach-missing");
+        dispatch(&f.channel, &upload(&f, "msg-4", "p1", "a.jpg", "image/jpeg", JPEG));
+        let body = commit_body("msg-4", "two files", &[("p1", JPEG), ("d1", PDF)]);
+        let (status, answer) = json_of(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &body)));
+        assert_eq!(status, 422);
+        assert_eq!(answer["missing"], json!(["d1"]));
+        assert_eq!(answer["retry"], true);
+        assert!(f.bridge.submitted.lock().unwrap().is_empty());
+        // The phone uploads the missing one and sends the SAME message bytes: it goes through,
+        // because the refusal reserved nothing.
+        dispatch(&f.channel, &upload(&f, "msg-4", "d1", "b.pdf", "application/pdf", PDF));
+        let (status, answer) = json_of(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", &body)));
+        assert_eq!((status, answer["duplicate"].as_bool()), (200, Some(false)));
+        assert_eq!(f.bridge.submitted.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn files_the_mac_does_not_take_are_refused_with_a_sentence_and_oversize_is_refused_unread() {
+        let f = fixture("attach-refuse");
+        for (media, bytes) in [("application/zip", b"PK\x03\x04".as_slice()), ("image/jpeg", b"#!/bin/sh".as_slice()), ("application/pdf", b"".as_slice())] {
+            let (status, refusal) = json_of(dispatch(&f.channel, &upload(&f, "msg-5", "x1", "f", media, bytes)));
+            assert_eq!(status, 422, "{media}");
+            assert_eq!(refusal["retry"], false);
+            assert!(refusal["reason"].as_str().unwrap().ends_with('.'), "{refusal}");
+        }
+        assert_eq!(body_limit("POST", "/api/messages", "kind=attachment&client_id=c", Some("image/jpeg")), 26_214_400);
+        assert_eq!(upload_seconds("POST", "/api/messages", "kind=attachment", Some("image/jpeg")), 300);
+        // The ceilings every other request had are untouched.
+        assert_eq!(body_limit("POST", "/api/messages", "", Some("application/json")), MAX_BODY_BYTES);
+        assert_eq!(body_limit("POST", "/api/messages", "kind=voice", Some("audio/wav")), super::super::voice::MAX_UPLOAD);
+        assert_eq!(body_limit("POST", "/api/pair", "kind=attachment", Some("image/jpeg")), MAX_BODY_BYTES);
+        assert_eq!(upload_seconds("POST", "/api/messages", "", Some("audio/wav")), 120);
+        assert_eq!(upload_seconds("POST", "/api/messages", "", Some("application/json")), 15);
+        let mut oversized = upload(&f, "msg-5", "big", "f.jpg", "image/jpeg", JPEG);
+        oversized.body = vec![0xFF; super::super::attachments::MAX_FILE_BYTES + 1];
+        assert_eq!(dispatch(&f.channel, &oversized), Outcome::PayloadTooLarge);
+    }
+
+    #[test]
+    fn malformed_attachment_requests_get_the_same_flat_404_as_everything_else() {
+        let f = fixture("attach-malformed");
+        // Unsigned, and signed-but-malformed, both look like nothing.
+        let mut unsigned = upload(&f, "msg-6", "p1", "a.jpg", "image/jpeg", JPEG);
+        unsigned.authorization = None;
+        assert_eq!(dispatch(&f.channel, &unsigned), Outcome::NotFound);
+        for query in ["kind=attachment&attachment_id=p1", "kind=attachment&client_id=c", "kind=attachment&client_id=c&attachment_id=../p1", "kind=attachment&client_id=c&attachment_id=a.b"] {
+            let mut request = signed(&f, "POST", "/api/messages", query, JPEG);
+            request.content_type = Some("image/jpeg".into());
+            assert_eq!(dispatch(&f.channel, &request), Outcome::NotFound, "{query}");
+        }
+        let mut no_type = upload(&f, "msg-6", "p1", "a.jpg", "image/jpeg", JPEG);
+        no_type.content_type = None;
+        assert_eq!(dispatch(&f.channel, &no_type), Outcome::NotFound);
+        let long_name = upload(&f, "msg-6", "p1", &"n".repeat(1025), "image/jpeg", JPEG);
+        assert_eq!(dispatch(&f.channel, &long_name), Outcome::NotFound);
+        let sha = sha(JPEG);
+        for body in [
+            json!({"client_id":"m","thread_id":"thr_5c1e","kind":"attachments","attachments":[]}),
+            json!({"client_id":"m","thread_id":"thr_5c1e","kind":"attachments"}),
+            json!({"client_id":"m","thread_id":"thr_other","kind":"attachments","attachments":[{"id":"p1","sha256":sha}]}),
+            json!({"client_id":"m","kind":"attachments","attachments":[{"id":"p1","sha256":sha}]}),
+            json!({"client_id":"m","thread_id":"thr_5c1e","kind":"attachments","attachments":[{"id":"p1","sha256":sha.to_uppercase()}]}),
+            json!({"client_id":"m","thread_id":"thr_5c1e","kind":"attachments","attachments":[{"id":"p1","sha256":sha},{"id":"p1","sha256":sha}]}),
+            json!({"client_id":"m","thread_id":"thr_5c1e","kind":"attachments","text":7,"attachments":[{"id":"p1","sha256":sha}]}),
+            json!({"client_id":"m","thread_id":"thr_5c1e","kind":"attachments","attachments":(0..11).map(|n| json!({"id":format!("f{n}"),"sha256":sha})).collect::<Vec<_>>()}),
+        ] {
+            assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", body.to_string())), Outcome::NotFound, "{body}");
+        }
+        assert!(f.bridge.submitted.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_text_route_is_unchanged_by_attachments() {
+        // A text message that happens to carry an `attachments` key is still a text message, as
+        // it was before this route existed: the key selects nothing unless `kind` says so.
+        let f = fixture("attach-text");
+        let body = r#"{"client_id":"t1","thread_id":"thr_5c1e","kind":"text","text":"plain words","attachments":[{"id":"p1"}]}"#;
+        assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", body)).status(), 200);
+        assert_eq!(f.bridge.submitted.lock().unwrap()[0].1, "plain words");
     }
 
     #[test]

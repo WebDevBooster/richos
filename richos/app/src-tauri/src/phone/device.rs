@@ -369,6 +369,9 @@ pub struct DeviceDesk {
     path: PathBuf,
     state: Mutex<State>,
     pub deliveries: super::delivery::DeliveryDesk,
+    /// Photos and files the phone uploaded, staged until their message commits
+    /// ([`super::attachments`]). Opening it does no I/O.
+    pub attachments: super::attachments::AttachmentDesk,
 }
 
 struct State {
@@ -486,6 +489,7 @@ impl DeviceDesk {
         let device = device.filter(|d| !revoked.contains(&d.id));
         Ok(DeviceDesk {
             deliveries: super::delivery::DeliveryDesk::open(dir)?,
+            attachments: super::attachments::AttachmentDesk::open(dir),
             path,
             state: Mutex::new(State {
                 device,
