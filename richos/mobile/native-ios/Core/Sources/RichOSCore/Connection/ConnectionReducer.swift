@@ -41,6 +41,27 @@ public enum ConnectionReducer {
             } else {
                 s.voiceAvailability = .unsupportedByMac
             }
+        case .pairingRevoked:
+            // Final for the pairing, not for his words: the conversation and anything unsent stay.
+            s.pairing = .revoked
+            s.troubleSinceMs = nil
+            s.connectionNotice = nil
+            effects.append(.disconnect)
+        case .macAttachmentLimits(let limits):
+            s.attachmentLimits = limits
+        case .pushRegistered(let hostID):
+            s.notifications.status = .on
+            s.notifications.hostID = hostID
+            s.notifications.offerDismissed = true
+        case .foregrounded(let at):
+            guard s.pairing == .paired else { return }
+            effects.append(.connect)
+            ConversationReducer.pump(&s, at: at, &effects)
+        case .backgrounded:
+            // No stream in the background (build plan §3.2): APNs is for awareness, the foreground
+            // reconciles. The quiet period restarts on return.
+            s.troubleSinceMs = nil
+            if s.pairing == .paired { effects.append(.disconnect) }
         case .tick(let at):
             if let since = s.troubleSinceMs, s.connectionNotice == nil, at - since >= quietMs {
                 s.connectionNotice = .reconnecting

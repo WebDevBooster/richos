@@ -127,7 +127,7 @@ public enum ConversationReducer {
         s.outbox.append(OutboxItem(clientID: clientID, kind: .text,
                                    body: textBody(clientID: clientID, threadID: s.mac?.threadID, text: text, sentAt: at),
                                    queuedAt: at))
-        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting))
+        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting, clientID: clientID))
         s.draft = ""
         s.toast = nil
         // Both send gestures resume following immediately (PRD §5).
@@ -153,8 +153,19 @@ public enum ConversationReducer {
         if let i = s.messages.firstIndex(where: { $0.id == id }) { s.messages[i].delivery = delivery }
     }
 
-    /// Adds or replaces by id, keeping the conversation ordered by time (stable for equal times).
+    /// Adds or replaces by id, keeping the conversation ordered by time (stable for equal times). The
+    /// Mac's row for one of your messages retires the phone's own bubble for it: by `clientID` when
+    /// the row carries it, else by the same text on a bubble the Mac has already accepted (the
+    /// reference thread model's rule).
     private static func merge(_ s: inout AppState, _ incoming: [Message]) {
+        for message in incoming where message.author == .me {
+            s.messages.removeAll { local in
+                guard local.id != message.id, local.author == .me, local.delivery == nil,
+                      !s.outbox.contains(where: { $0.clientID == local.id }) else { return false }
+                if let clientID = message.clientID { return local.id == clientID }
+                return local.clientID == local.id && local.text == message.text
+            }
+        }
         for message in incoming {
             if let i = s.messages.firstIndex(where: { $0.id == message.id }) {
                 s.messages[i] = message
@@ -162,9 +173,17 @@ public enum ConversationReducer {
                 s.messages.append(message)
             }
         }
-        s.messages = s.messages.enumerated()
-            .sorted { $0.element.sentAt != $1.element.sentAt ? $0.element.sentAt < $1.element.sentAt : $0.offset < $1.offset }
-            .map(\.element)
+        // The Mac's rows in history-cursor order; the phone's own bubbles (no cursor yet) after them
+        // in the order they were sent.
+        s.messages = s.messages.enumerated().sorted { a, b in
+            switch (a.element.cursor, b.element.cursor) {
+            case let (x?, y?) where x != y: return x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default:
+                return a.element.sentAt != b.element.sentAt ? a.element.sentAt < b.element.sentAt : a.offset < b.offset
+            }
+        }.map(\.element)
     }
 
     /// The text request body (contract §5.2), in the reference's field order, serialized once.

@@ -18,8 +18,25 @@ final class AppStore {
     /// When the stored state could not be read, nothing is written over it: it may hold unsent
     /// work (the preserved client's rule, `richos/mobile/DEVELOPMENT.md` "Session schema 2").
     @ObservationIgnored private var storageIsReadOnly = false
-    /// Effects run in the order their actions happened; each write waits for the one before.
+    /// Writes run in the order their actions happened; each waits for the one before. The network
+    /// and platform effects run beside them, so a slow Mac never delays saving a draft.
     @ObservationIgnored private var lastWrite: Task<Void, Never>?
+
+    #if DEBUG
+    /// Development only: a fixture is a still frame. After the bridge's `fixture` or `reset`, the
+    /// network and platform effects and the clock's ticks stop, so a screenshot shows the design and
+    /// a scenario runs exactly as it does headless. A relaunch resumes normal operation.
+    @ObservationIgnored var effectsSuspended = false
+    #endif
+
+    /// Whether the app's clock should drive `tick`.
+    var ticking: Bool {
+        #if DEBUG
+        return !effectsSuspended
+        #else
+        return true
+        #endif
+    }
 
     init(state: AppState, runner: EffectRunner) {
         self.state = state
@@ -59,10 +76,20 @@ final class AppStore {
         apply(action)
     }
 
+    /// What long-running sources (the live connection) report. In a Debug fixture it is dropped: a
+    /// fixture is a still frame, and a connection opened before it must not rewrite it.
+    func receive(_ action: Action) {
+        #if DEBUG
+        if effectsSuspended { return }
+        #endif
+        apply(action)
+    }
+
     @discardableResult
     func apply(_ action: Action) -> Task<Void, Never> {
         let (next, effects) = Reducer.reduce(state, action)
-        state = next
+        // Only a real change is published, so a tick with nothing to do redraws nothing.
+        if next != state { state = next }
         return perform(effects, snapshot: next)
     }
 
@@ -97,24 +124,31 @@ final class AppStore {
 
     private func perform(_ effects: [Effect], snapshot: AppState) -> Task<Void, Never> {
         let previous = lastWrite
-        // An unreadable stored state is never written over; every other effect still runs.
-        let effects = storageIsReadOnly ? effects.filter { $0 != .persist } : effects
-        guard !effects.isEmpty else {
-            return Task { await previous?.value }
-        }
         let runner = self.runner
-        let task = Task { [weak self] in
+        // An unreadable stored state is never written over; every other effect still runs.
+        let writes = storageIsReadOnly ? [] : effects.filter { $0 == .persist }
+        var others = effects.filter { $0 != .persist }
+        #if DEBUG
+        if effectsSuspended { others = [] }
+        #endif
+        let work = Task { [weak self] in
+            // An effect's answer ("the microphone is allowed", "the Mac accepted it") is an action
+            // like any other: it goes through the reducer.
+            guard !others.isEmpty, let followUps = try? await runner.run(others, state: snapshot) else { return }
+            for action in followUps { self?.apply(action) }
+        }
+        guard !writes.isEmpty else {
+            return Task { await previous?.value; await work.value }
+        }
+        let write = Task { [weak self] in
             await previous?.value
             do {
-                // An effect's answer ("the microphone is allowed", "the Mac accepted it") is an
-                // action like any other: it goes through the reducer, in order.
-                let followUps = try await runner.run(effects, state: snapshot)
-                for action in followUps { self?.apply(action) }
+                try await runner.run(writes, state: snapshot)
             } catch {
                 self?.persistenceProblem = "This iPhone could not save your latest changes."
             }
         }
-        lastWrite = task
-        return task
+        lastWrite = write
+        return Task { await write.value; await work.value }
     }
 }

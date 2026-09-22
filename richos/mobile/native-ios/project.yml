@@ -9,6 +9,9 @@
 # Owner: stream I1 (build plan §5.0). Screens (App/Features, App/Design) and UI tests (UITests)
 # belong to I2 and need no change here to be added; so does UnitTests.
 name: RichOSNative
+# Stream I3's release, extension and platform additions (they only ADD; see that file's header).
+include:
+  - path: Release/platform.yml
 options:
   deploymentTarget:
     iOS: "17.0"

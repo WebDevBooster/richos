@@ -100,7 +100,7 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             // are null until the CEO's App Store Connect record); nothing to open, nothing guessed.
             return []
 
-        case .persist, .pair, .confirmFingerprint, .forgetIdentity, .deliver, .loadOlder, .fetchReplyAudio,
+        case .persist, .pair, .confirmFingerprint, .forgetIdentity, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect,
              .unregisterNotifications:
             return await network?.handle(effect, state: state) ?? []
         }

@@ -1,0 +1,177 @@
+import Foundation
+
+/// Opens `GET /api/events` and yields its bytes as they arrive. `URLSession.bytes(for:)` in the app;
+/// a scripted stream in tests.
+public protocol EventStreamTransport: Sendable {
+    func open(_ request: HTTPRequest, origin: String) async throws -> (response: HTTPResponse, bytes: AsyncThrowingStream<Data, Error>)
+}
+
+/// The one owner of the live stream (build plan §3.2; T3's single connection owner, adoption ledger
+/// §2.8 C1, written for RichOS's signed HTTP + SSE). One stream at a time; a superseded attempt never
+/// publishes; retries wait 1 s doubling to 30 s (the reference `web/web-app/lib/link.js`) and the wait
+/// resets once a frame proves the stream usable; before a retry the challenge is refreshed; after a
+/// failure a revocation probe tells "removed from the Mac" from "unreachable"; `: re-snapshot` ends
+/// the stream and the next one starts without `since`. Everything the stream learns reaches the
+/// store as actions, so the reducer stays the only place state changes.
+public actor LiveConnection {
+    public typealias Sink = @Sendable (Action) async -> Void
+    public typealias Sleep = @Sendable (Int64) async throws -> Void
+
+    private let api: APIClient
+    private let stream: any EventStreamTransport
+    private let clock: any Clock
+    private let sink: Sink
+    private let sleep: Sleep
+    private var threadID: String?
+    private var model: ThreadModel
+    /// What the store has been told, by row id, so only changes are sent.
+    private var told: [String: StreamRow] = [:]
+    /// The last frame's `id:` (the live cursor). A reconnect resumes from it — never from a row's
+    /// history cursor or `latest_cursor`, which drift apart (Echo's measurement: three live cursors
+    /// per phone message, two history positions).
+    private var lastFrameID: Int?
+    private var task: Task<Void, Never>?
+    private var generation = 0
+    public private(set) var attempts = 0
+
+    public static let firstRetryMs: Int64 = 1000
+    public static let maxRetryMs: Int64 = 30000
+
+    public init(api: APIClient, stream: any EventStreamTransport, threadID: String?, clock: any Clock = SystemClock(),
+                sleep: @escaping Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) },
+                sink: @escaping Sink) {
+        self.api = api; self.stream = stream; self.clock = clock; self.sink = sink; self.sleep = sleep
+        self.threadID = threadID
+        model = ThreadModel(selectedThread: threadID)
+    }
+
+    public func start() {
+        guard task == nil else { return }
+        generation += 1
+        let mine = generation
+        task = Task { await self.run(mine) }
+    }
+
+    public func stop() {
+        generation += 1
+        task?.cancel()
+        task = nil
+    }
+
+    /// The oldest cursor held, for `before=` when older history is asked for.
+    public func oldestCursor() -> Int? { model.view.first?.cursor }
+
+    /// An older page fetched elsewhere joins the model, so later frames and pages line up with it.
+    public func prepend(_ rows: [StreamRow], more: Bool) {
+        model.prependOlder(rows, more: more)
+        for row in rows { told[row.id] = row }
+    }
+
+    /// Waits for the current run to end (tests).
+    public func finished() async { await task?.value }
+
+    private func run(_ mine: Int) async {
+        var delay = Self.firstRetryMs
+        var since: Int?
+        var first = true
+        while mine == generation, !Task.isCancelled {
+            if !first { _ = try? await api.probeChallenge() }
+            first = false
+            attempts += 1
+            var path = "/api/events"
+            var query: [String] = []
+            if let threadID { query.append("thread_id=\(Delivery.formEncode(threadID))") }
+            if let since { query.append("since=\(since)") }
+            if !query.isEmpty { path += "?" + query.joined(separator: "&") }
+            var resnapshot = false
+            do {
+                let request = try await api.signedRequest("GET", path, credential: .query)
+                let (response, bytes) = try await stream.open(request, origin: api.origin)
+                if response.status != 200 {
+                    if response.status == 403, APIClient.classify(response).reason == .revoked {
+                        await sink(.pairingRevoked)
+                        return
+                    }
+                    throw APIClient.classify(response)
+                }
+                var parser = SSEParser()
+                for try await chunk in bytes {
+                    guard mine == generation else { return }
+                    let (events, comments) = parser.feed(chunk)
+                    for event in events {
+                        try await apply(event)
+                        delay = Self.firstRetryMs   // a frame proves the stream usable
+                    }
+                    if comments.contains(where: { $0.hasPrefix("re-snapshot") }) { resnapshot = true; break }
+                }
+            } catch {
+                // fall through to the retry below
+            }
+            guard mine == generation, !Task.isCancelled else { return }
+            if resnapshot {
+                since = nil
+                lastFrameID = nil
+                told = [:]
+                model = ThreadModel(selectedThread: threadID)
+            } else {
+                since = lastFrameID.map { max(0, $0 - 1) }
+                await sink(.connectionLost(at: clock.nowMs()))
+                if await probeRevoked() {
+                    await sink(.pairingRevoked)
+                    return
+                }
+            }
+            if !resnapshot {
+                do { try await sleep(delay) } catch { return }
+                delay = min(delay * 2, Self.maxRetryMs)
+            }
+        }
+    }
+
+    /// After a stream error: `before=0&limit=1` on the same route answers 403 `{"revoked":true}`
+    /// only when this phone was removed (the reference's revocation probe, corpus signing.json).
+    private func probeRevoked() async -> Bool {
+        var path = "/api/events?"
+        if let threadID { path += "thread_id=\(Delivery.formEncode(threadID))&" }
+        path += "before=0&limit=1"
+        guard let response = try? await api.signed("GET", path, credential: .query) else { return false }
+        return response.status == 403 && APIClient.classify(response).reason == .revoked
+    }
+
+    private func apply(_ event: SSEParser.Event) async throws {
+        if let id = event.id { lastFrameID = id }
+        if event.event == "hello" {
+            let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
+            if let challenge = hello.challenge { await api.adopt(challenge: challenge) }
+            if threadID == nil, let thread = hello.threadID { threadID = thread; model.selectedThread = thread }
+            await sink(.connected(at: clock.nowMs()))
+            // An older Mac advertises nothing; only an explicit list without "text" means it cannot
+            // take text (the preserved client's `!negotiated || offers('text')`).
+            if let capabilities = hello.capabilities, !capabilities.isEmpty {
+                await sink(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
+                await sink(.macAttachmentLimits(capabilities.contains("attachments") ? hello.attachmentLimits : nil))
+            }
+        }
+        try model.apply(event)
+        await publish()
+    }
+
+    /// Sends the store what changed: finished rows as messages, and the one reply being written.
+    private func publish() async {
+        var arrived: [Message] = []
+        for row in model.view where told[row.id] != row {
+            let before = told[row.id]
+            told[row.id] = row
+            if row.complete {
+                if row.role == "rich", before != nil, before?.complete == false {
+                    await sink(.replyFinished(row.message))
+                } else {
+                    arrived.append(row.message)
+                }
+            } else if row.role == "rich" {
+                await sink(row.text.isEmpty ? .replyStarted : .replyDelta(text: row.text))
+            }
+        }
+        if !arrived.isEmpty { await sink(.messagesArrived(arrived)) }
+    }
+}
