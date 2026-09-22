@@ -26,7 +26,7 @@ struct ScreenModel: Equatable, Sendable {
     /// The recording gesture, exactly as the core holds it.
     var voice: VoiceSession?
     /// Photos and files (round-12 `attachments.html`): the menu, the tray, the viewer. Empty until the
-    /// core carries attachments (`CORE-REQUESTS.md` §7).
+    /// core carries attachments (`native-ios/docs/CORE-REQUESTS.md` §1).
     var attach = Attach()
 
     // MARK: Parts
