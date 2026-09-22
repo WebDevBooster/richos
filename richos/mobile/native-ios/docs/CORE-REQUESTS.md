@@ -32,3 +32,5 @@ The views exist (`App/Features/Attachments/`, round-12 `attachments.html`) and r
 | `checkForUpdates`, `checkAgain` | Settings row, update dialog | a policy re-fetch action |
 | `dismissCard("mic-denied")` | `rec-mic-denied` "Not now" | a dismissal the core remembers |
 | a reply's time | `conv-replying`, `conv-streaming` | `ReplyActivity` carries no time; the row shows the last message's |
+| `hearReply(id)` entry point | Rich's replies | nothing says which replies can be heard (PRD: "expose reply playback whenever the Mac supports it"), so "Hear it" appears only while `playback` names that reply; a `Message.audioAvailable` (or a Mac capability) would show it at rest |
+| the microphone mirror | every voice gesture | `.microphonePermission` on launch and on becoming active, and a port for `.requestMicrophone` (in progress, I3 adapter + I1 effect seam) |
