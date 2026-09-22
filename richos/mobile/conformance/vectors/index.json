@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "file": "index.json",
+  "purpose": "The RichOS phone protocol conformance corpus. Both native apps (Swift, Kotlin) load these files in their fast logic tests and must pass every case. See README.md.",
+  "generated_by": "richos/mobile/conformance/generate.mjs",
+  "generated_from": [
+    "richos/web/web-app/lib/api.js",
+    "richos/web/web-app/lib/queue.js",
+    "richos/web/web-app/lib/thread.js",
+    "richos/web/web-app/lib/inbound.js",
+    "richos/web/web-app/lib/fingerprint.js",
+    "richos/web/web-app/lib/wordlist.js",
+    "richos/web/web-app/lib/pcm.js",
+    "richos/mobile/core/client.js",
+    "richos/mobile/platform/native.js"
+  ],
+  "verified_by": [
+    "node:crypto (every signature, at generation)",
+    "richos/mobile/conformance/verifier (the Mac production Rust verifier, cargo test)"
+  ],
+  "files": [
+    {
+      "file": "keys.json",
+      "cases": 1,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "pairing.json",
+      "cases": 38,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "fingerprint.json",
+      "cases": 12,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "signing.json",
+      "cases": 26,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "challenge.json",
+      "cases": 9,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "retry.json",
+      "cases": 5,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "errors.json",
+      "cases": 15,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "events.json",
+      "cases": 16,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "voice.json",
+      "cases": 5,
+      "expectations": "the reference client modules; signatures proven by verifier/"
+    },
+    {
+      "file": "attachments.json",
+      "cases": 39,
+      "expectations": "Mac-defined: declared in the generator, proven by verifier/ against the Mac code"
+    },
+    {
+      "file": "push-registration-fcm.json",
+      "cases": 23,
+      "expectations": "Mac-defined: declared in the generator, proven by verifier/ against the Mac code"
+    }
+  ]
+}

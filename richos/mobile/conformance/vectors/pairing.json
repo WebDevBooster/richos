@@ -1,0 +1,687 @@
+{
+  "schema": 1,
+  "file": "pairing.json",
+  "source": "mobile/core/client.js pairingLink; web/web-app/lib/api.js pair and confirmFingerprint; web/web-app/lib/inbound.js validateApiBase",
+  "link_format": "<origin>/#pair=<code>",
+  "code": {
+    "alphabet": "23456789ABCDEFGHJKMNPQRSTVWXYZ",
+    "length": 8
+  },
+  "links": [
+    {
+      "name": "tailnet route",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H",
+      "accept": true,
+      "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+      "code": "K7M2QX9H"
+    },
+    {
+      "name": "connect route",
+      "input": "https://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo/#pair=K7M2QX9H",
+      "accept": true,
+      "origin": "https://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo",
+      "code": "K7M2QX9H"
+    },
+    {
+      "name": "no trailing slash before the fragment",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443#pair=K7M2QX9H",
+      "accept": true,
+      "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+      "code": "K7M2QX9H"
+    },
+    {
+      "name": "default https port",
+      "input": "https://mm1.tail1a2b3c.ts.net/#pair=K7M2QX9H",
+      "accept": true,
+      "origin": "https://mm1.tail1a2b3c.ts.net",
+      "code": "K7M2QX9H"
+    },
+    {
+      "name": "uppercase scheme and host are normalized",
+      "input": "HTTPS://MM1.TAIL1A2B3C.TS.NET:8443/#pair=K7M2QX9H",
+      "accept": true,
+      "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+      "code": "K7M2QX9H"
+    },
+    {
+      "name": "percent-encoded code is decoded",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2%51X9H",
+      "accept": true,
+      "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+      "code": "K7M2QX9H"
+    },
+    {
+      "name": "plain http",
+      "input": "http://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H",
+      "accept": false,
+      "error": "Pairing requires an HTTPS origin"
+    },
+    {
+      "name": "a path",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/x#pair=K7M2QX9H",
+      "accept": false,
+      "error": "Pairing requires an HTTPS origin"
+    },
+    {
+      "name": "a query",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/?q=1#pair=K7M2QX9H",
+      "accept": false,
+      "error": "Pairing requires an HTTPS origin"
+    },
+    {
+      "name": "user info",
+      "input": "https://user:pw@mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H",
+      "accept": false,
+      "error": "Pairing requires an HTTPS origin"
+    },
+    {
+      "name": "two codes",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=A&pair=B",
+      "accept": false,
+      "error": "The link needs one pairing code"
+    },
+    {
+      "name": "an extra fragment key",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H&x=1",
+      "accept": false,
+      "error": "The link needs one pairing code"
+    },
+    {
+      "name": "an empty code",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=",
+      "accept": false,
+      "error": "The link needs one pairing code"
+    },
+    {
+      "name": "no fragment",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/",
+      "accept": false,
+      "error": "The link needs one pairing code"
+    },
+    {
+      "name": "a space",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2 QX9H",
+      "accept": false,
+      "error": "Paste the complete HTTPS pairing link from your Mac"
+    },
+    {
+      "name": "a trailing newline",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H\n",
+      "accept": false,
+      "error": "Paste the complete HTTPS pairing link from your Mac"
+    },
+    {
+      "name": "a backslash",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443\\#pair=K7M2QX9H",
+      "accept": false,
+      "error": "Paste the complete HTTPS pairing link from your Mac"
+    },
+    {
+      "name": "not a URL",
+      "input": "K7M2QX9H",
+      "accept": false,
+      "error": "Invalid URL"
+    },
+    {
+      "name": "longer than 4096 characters",
+      "input": "https://mm1.tail1a2b3c.ts.net:8443/#pair=KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+      "accept": false,
+      "error": "Paste the complete HTTPS pairing link from your Mac"
+    }
+  ],
+  "api_base_validation": {
+    "paired_origin": "https://mm1.tail1a2b3c.ts.net:8443",
+    "cases": [
+      {
+        "name": "the paired origin",
+        "value": "https://mm1.tail1a2b3c.ts.net:8443",
+        "accept": true,
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443"
+      },
+      {
+        "name": "the paired origin with a trailing slash",
+        "value": "https://mm1.tail1a2b3c.ts.net:8443/",
+        "accept": true,
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443"
+      },
+      {
+        "name": "a different host",
+        "value": "https://evil.example:8443",
+        "accept": false,
+        "reason": "a different origin from the app"
+      },
+      {
+        "name": "a different port",
+        "value": "https://mm1.tail1a2b3c.ts.net:9443",
+        "accept": false,
+        "reason": "a different origin from the app"
+      },
+      {
+        "name": "plain http",
+        "value": "http://mm1.tail1a2b3c.ts.net:8443",
+        "accept": false,
+        "reason": "not an https address"
+      },
+      {
+        "name": "a path",
+        "value": "https://mm1.tail1a2b3c.ts.net:8443/api",
+        "accept": false,
+        "reason": "a path in the address"
+      },
+      {
+        "name": "a query",
+        "value": "https://mm1.tail1a2b3c.ts.net:8443/?x=1",
+        "accept": false,
+        "reason": "a query string in the address"
+      },
+      {
+        "name": "a fragment",
+        "value": "https://mm1.tail1a2b3c.ts.net:8443/#x",
+        "accept": false,
+        "reason": "a fragment in the address"
+      },
+      {
+        "name": "credentials",
+        "value": "https://a:b@mm1.tail1a2b3c.ts.net:8443",
+        "accept": false,
+        "reason": "credentials in the address"
+      },
+      {
+        "name": "whitespace",
+        "value": "https://mm1.tail1a2b3c.ts.net:8443 ",
+        "accept": false,
+        "reason": "whitespace in the address"
+      },
+      {
+        "name": "not a URL",
+        "value": "mm1.tail1a2b3c.ts.net",
+        "accept": false,
+        "reason": "not an absolute URL"
+      },
+      {
+        "name": "empty",
+        "value": "",
+        "accept": false,
+        "reason": "not an address"
+      }
+    ]
+  },
+  "pair_exchanges": [
+    {
+      "name": "paired",
+      "mac_answers": [
+        {
+          "status": 200,
+          "body": {
+            "device_id": "dev_8d4c57b7ff82",
+            "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "thread_title": "the proposal",
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "protocol_version": 1,
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm"
+            ],
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0"
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\"}",
+            "sha256_hex": "ab263d5af515581465da132f58cf1819a77f4afb2a7cc7ea01e4c47b86ce12c0",
+            "length": 193
+          },
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "device_id": "dev_8d4c57b7ff82",
+          "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+          "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+          "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+          "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+          "thread_id": "thr_5c1e",
+          "thread_title": "the proposal",
+          "threads": [
+            {
+              "id": "thr_5c1e",
+              "title": "the proposal"
+            },
+            {
+              "id": "thr_77aa",
+              "title": "hiring"
+            }
+          ],
+          "protocol_version": 1,
+          "capabilities": [
+            "text",
+            "voice",
+            "audio",
+            "native-push",
+            "attachments",
+            "native-push-fcm"
+          ],
+          "attachment_limits": {
+            "max_file_bytes": 26214400,
+            "max_files_per_message": 10,
+            "max_message_bytes": 104857600,
+            "upload_seconds": 300,
+            "media_types": [
+              "image/jpeg",
+              "image/png",
+              "image/heic",
+              "image/heif",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "text/plain",
+              "text/markdown",
+              "text/csv",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ]
+          },
+          "build": "1.2.0"
+        }
+      },
+      "state_after": {
+        "device_id": "dev_8d4c57b7ff82",
+        "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": null
+      }
+    },
+    {
+      "name": "api_base on another origin is refused, pairing still completes",
+      "mac_answers": [
+        {
+          "status": 200,
+          "body": {
+            "device_id": "dev_8d4c57b7ff82",
+            "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+            "api_base": "https://evil.example:8443",
+            "thread_id": "thr_5c1e",
+            "thread_title": "the proposal",
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "protocol_version": 1,
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm"
+            ],
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0"
+          },
+          "headers": {}
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\"}",
+            "sha256_hex": "ab263d5af515581465da132f58cf1819a77f4afb2a7cc7ea01e4c47b86ce12c0",
+            "length": 193
+          },
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "device_id": "dev_8d4c57b7ff82",
+          "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+          "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+          "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+          "api_base": "https://evil.example:8443",
+          "thread_id": "thr_5c1e",
+          "thread_title": "the proposal",
+          "threads": [
+            {
+              "id": "thr_5c1e",
+              "title": "the proposal"
+            },
+            {
+              "id": "thr_77aa",
+              "title": "hiring"
+            }
+          ],
+          "protocol_version": 1,
+          "capabilities": [
+            "text",
+            "voice",
+            "audio",
+            "native-push",
+            "attachments",
+            "native-push-fcm"
+          ],
+          "attachment_limits": {
+            "max_file_bytes": 26214400,
+            "max_files_per_message": 10,
+            "max_message_bytes": 104857600,
+            "upload_seconds": 300,
+            "media_types": [
+              "image/jpeg",
+              "image/png",
+              "image/heic",
+              "image/heif",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "text/plain",
+              "text/markdown",
+              "text/csv",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ]
+          },
+          "build": "1.2.0"
+        }
+      },
+      "state_after": {
+        "device_id": "dev_8d4c57b7ff82",
+        "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": "a different origin from the app"
+      }
+    },
+    {
+      "name": "wrong or expired code",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "9sXdqAj5ucu1t63Xuy6P70M5zcM_ExlN"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\"}",
+            "sha256_hex": "ab263d5af515581465da132f58cf1819a77f4afb2a7cc7ea01e4c47b86ce12c0",
+            "length": 193
+          },
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "refused",
+          "status": 404,
+          "retryable": false,
+          "about_this_message": false
+        }
+      },
+      "state_after": {
+        "device_id": null,
+        "challenge": null,
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": null
+      }
+    },
+    {
+      "name": "rate limited",
+      "mac_answers": [
+        {
+          "status": 429,
+          "body": "",
+          "headers": {
+            "Retry-After": "60"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\"}",
+            "sha256_hex": "ab263d5af515581465da132f58cf1819a77f4afb2a7cc7ea01e4c47b86ce12c0",
+            "length": 193
+          },
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "fault",
+          "status": 429,
+          "retryable": true,
+          "about_this_message": false
+        }
+      },
+      "state_after": {
+        "device_id": null,
+        "challenge": null,
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": null
+      }
+    },
+    {
+      "name": "Mac unreachable",
+      "mac_answers": [
+        {
+          "transport": true
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\"}",
+            "sha256_hex": "ab263d5af515581465da132f58cf1819a77f4afb2a7cc7ea01e4c47b86ce12c0",
+            "length": 193
+          },
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "unreachable",
+          "status": 0,
+          "retryable": true,
+          "about_this_message": false
+        }
+      },
+      "state_after": {
+        "device_id": null,
+        "challenge": null,
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": null
+      }
+    }
+  ],
+  "platform_field": {
+    "rule": "Native apps add \"platform\": \"ios\" | \"android\" to the pairing body (contract section 2.3, phone/routes.rs:411-415). The shipped client above does not send it; the Mac falls back to reading device_name.",
+    "android_body_fields": [
+      "code",
+      "public_key_jwk",
+      "device_name",
+      "platform"
+    ]
+  },
+  "fingerprint_confirmations": [
+    {
+      "name": "they match",
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS.BeUyuNXz3iN2_yp1zun6sfQzAN7w99K8oiW0iXoNMZqh-KdRQ5pi6ZQdX7JXC9QWBdYJBDYqZCKYT4i_xorryA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+            "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "length": 85
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS",
+            "path_with_query": "/api/pair",
+            "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "signature_b64url": "BeUyuNXz3iN2_yp1zun6sfQzAN7w99K8oiW0iXoNMZqh-KdRQ5pi6ZQdX7JXC9QWBdYJBDYqZCKYT4i_xorryA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS.BeUyuNXz3iN2_yp1zun6sfQzAN7w99K8oiW0iXoNMZqh-KdRQ5pi6ZQdX7JXC9QWBdYJBDYqZCKYT4i_xorryA"
+          },
+          "mac": {
+            "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "name": "they do not match",
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS.GhiHr6elP9EK5eblnP1hPFDXT69AH5zuAyyyTcjMT9vPd0cKB-kIXJr1ArWKTp637usLbsYIMQeYNqzmqBB5tA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":false,\"push_transport\":\"apns\"}",
+            "sha256_hex": "27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+            "length": 86
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS",
+            "path_with_query": "/api/pair",
+            "body_sha256_hex": "27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+            "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+            "signature_b64url": "GhiHr6elP9EK5eblnP1hPFDXT69AH5zuAyyyTcjMT9vPd0cKB-kIXJr1ArWKTp637usLbsYIMQeYNqzmqBB5tA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS.GhiHr6elP9EK5eblnP1hPFDXT69AH5zuAyyyTcjMT9vPd0cKB-kIXJr1ArWKTp637usLbsYIMQeYNqzmqBB5tA"
+          },
+          "mac": {
+            "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,509 @@
+{
+  "schema": 1,
+  "file": "challenge.json",
+  "source": "web/web-app/lib/api.js request/attempt (the once-only re-sign) and refreshChallenge",
+  "rule": "A signed request answered 404 whose X-RichOS-Challenge differs from the challenge it signed is re-signed with the new challenge and sent ONCE more. A second 404 is final. Every response header challenge replaces the held one. The probe GET /api/challenge is unsigned and its status is ignored.",
+  "cases": [
+    {
+      "name": "404 carrying a different challenge: re-sign once with it, then 200",
+      "challenge_held_before": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "message_id": "intake_1",
+            "cursor": 1,
+            "thread_id": "thr_5c1e",
+            "accepted_at": "2026-09-22T13:00:00.412Z",
+            "duplicate": false
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA"
+          },
+          "mac": {
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        },
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.TUy4w-OJu5YTGkDte-YAVb7aY1zculq4.S_PlTrY3r3yFQKwCZOow7T9c--CDkTVEn-1H3TvWHuEhEiqfVGrPYCiRwqX4RDrSzkbOuA-FPlWKpaQppXVzcQ",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "S_PlTrY3r3yFQKwCZOow7T9c--CDkTVEn-1H3TvWHuEhEiqfVGrPYCiRwqX4RDrSzkbOuA-FPlWKpaQppXVzcQ",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.TUy4w-OJu5YTGkDte-YAVb7aY1zculq4.S_PlTrY3r3yFQKwCZOow7T9c--CDkTVEn-1H3TvWHuEhEiqfVGrPYCiRwqX4RDrSzkbOuA-FPlWKpaQppXVzcQ"
+          },
+          "mac": {
+            "signing_string": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "message_id": "intake_1",
+          "cursor": 1,
+          "thread_id": "thr_5c1e",
+          "accepted_at": "2026-09-22T13:00:00.412Z",
+          "duplicate": false
+        }
+      },
+      "challenge_held_after": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+      "stale_credential_retries": 1
+    },
+    {
+      "name": "404 carrying the same challenge: final, no second request",
+      "challenge_held_before": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA"
+          },
+          "mac": {
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "refused",
+          "status": 404,
+          "retryable": false,
+          "about_this_message": false
+        }
+      },
+      "challenge_held_after": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "stale_credential_retries": 0
+    },
+    {
+      "name": "404 carrying no challenge: final, no second request",
+      "challenge_held_before": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {}
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA"
+          },
+          "mac": {
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "refused",
+          "status": 404,
+          "retryable": false,
+          "about_this_message": false
+        }
+      },
+      "challenge_held_after": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "stale_credential_retries": 0
+    },
+    {
+      "name": "404, re-signed, 404 again: final after exactly two requests",
+      "challenge_held_before": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        },
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "1PCLOrQH0CrfKdqummjn1ngCwSwZJN6A"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA"
+          },
+          "mac": {
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        },
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.TUy4w-OJu5YTGkDte-YAVb7aY1zculq4.S_PlTrY3r3yFQKwCZOow7T9c--CDkTVEn-1H3TvWHuEhEiqfVGrPYCiRwqX4RDrSzkbOuA-FPlWKpaQppXVzcQ",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "S_PlTrY3r3yFQKwCZOow7T9c--CDkTVEn-1H3TvWHuEhEiqfVGrPYCiRwqX4RDrSzkbOuA-FPlWKpaQppXVzcQ",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.TUy4w-OJu5YTGkDte-YAVb7aY1zculq4.S_PlTrY3r3yFQKwCZOow7T9c--CDkTVEn-1H3TvWHuEhEiqfVGrPYCiRwqX4RDrSzkbOuA-FPlWKpaQppXVzcQ"
+          },
+          "mac": {
+            "signing_string": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "refused",
+          "status": 404,
+          "retryable": false,
+          "about_this_message": false
+        }
+      },
+      "challenge_held_after": "1PCLOrQH0CrfKdqummjn1ngCwSwZJN6A",
+      "stale_credential_retries": 1
+    },
+    {
+      "name": "200 rotates the challenge the phone holds",
+      "challenge_held_before": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "mac_answers": [
+        {
+          "status": 200,
+          "body": {
+            "message_id": "intake_1",
+            "cursor": 1,
+            "thread_id": "thr_5c1e",
+            "accepted_at": "2026-09-22T13:00:00.412Z",
+            "duplicate": false
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/messages",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"client_id\":\"01J8CONFORMANCERETRY0000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"message 1\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+            "sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "length": 136
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+            "path_with_query": "/api/messages",
+            "body_sha256_hex": "284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "signature_b64url": "u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.u9lsfOoJ8fkVjEWhGKIqzuGTpsqwhITBaNLJUIpgv2UHlyJx9xnihYgdk45JcF1I1pHCbC6of18PQ_iSoP5xBA"
+          },
+          "mac": {
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nPOST\n/api/messages\n284319a9a5a36ff03e926bac6dff40e4d96e08a00333f089eacda65a97eaf327",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "message_id": "intake_1",
+          "cursor": 1,
+          "thread_id": "thr_5c1e",
+          "accepted_at": "2026-09-22T13:00:00.412Z",
+          "duplicate": false
+        }
+      },
+      "challenge_held_after": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+      "stale_credential_retries": 0
+    },
+    {
+      "name": "query credential (backfill): 404 with a different challenge is re-signed the same way",
+      "challenge_held_before": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "messages": [],
+            "more": false
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "target": "/api/events?thread_id=thr_5c1e&before=41&limit=50&auth=RichOS-Device%20dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.DvzU-6AoILquOwefnYY1mgnsGcDoeBPfaZdnubpLM4Ns5sRMT6kVgx-igKCIoyzn09GAs-mIMRlS6cxwbnLKmw",
+          "headers": {},
+          "body": null,
+          "signed": {
+            "credential": "query",
+            "challenge": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_",
+            "path_with_query": "/api/events?thread_id=thr_5c1e&before=41&limit=50",
+            "body_sha256_hex": "",
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+            "signature_b64url": "DvzU-6AoILquOwefnYY1mgnsGcDoeBPfaZdnubpLM4Ns5sRMT6kVgx-igKCIoyzn09GAs-mIMRlS6cxwbnLKmw",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_.DvzU-6AoILquOwefnYY1mgnsGcDoeBPfaZdnubpLM4Ns5sRMT6kVgx-igKCIoyzn09GAs-mIMRlS6cxwbnLKmw"
+          },
+          "mac": {
+            "signing_string": "yQyrXLF9haXaO7367hrrgZSi_ZnWuJC_\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+            "verdict": "accepted"
+          }
+        },
+        {
+          "method": "GET",
+          "target": "/api/events?thread_id=thr_5c1e&before=41&limit=50&auth=RichOS-Device%20dev_8d4c57b7ff82.TUy4w-OJu5YTGkDte-YAVb7aY1zculq4.YExtNdOg_a5FIAGLy55QGdRk7RVqRncuPLlfxVYualExDLXYwwZUSjPQrac5OXclcZJ-ydaLQYcGPhXA4RkXRw",
+          "headers": {},
+          "body": null,
+          "signed": {
+            "credential": "query",
+            "challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+            "path_with_query": "/api/events?thread_id=thr_5c1e&before=41&limit=50",
+            "body_sha256_hex": "",
+            "signing_string": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+            "signature_b64url": "YExtNdOg_a5FIAGLy55QGdRk7RVqRncuPLlfxVYualExDLXYwwZUSjPQrac5OXclcZJ-ydaLQYcGPhXA4RkXRw",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.TUy4w-OJu5YTGkDte-YAVb7aY1zculq4.YExtNdOg_a5FIAGLy55QGdRk7RVqRncuPLlfxVYualExDLXYwwZUSjPQrac5OXclcZJ-ydaLQYcGPhXA4RkXRw"
+          },
+          "mac": {
+            "signing_string": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "messages": [],
+          "more": false
+        }
+      },
+      "challenge_held_after": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+      "stale_credential_retries": 1
+    },
+    {
+      "name": "probe GET /api/challenge: unsigned, status ignored, header taken",
+      "challenge_held_before": "1wpot6fFw2hna4YcTM8PHuyl_dXucb40",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "X-RichOS-Challenge": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "target": "/api/challenge",
+          "headers": {},
+          "body": null,
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4"
+      },
+      "challenge_held_after": "TUy4w-OJu5YTGkDte-YAVb7aY1zculq4",
+      "stale_credential_retries": 0
+    },
+    {
+      "name": "probe answered without a challenge header: fault",
+      "challenge_held_before": "1wpot6fFw2hna4YcTM8PHuyl_dXucb40",
+      "mac_answers": [
+        {
+          "status": 404,
+          "body": "",
+          "headers": {}
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "target": "/api/challenge",
+          "headers": {},
+          "body": null,
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "fault",
+          "status": 0,
+          "retryable": true,
+          "about_this_message": false
+        }
+      },
+      "challenge_held_after": "1wpot6fFw2hna4YcTM8PHuyl_dXucb40",
+      "stale_credential_retries": 0
+    },
+    {
+      "name": "probe cannot reach the Mac: unreachable",
+      "challenge_held_before": "1wpot6fFw2hna4YcTM8PHuyl_dXucb40",
+      "mac_answers": [
+        {
+          "transport": true
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "target": "/api/challenge",
+          "headers": {},
+          "body": null,
+          "signed": null
+        }
+      ],
+      "outcome": {
+        "ok": false,
+        "error": {
+          "reason": "unreachable",
+          "status": 0,
+          "retryable": true,
+          "about_this_message": false
+        }
+      },
+      "challenge_held_after": "1wpot6fFw2hna4YcTM8PHuyl_dXucb40",
+      "stale_credential_retries": 0
+    }
+  ]
+}
