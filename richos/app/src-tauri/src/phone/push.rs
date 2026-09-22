@@ -42,6 +42,20 @@
 //! that produced it is in the test's own comment. One `ring` multiply is what the KAT does not
 //! cover, and a second test proves that multiply is symmetric.
 
+/// Give a visible client a bounded opportunity to acknowledge the completed reply.
+/// Called only after releasing runtime/Spine locks. A lost receipt favors notification.
+/// Legacy clients keep their old stream-presence rule until they opt into receipts.
+pub fn should_notify(devices: &super::device::DeviceDesk, device_id: &str, thread: &str, id: &str) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    loop {
+        let Some(device) = devices.paired().filter(|d| d.id == device_id && d.push.is_some()) else { return false };
+        if !device.reply_receipts { return devices.open_streams() == 0; }
+        if device.seen_replies.iter().any(|(t, i)| t == thread && i == id) { return false; }
+        if std::time::Instant::now() >= deadline { return true; }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 use super::{b64url, unb64url, PhoneError, PUSH_HOST_SUFFIX, VAPID_SUBJECT};
 use ring::{aead, agreement, hkdf, rand as ringrand, signature};
 

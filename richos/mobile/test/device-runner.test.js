@@ -106,6 +106,7 @@ test('recording cleanup requires the disposable app and an explicit cleanup conf
   await assert.rejects(device('verify','cleanup',ports),/disposable integration app/);
   await assert.rejects(device('verify','preview',ports),/disposable integration app/);
   await assert.rejects(device('verify','reconnect',ports),/disposable integration app/);
+  await assert.rejects(device('verify','notification-defaults',ports),/disposable integration app/);
   process.env.RICHOS_MOBILE_TEST_APP='integration';
   await assert.rejects(device('verify','cleanup',ports),/cleanupTestRecordings/);
   assert.equal(calls,0);
@@ -113,4 +114,5 @@ test('recording cleanup requires the disposable app and an explicit cleanup conf
   await device('verify','cleanup',ports);assert.equal(calls,1);
   delete process.env.RICHOS_MOBILE_TEST_CONFIG;
   await device('verify','preview',ports);assert.equal(calls,2,'Preview preserves the existing session without pairing or cleanup config');
+  await device('verify','notification-defaults',ports);assert.equal(calls,3);
 });

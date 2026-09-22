@@ -25,6 +25,7 @@ impl VoiceDesk {
         let recognizer = self.recognizer.as_ref().ok_or("Speech recognition is not ready on this Mac. Whoever set RichOS up needs to prepare it. Your recording is still on your phone.")?;
         let scratch = self.scratch()?;
         let (text, _) = recognizer.transcribe_bounded(&samples, &scratch.0,std::time::Duration::from_secs(90)).map_err(|_| "I could not transcribe that recording. Your recording is still on your phone.")?;
+        let text = clean_transcript(&text);
         if text.trim().is_empty() || text.len() > 48000 { return Err("I could not understand that recording. Your recording is still on your phone.".into()); }
         Ok(text)
     }
@@ -38,6 +39,12 @@ impl VoiceDesk {
         Ok(bytes)
     }
 }
+// Whisper emits this marker for silent spans within an otherwise useful recording.
+// Remove the known marker, not arbitrary brackets or parenthesized spoken content.
+fn clean_transcript(text: &str) -> String {
+    text.replace("[BLANK_AUDIO]", " ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn validate(bytes: &[u8]) -> Result<Vec<f32>, String> {
     if bytes.len() > MAX_UPLOAD { return Err("The recording exceeds the upload limit.".into()); }
     let pcm = wav::read_pcm16(bytes).map_err(|_| "This recording is not a supported WAV file.")?;
@@ -49,6 +56,11 @@ pub fn validate(bytes: &[u8]) -> Result<Vec<f32>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn silent_spans_never_become_conversation_text() {
+        assert_eq!(clean_transcript("A quick message. [BLANK_AUDIO] Then another."), "A quick message. Then another.");
+        assert_eq!(clean_transcript("[BLANK_AUDIO] [BLANK_AUDIO]"), "");
+        assert_eq!(clean_transcript("Keep [the budget] (including travel)."), "Keep [the budget] (including travel).");
+    }
     #[test] fn validates_actual_audio_not_claimed_duration() {
         assert!(validate(&wav::encode_pcm16_mono(&vec![0.1;120 * 16000],16000)).is_ok());
         for b in [wav::encode_pcm16_mono(&vec![0.1;MAX_SECONDS * 16000 + 1],16000), wav::encode_pcm16_mono(&[0.1;16],48000), vec![0;MAX_UPLOAD+1], b"not audio".to_vec()] { assert!(validate(&b).is_err()); }

@@ -316,6 +316,7 @@ async function startConversation(keys) {
 	await renderVoiceDrafts();
 	hideTakeovers();
 	if (!api) makeApi(keys);
+	applyCapabilities();
 
 	thread = globalThis.RichOSThread.createThread();
 	queue = globalThis.RichOSQueue.createQueue({
@@ -480,10 +481,16 @@ function connectStream() {
 function scheduleRender() {
 	if (renderQueued) return;
 	renderQueued = true;
-	requestAnimationFrame(() => { renderQueued = false; render(false); });
+	requestAnimationFrame(() => {
+        renderQueued=false;render(false);
+        const model=thread;
+        if(model && signer)void model.reconcileVoice(text=>signer.sha256Hex(text)).then(changed=>{if(changed && model===thread)render(false);}).catch(handleApiError);
+    });
 }
 
 function stickToBottom() { following.resume(); }
+
+const acknowledgeReply=RichOSNotificationTarget.receipts((thread,id)=>api.replySeen(thread,id));
 
 function render(forceBottom) {
 	const list = $('messages');
@@ -540,8 +547,14 @@ function render(forceBottom) {
 	following.restore(before,{force:forceBottom});
     if(notificationTarget?.thread===currentThreadId) {
         const row=[...list.children].find(row=>row.dataset.messageId===notificationTarget.at);
-        if(row){following.focus(row);notificationTarget=null;}
+        if(row){
+            following.focus(row);
+            const params=new URLSearchParams(location.hash.slice(1));
+            if(params.get('thread')===notificationTarget.thread && params.get('at')===notificationTarget.at)history.replaceState(history.state,'',location.pathname+location.search);
+            notificationTarget=null;
+        }
     }
+    void acknowledgeReply(currentThreadId,rows,!document.hidden && following.following);
 }
 
 function renderRow(row, isLastDelivered) {
@@ -617,7 +630,7 @@ function renderRow(row, isLastDelivered) {
 
 	// "Hear it" — one tap, per reply, and only when the Mac says there is audio to fetch. Nothing
 	// is synthesized for a reply he only reads.
-	if (!mine && row.has_audio && row.id) {
+	if (!mine && row.complete!==false && row.id && (row.has_audio || api?.offers('audio'))) {
 		const hear = document.createElement('button');
 		hear.className = 'hear';
 		hear.type = 'button';
@@ -1073,7 +1086,6 @@ async function startRecording(generation) {
 	chunks = [];
 	recording = true;
 	hold.classList.add('recording');
-	hold.textContent = 'Recording — let go to send';
 	$('meter').hidden = false;
 	$('meter-read').hidden = false;
 	setHoldNote('Speak now. Let go and it goes to your Mac.', false);
@@ -1238,6 +1250,7 @@ document.addEventListener('visibilitychange', () => {
 	// them produced. `wake()` fires the retry that is ALREADY OWED, immediately, because he is
 	// looking at the screen; it opens nothing beside anything.
 	if (link) link.wake(); else connectStream();
+	if (thread) render();
 	flushQueue();
 });
 
@@ -1326,6 +1339,7 @@ async function refreshPushOffer() {
 	if (Notification.permission === 'granted') {
 		const registration = await navigator.serviceWorker.getRegistration();
 		const existing = registration ? await registration.pushManager.getSubscription() : null;
+		if (existing && api) await api.registerPush(existing.toJSON());
 		offer.hidden = Boolean(existing) || notificationsDeclined;
 		return;
 	}

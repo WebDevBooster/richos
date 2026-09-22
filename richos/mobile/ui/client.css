@@ -110,3 +110,7 @@ body[data-voice="locked"][data-voice-dragging="true"] #record-start { position:a
 
 /* Healthy operation and brief recovery do not occupy the conversation header. */
 #connection:empty { display:none; }
+
+input[type="checkbox"] { width: auto; padding: 0; margin: 8px 8px 8px 0; }
+
+#settings label { display: flex; align-items: center; gap: 8px; margin-top: 12px; }

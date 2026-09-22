@@ -302,3 +302,5 @@ thread model deduplicates the replay, while that immediate body avoids waiting f
 Incomplete reply replay keeps its earlier cursor, so missed deltas remain recoverable.
 
 For user-driven testing, use `lab mac --manual` with a fresh isolated cache. Manual sessions have no automatic shutdown deadline and retain backend state in `manual-data` under that cache. Stop the owned CLI with SIGTERM when testing is finished. Automated `lab mac` runs retain their bounded lifetime. Never leave a user testing against an expiring fixture.
+
+`device verify notifications` restores the prior notification and preview preferences, including on failure. It sets each preview state explicitly, so reruns are independent of the previous setting. `device verify notification-defaults` is confined to the physical integration app: it enables reply notifications and previews through visible Settings controls and leaves the paired conversation open for manual testing.

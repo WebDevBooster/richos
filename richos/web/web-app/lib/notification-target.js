@@ -14,5 +14,19 @@
     }
     return isCurrent()?found:null;
   }
-  return {find};
+  function receipts(send) {
+    const acknowledged=new Set(),pending=new Set();
+    return async function observe(thread,rows,visible) {
+      if(!visible || !thread)return;
+      const row=[...rows].reverse().find(r=>r.role==='rich' && r.complete!==false && r.id);
+      if(!row)return;
+      const key=JSON.stringify([thread,row.id]);
+      if(acknowledged.has(key) || pending.has(key))return;
+      pending.add(key);
+      try {await send(thread,row.id);acknowledged.add(key);if(acknowledged.size>64)acknowledged.delete(acknowledged.values().next().value);}
+      catch { /* Retry on the next render or foreground return. A missed receipt permits push. */ }
+      finally {pending.delete(key);}
+    };
+  }
+  return {find,receipts};
 });
