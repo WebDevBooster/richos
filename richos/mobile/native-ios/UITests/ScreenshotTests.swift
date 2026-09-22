@@ -20,7 +20,8 @@ final class ScreenshotTests: XCTestCase {
             XCTAssertEqual(app.state, .runningForeground, "\(id): the app did not stay up")
             keepScreenshot(app, name: "\(appearance)-\(id)")
             assertEveryButtonNamed(app)
-            app.terminate()
+            // No explicit terminate: the next launch replaces this instance, and an explicit terminate
+            // timed out twice on a saturated host (SE run, 2026-09-22) without anything being wrong.
         }
     }
 

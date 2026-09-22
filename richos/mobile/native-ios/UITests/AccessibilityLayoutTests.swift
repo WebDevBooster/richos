@@ -26,7 +26,6 @@ final class AccessibilityLayoutTests: XCTestCase {
             assertOnScreenAndHittable(control, in: app, "\(id): the send/record control")
             assertOnScreenAndHittable(field(app), in: app, "\(id): the message field")
             keepScreenshot(app, name: "ax5-\(id)")
-            app.terminate()
         }
     }
 
@@ -50,7 +49,6 @@ final class AccessibilityLayoutTests: XCTestCase {
             Thread.sleep(forTimeInterval: 1.0)
             assertEveryButtonNamed(app)
             keepScreenshot(app, name: "ax5-\(id)")
-            app.terminate()
         }
     }
 
