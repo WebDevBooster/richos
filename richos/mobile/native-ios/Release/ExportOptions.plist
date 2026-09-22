@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Export options for `node Release/testflight.ts upload`: an App Store Connect upload that keeps
+     the archive's own version and build number (the tool refuses anything else). The Apple team
+     is chosen by the archive's signing, never written here. -->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>
