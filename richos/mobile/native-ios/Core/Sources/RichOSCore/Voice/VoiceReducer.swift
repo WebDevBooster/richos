@@ -195,7 +195,7 @@ enum VoiceReducer {
                                                                 sentAtISO: ConversationReducer.isoMillis(at)),
                                    queuedAt: at))
         s.messages.append(Message(id: id, author: .me, kind: .voice, text: "", sentAt: at, delivery: .waiting,
-                                  durationMs: durationMs, levels: levels))
+                                  durationMs: durationMs, levels: levels, clientID: id))
         s.following = true
         ConversationReducer.pump(&s, at: at, &effects)
     }

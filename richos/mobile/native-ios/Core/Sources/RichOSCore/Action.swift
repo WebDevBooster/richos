@@ -77,6 +77,8 @@ public enum Action: Equatable, Sendable {
     case connectionDiagnosed(ConnectionNotice)
     /// What the Mac says it accepts (capability negotiation, contract §12).
     case macCapabilities(text: Bool, voice: Bool)
+    /// The Mac answered 403 `{"revoked":true}`: this phone was removed (round-12 `conn-revoked`).
+    case pairingRevoked
     // voice (groups 4, 5, 6)
     /// Touch-down on the microphone. `id` names the recording (`Action.voicePressNow` in the app).
     case voicePress(id: String, width: Double, at: Int64)
@@ -217,7 +219,7 @@ public enum Reducer {
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
              .pairingRefused, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
             PairingReducer.reduce(&next, action, &effects)
-        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities:
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked:
             ConnectionReducer.reduce(&next, action, &effects)
         case .tick:
             ConnectionReducer.reduce(&next, action, &effects)

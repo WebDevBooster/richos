@@ -321,11 +321,14 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
     public var durationMs: Int?
     /// Voice only: the recording's own level, 0…1, sampled every 100 ms (the view resamples to 42 bars).
     public var levels: [Double]?
+    /// The idempotency key of one of your messages: the phone's own bubble carries it as its id, and
+    /// the Mac's projected row carries it here, which is how the row replaces the bubble.
+    public var clientID: String?
 
     public init(id: String, author: Author, kind: Kind = .text, text: String, sentAt: Int64,
-                delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil) {
+                delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil) {
         self.id = id; self.author = author; self.kind = kind; self.text = text; self.sentAt = sentAt
-        self.delivery = delivery; self.durationMs = durationMs; self.levels = levels
+        self.delivery = delivery; self.durationMs = durationMs; self.levels = levels; self.clientID = clientID
     }
 }
 

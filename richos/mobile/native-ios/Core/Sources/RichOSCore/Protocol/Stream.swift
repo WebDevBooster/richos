@@ -108,7 +108,7 @@ public struct StreamRow: Codable, Equatable, Sendable {
         let sentAt = createdAt.flatMap { formatter.date(from: $0) }.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
         let voice = durationMs != nil || kind == "voice"
         return Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: text, sentAt: sentAt,
-                       durationMs: durationMs)
+                       durationMs: durationMs, clientID: clientID)
     }
 }
 

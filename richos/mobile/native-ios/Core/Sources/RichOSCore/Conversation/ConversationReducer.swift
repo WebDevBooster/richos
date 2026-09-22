@@ -127,7 +127,7 @@ public enum ConversationReducer {
         s.outbox.append(OutboxItem(clientID: clientID, kind: .text,
                                    body: textBody(clientID: clientID, threadID: s.mac?.threadID, text: text, sentAt: at),
                                    queuedAt: at))
-        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting))
+        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting, clientID: clientID))
         s.draft = ""
         s.toast = nil
         // Both send gestures resume following immediately (PRD §5).
@@ -153,8 +153,19 @@ public enum ConversationReducer {
         if let i = s.messages.firstIndex(where: { $0.id == id }) { s.messages[i].delivery = delivery }
     }
 
-    /// Adds or replaces by id, keeping the conversation ordered by time (stable for equal times).
+    /// Adds or replaces by id, keeping the conversation ordered by time (stable for equal times). The
+    /// Mac's row for one of your messages retires the phone's own bubble for it: by `clientID` when
+    /// the row carries it, else by the same text on a bubble the Mac has already accepted (the
+    /// reference thread model's rule).
     private static func merge(_ s: inout AppState, _ incoming: [Message]) {
+        for message in incoming where message.author == .me {
+            s.messages.removeAll { local in
+                guard local.id != message.id, local.author == .me, local.delivery == nil,
+                      !s.outbox.contains(where: { $0.clientID == local.id }) else { return false }
+                if let clientID = message.clientID { return local.id == clientID }
+                return local.clientID == local.id && local.text == message.text
+            }
+        }
         for message in incoming {
             if let i = s.messages.firstIndex(where: { $0.id == message.id }) {
                 s.messages[i] = message

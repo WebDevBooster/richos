@@ -107,7 +107,7 @@ let repositoryRoot: URL = {
             .openedFromNotification(messageID: "r1"), .clearFocus, .hearReply(id: "r1"), .playbackStarted(id: "r1"),
             .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
             .networkChanged(online: false, at: 6), .connectionLost(at: 7), .connected(at: 8),
-            .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false),
+            .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false), .pairingRevoked,
             .voicePress(id: "v", width: 386, at: 9), .voiceStartLocked(id: "v", width: 386, at: 9), .microphonePermission(.granted), .voiceMove(dx: -10, dy: -5, at: 10),
             .voiceRelease(at: 11), .voiceLockedSend(at: 12), .voiceLockedCancel(at: 13), .voiceTouchCanceled(at: 14),
             .voiceInterrupted(at: 15), .voiceLevel(0.4), .voiceSettled, .sendKept(id: "k", at: 16), .discardKept(id: "k"),
@@ -353,7 +353,7 @@ let repositoryRoot: URL = {
         let (sent, effects) = Reducer.reduce(s, .voiceRelease(at: t + 2800))
         #expect(sent.voice?.phase == .ending(.sent))
         #expect(sent.outbox.last?.kind == .voice && sent.outbox.last?.recordingID == "v")
-        #expect(sent.messages.last == Message(id: "v", author: .me, kind: .voice, text: "", sentAt: t + 2800, delivery: .sending, durationMs: 2600, levels: [0.2, 0.5, 0.8]))
+        #expect(sent.messages.last == Message(id: "v", author: .me, kind: .voice, text: "", sentAt: t + 2800, delivery: .sending, durationMs: 2600, levels: [0.2, 0.5, 0.8], clientID: "v"))
         #expect(effects.contains(.stopRecording(id: "v", keep: true)) && effects.contains(.deliver(clientID: "v")))
         #expect(Reducer.reduce(sent, .voiceSettled).state.voice == nil)
     }

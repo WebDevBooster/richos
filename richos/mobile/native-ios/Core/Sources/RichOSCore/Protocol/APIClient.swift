@@ -61,6 +61,23 @@ public actor APIClient {
 
     public enum Credential: Sendable { case header, query }
 
+    /// Takes a challenge learned elsewhere (`hello`, the pairing answer).
+    public func adopt(challenge: String) { self.challenge = challenge }
+
+    /// A signed request with the challenge held now, not sent (the event stream opens it itself).
+    public func signedRequest(_ method: String, _ pathWithQuery: String, body: Data? = nil, contentType: String? = nil,
+                              credential: Credential = .header) async throws -> HTTPRequest {
+        guard let current = challenge else { throw APIError(reason: .fault, status: 0, retryable: true, aboutThisMessage: false) }
+        let auth = try await signer.authorization(deviceID: deviceID, challenge: current, method: method, pathWithQuery: pathWithQuery, body: body)
+        var request = HTTPRequest(method: method.uppercased(), target: pathWithQuery, body: body)
+        if let contentType { request.headers["Content-Type"] = contentType }
+        switch credential {
+        case .header: request.headers["Authorization"] = auth
+        case .query: request.target = RequestSigning.withQueryCredential(pathWithQuery, authorization: auth)
+        }
+        return request
+    }
+
     /// A signed request. `pathWithQuery` excludes `auth`. Returns the Mac's answer (any status) after
     /// the one re-sign; throws `APIError` only when no Mac answered (`.unreachable`) or no challenge is held.
     public func signed(_ method: String, _ pathWithQuery: String, body: Data? = nil, contentType: String? = nil,
@@ -68,13 +85,7 @@ public actor APIClient {
         var resigned = false
         while true {
             guard let current = challenge else { throw APIError(reason: .fault, status: 0, retryable: true, aboutThisMessage: false) }
-            let auth = try await signer.authorization(deviceID: deviceID, challenge: current, method: method, pathWithQuery: pathWithQuery, body: body)
-            var request = HTTPRequest(method: method.uppercased(), target: pathWithQuery, body: body)
-            if let contentType { request.headers["Content-Type"] = contentType }
-            switch credential {
-            case .header: request.headers["Authorization"] = auth
-            case .query: request.target = RequestSigning.withQueryCredential(pathWithQuery, authorization: auth)
-            }
+            let request = try await signedRequest(method, pathWithQuery, body: body, contentType: contentType, credential: credential)
             let response: HTTPResponse
             do {
                 response = try await transport.send(request, origin: origin)

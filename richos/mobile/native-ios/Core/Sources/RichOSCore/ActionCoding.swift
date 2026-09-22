@@ -56,7 +56,7 @@ extension Action: Codable {
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
-        "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities",
+        "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked",
         "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
@@ -117,6 +117,7 @@ extension Action: Codable {
         case "connected": self = .connected(at: now)
         case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
         case "mac-capabilities": self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
+        case "pairing-revoked": self = .pairingRevoked
         case "voice-press": self = .voicePress(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "voice-start-locked": self = .voiceStartLocked(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "microphone-permission": self = .microphonePermission(try need(w.permission, "permission"))
@@ -199,6 +200,7 @@ extension Action: Codable {
         case .connected(let at): w = Wire("connected"); w.at = at
         case .connectionDiagnosed(let n): w = Wire("connection-diagnosed"); w.notice = n
         case .macCapabilities(let t, let v): w = Wire("mac-capabilities"); w.acceptsText = t; w.acceptsVoice = v
+        case .pairingRevoked: w = Wire("pairing-revoked")
         case .voicePress(let id, let width, let at): w = Wire("voice-press"); w.id = id; w.width = width; w.at = at
         case .voiceStartLocked(let id, let width, let at): w = Wire("voice-start-locked"); w.id = id; w.width = width; w.at = at
         case .microphonePermission(let p): w = Wire("microphone-permission"); w.permission = p

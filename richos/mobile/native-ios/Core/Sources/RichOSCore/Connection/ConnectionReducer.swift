@@ -41,6 +41,11 @@ public enum ConnectionReducer {
             } else {
                 s.voiceAvailability = .unsupportedByMac
             }
+        case .pairingRevoked:
+            // Final for the pairing, not for his words: the conversation and anything unsent stay.
+            s.pairing = .revoked
+            s.troubleSinceMs = nil
+            s.connectionNotice = nil
         case .tick(let at):
             if let since = s.troubleSinceMs, s.connectionNotice == nil, at - since >= quietMs {
                 s.connectionNotice = .reconnecting
