@@ -6,50 +6,68 @@ the PWA in `../../web/web-app/` are separate and are not modified from here.
 **The command line comes first.** Application behavior lives in `Core/`, a Swift package that builds
 and tests on this Mac with no simulator. The SwiftUI app renders the core's `AppState` and dispatches
 its `Action`s; the command line dispatches the same actions and prints the same state. A logic change
-is proven in seconds with `bin/rios test` or `bin/rios headless`, and only screen, gesture and
-platform work needs the simulator.
+is proven in seconds with `bin/rios test` or `bin/rios headless`; only screens, gestures and platform
+behavior need the simulator.
 
 ## Commands
 
-Run from the repository root or anywhere; `bin/rios` finds its own checkout.
+Run from anywhere; `bin/rios` finds its own checkout.
 
 | Loop | Command | What it proves |
 |---|---|---|
-| L1 logic | `richos/mobile/native-ios/bin/rios test` (add `--filter <name>` for one suite) | The core's unit tests, on this Mac, no simulator. |
-| L1′ headless | `richos/mobile/native-ios/bin/rios headless scenario compose-draft` | The real core runs a scenario and prints its trace. |
-| L2 simulator | `richos/mobile/native-ios/bin/rios sim prepare`, then `sim state`, `sim fixture conv-empty`, `sim action '<json>'`, `sim screenshot` | The same commands inside the Debug app on a simulator the CLI created. |
+| L1 logic | `richos/mobile/native-ios/bin/rios test` (add `--filter <name>` for one test) | The core's unit and conformance tests, on this Mac, no simulator. |
+| L1′ headless | `richos/mobile/native-ios/bin/rios headless scenario pair-by-scan` | The real core runs a scenario and prints its trace. |
+| L2 simulator | `bin/rios sim prepare conv-empty`, then `sim fixture <screen>`, `sim action '<json>'`, `sim state`, `sim screenshot`, `sim verify`, `sim stop` | The same commands inside the Debug app on a simulator the CLI created. |
 
 `bin/rios --help` lists every command. Output is JSON: `{ok, mode, command, elapsedMs, result}` on
-stdout, or `{ok:false, error, elapsedMs}` on stderr with exit 1 — the preserved mobile CLI's grammar
-and shape (`../cli/mobile.mjs`), so existing QA habits carry over.
+stdout, or `{ok:false, error, elapsedMs}` on stderr with exit 1 — the preserved mobile CLI's shape
+(`../cli/mobile.mjs`). Actions use the preserved CLI's names and fields wherever it already names
+the action (`send`, `network`, `retry`, `discard`, `pair`, `confirm-pair`, `forget-pair`, `older`, …);
+the voice gesture's names are new (`voice-press`, `voice-move`, `voice-release`, …). Time and id stamps
+are optional: `{"type":"send"}` is stamped on arrival, `{"type":"send","clientId":"c","at":5}` replays.
 
-Headless commands share one session in the cache. Fixtures are named after the round-12 screen they
-produce (`pair-intro`, `pair-words`, `conv-empty`, `conv-populated`, `conn-revoked`).
+**Fixtures** are named after the round-12 screen they show — one for each of the 63 screens that are
+app screens on iPhone (`bin/rios headless fixture nope` lists them). `sim launch <fixture>` and the
+launch arguments `-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one.
 
-## Layout and ownership
+**Scenarios** (`compose-draft`, `pair-by-scan`, `pair-refused-and-rejected`, `outbox-retry`,
+`outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,
+`voice-interrupted`, `revoked`) carry their own checks and run identically headless and in the
+simulator (`sim verify` requires byte-identical results).
 
-| Path | What | Owner stream (build plan §5.0) |
+## The protocol, and the shared corpus
+
+`Core/Sources/RichOSCore/Protocol/` speaks the Mac's phone protocol: request signing, the event
+stream and thread filter, the API client with the challenge rule, the courier that sends outbox
+items, and the pairing, push and attachment bodies. The tests read the shared conformance corpus
+(`../conformance/vectors/`) in place and must pass every case the Android core passes.
+
+## Layout and ownership (build plan §5.0)
+
+| Path | What | Stream |
 |---|---|---|
-| `Core/` | Swift package: `RichOSCore` (state, actions, reducer, effects, ports), `RichOSFixtures` (fixtures, scenarios, command envelope; `#if DEBUG` only), `RichOSCLI` (`rios-cli`) | I1 |
+| `Core/` | Swift package: `RichOSCore` (state, actions, reducers, effects, ports, protocol), `RichOSFixtures` (fixtures, scenarios, the command envelope; `#if DEBUG` only), `RichOSCLI` (`rios-cli`) | I1 |
 | `bin/rios` | The one command-line entry | I1 |
-| `project.yml` | XcodeGen spec; the Xcode project is generated into the cache, never into the repository | I1 |
+| `project.yml` | XcodeGen spec; the project is generated into the cache, never committed | I1 |
 | `DevBridge/` | Debug-only command mailbox inside the app; excluded from Release | I1 |
-| `App/App/` | App entry and the `AppStore` wiring | I1 |
-| `App/Features/`, `App/Design/`, `UITests/` | Screens, design system, UI tests | I2 |
+| `App/App/` | App entry, `AppStore`, the effect-handler seam | I1 |
+| `App/Features/`, `App/Design/`, `UITests/`, `UnitTests/` | Screens, design system, UI and app tests | I2 |
+| `App/Platform/` | Microphone, recorder, notifications, Keychain signer | I3 |
 
 ## Where things are written
 
 Everything generated goes under one per-checkout cache on the external SSD:
 `/Volumes/E1TB/caches/richos-native-ios/<checkout-hash>/` (override with `RICHOS_NATIVE_IOS_CACHE`,
-which must stay on `/Volumes/E1TB`). That holds SwiftPM's scratch directory, the Clang module cache,
-the generated Xcode project, DerivedData and the headless session. Nothing is written into the source
-tree.
+which must stay on `/Volumes/E1TB`): SwiftPM's scratch, the Clang module cache, the generated Xcode
+project, DerivedData, screenshots, logs and the headless session. Nothing is written into the tree.
 
 ## Rules this app keeps
 
 - Core types are `Sendable` values and actors, never `@MainActor`; the one `@Observable` store lives on
   the main actor in the app. Swift 5 language mode with complete strict-concurrency checking.
-- Fixtures and the development command envelope are compiled only in Debug.
+- No behavior lives only in a view. A touch-rate action writes nothing to disk.
+- Fixtures, scenarios and the command envelope compile only in Debug; `bin/rios sim check-release`
+  proves the Release app carries none of their markers (and that the Debug app carries all of them).
 - The CLI addresses only the simulator it created (its UDID is recorded in the cache); it never uses
   `booted`, and `sim stop` shuts it down and deletes it.
 - Development bundle identifier `dev.richos.native.ios`. The production identifier is the CEO's.
