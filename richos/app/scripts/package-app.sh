@@ -1298,6 +1298,11 @@ if [ -n "${RICHOS_EXTRA_TAURI_CONFIG:-}" ]; then
   say "    $RICHOS_EXTRA_TAURI_CONFIG"
 fi
 
+# The exact pinned connector is included by every packaged Mac build. Preparation is
+# cache-backed on the external SSD and refuses an unexpected published asset digest.
+connect_overlay="$(python3 "$here/prepare-connect-helper.py")" || exit 1
+build_args+=(--config "$connect_overlay")
+
 # ---------------------------------------------------------------------------
 # THE SOURCE COMMIT, DERIVED BEFORE THE BUILD so it can be compiled INTO it.
 # ---------------------------------------------------------------------------
@@ -1441,6 +1446,7 @@ fi
 if [ "$sign_mode" = "adhoc" ]; then
   say ""
   say "ad-hoc signing the bundle (the bundler does not: it signs only with a real identity)..."
+  codesign --force --sign - --timestamp=none "$app_bundle/Contents/MacOS/cloudflared" || exit 1
   if ! codesign --force --sign - --timestamp=none "$app_bundle" 2>&1; then
     warn "ad-hoc signing failed — refusing to report a bundle as signed when it is not."
     exit 1
@@ -1479,6 +1485,7 @@ if [ "$sign_mode" = "developer-id" ]; then
   # required order and which this re-sign does not attempt to replace.
   say ""
   say "re-signing the bundle with the full argv (adds --timestamp, which the bundler omits)..."
+  codesign --force --sign "$wanted" --options runtime --timestamp "$app_bundle/Contents/MacOS/cloudflared" || exit 1
   if ! codesign --force --sign "$wanted" --options runtime --timestamp \
                 --entitlements "$src_tauri/Entitlements.plist" "$app_bundle"; then
     warn ""
