@@ -75,6 +75,7 @@ object ContrastPairings {
         val chrome = Contrast.over(RichColors.Fixed.scannerChrome, scene)
         val shade = RichColors.Fixed.shadeMid
         val shadeCard = Contrast.over(RichColors.Fixed.shadeCard, shade)
+        val discOverWhite = Contrast.over(RichColors.Fixed.photoDisc, androidx.compose.ui.graphics.Color.White)
         return listOf(
             Pairing("ink on ground", c.ink, c.ground, Floor.TEXT),
             Pairing("ink on surface (Rich's bubbles, cards, sheet rows)", c.ink, c.surface, Floor.TEXT),
@@ -107,6 +108,17 @@ object ContrastPairings {
             Pairing("scanner button label on its chrome", RichColors.Fixed.scannerInk, chrome, Floor.TEXT),
             Pairing("gold viewfinder on the scene (non-text)", RichColors.Fixed.viewfinder, scene, Floor.LARGE_OR_INDICATOR),
             Pairing("notification text on the drawn shade card", RichColors.Fixed.shadeInk, shadeCard, Floor.TEXT),
+            // Attachments (round-12 attachments NOTES): photo overlays measured over a WHITE pixel, their worst case.
+            Pairing("disc glyphs and the time chip on a photo (over white)", RichColors.Fixed.photoDiscInk, discOverWhite, Floor.TEXT),
+            Pairing("upload ring's gold arc on the disc (over white, non-text)", RichColors.Fixed.photoDiscArc, discOverWhite, Floor.LARGE_OR_INDICATOR),
+            Pairing("upload ring's track", RichColors.Fixed.photoDiscTrack, discOverWhite, Floor.EXEMPT,
+                "Declared in the attachments NOTES: the unfilled track is decoration; progress is the gold arc"),
+            Pairing("viewer name and caption on black", RichColors.Fixed.viewerInk, RichColors.Fixed.viewerGround, Floor.TEXT),
+            Pairing("viewer date line on black", RichColors.Fixed.viewerInkSoft, RichColors.Fixed.viewerGround, Floor.TEXT),
+            Pairing("viewer album dot, inactive (non-text)", RichColors.Fixed.viewerDotOff, RichColors.Fixed.viewerGround, Floor.LARGE_OR_INDICATOR),
+            Pairing("file extension on its page (ink on surface)", c.ink, c.surface, Floor.TEXT),
+            Pairing("reference chip gold bar on ground (non-text)", c.signal, c.ground, Floor.LARGE_OR_INDICATOR),
+            Pairing("the + glyph on the capsule (ink-soft on surface, non-text)", c.inkSoft, c.surface, Floor.LARGE_OR_INDICATOR),
         )
     }
 }

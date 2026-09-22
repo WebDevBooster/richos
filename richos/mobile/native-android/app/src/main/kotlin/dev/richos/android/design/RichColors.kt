@@ -73,6 +73,20 @@ data class RichColors(
         val shadeBottom = Color(0xFF05080F)
         val shadeInk = Color(0xFFF2F4F8)
         val shadeCard = Color(0xFFDFE4EE).copy(alpha = 0.14f)
+
+        /** GAP A5 (attachments NOTES): the veil and disc on a photo, the same dark in both themes. */
+        val photoVeil = Color(0xFF080C16).copy(alpha = 0.38f)
+        val photoDisc = Color(0xFF080C16).copy(alpha = 0.80f)
+        val photoDiscInk = Color(0xFFDFE4EE)
+        val photoDiscArc = Color(0xFFC2A35C)
+        /** Decoration, declared exempt: the unfilled track; progress is the gold arc. */
+        val photoDiscTrack = Color(0xFFDFE4EE).copy(alpha = 0.26f)
+
+        /** The photo viewer: black, with the scanner's ink. */
+        val viewerGround = Color(0xFF000000)
+        val viewerInk = Color(0xFFDFE4EE)
+        val viewerInkSoft = Color(0xFFDFE4EE).copy(alpha = 0.78f)
+        val viewerDotOff = Color(0xFFDFE4EE).copy(alpha = 0.40f)
     }
 
     companion object {
