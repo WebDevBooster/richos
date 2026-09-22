@@ -59,6 +59,18 @@ sealed interface Action {
      */
     @Serializable @SerialName("receive")
     data class Receive(val wire: String) : Action
+
+    /** The stream owner's socket changed state: `opening`, `open` or `away`. */
+    @Serializable @SerialName("link")
+    data class Link(val status: LinkStatus) : Action
+
+    /** What a diagnosis found while away: the phone's own network, and the managed service. */
+    @Serializable @SerialName("health")
+    data class Health(val phoneOnline: Boolean? = null, val service: ServiceState? = null) : Action
+
+    /** Time passed: republish time-derived state (the reconnecting notice). The app's one timer sends it. */
+    @Serializable @SerialName("tick")
+    data object Tick : Action
 }
 
 @Serializable

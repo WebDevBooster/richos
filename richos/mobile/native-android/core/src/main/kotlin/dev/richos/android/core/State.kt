@@ -135,6 +135,7 @@ data class AppState(
     /** The selected conversation's rows, oldest first. */
     val messages: List<dev.richos.android.core.protocol.Row>,
     val capabilities: List<String>,
+    val connection: ConnectionState,
     val outbox: List<OutboxItem>,
     val dueInMs: Long?,
     val lastSend: SendReport?,
@@ -148,7 +149,7 @@ data class AppState(
         get() = if (draft.isBlank()) ComposerAction.RECORD else ComposerAction.SEND
 
     companion object {
-        fun of(session: Session, outbox: List<OutboxItem>, dueInMs: Long?, lastSend: SendReport?) = AppState(
+        fun of(session: Session, outbox: List<OutboxItem>, dueInMs: Long?, lastSend: SendReport?, connection: ConnectionState = ConnectionState()) = AppState(
             threads = session.threads,
             selectedThreadId = session.selectedThreadId,
             draft = session.draft,
@@ -158,6 +159,7 @@ data class AppState(
             pairing = session.pairing,
             messages = session.selectedThreadId?.let { session.cache[it] }.orEmpty(),
             capabilities = session.capabilities,
+            connection = connection,
             outbox = outbox,
             dueInMs = dueInMs,
             lastSend = lastSend,

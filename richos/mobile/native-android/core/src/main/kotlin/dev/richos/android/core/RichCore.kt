@@ -39,6 +39,8 @@ class RichCore private constructor(
 ) {
     private val mutex = Mutex()
     private var lastSend: SendReport? = null
+    private var connection = ConnectionState()
+    private var unsupported = false
     private val flow = MutableStateFlow(snapshot())
     private val api = MacApi(ports.http, ports.keys)
     private var generation = 0
@@ -53,7 +55,21 @@ class RichCore private constructor(
         is Action.ConfirmWords -> confirmWords(action.match)
         Action.Forget -> forget()
         Action.Send -> send()
-        Action.Sync -> if (session.paired) flush() else flow.value
+        Action.Sync -> if (session.paired) flush() else mutex.withLock { emit() }
+        Action.Tick -> mutex.withLock { emit() }
+        is Action.Link -> link(action.status)
+        is Action.Health -> mutex.withLock {
+            // Only while away: a probe that lands after the socket reopened is stale.
+            if (!session.online) {
+                val reason = Connections.classify(false, revoked(), unsupported, action.phoneOnline, action.service)
+                connection = connection.copy(
+                    // A healthy relay does not prove the Mac is asleep or broken.
+                    reason = if (reason == ConnectionReason.MAC_UNREACHABLE) ConnectionReason.RECONNECTING else reason,
+                    troubleSince = connection.troubleSince ?: ports.clock.now(),
+                )
+            }
+            emit()
+        }
         Action.Retry -> {
             mutex.withLock {
                 if (!session.paired) throw CoreError("Pairing has been revoked")
@@ -107,6 +123,9 @@ class RichCore private constructor(
     private fun apply(s: Session, frame: SseFrame): Session = when (frame.event) {
         "hello" -> decode(Hello.serializer(), frame.data)?.let { h ->
             resnapshotRequested = false
+            // The preserved core's rule: a protocol_version other than 1 means "use compatible
+            // versions"; none at all is a Mac that predates the field and speaks version 1.
+            unsupported = h.protocolVersion != null && h.protocolVersion != 1L
             val thread = h.threadId ?: s.selectedThreadId
             s.copy(
                 threads = h.threads.ifEmpty { s.threads },
@@ -278,7 +297,39 @@ class RichCore private constructor(
         return flow.value
     }
 
-    private fun snapshot() = AppState.of(session, outbox.all(), outbox.dueInMs(), lastSend)
+    private fun revoked() = session.pairing.problem == "revoked" && !session.paired
+
+    /** `client.js` `effectiveConnectionReason`: revoked, then incompatible, then connected, then the link's reason. */
+    private fun effectiveConnection(): ConnectionState = when {
+        revoked() -> connection.copy(reason = ConnectionReason.REVOKED)
+        unsupported -> connection.copy(reason = ConnectionReason.INCOMPATIBLE)
+        session.online -> connection.copy(reason = ConnectionReason.CONNECTED)
+        else -> connection
+    }
+
+    private fun snapshot() =
+        AppState.of(session, outbox.all(), outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now()))
+
+    // --- the connection (connection.js + client.js onState) --------------------------------------
+
+    private suspend fun link(status: LinkStatus): AppState {
+        mutex.withLock {
+            val now = ports.clock.now()
+            connection = if (status == LinkStatus.OPEN) {
+                connection.copy(reason = ConnectionReason.CONNECTED, hasConnected = true, troubleSince = null)
+            } else {
+                val keep = connection.reason == ConnectionReason.PHONE_OFFLINE || connection.reason == ConnectionReason.SERVICE_UNAVAILABLE
+                val reason = when {
+                    keep -> connection.reason
+                    status == LinkStatus.OPENING && !connection.hasConnected && connection.reason == ConnectionReason.CONNECTING -> ConnectionReason.CONNECTING
+                    else -> ConnectionReason.RECONNECTING
+                }
+                connection.copy(reason = reason, troubleSince = connection.troubleSince ?: now)
+            }
+            commit(session.copy(online = status == LinkStatus.OPEN))
+        }
+        return if (status == LinkStatus.OPEN && session.paired) flush() else flow.value
+    }
 
     companion object {
         const val UNSENT_BEFORE_PAIRING = "A message is still waiting for the Mac this phone is paired with. Send it or discard it, then pair."
@@ -314,6 +365,9 @@ class RichCore private constructor(
             is Action.ConfirmWords -> "confirm-words"
             Action.Forget -> "forget"
             is Action.Receive -> "receive"
+            is Action.Link -> "link"
+            is Action.Health -> "health"
+            Action.Tick -> "tick"
         }
     }
 }

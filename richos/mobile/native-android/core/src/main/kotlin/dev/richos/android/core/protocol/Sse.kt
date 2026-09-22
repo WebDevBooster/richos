@@ -108,6 +108,7 @@ data class Hello(
     val threads: List<dev.richos.android.core.ConversationThread> = emptyList(),
     val capabilities: List<String> = emptyList(),
     val build: String? = null,
+    @SerialName("protocol_version") val protocolVersion: Long? = null,
     val messages: List<Row> = emptyList(),
 )
 

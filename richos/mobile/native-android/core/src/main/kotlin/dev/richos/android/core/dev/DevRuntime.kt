@@ -16,6 +16,8 @@ import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
 import dev.richos.android.core.Transport
 import dev.richos.android.core.TransportFailure
+import dev.richos.android.core.ConnectionReason
+import dev.richos.android.core.LinkStatus
 import dev.richos.android.core.OutboxState
 import dev.richos.android.core.PairingPhase
 import dev.richos.android.core.parseAction
@@ -194,6 +196,7 @@ class DevRuntime private constructor(
             is DevRequest.Advance -> {
                 doc = doc.copy(now = doc.now + request.ms)
                 core.dispatch(Action.Sync)
+                core.dispatch(Action.Tick)
             }
             is DevRequest.Scenario -> throw CoreError("scenario runs through execute()")
         }
@@ -290,6 +293,23 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.Receive(frame(2, "message", row("t1:text:0", 2, "rich", "On it! Done.", "complete")))))
                 check(s.messages.size == 2 && s.messages.last().text == "On it! Done." && s.messages.last().complete, "the Mac's final row wins")
             }
+            // The quiet 3-second rule: brief recovery is invisible, persistent trouble earns one
+            // line, and the phone's own offline state is said at once.
+            "reconnect-notice" -> {
+                step(DevRequest.Fixture("offline"))
+                var s = step(DevRequest.Dispatch(Action.Link(LinkStatus.OPEN)))
+                check(s.connection.reason == ConnectionReason.CONNECTED && s.connection.notice == null && s.online, "open is connected, silently")
+                s = step(DevRequest.Dispatch(Action.Link(LinkStatus.AWAY)))
+                check(s.connection.reason == ConnectionReason.RECONNECTING && s.connection.notice == null && s.connection.noticeDueInMs == 3_000L, "a drop is quiet at first")
+                s = step(DevRequest.Advance(2_999))
+                check(s.connection.notice == null, "still quiet before 3 s")
+                s = step(DevRequest.Advance(1))
+                check(s.connection.notice == ConnectionReason.RECONNECTING, "3 s of trouble earns the line")
+                s = step(DevRequest.Dispatch(Action.Health(phoneOnline = false)))
+                check(s.connection.notice == ConnectionReason.PHONE_OFFLINE, "the phone's own offline state is said as it is")
+                s = step(DevRequest.Dispatch(Action.Link(LinkStatus.OPEN)))
+                check(s.connection.notice == null && s.connection.reason == ConnectionReason.CONNECTED, "reconnecting clears every notice")
+            }
             // Pairing (contract §2): the link goes out, the six words come back computed on the
             // phone from the Mac's hash, "They match" makes the pairing, and the key survives.
             "pair-and-confirm" -> {
@@ -327,7 +347,7 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn")
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice")
 
         suspend fun create(
             initial: DevDoc? = null,
