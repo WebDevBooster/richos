@@ -327,6 +327,24 @@ test('rolling the Worker back to schema 2 can never send an FCM token to Apple',
   assert.equal(configuredPush(env, { ...binding, environment: null }), false);
 });
 
+test('the native iPhone app\'s development ID is an allowed APNs topic, end to end, and unlisted topics stay refused', async t => {
+  const { managedArtifact } = await import('../cli/connect.mjs');
+  const profile = { accountId: 'a'.repeat(32), zoneId: 'b'.repeat(32), databaseId: crypto.randomUUID(), domain: 'example.com', capacity: 10,
+    push: { teamId: 'A123456789', sandboxKeyId: 'B123456789', topics: ['dev.richos.mobile.integration', 'dev.richos.mobile.loop', 'dev.richos.native.ios'] } };
+  const topics = managedArtifact(profile).metadata.bindings.find(row => row.name === 'APNS_TOPICS').text;
+  assert.equal(topics, 'dev.richos.mobile.integration,dev.richos.mobile.loop,dev.richos.native.ios');
+  assert.throws(() => managedArtifact({ ...profile, push: { ...profile.push, topics: ['dev.richos.native.other'] } }), /push topics/);
+  // The Worker with exactly that binding accepts the new app's registration and delivers through APNs.
+  const s = await service(t);
+  s.env.APNS_TOPICS = topics;
+  const native = { ...s.iphone, topic: 'dev.richos.native.ios' };
+  assert.equal((await s.call('PUT', '/v1/push/device', native)).status, 200);
+  assert.equal((await s.row()).topic, 'dev.richos.native.ios');
+  assert.equal((await s.call('POST', '/v1/push/events', s.event)).status, 202);
+  assert.equal(s.apnsCalls.length, 1); assert.equal(s.apnsCalls[0].binding.topic, 'dev.richos.native.ios');
+  assert.equal((await s.call('PUT', '/v1/push/device', { ...native, revision: 2, topic: 'dev.richos.native.other' })).status, 400);
+});
+
 test('the managed artifact uploads connect/fcm.mjs, resolves every import and carries FCM identifiers only', async () => {
   const { managedArtifact } = await import('../cli/connect.mjs');
   const profile = { accountId: 'a'.repeat(32), zoneId: 'b'.repeat(32), databaseId: crypto.randomUUID(), domain: 'example.com', capacity: 10,
