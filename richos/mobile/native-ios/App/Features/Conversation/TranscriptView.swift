@@ -53,7 +53,7 @@ struct TranscriptView: UIViewRepresentable {
         let insets = UIEdgeInsets(top: topInset, left: 0, bottom: bottomInset, right: 0)
         if view.contentInset != insets { view.contentInset = insets }
         c.apply(TranscriptItem.build(transcript, calendar: calendar, now: now), to: view,
-                wantsFollowing: transcript.following)
+                wantsFollowing: transcript.following, palette: palette)
         if jumpToken != c.lastJumpToken {
             c.lastJumpToken = jumpToken
             view.jumpToLatest()
@@ -74,6 +74,7 @@ struct TranscriptView: UIViewRepresentable {
         private var loaded = false
         private var freshIDs: Set<String> = []
         private var askedForOlderAt: Int?
+        private var lastPalette: Palette?
 
         func attach(to view: UICollectionView) {
             let registration = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
@@ -94,14 +95,18 @@ struct TranscriptView: UIViewRepresentable {
             }
         }
 
-        func apply(_ newItems: [TranscriptItem], to view: BottomAnchoredTranscriptCollectionView, wantsFollowing: Bool) {
+        func apply(_ newItems: [TranscriptItem], to view: BottomAnchoredTranscriptCollectionView, wantsFollowing: Bool,
+                   palette: Palette) {
             guard let dataSource else { return }
             let newIDs = newItems.map(\.id)
             var changed: [String] = []
             var byID: [String: TranscriptItem] = [:]
+            // A theme change redraws every row: hosted cells hold the palette they were configured with.
+            let repaint = lastPalette != nil && lastPalette != palette
+            lastPalette = palette
             for item in newItems {
                 byID[item.id] = item
-                if let old = items[item.id], old != item { changed.append(item.id) }
+                if let old = items[item.id], old != item || repaint { changed.append(item.id) }
             }
             let previousIDs = orderedIDs
             let idsChanged = newIDs != previousIDs
@@ -294,7 +299,7 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
         let geometry = viewportGeometry
         // Jump directly in long threads instead of rendering every intervening
         // message. Keep keyboard focus and follow subsequent streamed output.
-        setContentOffset(CGPoint(x: contentOffset.x, y: geometry.bottomOffset), animated: true)
+        setContentOffset(CGPoint(x: contentOffset.x, y: geometry.bottomOffset), animated: false)
         updateBottomButton(geometry)
     }
 

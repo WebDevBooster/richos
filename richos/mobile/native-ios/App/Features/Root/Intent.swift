@@ -119,9 +119,18 @@ enum Intent: Equatable, Sendable {
         case .acceptConsent: return .acceptConsent
         case .keepPairing: return .dismissPairingProblem
         case .openSettings: return .openSheet(.settings)
-        case .closeSheet, .closeDialog: return .closeSheet
+        case .closeSheet, .closeDialog, .showWaiting: return .closeSheet
         case .openWhereMessagesGo, .learnMore: return .openSheet(.whereMessagesGo)
-        case .forget: return .openSheet(.forget)
+        case .forget: return .forgetPairing
+        case .confirmForget: return .confirmForget
+        case .openSystemSettings: return .openSystemSettings
+        case .turnOnNotifications: return .turnOnNotifications
+        case .notificationsNotNow: return .dismissNotificationOffer
+        case .setNotifications(let on): return on ? .turnOnNotifications : .turnOffNotifications
+        case .setPreviews(let on): return .setPreviews(on)
+        case .openAppStore: return .openAppStore
+        case .openSupport: return .openSupport
+        case .updateLater: return .dismissUpdate
         case .setAppearance(let appearance): return .setAppearance(appearance)
         default: return nil
         }

@@ -347,6 +347,9 @@ public struct OutboxItem: Codable, Equatable, Sendable {
     public var body: String?
     /// Voice: the kept recording this sends.
     public var recordingID: String?
+    /// Path and query, fixed at queue time and resent unchanged (voice carries its metadata here).
+    /// `nil` means `/api/messages`.
+    public var target: String?
     public var queuedAt: Int64
     public var state: State
     public var attempts: Int
@@ -355,9 +358,9 @@ public struct OutboxItem: Codable, Equatable, Sendable {
     /// Why it is blocked or was last refused, in the Mac's words when it gave any.
     public var lastReason: String?
 
-    public init(clientID: String, kind: Message.Kind, body: String?, recordingID: String? = nil, queuedAt: Int64,
+    public init(clientID: String, kind: Message.Kind, body: String?, recordingID: String? = nil, target: String? = nil, queuedAt: Int64,
                 state: State = .waiting, attempts: Int = 0, notBefore: Int64 = 0, lastReason: String? = nil) {
-        self.clientID = clientID; self.kind = kind; self.body = body; self.recordingID = recordingID; self.queuedAt = queuedAt
+        self.clientID = clientID; self.kind = kind; self.body = body; self.recordingID = recordingID; self.target = target; self.queuedAt = queuedAt
         self.state = state; self.attempts = attempts; self.notBefore = notBefore; self.lastReason = lastReason
     }
 }

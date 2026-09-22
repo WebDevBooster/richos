@@ -311,12 +311,22 @@ final class Simulator {
     func checkRelease() throws -> SimReport {
         let debug = try build(configuration: "Debug")
         let release = try build(configuration: "Release")
-        let debugBinary = try Data(contentsOf: debug.appendingPathComponent("RichOSNative"))
-        let releaseBinary = try Data(contentsOf: release.appendingPathComponent("RichOSNative"))
+        // Every file in the bundle, not only the main executable: Xcode 16 Debug builds put the code
+        // in `RichOSNative.debug.dylib` beside a stub executable (ENABLE_DEBUG_DYLIB), which the
+        // positive probe below caught the first time this looked only at the executable.
+        func bundleBytes(_ app: URL) throws -> [Data] {
+            let files = FileManager.default.enumerator(at: app, includingPropertiesForKeys: [.isRegularFileKey])?
+                .compactMap { $0 as? URL }
+                .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true } ?? []
+            return try files.map { try Data(contentsOf: $0) }
+        }
+        let debugFiles = try bundleBytes(debug)
+        let releaseFiles = try bundleBytes(release)
         var present: [String] = [], leaked: [String] = []
         for marker in Self.developmentMarkers {
-            if debugBinary.range(of: Data(marker.utf8)) != nil { present.append(marker) }
-            if releaseBinary.range(of: Data(marker.utf8)) != nil { leaked.append(marker) }
+            let bytes = Data(marker.utf8)
+            if debugFiles.contains(where: { $0.range(of: bytes) != nil }) { present.append(marker) }
+            if releaseFiles.contains(where: { $0.range(of: bytes) != nil }) { leaked.append(marker) }
         }
         guard present.count == Self.developmentMarkers.count else {
             let missing = Self.developmentMarkers.filter { !present.contains($0) }

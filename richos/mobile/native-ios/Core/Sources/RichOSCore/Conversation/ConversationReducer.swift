@@ -29,10 +29,10 @@ public enum ConversationReducer {
         case .deliveryFailed(let clientID, let failure, let at):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
             switch failure {
-            case .retryable(let reason):
+            case .retryable(let reason, let afterMs):
                 s.outbox[i].attempts += 1
                 s.outbox[i].state = .waiting
-                s.outbox[i].notBefore = at + retryDelayMs(attempt: s.outbox[i].attempts)
+                s.outbox[i].notBefore = at + (afterMs ?? retryDelayMs(attempt: s.outbox[i].attempts))
                 s.outbox[i].lastReason = reason
                 setDelivery(&s, clientID, .waiting)
             case .refused(let reason):
@@ -40,6 +40,10 @@ public enum ConversationReducer {
                 s.outbox[i].lastReason = reason
                 setDelivery(&s, clientID, .needsAttention)
                 pump(&s, at: at, &effects)
+            case .refusedStopQueue(let reason):
+                s.outbox[i].state = .blocked
+                s.outbox[i].lastReason = reason
+                setDelivery(&s, clientID, .needsAttention)
             case .revoked:
                 // Final for the pairing, not for his words: they stay on the phone ("Nothing here
                 // was lost", round-12 `conn-revoked`).
@@ -177,7 +181,7 @@ public enum ConversationReducer {
     }
 
     /// `2026-09-22T13:00:00.000Z`, as JavaScript's `toISOString` writes it.
-    static func isoMillis(_ ms: Int64) -> String {
+    public static func isoMillis(_ ms: Int64) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(identifier: "UTC")

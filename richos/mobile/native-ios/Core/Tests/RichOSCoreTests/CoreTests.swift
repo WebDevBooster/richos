@@ -124,6 +124,23 @@ let repositoryRoot: URL = {
         }
     }
 
+    @Test func thePreservedCLIsNamesAndFieldsAreUnderstood() throws {
+        func decode(_ json: String) throws -> Action { try CoreJSON.decode(Action.self, from: Data(json.utf8)) }
+        if case .sendDraft(let id, _) = try decode(#"{"type":"send"}"#) { #expect(!id.isEmpty, "an omitted clientId is stamped") } else { Issue.record("send") }
+        #expect(try decode(#"{"type":"send","clientId":"c","at":5}"#) == .sendDraft(clientID: "c", at: 5))
+        #expect(try decode(#"{"type":"network","online":false,"at":1}"#) == .networkChanged(online: false, at: 1))
+        #expect(try decode(#"{"type":"retry","at":2}"#) == .retryNow(at: 2))
+        #expect(try decode(#"{"type":"discard","clientId":"c"}"#) == .discardMessage(id: "c"))
+        #expect(try decode(#"{"type":"pair","link":"https://m.ts.net/#pair=K"}"#) == .submitPairingLink(text: "https://m.ts.net/#pair=K"))
+        #expect(try decode(#"{"type":"confirm-pair","matched":true}"#) == .confirmWords)
+        #expect(try decode(#"{"type":"confirm-pair","matched":false}"#) == .rejectWords)
+        #expect(try decode(#"{"type":"forget-pair","confirm":true}"#) == .confirmForget)
+        #expect(throws: DecodingError.self) { try decode(#"{"type":"forget-pair","confirm":false}"#) }
+        #expect(try decode(#"{"type":"notifications-previews","enabled":false}"#) == .setPreviews(false))
+        #expect(try decode(#"{"type":"older"}"#) == .loadOlder)
+        #expect(try decode(#"{"type":"reply-play","id":"r1"}"#) == .hearReply(id: "r1"))
+    }
+
     @Test func anUnknownActionNamesTheKnownOnes() throws {
         do {
             _ = try CoreJSON.decode(Action.self, from: Data(#"{"type":"fly"}"#.utf8))
@@ -483,6 +500,38 @@ let repositoryRoot: URL = {
         let restored = try AppState(restoring: try Fixture.named("conv-populated").state.persisted)
         #expect(restored.history.cached)
         #expect(!Reducer.reduce(restored, .connected(at: 1)).state.history.cached)
+    }
+}
+
+/// A pretend platform: answers the microphone question and records what it was asked.
+actor FakePlatform: EffectHandler {
+    var handled: [Effect] = []
+    let microphone: Permission
+    init(microphone: Permission) { self.microphone = microphone }
+    func handle(_ effect: Effect, state: AppState) async -> [Action] {
+        handled.append(effect)
+        return effect == .requestMicrophone ? [.microphonePermission(microphone)] : []
+    }
+}
+
+@Suite struct EffectSeamTests {
+    @Test func anEffectsAnswerGoesBackThroughTheReducer() async throws {
+        let platform = FakePlatform(microphone: .granted)
+        let host = try await HeadlessHost(storage: MemoryStorage(), handler: platform)
+        _ = try await CommandRunner.execute(Command(.fixture, name: "comp-idle"), on: host)
+        let after = try await host.dispatch(.voicePress(id: "v", width: 386, at: 1))
+        #expect(after.microphone == .granted && after.sheet == nil && after.voice == nil, "the OS answer closed the question")
+        let handled = await platform.handled
+        #expect(handled == [.requestMicrophone])
+        let pressed = try await host.dispatch(.voicePress(id: "v2", width: 386, at: 2))
+        #expect(pressed.voice?.phase == .pressed, "the next press records")
+    }
+
+    @Test func withoutAHandlerEffectsAreRecordedNotGuessed() async throws {
+        let runner = EffectRunner(storage: MemoryStorage())
+        let followUps = try await runner.run([.persist, .requestMicrophone], state: .initial)
+        let skipped = await runner.skipped
+        #expect(followUps.isEmpty && skipped == [.requestMicrophone])
     }
 }
 

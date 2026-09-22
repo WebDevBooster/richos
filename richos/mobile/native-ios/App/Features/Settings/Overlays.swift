@@ -153,7 +153,7 @@ struct SettingsSheet: View {
                     .accessibilityAddTraits(.isHeader)
                 section("Reply notifications")
                 notificationsRow
-                row(icon: .shield, title: "Show reply previews", detail: "Off shows only “Rich has replied.”") {
+                row(icon: .shield, title: "Show reply previews", detail: "Off shows only “Rich has replied.”", control: true) {
                     Toggle("Show reply previews", isOn: Binding(get: { settings.previews }, set: { send(.setPreviews($0)) }))
                         .labelsHidden()
                         .toggleStyle(RToggleStyle())
@@ -163,7 +163,7 @@ struct SettingsSheet: View {
                 row(icon: .phone, title: "iPhone permissions", detail: "Microphone and camera", chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSystemSettings) }
                     .accessibilityAddTraits(.isButton)
-                row(icon: nil, title: "Light appearance", detail: nil) {
+                row(icon: nil, title: "Light appearance", detail: nil, control: true) {
                     Toggle("Light appearance", isOn: Binding(get: { appearance == .light },
                                                              set: { send(.setAppearance($0 ? .light : .dark)) }))
                         .labelsHidden()
@@ -230,7 +230,7 @@ struct SettingsSheet: View {
 
     @ViewBuilder private var notificationsRow: some View {
         let s = settings.notifications
-        row(icon: .bell, title: "Notify me when Rich replies", detail: notificationDetail(s)) {
+        row(icon: .bell, title: "Notify me when Rich replies", detail: notificationDetail(s), control: true) {
             switch s {
             case .on, .off:
                 Toggle("Notify me when Rich replies",
@@ -259,7 +259,9 @@ struct SettingsSheet: View {
         }
     }
 
+    /// `control`: the row holds its own switch or button, which stays a separate VoiceOver element.
     private func row<Trailing: View>(icon: Icon?, title: String, detail: String?, chevron: Bool = false,
+                                     control: Bool = false,
                                      @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             if let icon { IconView(icon, size: 22).foregroundStyle(palette.ink) }
@@ -275,7 +277,7 @@ struct SettingsSheet: View {
             if chevron { IconView(.chevR, size: 18).foregroundStyle(palette.inkSoft) }
         }
         .rowSurface(palette)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: control ? .contain : .combine)
     }
 }
 

@@ -13,7 +13,8 @@ struct VoiceBubbleBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                PlayButton(size: 44, icon: .play, label: "Play voice message") { send(.playVoice(id: row.id)) }
+                PlayButton(size: 44, icon: .play, label: "Play voice message",
+                           edge: row.author == .me ? palette.playEdgeOnMine : nil) { send(.playVoice(id: row.id)) }
                 Waveform(levels: levels.isEmpty ? Waveform.pretend(42, seed: row.id.stableSeed) : Waveform.resample(levels, 42),
                          played: 0, barMax: 26, height: 34)
             }
@@ -45,6 +46,8 @@ struct PlayButton: View {
     let size: CGFloat
     let icon: Icon
     let label: String
+    /// A 1 pt edge for where gold alone is under 3:1 against what is behind it.
+    var edge: Color? = nil
     let action: () -> Void
     @Environment(\.palette) private var palette
 
@@ -54,6 +57,7 @@ struct PlayButton: View {
                 .foregroundStyle(palette.onSignal)
                 .frame(width: size, height: size)
                 .background(Circle().fill(palette.signal).shadow(color: palette.orbShadow, radius: 10, y: 8))
+                .overlay { if let edge { Circle().strokeBorder(edge, lineWidth: 1) } }
         }
         .buttonStyle(PressScale(scale: 0.94))
         .accessibilityLabel(label)

@@ -1,0 +1,27 @@
+# The conformance corpus, checked against the Mac's production credential code.
+#   cargo test --manifest-path richos/mobile/conformance/verifier/Cargo.toml --locked
+#
+# A deliberately DETACHED crate (the empty [workspace] table): it compiles a few production
+# files from richos/app/src-tauri/src/phone and their parent helpers (see build.rs), not the
+# Tauri app, so the check takes seconds warm rather than minutes. Dependency versions are pinned
+# to the ones richos/app/src-tauri/Cargo.lock resolves, so this runs the same `ring` the Mac does.
+[package]
+name = "richos-conformance-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "AGPL-3.0-only"
+
+[workspace]
+
+# The library is the production code; its own `#[cfg(test)]` modules belong to the Tauri crate
+# and reach modules this crate does not compile. Only tests/corpus.rs runs here.
+[lib]
+test = false
+doctest = false
+
+[dependencies]
+ring = "=0.17.14"
+base64 = "=0.22.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"

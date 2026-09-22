@@ -36,7 +36,10 @@ targets:
     type: application
     platform: iOS
     sources:
+      # Notes and plans kept beside the screens are not app resources.
       - path: App
+        excludes:
+          - "**/*.md"
       - path: DevBridge
     dependencies:
       - package: RichOSCore

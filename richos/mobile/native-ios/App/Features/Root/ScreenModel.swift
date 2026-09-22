@@ -265,7 +265,8 @@ extension ScreenModel {
         switch s.sheet {
         case .settings?:
             sheet = .settings(Settings(notifications: Self.status(s.notifications.status), previews: s.notifications.previews,
-                                       update: .upToDate, macName: s.mac?.name ?? "your Mac"))
+                                       update: s.update.map { .available($0.version) } ?? .upToDate,
+                                       macName: s.mac?.name ?? "your Mac"))
         case .whereMessagesGo?:
             sheet = .whereMessagesGo
         case .pairingLink?:

@@ -17,6 +17,17 @@ struct RootView: View {
             if let action = intent.action() { send(action) }
         }
         .environment(\.screenClock, Self.clock)
+        #if DEBUG
+        // Debug-only probe for the UI tests: the core's mirror of the OS microphone permission, so a
+        // test of the voice gestures can tell "the gesture is broken" from "the app has not been
+        // told the permission yet" (a platform wiring step, not a screen).
+        .overlay(alignment: .topLeading) {
+            Color.clear.frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("microphone \(state.microphone.rawValue)")
+                .accessibilityIdentifier("debug.microphone.\(state.microphone.rawValue)")
+        }
+        #endif
     }
 
     /// Debug builds pin the clock to the fixtures' morning (`-rios-now <ms>`), so "Today" and "8:02 AM"
@@ -42,6 +53,7 @@ struct ScreenView: View {
     @State private var zoneTop: CGFloat = 700
     @State private var showsLatest = false
     @State private var jumpToken = 0
+    @State private var aboveHeight: CGFloat = 0
 
     var body: some View {
         let palette = Palette.for(model.appearance)
@@ -76,7 +88,10 @@ struct ScreenView: View {
             .frame(width: root.size.width, height: root.size.height)
         }
         .palette(palette)
-        .sheet(isPresented: Binding(get: { model.sheet != nil }, set: { if !$0 { send(.closeSheet) } })) {
+        // Only a person's swipe closes the sheet here; when the core replaces it (Forget → its dialog),
+        // the model already has no sheet and nothing is sent, so the dialog is not closed with it.
+        .sheet(isPresented: Binding(get: { model.sheet != nil },
+                                    set: { if !$0, model.sheet != nil { send(.closeSheet) } })) {
             sheetContent(palette: palette)
         }
         .animation(Motion.outQuint(320), value: model.takeover)
@@ -125,12 +140,15 @@ struct ScreenView: View {
                         .transition(.opacity.combined(with: .offset(y: 12)))
                 }
                 Spacer(minLength: 0)
-                bottomZone
+                bottomZone(height: root.size.height)
             }
         }
     }
 
-    private var bottomZone: some View {
+    /// The composer has priority over everything above it at every text size (accessibility audit F1,
+    /// F11): cards and the toast share a region of at most 40% of the screen that scrolls when they
+    /// are taller, and the compose row never scrolls away.
+    private func bottomZone(height: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if showsLatest || !model.thread.following, !model.thread.isEmpty, !model.attach.menuOpen {
                 LatestPill {
@@ -146,7 +164,15 @@ struct ScreenView: View {
                     .transition(.opacity)
             }
             VStack(spacing: 8) {
-                AboveComposer(cards: model.cards, toast: model.toast, send: send)
+                if !model.cards.isEmpty || model.toast != nil {
+                    ScrollView {
+                        AboveComposer(cards: model.cards, toast: model.toast, send: send)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .scrollIndicators(.hidden)
+                    .frame(height: min(max(aboveHeight, 1), height * 0.4))
+                }
                 ComposerView(composer: model.composer, voice: model.voice, pending: model.attach.pending,
                              attachMenuOpen: model.attach.menuOpen, send: send)
             }

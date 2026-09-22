@@ -114,9 +114,10 @@ public actor HeadlessHost: CommandHost {
     /// proceed; everything else reports it, and the file is left as it was.
     private var unreadable: Error?
 
-    /// Loads the stored session, or starts a new install.
-    public init(storage: any Storage) async throws {
-        runner = EffectRunner(storage: storage)
+    /// Loads the stored session, or starts a new install. `handler` answers effects (a fake
+    /// platform or a scripted Mac); without one they are recorded and skipped.
+    public init(storage: any Storage, handler: (any EffectHandler)? = nil) async throws {
+        runner = EffectRunner(storage: storage, handler: handler)
         do {
             state = try await runner.load() ?? .initial
         } catch {
@@ -138,10 +139,13 @@ public actor HeadlessHost: CommandHost {
 
     public func dispatch(_ action: Action) async throws -> AppState {
         try readable()
-        let (next, effects) = Reducer.reduce(state, action)
-        state = next
-        try await runner.run(effects, state: next)
-        return next
+        var pending = [action]
+        while !pending.isEmpty {
+            let (next, effects) = Reducer.reduce(state, pending.removeFirst())
+            state = next
+            pending += try await runner.run(effects, state: next)
+        }
+        return state
     }
 
     public func replace(with newState: AppState) async throws -> AppState {
