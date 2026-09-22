@@ -85,6 +85,44 @@ final class NativeClientTests: XCTestCase {
         return (app, config)
     }
 
+    private func previewCheckbox(_ app: XCUIApplication) -> XCUIElement {
+        let control = app.webViews.switches["Show reply previews"].firstMatch
+        return control.exists ? control : app.webViews.checkBoxes["Show reply previews"].firstMatch
+    }
+
+    private func setPreviews(_ app: XCUIApplication, enabled: Bool) {
+        let control = previewCheckbox(app)
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        let current = control.value as? String
+        XCTAssertTrue(current == "1" || current == "0", "Read the actual checkbox state before changing it: \(control.debugDescription), value \(String(describing: control.value))")
+        if (current == "1") != enabled { control.tap() }
+        XCTAssertEqual(control.value as? String, enabled ? "1" : "0")
+    }
+
+    func testIntegrationNotificationDefaults() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Manual notification setup requires the physical integration app")
+        #else
+        guard Bundle(for: Self.self).bundleIdentifier == "dev.richos.mobile.integration.uitests" else {
+            throw XCTSkip("Manual setup is confined to the integration app")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["--native-client"]
+        app.launch()
+        XCTAssertTrue(app.webViews.buttons["Settings"].waitForExistence(timeout: 15))
+        app.webViews.buttons["Settings"].tap()
+        setPreviews(app, enabled: true)
+        let enable = app.webViews.buttons["Enable reply notifications"]
+        if enable.exists { enable.tap() }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.alerts.buttons["Allow"].waitForExistence(timeout: 2) { springboard.alerts.buttons["Allow"].tap() }
+        XCTAssertTrue(app.webViews.staticTexts["Reply notifications are on."].waitForExistence(timeout: 30))
+        app.webViews.buttons["Close settings"].tap()
+        XCTAssertTrue(app.webViews.textViews["Message"].exists)
+        // Leave the paired app open with the requested manual-testing defaults.
+        #endif
+    }
+
     func testNativeReplyNotification() throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Live Apple alerts require the physical iPhone and the managed provider")
@@ -95,6 +133,18 @@ final class NativeClientTests: XCTestCase {
         let (app, _) = try pairedClient()
         let settings = app.webViews.buttons["Settings"]
         settings.tap()
+        let notificationsWereOn = app.webViews.buttons["Disable reply notifications"].exists
+        let previewsWereOn = previewCheckbox(app).value as? String == "1"
+        addTeardownBlock {
+            if app.state != .runningForeground { app.launch() }
+            if !app.webViews.buttons["Close settings"].exists { app.webViews.buttons["Settings"].tap() }
+            self.setPreviews(app, enabled: previewsWereOn)
+            let desired = notificationsWereOn ? "Enable reply notifications" : "Disable reply notifications"
+            let control = app.webViews.buttons[desired]
+            if control.exists { control.tap() }
+            XCTAssertTrue(app.webViews.staticTexts[notificationsWereOn ? "Reply notifications are on." : "Reply notifications are off."].waitForExistence(timeout: 30))
+            app.webViews.buttons["Close settings"].tap()
+        }
         let enable = app.webViews.buttons["Enable reply notifications"]
         if enable.exists { enable.tap() }
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -106,10 +156,7 @@ final class NativeClientTests: XCTestCase {
         app.webViews.buttons["Close settings"].tap()
         for showPreview in [true, false] {
             settings.tap()
-            let previews = app.webViews.switches["Show reply previews"].firstMatch
-            let checkbox = previews.exists ? previews : app.webViews.descendants(matching: .any).matching(identifier: "Show reply previews").firstMatch
-            XCTAssertTrue(checkbox.waitForExistence(timeout: 5))
-            if !showPreview { checkbox.tap() }
+            setPreviews(app, enabled: showPreview)
             app.webViews.buttons["Close settings"].tap()
             let editor = app.webViews.textViews["Message"]
             editor.tap()
@@ -132,9 +179,6 @@ final class NativeClientTests: XCTestCase {
             let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
             XCTAssertTrue(reply.waitForExistence(timeout: 25), "Opening the alert must retrieve its specific reply from the paired Mac")
         }
-        settings.tap()
-        app.webViews.buttons["Disable reply notifications"].tap()
-        XCTAssertTrue(app.webViews.staticTexts["Reply notifications are off."].waitForExistence(timeout: 25))
         #endif
     }
 
