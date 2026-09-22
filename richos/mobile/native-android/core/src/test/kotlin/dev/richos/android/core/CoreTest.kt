@@ -22,9 +22,10 @@ class CoreTest {
             """"pairing":{"phase":"paired","apiBase":"https://mm1.tail1a2b3c.ts.net:8443","route":"tailnet",""" +
             """"deviceId":"dev_8d4c57b7ff82","caFingerprint":"31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B",""" +
             """"words":["cobra","morning","cargo","moose","grape","bonus"],"challenge":"X4zZvQZS4kl8eriGLhoxvxVwcFz5Tx40","problem":null},""" +
-            """"messages":[],"capabilities":[],""" +
+            """"messages":[],"capabilities":["text","voice","audio","native-push"],""" +
             """"connection":{"reason":"connecting","notice":null,"noticeDueInMs":null,"hasConnected":false,"troubleSince":null},""" +
             """"outbox":[],"dueInMs":null,"lastSend":null,""" +
+            """"voice":null,"voiceElapsedMs":null,"microphone":"unknown","microphonePrompt":false,"keptRecordings":[],"toast":null,"canRecord":true,""" +
             """"environment":{"now":1700000000000,"mode":"accept","receipts":[],"calls":[]}}"""
         assertEquals(expected, runtime.state().toString())
     }
@@ -75,9 +76,13 @@ class CoreTest {
     }
 
     @Test
-    fun `voice sending is refused with a sentence until the recording lifecycle is built`() = runTest {
-        val error = assertFailsWith<CoreError> { DevRuntime.create().core.dispatch(Action.SendVoice(Recording("r", 1.0))) }
-        assertTrue(error.message!!.contains("not built yet"), error.message)
+    fun `send-voice queues the recording as app js does, and an offline phone keeps it`() = runTest {
+        val s = DevRuntime.create().core.dispatch(Action.SendVoice(Recording("r", 1.5)))
+        val item = s.outbox.single()
+        assertEquals(listOf("voice", "r", "wav16k"), listOf(item.kind, item.fileId, item.codec))
+        assertEquals(16_000, item.sampleRate)
+        assertEquals(1.5, item.seconds)
+        assertTrue(s.lastSend == null, "offline: nothing was attempted")
     }
 
     @Test

@@ -74,6 +74,8 @@ data class DevDoc(
     val mac: DevMac = DevMac(),
     /** Origins the phone holds a key for (the dev key store). */
     val keys: List<String> = emptyList(),
+    /** What the scripted recorder was told, in order: `start:<id>`, `stop:<id>:keep|drop`, … */
+    val recorder: List<String> = emptyList(),
 )
 
 object Fixtures {
@@ -87,6 +89,7 @@ object Fixtures {
     const val PAIR_LINK = "$ORIGIN/#pair=$CODE"
     const val CA_FINGERPRINT = "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B"
     const val CHALLENGE = "X4zZvQZS4kl8eriGLhoxvxVwcFz5Tx40"
+    val CAPABILITIES = listOf("text", "voice", "audio", "native-push")
     val THREADS = listOf(ConversationThread("general", "General"), ConversationThread("planning", "Planning"))
 
     fun fixture(name: String = "offline"): DevDoc {
@@ -115,6 +118,8 @@ object Fixtures {
                 words = Fingerprint.words(CA_FINGERPRINT),
                 challenge = CHALLENGE,
             ),
+            // What a current Mac advertises in hello (contract §5.4).
+            capabilities = CAPABILITIES,
         )
         val queued = name == "queued" || name == "interrupted"
         val interrupted = name == "interrupted"

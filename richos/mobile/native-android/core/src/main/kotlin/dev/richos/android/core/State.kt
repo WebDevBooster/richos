@@ -77,6 +77,10 @@ data class Session(
     /** What the Mac said it can do in its last `hello`; replaced, never merged (contract §5.4). */
     val capabilities: List<String> = emptyList(),
     val macBuild: String? = null,
+    /** The OS's answer about the microphone, mirrored. */
+    val microphone: Microphone = Microphone.UNKNOWN,
+    /** Recordings kept on the phone and not sent (`rec-card`). */
+    val keptRecordings: List<KeptRecording> = emptyList(),
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -109,6 +113,12 @@ data class OutboxItem(
     val lastReason: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val notBefore: Long? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val resumedAfterInterruptedSend: Boolean? = null,
+    /** Voice only, as `app.js` `send-voice` queues it: the recording, its codec, rate and length. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val fileId: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val codec: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val sampleRate: Int? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val seconds: Double? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val levels: List<Double>? = null,
 )
 
 /** What one pass over the outbox did, as data (`queue.js` `flush` result). */
@@ -139,6 +149,17 @@ data class AppState(
     val outbox: List<OutboxItem>,
     val dueInMs: Long?,
     val lastSend: SendReport?,
+    /** The recording in progress, if any (round-12 groups 4, 5, 6). */
+    val voice: VoiceSession? = null,
+    /** What the voice timer shows, in ms (`M:SS.t`); null when nothing records. */
+    val voiceElapsedMs: Long? = null,
+    val microphone: Microphone = Microphone.UNKNOWN,
+    /** The system is asking for the microphone; the press that asked never records. */
+    val microphonePrompt: Boolean = false,
+    val keptRecordings: List<KeptRecording> = emptyList(),
+    val toast: Toast? = null,
+    /** A press may record: paired, the Mac offers voice, and the Mac is compatible. */
+    val canRecord: Boolean = false,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow

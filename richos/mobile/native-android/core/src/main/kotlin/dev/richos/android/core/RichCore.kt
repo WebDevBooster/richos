@@ -56,7 +56,10 @@ class RichCore private constructor(
         Action.Forget -> forget()
         Action.Send -> send()
         Action.Sync -> if (session.paired) flush() else mutex.withLock { emit() }
-        Action.Tick -> mutex.withLock { emit() }
+        Action.Tick -> voice(action)
+        is Action.VoicePress, is Action.VoiceStartLocked, is Action.MicrophonePermission, is Action.VoiceMove,
+        is Action.VoiceRelease, is Action.VoiceLockedSend, is Action.VoiceLockedCancel, is Action.VoiceTouchCanceled,
+        is Action.VoiceInterrupted, is Action.VoiceLevel, Action.VoiceSettled, is Action.SendKept, is Action.DiscardKept -> voice(action)
         is Action.Link -> link(action.status)
         is Action.Health -> mutex.withLock {
             // Only while away: a probe that lands after the socket reopened is stale.
@@ -86,7 +89,15 @@ class RichCore private constructor(
             mutex.withLock { commit(session.copy(online = action.online)) }
             if (action.online && session.paired) flush() else flow.value
         }
-        is Action.SendVoice -> throw CoreError("send-voice is not built yet: it arrives with the voice recording lifecycle")
+        // `app.js` `send-voice`: a recording saved elsewhere, queued as one voice message.
+        is Action.SendVoice -> {
+            mutex.withLock {
+                if (!session.paired || session.selectedThreadId == null) throw CoreError("Pair this device before sending")
+                outbox.enqueue(voiceItem(action.clientId ?: ports.ids.next(), action.threadId ?: session.selectedThreadId!!, action.recording.id, (action.recording.seconds * 1000).toLong(), emptyList()))
+                emit()
+            }
+            flush()
+        }
         is Action.Receive -> mutex.withLock { receive(action.wire) }
         is Action.SelectThread -> mutex.withLock {
             if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
@@ -174,7 +185,7 @@ class RichCore private constructor(
     /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
     private suspend fun flush(): AppState {
         if (!session.online) return flow.value
-        val report = outbox.flush { item -> ports.transport.sendText(item) }
+        val report = outbox.flush { item -> if (item.kind == "voice") ports.transport.sendVoice(item) else ports.transport.sendText(item) }
         return mutex.withLock {
             lastSend = report
             if (report.reason == "revoked") {
@@ -299,6 +310,53 @@ class RichCore private constructor(
 
     private fun revoked() = session.pairing.problem == "revoked" && !session.paired
 
+    // --- voice (round-12 groups 4, 5, 6; the iOS core's VoiceReducer, via [VoiceMachine]) ----------
+
+    private var voiceSession: VoiceSession? = null
+    private var toast: Toast? = null
+    private var microphonePrompt = false
+
+    private fun canRecord() = session.paired && "voice" in session.capabilities && !unsupported
+
+    private fun voiceItem(id: String, threadId: String, durationMs: Long, levels: List<Double>) =
+        voiceItem(id, threadId, id, durationMs, levels)
+
+    private fun voiceItem(id: String, threadId: String, fileId: String, durationMs: Long, levels: List<Double>) = OutboxItem(
+        clientId = id, threadId = threadId, kind = "voice", text = "Voice message", queuedAt = isoMillis(ports.clock.now()),
+        fileId = fileId, codec = "wav16k", sampleRate = 16_000, seconds = durationMs / 1000.0, levels = levels,
+    )
+
+    private suspend fun voice(action: Action): AppState {
+        var sent = false
+        mutex.withLock {
+            val world = VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord())
+            val (next, effects) = VoiceMachine.reduce(world, action, ports.clock.now())
+            voiceSession = next.voice
+            toast = next.toast
+            microphonePrompt = next.microphonePrompt
+            for (effect in effects) {
+                when (effect) {
+                    is VoiceEffect.StartRecording -> ports.recorder.start(effect.id)
+                    is VoiceEffect.StopRecording -> ports.recorder.stop(effect.id, effect.keep)
+                    is VoiceEffect.DeleteRecording -> ports.recorder.delete(effect.id)
+                    VoiceEffect.RequestMicrophone -> ports.recorder.requestMicrophone()
+                    VoiceEffect.HapticTick -> ports.recorder.haptic()
+                    is VoiceEffect.Send -> {
+                        val thread = session.selectedThreadId ?: continue
+                        outbox.enqueue(voiceItem(effect.id, thread, effect.durationMs, effect.levels))
+                        sent = true
+                    }
+                }
+            }
+            if (next.microphone != session.microphone || next.kept != session.keptRecordings) {
+                commit(session.copy(microphone = next.microphone, keptRecordings = next.kept))
+            } else {
+                emit()
+            }
+        }
+        return if (sent) flush() else flow.value
+    }
+
     /** `client.js` `effectiveConnectionReason`: revoked, then incompatible, then connected, then the link's reason. */
     private fun effectiveConnection(): ConnectionState = when {
         revoked() -> connection.copy(reason = ConnectionReason.REVOKED)
@@ -308,7 +366,15 @@ class RichCore private constructor(
     }
 
     private fun snapshot() =
-        AppState.of(session, outbox.all(), outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now()))
+        AppState.of(session, outbox.all(), outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now())).copy(
+            voice = voiceSession,
+            voiceElapsedMs = voiceSession?.takeIf { it.recordingStartedAtMs != null }?.elapsedMs,
+            microphone = session.microphone,
+            microphonePrompt = microphonePrompt,
+            keptRecordings = session.keptRecordings,
+            toast = toast,
+            canRecord = canRecord(),
+        )
 
     // --- the connection (connection.js + client.js onState) --------------------------------------
 
@@ -368,6 +434,19 @@ class RichCore private constructor(
             is Action.Link -> "link"
             is Action.Health -> "health"
             Action.Tick -> "tick"
+            is Action.VoicePress -> "voice-press"
+            is Action.VoiceStartLocked -> "voice-start-locked"
+            is Action.MicrophonePermission -> "microphone-permission"
+            is Action.VoiceMove -> "voice-move"
+            is Action.VoiceRelease -> "voice-release"
+            is Action.VoiceLockedSend -> "voice-locked-send"
+            is Action.VoiceLockedCancel -> "voice-locked-cancel"
+            is Action.VoiceTouchCanceled -> "voice-touch-canceled"
+            is Action.VoiceInterrupted -> "voice-interrupted"
+            is Action.VoiceLevel -> "voice-level"
+            Action.VoiceSettled -> "voice-settled"
+            is Action.SendKept -> "send-kept"
+            is Action.DiscardKept -> "discard-kept"
         }
     }
 }

@@ -37,6 +37,33 @@ fun interface IdSource {
 /** The Mac. A failure is a [TransportFailure]; anything else is an acknowledgement. */
 interface Transport {
     suspend fun sendText(item: OutboxItem): Receipt
+
+    /** A recorded voice message. A transport without voice refuses it for this message only. */
+    suspend fun sendVoice(item: OutboxItem): Receipt = throw TransportFailure("unsupported", retryable = false, aboutThisMessage = true)
+}
+
+/**
+ * The microphone and the recordings on disk (the platform's half of the voice machine). The core
+ * says WHEN to start, stop, keep and delete; the platform does it. The default does nothing, so a
+ * headless world without audio still runs every rule.
+ */
+interface Recorder {
+    suspend fun start(id: String) {}
+
+    /** Stop recording [id]; keep the file when [keep], else delete it. */
+    suspend fun stop(id: String, keep: Boolean) {}
+
+    suspend fun delete(id: String) {}
+
+    /** Ask the OS once; the answer comes back as the `microphone-permission` action. */
+    suspend fun requestMicrophone() {}
+
+    /** The small tick when the lock engages. */
+    suspend fun haptic() {}
+
+    companion object {
+        val NONE: Recorder = object : Recorder {}
+    }
 }
 
 /** The Mac's answer to an accepted message (`POST /api/messages`). */
@@ -70,4 +97,5 @@ class Ports(
     val keys: dev.richos.android.core.protocol.DeviceKeys,
     /** What the Mac lists this phone as (contract §2.3: trimmed to 40 characters there). */
     val deviceName: String = "Android phone",
+    val recorder: Recorder = Recorder.NONE,
 )

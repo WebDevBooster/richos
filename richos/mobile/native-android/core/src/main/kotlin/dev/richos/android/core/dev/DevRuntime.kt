@@ -11,6 +11,12 @@ import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxStorage
 import dev.richos.android.core.Ports
 import dev.richos.android.core.Receipt
+import dev.richos.android.core.Recorder
+import dev.richos.android.core.KeptReason
+import dev.richos.android.core.Microphone
+import dev.richos.android.core.Toast
+import dev.richos.android.core.VoiceEnding
+import dev.richos.android.core.VoicePhase
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
@@ -135,6 +141,21 @@ class DevRuntime private constructor(
                     }
                     return Receipt("intake_${item.clientId}", duplicate, doc.receipts.size.toLong())
                 }
+
+                // The scripted Mac takes a recording the same way it takes text (runtime.js keeps
+                // one receipt list for both).
+                override suspend fun sendVoice(item: OutboxItem): Receipt = sendText(item)
+            },
+            recorder = object : Recorder {
+                private suspend fun log(entry: String) {
+                    doc = doc.copy(recorder = doc.recorder + entry)
+                    persist()
+                }
+                override suspend fun start(id: String) = log("start:$id")
+                override suspend fun stop(id: String, keep: Boolean) = log("stop:$id:${if (keep) "keep" else "drop"}")
+                override suspend fun delete(id: String) = log("delete:$id")
+                override suspend fun requestMicrophone() = log("ask-microphone")
+                override suspend fun haptic() = log("haptic")
             },
             clock = Clock { doc.now },
             ids = IdSource {
@@ -293,6 +314,47 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.Receive(frame(2, "message", row("t1:text:0", 2, "rich", "On it! Done.", "complete")))))
                 check(s.messages.size == 2 && s.messages.last().text == "On it! Done." && s.messages.last().complete, "the Mac's final row wins")
             }
+            // Mode 1, hold to record: the 200 ms press, the hold, the release that sends; then a tap
+            // that is too short to be a message.
+            "voice-hold-send" -> {
+                step(DevRequest.Fixture("online"))
+                step(DevRequest.Dispatch(Action.MicrophonePermission(Microphone.GRANTED)))
+                val t0 = doc.now
+                var s = step(DevRequest.Dispatch(Action.VoicePress("rec-1", 386.0, t0)))
+                check(s.voice?.phase == VoicePhase.PRESSED && doc.recorder.isEmpty(), "a press records nothing for 200 ms")
+                s = step(DevRequest.Advance(200))
+                check(s.voice?.phase == VoicePhase.HELD && doc.recorder == listOf("start:rec-1"), "recording starts after the press delay")
+                step(DevRequest.Dispatch(Action.VoiceLevel(0.4)))
+                s = step(DevRequest.Advance(1_300))
+                check(s.voiceElapsedMs == 1_300L, "the timer counts from when recording began")
+                s = step(DevRequest.Dispatch(Action.VoiceRelease(doc.now)))
+                check(s.voice?.ending == VoiceEnding.SENT && s.outbox.isEmpty() && doc.receipts.single().clientId == "rec-1", "release sends, and the Mac takes it")
+                check(doc.recorder.last() == "stop:rec-1:keep", "the sent recording's file is kept")
+                s = step(DevRequest.Dispatch(Action.VoiceSettled))
+                check(s.voice == null, "settled returns to idle")
+                step(DevRequest.Dispatch(Action.VoicePress("rec-2", 386.0, doc.now)))
+                step(DevRequest.Advance(300))
+                s = step(DevRequest.Dispatch(Action.VoiceRelease(doc.now)))
+                check(s.voice?.ending == VoiceEnding.TOO_SHORT && s.toast == Toast.TOO_SHORT && doc.receipts.size == 1, "under 500 ms of recording sends nothing")
+            }
+            // Mode 2, slide up to lock; then the interruption that keeps, never sends.
+            "voice-lock-interrupt" -> {
+                step(DevRequest.Fixture("online"))
+                step(DevRequest.Dispatch(Action.MicrophonePermission(Microphone.GRANTED)))
+                step(DevRequest.Dispatch(Action.VoicePress("rec-3", 386.0, doc.now)))
+                step(DevRequest.Advance(200))
+                var s = step(DevRequest.Dispatch(Action.VoiceMove(0.0, -59.0, doc.now)))
+                check(s.voice?.phase == VoicePhase.HELD && s.voice!!.lockProgress > 0.98, "59 dp up is not yet locked")
+                s = step(DevRequest.Dispatch(Action.VoiceMove(0.0, -60.0, doc.now)))
+                check(s.voice?.phase == VoicePhase.LOCKED && doc.recorder.last() == "haptic", "60 dp up locks, with a tick")
+                step(DevRequest.Advance(5_000))
+                s = step(DevRequest.Dispatch(Action.VoiceInterrupted(doc.now)))
+                check(s.voice == null && s.keptRecordings.single().reason == KeptReason.INTERRUPTED && doc.receipts.isEmpty(), "an interruption keeps the recording and never sends")
+                s = step(DevRequest.Restart)
+                check(s.keptRecordings.single().id == "rec-3", "a kept recording survives a restart")
+                s = step(DevRequest.Dispatch(Action.SendKept("rec-3")))
+                check(s.keptRecordings.isEmpty() && doc.receipts.single().clientId == "rec-3", "a kept recording can be sent")
+            }
             // The quiet 3-second rule: brief recovery is invisible, persistent trouble earns one
             // line, and the phone's own offline state is said at once.
             "reconnect-notice" -> {
@@ -347,7 +409,7 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice")
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice", "voice-hold-send", "voice-lock-interrupt")
 
         suspend fun create(
             initial: DevDoc? = null,

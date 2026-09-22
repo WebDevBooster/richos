@@ -68,9 +68,62 @@ sealed interface Action {
     @Serializable @SerialName("health")
     data class Health(val phoneOnline: Boolean? = null, val service: ServiceState? = null) : Action
 
-    /** Time passed: republish time-derived state (the reconnecting notice). The app's one timer sends it. */
+    /** Time passed: republish time-derived state (the reconnecting notice, the voice timer). The app's one timer sends it. */
     @Serializable @SerialName("tick")
     data object Tick : Action
+
+    // --- voice (round-12 groups 4, 5, 6). Names and fields are the native iOS core's. ----------
+
+    /** Touch-down on the microphone. [id] names the recording; [width] is the composer's, in dp. */
+    @Serializable @SerialName("voice-press")
+    data class VoicePress(val id: String, val width: Double, val at: Long) : Action
+
+    /** Accessibility's "record hands-free": start a recording already locked. */
+    @Serializable @SerialName("voice-start-locked")
+    data class VoiceStartLocked(val id: String, val width: Double, val at: Long) : Action
+
+    /** The OS answered or reports the microphone permission. */
+    @Serializable @SerialName("microphone-permission")
+    data class MicrophonePermission(val permission: Microphone) : Action
+
+    /** The finger moved: offsets from the touch-down point, in dp (negative = left / up). */
+    @Serializable @SerialName("voice-move")
+    data class VoiceMove(val dx: Double, val dy: Double, val at: Long) : Action
+
+    @Serializable @SerialName("voice-release")
+    data class VoiceRelease(val at: Long) : Action
+
+    /** Tap on the send circle while locked. */
+    @Serializable @SerialName("voice-locked-send")
+    data class VoiceLockedSend(val at: Long) : Action
+
+    /** Tap on Cancel while locked. */
+    @Serializable @SerialName("voice-locked-cancel")
+    data class VoiceLockedCancel(val at: Long) : Action
+
+    /** The system took the touch away (an alert over the app). */
+    @Serializable @SerialName("voice-touch-canceled")
+    data class VoiceTouchCanceled(val at: Long) : Action
+
+    /** The app left the screen or the OS took the audio: the recording is kept, never sent. */
+    @Serializable @SerialName("voice-interrupted")
+    data class VoiceInterrupted(val at: Long) : Action
+
+    /** The recording's level, 0 to 1, sampled every 100 ms. */
+    @Serializable @SerialName("voice-level")
+    data class VoiceLevel(val level: Double) : Action
+
+    /** The end animation finished. */
+    @Serializable @SerialName("voice-settled")
+    data object VoiceSettled : Action
+
+    /** Send a kept recording (`rec-card`). */
+    @Serializable @SerialName("send-kept")
+    data class SendKept(val id: String, val at: Long = 0) : Action
+
+    /** Let a kept recording go. */
+    @Serializable @SerialName("discard-kept")
+    data class DiscardKept(val id: String) : Action
 }
 
 @Serializable
