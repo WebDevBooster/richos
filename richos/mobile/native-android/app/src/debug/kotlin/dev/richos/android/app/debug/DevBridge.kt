@@ -24,6 +24,20 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
+import dev.richos.android.core.protocol.Signing
+import dev.richos.android.platform.AndroidKeystoreVault
+import dev.richos.android.platform.KeystoreKeys
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.math.BigInteger
+import java.security.KeyFactory
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.Signature
+import java.security.interfaces.ECPublicKey
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
 
 /**
  * DEBUG ONLY. Runs development commands against the SAME [DevRuntime] the headless CLI runs,
@@ -82,6 +96,9 @@ object DevBridge {
         val start = System.nanoTime()
         fun elapsed() = JsonPrimitive(Math.round((System.nanoTime() - start) / 10_000.0) / 100.0)
         try {
+            if (command == "identity-check") {
+                return@withLock true to envelope(command, elapsed(), identityCheck())
+            }
             val request = DevRequest.parse(command, arg)
             val result = runtime(context).execute(request)
             true to JsonObject(
@@ -97,6 +114,46 @@ object DevBridge {
             false to failure(e.message, elapsed())
         } catch (e: SerializationException) {
             false to failure("The development document is unreadable: ${e.message?.lineSequence()?.firstOrNull()}", elapsed())
+        }
+    }
+
+    private fun envelope(command: String, elapsed: JsonPrimitive, result: JsonElement) = JsonObject(
+        linkedMapOf(
+            "ok" to JsonPrimitive(true),
+            "mode" to JsonPrimitive("emu"),
+            "command" to JsonPrimitive(command),
+            "elapsedMs" to elapsed,
+            "result" to result,
+        ),
+    )
+
+    /**
+     * The real Android Keystore, on this device: create a throwaway identity, sign, convert the
+     * platform's DER to the raw form the Mac verifies, verify it against the exported point, then
+     * delete it. The one thing about the identity a JVM test cannot prove.
+     */
+    private suspend fun identityCheck(): JsonElement {
+        val origin = "https://identity-check.invalid"
+        val keys = KeystoreKeys(AndroidKeystoreVault())
+        try {
+            val point = keys.publicPoint(origin)
+            val data = "challenge\nPOST\n/api/messages\nidentity-check".toByteArray()
+            val raw = Signing.derToRaw(keys.sign(origin, data))
+            val params = (KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair().public as ECPublicKey).params
+            val public = KeyFactory.getInstance("EC").generatePublic(
+                ECPublicKeySpec(ECPoint(BigInteger(1, point.copyOfRange(1, 33)), BigInteger(1, point.copyOfRange(33, 65))), params),
+            )
+            val verified = Signature.getInstance("SHA256withECDSA").run { initVerify(public); update(data); verify(Signing.rawToDer(raw)) }
+            val exportable = runCatching { (KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.getKey(KeystoreKeys.aliasFor(origin), null))?.encoded }.getOrNull()
+            return buildJsonObject {
+                put("pointBytes", point.size)
+                put("rawSignatureBytes", raw.size)
+                put("verified", verified)
+                put("deviceId", Signing.deviceId(point))
+                put("privateKeyExported", exportable != null)
+            }
+        } finally {
+            keys.delete(origin)
         }
     }
 
