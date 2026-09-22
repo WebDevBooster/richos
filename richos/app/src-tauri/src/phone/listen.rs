@@ -446,7 +446,10 @@ async fn accept_https(
 
 async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<BoxBody> {
     let method = request.method().as_str().to_string();
-    let path = percent_decode(request.uri().path());
+    // Authenticated signatures cover the wire path. Decode an audio ID only after
+    // verification in its route; decoding here changes signed %3A into ':' first.
+    let wire_path = request.uri().path();
+    let path = if wire_path.starts_with("/api/") { wire_path.to_string() } else { percent_decode(wire_path) };
     let query = request.uri().query().unwrap_or("").to_string();
     let header = |name: &str| {
         request.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
@@ -1512,6 +1515,15 @@ mod tests {
         let mut challenge = paired["challenge"].as_str().unwrap().to_string();
         assert_eq!(paired["ca_fingerprint_sha256"], ca.fingerprint_hex());
         assert_eq!(paired["api_base"], TEST_API_BASE);
+
+        // Real URL encoding must survive TLS/HTTP parsing before signature verification.
+        let audio_file=dir.join("signed-audio.wav");std::fs::write(&audio_file,b"RIFF....WAVE").unwrap();
+        devices.mint_audio("turn_audio:text:0",audio_file);
+        let audio_path="/api/audio/turn_audio%3Atext%3A0";
+        let sig=super::super::b64url(&phone.sign(&signing_string(&challenge,"GET",audio_path,b"")));
+        let auth=format!("RichOS-Device {device_id}.{challenge}.{sig}");
+        let (status,_,bytes)=client.request("GET",audio_path,&[("Authorization",&auth)],b"");
+        assert_eq!(status,200);assert_eq!(bytes,b"RIFF....WAVE");
 
         // 2. AN UNPAIRED CALLER STILL SEES NOTHING, over the same real socket. The positive
         //    control for every 404 in the unit tests, asserted against the wire this time.

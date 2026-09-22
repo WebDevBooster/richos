@@ -51,3 +51,20 @@ test('native voice hashing reads the saved audio file and sends no audio through
  await ports.fetch('https://mac.example/api/messages',{method:'POST',headers:{'Content-Type':'audio/wav'},body:ref});
  assert.deepEqual(calls[0],{method:'recordHash',args:{id:'opaque-id'}});assert.deepEqual(calls[1].args.body,ref);
 });
+for (const projectionFirst of [true,false]) test(`voice transcript replaces its placeholder with projection first=${projectionFirst}`,async t=>{
+ const {h,app}=await setup(t),{createHash}=require('node:crypto');
+ const originalHash=h.ports.hash;h.ports.hash=async value=>typeof value==='string'?createHash('sha256').update(value).digest('hex'):originalHash(value);
+ const transcript='The blue notebook is on the kitchen table.', hash=await h.ports.hash(transcript);
+ const fetch=h.ports.fetch;let acknowledge;
+ h.ports.fetch=async(url,options)=>url.includes('kind=voice')?new Promise(resolve=>{acknowledge=()=>resolve(Response.json({message_id:'intake_1',cursor:1,thread_id:'general',accepted_at:'2026-09-22T00:00:00Z',text_sha256:hash}));}):fetch(url,options);
+ await app.dispatch({type:'record-send',id:'recording-1'});
+ for(let i=0;i<20 && !acknowledge;i++) await tick();
+ assert(acknowledge);
+ const project=()=>h.opened.at(-1).event('message',{id:'turn_voice:user',role:'ceo',cursor:2,text:transcript,complete:true});
+ if(projectionFirst) {project();await tick();}
+ acknowledge();await app.settle();
+ if(!projectionFirst) project();
+ await tick();await app.settle();
+ assert.equal(app.state().outbox.length,0);
+ assert.deepEqual(app.state().messages.map(row=>row.text),[transcript]);
+});

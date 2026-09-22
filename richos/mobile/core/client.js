@@ -130,6 +130,7 @@
           unsupported = frame.protocol_version !== undefined && frame.protocol_version !== 1 ? 'Update this app or your Mac to use compatible RichOS versions.' : null;
           if (Array.isArray(frame.threads)) data.session.threads = frame.threads.filter(x => x && typeof x.id === 'string' && typeof x.title === 'string');
         }
+        await reconcileVoice(id);
         await persist(); await app.dispatch({ type: 'network', online: true }); emit();
         if (name==='hello' && (data.push.enabled || data.push.pendingDisable)) void syncNotifications();
       }).catch(failure);
@@ -175,6 +176,19 @@
         }, setTimeoutImpl: setTimer, clearTimeoutImpl: clearTimer });
       link.connect();
     }
+    async function reconcileVoice(id) {
+      // Match the authenticated projection to the receipt without keeping transcript
+      // text in the Mac's replay table. Either ACK/projection arrival order works.
+      for (const accepted of data.accepted) {
+        const {item,answer}=accepted;
+        if(item.threadId!==id || item.kind!=='voice' || !/^[a-f0-9]{64}$/.test(answer.text_sha256 || '')) continue;
+        for (const row of thread(id).view([]).filter(row=>row.role==='ceo' && !row.confirmed)) {
+          if(await ports.hash(row.text || '')===answer.text_sha256) {
+            item.text=row.text;thread(id).confirm(item,answer);break;
+          }
+        }
+      }
+    }
     app = await Mobile.createApp({
       storage: { all: async () => copy(data.outbox),
         put: item => { const value = copy(item); return persist(items => items.filter(x => x.clientId !== value.clientId).concat(value)); },
@@ -194,6 +208,7 @@
           }
         }
         if (result.reason === 'revoked') { data.revoked = true; data.confirmed = false; data.session.paired = false; closeStream(); }
+        for (const id of new Set((result.accepted || []).map(({item})=>item.threadId))) await reconcileVoice(id);
         await persist(); scheduleRetry();
       } });
     app.subscribe(() => { emit(); scheduleRetry(); });

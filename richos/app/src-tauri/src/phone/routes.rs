@@ -526,7 +526,7 @@ fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
         if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
         let accepted = channel.bridge.submit_text(Some(&thread),&text)?;
         Ok(json!({"message_id":accepted.message_id,"cursor":channel.hub.next_cursor(),"thread_id":accepted.thread_id,
-            "accepted_at":super::rows::iso8601(accepted.at),"duplicate":false}).to_string())
+            "accepted_at":super::rows::iso8601(accepted.at),"text_sha256":super::hex(&super::sha256(text.as_bytes())),"duplicate":false}).to_string())
     });
     use super::delivery::Delivery;
     match delivery {
