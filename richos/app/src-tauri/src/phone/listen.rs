@@ -461,7 +461,8 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
     let body_limit = super::routes::body_limit(&method,&path,content_type.as_deref());
     // THE LIMIT IS APPLIED BEFORE THE BODY IS READ, which is the difference between a limit and a
     // check. `Limited` fails the read rather than buffering four gigabytes and then measuring it.
-    let body = match tokio::time::timeout(std::time::Duration::from_secs(15), Limited::new(request.into_body(), body_limit).collect()).await {
+    let upload_seconds = if body_limit > super::MAX_BODY_BYTES { 120 } else { 15 };
+    let body = match tokio::time::timeout(std::time::Duration::from_secs(upload_seconds), Limited::new(request.into_body(), body_limit).collect()).await {
         Ok(Ok(collected)) => collected.to_bytes().to_vec(),
         _ => return render(&channel, Outcome::PayloadTooLarge),
     };
