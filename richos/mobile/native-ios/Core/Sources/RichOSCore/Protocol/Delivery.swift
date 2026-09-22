@@ -51,10 +51,12 @@ public protocol RecordingStore: Sendable {
 public struct Courier: Sendable {
     public let api: APIClient
     public let recordings: (any RecordingStore)?
+    public let attachments: (any AttachmentStore)?
 
-    public init(api: APIClient, recordings: (any RecordingStore)? = nil) {
+    public init(api: APIClient, recordings: (any RecordingStore)? = nil, attachments: (any AttachmentStore)? = nil) {
         self.api = api
         self.recordings = recordings
+        self.attachments = attachments
     }
 
     public struct Result: Sendable {
@@ -65,6 +67,7 @@ public struct Courier: Sendable {
 
     public func deliver(_ item: OutboxItem, at: Int64) async -> Result {
         let attempt = item.attempts + 1
+        if let files = item.files, !files.isEmpty { return await deliverAttachments(item, attempt: attempt, at: at) }
         let target = item.target ?? "/api/messages"
         let body: Data?
         let contentType: String
@@ -94,19 +97,22 @@ public struct Courier: Sendable {
             clientAction = ClientAction.transportFailed(attempt: attempt)
             reason = (error as? APIError)?.reason.rawValue ?? APIError.Reason.unreachable.rawValue
         }
-        let action: Action
+        return Result(action: Self.action(for: clientAction, clientID: item.clientID, reason: reason, at: at), duplicate: duplicate)
+    }
+
+    /// The reducer's action for a classified answer.
+    static func action(for clientAction: ClientAction, clientID: String, reason: String?, at: Int64) -> Action {
         switch clientAction {
         case .delivered:
-            action = .deliveryAccepted(clientID: item.clientID, at: at)
+            return .deliveryAccepted(clientID: clientID, at: at)
         case .retrySameBytes(let afterMs):
-            action = .deliveryFailed(clientID: item.clientID, failure: .retryable(reason: reason, afterMs: afterMs), at: at)
+            return .deliveryFailed(clientID: clientID, failure: .retryable(reason: reason, afterMs: afterMs), at: at)
         case .finalForThisItem(let why):
-            action = .deliveryFailed(clientID: item.clientID, failure: .refused(reason: why ?? reason), at: at)
+            return .deliveryFailed(clientID: clientID, failure: .refused(reason: why ?? reason), at: at)
         case .finalStopQueue(let why):
-            action = .deliveryFailed(clientID: item.clientID, failure: .refusedStopQueue(reason: why ?? reason), at: at)
+            return .deliveryFailed(clientID: clientID, failure: .refusedStopQueue(reason: why ?? reason), at: at)
         case .phoneForgotten:
-            action = .deliveryFailed(clientID: item.clientID, failure: .revoked, at: at)
+            return .deliveryFailed(clientID: clientID, failure: .revoked, at: at)
         }
-        return Result(action: action, duplicate: duplicate)
     }
 }

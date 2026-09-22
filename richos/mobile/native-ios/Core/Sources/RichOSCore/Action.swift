@@ -60,6 +60,8 @@ public enum Action: Equatable, Sendable {
     case setFollowing(Bool)
     case setComposerFocus(Bool)
     case openedFromNotification(messageID: String)
+    /// A share the Share extension saved, taken into the outbox with its own ids and commit bytes.
+    case takeShare(SharedIntake, at: Int64)
     case clearFocus
     /// "Hear it" on one of Rich's replies.
     case hearReply(id: String)
@@ -205,6 +207,8 @@ public enum Effect: Equatable, Sendable {
     /// Stop capturing; `keep` retains the file (sent or kept), otherwise it is removed.
     case stopRecording(id: String, keep: Bool)
     case deleteRecording(id: String)
+    /// Remove the phone's copies of attached files (the Mac accepted the message, or it was discarded).
+    case deleteAttachments(paths: [String])
     /// The light tick when the lock engages (`UIImpactFeedbackGenerator(.light)`).
     case hapticTick
     case playRecording(id: String)

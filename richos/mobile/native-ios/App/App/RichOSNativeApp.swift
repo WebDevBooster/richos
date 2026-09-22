@@ -31,7 +31,8 @@ struct RichOSNativeApp: App {
                 let transport = URLSessionTransport()
                 // The courier reads voice messages from the same files the recorder writes.
                 let network = NetworkEffects(transport: transport, stream: transport, identities: KeychainIdentityStore(),
-                                             recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()))
+                                             recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
+                                             attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
                 let platform = PlatformEffects(network: network)
                 let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: platform)
                 platform.dispatch = { loaded.receive($0) }
@@ -58,6 +59,7 @@ struct RichOSNativeApp: App {
                 #endif
                 store = loaded
                 loaded.send(.foregrounded(at: SystemClock().nowMs()))
+                await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
             .task(id: scenePhase) {
                 // The core's clock: the outbox's retries, the voice timer and the quiet period before
@@ -75,6 +77,8 @@ struct RichOSNativeApp: App {
                     // The OS's microphone answer is mirrored, never stored (PRD §3).
                     PlatformEffects.permissionMirror().forEach { store.send($0) }
                     store.send(.foregrounded(at: SystemClock().nowMs()))
+                    // What was shared while the app was away goes into the outbox now.
+                    Task { await ShareIntake.takeWaiting(into: store, nowMs: SystemClock().nowMs()) }
                 case .background:
                     // Backgrounding keeps a recording in progress, never sends it (the core's rule).
                     store.send(.backgrounded(at: SystemClock().nowMs()))

@@ -116,8 +116,10 @@ public struct StreamRow: Codable, Equatable, Sendable {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let sentAt = createdAt.flatMap { formatter.date(from: $0) }.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
         let voice = durationMs != nil || kind == "voice"
-        return Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: text, sentAt: sentAt,
-                       durationMs: durationMs, clientID: clientID, cursor: cursor)
+        // A phone attachment message comes back as the words the Mac gave Rich; show its caption and files.
+        let attached = role == "ceo" && !voice ? AttachmentDescription.parse(text, rowID: id) : nil
+        return Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: attached?.caption ?? text,
+                       sentAt: sentAt, durationMs: durationMs, clientID: clientID, cursor: cursor, attachments: attached?.files)
     }
 }
 

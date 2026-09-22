@@ -334,11 +334,15 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
     /// The Mac's history position; the conversation is ordered by it. `nil` for the phone's own
     /// bubbles until the Mac's row replaces them.
     public var cursor: Int?
+    /// Photos and files sent with this message (the text is then its caption). `nil` for none.
+    public var attachments: [AttachmentRef]?
 
     public init(id: String, author: Author, kind: Kind = .text, text: String, sentAt: Int64,
-                delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil, cursor: Int? = nil) {
+                delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil, cursor: Int? = nil,
+                attachments: [AttachmentRef]? = nil) {
         self.id = id; self.author = author; self.kind = kind; self.text = text; self.sentAt = sentAt
         self.delivery = delivery; self.durationMs = durationMs; self.levels = levels; self.clientID = clientID; self.cursor = cursor
+        self.attachments = attachments
     }
 }
 
@@ -370,11 +374,13 @@ public struct OutboxItem: Codable, Equatable, Sendable {
     public var notBefore: Int64
     /// Why it is blocked or was last refused, in the Mac's words when it gave any.
     public var lastReason: String?
+    /// Photos and files: each is uploaded before `body` (then the commit's exact bytes) is sent.
+    public var files: [OutboxFile]?
 
     public init(clientID: String, kind: Message.Kind, body: String?, recordingID: String? = nil, target: String? = nil, queuedAt: Int64,
-                state: State = .waiting, attempts: Int = 0, notBefore: Int64 = 0, lastReason: String? = nil) {
+                state: State = .waiting, attempts: Int = 0, notBefore: Int64 = 0, lastReason: String? = nil, files: [OutboxFile]? = nil) {
         self.clientID = clientID; self.kind = kind; self.body = body; self.recordingID = recordingID; self.target = target; self.queuedAt = queuedAt
-        self.state = state; self.attempts = attempts; self.notBefore = notBefore; self.lastReason = lastReason
+        self.state = state; self.attempts = attempts; self.notBefore = notBefore; self.lastReason = lastReason; self.files = files
     }
 }
 

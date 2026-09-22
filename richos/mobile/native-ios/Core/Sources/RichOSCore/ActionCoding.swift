@@ -46,6 +46,7 @@ extension Action: Codable {
         var voicePaused: Bool?
         var limits: AttachmentLimits?
         var hostId: String?
+        var intake: SharedIntake?
 
         init(_ type: String) { self.type = type }
     }
@@ -56,7 +57,7 @@ extension Action: Codable {
         "confirm-pair", "accept-consent", "dismiss-pairing-problem", "open-sheet", "close-sheet",
         "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "set-following", "set-composer-focus",
-        "notification-open", "notification-focused", "reply-play", "playback-started", "playback-progress",
+        "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
         "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
         "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
@@ -108,6 +109,7 @@ extension Action: Codable {
         case "set-following": self = .setFollowing(try need(w.value, "value"))
         case "set-composer-focus": self = .setComposerFocus(try need(w.value, "value"))
         case "notification-open": self = .openedFromNotification(messageID: try need(w.id, "id"))
+        case "share-take": self = .takeShare(try need(w.intake, "intake"), at: w.at ?? now)
         case "notification-focused": self = .clearFocus
         case "reply-play": self = .hearReply(id: try need(w.id, "id"))
         case "playback-started": self = .playbackStarted(id: try need(w.id, "id"))
@@ -196,6 +198,7 @@ extension Action: Codable {
         case .setFollowing(let v): w = Wire("set-following"); w.value = v
         case .setComposerFocus(let v): w = Wire("set-composer-focus"); w.value = v
         case .openedFromNotification(let id): w = Wire("notification-open"); w.id = id
+        case .takeShare(let intake, let at): w = Wire("share-take"); w.intake = intake; w.at = at
         case .clearFocus: w = Wire("notification-focused")
         case .hearReply(let id): w = Wire("reply-play"); w.id = id
         case .playbackStarted(let id): w = Wire("playback-started"); w.id = id

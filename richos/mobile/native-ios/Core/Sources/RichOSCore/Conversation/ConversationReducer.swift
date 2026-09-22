@@ -23,7 +23,7 @@ public enum ConversationReducer {
             send(&s, clientID: clientID, at: at, &effects)
         case .deliveryAccepted(let clientID, let at):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
-            s.outbox.remove(at: i)
+            releaseFiles(of: s.outbox.remove(at: i), &effects)
             setDelivery(&s, clientID, nil)
             pump(&s, at: at, &effects)
         case .deliveryFailed(let clientID, let failure, let at):
@@ -58,7 +58,7 @@ public enum ConversationReducer {
             pump(&s, at: at, &effects)
         case .discardMessage(let id):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == id }), s.outbox[i].state != .sending else { return }
-            s.outbox.remove(at: i)
+            releaseFiles(of: s.outbox.remove(at: i), &effects)
             s.messages.removeAll { $0.id == id }
             if case .blockedByUnsentWork = s.pairingProblem {
                 s.pairingProblem = s.outbox.isEmpty ? nil : .blockedByUnsentWork(count: s.outbox.count)
@@ -88,6 +88,8 @@ public enum ConversationReducer {
         case .openedFromNotification(let messageID):
             s.focusedMessageID = messageID
             s.following = true
+        case .takeShare(let intake, let at):
+            take(intake, &s, at: at, &effects)
         case .clearFocus:
             s.focusedMessageID = nil
         case .hearReply(let id):
@@ -157,14 +159,21 @@ public enum ConversationReducer {
     /// Mac's row for one of your messages retires the phone's own bubble for it: by `clientID` when
     /// the row carries it, else by the same text on a bubble the Mac has already accepted (the
     /// reference thread model's rule).
-    private static func merge(_ s: inout AppState, _ incoming: [Message]) {
-        for message in incoming where message.author == .me {
-            s.messages.removeAll { local in
+    private static func merge(_ s: inout AppState, _ arrived: [Message]) {
+        var incoming = arrived
+        for index in incoming.indices where incoming[index].author == .me {
+            let message = incoming[index]
+            let retired = s.messages.filter { local in
                 guard local.id != message.id, local.author == .me, local.delivery == nil,
                       !s.outbox.contains(where: { $0.clientID == local.id }) else { return false }
                 if let clientID = message.clientID { return local.id == clientID }
+                // Same words and the same number of files: the Mac's row for this bubble.
                 return local.clientID == local.id && local.text == message.text
+                    && (local.attachments?.count ?? 0) == (message.attachments?.count ?? 0)
             }
+            s.messages.removeAll { local in retired.contains { $0.id == local.id } }
+            // The phone's own references (its file ids and names) outlive the bubble they replace.
+            if let local = retired.first(where: { $0.attachments != nil }) { incoming[index].attachments = local.attachments }
         }
         for message in incoming {
             if let i = s.messages.firstIndex(where: { $0.id == message.id }) {

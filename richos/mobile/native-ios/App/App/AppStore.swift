@@ -111,6 +111,11 @@ final class AppStore {
     }
     #endif
 
+    /// Whether writes reach storage: false when the stored state was unreadable (nothing is written
+    /// over it) or the last write failed. Work handed over by another process (a share) is released
+    /// by its sender only while this holds.
+    var savesWrites: Bool { !storageIsReadOnly && persistenceProblem == nil }
+
     /// Waits until every write issued so far has finished.
     func settle() async {
         await lastWrite?.value

@@ -8,6 +8,7 @@ public actor NetworkEffects: EffectHandler {
     private let stream: any EventStreamTransport
     private let identities: any IdentityStore
     private let recordings: (any RecordingStore)?
+    private let attachments: (any AttachmentStore)?
     private let clock: any Clock
     private let deviceName: String
     private let sleep: LiveConnection.Sleep
@@ -23,9 +24,11 @@ public actor NetworkEffects: EffectHandler {
     private var previewKey: (@Sendable (_ origin: String, _ previews: Bool) async -> Data?)?
 
     public init(transport: any HTTPTransport, stream: any EventStreamTransport, identities: any IdentityStore,
-                recordings: (any RecordingStore)? = nil, clock: any Clock = SystemClock(), deviceName: String = "iPhone",
+                recordings: (any RecordingStore)? = nil, attachments: (any AttachmentStore)? = nil,
+                clock: any Clock = SystemClock(), deviceName: String = "iPhone",
                 sleep: @escaping LiveConnection.Sleep = { try await Task.sleep(nanoseconds: UInt64(max(0, $0)) * 1_000_000) }) {
         self.transport = transport; self.stream = stream; self.identities = identities; self.recordings = recordings
+        self.attachments = attachments
         self.clock = clock; self.deviceName = deviceName; self.sleep = sleep
     }
 
@@ -81,7 +84,7 @@ public actor NetworkEffects: EffectHandler {
     public nonisolated func handles(_ effect: Effect) -> Bool {
         switch effect {
         case .pair, .confirmFingerprint, .forgetIdentity, .deliver, .connect, .disconnect, .loadOlder,
-             .requestNotifications, .unregisterNotifications: return true
+             .requestNotifications, .unregisterNotifications, .deleteAttachments: return true
         default: return false
         }
     }
@@ -124,7 +127,10 @@ public actor NetworkEffects: EffectHandler {
             guard let item = state.outbox.first(where: { $0.clientID == clientID }), let api = await client(for: state) else {
                 return [.deliveryFailed(clientID: clientID, failure: .retryable(reason: "unreachable", afterMs: nil), at: clock.nowMs())]
             }
-            return [await Courier(api: api, recordings: recordings).deliver(item, at: clock.nowMs()).action]
+            return [await Courier(api: api, recordings: recordings, attachments: attachments).deliver(item, at: clock.nowMs()).action]
+        case .deleteAttachments(let paths):
+            for path in paths { await attachments?.remove(path: path) }
+            return []
         case .requestNotifications(let previews):
             return await register(previews: previews, state: state)
         case .unregisterNotifications:
