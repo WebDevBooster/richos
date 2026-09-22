@@ -86,6 +86,9 @@ let recording = false;
 let opening = false;
 let captureGeneration=0;
 let voiceDraftStore=null;
+let voicePreview=null, recordingWakeLock=null;
+function releaseRecordingWakeLock(){const lock=recordingWakeLock;recordingWakeLock=null;if(lock)void lock.release().catch(()=>{});}
+function stopVoicePreview(){if(!voicePreview)return;const preview=voicePreview;voicePreview=null;player.pause();player.removeEventListener("ended",preview.ended);URL.revokeObjectURL(preview.url);preview.button.textContent="Play recording";}
 let askedForMicrophoneThisLaunch = false;
 let autoStopTimer = null;
 const MAX_RECORD_SECONDS = 30 * 60;
@@ -124,7 +127,8 @@ async function boot() {
 		// the origin (plan §10.7).
 		apiBase: saved.apiBase || location.origin,
 		challenge: saved.challenge || null,
-		deviceId: saved.deviceId || null
+		deviceId: saved.deviceId || null,
+        capabilities: Array.isArray(saved.capabilities) ? saved.capabilities : []
 	};
 	vapidPublicKey = saved.vapidPublicKey || null;
 	// He was asked about notifications and did not say yes. Remembered across a relaunch for one
@@ -151,6 +155,7 @@ async function persistState() {
 	await settings.set('apiBase', apiState.apiBase);
 	await settings.set('challenge', apiState.challenge);
 	await settings.set('deviceId', apiState.deviceId);
+    await settings.set('capabilities',apiState.capabilities || []);
 	// An address the Mac advertised that this app would not take, kept where it can be found.
 	// Nothing renders it — said here so nobody goes looking for a message on the screen — but a
 	// phone that declined to move to a new address now has the reason attached to it rather than
@@ -1055,13 +1060,15 @@ const hold = $('hold');
 const voiceGesture=globalThis.RichOSVoice.createGesture({
     start: async () => {
         const generation=++captureGeneration;
-        opening=true;unlockPlayer();
+        opening=true;stopVoicePreview();unlockPlayer();
         if(player)player.pause();
         try {
             const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
             if(generation!==captureGeneration){stream.getTracks().forEach(t=>t.stop());return;}
-            micStream=stream;await startRecording();
-            if(generation!==captureGeneration){recording=false;teardownGraph();releaseMicrophone();chunks=[];}
+            micStream=stream;await startRecording(generation);
+        } catch(error) {
+            if(generation===captureGeneration){recording=false;teardownGraph();releaseMicrophone();chunks=[];}
+            throw error;
         } finally {if(generation===captureGeneration)opening=false;}
     },
     finish: async ({send,context}) => stopRecording({send,context}),
@@ -1092,9 +1099,10 @@ hold.addEventListener('pointercancel',()=>{voicePointer=null;if(voiceGesture.sna
 hold.addEventListener('lostpointercapture',()=>{if(voicePointer!==null){voicePointer=null;if(voiceGesture.snapshot().phase!=='locked')gestureAction(voiceGesture.interrupt());}});
 hold.addEventListener('click',event=>{if(event.detail===0)gestureAction(voiceGesture.press({threadId:currentThreadId,origin:apiState.apiBase}).then(()=>voiceGesture.lock()));});
 $('voice-lock').onclick=()=>voiceGesture.lock();$('voice-send').onclick=()=>gestureAction(voiceGesture.send());$('voice-cancel').onclick=()=>gestureAction(voiceGesture.cancel());
-setInterval(()=>{const start=voiceGesture.snapshot().startedAt, seconds=start?Math.floor((Date.now()-start)/1000):0;$('voice-timer').textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;},250);
+setInterval(()=>{const start=voiceGesture.snapshot().startedAt, seconds=start?Math.floor((Date.now()-start)/1000):0;const value=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;if($('voice-timer').textContent!==value)$('voice-timer').textContent=value;},250);
 async function renderVoiceDrafts() {
     if(!voiceDraftStore)return;
+    stopVoicePreview();
     const drafts=(await voiceDraftStore.all()).filter(d=>d.threadId===currentThreadId && d.origin===apiState.apiBase);
     const area=$('voice-drafts');area.hidden=!drafts.length;area.replaceChildren();
     for(const draft of drafts){
@@ -1102,12 +1110,21 @@ async function renderVoiceDrafts() {
         const send=document.createElement('button');send.textContent='Send voice message';
         send.onclick=async()=>{send.disabled=true;try{await queue.enqueue(draft);await voiceDraftStore.remove(draft.clientId);await renderVoiceDrafts();render(true);flushQueue();}catch(e){send.disabled=false;setHoldNote(e.message,true);}};
         const discard=document.createElement('button');discard.textContent='Discard recording';discard.onclick=async()=>{await voiceDraftStore.remove(draft.clientId);await renderVoiceDrafts();};
-        row.append(send,discard);area.append(row);
+        const play=document.createElement('button');play.textContent='Play recording';
+        play.onclick=async()=>{
+            if(voicePreview?.button===play){stopVoicePreview();return;}
+            stopVoicePreview();unlockPlayer();
+            const url=URL.createObjectURL(new Blob([draft.bytes],{type:'audio/wav'}));
+            const ended=()=>{if(voicePreview?.button===play)stopVoicePreview();};
+            voicePreview={url,button:play,ended};player.src=url;player.addEventListener('ended',ended,{once:true});play.textContent='Stop recording playback';
+            try{await player.play();}catch(error){ended();setHoldNote(error.message,true);}
+        };
+        row.append(play,send,discard);area.append(row);
     }
 }
 
-async function startRecording() {
-	if (recording || !micStream) return;
+async function startRecording(generation) {
+	if (recording || !micStream || generation!==captureGeneration) return;
 	chunks = [];
 	recording = true;
 	hold.classList.add('recording');
@@ -1128,12 +1145,14 @@ async function startRecording() {
 		}
 	}
 	if (audioCtx.state === 'suspended') await audioCtx.resume();
+	if(generation!==captureGeneration)return;
 
 	const source = audioCtx.createMediaStreamSource(micStream);
 
 	if (audioCtx.audioWorklet) {
 		try {
 			await audioCtx.audioWorklet.addModule('/lib/recorder-worklet.js');
+			if(generation!==captureGeneration){source.disconnect();return;}
 			const node = new AudioWorkletNode(audioCtx, 'richos-capture');
 			node.port.onmessage = (event) => {
 				if (!recording) return;
@@ -1149,6 +1168,7 @@ async function startRecording() {
 			mute.connect(audioCtx.destination);
 			captureNode = { node, source, mute, kind: 'worklet' };
 		} catch {
+            if(generation!==captureGeneration){source.disconnect();return;}
 			captureNode = null;
 		}
 	}
@@ -1169,6 +1189,7 @@ async function startRecording() {
 		captureNode = { node, source, mute, kind: 'script' };
 	}
 
+	void navigator.wakeLock?.request('screen').then(lock=>{if(recording && generation===captureGeneration)recordingWakeLock=lock;else void lock.release();}).catch(()=>{});
 	autoStopTimer = setTimeout(() => { if (recording) gestureAction(voiceGesture.interrupt()); }, MAX_RECORD_SECONDS * 1000);
 }
 
@@ -1195,6 +1216,7 @@ function teardownGraph() {
 }
 
 function releaseMicrophone() {
+    releaseRecordingWakeLock();
 	// The tracks are stopped between notes so the phone's own recording indicator is not left on
 	// after he has finished speaking. Within one launch iOS does not ask again, so the next hold
 	// opens straight away; across launches it asks whatever we do, which is what the design above
@@ -1242,7 +1264,7 @@ async function stopRecording({send=false,context}={}) {
     // Persist before enqueue so a storage/network failure cannot discard the recording.
     await voiceDraftStore.put(draft);
     if(send){await queue.enqueue(draft);await voiceDraftStore.remove(draft.clientId);render(true);flushQueue();}
-    else setHoldNote('Recording interrupted. Your voice message is saved below.',false);
+    else setHoldNote(result.seconds>=MAX_RECORD_SECONDS-1 ? 'Your 30-minute voice message is saved below. Send it, then start another.' : 'Recording interrupted. Your voice message is saved below.',false);
     await renderVoiceDrafts();
 
 }
@@ -1289,6 +1311,7 @@ function unlockPlayer() {
 }
 
 async function hearIt(messageId, button) {
+    stopVoicePreview();
 	if (playingButton && playingButton !== button) {
 		playingButton.textContent = 'Hear it';
 		playingButton.classList.remove('playing');
