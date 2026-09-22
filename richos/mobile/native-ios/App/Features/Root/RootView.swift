@@ -54,9 +54,15 @@ struct ScreenView: View {
     @State private var showsLatest = false
     @State private var jumpToken = 0
     @State private var aboveHeight: CGFloat = 0
+    /// Whether the CURRENT model has a sheet. SwiftUI may call the setter of the binding it was first
+    /// given, whose captured model is stale; this box always holds the latest answer.
+    @State private var sheetBox = SheetBox()
+
+    final class SheetBox { var hasSheet = false }
 
     var body: some View {
         let palette = Palette.for(model.appearance)
+        let _ = { sheetBox.hasSheet = model.sheet != nil }()
         GeometryReader { root in
             let safeTop = root.safeAreaInsets.top
             let small = root.size.width < 380 || root.size.height < 700
@@ -91,7 +97,7 @@ struct ScreenView: View {
         // Only a person's swipe closes the sheet here; when the core replaces it (Forget → its dialog),
         // the model already has no sheet and nothing is sent, so the dialog is not closed with it.
         .sheet(isPresented: Binding(get: { model.sheet != nil },
-                                    set: { if !$0, model.sheet != nil { send(.closeSheet) } })) {
+                                    set: { [box = sheetBox] in if !$0, box.hasSheet { send(.closeSheet) } })) {
             sheetContent(palette: palette)
         }
         .animation(Motion.outQuint(320), value: model.takeover)

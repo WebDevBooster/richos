@@ -332,6 +332,22 @@ for DEVICE in "${DEVICES[@]}"; do
   fi
   mkdir -p "$SHOTS/${TYPE##*.}"
   xcrun xcresulttool export attachments --path "$RESULT" --output-path "$SHOTS/${TYPE##*.}" > /dev/null 2>&1 || true
+  # Name each picture after its screen (`se-dark-conv-populated.png`) so it sits beside the mockup of
+  # the same name; the failure evidence keeps its test's name.
+  python3 - "$SHOTS/${TYPE##*.}" <<'PY' || true
+import json, os, re, sys
+d = sys.argv[1]
+m = os.path.join(d, "manifest.json")
+if os.path.exists(m):
+    for test in json.load(open(m)):
+        for a in test.get("attachments", []):
+            src = os.path.join(d, a["exportedFileName"])
+            name = re.sub(r"_\d+_[0-9A-F-]+(\.\w+)$", r"\1", a["suggestedHumanReadableName"])
+            if a.get("isAssociatedWithFailure"):
+                name = "FAILED-" + test["testIdentifier"].replace("/", "-").replace("()", "") + "-" + name
+            if os.path.exists(src):
+                os.replace(src, os.path.join(d, name))
+PY
   xcrun simctl shutdown "$UDID" > /dev/null 2>&1 || true
   xcrun simctl delete "$UDID" > /dev/null 2>&1 || true
   CREATED=("${CREATED[@]/$UDID}")
