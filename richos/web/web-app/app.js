@@ -545,11 +545,16 @@ function render(forceBottom) {
 	}
 
 	following.restore(before,{force:forceBottom});
-    void acknowledgeReply(currentThreadId,rows,!document.hidden && following.following);
     if(notificationTarget?.thread===currentThreadId) {
         const row=[...list.children].find(row=>row.dataset.messageId===notificationTarget.at);
-        if(row){following.focus(row);notificationTarget=null;}
+        if(row){
+            following.focus(row);
+            const params=new URLSearchParams(location.hash.slice(1));
+            if(params.get('thread')===notificationTarget.thread && params.get('at')===notificationTarget.at)history.replaceState(history.state,'',location.pathname+location.search);
+            notificationTarget=null;
+        }
     }
+    void acknowledgeReply(currentThreadId,rows,!document.hidden && following.following);
 }
 
 function renderRow(row, isLastDelivered) {

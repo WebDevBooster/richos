@@ -282,13 +282,14 @@ async function runEngine(playwright, engine) {
         await page.waitForFunction(()=>globalThis.__historyWaiting===true);
         await page.waitForFunction(()=>document.querySelector('#composer').value==='Retain this unsent draft');
         check('an unsent text draft survives relaunch',await page.inputValue('#composer')==='Retain this unsent draft');
-        await page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'notification-clicked',url:'/#thread=thread-main&at=seed-1'}})));
+        await page.evaluate(()=>{history.replaceState(null,'','/#thread=thread-main&at=seed-1');navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'notification-clicked',url:'/#thread=thread-main&at=seed-1'}}));});
         await page.evaluate(()=>globalThis.__releaseHistory());
         try {await page.waitForFunction(()=>[...document.querySelectorAll('#messages li')].some(row=>row.dataset.messageId==='seed-1'));}
         catch(error){console.error('Notification return diagnostic',await page.evaluate(()=>({target:__richosPhone.notificationTarget,rows:__richosPhone.thread?.view([]).map(r=>r.id),beginning:__richosPhone.thread?.atTheBeginning(),link:document.querySelector('#link-state').textContent,errors:document.querySelector('#hold-note').textContent})),errors);throw error;}
         await sleep(100);
         check('notification return loads its older reply and focuses it',await page.evaluate(()=>{const row=document.querySelector('[data-message-id="seed-1"]'),r=row.getBoundingClientRect(),t=document.querySelector('#thread').getBoundingClientRect();return r.top>=t.top && r.bottom<=t.bottom && !__richosPhone.pinnedToBottom;}));
         check('opening a notification preserves the unsent draft',await page.inputValue('#composer')==='Retain this unsent draft');
+        check('a consumed notification cannot keep reopening its old reply',await page.evaluate(()=>location.hash===''));
         await page.click('#latest');
         await page.fill('#composer','');
 
