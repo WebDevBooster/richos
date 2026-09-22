@@ -78,9 +78,12 @@ body:not(.is-paired) #conversation, body:not(.is-paired) .composer { display:non
 #voice-lock { position:absolute; right:0; bottom:64px; background:var(--surface-raised); border-radius:16px; }
 #voice-cancel { border:0; background:transparent; font-size:.9rem; color:var(--danger); }
 body[data-voice="held"] #record-start, body[data-voice="preparing"] #record-start { position:absolute; bottom:0; right:0; box-shadow:0 0 0 8px color-mix(in srgb,var(--gold) 15%,transparent); }
-body[data-voice="locked"] #voice-controls { padding-right:0; }
+body[data-voice="locked"] #voice-controls { padding-right:0; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); column-gap:24px; }
 body[data-voice="locked"] #voice-hint { display:none; }
-body[data-voice="locked"] #voice-cancel { margin-left:auto; }
+body[data-voice="locked"] .record-dot, body[data-voice="locked"] #voice-timer { grid-column:1; grid-row:1; }
+body[data-voice="locked"] #voice-timer { margin-left:16px; }
+body[data-voice="locked"] #voice-cancel { grid-column:2; grid-row:1; justify-self:center; }
+body[data-voice="locked"] #voice-send { grid-column:3; grid-row:1; justify-self:end; }
 .record-dot { width:8px; height:8px; border-radius:50%; background:var(--danger); flex:none; }
 #record-status, #playback-status { margin:6px 0 0; text-align:center; font-size:.9rem; color:var(--ink-soft); }
 #record-status:empty, #playback-status:empty { display:none; }

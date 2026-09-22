@@ -38,7 +38,7 @@ if (target === 'ios') {
     if (error.message.startsWith('playwright not found')) notRun(error.message);
     throw error;
   }
-  if (!existsSync(playwright.chromium.executablePath())) notRun('Playwright Chromium is not installed');
+  for(const engine of ['chromium','webkit'])if(!existsSync(playwright[engine].executablePath()))notRun(`Playwright ${engine==='chromium'?'Chromium':'WebKit'} is not installed`);
 }
 if (!existsSync('/Volumes/E1TB') || statSync('/Volumes/E1TB').dev === statSync('/Volumes').dev) notRun('mount /Volumes/E1TB for test storage');
 
@@ -109,9 +109,12 @@ try {
     assert.equal(refreshed.state.online, true);
     assert.equal(refreshed.state.revoked, false);
     pass('page restart and source refresh retain the paired session');
-    const client = await (await import('./client-ui.mjs')).clientUI();
-    assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
-    pass('bundled native UI preserves rapid typing with delayed storage and fits both phone themes');
+    for(const engine of ['chromium','webkit']) {
+      const client = await (await import('./client-ui.mjs')).clientUI({engine});
+      assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
+      assert(client.sendsFollowLatest && client.streamedRepliesFollowLatest && client.deliberateSmallScrollPauses && client.latestButtonResumes && client.olderReadingPreserved && client.lockedCancelCentred);
+      pass(`${engine}: native UI follows sends/replies/resizes, respects deliberate scrolls and centres locked Cancel`);
+    }
   } else {
     const recovery = join(cache, 'recording-recovery-test');
     const compiled = hostTool('xcrun', ['swiftc', '-module-cache-path', join(cache,'swift-module-cache'), join(mobile,'ios/Sources/RecordingRecovery.swift'), join(mobile,'ios/Tests/RecordingRecoveryTests.swift'), '-o', recovery]);

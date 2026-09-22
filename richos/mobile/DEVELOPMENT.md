@@ -144,7 +144,7 @@ it does not claim those tests exercise Xcode or a physical USB device.
 The repository runner discovers these suites under `richos/app/scripts`:
 
 - `mobile-headless.test.sh`: `npm test` runs the core and CLI tests in disposable external sessions. It verifies persistence across real CLI processes, structured errors, locking, resource selection and the unpaired Release bootstrap. It needs Node and npm, with no simulator or browser.
-- `mobile-pwa.test.sh`: runs the actual Chromium PWA target through pairing, visible Send, offline reload, reconnect, page restart and source refresh. Playwright/Chromium absence is `NOT RUN`, exit 2. The suite forces headless mode and stops its worker.
+- `mobile-pwa.test.sh`: runs the actual Chromium PWA target through pairing, visible Send, offline reload, reconnect, page restart and source refresh. It also runs the bundled native UI in Chromium and WebKit. A missing browser is `NOT RUN`, exit 2. The suite forces headless mode and stops its worker.
 - `mobile-ios.test.sh`: builds a dedicated simulator app, compares all three native/headless traces, checks process persistence and refresh, runs the visible-control XCUITest and verifies Release exclusion. Missing macOS/Xcode/XcodeGen or an available iOS runtime is `NOT RUN`, exit 2. Build/test failures on a capable host exit 1.
 
 ```sh
@@ -270,3 +270,14 @@ the normal installed app and other conversations are outside its scope.
 conversation open for manual testing. It requires `RICHOS_MOBILE_TEST_APP=integration`
 and a connected paired Mac. It neither resets the session nor sends, records or discards
 anything. Its connected-composer assertion is readiness evidence, not a voice gesture proof.
+
+The native conversation follows its newest message by default, including outgoing
+held/locked voice, text sends, growing replies and composer/viewport resizing.
+Deliberate upward scrolling pauses following; incoming messages preserve that reading
+position. An intentional send or Latest messages resumes following. The registered
+`mobile-pwa.test.sh` suite exercises this with overflowing history in Chromium and
+WebKit, including a 24 px upward scroll, real wheel input and resize checks. Chromium
+uses trusted touch inputs; WebKit uses dispatched Touch Events for mic gestures and
+real browser layout. Neither substitutes for physical iPhone gesture acceptance.
+The same suite requires locked Cancel to stay centred, with at least 24 px separation
+from Send and 44 px minimum tap targets at 320, 375 and 430 px widths.

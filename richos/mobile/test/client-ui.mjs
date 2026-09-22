@@ -11,13 +11,13 @@ const { createScratch } = require('./storage.cjs');
 const {createClient}=require('../core/client.js');
 const {harness}=require('../dev/client-runtime.js');
 const { loadPlaywright } = require('../../app/ui/tests/lib/harness.js');
-export async function clientUI() {
+export async function clientUI({engine='chromium'}={}) {
   const scratch = createScratch('client-ui'), assets = join(scratch, 'mobile-ui');
   let browser;
   try {
     stageAssets(assets, false);
-    browser = await loadPlaywright().chromium.launch({ headless: true });
-    const context = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+    browser = await loadPlaywright()[engine].launch({ headless: true });
+    const context = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: engine==='chromium', hasTouch: true });
     const h=harness(), seed=await createClient(h.ports);
     await seed.dispatch({type:'pair',link:'https://mac.example/#pair=code'});
     await seed.dispatch({type:'confirm-pair',matched:true}); seed.close();
@@ -34,13 +34,14 @@ export async function clientUI() {
         if (method === 'recordCancel') {recording=false;window.__voiceCalls.push(method);return true;}
         if (['configure','sign','hash','recordHash'].includes(method)) return method==='hash'?'0'.repeat(64):'fixture';
         if (method === 'streamClose') return true;
-        if (method === 'streamOpen') {window.__hello=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: hello\ndata: '+JSON.stringify({capabilities:['text','voice','audio']})+'\n\n')});return true;}
+        if (method === 'streamOpen') {window.__message=frame=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: message\ndata: '+JSON.stringify(frame)+'\n\n')});window.__hello=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: hello\ndata: '+JSON.stringify({capabilities:['text','voice','audio']})+'\n\n')});return true;}
         if (method === 'request') return {status:200,body:JSON.stringify({messages:[]}),headers:{'X-RichOS-Challenge':'fresh'}};
         if (method === 'incomingLink' || method === 'pushIncoming') return null;
         throw Error(method);
       } } } };
     },h.disk());
     const page = await context.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
+    page.setDefaultTimeout(15000);
     await page.goto(pathToFileURL(join(assets, 'client.html')).href);
     const message = page.getByRole('textbox', { name: 'Message', exact: true });
     await page.getByRole('button', { name: 'Hold to record', exact: true }).waitFor();
@@ -86,29 +87,77 @@ export async function clientUI() {
     await page.getByRole('button',{name:'Send voice message',exact:true}).click();
     await page.waitForFunction(()=>document.body.dataset.voice==='idle');
     assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),2);
-    const input=await context.newCDPSession(page);
+    // Real overflowing history, not an empty conversation that cannot scroll.
+    for(let n=1;n<=18;n++)await page.evaluate(n=>window.__message({id:'history-'+n,cursor:n,role:'rich',text:('Earlier conversation '+n+'. ').repeat(16),complete:true}),n);
+    await page.locator('[data-message-id="history-18"]').waitFor();
+    const bottom=()=>page.waitForFunction(()=>{const a=document.getElementById('conversation');return a.scrollHeight-a.scrollTop-a.clientHeight<=2;});
+    await bottom();
+    const readOlder=async()=>{await page.locator('#conversation').hover();await page.mouse.wheel(0,-50000);await page.waitForFunction(()=>document.getElementById('conversation').scrollTop<200);await page.getByRole('button',{name:'↓ Latest messages',exact:true}).waitFor();};
+    await readOlder();
+    await page.evaluate(()=>window.__message({id:'history-19',cursor:19,role:'rich',text:'An incoming reply must not pull the reader away from older messages.',complete:true}));
+    await page.locator('[data-message-id="history-19"]').waitFor({state:'attached'});
+    assert(await page.evaluate(()=>document.getElementById('conversation').scrollTop<200),'Incoming replies preserve older reading position');
+    // Held release must jump to the outgoing bubble, including after the
+    // recording controls and unsent panel resize the conversation.
+    await hold();await page.mouse.up();await page.waitForFunction(()=>document.body.dataset.voice==='idle');await bottom();
+    const stopsBeforeTouch=await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length);
+    // Chromium supplies trusted touch input. WebKit also runs the same DOM and
+    // layout regressions, with Touch Events dispatched at the native mic target.
+    const input=engine==='chromium'?await context.newCDPSession(page):{send:async(_,event)=>{
+      const point=event.touchPoints[0];
+      await mic.dispatchEvent(event.type.toLowerCase(),{touches:point?[{identifier:1,clientX:point.x,clientY:point.y}]:[],changedTouches:[{identifier:1,clientX:point?.x||0,clientY:point?.y||0}]});
+    }};
     const touchStart=async()=>{const b=await mic.boundingBox();const point={x:b.x+b.width/2,y:b.y+b.height/2};await input.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});await page.waitForFunction(()=>document.body.dataset.voice==='held');return point;};
     await touchStart();
     await mic.dispatchEvent('pointercancel',{pointerType:'touch'});
     assert.equal(await page.evaluate(()=>document.body.dataset.voice),'held','A cancelled pointer must not end an ongoing finger hold');
     await input.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
     await page.waitForFunction(()=>document.body.dataset.voice==='idle');
-    assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),3);
+    assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),stopsBeforeTouch+1);
     let point=await touchStart();
     await input.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:point.x-120,y:point.y}]});
     await input.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
     await page.waitForFunction(()=>document.body.dataset.voice==='idle');
     assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordCancel').length),3);
+    await readOlder();
     point=await touchStart();
     await input.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:point.x,y:point.y-100}]});
     await page.waitForFunction(()=>document.body.dataset.voice==='locked');
     await input.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    assert(await page.evaluate(()=>document.getElementById('conversation').scrollTop<200),'Locking and releasing leaves older history readable');
+    for(const width of [320,375,430]) {
+      await page.setViewportSize({width,height:812});
+      const cancel=await page.getByRole('button',{name:'Cancel recording',exact:true}).boundingBox();
+      const send=await page.getByRole('button',{name:'Send voice message',exact:true}).boundingBox();
+      assert(Math.abs(cancel.x+cancel.width/2-width/2)<=1,`${width}: Cancel must be centred like Telegram`);
+      assert(send.x-cancel.x-cancel.width>=24,`${width}: distinct Cancel and Send hit areas`);
+      assert(cancel.height>=44 && send.height>=44);
+    }
+    if(process.env.RICHOS_UI_SHOTS)await page.screenshot({path:join(process.env.RICHOS_UI_SHOTS,'native-locked-centred.png')});
     await page.getByRole('button',{name:'Send voice message',exact:true}).tap();
     await page.waitForFunction(()=>document.body.dataset.voice==='idle');
-    assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),4);
+    assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),stopsBeforeTouch+2);
+    await bottom();
+    await page.setViewportSize({width:375,height:600});await bottom();
+    await page.setViewportSize({width:375,height:812});await bottom();
+    // Follow an arriving reply and subsequent streamed growth, until an actual
+    // user scrolls up. Even a small deliberate upward scroll pauses following.
+    await page.evaluate(()=>window.__message({id:'history-20',cursor:20,role:'rich',text:'Reply begins',complete:false}));
+    await page.locator('[data-message-id="history-20"]').waitFor();await bottom();
+    await page.evaluate(()=>window.__message({id:'history-20',cursor:20,role:'rich',text:'A growing reply. '.repeat(120),complete:false}));
+    await page.waitForFunction(()=>document.querySelector('[data-message-id="history-20"]').textContent.includes('A growing reply'));await bottom();
+    await page.locator('#conversation').hover();await page.mouse.wheel(0,-24);
+    await page.getByRole('button',{name:'↓ Latest messages',exact:true}).waitFor();
+    const pausedTop=await page.locator('#conversation').evaluate(a=>a.scrollTop);
+    await page.evaluate(()=>window.__message({id:'history-20',cursor:20,role:'rich',text:'Completed reply. '.repeat(200),complete:true}));
+    await page.waitForFunction(()=>document.querySelector('[data-message-id="history-20"]').textContent.includes('Completed reply'));
+    assert(Math.abs(await page.locator('#conversation').evaluate(a=>a.scrollTop)-pausedTop)<2,'Reply growth must not undo a small deliberate scroll up');
+    await page.getByRole('button',{name:'↓ Latest messages',exact:true}).click();await bottom();
+    await readOlder();await message.fill('Sending while reading older history');
+    await page.getByRole('button',{name:'Send',exact:true}).click();await bottom();
     await page.getByRole('button',{name:'Settings',exact:true}).click();
     await page.getByRole('button',{name:'Close settings',exact:true}).click();
     assert.deepEqual(errors, []);
-    return { rapidTypingPreserved: true, bothThemesFitPhoneWidths: true };
+    return { engine, rapidTypingPreserved: true, bothThemesFitPhoneWidths: true, sendsFollowLatest: true, streamedRepliesFollowLatest: true, deliberateSmallScrollPauses: true, latestButtonResumes: true, olderReadingPreserved: true, lockedCancelCentred: true };
   } finally { await browser?.close(); rmSync(scratch, { recursive: true, force: true }); }
 }
