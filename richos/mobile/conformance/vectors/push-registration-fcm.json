@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "file": "push-registration-fcm.json",
+  "status": "placeholder",
+  "area": "push-registration-fcm",
+  "awaiting": "Echo (echo-opus-m1) publishing the FCM variant of the native push registration (build plan section 5.1, stream M item 2)",
+  "will_cover": [
+    "the {platform:\"fcm\", token} registration body",
+    "refusals for malformed tokens",
+    "unregistration",
+    "the unchanged APNs shape still accepted"
+  ],
+  "cases": []
+}

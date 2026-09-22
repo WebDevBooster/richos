@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "file": "attachments.json",
+  "status": "placeholder",
+  "area": "attachments",
+  "awaiting": "Echo (echo-opus-m1) publishing the Mac attachment intake route (build plan section 5.1, stream M item 1)",
+  "will_cover": [
+    "upload request and its signed canonical string",
+    "size, type and time limits",
+    "idempotency on client_id",
+    "the message row shape that carries an attachment"
+  ],
+  "cases": []
+}

@@ -1,0 +1,323 @@
+{
+  "schema": 1,
+  "file": "voice.json",
+  "source": "web/web-app/lib/api.js sendVoice; web/web-app/lib/pcm.js encodeWav; limits read from the Mac Rust source",
+  "route": "POST /api/messages?client_id&thread_id&kind=voice&codec&sample_rate&seconds&sent_at with Content-Type: audio/wav and the WAV bytes as the body",
+  "required_by_the_mac": [
+    "Content-Type exactly audio/wav",
+    "kind=voice",
+    "client_id 1..128 bytes",
+    "thread_id one of the Mac threads",
+    "PCM 16-bit mono 16000 Hz WAV"
+  ],
+  "signed_but_not_read_by_the_mac": [
+    "codec",
+    "sample_rate",
+    "seconds",
+    "sent_at"
+  ],
+  "wav_header_of_the_reference_recording": {
+    "riff": "RIFF",
+    "riff_size": 676,
+    "wave": "WAVE",
+    "fmt_chunk": "fmt ",
+    "fmt_size": 16,
+    "audio_format_pcm": 1,
+    "channels": 1,
+    "sample_rate": 16000,
+    "byte_rate": 32000,
+    "block_align": 2,
+    "bits_per_sample": 16,
+    "data_chunk": "data",
+    "data_size": 640,
+    "total_bytes": 684
+  },
+  "limits": {
+    "json_body_bytes": {
+      "value": 65536,
+      "source": "richos/app/src-tauri/src/phone/mod.rs MAX_BODY_BYTES"
+    },
+    "voice_body_bytes": {
+      "value": 60000000,
+      "source": "richos/app/src-tauri/src/phone/voice.rs MAX_UPLOAD"
+    },
+    "voice_seconds": {
+      "value": 1800,
+      "source": "richos/app/src-tauri/src/phone/voice.rs MAX_SECONDS"
+    },
+    "reply_audio_bytes": {
+      "value": 6000000,
+      "source": "richos/app/src-tauri/src/phone/voice.rs MAX_REPLY"
+    },
+    "challenge_lifetime_ms": {
+      "value": 600000,
+      "source": "richos/app/src-tauri/src/phone/device.rs CHALLENGE_LIFETIME_MS"
+    }
+  },
+  "uploads": [
+    {
+      "name": "20 ms, 440 Hz tone at 16 kHz",
+      "input": {
+        "clientId": "01J8CONFORMANCEVOICE0000002",
+        "threadId": "thr_5c1e",
+        "sentAt": "2026-09-22T13:00:02.000Z",
+        "seconds": 0.02
+      },
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.02&sent_at=2026-09-22T13%3A00%3A02.000Z",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.d7MkXKdGk9ks77AlbN8vRFacgZm9cArB.9cO3tUE2CCWru-SjGVzlxv70Yl6yYpGB3fLJphexbHylhRKH4cglFWhqP9XK7aPjw_PeHSvMDvtkUfIvPuWVJA",
+          "Content-Type": "audio/wav"
+        },
+        "body": {
+          "base64": "UklGRqQCAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YYACAAAAAAALrRW1H8soqjAVN9073T79PzU/jDwUOPIxUipwIY8X+gwCAvz2OuwO4sfYqtD3yeDEi8ETwILA1cL6xtLMMdTd3JbmEPH8+wUH2hEnHJ0l9S3uNFM6/D3MP7Y/uj3oOVw0QC3MJD8b4xAFBvv6FvCq5Qfcd9M6zIfGi8JjwCHAxcFExYPKWdGT2fLiL+379wMD9Q19GEoiEiuRMo843TxcP/c/qz6AO5E2ATADKNQeuhQCCv/+AvRh6WzfcNawzmnIycP0wADA9MDJw2nIsM5w1mzfYekC9P/+Agq6FNQeAygBMJE2gDurPvc/XD/dPI84kTISK0oifRj1DQMD+/cv7fLik9lZ0YPKRMXFwSHAY8CLwofGOsx30wfcquUW8Pv6BQbjED8bzCRALVw06Dm6PbY/zD/8PVM67jT1LZ0lJxzaEQUH/PsQ8Zbm3dwx1NLM+sbVwoLAE8CLweDE98mq0MfYDuI67Pz2AgL6DI8XcCFSKvIxFDiMPDU//T/dPt07FTeqMMsotR+tFQALAAAA9VPqS+A111bP6sgixCPBA8DKwHTD68cOzq7VkN5x6Abz/v0ECcYT8h05J1UvCTYgO3Q+7T9+Pys9BTktM88rIiNqGfAOBAT7+Cbu2eNi2gvSEsusxQPCM8BJwEXCGMaky7/SNNvB5B3v+/kFBeoPVhr4I4ksxjN4OXQ9nD/fPzo+vDp9NacubCYNHdESBQj9/Aryg+e23e7Ub81xxyLDpMAJwFXBf8Rvyf/P/dcr4UXr/fUBAf0LnxaTIJApTzGXNzY8Cz//Pws/NjyXN08xkCmTIJ8W/QsBAf31Resr4f3X/89vyX/EVcEJwKTA",
+          "sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "length": 684
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "d7MkXKdGk9ks77AlbN8vRFacgZm9cArB",
+          "path_with_query": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.02&sent_at=2026-09-22T13%3A00%3A02.000Z",
+          "body_sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signing_string": "d7MkXKdGk9ks77AlbN8vRFacgZm9cArB\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.02&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signature_b64url": "9cO3tUE2CCWru-SjGVzlxv70Yl6yYpGB3fLJphexbHylhRKH4cglFWhqP9XK7aPjw_PeHSvMDvtkUfIvPuWVJA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.d7MkXKdGk9ks77AlbN8vRFacgZm9cArB.9cO3tUE2CCWru-SjGVzlxv70Yl6yYpGB3fLJphexbHylhRKH4cglFWhqP9XK7aPjw_PeHSvMDvtkUfIvPuWVJA"
+        },
+        "mac": {
+          "signing_string": "d7MkXKdGk9ks77AlbN8vRFacgZm9cArB\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.02&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "verdict": "accepted"
+        }
+      },
+      "query_parameters_in_order": [
+        "client_id",
+        "thread_id",
+        "kind",
+        "codec",
+        "sample_rate",
+        "seconds",
+        "sent_at"
+      ],
+      "decoded_query": {
+        "client_id": "01J8CONFORMANCEVOICE0000002",
+        "thread_id": "thr_5c1e",
+        "kind": "voice",
+        "codec": "wav16k",
+        "sample_rate": "16000",
+        "seconds": "0.02",
+        "sent_at": "2026-09-22T13:00:02.000Z"
+      }
+    },
+    {
+      "name": "seconds as a whole number",
+      "input": {
+        "clientId": "01J8CONFORMANCEVOICE0000002",
+        "threadId": "thr_5c1e",
+        "sentAt": "2026-09-22T13:00:02.000Z",
+        "seconds": 12
+      },
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=12&sent_at=2026-09-22T13%3A00%3A02.000Z",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.gcd72wB1OIdgUVF5xRAEPb6x454DN1Zj.hteVWOyon8MOswUQM80agfrRpz-ALiS7UjXpVeDDp6Iw7e-IsLHh9x9DHVwvME87oCwHETm70ii4X3VPkpuQEw",
+          "Content-Type": "audio/wav"
+        },
+        "body": {
+          "base64": "UklGRqQCAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YYACAAAAAAALrRW1H8soqjAVN9073T79PzU/jDwUOPIxUipwIY8X+gwCAvz2OuwO4sfYqtD3yeDEi8ETwILA1cL6xtLMMdTd3JbmEPH8+wUH2hEnHJ0l9S3uNFM6/D3MP7Y/uj3oOVw0QC3MJD8b4xAFBvv6FvCq5Qfcd9M6zIfGi8JjwCHAxcFExYPKWdGT2fLiL+379wMD9Q19GEoiEiuRMo843TxcP/c/qz6AO5E2ATADKNQeuhQCCv/+AvRh6WzfcNawzmnIycP0wADA9MDJw2nIsM5w1mzfYekC9P/+Agq6FNQeAygBMJE2gDurPvc/XD/dPI84kTISK0oifRj1DQMD+/cv7fLik9lZ0YPKRMXFwSHAY8CLwofGOsx30wfcquUW8Pv6BQbjED8bzCRALVw06Dm6PbY/zD/8PVM67jT1LZ0lJxzaEQUH/PsQ8Zbm3dwx1NLM+sbVwoLAE8CLweDE98mq0MfYDuI67Pz2AgL6DI8XcCFSKvIxFDiMPDU//T/dPt07FTeqMMsotR+tFQALAAAA9VPqS+A111bP6sgixCPBA8DKwHTD68cOzq7VkN5x6Abz/v0ECcYT8h05J1UvCTYgO3Q+7T9+Pys9BTktM88rIiNqGfAOBAT7+Cbu2eNi2gvSEsusxQPCM8BJwEXCGMaky7/SNNvB5B3v+/kFBeoPVhr4I4ksxjN4OXQ9nD/fPzo+vDp9NacubCYNHdESBQj9/Aryg+e23e7Ub81xxyLDpMAJwFXBf8Rvyf/P/dcr4UXr/fUBAf0LnxaTIJApTzGXNzY8Cz//Pws/NjyXN08xkCmTIJ8W/QsBAf31Resr4f3X/89vyX/EVcEJwKTA",
+          "sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "length": 684
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "gcd72wB1OIdgUVF5xRAEPb6x454DN1Zj",
+          "path_with_query": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=12&sent_at=2026-09-22T13%3A00%3A02.000Z",
+          "body_sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signing_string": "gcd72wB1OIdgUVF5xRAEPb6x454DN1Zj\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=12&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signature_b64url": "hteVWOyon8MOswUQM80agfrRpz-ALiS7UjXpVeDDp6Iw7e-IsLHh9x9DHVwvME87oCwHETm70ii4X3VPkpuQEw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.gcd72wB1OIdgUVF5xRAEPb6x454DN1Zj.hteVWOyon8MOswUQM80agfrRpz-ALiS7UjXpVeDDp6Iw7e-IsLHh9x9DHVwvME87oCwHETm70ii4X3VPkpuQEw"
+        },
+        "mac": {
+          "signing_string": "gcd72wB1OIdgUVF5xRAEPb6x454DN1Zj\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=12&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "verdict": "accepted"
+        }
+      },
+      "query_parameters_in_order": [
+        "client_id",
+        "thread_id",
+        "kind",
+        "codec",
+        "sample_rate",
+        "seconds",
+        "sent_at"
+      ],
+      "decoded_query": {
+        "client_id": "01J8CONFORMANCEVOICE0000002",
+        "thread_id": "thr_5c1e",
+        "kind": "voice",
+        "codec": "wav16k",
+        "sample_rate": "16000",
+        "seconds": "12",
+        "sent_at": "2026-09-22T13:00:02.000Z"
+      }
+    },
+    {
+      "name": "seconds just under the 30-minute ceiling",
+      "input": {
+        "clientId": "01J8CONFORMANCEVOICE0000002",
+        "threadId": "thr_5c1e",
+        "sentAt": "2026-09-22T13:00:02.000Z",
+        "seconds": 1799.9
+      },
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1799.9&sent_at=2026-09-22T13%3A00%3A02.000Z",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.UFI8mJJAZ5oFslnkz2Os-1xABWHHms1j.SExatMk3uGVHIFFAbuX3igDcOhEYV6e_CBhSRmh7hPleTwdOD9EjPrRMPa0ZR-WdVkZACvy16_BeoADrNq5Ipg",
+          "Content-Type": "audio/wav"
+        },
+        "body": {
+          "base64": "UklGRqQCAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YYACAAAAAAALrRW1H8soqjAVN9073T79PzU/jDwUOPIxUipwIY8X+gwCAvz2OuwO4sfYqtD3yeDEi8ETwILA1cL6xtLMMdTd3JbmEPH8+wUH2hEnHJ0l9S3uNFM6/D3MP7Y/uj3oOVw0QC3MJD8b4xAFBvv6FvCq5Qfcd9M6zIfGi8JjwCHAxcFExYPKWdGT2fLiL+379wMD9Q19GEoiEiuRMo843TxcP/c/qz6AO5E2ATADKNQeuhQCCv/+AvRh6WzfcNawzmnIycP0wADA9MDJw2nIsM5w1mzfYekC9P/+Agq6FNQeAygBMJE2gDurPvc/XD/dPI84kTISK0oifRj1DQMD+/cv7fLik9lZ0YPKRMXFwSHAY8CLwofGOsx30wfcquUW8Pv6BQbjED8bzCRALVw06Dm6PbY/zD/8PVM67jT1LZ0lJxzaEQUH/PsQ8Zbm3dwx1NLM+sbVwoLAE8CLweDE98mq0MfYDuI67Pz2AgL6DI8XcCFSKvIxFDiMPDU//T/dPt07FTeqMMsotR+tFQALAAAA9VPqS+A111bP6sgixCPBA8DKwHTD68cOzq7VkN5x6Abz/v0ECcYT8h05J1UvCTYgO3Q+7T9+Pys9BTktM88rIiNqGfAOBAT7+Cbu2eNi2gvSEsusxQPCM8BJwEXCGMaky7/SNNvB5B3v+/kFBeoPVhr4I4ksxjN4OXQ9nD/fPzo+vDp9NacubCYNHdESBQj9/Aryg+e23e7Ub81xxyLDpMAJwFXBf8Rvyf/P/dcr4UXr/fUBAf0LnxaTIJApTzGXNzY8Cz//Pws/NjyXN08xkCmTIJ8W/QsBAf31Resr4f3X/89vyX/EVcEJwKTA",
+          "sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "length": 684
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "UFI8mJJAZ5oFslnkz2Os-1xABWHHms1j",
+          "path_with_query": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1799.9&sent_at=2026-09-22T13%3A00%3A02.000Z",
+          "body_sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signing_string": "UFI8mJJAZ5oFslnkz2Os-1xABWHHms1j\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1799.9&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signature_b64url": "SExatMk3uGVHIFFAbuX3igDcOhEYV6e_CBhSRmh7hPleTwdOD9EjPrRMPa0ZR-WdVkZACvy16_BeoADrNq5Ipg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.UFI8mJJAZ5oFslnkz2Os-1xABWHHms1j.SExatMk3uGVHIFFAbuX3igDcOhEYV6e_CBhSRmh7hPleTwdOD9EjPrRMPa0ZR-WdVkZACvy16_BeoADrNq5Ipg"
+        },
+        "mac": {
+          "signing_string": "UFI8mJJAZ5oFslnkz2Os-1xABWHHms1j\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1799.9&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "verdict": "accepted"
+        }
+      },
+      "query_parameters_in_order": [
+        "client_id",
+        "thread_id",
+        "kind",
+        "codec",
+        "sample_rate",
+        "seconds",
+        "sent_at"
+      ],
+      "decoded_query": {
+        "client_id": "01J8CONFORMANCEVOICE0000002",
+        "thread_id": "thr_5c1e",
+        "kind": "voice",
+        "codec": "wav16k",
+        "sample_rate": "16000",
+        "seconds": "1799.9",
+        "sent_at": "2026-09-22T13:00:02.000Z"
+      }
+    },
+    {
+      "name": "thread id and client id that need percent-encoding",
+      "input": {
+        "clientId": "a b/c+d",
+        "threadId": "thr_é&x=1",
+        "sentAt": "2026-09-22T13:00:02.000Z"
+      },
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?client_id=a+b%2Fc%2Bd&thread_id=thr_%C3%A9%26x%3D1&kind=voice&codec=wav16k&sample_rate=16000&sent_at=2026-09-22T13%3A00%3A02.000Z",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.7csF_vH8gDr3AFqQQGRRNeSsLbNF01M6._09pk6LZuYFlOBuaeJY5wpB0CYfHc9kGdQKqMEYw1IWfcTSBAyib5gZEfgXLSsL2JOSwpg0AVM5PbP7R36RWJg",
+          "Content-Type": "audio/wav"
+        },
+        "body": {
+          "base64": "UklGRqQCAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YYACAAAAAAALrRW1H8soqjAVN9073T79PzU/jDwUOPIxUipwIY8X+gwCAvz2OuwO4sfYqtD3yeDEi8ETwILA1cL6xtLMMdTd3JbmEPH8+wUH2hEnHJ0l9S3uNFM6/D3MP7Y/uj3oOVw0QC3MJD8b4xAFBvv6FvCq5Qfcd9M6zIfGi8JjwCHAxcFExYPKWdGT2fLiL+379wMD9Q19GEoiEiuRMo843TxcP/c/qz6AO5E2ATADKNQeuhQCCv/+AvRh6WzfcNawzmnIycP0wADA9MDJw2nIsM5w1mzfYekC9P/+Agq6FNQeAygBMJE2gDurPvc/XD/dPI84kTISK0oifRj1DQMD+/cv7fLik9lZ0YPKRMXFwSHAY8CLwofGOsx30wfcquUW8Pv6BQbjED8bzCRALVw06Dm6PbY/zD/8PVM67jT1LZ0lJxzaEQUH/PsQ8Zbm3dwx1NLM+sbVwoLAE8CLweDE98mq0MfYDuI67Pz2AgL6DI8XcCFSKvIxFDiMPDU//T/dPt07FTeqMMsotR+tFQALAAAA9VPqS+A111bP6sgixCPBA8DKwHTD68cOzq7VkN5x6Abz/v0ECcYT8h05J1UvCTYgO3Q+7T9+Pys9BTktM88rIiNqGfAOBAT7+Cbu2eNi2gvSEsusxQPCM8BJwEXCGMaky7/SNNvB5B3v+/kFBeoPVhr4I4ksxjN4OXQ9nD/fPzo+vDp9NacubCYNHdESBQj9/Aryg+e23e7Ub81xxyLDpMAJwFXBf8Rvyf/P/dcr4UXr/fUBAf0LnxaTIJApTzGXNzY8Cz//Pws/NjyXN08xkCmTIJ8W/QsBAf31Resr4f3X/89vyX/EVcEJwKTA",
+          "sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "length": 684
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "7csF_vH8gDr3AFqQQGRRNeSsLbNF01M6",
+          "path_with_query": "/api/messages?client_id=a+b%2Fc%2Bd&thread_id=thr_%C3%A9%26x%3D1&kind=voice&codec=wav16k&sample_rate=16000&sent_at=2026-09-22T13%3A00%3A02.000Z",
+          "body_sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signing_string": "7csF_vH8gDr3AFqQQGRRNeSsLbNF01M6\nPOST\n/api/messages?client_id=a+b%2Fc%2Bd&thread_id=thr_%C3%A9%26x%3D1&kind=voice&codec=wav16k&sample_rate=16000&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signature_b64url": "_09pk6LZuYFlOBuaeJY5wpB0CYfHc9kGdQKqMEYw1IWfcTSBAyib5gZEfgXLSsL2JOSwpg0AVM5PbP7R36RWJg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.7csF_vH8gDr3AFqQQGRRNeSsLbNF01M6._09pk6LZuYFlOBuaeJY5wpB0CYfHc9kGdQKqMEYw1IWfcTSBAyib5gZEfgXLSsL2JOSwpg0AVM5PbP7R36RWJg"
+        },
+        "mac": {
+          "signing_string": "7csF_vH8gDr3AFqQQGRRNeSsLbNF01M6\nPOST\n/api/messages?client_id=a+b%2Fc%2Bd&thread_id=thr_%C3%A9%26x%3D1&kind=voice&codec=wav16k&sample_rate=16000&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "verdict": "accepted"
+        }
+      },
+      "query_parameters_in_order": [
+        "client_id",
+        "thread_id",
+        "kind",
+        "codec",
+        "sample_rate",
+        "sent_at"
+      ],
+      "decoded_query": {
+        "client_id": "a b/c+d",
+        "thread_id": "thr_é&x=1",
+        "kind": "voice",
+        "codec": "wav16k",
+        "sample_rate": "16000",
+        "sent_at": "2026-09-22T13:00:02.000Z"
+      }
+    },
+    {
+      "name": "explicit codec and sample rate",
+      "input": {
+        "clientId": "01J8CONFORMANCEVOICE0000002",
+        "threadId": "thr_5c1e",
+        "sentAt": "2026-09-22T13:00:02.000Z",
+        "seconds": 1.5,
+        "codec": "wav16k",
+        "sampleRate": 16000
+      },
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1.5&sent_at=2026-09-22T13%3A00%3A02.000Z",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.ieQDhwN1SEm9J9eyeBmNYNy_21rioTa_.aGpQoqYxFpNoud3tFSrYvNnWQy7veZWCgnfcG9RrsJl2LvygtpFsyyUIqUL6ywnWejC6uJeSLTufczRBxCONcg",
+          "Content-Type": "audio/wav"
+        },
+        "body": {
+          "base64": "UklGRqQCAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YYACAAAAAAALrRW1H8soqjAVN9073T79PzU/jDwUOPIxUipwIY8X+gwCAvz2OuwO4sfYqtD3yeDEi8ETwILA1cL6xtLMMdTd3JbmEPH8+wUH2hEnHJ0l9S3uNFM6/D3MP7Y/uj3oOVw0QC3MJD8b4xAFBvv6FvCq5Qfcd9M6zIfGi8JjwCHAxcFExYPKWdGT2fLiL+379wMD9Q19GEoiEiuRMo843TxcP/c/qz6AO5E2ATADKNQeuhQCCv/+AvRh6WzfcNawzmnIycP0wADA9MDJw2nIsM5w1mzfYekC9P/+Agq6FNQeAygBMJE2gDurPvc/XD/dPI84kTISK0oifRj1DQMD+/cv7fLik9lZ0YPKRMXFwSHAY8CLwofGOsx30wfcquUW8Pv6BQbjED8bzCRALVw06Dm6PbY/zD/8PVM67jT1LZ0lJxzaEQUH/PsQ8Zbm3dwx1NLM+sbVwoLAE8CLweDE98mq0MfYDuI67Pz2AgL6DI8XcCFSKvIxFDiMPDU//T/dPt07FTeqMMsotR+tFQALAAAA9VPqS+A111bP6sgixCPBA8DKwHTD68cOzq7VkN5x6Abz/v0ECcYT8h05J1UvCTYgO3Q+7T9+Pys9BTktM88rIiNqGfAOBAT7+Cbu2eNi2gvSEsusxQPCM8BJwEXCGMaky7/SNNvB5B3v+/kFBeoPVhr4I4ksxjN4OXQ9nD/fPzo+vDp9NacubCYNHdESBQj9/Aryg+e23e7Ub81xxyLDpMAJwFXBf8Rvyf/P/dcr4UXr/fUBAf0LnxaTIJApTzGXNzY8Cz//Pws/NjyXN08xkCmTIJ8W/QsBAf31Resr4f3X/89vyX/EVcEJwKTA",
+          "sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "length": 684
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "ieQDhwN1SEm9J9eyeBmNYNy_21rioTa_",
+          "path_with_query": "/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1.5&sent_at=2026-09-22T13%3A00%3A02.000Z",
+          "body_sha256_hex": "4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signing_string": "ieQDhwN1SEm9J9eyeBmNYNy_21rioTa_\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1.5&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "signature_b64url": "aGpQoqYxFpNoud3tFSrYvNnWQy7veZWCgnfcG9RrsJl2LvygtpFsyyUIqUL6ywnWejC6uJeSLTufczRBxCONcg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.ieQDhwN1SEm9J9eyeBmNYNy_21rioTa_.aGpQoqYxFpNoud3tFSrYvNnWQy7veZWCgnfcG9RrsJl2LvygtpFsyyUIqUL6ywnWejC6uJeSLTufczRBxCONcg"
+        },
+        "mac": {
+          "signing_string": "ieQDhwN1SEm9J9eyeBmNYNy_21rioTa_\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000002&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1.5&sent_at=2026-09-22T13%3A00%3A02.000Z\n4087afae0c079ac037176b73a670998b5b11c54e4d5964d4a383f5040cd8b722",
+          "verdict": "accepted"
+        }
+      },
+      "query_parameters_in_order": [
+        "client_id",
+        "thread_id",
+        "kind",
+        "codec",
+        "sample_rate",
+        "seconds",
+        "sent_at"
+      ],
+      "decoded_query": {
+        "client_id": "01J8CONFORMANCEVOICE0000002",
+        "thread_id": "thr_5c1e",
+        "kind": "voice",
+        "codec": "wav16k",
+        "sample_rate": "16000",
+        "seconds": "1.5",
+        "sent_at": "2026-09-22T13:00:02.000Z"
+      }
+    }
+  ]
+}
