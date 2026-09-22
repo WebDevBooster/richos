@@ -5,20 +5,73 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
+/// **THE iOS APPS WHOSE APNs TOKENS THIS MAC FORWARDS.** The first two are the preserved app's;
+/// `dev.richos.native.ios` is the new native app's development ID (Rich's decision, 2026-09-22).
+/// A production bundle ID, when the CEO picks one, is one more string here — and one more in the
+/// Worker's `APNS_TOPICS`, which is outside this repository's Mac code.
+pub const APNS_TOPICS: &[&str] = &["dev.richos.mobile.loop", "dev.richos.mobile.integration", "dev.richos.native.ios"];
+/// **THE ANDROID APPS WHOSE FCM TOKENS THIS MAC FORWARDS.** `dev.richos.native.android` is the
+/// new native app's development application ID (Rich's decision, 2026-09-22); a production ID is
+/// one more string here.
+pub const FCM_APPS: &[&str] = &["dev.richos.native.android"];
+
+/// A native push registration, as the phone sends it inside `{"native_push": …}`.
+///
+/// **Two shapes, and the first is byte-for-byte the one the preserved iPhone app sends:**
+///
+/// ```json
+/// {"token":"<lowercase hex>","environment":"sandbox"|"production","topic":"<bundle id>","preview_key":"…","previews":true}
+/// {"platform":"fcm","token":"<FCM registration token>","topic":"<Android application id>","preview_key":"…","previews":true}
+/// ```
+///
+/// `platform` is optional and means APNs when absent (`"apns"` is accepted and stored as absent,
+/// so an explicit iPhone registration and the preserved app's registration are one record).
+/// `deny_unknown_fields` stays: an unknown key is still refused, which is why an older Mac refuses
+/// the FCM shape outright rather than filing an FCM token as an APNs one — the phone learns the
+/// difference from the `native-push-fcm` capability. For FCM there is no `environment` (FCM has
+/// no sandbox), matching the Worker's Android contract (`mobile/service/notifications.md`,
+/// "Android (FCM, schema 3)", stream W `7f34a958`); a phone that sends one is refused.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Registration {
-    pub token: String, pub environment: String, pub topic: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub platform: Option<String>,
+    pub token: String,
+    // Never empty for APNs, always empty for FCM — so an APNs record serializes exactly as before.
+    #[serde(default, skip_serializing_if = "String::is_empty")] pub environment: String,
+    pub topic: String,
     #[serde(default)] pub preview_key: Option<String>,
     #[serde(default = "preview_default")] pub previews: bool,
 }
 fn preview_default() -> bool { true }
+/// FCM registration tokens are opaque; Google documents no format. The bound is the Worker's own
+/// (`FCM_TOKEN` in `mobile/service/connect/fcm.mjs`: 32 to 4,096 characters of
+/// `A-Z a-z 0-9 _ - :`), so this Mac never accepts a token the Worker would refuse, nor refuses
+/// one it would take.
+fn fcm_token(token: &str) -> bool {
+    (32..=4096).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-:".contains(&b))
+}
 impl Registration {
+    /// `"apns"` or `"fcm"` — the value recorded in the device's `push_transport`.
+    pub fn transport(&self) -> &'static str { if self.platform.as_deref()==Some("fcm") {"fcm"} else {"apns"} }
+    /// The canonical stored form: `platform` absent for APNs, so an explicit `"apns"` and the
+    /// preserved app's registration are one record.
+    pub fn normalized(mut self) -> Self {
+        if self.platform.as_deref()==Some("apns") {self.platform=None;}
+        self
+    }
     pub fn validate(&self) -> bool {
-        (32..=512).contains(&self.token.len()) && self.token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-            && ["sandbox","production"].contains(&self.environment.as_str())
-            && self.preview_key.as_ref().is_none_or(|key| unb64url(key).is_ok_and(|bytes| bytes.len()==32))
-            && ["dev.richos.mobile.loop","dev.richos.mobile.integration"].contains(&self.topic.as_str())
+        let preview_ok = self.preview_key.as_ref().is_none_or(|key| unb64url(key).is_ok_and(|bytes| bytes.len()==32));
+        match self.platform.as_deref() {
+            None | Some("apns") => preview_ok
+                && (32..=512).contains(&self.token.len()) && self.token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                && ["sandbox","production"].contains(&self.environment.as_str())
+                && APNS_TOPICS.contains(&self.topic.as_str()),
+            Some("fcm") => preview_ok
+                && fcm_token(&self.token)
+                && self.environment.is_empty()
+                && FCM_APPS.contains(&self.topic.as_str()),
+            Some(_) => false,
+        }
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -60,6 +113,7 @@ impl Desk {
     }
     pub fn set(&mut self,device:&Device,registration:Option<Registration>)->Result<(),String> {
         if registration.as_ref().is_some_and(|r|!r.validate()) {return Err("Invalid notification registration".into())}
+        let registration=registration.map(Registration::normalized);
         self.state.revision=self.state.revision.saturating_add(1).max(super::now_millis());
         self.state.target=match registration {Some(registration)=>Some(Target {device:device.id.clone(),hash:hex(&sha256(&unb64url(&device.public_key).map_err(|_|unavailable())?)),registration,
             route:if device.paired_via==super::device::PairedVia::CONNECT {"connect"} else {"tailnet"}.into()}),None=>None};
@@ -96,10 +150,7 @@ impl Desk {
                     if result.status!=200 {return Err(unavailable())}
                 }
             }
-            let body=match &self.state.target {
-                Some(t)=>json!({"revision":self.state.revision,"generation":generation,"deviceHash":t.hash,"token":t.registration.token,"environment":t.registration.environment,"topic":t.registration.topic,"route":t.route}),
-                None=>json!({"revision":self.state.revision,"generation":generation,"deviceHash":null,"token":null,"route":"tailnet"}),
-            };
+            let body=device_body(self.state.revision,generation,self.state.target.as_ref());
             let result=control.call("PUT","/v1/push/device",&body.to_string())?;
             if result.status!=200 {return Err(unavailable())}
             self.state.dirty=false;self.save()?;
@@ -117,6 +168,22 @@ impl Desk {
         self.state.dirty || !self.state.jobs.is_empty() || self.state.target.as_ref().is_some_and(|t|!current.is_some_and(|d|d.id==t.device && d.fingerprint_confirmed))
     }
     pub fn response(&self)->Value {json!({"host_id":self.state.host,"registered":self.state.target.is_some() && !self.state.dirty})}
+}
+
+/// **THE `PUT /v1/push/device` BODY THE WORKER RECEIVES.** For APNs it is exactly the key set the
+/// Worker has always taken (`mobile/service/connect/notifications.mjs:10`, an `exact(...)` check
+/// that refuses any other key) — no `platform` key, so an APNs registration keeps working against
+/// the Worker as deployed. An FCM registration is the Worker's Android shape, exactly
+/// (`mobile/service/notifications.md`, "Android (FCM, schema 3)", stream W `7f34a958`):
+/// `{revision, generation, deviceHash, token, platform:"fcm", topic, route}` with NO
+/// `environment`. A Worker without Android push refuses it with a 400; the Mac then answers the
+/// phone 503 `unreachable` and the phone's conversation is unaffected.
+fn device_body(revision:u64,generation:u64,target:Option<&Target>)->Value {
+    match target {
+        Some(t) if t.registration.transport()=="fcm"=>json!({"revision":revision,"generation":generation,"deviceHash":t.hash,"token":t.registration.token,"platform":"fcm","topic":t.registration.topic,"route":t.route}),
+        Some(t)=>json!({"revision":revision,"generation":generation,"deviceHash":t.hash,"token":t.registration.token,"environment":t.registration.environment,"topic":t.registration.topic,"route":t.route}),
+        None=>json!({"revision":revision,"generation":generation,"deviceHash":null,"token":null,"route":"tailnet"}),
+    }
 }
 
 pub fn queue_reply(desk:&mut Desk,device:&Device,thread:&str,payload:&Value)->Result<(),String> {
@@ -158,7 +225,7 @@ mod tests {
         let dir=Scratch(std::env::temp_dir().join(format!("native-push-{}",hex(&super::super::random_bytes(12).unwrap()))));
         std::fs::create_dir_all(&dir.0).unwrap();
         let device:Device=serde_json::from_value(json!({"id":"phone","name":"iPhone","public_key":super::super::b64url(&[4;65]),"paired_at":1,"push":null,"delivered_cursor":null,"fingerprint_confirmed":true,"paired_via":"connect"})).unwrap();
-        (dir,device,Registration{token:"a".repeat(64),environment:"sandbox".into(),topic:"dev.richos.mobile.integration".into(),preview_key:None,previews:true})
+        (dir,device,Registration{platform:None,token:"a".repeat(64),environment:"sandbox".into(),topic:"dev.richos.mobile.integration".into(),preview_key:None,previews:true})
     }
     #[derive(Default)] struct Fake {calls:Mutex<Vec<(String,Value)>>, fail:Mutex<bool>, fail_events:Mutex<bool>}
     impl Control for Fake {
@@ -228,5 +295,79 @@ mod tests {
         let (_,_,mut r)=fixture();assert!(r.validate());r.topic="unrelated.app".into();assert!(!r.validate());
         r.topic="dev.richos.mobile.loop".into();r.environment="test".into();assert!(!r.validate());
         r.environment="production".into();r.token="../somewhere".into();assert!(!r.validate());
+    }
+
+    /// An FCM-shaped token, built rather than written out: `<instance>:APA91b<payload>`.
+    fn fcm_shaped()->String {format!("{}:APA91b{}",  "d".repeat(11), "x-y_z".repeat(28))}
+
+    /// **THE PRESERVED iPHONE APP'S REGISTRATION, PINNED AS BYTES** — every hop it takes: what the
+    /// phone sends, what this Mac stores on disk, and what it sends the Worker. The additions in
+    /// this file are all behind a `platform` key the preserved app never sends, and this is the
+    /// test that fails if one of them leaks into its path.
+    #[test] fn the_preserved_apns_registration_is_unchanged_on_the_wire_on_disk_and_to_the_worker() {
+        let key=super::super::b64url(&[7;32]);
+        let sent=format!(r#"{{"token":"{}","environment":"sandbox","topic":"dev.richos.mobile.loop","preview_key":"{key}","previews":true}}"#,"a".repeat(64));
+        let r:Registration=serde_json::from_str(&sent).unwrap();
+        assert!(r.validate());assert_eq!(r.transport(),"apns");
+        let stored=r.clone().normalized();
+        assert_eq!(stored,r,"normalizing changed an APNs registration");
+        // The Target record on disk serializes the registration exactly as the pre-FCM struct did:
+        // no `platform` key, same field order.
+        assert_eq!(serde_json::to_string(&stored).unwrap(),sent);
+        let target=Target{device:"phone".into(),hash:"b".repeat(64),registration:stored,route:"connect".into()};
+        let body=device_body(5,1,Some(&target));
+        let mut keys:Vec<&str>=body.as_object().unwrap().keys().map(String::as_str).collect();keys.sort_unstable();
+        // `mobile/service/connect/notifications.mjs:10` — the deployed Worker's exact key set.
+        assert_eq!(keys,["deviceHash","environment","generation","revision","route","token","topic"]);
+        assert_eq!(body,json!({"revision":5,"generation":1,"deviceHash":"b".repeat(64),"token":"a".repeat(64),"environment":"sandbox","topic":"dev.richos.mobile.loop","route":"connect"}));
+        assert_eq!(device_body(5,1,None),json!({"revision":5,"generation":1,"deviceHash":null,"token":null,"route":"tailnet"}));
+        // `"platform":"apns"` spelled out is the same registration, stored the same way.
+        let explicit:Registration=serde_json::from_str(&sent.replacen('{',r#"{"platform":"apns","#,1)).unwrap();
+        assert!(explicit.validate());assert_eq!(explicit.normalized(),r);
+        // And the two preserved topics are still the first two allowed.
+        assert_eq!(&APNS_TOPICS[..2],["dev.richos.mobile.loop","dev.richos.mobile.integration"]);
+    }
+
+    #[test] fn the_new_native_apps_register_under_their_own_ids_and_only_on_their_own_service() {
+        let (_,_,mut r)=fixture();
+        r.topic="dev.richos.native.ios".into();assert!(r.validate(),"the native iPhone app's APNs topic");
+        r.topic="dev.richos.native.android".into();assert!(!r.validate(),"an Android application id as an APNs topic");
+        let fcm:Registration=serde_json::from_value(json!({"platform":"fcm","token":fcm_shaped(),"topic":"dev.richos.native.android"})).unwrap();
+        assert!(fcm.validate());assert_eq!(fcm.transport(),"fcm");assert!(fcm.previews,"previews default on, as for APNs");
+        let stored=fcm.clone().normalized();assert_eq!(stored,fcm);
+        assert!(!serde_json::to_string(&stored).unwrap().contains("environment"),"an FCM record carries no environment");
+        let mut ios_as_fcm=fcm.clone();ios_as_fcm.topic="dev.richos.native.ios".into();assert!(!ios_as_fcm.validate());
+    }
+
+    #[test] fn fcm_registrations_reach_the_worker_marked_as_fcm_and_survive_restart() {
+        let (dir,device,_)=fixture();let fake=Fake::default();
+        let fcm:Registration=serde_json::from_value(json!({"platform":"fcm","token":fcm_shaped(),"topic":"dev.richos.native.android","preview_key":super::super::b64url(&[9;32])})).unwrap();
+        let mut desk=Desk::open(&dir.0).unwrap();desk.set(&device,Some(fcm)).unwrap();drop(desk);
+        let mut desk=Desk::open(&dir.0).unwrap();desk.reconcile(&fake,Some(&device)).unwrap();
+        let calls=fake.calls.lock().unwrap();
+        let (_,body)=calls.iter().find(|(path,_)|path=="/v1/push/device").unwrap();
+        // Exactly the Worker's Android shape (stream W `7f34a958`): no `environment`, `platform` present.
+        let mut keys:Vec<&str>=body.as_object().unwrap().keys().map(String::as_str).collect();keys.sort_unstable();
+        assert_eq!(keys,["deviceHash","generation","platform","revision","route","token","topic"]);
+        assert_eq!(body["platform"],"fcm");assert_eq!(body["topic"],"dev.richos.native.android");
+        assert_eq!(body["token"],json!(fcm_shaped()));
+        assert!(!serde_json::to_string(&*calls).unwrap().contains("preview_key"),"the preview key left the Mac");
+    }
+
+    #[test] fn malformed_fcm_registrations_are_rejected() {
+        let good=json!({"platform":"fcm","token":fcm_shaped(),"topic":"dev.richos.native.android"});
+        let parsed=|v:&Value|serde_json::from_value::<Registration>(v.clone());
+        assert!(parsed(&good).unwrap().validate());
+        let mut longest=good.clone();longest["token"]=json!("x".repeat(4096));
+        assert!(parsed(&longest).unwrap().validate(),"the Worker's own ceiling must be accepted here too");
+        for (field,value) in [("token",json!(format!("{} {}",fcm_shaped(),"x"))),("token",json!("short")),("token",json!("x".repeat(4097))),("environment",json!("production")),
+            ("token",json!(format!("{}\"",fcm_shaped()))),("token",json!(format!("{}/..",fcm_shaped()))),("topic",json!("dev.richos.mobile.loop")),
+            ("environment",json!("sandbox")),("platform",json!("hms")),("platform",json!("FCM")),("preview_key",json!("short"))] {
+            let mut bad=good.clone();bad[field]=value.clone();
+            assert!(parsed(&bad).map(|r|!r.validate()).unwrap_or(true),"{field}={value} was accepted");
+        }
+        // Unknown fields are still refused outright, for both platforms.
+        let mut extra=good.clone();extra["sender_id"]=json!("123");assert!(parsed(&extra).is_err());
+        let mut missing=good.clone();missing.as_object_mut().unwrap().remove("token");assert!(parsed(&missing).is_err());
     }
 }

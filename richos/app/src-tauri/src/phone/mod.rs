@@ -38,6 +38,7 @@
 
 pub mod api_base;
 pub mod assets;
+pub mod attachments;
 pub mod bridge;
 pub mod ca;
 pub mod connect;
@@ -52,6 +53,7 @@ pub mod secrets;
 pub mod stream;
 pub mod tailnet;
 pub mod voice;
+pub mod voice_notes;
 pub mod notifications;
 
 use std::fmt;
@@ -1351,10 +1353,13 @@ impl PhoneRuntime {
         let _action=self.connect_actions.lock().unwrap();
         let device=self.running.lock().unwrap().as_ref().and_then(|r|r.channel.devices.paired())
             .filter(|d|d.id==device_id && d.fingerprint_confirmed).ok_or("This phone is no longer paired.")?;
+        // The transport the record will say: the registration's own, or — for an unregistration,
+        // which carries none — whichever native transport this phone already had (APNs if none).
+        let transport=registration.as_ref().map(|r|r.transport()).unwrap_or(if device.push_transport=="fcm" {"fcm"} else {"apns"});
         let mut desk=notifications::Desk::open(&self.data_dir)?;
         desk.set(&device,registration)?;
         if let Some(running)=self.running.lock().unwrap().as_ref() {
-            running.channel.devices.use_native_push(device_id).map_err(|_|notifications::unavailable())?;
+            running.channel.devices.use_native_transport(device_id,transport).map_err(|_|notifications::unavailable())?;
         }
         let client=connect::client::Client::new(connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)).map_err(|_|notifications::unavailable())?);
         desk.reconcile(&client,Some(&device))?;

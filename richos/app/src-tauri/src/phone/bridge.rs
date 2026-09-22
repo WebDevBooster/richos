@@ -92,6 +92,14 @@ impl Bridge for PhoneBridge {
         self.app.state::<std::sync::Arc<super::PhoneRuntime>>().register_native_notifications(device,registration)
     }
     fn voice_available(&self) -> bool { self.voice.available() }
+    /// `intake_<n>` -> the turn drained from intake record `n`, read with `try_lock` so a phone
+    /// request never waits on a running turn: busy means "not yet", and the next request asks again.
+    fn turn_for_intake(&self, message_id: &str) -> Option<String> {
+        let n = message_id.strip_prefix("intake_")?.parse::<u64>().ok()?;
+        let state = self.app.state::<AppState>();
+        let spine = state.spine.try_lock().ok()?;
+        spine.ledger().turn_for_intake(n).map(|turn| turn.id.clone())
+    }
     fn transcribe(&self, bytes: &[u8]) -> Result<String, String> { self.voice.transcribe(bytes) }
     fn reply_audio(&self, thread: Option<&str>, id: &str) -> Result<Vec<u8>, String> {
         let payload = self.snapshot(thread)?;
