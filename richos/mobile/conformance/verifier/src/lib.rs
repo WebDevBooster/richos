@@ -41,3 +41,9 @@ pub fn random_bytes(n: usize) -> Result<Vec<u8>, PhoneError> {
 pub fn queue_random(bytes: Vec<u8>) {
     RANDOM.lock().unwrap().push_back(bytes);
 }
+
+/// Drop whatever the production code did not draw, so one step's randomness never leaks into
+/// the next.
+pub fn clear_random() {
+    RANDOM.lock().unwrap().clear();
+}

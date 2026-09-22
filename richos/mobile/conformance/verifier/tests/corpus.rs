@@ -207,6 +207,18 @@ fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
     mac::advance(mac::device::CHALLENGE_LIFETIME_MS + 1);
     assert_eq!(verify(&desk, &control), Err(Refusal::StaleChallenge), "control: a challenge past its lifetime (the reason for the 404 re-sign rule)");
 
+    // ---- the Mac-defined areas (attachments, FCM registration, the advertised surface) --------
+    #[cfg(mac_native_v1)]
+    {
+        let proven = native_additions(&desk, &device.id);
+        println!("conformance verifier: {proven} Mac-defined expectations proven against the production attachment, registration and capability code");
+    }
+    #[cfg(not(mac_native_v1))]
+    println!(
+        "conformance verifier: NOT PROVEN HERE: this tree's Mac predates protocol_version 1 (no attachments, FCM registration or delta thread_id), so the {} Mac-defined expectations in attachments.json and push-registration-fcm.json were not checked against production code",
+        mac_defined_count()
+    );
+
     println!(
         "conformance verifier: {} signed requests from {} files through the production DeviceDesk::verify: {accepted} accepted, {refused} refused as recorded; included modules {:?} from {}",
         requests.len(),
@@ -214,4 +226,140 @@ fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
         mac::INCLUDED_MODULES,
         mac::PHONE_DIR
     );
+}
+
+fn strings(value: &Value) -> Vec<String> {
+    value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
+}
+
+/// How many Mac-defined expectations the corpus carries, for the NOT PROVEN line.
+#[cfg(not(mac_native_v1))]
+fn mac_defined_count() -> usize {
+    let a = load("attachments.json");
+    let f = load("push-registration-fcm.json");
+    ["attachment_id_cases", "upload_cases", "limit_sequence", "commit_cases"]
+        .iter()
+        .map(|k| a[*k].as_array().map_or(0, Vec::len))
+        .sum::<usize>()
+        + f["registration_cases"].as_array().map_or(0, Vec::len)
+}
+
+/// Every Mac-defined expectation, against the production code. Returns how many were proven.
+#[cfg(mac_native_v1)]
+fn native_additions(desk: &DeviceDesk, device_id: &str) -> usize {
+    use mac::attachments::{valid_id, Upload, ACCEPTED, MAX_FILES_PER_MESSAGE, MAX_FILE_BYTES, MAX_MESSAGE_BYTES, UPLOAD_SECONDS};
+    use mac::notifications::{Registration, APNS_TOPICS, FCM_APPS};
+    let mut proven = 0;
+
+    // The advertised surface: what hello and the pairing answer carry on a Mac with every feature.
+    let events = load("events.json");
+    let hello = &events["wire_cases"][0]["frames"][0]["data"];
+    assert_eq!(strings(&hello["capabilities"]), mac::routes::capabilities(true, true), "hello capabilities (all features on)");
+    assert_eq!(hello["protocol_version"].as_u64(), Some(mac::routes::PROTOCOL_VERSION), "hello protocol_version");
+    let pairing = load("pairing.json");
+    let answer = &pairing["pair_exchanges"][0]["mac_answers"][0]["body"];
+    assert_eq!(strings(&answer["capabilities"]), mac::routes::capabilities(true, true), "pairing answer capabilities");
+    assert_eq!(answer["protocol_version"].as_u64(), Some(mac::routes::PROTOCOL_VERSION), "pairing answer protocol_version");
+    proven += 4;
+
+    // Limits, identical in the corpus's attachments.json, hello and pairing answer.
+    let a = load("attachments.json");
+    for (label, limits) in [("attachments.json", &a["limits"]), ("hello", &hello["attachment_limits"]), ("pairing answer", &answer["attachment_limits"])] {
+        assert_eq!(limits["max_file_bytes"].as_u64(), Some(MAX_FILE_BYTES as u64), "{label} max_file_bytes");
+        assert_eq!(limits["max_files_per_message"].as_u64(), Some(MAX_FILES_PER_MESSAGE as u64), "{label} max_files_per_message");
+        assert_eq!(limits["max_message_bytes"].as_u64(), Some(MAX_MESSAGE_BYTES), "{label} max_message_bytes");
+        assert_eq!(limits["upload_seconds"].as_u64(), Some(UPLOAD_SECONDS), "{label} upload_seconds");
+        assert_eq!(strings(&limits["media_types"]), ACCEPTED.iter().map(|k| k.media_type.to_string()).collect::<Vec<_>>(), "{label} media_types");
+        proven += 5;
+    }
+
+    // FCM and APNs registrations: parse (unknown keys refused) and validate, as the route does.
+    let fcm = load("push-registration-fcm.json");
+    assert_eq!(strings(&fcm["allowed_ids"]["fcm"]), FCM_APPS, "FCM application IDs");
+    assert_eq!(strings(&fcm["allowed_ids"]["apns"]), APNS_TOPICS, "APNs topics");
+    proven += 2;
+    for case in fcm["registration_cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let got = serde_json::from_value::<Registration>(case["native_push"].clone()).ok().filter(Registration::validate);
+        let want = &case["mac_outcome"];
+        match (want["accepted"].as_bool().unwrap(), got) {
+            (true, Some(r)) => assert_eq!(r.transport(), want["transport"].as_str().unwrap(), "{name}: transport"),
+            (false, None) => {}
+            (want, got) => panic!("push-registration-fcm.json: {name}: the corpus says accepted={want}, the Mac parsed and validated {got:?}"),
+        }
+        proven += 1;
+    }
+
+    // Attachment IDs.
+    for case in a["attachment_id_cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        assert_eq!(valid_id(id), case["mac_outcome"]["valid"].as_bool().unwrap(), "attachment id {id:?}");
+        proven += 1;
+    }
+
+    // Uploads, in order, through the production AttachmentDesk::stage, read the way
+    // routes.rs `attachment_upload` reads the request.
+    let uploads = a["upload_cases"].as_array().unwrap().iter().chain(a["limit_sequence"].as_array().unwrap());
+    for case in uploads {
+        let name = case["name"].as_str().unwrap();
+        let request = &case["request"];
+        let target = request["target"].as_str().unwrap();
+        let query = target.split_once('?').map_or("", |(_, q)| q);
+        let client = mac::routes::query_param(query, "client_id").unwrap();
+        let id = mac::routes::query_param(query, "attachment_id").unwrap();
+        let file_name = mac::routes::query_param(query, "name");
+        let content_type = request["headers"]["Content-Type"].as_str().unwrap();
+        let body = body_bytes(&request["body"]);
+        mac::queue_random(vec![1; 6]);
+        mac::queue_random(vec![2; 6]);
+        let outcome = desk.attachments.stage(device_id, &client, &id, file_name.as_deref(), content_type, &body).unwrap();
+        mac::clear_random();
+        let want = &case["mac_outcome"];
+        let kind = match &outcome {
+            Upload::Stored(_) => "stored",
+            Upload::Duplicate(_) => "duplicate",
+            Upload::Conflict => "conflict",
+            Upload::Refused(_) => "refused",
+            Upload::Limit(_) => "limit",
+        };
+        assert_eq!(kind, want["outcome"].as_str().unwrap(), "attachments.json: {name}: {outcome:?}");
+        if let Upload::Stored(s) | Upload::Duplicate(s) = &outcome {
+            let answer = &want["answer"];
+            assert_eq!(s.name, answer["name"].as_str().unwrap(), "{name}: stored name");
+            assert_eq!(s.media_type, answer["media_type"].as_str().unwrap(), "{name}: media type");
+            assert_eq!(s.size, answer["size"].as_u64().unwrap(), "{name}: size");
+            assert_eq!(s.sha256, answer["sha256"].as_str().unwrap(), "{name}: sha256");
+        }
+        proven += 1;
+    }
+
+    // Commits: which of the named files the Mac holds, through AttachmentDesk::staged.
+    for case in a["commit_cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let body: Value = serde_json::from_slice(&body_bytes(&case["request"]["body"])).unwrap();
+        let client = body["client_id"].as_str().unwrap();
+        let wanted: Vec<(String, String)> = body["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| (f["id"].as_str().unwrap().to_string(), f["sha256"].as_str().unwrap().to_string()))
+            .collect();
+        let want = &case["mac_outcome"];
+        match (desk.attachments.staged(device_id, client, &wanted), want["all_present"].as_bool().unwrap()) {
+            (Ok(files), true) => {
+                let names: Vec<(String, String)> = files.iter().map(|f| (f.id.clone(), f.name.clone())).collect();
+                let expected: Vec<(String, String)> = want["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| (f["id"].as_str().unwrap().to_string(), f["name"].as_str().unwrap().to_string()))
+                    .collect();
+                assert_eq!(names, expected, "{name}: held files");
+            }
+            (Err(missing), false) => assert_eq!(missing.0, strings(&want["missing"]), "{name}: missing"),
+            (got, want) => panic!("attachments.json: {name}: the corpus says all_present={want}, the Mac says {got:?}"),
+        }
+        proven += 1;
+    }
+    proven
 }

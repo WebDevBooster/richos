@@ -197,19 +197,50 @@ fn main() {
 
     let routes = read("routes.rs");
     let listen = read("listen.rs");
+    let routes_src = production(&routes);
+
+    // THE NATIVE-APP ADDITIONS (protocol_version 1: attachments, FCM registration, thread_id on
+    // delta). Present in the tree -> compiled and proven (`cfg(mac_native_v1)`); absent -> the
+    // test says by name that those corpus expectations were not proven here. Half present is a
+    // build failure, so a rename cannot quietly switch the proof off.
+    println!("cargo::rustc-check-cfg=cfg(mac_native_v1)");
+    let native = routes_src.contains("pub const PROTOCOL_VERSION");
+    let mut native_routes = String::new();
+    if native {
+        println!("cargo::rustc-cfg=mac_native_v1");
+        assert!(
+            modules.contains("attachments"),
+            "routes.rs has PROTOCOL_VERSION but device.rs no longer reaches phone/attachments.rs; update verifier/build.rs"
+        );
+        for header in ["pub const CAPABILITIES", "pub const PROTOCOL_VERSION", "pub fn capabilities("] {
+            native_routes.push_str(&item(routes_src, "routes.rs", header));
+        }
+        let notifications = read("notifications.rs");
+        let n = production(&notifications);
+        let _ = write!(generated, "pub mod notifications {{\nuse super::*;\nuse serde::{{Deserialize, Serialize}};\n");
+        for header in ["pub const APNS_TOPICS", "pub const FCM_APPS", "pub struct Registration {", "fn preview_default(", "fn fcm_token(", "impl Registration {"] {
+            generated.push_str(&item(n, "notifications.rs", header));
+        }
+        generated.push_str("}\n");
+    }
+
     let _ = write!(
         generated,
-        "pub mod listen {{\n{}}}\npub mod routes {{\n{}{}{}{}{}}}\n",
+        "pub mod listen {{\n{}}}\npub mod routes {{\n{}{}{}{}{}{}}}\n",
         item(production(&listen), "listen.rs", "pub fn percent_decode("),
-        item(production(&routes), "routes.rs", "const CREDENTIAL_PARAM"),
-        item(production(&routes), "routes.rs", "pub fn signed_path("),
-        item(production(&routes), "routes.rs", "fn query_value<"),
-        item(production(&routes), "routes.rs", "fn percent_decode_component("),
-        // NOT production code: the first two lines of `routes.rs` `events()`, which are private
-        // there, exposed so the test reads the query credential the way the route does.
-        "/// The first two lines of `routes.rs` `events()`: the `auth` value, percent-decoded.\n\
-         pub fn events_credential(query: &str) -> Option<String> {\n    \
-         let auth = query_value(query, \"auth\")?;\n    percent_decode_component(auth).ok()\n}\n"
+        item(routes_src, "routes.rs", "const CREDENTIAL_PARAM"),
+        item(routes_src, "routes.rs", "pub fn signed_path("),
+        item(routes_src, "routes.rs", "fn query_value<"),
+        item(routes_src, "routes.rs", "fn percent_decode_component("),
+        native_routes,
+        // NOT production code: the one expression both `events()` (for `auth`) and
+        // `attachment_upload()` (for `client_id`, `attachment_id`, `name`) use to read a query
+        // value, exposed because `query_value` and `percent_decode_component` are private there.
+        "/// `query_value` then `percent_decode_component`, as `routes.rs` reads a query value.\n\
+         pub fn query_param(query: &str, name: &str) -> Option<String> {\n    \
+         query_value(query, name).and_then(|v| percent_decode_component(v).ok())\n}\n\
+         /// The first two lines of `routes.rs` `events()`: the `auth` value, percent-decoded.\n\
+         pub fn events_credential(query: &str) -> Option<String> {\n    query_param(query, \"auth\")\n}\n"
     );
     // Where the production code was read from. A test binary reused from a shared target
     // directory by another checkout would otherwise pass while proving another tree.
