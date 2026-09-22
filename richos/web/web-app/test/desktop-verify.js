@@ -440,7 +440,8 @@ async function runEngine(playwright, engine) {
 		// ---------------------------------------------------------------------------------------
 
 		const before = await page.evaluate(() => document.querySelectorAll('#messages li').length);
-		await page.evaluate(() => { document.getElementById('thread').scrollTop = 0; });
+		await page.locator('#thread').hover();
+        await page.mouse.wheel(0,-100000);
 		await page.waitForFunction((n) => document.querySelectorAll('#messages li').length > n, before, { timeout: 15000 });
 		const after = await page.evaluate(() => document.querySelectorAll('#messages li').length);
 		check('scrolling to the top loads earlier messages', after > before, `${before} then ${after}`);
@@ -633,6 +634,10 @@ async function runEngine(playwright, engine) {
 			return !hold.hidden && getComputedStyle(hold).display !== 'none';
 		});
 		check('the hold control is on screen when the Mac advertises voice', holdShown === true);
+        await page.reload();await page.waitForSelector('#hold',{state:'visible'});
+        check('voice remains available after reopening with cached conversation history',await page.locator('#hold').isVisible());
+        await page.evaluate(()=>{__richosPhone.api.setCapabilities(['text','voice','audio'],'test');__richosPhone.render();});
+        check('completed replies offer on-demand audio when the Mac can synthesize it',await page.locator('.msg-rich .hear').count()>0);
 
 		const withoutVoice = await page.evaluate(() => {
 			// The stream's own path, with a Mac that offers text only — the state the shipped Mac
@@ -726,6 +731,7 @@ async function runEngine(playwright, engine) {
             await page.locator('#voice-actions').waitFor({state:'hidden'});
             await page.waitForFunction(()=>globalThis.__richosPhone.queue.all().length===0);
             check('locked Send submits exactly one more voice message',mac.received().filter(r=>r.kind==='voice').length===2);
+            check('the microphone icon survives recording and Send',await page.locator('#hold svg').count()===1 && await page.locator('#hold').getAttribute('aria-label')==='Hold to record');
             // A pointer interruption retains rather than dispatching the recording.
             await pressMic();await page.locator('#hold').dispatchEvent('pointercancel');await page.mouse.up();
             await page.locator('#voice-drafts').waitFor({state:'visible'});

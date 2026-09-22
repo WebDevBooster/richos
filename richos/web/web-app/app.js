@@ -316,6 +316,7 @@ async function startConversation(keys) {
 	await renderVoiceDrafts();
 	hideTakeovers();
 	if (!api) makeApi(keys);
+	applyCapabilities();
 
 	thread = globalThis.RichOSThread.createThread();
 	queue = globalThis.RichOSQueue.createQueue({
@@ -620,7 +621,7 @@ function renderRow(row, isLastDelivered) {
 
 	// "Hear it" — one tap, per reply, and only when the Mac says there is audio to fetch. Nothing
 	// is synthesized for a reply he only reads.
-	if (!mine && row.has_audio && row.id) {
+	if (!mine && row.complete!==false && row.id && (row.has_audio || api?.offers('audio'))) {
 		const hear = document.createElement('button');
 		hear.className = 'hear';
 		hear.type = 'button';
@@ -1076,7 +1077,6 @@ async function startRecording(generation) {
 	chunks = [];
 	recording = true;
 	hold.classList.add('recording');
-	hold.textContent = 'Recording — let go to send';
 	$('meter').hidden = false;
 	$('meter-read').hidden = false;
 	setHoldNote('Speak now. Let go and it goes to your Mac.', false);
