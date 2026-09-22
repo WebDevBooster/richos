@@ -211,10 +211,7 @@ struct MessageRow: View {
                     .padding(.vertical, 10).padding(.horizontal, 14)
                     .frame(minHeight: 44)
             case .streaming(let text):
-                (Text(text) + Text(" "))
-                    .type(Typography.answer)
-                    .foregroundStyle(palette.ink)
-                    .overlay(alignment: .bottomTrailing) { Caret().offset(x: 2, y: -3) }
+                StreamingText(text: text)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 10).padding(.horizontal, 14).padding(.bottom, 8)
             case .album(let photos, let caption):
@@ -434,15 +431,28 @@ struct ThinkingDots: View {
     }
 }
 
-/// The gold caret at the end of a reply that is still arriving (1 s blink).
-struct Caret: View {
+/// A reply still arriving: its words, with a 2 pt gold caret right after the last one, blinking once a
+/// second (`.caret`). The caret is an inline image in the text run, so it sits after the last word on
+/// whatever line that word lands, never in a corner of the bubble.
+struct StreamingText: View {
+    let text: String
     @Environment(\.palette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            let on = Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-            Rectangle().fill(palette.signal).frame(width: 2, height: 20).opacity(on ? 1 : 0)
+            let on = reduceMotion || Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
+            (Text(text + " ") + Text(Image(uiImage: Self.caret(on ? UIColor(palette.signal) : .clear))).baselineOffset(-3))
+                .type(Typography.answer)
+                .foregroundStyle(palette.ink)
         }
-        .accessibilityHidden(true)
+    }
+
+    private static func caret(_ color: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 2, height: 20)).image { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 20))
+        }
     }
 }
 

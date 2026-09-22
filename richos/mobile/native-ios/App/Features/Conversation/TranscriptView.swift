@@ -139,7 +139,12 @@ struct TranscriptView: UIViewRepresentable {
             items = byID
             orderedIDs = newIDs
             view.maintainsBottomAnchor = shouldFollow
-            if isInitialLoad, !wantsFollowing { view.startsAwayFromBottom() }
+            if isInitialLoad, !wantsFollowing {
+                // At the very top when the loading line or the beginning is showing (round 12 opens
+                // those at scrollTop 0); a little way down otherwise (`conv-scrolled`: 40).
+                let atTop = newIDs.first == "~loading" || newIDs.first == "~beginning"
+                view.startsAwayFromBottom(below: atTop ? 0 : 40)
+            }
             loaded = true
 
             var snapshot = NSDiffableDataSourceSnapshot<Section, String>()
@@ -284,13 +289,15 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
     }
 
     /// RichOS: open scrolled up (a restored reading position, `conv-scrolled`) instead of at the bottom.
-    func startsAwayFromBottom() {
+    func startsAwayFromBottom(below top: CGFloat) {
         needsInitialBottomPosition = false
         maintainsBottomAnchor = false
         pendingAwayPosition = true
+        awayOffset = top
         setNeedsLayout()
     }
     private var pendingAwayPosition = false
+    private var awayOffset: CGFloat = 40
 
     /// RichOS: T3's `jumpToBottom` target, called by the Latest pill.
     func jumpToLatest() {
@@ -334,7 +341,7 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
             // RichOS: a reading position a little below the top of what is loaded (round 12 opens
             // `conv-scrolled` 40 pt down).
             pendingAwayPosition = false
-            contentOffset = CGPoint(x: contentOffset.x, y: min(geometry.bottomOffset, -adjustedContentInset.top + 40))
+            contentOffset = CGPoint(x: contentOffset.x, y: min(geometry.bottomOffset, -adjustedContentInset.top + awayOffset))
             return
         }
 
