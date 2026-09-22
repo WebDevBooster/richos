@@ -103,6 +103,25 @@ public enum Action: Equatable, Sendable {
     case discardKept(id: String)
     /// Play one of your own recordings (a kept one or a sent voice bubble).
     case playRecording(id: String)
+    // notifications and settings (groups 8, 9)
+    case turnOnNotifications
+    /// What the OS and the Mac said to a registration (or its absence).
+    case notificationsResult(Notifications.Status)
+    case turnOffNotifications
+    /// "Not now" on the offer card: it is asked once.
+    case dismissNotificationOffer
+    case setPreviews(Bool)
+    /// "Forget this phone" in Settings: opens the confirmation, or the refusal while work is unsent.
+    case forgetPairing
+    /// The filled, destructive button in the confirmation.
+    case confirmForget
+    case openSystemSettings
+    // update notices (group 10)
+    /// The hosted policy's verdict for this app version (contract §5.10).
+    case updatePolicy(UpdateNotice?, voicePaused: Bool)
+    case dismissUpdate
+    case openAppStore
+    case openSupport
 }
 
 /// How a delivery attempt ended when it did not succeed (contract §4.2, the reference classification).
@@ -164,6 +183,8 @@ extension Action: Codable {
         var dx: Double?
         var dy: Double?
         var level: Double?
+        var status: Notifications.Status?
+        var update: UpdateNotice?
     }
 
     public static let knownTypes = [
@@ -178,6 +199,9 @@ extension Action: Codable {
         "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "play-recording",
+        "turn-on-notifications", "notifications-result", "turn-off-notifications", "dismiss-notification-offer",
+        "set-previews", "forget-pairing", "confirm-forget", "open-system-settings",
+        "update-policy", "dismiss-update", "open-app-store", "open-support",
     ]
 
     public init(from decoder: Decoder) throws {
@@ -247,6 +271,18 @@ extension Action: Codable {
         case "send-kept": self = .sendKept(id: try need(w.id, "id"), at: try need(w.at, "at"))
         case "discard-kept": self = .discardKept(id: try need(w.id, "id"))
         case "play-recording": self = .playRecording(id: try need(w.id, "id"))
+        case "turn-on-notifications": self = .turnOnNotifications
+        case "notifications-result": self = .notificationsResult(try need(w.status, "status"))
+        case "turn-off-notifications": self = .turnOffNotifications
+        case "dismiss-notification-offer": self = .dismissNotificationOffer
+        case "set-previews": self = .setPreviews(try need(w.value, "value"))
+        case "forget-pairing": self = .forgetPairing
+        case "confirm-forget": self = .confirmForget
+        case "open-system-settings": self = .openSystemSettings
+        case "update-policy": self = .updatePolicy(w.update, voicePaused: try need(w.value, "value"))
+        case "dismiss-update": self = .dismissUpdate
+        case "open-app-store": self = .openAppStore
+        case "open-support": self = .openSupport
         default:
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription:
                 "unknown action '\(w.type)'; known: \(Self.knownTypes.joined(separator: ", "))"))
@@ -312,6 +348,18 @@ extension Action: Codable {
         case .sendKept(let id, let at): w.type = "send-kept"; w.id = id; w.at = at
         case .discardKept(let id): w.type = "discard-kept"; w.id = id
         case .playRecording(let id): w.type = "play-recording"; w.id = id
+        case .turnOnNotifications: w.type = "turn-on-notifications"
+        case .notificationsResult(let st): w.type = "notifications-result"; w.status = st
+        case .turnOffNotifications: w.type = "turn-off-notifications"
+        case .dismissNotificationOffer: w.type = "dismiss-notification-offer"
+        case .setPreviews(let v): w.type = "set-previews"; w.value = v
+        case .forgetPairing: w.type = "forget-pairing"
+        case .confirmForget: w.type = "confirm-forget"
+        case .openSystemSettings: w.type = "open-system-settings"
+        case .updatePolicy(let n, let paused): w.type = "update-policy"; w.update = n; w.value = paused
+        case .dismissUpdate: w.type = "dismiss-update"
+        case .openAppStore: w.type = "open-app-store"
+        case .openSupport: w.type = "open-support"
         }
         try w.encode(to: encoder)
     }
@@ -347,6 +395,11 @@ public enum Effect: Equatable, Sendable {
     /// The light tick when the lock engages (`UIImpactFeedbackGenerator(.light)`).
     case hapticTick
     case playRecording(id: String)
+    /// Ask the OS for notification permission and register with the Mac (native push, contract §7.2).
+    case requestNotifications(previews: Bool)
+    case unregisterNotifications
+    case openAppStore
+    case openSupport
 }
 
 /// The one place state changes. Pure: the same state and action always give the same result, so a
@@ -376,6 +429,11 @@ public enum Reducer {
         case .voicePress, .voiceStartLocked, .microphonePermission, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
              .voiceTouchCanceled, .voiceInterrupted, .voiceLevel, .voiceSettled, .sendKept, .discardKept, .playRecording:
             VoiceReducer.reduce(&next, action, &effects)
+        case .turnOnNotifications, .notificationsResult, .turnOffNotifications, .dismissNotificationOffer, .setPreviews,
+             .forgetPairing, .confirmForget, .openSystemSettings:
+            SettingsReducer.reduce(&next, action, &effects)
+        case .updatePolicy, .dismissUpdate, .openAppStore, .openSupport:
+            UpdateReducer.reduce(&next, action, &effects)
         default:
             ConversationReducer.reduce(&next, action, &effects)
         }

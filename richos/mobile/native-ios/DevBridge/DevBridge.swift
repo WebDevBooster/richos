@@ -22,7 +22,7 @@ extension AppStore: CommandHost {
     }
 
     func replace(with newState: AppState) async throws -> AppState {
-        await replace(newState).value
+        await replaceOverwritingUnreadable(newState).value
         try check()
         return state
     }

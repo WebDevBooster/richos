@@ -90,7 +90,7 @@ public actor EffectRunner {
                 try await storage.write(Self.stateKey, try CoreJSON.encode(state.persisted))
             case .pair, .confirmFingerprint, .forgetIdentity, .openSystemSettings, .deliver, .loadOlder,
                  .fetchReplyAudio, .stopAudio, .requestMicrophone, .startRecording, .stopRecording, .deleteRecording,
-                 .hapticTick, .playRecording:
+                 .hapticTick, .playRecording, .requestNotifications, .unregisterNotifications, .openAppStore, .openSupport:
                 skipped.append(effect)
             }
         }
