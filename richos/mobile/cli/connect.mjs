@@ -12,6 +12,8 @@ export function artifact() {
       main_module: 'connect-bootstrap.mjs',
       compatibility_date: '2026-09-21',
       bindings: [],
+      // A closed-service rollback must retain the managed database and credential.
+      keep_bindings: ['secret_text', 'd1'],
       observability: { enabled: false },
       logpush: false,
       tail_consumers: [],
