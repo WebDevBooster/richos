@@ -1,0 +1,338 @@
+import SwiftUI
+
+/// The full-screen moments (`.takeover`): pairing, the six words, consent, removed from the Mac, a
+/// saved session that needs a newer app, and a required update. One calm screen, one primary action.
+///
+/// At large text sizes the screen scrolls and its actions stay reachable at the end of it; nothing is
+/// clipped and no word runs past the edge (accessibility audit F10, F14, O2).
+struct TakeoverView: View {
+    let takeover: ScreenModel.Takeover
+    let smallDevice: Bool
+    let send: (Intent) -> Void
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        TakeoverScaffold(topPadding: isBlocking ? 40 : 28) {
+            content
+        } actions: {
+            actions
+        }
+        .accessibilityIdentifier("takeover.\(identifier)")
+    }
+
+    private var isBlocking: Bool { if case .updateRequired = takeover { return true } else { return false } }
+
+    private var identifier: String {
+        switch takeover {
+        case .pairIntro: return "pair-intro"
+        case .pairProgress: return "pair-progress"
+        case .pairWords: return "pair-words"
+        case .pairStale: return "pair-stale"
+        case .consent: return "pair-consent"
+        case .removedFromMac: return "conn-revoked"
+        case .updateRequired: return "upd-blocking"
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch takeover {
+        case .pairIntro(let problem):
+            BigMark()
+            Eyebrow("Your conversation, with you")
+            Heading("Take Rich with you", small: smallDevice)
+            Lede("Rich works on your Mac. Pair this iPhone once and your conversation comes along wherever you are.")
+            switch problem {
+            case .refused?:
+                ErrorCard(title: "Your Mac did not accept this code",
+                          detail: "Stopped, and nothing was paired. Ask your Mac for a fresh code and scan again.")
+                    .padding(.top, 18)
+            case .invalidLink(let why)?:
+                ErrorCard(title: "That is not a pairing code", detail: why)
+                    .padding(.top, 18)
+            case nil:
+                EmptyView()
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                Step(n: 1, text: Text("On your Mac, open ") + Text("Use Rich from your phone").fontWeight(.semibold)
+                     + Text(" and choose ") + Text("RichOS Connect").fontWeight(.semibold) + Text("."))
+                Step(n: 2, text: Text("Scan the code it shows you."))
+            }
+            .padding(.top, 22)
+        case .pairProgress:
+            BigMark()
+            Eyebrow("Almost there")
+            Heading("Pairing with your Mac", small: smallDevice)
+            HStack(spacing: 12) {
+                Spinner()
+                Text("Setting up a private connection…").type(Typography.body)
+            }
+            .foregroundStyle(palette.ink)
+            .padding(.top, 26)
+            .accessibilityElement(children: .combine)
+        case .pairWords(let words):
+            Eyebrow("Check these words")
+            Heading("Do they match your Mac?", small: smallDevice)
+            Lede("Your Mac shows the same six words. If they match, this connection is private to you.")
+            SixWords(words: words, small: smallDevice).padding(.top, 26)
+        case .pairStale:
+            BigMark()
+            Eyebrow("A newer RichOS is needed")
+            Heading("This saved session needs a newer app", small: smallDevice)
+            Lede("Your data has been kept. Update RichOS and everything picks up where it left off.")
+        case .consent:
+            Eyebrow("Before your first message")
+            Heading("Where your words go", small: smallDevice)
+            Lede("One thing to know before you talk to Rich from this iPhone.")
+            ConsentRows().padding(.top, 26)
+        case .removedFromMac:
+            BigMark()
+            Eyebrow("Pairing ended")
+            Heading("This phone was removed from your Mac", small: smallDevice)
+            Lede("Someone chose “Forget this phone” on the Mac. Nothing here was lost, but Rich cannot be reached from this iPhone until you pair it again.")
+        case .updateRequired(_, let message):
+            BigMark()
+            Eyebrow("Update required")
+            Text("This version of RichOS can no longer send")
+                .type(Typography.displayBlocking)
+                .foregroundStyle(palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 14)
+                .accessibilityAddTraits(.isHeader)
+            Lede(message)
+            Soft("Your drafts, queued messages and recordings stay on this phone.")
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        switch takeover {
+        case .pairIntro:
+            Button { send(.scan) } label: { IconLabel(icon: .qr, text: "Scan your Mac’s code") }
+                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                .accessibilityIdentifier("pair.scan")
+            Button { send(.usePairingLink) } label: { QuietLabel(text: "Use a pairing link instead") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+                .accessibilityIdentifier("pair.link")
+        case .pairProgress:
+            EmptyView()
+        case .pairWords:
+            Button { send(.confirmWords) } label: { IconLabel(icon: .check, text: "They match") }
+                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                .accessibilityIdentifier("pair.match")
+            Button { send(.rejectWords) } label: { QuietLabel(text: "They do not match") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+                .accessibilityIdentifier("pair.noMatch")
+        case .pairStale:
+            Button { send(.openAppStore) } label: { IconLabel(icon: .down, text: "Update in App Store") }
+                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+            Button { send(.openSupport) } label: { QuietLabel(text: "Support") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+        case .consent:
+            Button { send(.acceptConsent) } label: { Text("Continue") }
+                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                .accessibilityIdentifier("consent.continue")
+            Button { send(.learnMore) } label: { QuietLabel(text: "Learn more") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+        case .removedFromMac:
+            Button { send(.pairAgain) } label: { IconLabel(icon: .qr, text: "Pair again") }
+                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                .accessibilityIdentifier("pair.again")
+        case .updateRequired:
+            Button { send(.openAppStore) } label: { IconLabel(icon: .down, text: "Update in App Store") }
+                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                .accessibilityIdentifier("update.store")
+            Button { send(.openSupport) } label: { QuietLabel(text: "Support") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+        }
+    }
+}
+
+/// The takeover frame: the ground and its lamp, content from the top, actions at the bottom; it
+/// scrolls when the text is too large to fit.
+struct TakeoverScaffold<Content: View, Actions: View>: View {
+    var topPadding: CGFloat = 28
+    @ViewBuilder var content: Content
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    content
+                    Spacer(minLength: 24)
+                    VStack(spacing: 10) { actions }
+                }
+                .padding(.top, topPadding)
+                .padding(.horizontal, 26)
+                .padding(.bottom, 20)
+                .frame(minHeight: proxy.size.height, alignment: .top)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(GroundBackground())
+    }
+}
+
+struct BigMark: View {
+    var body: some View { MarkView().frame(width: 64, height: 64).padding(.bottom, 18) }
+}
+
+/// The all-caps micro-label (`.eyebrow`): 14 pt, declared skippable (round-12 NOTES "Type"); gold in
+/// the dark, ink in the light. The heading below it says the same thing in full.
+struct Eyebrow: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    @Environment(\.palette) private var palette
+    var body: some View {
+        Text(text.uppercased())
+            .type(Typography.eyebrow)
+            .foregroundStyle(palette.accentGlyph)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(text)
+    }
+}
+
+struct Heading: View {
+    let text: String
+    let small: Bool
+    init(_ text: String, small: Bool) { self.text = text; self.small = small }
+    @Environment(\.palette) private var palette
+    var body: some View {
+        Text(text)
+            .type(small ? Typography.displaySmall : Typography.display)
+            .foregroundStyle(palette.ink)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 14)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+struct Lede: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    @Environment(\.palette) private var palette
+    var body: some View {
+        Text(text)
+            .type(Typography.answer)
+            .foregroundStyle(palette.ink)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 16)
+    }
+}
+
+struct Soft: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    @Environment(\.palette) private var palette
+    var body: some View {
+        Text(text)
+            .type(Typography.read)
+            .foregroundStyle(palette.inkSoft)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 10)
+    }
+}
+
+struct Step: View {
+    let n: Int
+    let text: Text
+    @Environment(\.palette) private var palette
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text("\(n)")
+                .type(Typography.stepNumber)
+                .foregroundStyle(palette.ink)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(palette.surface))
+                .overlay(Circle().strokeBorder(palette.lineFaint, lineWidth: 1))
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .accessibilityHidden(true)
+            text
+                .type(Typography.body)
+                .foregroundStyle(palette.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(Text("Step \(n): ") + text)
+        }
+    }
+}
+
+struct ErrorCard: View {
+    let title: String
+    let detail: String
+    @Environment(\.palette) private var palette
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            IconView(.alert, size: 22).foregroundStyle(palette.danger).padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).type(Typography.read.weight(600)).foregroundStyle(palette.ink)
+                Text(detail).type(Typography.read).foregroundStyle(palette.inkSoft)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .floatingSurface(palette, radius: 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("pair.error")
+    }
+}
+
+/// The trust moment: six large serif words in two columns, numbered.
+struct SixWords: View {
+    let words: [String]
+    let small: Bool
+    @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let columns = dynamicTypeSize.isAccessibilitySize ? 1 : 2
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: columns), spacing: 10) {
+            ForEach(Array(words.enumerated()), id: \.offset) { index, word in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("\(index + 1)")
+                        .type(Typography.skippable.weight(600))
+                        .foregroundStyle(palette.inkSoft)
+                    Text(word)
+                        .type(small ? Typography.wordSmall : Typography.word)
+                        .foregroundStyle(palette.ink)
+                        .minimumScaleFactor(0.8)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, small ? 14 : 16)
+                .padding(.vertical, small ? 11 : 14)
+                .floatingSurface(palette, radius: 14)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Word \(index + 1): \(word)")
+            }
+        }
+        .accessibilityIdentifier("pair.words")
+    }
+}
+
+/// Apple's explicit-consent screen in plain words (App Store guideline 5.1.2(i); round-12 `pair-consent`).
+struct ConsentRows: View {
+    @Environment(\.palette) private var palette
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            row(.mac, "What you type or say goes to your Mac.", "Your conversation lives there, not on our servers.")
+            row(.spark, "Rich on your Mac sends it to its AI provider to write the reply.", "The provider set up on your Mac. You can change it there.")
+            row(.cloud, "Our connection service carries it to your Mac and keeps nothing.", "Encrypted on the way, stored nowhere.")
+        }
+    }
+
+    private func row(_ icon: Icon, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            IconView(icon, size: 20)
+                .foregroundStyle(palette.accentGlyph)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(palette.surface))
+                .overlay(Circle().strokeBorder(palette.lineFaint, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).type(Typography.body.weight(600)).foregroundStyle(palette.ink)
+                Text(detail).type(Typography.read).foregroundStyle(palette.inkSoft)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
