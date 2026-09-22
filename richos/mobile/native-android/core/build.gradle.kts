@@ -25,3 +25,8 @@ dependencies {
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+// `randroid test core --tests <X>` filters both JVM modules; the one without a match is not a failure.
+tasks.test {
+    filter.isFailOnNoMatchingTests = false
+}

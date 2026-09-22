@@ -90,7 +90,7 @@ headless() {
     gradle -q :cli:installDist >&2 || fail "the headless CLI did not build"
     touch "$stamp"
   fi
-  RANDROID_SESSION="$CACHE/headless.json" "$launcher" "$@"
+  RANDROID_SESSION="${RANDROID_SESSION:-$CACHE/headless.json}" "$launcher" "$@"
 }
 
 # --- the emulator -----------------------------------------------------------------------------
