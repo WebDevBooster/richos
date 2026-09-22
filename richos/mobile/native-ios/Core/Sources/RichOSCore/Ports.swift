@@ -88,7 +88,8 @@ public actor EffectRunner {
             switch effect {
             case .persist:
                 try await storage.write(Self.stateKey, try CoreJSON.encode(state.persisted))
-            case .pair, .confirmFingerprint, .forgetIdentity, .openSystemSettings:
+            case .pair, .confirmFingerprint, .forgetIdentity, .openSystemSettings, .deliver, .loadOlder,
+                 .fetchReplyAudio, .stopAudio:
                 skipped.append(effect)
             }
         }

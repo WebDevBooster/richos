@@ -36,6 +36,9 @@ public struct AppState: Codable, Equatable, Sendable {
     /// The conversation, oldest first: server-ordered history plus your unsent messages.
     public var messages: [Message] = []
     public var draft = ""
+    /// Your messages the Mac has not accepted yet, in the order you sent them — each with the exact
+    /// bytes it will be resent with (contract §5.2, §6.4). Persisted before the bubble shows.
+    public var outbox: [OutboxItem] = []
     /// TRANSIENT. Rich is working on a reply.
     public var reply: ReplyActivity?
     /// TRANSIENT. Loading older messages, the start of the conversation, cached-only history.
@@ -100,7 +103,7 @@ public struct AppState: Codable, Equatable, Sendable {
 
     /// Your messages the Mac has not accepted yet. Pairing a different Mac and forgetting this one
     /// are refused while any exist (round-12 `pair-blocked`, `settings-forget-blocked`).
-    public var unsentCount: Int { messages.filter { $0.delivery != nil }.count }
+    public var unsentCount: Int { outbox.count }
 }
 
 // MARK: - the printed form
@@ -109,7 +112,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, notifications, sheet, update, toast, appearance, screen
+        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, notifications, sheet, update, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -125,6 +128,7 @@ extension AppState {
         pairingProblem = try c.decodeIfPresent(PairingProblem.self, forKey: .pairingProblem)
         messages = try c.decodeIfPresent([Message].self, forKey: .messages) ?? d.messages
         draft = try c.decodeIfPresent(String.self, forKey: .draft) ?? d.draft
+        outbox = try c.decodeIfPresent([OutboxItem].self, forKey: .outbox) ?? d.outbox
         reply = try c.decodeIfPresent(ReplyActivity.self, forKey: .reply)
         history = try c.decodeIfPresent(History.self, forKey: .history) ?? d.history
         following = try c.decodeIfPresent(Bool.self, forKey: .following) ?? d.following
@@ -155,6 +159,7 @@ extension AppState {
         try c.encode(pairingProblem, forKey: .pairingProblem)
         try c.encode(messages, forKey: .messages)
         try c.encode(draft, forKey: .draft)
+        try c.encode(outbox, forKey: .outbox)
         try c.encode(reply, forKey: .reply)
         try c.encode(history, forKey: .history)
         try c.encode(following, forKey: .following)
@@ -188,6 +193,7 @@ extension AppState {
         public var consentGiven: Bool
         public var messages: [Message]
         public var draft: String
+        public var outbox: [OutboxItem]
         public var keptRecordings: [KeptRecording]
         public var notifications: Notifications
         public var appearance: Appearance
@@ -197,16 +203,21 @@ extension AppState {
         // A pairing in flight is not a pairing: a relaunch starts it again from the link.
         Persisted(schema: schema, pairing: pairing == .connecting ? .unpaired : pairing, mac: pairing == .connecting ? nil : mac,
                   fingerprintWords: fingerprintWords, consentGiven: consentGiven, messages: messages, draft: draft,
-                  keptRecordings: keptRecordings, notifications: notifications, appearance: appearance)
+                  outbox: outbox, keptRecordings: keptRecordings, notifications: notifications, appearance: appearance)
     }
 
     public init(restoring p: Persisted) throws {
         guard p.schema == Self.schemaVersion else { throw StoredSchemaError(found: p.schema) }
         self.init()
         pairing = p.pairing; mac = p.mac; fingerprintWords = p.fingerprintWords; consentGiven = p.consentGiven
-        messages = p.messages; draft = p.draft; keptRecordings = p.keptRecordings
+        messages = p.messages; draft = p.draft; outbox = p.outbox; keptRecordings = p.keptRecordings
         notifications = p.notifications; appearance = p.appearance
-        // A message that was mid-send when the app stopped is waiting now.
+        // A message that was mid-send when the app stopped is re-sent at once on this launch: the
+        // Mac's `client_id` receipt makes that free (the reference queue's rule 3).
+        for i in outbox.indices where outbox[i].state == .sending {
+            outbox[i].state = .waiting
+            outbox[i].notBefore = 0
+        }
         for i in messages.indices where messages[i].delivery == .sending { messages[i].delivery = .waiting }
     }
 }
@@ -308,6 +319,39 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
                 delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil) {
         self.id = id; self.author = author; self.kind = kind; self.text = text; self.sentAt = sentAt
         self.delivery = delivery; self.durationMs = durationMs; self.levels = levels
+    }
+}
+
+/// One message on its way to the Mac (the reference outbox, `richos/web/web-app/lib/queue.js`).
+public struct OutboxItem: Codable, Equatable, Sendable {
+    public enum State: String, Codable, Sendable {
+        /// On the phone, not yet accepted.
+        case waiting
+        /// In flight now.
+        case sending
+        /// The Mac gave a final answer; this needs the person, not a retry.
+        case blocked
+    }
+    /// The idempotency key, chosen once (contract §3.4). Also the id of the message's bubble.
+    public var clientID: String
+    public var kind: Message.Kind
+    /// Text: the exact request body, serialized ONCE at send and resent byte for byte on every
+    /// retry — any change, even to an unread field, turns a safe retry into a 409 (contract §5.2).
+    public var body: String?
+    /// Voice: the kept recording this sends.
+    public var recordingID: String?
+    public var queuedAt: Int64
+    public var state: State
+    public var attempts: Int
+    /// No attempt before this instant (ms since 1970); 0 means now.
+    public var notBefore: Int64
+    /// Why it is blocked or was last refused, in the Mac's words when it gave any.
+    public var lastReason: String?
+
+    public init(clientID: String, kind: Message.Kind, body: String?, recordingID: String? = nil, queuedAt: Int64,
+                state: State = .waiting, attempts: Int = 0, notBefore: Int64 = 0, lastReason: String? = nil) {
+        self.clientID = clientID; self.kind = kind; self.body = body; self.recordingID = recordingID; self.queuedAt = queuedAt
+        self.state = state; self.attempts = attempts; self.notBefore = notBefore; self.lastReason = lastReason
     }
 }
 
@@ -503,6 +547,8 @@ public enum Toast: Codable, Equatable, Sendable {
     case ceilingWarning
     /// `comp-too-long`, with the limit that matters.
     case tooLong(limit: Int)
+    /// The phone holds the most unsent messages it will keep; resolve some before sending more.
+    case outboxFull(limit: Int)
 }
 
 /// The two ruled palettes. Raw values are the CLI's and launch arguments' spelling.
