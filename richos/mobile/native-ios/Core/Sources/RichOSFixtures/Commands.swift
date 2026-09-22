@@ -53,7 +53,7 @@ public struct CommandResponse: Codable, Equatable, Sendable {
 /// Where commands land: the headless session on this Mac, or the live store inside the Debug app.
 /// Both implement these four operations with the same reducer and effect runner.
 public protocol CommandHost: AnyObject, Sendable {
-    func currentState() async -> AppState
+    func currentState() async throws -> AppState
     /// Reduce, run the effects, return the new state.
     func dispatch(_ action: Action) async throws -> AppState
     /// Replace the whole state (fixture, reset) and persist it.
@@ -66,7 +66,7 @@ public enum CommandRunner {
     public static func execute(_ command: Command, on host: any CommandHost) async throws -> CommandResult {
         switch command.command {
         case .state:
-            return CommandResult(state: await host.currentState())
+            return CommandResult(state: try await host.currentState())
         case .reset:
             return CommandResult(state: try await host.replace(with: .initial))
         case .restart:
@@ -84,7 +84,7 @@ public enum CommandRunner {
                 trace.append(TraceStep(request: step, state: result.state))
             }
             try scenario.check(trace.map(\.state))
-            return CommandResult(state: await host.currentState(), name: scenario.name, trace: trace)
+            return CommandResult(state: try await host.currentState(), name: scenario.name, trace: trace)
         }
     }
 
@@ -110,16 +110,34 @@ public enum CommandRunner {
 public actor HeadlessHost: CommandHost {
     private var state: AppState
     private let runner: EffectRunner
+    /// A stored session that could not be read. Only `reset` and `fixture` — which replace it —
+    /// proceed; everything else reports it, and the file is left as it was.
+    private var unreadable: Error?
 
     /// Loads the stored session, or starts a new install.
     public init(storage: any Storage) async throws {
         runner = EffectRunner(storage: storage)
-        state = try await runner.load() ?? .initial
+        do {
+            state = try await runner.load() ?? .initial
+        } catch {
+            state = .initial
+            unreadable = error
+        }
     }
 
-    public func currentState() -> AppState { state }
+    private func readable() throws {
+        if let unreadable {
+            throw CoreError("the stored session could not be read (\(unreadable)); `reset` or `fixture <name>` replaces it")
+        }
+    }
+
+    public func currentState() throws -> AppState {
+        try readable()
+        return state
+    }
 
     public func dispatch(_ action: Action) async throws -> AppState {
+        try readable()
         let (next, effects) = Reducer.reduce(state, action)
         state = next
         try await runner.run(effects, state: next)
@@ -127,6 +145,7 @@ public actor HeadlessHost: CommandHost {
     }
 
     public func replace(with newState: AppState) async throws -> AppState {
+        unreadable = nil
         state = newState
         try await runner.run([.persist], state: newState)
         return newState
@@ -134,6 +153,7 @@ public actor HeadlessHost: CommandHost {
 
     public func restart() async throws -> AppState {
         state = try await runner.load() ?? .initial
+        unreadable = nil
         return state
     }
 }

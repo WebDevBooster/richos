@@ -13,7 +13,7 @@ import RichOSCore
 import RichOSFixtures
 
 extension AppStore: CommandHost {
-    func currentState() async -> AppState { state }
+    func currentState() async throws -> AppState { state }
 
     func dispatch(_ action: Action) async throws -> AppState {
         await apply(action).value

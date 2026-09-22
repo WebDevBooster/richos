@@ -31,6 +31,13 @@ final class AppStore {
         let runner = EffectRunner(storage: storage)
         do {
             return AppStore(state: try await runner.load() ?? .initial, runner: runner)
+        } catch let error as StoredSchemaError where error.newer {
+            // Saved by a newer app (round-12 `pair-stale`): say so, and write nothing over it.
+            var state = AppState.initial
+            state.pairingProblem = .sessionNeedsNewerApp
+            let store = AppStore(state: state, runner: runner)
+            store.storageIsReadOnly = true
+            return store
         } catch {
             let store = AppStore(state: .initial, runner: runner)
             store.storageIsReadOnly = true
