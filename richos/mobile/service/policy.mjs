@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 const { validate, evaluate } = createRequire(import.meta.url)('../core/updates.js');
-const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function readPolicy(directory) {
   const record = JSON.parse(readFileSync(join(directory, 'active.json'), 'utf8'));
   return validate(record.policy);
@@ -16,7 +16,8 @@ export function preview(policy, clients, now = Date.now()) {
   if (Date.parse(policy.issuedAt) > now + 300000 || Date.parse(policy.expiresAt) <= now) throw Error('Policy is not currently valid');
   return { digest: digest(policy), revision: policy.revision, decisions: clients.map(client => ({ client, decision: evaluate(policy, client, now) })) };
 }
-export function publish(directory, policy, { operator, previewDigest, availability } = {}) {
+// One authorization rule for every publication path: the local store and the hosted store.
+export function authorize(policy, { operator, previewDigest, availability } = {}) {
   policy = validate(policy); preview(policy, []);
   if (typeof operator !== 'string' || !/^[a-zA-Z0-9_.@ -]{1,100}$/.test(operator)) throw Error('An operator identity is required');
   if (previewDigest !== digest(policy)) throw Error('Preview this exact policy before publication');
@@ -29,6 +30,10 @@ export function publish(directory, policy, { operator, previewDigest, availabili
       JSON.stringify([...availability.storefronts || []].sort()) !== JSON.stringify([...policy.latest.storefronts].sort()) ||
       typeof availability.evidence !== 'string' || availability.evidence.length < 10 || availability.evidence.length > 2000) throw Error('A matching download verification receipt is required');
   }
+  return { policy, audit: { operator, publishedAt: new Date().toISOString(), digest: digest(policy), availability: availability || null } };
+}
+export function publish(directory, policy, request = {}) {
+  const record = authorize(policy, request); policy = record.policy;
   directory = resolve(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   if ((statSync(directory).mode & 0o077) !== 0) throw Error('Policy directory must be private (mode 0700)');
@@ -36,7 +41,6 @@ export function publish(directory, policy, { operator, previewDigest, availabili
   try {
     const revisions = readdirSync(directory).filter(x => /^revision-\d+\.json$/.test(x)).map(x => Number(x.slice(9, -5)));
     if (policy.revision <= Math.max(0, ...revisions)) throw Error('Publication and rollback require a new increasing revision');
-    const record = { policy, audit: { operator, publishedAt: new Date().toISOString(), digest: digest(policy), availability: availability || null } };
     const bytes = JSON.stringify(record, null, 2) + '\n';
     // Archive first. A crash before activation consumes the revision and leaves a reviewable record.
     writeFileSync(join(directory, `revision-${policy.revision}.json`), bytes, { mode: 0o600, flag: 'wx', flush: true });
@@ -115,9 +119,10 @@ export async function command(name, file, cache) {
     await instance.close(); return { stopped: true };
   }
   if (name === 'metrics') return JSON.parse(readFileSync(join(directory, 'metrics.json'), 'utf8'));
+  if (['worker-artifact', 'schema-hosted', 'publish-hosted'].includes(name)) return (await import('./policy-hosted.mjs')).command(name, file);
   if (!file) throw Error('Provide a policy request JSON file');
   const input = JSON.parse(readFileSync(file, 'utf8'));
   if (name === 'preview') return preview(input.policy, input.clients || []);
   if (name === 'publish') return publish(directory, input.policy, input);
-  throw Error('Use update preview, publish or serve');
+  throw Error('Use update preview, publish, serve, worker-artifact, schema-hosted or publish-hosted');
 }
