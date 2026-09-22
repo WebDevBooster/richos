@@ -109,6 +109,11 @@ try {
     assert.equal(refreshed.state.online, true);
     assert.equal(refreshed.state.revoked, false);
     pass('page restart and source refresh retain the paired session');
+    const browserProof=spawnSync(process.execPath,[join(mobile,'../web/web-app/test/desktop-verify.js')],{env:{...env,PHONE_SHOTS_DIR:join(cache,'pwa-shots')},encoding:'utf8',timeout:180000,maxBuffer:8*1024*1024});
+    assert.ifError(browserProof.error);
+    assert.equal(browserProof.status,0,browserProof.stdout+'\n'+browserProof.stderr);
+    assert.match(browserProof.stdout,/ALL CHECKS PASSED/);
+    pass('actual PWA in Chromium and WebKit: notification settings, draft recovery, notification return, following and locked voice controls; WebKit microphone explicitly not run');
     for(const engine of ['chromium','webkit']) {
       const client = await (await import('./client-ui.mjs')).clientUI({engine});
       assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
