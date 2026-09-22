@@ -290,22 +290,37 @@ emu() {
 }
 
 # --- the release check ------------------------------------------------------------------------
-check_release() {
-  gradle -q :app:assembleRelease >&2 || fail "the release app did not build"
-  local apk="$OUT/app/outputs/apk/release/app-release-unsigned.apk"
-  [ -f "$apk" ] || fail "no release APK at $apk"
-  local bt="$ANDROID_HOME/build-tools/36.0.0"
-  local manifest classes
-  manifest="$("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$apk")"
-  classes="$("$bt/dexdump" "$apk" 2>/dev/null | sed -n "s/.*Class descriptor *: *'\(.*\)'.*/\1/p")"
-  python3 - "$manifest" "$classes" "$apk" <<'PY'
+# Scans one APK for the development bridge: its classes (the debug package and core/dev) and
+# its manifest entries (DevBridgeReceiver, DevBridgeInit, the devbridge authority).
+bridge_scan() {  # $1 = apk; prints JSON {classes, bridgeClasses, manifestMarkers}
+  local bt="$ANDROID_HOME/build-tools/36.0.0" manifest classes
+  manifest="$("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$1")"
+  classes="$("$bt/dexdump" "$1" 2>/dev/null | sed -n "s/.*Class descriptor *: *'\(.*\)'.*/\1/p")"
+  python3 - "$manifest" "$classes" <<'PY'
 import json, sys
-manifest, classes, apk = sys.argv[1], sys.argv[2].splitlines(), sys.argv[3]
+manifest, classes = sys.argv[1], sys.argv[2].splitlines()
 leaks = [c for c in classes if c.startswith("Ldev/richos/android/app/debug/") or c.startswith("Ldev/richos/android/core/dev/")]
-markers = [m for m in ("DevBridge", "devbridge", "android.permission.DUMP") if m in manifest]
-ok = not leaks and not markers and len(classes) > 0
+markers = [m for m in ("dev.richos.android.app.debug", "DevBridge", "devbridge") if m in manifest]
+print(json.dumps({"classes": len(classes), "bridgeClasses": leaks[:20], "bridgeClassCount": len(leaks), "manifestMarkers": markers}))
+PY
+}
+
+# The release APK must carry none of the bridge. The same scan over the debug APK must FIND it,
+# so a scanner that sees nothing cannot pass for a clean release.
+check_release() {
+  gradle -q :app:assembleRelease :app:assembleDebug >&2 || fail "the release or debug app did not build"
+  local release="$OUT/app/outputs/apk/release/app-release-unsigned.apk" debug="$OUT/app/outputs/apk/debug/app-debug.apk"
+  [ -f "$release" ] && [ -f "$debug" ] || fail "missing APK: $release or $debug"
+  local r d
+  r="$(bridge_scan "$release")"; d="$(bridge_scan "$debug")"
+  python3 - "$r" "$d" "$release" <<'PY'
+import json, sys
+r, d, apk = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3]
+clean = r["classes"] > 0 and r["bridgeClassCount"] == 0 and not r["manifestMarkers"]
+probe = d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
+ok = clean and probe
 print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
-                  "result": {"apk": apk, "classes": len(classes), "bridgeClasses": leaks, "manifestMarkers": markers}}, indent=2))
+                  "result": {"apk": apk, "release": r, "debugProbe": d, "releaseClean": clean, "scannerSeesDebugBridge": probe}}, indent=2))
 sys.exit(0 if ok else 1)
 PY
 }
