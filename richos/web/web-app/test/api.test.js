@@ -266,6 +266,17 @@ test('a 500 is a fault, and a fault is worth one more try', async () => {
 	);
 });
 
+test('a gateway outage gives usable recovery copy while retaining its status and retry policy', async () => {
+    const { api } = makeApi(() => response(502, '<html>Bad Gateway</html>'));
+    await assert.rejects(() => api.sendText({ clientId: 'gateway', threadId: 't', text: 'keep me', sentAt: 'now' }), error => {
+        assert.equal(error.status, 502);
+        assert.equal(error.retryable, true);
+        assert.match(error.message, /unsent messages stay on this phone/);
+        assert.doesNotMatch(error.message, /502|html/);
+        return true;
+    });
+});
+
 test('pairing stores the device and the first challenge, and needs no signature of its own', async () => {
 	const { api, calls, signer, state } = makeApi(() => response(200, {
 		device_id: 'device-9',

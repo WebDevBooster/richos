@@ -150,6 +150,7 @@
       servingVia,
       platform: mockPhone.paired ? mockPhone.platform : null,
       pushReady: mockPhone.paired && window.__RICHOS_MOCK_PRESET__?.phonePushReady === true,
+      pushTransport: window.__RICHOS_MOCK_PRESET__?.phonePushTransport || "web-push",
       // **HAS THE PERSON ANSWERED THE SIX WORDS?** Ray's nightly `.7`, defect 2: the Mac read
       // `It is paired` while the phone was still asking, so the card now waits for the phone to
       // come back with `fingerprint_confirmed` (`phone/routes.rs`, `POST /api/pair`).

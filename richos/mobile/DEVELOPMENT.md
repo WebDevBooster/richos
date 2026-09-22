@@ -2,7 +2,7 @@
 
 The mobile UI and CLI run the same `core/app.js` action handlers. That core imports the existing PWA's `lib/queue.js` directly. Packaging copies that exact file into the iOS app; there is no second queue implementation or source fork.
 
-The Swift/WKWebView client now includes native recording/playback, protected signing, pairing, conversation history, drafts, offline text delivery and update controls. It reuses the PWA stylesheet and its API, thread, fingerprint, stream and queue modules. Voice submission and notifications belong to Part 4; managed RichOS Connect belongs to Part 3. This is an installable technical pilot, not the public consumer release.
+The Swift/WKWebView client now includes native recording/playback, protected signing, pairing, conversation history, drafts, offline text delivery and update controls. It reuses the PWA stylesheet and its API, thread, fingerprint, stream and queue modules. Voice submission and optional native reply notifications use the same client actions. Managed RichOS Connect supplies remote reach. This is an installable technical pilot, not the public consumer release.
 
 ## Headless first
 
@@ -84,12 +84,20 @@ The Swift/WKWebView client uses the PWA's API, signing-input contract, fingerpri
 single event-stream owner and durable queue. `core/client.js` owns pairing confirmation,
 messages, reconnect cursors and recording actions. `platform/native.js` adapts those ports
 to protected files, Keychain signing, URLSession and AVAudioRecorder. The private key and
-recording bytes stay behind the native boundary. The current voice control saves bounded
-recordings locally; it does not claim the Mac accepts uploaded voice.
+recording bytes stay behind the native boundary. Hold the mic and release to submit, slide left
+to cancel or slide up to lock. Locked recording leaves the conversation scrollable and
+provides Send and Cancel. Interrupted recordings remain unsent with recovery controls.
+The same headless gesture module drives the PWA and native client.
+
+The sending ceiling is 30 minutes of 16 kHz PCM (under 60 MB). Reaching it saves unsent
+audio instead of automatically sending. Successfully delivered audio is pruned to a
+50-file/200 MB playback cache; unsent and queued recordings are never evicted. The current
+Mac recognition budget is 90 seconds; a processing failure retains audio for retry.
 
 ```sh
 node richos/mobile/cli/mobile.mjs client scenario connection-restart
 node richos/mobile/cli/mobile.mjs client scenario recording-interruption
+node richos/mobile/cli/mobile.mjs client scenario voice-gestures
 node richos/mobile/cli/mobile.mjs sim client-prepare
 node richos/mobile/cli/mobile.mjs sim action '{"type":"compose","text":"Client action check"}'
 node richos/mobile/cli/mobile.mjs sim state
@@ -105,7 +113,7 @@ Physical builds and focused checks use the connected device identifier and signi
 
 ```sh
 RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> node richos/mobile/cli/mobile.mjs device build
-RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> node richos/mobile/cli/mobile.mjs device verify recording
+RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> RICHOS_MOBILE_TEST_CONFIG=<external-json-path> node richos/mobile/cli/mobile.mjs device verify recording
 RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> RICHOS_MOBILE_TEST_CONFIG=<external-json-path> node richos/mobile/cli/mobile.mjs device verify text
 ```
 
@@ -136,7 +144,7 @@ it does not claim those tests exercise Xcode or a physical USB device.
 The repository runner discovers these suites under `richos/app/scripts`:
 
 - `mobile-headless.test.sh`: `npm test` runs the core and CLI tests in disposable external sessions. It verifies persistence across real CLI processes, structured errors, locking, resource selection and the unpaired Release bootstrap. It needs Node and npm, with no simulator or browser.
-- `mobile-pwa.test.sh`: runs the actual Chromium PWA target through pairing, visible Send, offline reload, reconnect, page restart and source refresh. Playwright/Chromium absence is `NOT RUN`, exit 2. The suite forces headless mode and stops its worker.
+- `mobile-pwa.test.sh`: runs the actual Chromium PWA target through pairing, visible Send, offline reload, reconnect, page restart and source refresh. It also runs the bundled native UI in Chromium and WebKit. A missing browser is `NOT RUN`, exit 2. The suite forces headless mode and stops its worker.
 - `mobile-ios.test.sh`: builds a dedicated simulator app, compares all three native/headless traces, checks process persistence and refresh, runs the visible-control XCUITest and verifies Release exclusion. Missing macOS/Xcode/XcodeGen or an available iOS runtime is `NOT RUN`, exit 2. Build/test failures on a capable host exit 1.
 
 ```sh
@@ -198,7 +206,7 @@ Session schema 2 migrates the Part 1 cache without deleting drafts or the outbox
 
 Pairing accepts a pasted HTTPS link or a native QR scan, followed by the existing fingerprint comparison. A scan only fills the link field; it does not automatically trust the Mac. Conversation links accept `richos://conversation/#thread=<id>&at=<id>` and explicitly configured universal-link hosts. The PWA's inbound validator checks the payload. Universal links require the matching associated-domain website file before deployment. External HTTPS links open outside the privileged webview. Remote HTML and scripts cannot enter that view.
 
-Recording files are protected native files. Record, stop, cancel, play and delete are native actions. Microphone denial has a Settings recovery button. Playable files left by process termination are recovered into the recording list. Recording is limited to 60 seconds, ten files and two megabytes per file. A critical policy stops and retains captured audio; uploaded voice is not implemented by this slice.
+Recording files are protected native files. Hold/release, slide-to-lock and slide-to-cancel invoke shared headless actions. Microphone denial has a Settings recovery button. Interrupted audio appears in the conversation with Play, Send and Discard. Unfinished headers from process termination are recovered only for our known PCM format without changing audio bytes. Capture stops and saves at 30 minutes; uploads are capped at 60 MB. A critical policy stops and retains captured audio. Unsent files are never automatically evicted; acknowledged recordings are retained within 50-file and 200-MB bounds.
 
 ## Release configuration and update service
 
@@ -226,3 +234,71 @@ The common CLI also supports isolated real-provider checks:
 - Stop the owned lab, then run `connect lab-disable <external-lab-directory>`. Verify the old allocation is disabled and its owned tunnel/DNS records are removed. Remove disposable token/identity files after preserving redacted evidence privately.
 
 The lab uses isolated test data and a separate integration app. It must never replace the owner's daily Android PWA pairing. Keep the device CLI's USB health guard enabled; never recover tests by resetting hubs or unrelated devices.
+
+## Voice submission
+
+`voice-release` submits a held recording immediately; `voice-send` submits a locked recording. `record-send` is the recovery action for an interrupted saved recording. All use the shared outbox. The destination conversation and Mac are captured when recording begins. Cancel never sends and the transcription cannot replace a newer draft. The native adapter hashes and uploads the protected file directly; audio bytes do not cross the JavaScript bridge. A queued file cannot be deleted until its queue entry is resolved. Acknowledged audio remains playable in its conversation while retained; bounded housekeeping never removes unsent or queued files.
+
+The authenticated Mac route accepts at most 60 MB of mono 16 kHz PCM16 WAV and validates an actual duration of at most 30 minutes. Its bounded transcription budget is 90 seconds; the capture ceiling does not guarantee a slow Mac can transcribe the longest possible message within that budget. Failed work retains the recording. It uses the existing local speech stack. Delivery receipts bind the device, client ID, conversation and original audio bytes. Failed transcription does not reserve a message; a lost acknowledgement reuses the durable receipt without transcribing or submitting again. Uncertain intake remains blocked for attention.
+
+`reply-play` synthesizes a completed CEO-visible reply on the Mac and plays the bounded WAV through the native audio session. Stop prevents a late download from starting playback. Audio from a previous conversation cannot begin after navigation. Read the conversation when playback is unavailable or a reply exceeds the playback length limit. Capability negotiation keeps recordings available on older Macs without claiming they can accept voice.
+
+
+## Native notification and voice proofs
+
+`client scenario voice-restart` records through substituted platform ports, queues a file reference, reconstructs the actual client and sends the same message/file after reconnecting. It proves durable application behavior without claiming a microphone or speech model.
+
+The real Rust lab can enable the installed local speech model with `RICHOS_MOBILE_VOICE_TEST=1`. Set `RICHOS_MOBILE_VOICE_FIXTURE` to a mono 16 kHz PCM16 WAV on the external SSD and `RICHOS_MOBILE_VOICE_PHRASE` to a phrase it contains when running `node --test richos/mobile/test/mac-server.test.mjs`. The test verifies authenticated upload, local transcription, one projected message and generated WAV reply audio. Model startup gets a bounded two-minute allowance; ordinary text proofs do not resolve a speech model. The optional speech check fails if the model is unavailable. It never records the Mac microphone or plays its speakers.
+
+Physical selections use the same guarded device CLI:
+
+- `device verify notifications` needs an isolated test configuration with `notificationTest: "true"`, a push-enabled Apple identifier, a signed development build and the sandbox provider key. Set the lab's `RICHOS_MOBILE_CONNECT_IDENTITY_FILE` to its private PKCS8 identity and `RICHOS_MOBILE_REPLY_DELAY_MS=8000` so the test can leave the app before its reply completes. It enables notifications through visible controls, sends a message, terminates the app, checks the real generic Apple alert, taps it and checks the fetched reply before disabling notifications.
+- `device verify voice` needs `spokenPhrase` in the isolated test configuration and a person ready to speak that phrase into the phone. It locks the microphone for ten seconds, taps Send, checks the Mac transcription/reply and starts then stops native playback. To reuse an existing operator recording without asking them to repeat it, explicitly set `useRecoveredRecording: "true"`, `threadId` and `origin` in the integration configuration. The Debug-only integration setup copies retained audio from that same origin into the fresh lab conversation, leaving the original unchanged. This proves retained audio submission, not a fresh microphone capture. The separate `recording` selection proves the physical lock, cancellation, interruption/relaunch, locked Send and held-release gestures. The speaker output itself still needs the person's confirmation.
+
+Both selections refuse missing configuration before launching Xcode. A skipped test is not a successful physical proof. Keep Android's production pairing intact by using the integration app and isolated lab. The lab's deterministic `ack:` reply does not prove a live AI provider turn.
+
+See [native notification operations](service/notifications.md) for APNs provisioning, token rotation, revocation and delivery limits. Notifications are opt-in. The Mac retains registration intent and pending opaque events for retry; the phone retains its preference and registration fingerprint, not an APNs token in shared session JSON. Phone permission denial leaves foreground conversations usable. Closed-app alerts require Apple delivery and a reachable Mac/provider; they are not an emergency-update transport guarantee.
+
+
+`device verify cleanup` only operates on `RICHOS_MOBILE_TEST_APP=integration` with an
+external test configuration containing `{"cleanupTestRecordings":"true"}`. It discards
+visible unsent lab recordings through the real recovery controls and leaves the normal
+composer visible. Ordinary test selections skip this cleanup unless explicitly configured;
+the normal installed app and other conversations are outside its scope.
+
+`device verify preview` installs the current integration build and leaves its existing
+conversation open for manual testing. It requires `RICHOS_MOBILE_TEST_APP=integration`
+and a connected paired Mac. It neither resets the session nor sends, records or discards
+anything. Its normal-composer assertion is readiness evidence, not a connectivity or voice gesture proof.
+
+The native conversation follows its newest message by default, including outgoing
+held/locked voice, text sends, growing replies and composer/viewport resizing.
+Deliberate upward scrolling pauses following; incoming messages preserve that reading
+position. An intentional send or Latest messages resumes following. The registered
+`mobile-pwa.test.sh` suite exercises this with overflowing history in Chromium and
+WebKit, including a 24 px upward scroll, real wheel input and resize checks. Chromium
+uses trusted touch inputs; WebKit uses dispatched Touch Events for mic gestures and
+real browser layout. Neither substitutes for physical iPhone gesture acceptance.
+The same suite requires locked Cancel to stay centred, with at least 24 px separation
+from Send and 44 px minimum tap targets at 320, 375 and 430 px widths.
+
+
+Routine native reconnects are presentation-silent for three seconds: the transport
+is offline and the outbox retains work, while the ordinary header shows no connection status at all. Healthy operation is never announced. A sustained interruption shows a calm reconnecting notice. Known
+phone-offline, service-unavailable, revocation and incompatibility states remain
+explicit. An opening stream is never evidence that the Mac is asleep. Native stream
+startup refreshes the public authentication challenge before signing, including after
+suspension. Confirmed stream acceptance clears transient errors even without a hello
+frame. Headless fake-clock and Chromium/WebKit DOM tests protect these transitions.
+
+`device verify reconnect` is restricted to the integration app. It preserves the paired
+session, performs two background/foreground cycles and checks the quiet, usable
+conversation for 35 seconds. Actual delivery is proved by the text/voice selections. It sends no message, records nothing and leaves the conversation
+open. This is bounded recovery/idle evidence, not proof of every network condition.
+
+Native resume requests one previously observed row as well as newer frames. The shared
+thread model deduplicates the replay, while that immediate body avoids waiting for the
+15-second heartbeat when an existing Mac/proxy would otherwise return an empty tail.
+Incomplete reply replay keeps its earlier cursor, so missed deltas remain recoverable.
+
+For user-driven testing, use `lab mac --manual` with a fresh isolated cache. Manual sessions have no automatic shutdown deadline and retain backend state in `manual-data` under that cache. Stop the owned CLI with SIGTERM when testing is finished. Automated `lab mac` runs retain their bounded lifetime. Never leave a user testing against an expiring fixture.

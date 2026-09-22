@@ -1,5 +1,11 @@
 # Mobile development
 
+Judge every user-visible state by the CEO's experience, not just technical success.
+Healthy operation and routine recovery must be seamless and invisible: do not announce
+normal connectivity or require the user to manage retries. Preserve the conversation,
+drafts and recordings. Show only meaningful persistent interruptions or necessary
+actions, based on evidence. Protect these journeys with durable regression tests.
+
 Every mobile feature, fix and refactor must preserve this development loop:
 
 - Put application actions and semantic state in `core/`, without DOM or native UI dependencies. UI code invokes the same actions as the CLI.

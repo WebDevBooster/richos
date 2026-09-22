@@ -61,7 +61,7 @@ export function stageAssets(destination, development, allowedContainer) {
   {
     files['client.html'] = 'ui/client.html';
     Object.assign(files, { 'client.js': 'core/client.js', 'updates.js': 'core/updates.js', 'mobile-links.js': 'core/links.js', 'release-config.json': 'release-config.json', 'client.css': 'ui/client.css', 'styles.css': '../web/web-app/styles.css', 'native.js': 'platform/native.js', 'client-entry.js': 'ui/client-entry.js' });
-    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
+    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection', 'voice']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
   }
   for (const [name, source] of Object.entries(files)) copyFileSync(join(mobile, source), join(destination, name));
   writeFileSync(join(destination, 'release-config.json'), JSON.stringify(releaseConfiguration()));
@@ -89,7 +89,7 @@ export function project() {
     name: 'RichOSMobile', options: { deploymentTarget: { iOS: '16.7' } },
     settings: { base: { SWIFT_VERSION: '5.0', CODE_SIGNING_ALLOWED: 'YES', CODE_SIGN_IDENTITY: '-', TARGETED_DEVICE_FAMILY: '1', ENABLE_USER_SCRIPT_SANDBOXING: 'NO' } },
     targets: {
-      RichOSMobile: { type: 'application', platform: 'iOS', sources: [{ path: join(mobile, 'ios/Sources') }, { path: catalog, buildPhase: 'resources' }],
+      RichOSMobile: { type: 'application', platform: 'iOS', sources: [...readdirSync(join(mobile, 'ios/Sources')).filter(name=>name.endsWith('.swift')).sort().map(name=>({path:join(mobile,'ios/Sources',name)})), { path: catalog, buildPhase: 'resources' }],
         settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: bundleId, ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon' }, configs: {
           Debug: { INFOPLIST_FILE: join(output, 'Debug.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG' },
           Release: { INFOPLIST_FILE: join(output, 'Release.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: '' }
@@ -101,11 +101,12 @@ export function project() {
     },
     schemes: { RichOSMobile: { build: { targets: { RichOSMobile: 'all' } }, test: { targets: ['RichOSMobileUITests'], gatherCoverageData: false } } }
   };
-  if (release.universalHosts.length) {
-    const entitlements = join(output, 'Links.entitlements');
-    writeFileSync(entitlements, plist('<key>com.apple.developer.associated-domains</key><array>' + release.universalHosts.map(host => '<string>applinks:' + host + '</string>').join('') + '</array>'));
-    spec.targets.RichOSMobile.settings.base.CODE_SIGN_ENTITLEMENTS = entitlements;
-  }
+  const entitlements = join(output, 'RichOS.entitlements');
+  writeFileSync(entitlements, plist('<key>aps-environment</key><string>$(APS_ENVIRONMENT)</string>' +
+    (release.universalHosts.length ? '<key>com.apple.developer.associated-domains</key><array>' + release.universalHosts.map(host => '<string>applinks:' + host + '</string>').join('') + '</array>' : '')));
+  Object.assign(spec.targets.RichOSMobile.settings.base, {CODE_SIGN_ENTITLEMENTS:entitlements});
+  spec.targets.RichOSMobile.settings.configs.Debug.APS_ENVIRONMENT = 'development';
+  spec.targets.RichOSMobile.settings.configs.Release.APS_ENVIRONMENT = 'production';
   const testConfig = process.env.RICHOS_MOBILE_TEST_CONFIG;
   if (testConfig) {
     const source = realpathSync(testConfig);
@@ -242,7 +243,7 @@ export function checkRelease() {
   const info = run('plutil', ['-convert', 'json', '-o', '-', join(result.app, 'Info.plist')]).stdout;
   assert.deepEqual(JSON.parse(info).CFBundleURLTypes.flatMap(value => value.CFBundleURLSchemes), ['richos'], 'Unexpected URL registration in Release');
   const binary = readFileSync(join(result.app, 'RichOSMobile'));
-  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', 'prepareIntegrationTest', '--update-fixture=']) {
+  for (const marker of ['richos-mobile-dev', 'mobile-commands', 'Development runtime did not become ready', '--integration-session=', '--integration-copy-voice-to=', '--integration-copy-voice-origin=', 'prepareIntegrationTest', '--update-fixture=']) {
     assert(!binary.includes(Buffer.from(marker)), `Development bridge marker in Release: ${marker}`);
   }
   return { ...result, developmentBridgeExcluded: true, files };

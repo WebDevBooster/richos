@@ -23,3 +23,27 @@ CREATE TABLE IF NOT EXISTS nonces (
 );
 CREATE INDEX IF NOT EXISTS nonces_expiry ON nonces(expires_at);
 CREATE TABLE IF NOT EXISTS allowed_hosts (id TEXT PRIMARY KEY);
+-- Schema 2 additions are idempotent. No conversation content or labels.
+CREATE TABLE IF NOT EXISTS push_bindings (
+  host_id TEXT PRIMARY KEY,
+  revision INTEGER NOT NULL,
+  device_hash TEXT,
+  token TEXT,
+  environment TEXT,
+  topic TEXT,
+  route TEXT,
+  generation INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_jobs (
+  host_id TEXT NOT NULL,
+  event_ref TEXT NOT NULL,
+  thread_ref TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  next_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'pending',
+  PRIMARY KEY (host_id, event_ref)
+);
+CREATE INDEX IF NOT EXISTS push_jobs_due ON push_jobs(state,next_at);

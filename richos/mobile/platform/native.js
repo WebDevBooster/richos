@@ -62,10 +62,12 @@
       },
       fetch: async (url, options = {}) => {
         const result = await call('request', { url, method: options.method || 'GET', headers: options.headers || {}, body: options.body || '' });
-        return new Response([204, 205, 304].includes(result.status) ? null : result.body, { status: result.status, headers: result.headers });
+        const response = new Response([204, 205, 304].includes(result.status) ? null : result.body, { status: result.status, headers: result.headers });
+        if (result.audioId) response.nativeAudio=result.audioId;
+        return response;
       },
       load: () => call('load', {}), save: value => call('save', { value }),
-      hash: value => call('hash', { value: typeof value === 'string' ? value : new TextDecoder().decode(value) }),
+      hash: value => value?.recordingFile ? call('recordHash',{id:value.recordingFile}) : call('hash', { value: typeof value === 'string' ? value : new TextDecoder().decode(value) }),
       nextId: () => crypto.randomUUID()
     };
   }

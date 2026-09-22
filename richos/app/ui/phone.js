@@ -149,7 +149,7 @@
          subtree that is re-inserted on every two-second poll is a subtree that can take the focus
          out of itself. -->
     <div id="phone-pairing" hidden>
-      <p id="phone-connect-pair-help" class="overlay-note" hidden>In the RichOS iPhone app, paste the pairing link below. On Android, scan the code to open the web app. Compare the six words before confirming.</p>
+      <p id="phone-connect-pair-help" class="overlay-note" hidden>In the RichOS iPhone app, scan this code. On Android, scan the code to open the web app. Compare the six words before confirming.</p>
       <!-- IT IS HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was already
            emptied on expiry (Ray's defect 3.3, and his defect B for the last of them); with the
            block at the top of the screen an empty wrapper is a gap where the thing he came for
@@ -951,7 +951,9 @@
         : PAIRED_AWAITING_WORDS;
       field("phone-paired-words").textContent = (status.fingerprintWords || []).join("  ");
       field("phone-paired-words").hidden = status.fingerprintConfirmed;
-      field("phone-push-state").textContent = status.pushReady
+      field("phone-push-state").textContent = status.pushTransport === "apns"
+        ? "Manage reply notifications in the RichOS iPhone app under Settings."
+        : status.pushReady
         ? "It can reach you with a notification when Rich has something for you."
         : pushNotReadyFor(status.platform);
       // **SCREEN 6, DERIVED FROM THE RECORD.** What the phone paired over is a fact the Mac

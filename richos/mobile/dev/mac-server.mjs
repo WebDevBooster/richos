@@ -13,13 +13,17 @@ const { createScratch } = require('../test/storage.cjs');
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function startMac(cache) {
+export async function startMac(cache, { manual = false } = {}) {
   const origin = process.env.RICHOS_MOBILE_MAC_ORIGIN || 'https://localhost';
   if (new URL(origin).origin !== origin || !origin.startsWith('https://')) throw Error('Mac test origin must be an HTTPS origin');
+  if (manual && existsSync(join(cache, 'manual-data'))) throw Error('Manual testing requires a fresh cache; existing test data is preserved');
   rmSync(join(cache, 'mac.json'), { force: true });
   const scratch = createScratch('rust-server');
-  const data = join(scratch, 'data'); mkdirSync(data, { mode: 0o700 });
-  const env = { ...process.env, TMPDIR: scratch + '/', RICHOS_MOBILE_MAC_DIR: data, RICHOS_MOBILE_MAC_ORIGIN: origin };
+  // Manual sessions keep their pairing, conversation and speech files after shutdown.
+  const data = manual ? join(cache, 'manual-data') : join(scratch, 'data');
+  mkdirSync(data, { mode: 0o700 });
+  const env = { ...process.env, TMPDIR: scratch + '/', RICHOS_MOBILE_MAC_DIR: data, RICHOS_MOBILE_MAC_ORIGIN: origin,
+    RICHOS_MOBILE_MAC_MANUAL: manual ? '1' : '0' };
   const log = join(cache, 'mac-server.log');
   const fd = openSync(log, 'w', 0o600);
   let child, stopped, proxy, serving = false, binary;
@@ -64,7 +68,7 @@ export async function startMac(cache) {
     if (!binary) throw Error('Cargo did not produce the Rust test executable');
     child = spawn(binary, ['mobile_mac_server::serve', '--exact', '--ignored', '--nocapture'], { env, detached: true, stdio: ['ignore', fd, fd] });
     stopped = once(child, 'close');
-    const deadline = Date.now() + 20000;
+    const deadline = Date.now() + (process.env.RICHOS_MOBILE_VOICE_TEST === '1' ? 120000 : 20000);
     while (!existsSync(join(data, 'ready.json'))) {
       if (child.exitCode !== null || Date.now() > deadline) throw Error(`Rust server did not start. Read ${log}`);
       await pause(50);
@@ -96,7 +100,7 @@ export async function startMac(cache) {
       child = spawn(binary, ['mobile_mac_server::serve','--exact','--ignored','--nocapture'], {
         env: {...env,RICHOS_MOBILE_MAC_RESTART:'1'}, detached:true, stdio:['ignore',fd,fd] });
       stopped = once(child,'close');
-      const deadline = Date.now() + 20000;
+      const deadline = Date.now() + (process.env.RICHOS_MOBILE_VOICE_TEST === '1' ? 120000 : 20000);
       while (!existsSync(join(data,'ready.json'))) {
         if (child.exitCode !== null || Date.now() > deadline) throw Error(`Restart failed. Read ${log}`);
         await pause(50);
@@ -109,13 +113,17 @@ export async function startMac(cache) {
     return { state: publicState, close, restart, get exited() { return stopped; } };
   } catch (error) { await close(); throw error; }
 }
-export async function serveMac(cache) {
-  const server = await startMac(cache);
+export async function serveMac(cache, { manual = false } = {}) {
+  const server = await startMac(cache, { manual });
   console.log(JSON.stringify({ ok: true, mode: 'mac', state: server.state }));
+  return await waitForMac(server, { manual });
+}
+
+export async function waitForMac(server, { manual = false } = {}) {
   let timer, done;
   const requested = new Promise(resolve => {
     done = () => resolve('requested');
-    timer = setTimeout(done, 55 * 60 * 1000);
+    if (!manual) timer = setTimeout(done, 55 * 60 * 1000);
     process.once('SIGINT', done); process.once('SIGTERM', done);
   });
   try {

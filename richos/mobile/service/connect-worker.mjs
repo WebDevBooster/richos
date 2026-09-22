@@ -2,6 +2,8 @@ import { authenticate, digest, readBody } from './connect/auth.mjs';
 import { Store } from './connect/store.mjs';
 import { Provider } from './connect/provider.mjs';
 import { transition, view } from './connect/lifecycle.mjs';
+import { APNs } from './connect/apns.mjs';
+import { Notifications } from './connect/notifications.mjs';
 
 function json(status, body) {
   return new Response(JSON.stringify(body), { status, headers: {
@@ -11,7 +13,8 @@ function json(status, body) {
     ...(status === 429 || status === 503 ? { 'Retry-After': '60' } : {}),
   } });
 }
-const routes = new Set(['POST /v1/hosts', 'GET /v1/host', 'DELETE /v1/host', 'POST /v1/host/token', 'PUT /v1/host/device']);
+const routes = new Set(['POST /v1/hosts', 'GET /v1/host', 'DELETE /v1/host', 'POST /v1/host/token', 'PUT /v1/host/device',
+  'POST /v1/push/hosts', 'PUT /v1/push/device', 'POST /v1/push/events']);
 function configured(env) {
   return !!(env.DB && env.CF_API_TOKEN && /^[a-f0-9]{32}$/.test(env.CF_ACCOUNT_ID)
     && /^[a-f0-9]{32}$/.test(env.CF_ZONE_ID) && /^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/.test(env.CONNECT_DOMAIN)
@@ -35,19 +38,29 @@ export async function handle(request, env, ports = {}) {
     const key = await digest(request.headers.get('cf-connecting-ip') || 'unknown');
     if (!(await env.REQUEST_LIMIT.limit({ key: 'ip:' + key })).success) return json(429, { error: 'rate_limited' });
     const body = await readBody(request);
-    if (request.method !== 'PUT' && body !== '' && body !== '{}') return json(400, { error: 'invalid_request' });
+    if (request.method !== 'PUT' && url.pathname !== '/v1/push/events' && body !== '' && body !== '{}') return json(400, { error: 'invalid_request' });
     const identity = await authenticate(request, body, now());
     if (!identity) return json(404, { error: 'not_found' });
     if (!(await env.REQUEST_LIMIT.limit({ key: 'host:' + identity.id })).success) return json(429, { error: 'rate_limited' });
     const store = ports.store || new Store(env.DB, now), provider = ports.provider || new Provider(env);
     let host = await store.get(identity.id);
-    if (!host && url.pathname !== '/v1/hosts') return json(404, { error: 'not_found' });
+    if (!host && !['/v1/hosts','/v1/push/hosts'].includes(url.pathname)) return json(404, { error: 'not_found' });
     if (!host) {
-      host = await store.enroll(identity, env.CONNECT_DOMAIN, Number(env.HOST_CAPACITY), env.ENROLLMENT_OPEN === 'true');
+      host = await store.enroll(identity, env.CONNECT_DOMAIN, Number(env.HOST_CAPACITY), env.ENROLLMENT_OPEN === 'true', url.pathname === '/v1/push/hosts');
       if (!host) return json(403, { error: 'enrollment_closed' });
     }
     if (host.public_key !== identity.key) return json(404, { error: 'not_found' });
     if (!await store.nonce(identity.id, identity.nonce)) return json(409, { error: 'replayed_request' });
+    const notifications = new Notifications(store, ports.apns || new APNs(env,{now}),env);
+    if (url.pathname === '/v1/push/hosts') return json(200,{hostId:host.id,generation:host.generation});
+    if (url.pathname.startsWith('/v1/push/')) {
+      const lease=await store.lease(host.id); if (!lease) return json(409,{error:'busy'});
+      try {
+        host=await store.get(host.id);
+        const result=url.pathname === '/v1/push/device' ? await notifications.register(host,JSON.parse(body)) : await notifications.enqueue(host,JSON.parse(body));
+        const {status,...answer}=result; return json(status,answer);
+      } finally {await store.release(host.id,lease);}
+    }
     if (url.pathname === '/v1/hosts' || request.method === 'DELETE') {
       if (body !== '' && body !== '{}') return json(400, { error: 'invalid_request' });
       return json(200, await transition(store, provider, identity.id, request.method === 'DELETE' ? 'disable' : 'enable', env.CONNECT_DOMAIN));
@@ -69,6 +82,7 @@ export async function handle(request, env, ports = {}) {
       host = await store.get(identity.id);
       if (!host.desired || data.generation !== host.generation) return json(409, { error: 'generation_changed' });
       await store.write(identity.id, lease, { device_key_hash: data.deviceKeyHash, last_seen: now() });
+      if (host.device_key_hash !== data.deviceKeyHash) await notifications.invalidate(identity.id);
       return json(200, view(await store.get(identity.id)));
     } finally { await store.release(identity.id, lease); }
   } catch (error) {
@@ -86,5 +100,6 @@ export async function reconcile(env, ports = {}) {
     try { await transition(store, provider, id, 'reconcile', env.CONNECT_DOMAIN); }
     catch { /* The row retains a bounded error code. The next scheduled run retries. */ }
   }
+  await new Notifications(store,ports.apns || new APNs(env),env).reconcile();
 }
 export default { fetch: handle, scheduled: (_event, env, context) => context.waitUntil(reconcile(env)) };

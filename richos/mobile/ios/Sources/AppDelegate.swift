@@ -37,6 +37,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         window?.rootViewController = controller
         window?.makeKeyAndVisible()
         if let url = options?[.url] as? URL { native.receiveLink(url) }
+        if let payload = options?[.remoteNotification] as? [AnyHashable: Any] { native.push.receive(payload) }
         loadContent()
         #if DEBUG && targetEnvironment(simulator)
         commandTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in self?.pollCommands() }
@@ -51,6 +52,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         guard userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL else { return false }
         native.receiveLink(url); return true
     }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) { native.push.registered(deviceToken) }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) { native.push.failed() }
     func applicationDidEnterBackground(_ application: UIApplication) { native.background() }
     func applicationWillEnterForeground(_ application: UIApplication) { native.foreground() }
 
@@ -61,7 +64,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, WKNavigationDelegat
         if FileManager.default.fileExists(atPath: development.appendingPathComponent("index.html").path) { root = development }
         #endif
         contentRoot = root.standardizedFileURL
-        let page = ProcessInfo.processInfo.arguments.contains("--native-client") ? "client.html" : "index.html"
+        var page = "client.html"
+        #if DEBUG && targetEnvironment(simulator)
+        // Only the development simulator starts in the deterministic loop. Normal
+        // launches, including notification taps, must open the actual phone client.
+        if !ProcessInfo.processInfo.arguments.contains("--native-client") { page = "index.html" }
+        #endif
         webView.loadFileURL(root.appendingPathComponent(page), allowingReadAccessTo: root)
     }
 

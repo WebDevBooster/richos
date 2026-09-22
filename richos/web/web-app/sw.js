@@ -27,7 +27,7 @@ importScripts('/lib/storage.js');
 // `api_base` with the same function and two copies of a rule are two rules.
 importScripts('/lib/inbound.js');
 
-const SHELL_CACHE = 'richos-phone-shell-v2';
+const SHELL_CACHE = 'richos-phone-shell-v3';
 
 // The whole app, and nothing that is not the app. Listed rather than discovered, because a service
 // worker that caches whatever it happens to see is a service worker that serves yesterday's
@@ -39,6 +39,7 @@ const SHELL = [
 	'/styles.css',
 	'/app.js',
 	'/lib/pcm.js',
+	'/lib/voice.js',
 	'/lib/recorder-worklet.js',
 	'/lib/wordlist.js',
 	'/lib/fingerprint.js',

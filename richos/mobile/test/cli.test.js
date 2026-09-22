@@ -92,6 +92,19 @@ test('CLI scenarios expose their real traces and durable results', (t) => {
   }
 });
 
+test('voice CLI scenario resumes the same file and message after a client restart', t => {
+  const { run } = session(t);
+  const result = run('client', 'scenario', 'voice-restart');
+  const queued = result.trace.find(step => step.action === 'record-send').state.outbox[0];
+  const restored = result.trace.find(step => step.action === 'relaunch').state.outbox[0];
+  assert.equal(queued.kind, 'voice');
+  assert.deepEqual(restored, queued);
+  assert.equal(result.state.outbox.length, 0);
+  assert.equal(result.state.lastSend.sent, 1);
+  assert.equal(result.state.lastSend.accepted[0].item.clientId, queued.clientId);
+  assert.equal(result.state.lastSend.accepted[0].item.fileId, queued.fileId);
+});
+
 test('invalid JSON, actions and modes fail without poisoning the CLI lock', (t) => {
   const { run, raw, cache } = session(t);
   for (const args of [['headless', 'action', '{'], ['headless', 'action', '{"type":"unknown"}'], ['unknown']]) {

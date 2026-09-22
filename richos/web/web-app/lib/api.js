@@ -225,7 +225,7 @@
 			const headers = {};
 			let payload;
 			if (body !== undefined && body !== null) {
-				payload = typeof body === 'string' || body instanceof Uint8Array || body instanceof ArrayBuffer
+				payload = opts.isBodyReference?.(body) || typeof body === 'string' || body instanceof Uint8Array || body instanceof ArrayBuffer
 					? body
 					: JSON.stringify(body);
 				headers['Content-Type'] = contentType || 'application/json';
@@ -329,7 +329,7 @@
 				if (final) {
 					throw new ApiError(REFUSED, final.reason || 'your Mac will not take that', response.status, true);
 				}
-				throw new ApiError(FAULT, `your Mac answered with ${response.status}`, response.status);
+				throw new ApiError(FAULT, 'Your Mac is temporarily unavailable. Your unsent messages stay on this phone.', response.status);
 			}
 			return response;
 		}
@@ -391,7 +391,7 @@
 				// written to storage and read back in a later launch. It becomes bytes again HERE,
 				// at the last moment, so both the body and the hash that is signed are the same
 				// bytes — a `fetch` handed a plain array would quietly send the JSON text of it.
-				const bytes = item.bytes instanceof Uint8Array ? item.bytes : new Uint8Array(item.bytes || []);
+				const bytes = item.fileId && opts.voiceBody ? opts.voiceBody(item.fileId) : item.bytes instanceof Uint8Array ? item.bytes : new Uint8Array(item.bytes || []);
 				const path = '/api/messages' + query({
 					client_id: item.clientId,
 					thread_id: item.threadId,
@@ -444,7 +444,7 @@
 					: null;
 				// A Mac that answered without one is not a Mac this phone can sign for. Say so
 				// rather than carrying on with the dead challenge and blaming the signature.
-				if (!next) throw new ApiError(FAULT, 'your Mac answered without a challenge');
+				if (!next) throw new ApiError(FAULT, 'Your Mac is not ready to reconnect yet. Your unsent messages stay on this phone.');
 				setChallenge(next);
 				return next;
 			},
@@ -524,9 +524,9 @@
 			// Fetched rather than handed to an <audio src>, for two reasons that both matter: the
 			// element cannot send the authorization header, and a failure here has to be a sentence
 			// he can read rather than a silent control that does nothing.
-			async fetchAudio(messageId) {
-				const response = await request('GET', `/api/audio/${encodeURIComponent(messageId)}`);
-				return response.blob ? response.blob() : response.arrayBuffer();
+			async fetchAudio(messageId, threadId) {
+				const response = await request('GET', `/api/audio/${encodeURIComponent(messageId)}` + query({thread_id:threadId}));
+				return response.nativeAudio || (response.blob ? response.blob() : response.arrayBuffer());
 			},
 
 			// ---- (d) pairing, and the device record ---------------------------------------------
@@ -543,13 +543,17 @@
 				if (response.status === 404 || response.status === 403) {
 					throw new ApiError(REFUSED, 'your Mac did not accept that pairing code', response.status);
 				}
-				if (!response.ok) throw new ApiError(FAULT, `your Mac answered with ${response.status}`, response.status);
+				if (!response.ok) throw new ApiError(FAULT, 'Your Mac is temporarily unavailable. Your unsent messages stay on this phone.', response.status);
 				const body = await response.json();
 				state.deviceId = body.device_id;
 				setChallenge(body.challenge);
 				setApiBase(body.api_base);
 				onState(state);
 				return body;
+			},
+
+			async registerNativePush(registration) {
+				return json('POST', '/api/pair', {native_push:registration});
 			},
 
 			async registerPush(subscription) {
@@ -574,7 +578,8 @@
 			async confirmFingerprint(matched) {
 				return json('POST', '/api/pair', {
 					device_id: state.deviceId,
-					fingerprint_confirmed: matched === true
+					fingerprint_confirmed: matched === true,
+					...(opts.nativeClient ? {push_transport:'apns'} : {})
 				});
 			}
 		};

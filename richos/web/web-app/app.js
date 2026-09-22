@@ -84,10 +84,14 @@ let captureNode = null;
 let chunks = [];
 let recording = false;
 let opening = false;
-let heldDown = false;
+let captureGeneration=0;
+let voiceDraftStore=null;
+let voicePreview=null, recordingWakeLock=null;
+function releaseRecordingWakeLock(){const lock=recordingWakeLock;recordingWakeLock=null;if(lock)void lock.release().catch(()=>{});}
+function stopVoicePreview(){if(!voicePreview)return;const preview=voicePreview;voicePreview=null;player.pause();player.removeEventListener("ended",preview.ended);URL.revokeObjectURL(preview.url);preview.button.textContent="Play recording";}
 let askedForMicrophoneThisLaunch = false;
 let autoStopTimer = null;
-const MAX_RECORD_SECONDS = 120;
+const MAX_RECORD_SECONDS = 30 * 60;
 
 // One audio element, unlocked on his first tap, reused for every "hear it". Safari will not start
 // playback that is not inside a user gesture, and an `await` loses the gesture — so the element is
@@ -113,6 +117,7 @@ async function boot() {
 	}
 
 	settings = Storage.settings(db);
+	voiceDraftStore=Storage.voiceDrafts(db);
 	messageCache = Storage.messages(db);
 	keyStore = Storage.keys(db);
 
@@ -122,7 +127,8 @@ async function boot() {
 		// the origin (plan §10.7).
 		apiBase: saved.apiBase || location.origin,
 		challenge: saved.challenge || null,
-		deviceId: saved.deviceId || null
+		deviceId: saved.deviceId || null,
+        capabilities: Array.isArray(saved.capabilities) ? saved.capabilities : []
 	};
 	vapidPublicKey = saved.vapidPublicKey || null;
 	// He was asked about notifications and did not say yes. Remembered across a relaunch for one
@@ -149,6 +155,7 @@ async function persistState() {
 	await settings.set('apiBase', apiState.apiBase);
 	await settings.set('challenge', apiState.challenge);
 	await settings.set('deviceId', apiState.deviceId);
+    await settings.set('capabilities',apiState.capabilities || []);
 	// An address the Mac advertised that this app would not take, kept where it can be found.
 	// Nothing renders it — said here so nobody goes looking for a message on the screen — but a
 	// phone that declined to move to a new address now has the reason attached to it rather than
@@ -302,6 +309,7 @@ $('pair-reject').addEventListener('click', async () => {
 // ---------------------------------------------------------------------------------------------
 
 async function startConversation(keys) {
+	await renderVoiceDrafts();
 	hideTakeovers();
 	if (!api) makeApi(keys);
 
@@ -355,12 +363,9 @@ function setLinkState(which, detail) {
 // Mac gave, and both halves ship `hidden` in `index.html`. What is left here is the DOM.
 function applyCapabilities() {
 	if (!api) return;
-	// Never while his finger is down. The release is handled by the button, so taking the button
-	// out from under a live recording is how a recording never ends. `stopRecording` calls this
-	// again the moment it is over, so a Mac that changed its mind is honored a second later.
-	if (recording) return;
+	const phase=voiceGesture.snapshot().phase;
 	const voice = api.offers('voice');
-	hold.hidden = !voice;
+	hold.hidden = !voice || phase==='locked' || phase==='finishing';
 	$('hold-note').hidden = !voice;
 }
 
@@ -701,7 +706,9 @@ function renderThreadPicker() {
 }
 
 $('thread-picker').addEventListener('change', async (event) => {
+	await voiceGesture.interrupt();
 	currentThreadId = event.target.value;
+	await renderVoiceDrafts();
 	await settings.set('threadId', currentThreadId);
 	thread.reset();
 	const cached = await messageCache.recent(currentThreadId, 60);
@@ -1050,77 +1057,74 @@ async function goRevoked() {
 
 const hold = $('hold');
 
-hold.addEventListener('pointerdown', (event) => {
-	event.preventDefault();
-	unlockPlayer();
-	heldDown = true;
-	if (micStream) { startRecording(); return; }
-	openMicrophoneThenRecord();
+const voiceGesture=globalThis.RichOSVoice.createGesture({
+    start: async () => {
+        const generation=++captureGeneration;
+        opening=true;stopVoicePreview();unlockPlayer();
+        if(player)player.pause();
+        try {
+            const stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+            if(generation!==captureGeneration){stream.getTracks().forEach(t=>t.stop());return;}
+            micStream=stream;await startRecording(generation);
+        } catch(error) {
+            if(generation===captureGeneration){recording=false;teardownGraph();releaseMicrophone();chunks=[];}
+            throw error;
+        } finally {if(generation===captureGeneration)opening=false;}
+    },
+    finish: async ({send,context}) => stopRecording({send,context}),
+    cancel: async () => {captureGeneration++;opening=false;recording=false;clearTimeout(autoStopTimer);teardownGraph();releaseMicrophone();chunks=[];},
+    error: error => {setHoldNote(error.name==='NotAllowedError'?'Microphone access was denied. Allow it in your browser settings, or type your message.':error.message,true);},
+    changed: state => {
+        const active=state.phase!=='idle',locked=state.phase==='locked';
+        hold.classList.toggle('recording',active);hold.classList.toggle('opening',state.phase==='preparing');
+        hold.textContent=state.phase==='preparing'?'Opening microphone…':active?'Recording · release to send':'Hold to record';
+        applyCapabilities();
+        $('voice-actions').hidden=!active;$('voice-lock').hidden=state.phase!=='held';$('voice-cancel').hidden=!locked;$('voice-send').hidden=!locked;
+        $('meter').hidden=!active;$('meter-read').hidden=!active;
+        if(active)setHoldNote(locked?'Recording hands free. Send when you’re finished.':'Slide left to cancel · slide up to lock',false);
+        else {setLevel(0);applyCapabilities();}
+    }
 });
-
-// The release is listened for on the WINDOW: if his finger slides off the button before he lifts
-// it, the button itself never sees the release and the recording would run to the auto-stop.
-window.addEventListener('pointerup', onRelease);
-window.addEventListener('pointercancel', onRelease);
-
-function onRelease() {
-	if (!heldDown) return;
-	heldDown = false;
-	if (recording) { stopRecording(); return; }
-	if (opening) {
-		// He let go while iOS was asking. That is not a failed recording and must never be reported
-		// as one — the dialog was literally under his finger.
-		setHoldNote('The microphone is opening. Hold the button again when it is ready.', true);
-	}
+const gestureAction=promise=>Promise.resolve(promise).catch(()=>{});
+let voicePointer=null,voiceX=0,voiceY=0;
+hold.oncontextmenu=e=>e.preventDefault();
+hold.addEventListener('pointerdown',event=>{
+    if(voicePointer!==null || event.button!==0)return;
+    event.preventDefault();voicePointer=event.pointerId;voiceX=event.clientX;voiceY=event.clientY;hold.setPointerCapture(voicePointer);
+    gestureAction(voiceGesture.press({threadId:currentThreadId,origin:apiState.apiBase}));
+});
+hold.addEventListener('pointermove',event=>{if(event.pointerId===voicePointer)gestureAction(voiceGesture.move(event.clientX-voiceX,event.clientY-voiceY));});
+hold.addEventListener('pointerup',event=>{if(event.pointerId===voicePointer){voicePointer=null;gestureAction(voiceGesture.release());}});
+hold.addEventListener('pointercancel',()=>{voicePointer=null;if(voiceGesture.snapshot().phase!=='locked')gestureAction(voiceGesture.interrupt());});
+hold.addEventListener('lostpointercapture',()=>{if(voicePointer!==null){voicePointer=null;if(voiceGesture.snapshot().phase!=='locked')gestureAction(voiceGesture.interrupt());}});
+hold.addEventListener('click',event=>{if(event.detail===0)gestureAction(voiceGesture.press({threadId:currentThreadId,origin:apiState.apiBase}).then(()=>voiceGesture.lock()));});
+$('voice-lock').onclick=()=>voiceGesture.lock();$('voice-send').onclick=()=>gestureAction(voiceGesture.send());$('voice-cancel').onclick=()=>gestureAction(voiceGesture.cancel());
+setInterval(()=>{const start=voiceGesture.snapshot().startedAt, seconds=start?Math.floor((Date.now()-start)/1000):0;const value=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;if($('voice-timer').textContent!==value)$('voice-timer').textContent=value;},250);
+async function renderVoiceDrafts() {
+    if(!voiceDraftStore)return;
+    stopVoicePreview();
+    const drafts=(await voiceDraftStore.all()).filter(d=>d.threadId===currentThreadId && d.origin===apiState.apiBase);
+    const area=$('voice-drafts');area.hidden=!drafts.length;area.replaceChildren();
+    for(const draft of drafts){
+        const row=document.createElement('div');row.textContent=`Unsent voice message · ${Math.round(draft.seconds)} seconds `;
+        const send=document.createElement('button');send.textContent='Send voice message';
+        send.onclick=async()=>{send.disabled=true;try{await queue.enqueue(draft);await voiceDraftStore.remove(draft.clientId);await renderVoiceDrafts();render(true);flushQueue();}catch(e){send.disabled=false;setHoldNote(e.message,true);}};
+        const discard=document.createElement('button');discard.textContent='Discard recording';discard.onclick=async()=>{await voiceDraftStore.remove(draft.clientId);await renderVoiceDrafts();};
+        const play=document.createElement('button');play.textContent='Play recording';
+        play.onclick=async()=>{
+            if(voicePreview?.button===play){stopVoicePreview();return;}
+            stopVoicePreview();unlockPlayer();
+            const url=URL.createObjectURL(new Blob([draft.bytes],{type:'audio/wav'}));
+            const ended=()=>{if(voicePreview?.button===play)stopVoicePreview();};
+            voicePreview={url,button:play,ended};player.src=url;player.addEventListener('ended',ended,{once:true});play.textContent='Stop recording playback';
+            try{await player.play();}catch(error){ended();setHoldNote(error.message,true);}
+        };
+        row.append(play,send,discard);area.append(row);
+    }
 }
 
-async function openMicrophoneThenRecord() {
-	opening = true;
-	hold.classList.add('opening');
-	hold.textContent = 'Opening the microphone…';
-	const firstTime = !askedForMicrophoneThisLaunch;
-	askedForMicrophoneThisLaunch = true;
-
-	try {
-		micStream = await navigator.mediaDevices.getUserMedia({
-			audio: {
-				channelCount: 1,
-				// All three processing stages OFF: this is a recording bound for a recognizer, not
-				// for a phone call. Noise suppression in particular can gate a quiet room to digital
-				// silence, and a third-party default is never trusted here.
-				echoCancellation: false,
-				noiseSuppression: false,
-				autoGainControl: false
-			}
-		});
-	} catch (err) {
-		opening = false;
-		hold.classList.remove('opening');
-		hold.textContent = 'Hold to record';
-		const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
-		setHoldNote(denied
-			? 'iOS did not give this app the microphone. You can still type, and you can allow the microphone the next time you hold the button.'
-			: 'No microphone was available. You can still type.', true);
-		return;
-	}
-
-	opening = false;
-	hold.classList.remove('opening');
-
-	if (heldDown) {
-		// His finger never left: go straight into the recording he was already trying to make.
-		startRecording();
-		return;
-	}
-
-	hold.textContent = 'Hold to record';
-	setHoldNote(firstTime
-		? 'The microphone is on. Hold the button and speak.'
-		: 'That was too quick — hold the button while you speak.', false);
-}
-
-async function startRecording() {
-	if (recording || !micStream) return;
+async function startRecording(generation) {
+	if (recording || !micStream || generation!==captureGeneration) return;
 	chunks = [];
 	recording = true;
 	hold.classList.add('recording');
@@ -1141,16 +1145,18 @@ async function startRecording() {
 		}
 	}
 	if (audioCtx.state === 'suspended') await audioCtx.resume();
+	if(generation!==captureGeneration)return;
 
 	const source = audioCtx.createMediaStreamSource(micStream);
 
 	if (audioCtx.audioWorklet) {
 		try {
 			await audioCtx.audioWorklet.addModule('/lib/recorder-worklet.js');
+			if(generation!==captureGeneration){source.disconnect();return;}
 			const node = new AudioWorkletNode(audioCtx, 'richos-capture');
 			node.port.onmessage = (event) => {
 				if (!recording) return;
-				chunks.push(event.data);
+				chunks.push(pcm.downsample(event.data,audioCtx.sampleRate,pcm.TARGET_RATE));
 				setLevel(pcm.measure([event.data]).rms);
 			};
 			source.connect(node);
@@ -1162,6 +1168,7 @@ async function startRecording() {
 			mute.connect(audioCtx.destination);
 			captureNode = { node, source, mute, kind: 'worklet' };
 		} catch {
+            if(generation!==captureGeneration){source.disconnect();return;}
 			captureNode = null;
 		}
 	}
@@ -1171,7 +1178,7 @@ async function startRecording() {
 		node.onaudioprocess = (event) => {
 			if (!recording) return;
 			const copy = new Float32Array(event.inputBuffer.getChannelData(0));
-			chunks.push(copy);
+			chunks.push(pcm.downsample(copy,audioCtx.sampleRate,pcm.TARGET_RATE));
 			setLevel(pcm.measure([copy]).rms);
 		};
 		source.connect(node);
@@ -1182,7 +1189,8 @@ async function startRecording() {
 		captureNode = { node, source, mute, kind: 'script' };
 	}
 
-	autoStopTimer = setTimeout(() => { if (recording) stopRecording(); }, MAX_RECORD_SECONDS * 1000);
+	void navigator.wakeLock?.request('screen').then(lock=>{if(recording && generation===captureGeneration)recordingWakeLock=lock;else void lock.release();}).catch(()=>{});
+	autoStopTimer = setTimeout(() => { if (recording) gestureAction(voiceGesture.interrupt()); }, MAX_RECORD_SECONDS * 1000);
 }
 
 function setLevel(rms) {
@@ -1208,6 +1216,7 @@ function teardownGraph() {
 }
 
 function releaseMicrophone() {
+    releaseRecordingWakeLock();
 	// The tracks are stopped between notes so the phone's own recording indicator is not left on
 	// after he has finished speaking. Within one launch iOS does not ask again, so the next hold
 	// opens straight away; across launches it asks whatever we do, which is what the design above
@@ -1217,7 +1226,7 @@ function releaseMicrophone() {
 	micStream = null;
 }
 
-async function stopRecording() {
+async function stopRecording({send=false,context}={}) {
 	if (!recording) return;
 	recording = false;
 	clearTimeout(autoStopTimer);
@@ -1230,7 +1239,7 @@ async function stopRecording() {
 	$('meter').hidden = true;
 	$('meter-read').hidden = true;
 
-	const captureRate = audioCtx ? audioCtx.sampleRate : 0;
+	const captureRate = pcm.TARGET_RATE;
 	const result = pcm.analyze(chunks, captureRate);
 	chunks = [];
 	releaseMicrophone();
@@ -1251,18 +1260,13 @@ async function stopRecording() {
 
 	setHoldNote('Hold the button, speak, and let go to send.', false);
 
-	await queue.enqueue({
-		clientId: newClientId(),
-		threadId: currentThreadId,
-		kind: 'voice',
-		bytes: Array.from(new Uint8Array(result.wav)),
-		seconds: Number(result.seconds.toFixed(2)),
-		codec: 'wav16k',
-		sampleRate: pcm.TARGET_RATE,
-		sentAt: new Date().toISOString()
-	});
-	render(true);
-	flushQueue();
+    const draft={clientId:newClientId(),threadId:context.threadId,origin:context.origin,kind:'voice',bytes:new Uint8Array(result.wav),seconds:Number(result.seconds.toFixed(2)),codec:'wav16k',sampleRate:pcm.TARGET_RATE,sentAt:new Date().toISOString()};
+    // Persist before enqueue so a storage/network failure cannot discard the recording.
+    await voiceDraftStore.put(draft);
+    if(send){await queue.enqueue(draft);await voiceDraftStore.remove(draft.clientId);render(true);flushQueue();}
+    else setHoldNote(result.seconds>=MAX_RECORD_SECONDS-1 ? 'Your 30-minute voice message is saved below. Send it, then start another.' : 'Recording interrupted. Your voice message is saved below.',false);
+    await renderVoiceDrafts();
+
 }
 
 function setHoldNote(text, trouble) {
@@ -1275,7 +1279,7 @@ function setHoldNote(text, trouble) {
 // graph and a recording that will never end.
 document.addEventListener('visibilitychange', () => {
 	if (document.hidden) {
-		if (recording) stopRecording();
+		gestureAction(voiceGesture.interrupt());
 		return;
 	}
 	// Back on screen: this is one of the three moments a queued message can go, because a PWA
@@ -1307,6 +1311,7 @@ function unlockPlayer() {
 }
 
 async function hearIt(messageId, button) {
+    stopVoicePreview();
 	if (playingButton && playingButton !== button) {
 		playingButton.textContent = 'Hear it';
 		playingButton.classList.remove('playing');

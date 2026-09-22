@@ -13,6 +13,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private var pendingLink: String?
     private var player: AVAudioPlayer?
     private let updates = UpdateService()
+    let push = PushService()
     private let network = NWPathMonitor()
     private var lastNetwork: NWPath.Status?
     private var stream: URLSessionDataTask?
@@ -20,6 +21,9 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private var recorder: AVAudioRecorder?
     private var recordingID: String?
     private var permissionGeneration = 0
+    private let maxRecordingSeconds: TimeInterval = 30 * 60
+    private let maxRecordingBytes = 60_000_000
+    private var recordingContext: [String: Any] = [:]
     private let folder: URL
     private var requestBuffers: [Int: Data] = [:]
     private var requestReplies: [Int: (Any?, String?) -> Void] = [:]
@@ -35,6 +39,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RichOSMobile", isDirectory: true)
         super.init()
         updates.emit = { [weak self] event in self?.emit(event) }
+        push.emit = { [weak self] event in self?.emit(event) }
         network.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -59,6 +64,25 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         if (try? String(contentsOf: marker, encoding: .utf8)) != run {
             let sessionFile = folder.appendingPathComponent("session.json")
             if FileManager.default.fileExists(atPath: sessionFile.path) { try FileManager.default.removeItem(at: sessionFile) }
+            // An explicitly requested integration fixture may reuse the operator's previous
+            // spoken check in a fresh isolated test conversation. Copy it, never mutate the
+            // original recording or relax production origin/conversation ownership.
+            let arguments = ProcessInfo.processInfo.arguments
+            if let targetArg = arguments.first(where: { $0.hasPrefix("--integration-copy-voice-to=") }),
+               let originArg = arguments.first(where: { $0.hasPrefix("--integration-copy-voice-origin=") }) {
+                let target = String(targetArg.dropFirst("--integration-copy-voice-to=".count))
+                let origin = String(originArg.dropFirst("--integration-copy-voice-origin=".count))
+                guard target.range(of: "^thr_[a-f0-9]{32}$", options: .regularExpression) != nil,
+                      URL(string: origin)?.scheme == "https" else { throw fail("Invalid recovery fixture destination") }
+                if var previous = try recordings().filter({ $0["origin"] as? String == origin }).max(by: { ($0["bytes"] as? Int ?? 0) < ($1["bytes"] as? Int ?? 0) }),
+                   let source = previous["id"] as? String, UUID(uuidString: source) != nil {
+                    let id = UUID().uuidString
+                    try FileManager.default.copyItem(at: folder.appendingPathComponent(source + ".wav"), to: folder.appendingPathComponent(id + ".wav"))
+                    previous["id"] = id; previous["threadId"] = target
+                    previous["createdAt"] = ISO8601DateFormatter().string(from: Date())
+                    try protectedWrite(JSONSerialization.data(withJSONObject: previous), to: folder.appendingPathComponent(id + ".json"))
+                } else { throw fail("No saved spoken integration recording is available") }
+            }
             try protectedWrite(Data(run.utf8), to: marker)
         }
     }
@@ -80,7 +104,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private func endpoint(_ value: String) throws -> URL {
         guard let expected = origin, let url = URL(string: value), url.scheme == "https", url.user == nil, url.password == nil,
               url.host == expected.host, (url.port ?? 443) == (expected.port ?? 443), url.fragment == nil,
-              ["/api/pair", "/api/messages", "/api/events", "/api/challenge"].contains(url.path) else { throw fail("Request is outside the paired HTTPS endpoint") }
+              (["/api/pair", "/api/messages", "/api/events", "/api/challenge"].contains(url.path) || url.path.range(of:"^/api/audio/[A-Za-z0-9_:-]{1,256}$",options:.regularExpression) != nil) else { throw fail("Request is outside the paired HTTPS endpoint") }
         return url
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler reply: @escaping (Any?, String?) -> Void) {
@@ -89,6 +113,9 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
               let args = body["args"] as? [String: Any] else { reply(nil, "Invalid native request"); return }
         do {
             switch method {
+            case "pushInfo": push.info(reply)
+            case "pushRequest": push.request(reply)
+            case "pushIncoming": reply(push.takeIncoming() as Any? ?? NSNull(), nil)
             case "incomingLink": reply(pendingLink as Any? ?? NSNull(), nil); pendingLink = nil
             case "configure":
                 let value = try string(args, "origin")
@@ -106,11 +133,15 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 let bytes = try JSONSerialization.data(withJSONObject: value)
                 guard bytes.count <= 8 * 1024 * 1024 else { throw fail("Local session exceeds its storage limit") }
                 try protectedWrite(bytes, to: folder.appendingPathComponent("session.json")); reply(true, nil)
+            case "recordHash":
+                let file = try recordingFile(string(args,"id"))
+                reply(SHA256.hash(data: try Data(contentsOf:file)).map { String(format:"%02x",$0) }.joined(),nil)
             case "request":
                 guard requestReplies.count < 8 else { throw fail("Too many pending requests") }
                 let url = try endpoint(string(args, "url")); let verb = try string(args, "method")
                 guard ["GET", "POST"].contains(verb) else { throw fail("Unsupported method") }
-                let text = try string(args, "body"); guard text.utf8.count <= 65536 else { throw fail("Request exceeds the text limit") }
+                let reference = args["body"] as? [String:String]
+                let text = args["body"] as? String ?? ""; guard text.utf8.count <= 65536 else { throw fail("Request exceeds the text limit") }
                 var request = URLRequest(url: url); request.httpMethod = verb
                 for (name, value) in args["headers"] as? [String: String] ?? [:] {
                     guard ["authorization", "content-type"].contains(name.lowercased()) else { throw fail("Unsupported header") }
@@ -121,7 +152,13 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 request.setValue(client["version"] as? String, forHTTPHeaderField: "X-RichOS-Client-Version")
                 request.setValue(client["build"] as? String, forHTTPHeaderField: "X-RichOS-Client-Build")
                 if !text.isEmpty { request.httpBody = Data(text.utf8) }
-                let task = session.dataTask(with: request); requestReplies[task.taskIdentifier] = reply; requestBuffers[task.taskIdentifier] = Data(); task.resume()
+                let task: URLSessionTask
+                if let reference {
+                    guard reference.count == 1, let id=reference["recordingFile"], verb == "POST", url.path == "/api/messages", request.value(forHTTPHeaderField:"Content-Type") == "audio/wav" else { throw fail("Invalid recording upload") }
+                    request.timeoutInterval=110
+                    task=session.uploadTask(with:request,fromFile:try recordingFile(id))
+                } else { task=session.dataTask(with:request) }
+                requestReplies[task.taskIdentifier] = reply; requestBuffers[task.taskIdentifier] = Data(); task.resume()
             case "streamOpen":
                 let url = try endpoint(string(args, "url")); guard url.path == "/api/events" else { throw fail("Invalid stream route") }
                 closeStream(); streamID = try string(args, "id")
@@ -170,6 +207,14 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 guard let controller = webView?.window?.rootViewController, controller.presentedViewController == nil else { throw fail("Camera is unavailable") }
                 let scanner = PairScanner(); scanner.completion = reply
                 controller.present(scanner, animated: true); scanner.presentationController?.delegate = scanner
+            case "playbackStop":
+                player?.stop(); player=nil; try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation); reply(true,nil)
+            case "replyPlay":
+                let id=try string(args,"id"); guard UUID(uuidString:id) != nil, recorder == nil else { throw fail("Invalid reply playback") }
+                player?.stop();try AVAudioSession.sharedInstance().setCategory(.playback);try AVAudioSession.sharedInstance().setActive(true)
+                do { player=try AVAudioPlayer(contentsOf:folder.appendingPathComponent("replies").appendingPathComponent(id+".wav"));player?.delegate=self
+                    guard player?.play() == true else { throw fail("Could not play this reply") };reply(true,nil)
+                } catch { try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation); throw error }
             case "recordPlay":
                 let id = try string(args, "id")
                 guard recorder == nil, UUID(uuidString: id) != nil else { throw fail("Stop recording before playback") }
@@ -181,16 +226,34 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 } catch {
                     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation); throw error
                 }
-            case "recordStart": startRecording(reply)
+            case "recordStart": startRecording(args, reply)
             case "recordStop": try stopRecording(cancel: false); reply(true, nil)
             case "recordCancel": permissionGeneration += 1; try stopRecording(cancel: true); reply(true, nil)
             case "recordings": reply(try recordings(), nil)
+            case "recordPrune":
+                let sent=Set(args["sent"] as? [String] ?? [])
+                let files=try recordings()
+                var retainedBytes=0, retainedCount=0
+                for note in files.reversed() {
+                    guard let id=note["id"] as? String, sent.contains(id), id != recordingID else {continue}
+                    retainedBytes += note["bytes"] as? Int ?? 0; retainedCount += 1
+                    if retainedBytes > 200_000_000 || retainedCount > 50 {
+                        for ext in ["wav","json"] {try? FileManager.default.removeItem(at:folder.appendingPathComponent(id+"."+ext))}
+                    }
+                }
+                reply(true,nil)
             case "recordDelete":
                 let id = try string(args, "id"); guard UUID(uuidString: id) != nil, id != recordingID else { throw fail("Invalid recording") }
                 for ext in ["wav", "json"] { let file = folder.appendingPathComponent(id + "." + ext); if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) } }; reply(true, nil)
             default: throw fail("Unknown native operation")
             }
         } catch { reply(nil, error.localizedDescription) }
+    }
+    private func recordingFile(_ id:String) throws -> URL {
+        guard UUID(uuidString:id) != nil, recordingID != id else { throw fail("Choose a saved recording") }
+        let url=folder.appendingPathComponent(id+".wav")
+        let size=try FileManager.default.attributesOfItem(atPath:url.path)[.size] as? Int ?? 0
+        guard size>44,size<=maxRecordingBytes else {throw fail("Recording exceeds its upload limit")};return url
     }
     private func key() throws -> SecKey {
         guard let origin else { throw fail("Pairing endpoint is not configured") }
@@ -242,12 +305,19 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private func recordings() throws -> [[String: Any]] {
         for url in try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) where url.pathExtension == "wav" {
             let id = url.deletingPathExtension().lastPathComponent, metadata = url.deletingPathExtension().appendingPathExtension("json")
-            if id != recordingID && UUID(uuidString: id) != nil && !FileManager.default.fileExists(atPath: metadata.path),
-               let file = try? AVAudioFile(forReading: url) {
+            if id != recordingID && UUID(uuidString: id) != nil {
+                if (try? AVAudioFile(forReading: url).length) ?? 0 == 0,
+                   let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maxRecordingBytes,
+                   let bytes = try? Data(contentsOf: url, options: .mappedIfSafe),
+                   let repaired = recoverInterruptedRecording(bytes) { try protectedWrite(repaired, to: url) }
+                guard let file = try? AVAudioFile(forReading: url) else { continue }
                 let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-                let value: [String: Any] = ["id": id, "seconds": Double(file.length) / file.processingFormat.sampleRate,
+                var value: [String: Any] = ["id": id, "seconds": Double(file.length) / file.processingFormat.sampleRate,
                     "bytes": attributes[.size] as? Int ?? 0, "sampleRate": 16000, "codec": "wav16k", "recovered": true,
                     "createdAt": ISO8601DateFormatter().string(from: attributes[.creationDate] as? Date ?? Date())]
+                if let previous=(try? JSONSerialization.jsonObject(with:Data(contentsOf:metadata))) as? [String:Any] {
+                    for key in ["threadId","origin","sent"] {value[key]=previous[key]}
+                }
                 try protectedWrite(JSONSerialization.data(withJSONObject: value), to: metadata)
             }
         }
@@ -256,7 +326,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
             .compactMap { try JSONSerialization.jsonObject(with: Data(contentsOf: $0)) as? [String: Any] }
             .sorted { ($0["createdAt"] as? String ?? "") < ($1["createdAt"] as? String ?? "") }
     }
-    private func startRecording(_ reply: @escaping (Any?, String?) -> Void) {
+    private func startRecording(_ context: [String:Any], _ reply: @escaping (Any?, String?) -> Void) {
         guard recorder == nil else { reply(nil, "Already recording"); return }
         player?.stop()
         permissionGeneration += 1; let generation = permissionGeneration
@@ -269,7 +339,8 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 guard granted else { reply(nil, "Microphone access is denied. Enable RichOS in Settings > Privacy & Security > Microphone."); return }
                 var candidate: AVAudioRecorder?
                 do {
-                    guard try self.recordings().count < 10 else { throw self.fail("Delete an old recording before making another") }
+                    let capacity = try self.folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage ?? 0
+                    guard capacity > Int64(self.maxRecordingBytes + 10_000_000) else { throw self.fail("Your iPhone needs more free space to record. Your unsent messages are kept.") }
                     let session = AVAudioSession.sharedInstance()
                     self.audioTrace("configuring audio session")
                     try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
@@ -280,13 +351,20 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                     let recorder = try AVAudioRecorder(url: url, settings: settings)
                     candidate = recorder
                     recorder.delegate = self
-                    guard recorder.prepareToRecord(), recorder.record(forDuration: 60) else { throw self.fail("Microphone did not start") }
+                    guard recorder.prepareToRecord(), recorder.record(forDuration: self.maxRecordingSeconds) else { throw self.fail("Microphone did not start") }
                     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
                     var file = url; var resources = URLResourceValues(); resources.isExcludedFromBackup = true; try file.setResourceValues(resources)
                     self.recordingID = id; self.recorder = recorder
+                    self.recordingContext = [:]
+                    for key in ["threadId", "origin"] { if let value=context[key] as? String { self.recordingContext[key]=value } }
+                    var metadata=self.recordingContext;metadata["id"]=id;metadata["seconds"]=0;metadata["createdAt"]=ISO8601DateFormatter().string(from:Date())
+                    try self.protectedWrite(JSONSerialization.data(withJSONObject:metadata),to:self.folder.appendingPathComponent(id+".json"))
+                    UIApplication.shared.isIdleTimerDisabled = true
                     self.audioTrace("recorder started"); reply(true, nil)
                 } catch {
                     candidate?.stop()
+                    self.recorder = nil; self.recordingID = nil; self.recordingContext = [:]
+                    UIApplication.shared.isIdleTimerDisabled = false
                     if let url = candidate?.url { try? FileManager.default.removeItem(at: url) }
                     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                     self.audioTrace("start failed; audio session released")
@@ -298,22 +376,24 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private func stopRecording(cancel: Bool) throws {
         guard let active = recorder, let id = recordingID else { return }
         recorder = nil; recordingID = nil
+        UIApplication.shared.isIdleTimerDisabled = false
         active.stop(); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         audioTrace(cancel ? "cancelled; audio session released" : "stopped; audio session released")
-        if cancel { try FileManager.default.removeItem(at: active.url) }
+        if cancel { try FileManager.default.removeItem(at: active.url); try? FileManager.default.removeItem(at:folder.appendingPathComponent(id+".json")) }
         else {
             let file = try AVAudioFile(forReading: active.url)
             let seconds = Double(file.length) / file.processingFormat.sampleRate
             let bytes = try FileManager.default.attributesOfItem(atPath: active.url.path)[.size] as? Int ?? 0
-            guard bytes <= 2_000_000 else { try FileManager.default.removeItem(at: active.url); throw fail("Recording exceeded its size limit") }
-            let metadata: [String: Any] = ["id": id, "seconds": seconds, "bytes": bytes, "sampleRate": 16000, "codec": "wav16k", "createdAt": ISO8601DateFormatter().string(from: Date())]
+            guard bytes <= maxRecordingBytes else { throw fail("This recording exceeds the sending limit. It has been kept on your phone.") }
+            var metadata: [String: Any] = ["id": id, "seconds": seconds, "bytes": bytes, "sampleRate": 16000, "codec": "wav16k", "createdAt": ISO8601DateFormatter().string(from: Date())]
+            metadata.merge(recordingContext) { _,new in new }
             try protectedWrite(JSONSerialization.data(withJSONObject: metadata), to: folder.appendingPathComponent(id + ".json"))
         }
         emit(["kind": "record-finished"])
     }
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
-    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) { try? stopRecording(cancel: !flag) }
-    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) { try? stopRecording(cancel: true) }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { emit(["kind":"playback-ended"]); try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+    func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) { try? stopRecording(cancel: false) }
+    func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) { try? stopRecording(cancel: false) }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let http = response as? HTTPURLResponse else { completionHandler(.cancel); return }
@@ -327,7 +407,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         if dataTask == stream { emit(["kind": "stream-data", "id": streamID ?? "", "data": data.base64EncodedString()]); return }
         guard requestBuffers[dataTask.taskIdentifier] != nil else { return }
         requestBuffers[dataTask.taskIdentifier]?.append(data)
-        if (requestBuffers[dataTask.taskIdentifier]?.count ?? 0) > 2_000_000 { dataTask.cancel() }
+        if (requestBuffers[dataTask.taskIdentifier]?.count ?? 0) > (dataTask.originalRequest?.url?.path.hasPrefix("/api/audio/") == true ? 6_000_000 : 2_000_000) { dataTask.cancel() }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if task == stream { emit(["kind": "stream-error", "id": streamID ?? ""]); stream = nil; streamID = nil; return }
@@ -335,6 +415,17 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         let bytes = requestBuffers.removeValue(forKey: task.taskIdentifier)
         let response = requestResponses.removeValue(forKey: task.taskIdentifier)
         if let error { reply?(nil, error.localizedDescription); return }
+        if let response, let bytes, response.statusCode == 200, response.mimeType == "audio/wav", task.originalRequest?.url?.path.hasPrefix("/api/audio/") == true {
+            do {
+                let directory=folder.appendingPathComponent("replies",isDirectory:true)
+                try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+                let files=try FileManager.default.contentsOfDirectory(at:directory,includingPropertiesForKeys:[.creationDateKey]).sorted { (try? $0.resourceValues(forKeys:[.creationDateKey]).creationDate) ?? .distantPast < (try? $1.resourceValues(forKeys:[.creationDateKey]).creationDate) ?? .distantPast }
+                for file in files.prefix(max(0,files.count-9)) {try FileManager.default.removeItem(at:file)}
+                let id=UUID().uuidString;try protectedWrite(bytes,to:directory.appendingPathComponent(id+".wav"))
+                reply?(["status":200,"headers":response.allHeaderFields,"body":"","audioId":id],nil)
+            } catch {reply?(nil,error.localizedDescription)}
+            return
+        }
         guard let response, let bytes, let text = String(data: bytes, encoding: .utf8) else { reply?(nil, "Invalid response"); return }
         reply?(["status": response.statusCode, "headers": response.allHeaderFields, "body": text], nil)
     }

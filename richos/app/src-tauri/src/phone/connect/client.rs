@@ -65,7 +65,7 @@ impl Client {
     pub fn new(identity: Identity) -> Self { Self { origin: super::ORIGIN.into(), identity } }
     pub fn call(&self, method: &str, path: &str, body: &str) -> Result<Reply, PhoneError> {
         if !matches!((method,path), ("POST","/v1/hosts") | ("GET","/v1/host") |
-            ("DELETE","/v1/host") | ("POST","/v1/host/token") | ("PUT","/v1/host/device")) {
+            ("DELETE","/v1/host") | ("POST","/v1/host/token") | ("PUT","/v1/host/device") | ("POST","/v1/push/hosts") | ("PUT","/v1/push/device") | ("POST","/v1/push/events")) {
             return Err(PhoneError::Malformed("Unknown Connect action".into()));
         }
         let headers = self.identity.headers(method,path,body,now_millis(),&hex(&random_bytes(16)?))?;

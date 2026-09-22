@@ -121,7 +121,7 @@ pub struct Device {
     pub delivered_cursor: Option<u64>,
     /// **`push_transport` from day one**, per plan §5's list of what native reuses: *"a device
     /// record that has a `push_transport` field from day one so APNs and FCM slot in beside
-    /// Web Push rather than replacing it"*. `"web-push"` is the only value this slice writes.
+    /// Web Push rather than replacing it"*. Native registration records `"apns"`.
     #[serde(default = "web_push")]
     pub push_transport: String,
 
@@ -746,9 +746,19 @@ impl DeviceDesk {
         let mut state = self.state.lock().unwrap();
         if let Some(device) = state.device.as_mut() {
             device.push = sub;
+            device.push_transport = web_push();
             self.write(&state)?;
         }
         Ok(())
+    }
+
+    pub fn use_native_push(&self, device_id: &str) -> Result<(), PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        let device = state.device.as_mut().filter(|d| d.id == device_id && d.fingerprint_confirmed)
+            .ok_or(PhoneError::NotPaired)?;
+        device.push = None;
+        device.push_transport = "apns".into();
+        self.write(&state)
     }
 
     pub fn set_delivered_cursor(&self, cursor: u64) -> Result<(), PhoneError> {

@@ -51,6 +51,8 @@ pub mod rows;
 pub mod secrets;
 pub mod stream;
 pub mod tailnet;
+pub mod voice;
+pub mod notifications;
 
 use std::fmt;
 
@@ -519,6 +521,7 @@ pub struct PhoneStatus {
     /// Whether that phone can be pushed to yet — it cannot until he has installed the app to the
     /// Home Screen and allowed notifications, which happens after pairing.
     pub push_ready: bool,
+    pub push_transport: Option<String>,
     /// **HAS THE PERSON TOLD THIS MAC THE SIX WORDS MATCHED?** `false` while a phone is paired
     /// and has not come back with an answer, and `false` when nothing is paired at all.
     ///
@@ -770,6 +773,7 @@ impl PhoneRuntime {
     pub fn disable_connect(&self) -> Result<PhoneStatus, PhoneError> {
         let _action = self.connect_actions.lock().unwrap();
         let marked = connect::state::mark_disabled(&self.data_dir);
+        let push_cleanup = notifications::Desk::open(&self.data_dir).and_then(|mut d| d.clear());
         self.stop_connect_listener();
         // Revocation is durable before any remote cleanup attempt.
         if let Some(device) = device::DeviceDesk::open(&self.data_dir)?.paired() {
@@ -778,6 +782,8 @@ impl PhoneRuntime {
         marked?;
         // Cleanup failure remains visible and is retried by the monitor and next launch.
         let _ = connect::state::cleanup(&self.data_dir,&secrets::Keychain::for_app_data(&self.data_dir));
+        // Finish revocation even if notification storage failed, then surface that failure.
+        push_cleanup.map_err(PhoneError::Malformed)?;
         Ok(self.status())
     }
     fn stop_connect_listener(&self) {
@@ -796,6 +802,9 @@ impl PhoneRuntime {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 let Some(owner) = me.upgrade() else { return };
                 let Ok(_action) = owner.connect_actions.try_lock() else { continue };
+                if let Err(error) = owner.reconcile_native_notifications() {
+                    eprintln!("[richos] native notification recovery failed; pending work will be retried: {error}");
+                }
                 let _ = owner.reconcile_connect(app.clone());
             }
         });
@@ -942,6 +951,7 @@ impl PhoneRuntime {
                 serving_via: None,
                 platform: device.as_ref().map(|d| d.platform.clone()),
                 push_ready: false,
+                push_transport: device.as_ref().map(|d|d.push_transport.clone()),
                 fingerprint_confirmed: device.as_ref().is_some_and(|d| d.fingerprint_confirmed),
                 pair_url: None,
                 fingerprint_words: Vec::new(),
@@ -977,6 +987,7 @@ impl PhoneRuntime {
             serving_via: Some(serving_via),
             platform: device.as_ref().map(|d| d.platform.clone()),
             push_ready: device.as_ref().map(|d| d.push.is_some()).unwrap_or(false),
+            push_transport: device.as_ref().map(|d|d.push_transport.clone()),
             fingerprint_confirmed: device
                 .as_ref()
                 .map(|d| d.fingerprint_confirmed)
@@ -1304,6 +1315,7 @@ impl PhoneRuntime {
     /// forgotten: *"A cleanup the user has to know to do is a cleanup that does not happen."*
     pub fn forget(&self) -> Result<(), PhoneError> {
         let _action = self.connect_actions.lock().unwrap();
+        let push_cleanup=notifications::Desk::open(&self.data_dir).and_then(|mut d|d.clear());
         let mut running = self.running.lock().unwrap();
         if let Some(mut was) = running.take() {
             was.listener.stop();
@@ -1315,7 +1327,54 @@ impl PhoneRuntime {
         }
         self.hub.set_live(false);
         ca::PhoneCa::forget(&self.data_dir, &secrets::Keychain::for_app_data(&self.data_dir))?;
+        drop(running);
+        push_cleanup.map_err(PhoneError::Malformed)?;
+        self.reconcile_native_notifications().map_err(PhoneError::Malformed)?;
         Ok(())
+    }
+
+    pub fn register_native_notifications(&self, device_id: &str, registration: Option<notifications::Registration>) -> Result<serde_json::Value,String> {
+        let _action=self.connect_actions.lock().unwrap();
+        let device=self.running.lock().unwrap().as_ref().and_then(|r|r.channel.devices.paired())
+            .filter(|d|d.id==device_id && d.fingerprint_confirmed).ok_or("This phone is no longer paired.")?;
+        let mut desk=notifications::Desk::open(&self.data_dir)?;
+        desk.set(&device,registration)?;
+        if let Some(running)=self.running.lock().unwrap().as_ref() {
+            running.channel.devices.use_native_push(device_id).map_err(|_|notifications::unavailable())?;
+        }
+        let client=connect::client::Client::new(connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)).map_err(|_|notifications::unavailable())?);
+        desk.reconcile(&client,Some(&device))?;
+        Ok(desk.response())
+    }
+    // Caller holds connect_actions, also used by pairing changes and revocation.
+    fn reconcile_native_notifications(&self)->Result<(),String> {
+        let device=device::DeviceDesk::open(&self.data_dir).map_err(|_|notifications::unavailable())?.paired();
+        let mut desk=notifications::Desk::open(&self.data_dir)?;
+        if !desk.needs_reconcile(device.as_ref()) {return Ok(())}
+        let client=connect::client::Client::new(connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)).map_err(|_|notifications::unavailable())?);
+        desk.reconcile(&client,device.as_ref())
+    }
+    fn push_native_reply(&self, thread_id:&str) {
+        let _action=self.connect_actions.lock().unwrap();
+        let gathered={
+            let running=self.running.lock().unwrap();
+            let Some(running)=running.as_ref() else {return};
+            // A proxy can retain an SSE socket after the phone backgrounds. Native
+            // iOS suppresses foreground presentation itself; a stale socket must not
+            // suppress an alert for a closed app.
+            let Some(device)=running.channel.devices.paired().filter(|d|d.fingerprint_confirmed) else {return};
+            (device,Arc::clone(&running.bridge))
+        };
+        let (device,bridge)=gathered;
+        let Ok(mut desk)=notifications::Desk::open(&self.data_dir) else {return};
+        if !desk.enabled_for(&device) {return}
+        let bridge:&dyn routes::Bridge=bridge.as_ref();
+        let Ok(payload)=bridge.snapshot(Some(thread_id)) else {return};
+        if notifications::queue_reply(&mut desk,&device,thread_id,&payload).is_err() {return}
+        let Ok(identity)=connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)) else {return};
+        if let Err(error) = desk.reconcile(&connect::client::Client::new(identity), Some(&device)) {
+            eprintln!("[richos] native reply notification could not be sent; queued work will be retried: {error}");
+        }
     }
 
     /// Make the cached view of the conversation current. Called after a turn the channel started.
@@ -1337,7 +1396,8 @@ impl PhoneRuntime {
     /// anyone had watched a reply arrive on the phone. Pushing a notification about a sentence he
     /// is at that moment reading appear is noise, and WebKit requires every push to display one —
     /// so it cannot be made silent. Cheap to revert: delete the `open_streams` check.
-    pub fn push_last_reply(&self) {
+    pub fn push_last_reply(&self, thread_id: &str) {
+        self.push_native_reply(thread_id);
         // EVERYTHING THE PUSH NEEDS IS TAKEN OUT OF THE LOCK FIRST, and the lock is released by
         // THIS BLOCK ENDING rather than by a `drop` call. The first version wrote
         // `let Some(running) = running.as_ref() else …` and then `drop(running)`, which drops a
@@ -1364,7 +1424,7 @@ impl PhoneRuntime {
         // Through the trait, deliberately: `push_last_reply` reads exactly what the phone reads,
         // through the same gated door, so a push can never carry something the stream could not.
         let bridge: &dyn routes::Bridge = bridge.as_ref();
-        let Some((thread_id, _title)) = bridge.current_thread() else { return };
+
         let Ok(payload) = bridge.snapshot(Some(&thread_id)) else { return };
         let rows = rows::rows_from_payload(&payload);
         let Some(last) = rows.iter().rev().find(|r| r["role"] == "rich") else { return };

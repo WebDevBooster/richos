@@ -666,6 +666,29 @@ async function runEngine(playwright, engine) {
 				&& header.channels === 1 && header.rate === 16000 && header.bits === 16,
 				JSON.stringify(header));
 
+            const pressMic=async()=>{await page.locator('#voice-actions').waitFor({state:'hidden'});await page.locator('#hold').waitFor({state:'visible'});const b=await page.locator('#hold').boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.waitForFunction(()=>document.querySelector('#hold').classList.contains('recording') && !document.querySelector('#hold').classList.contains('opening'));await sleep(700);return b;};
+            let b=await pressMic();await page.mouse.move(b.x+b.width/2,b.y-100,{steps:5});await page.mouse.up();
+            await page.locator('#voice-send').waitFor({state:'visible'});
+            check('releasing after slide-up keeps recording and sends nothing',mac.received().filter(r=>r.kind==='voice').length===1);
+            await page.locator('#voice-cancel').click();
+            b=await pressMic();await page.mouse.move(b.x-100,b.y+b.height/2,{steps:5});await page.mouse.up();
+            await page.locator('#voice-actions').waitFor({state:'hidden'});
+            check('slide-left cancellation never sends on release',mac.received().filter(r=>r.kind==='voice').length===1);
+            b=await pressMic();await page.mouse.move(b.x+b.width/2,b.y-100,{steps:5});await page.mouse.up();
+            await page.locator('#voice-send').click();
+            await page.locator('#voice-actions').waitFor({state:'hidden'});
+            await page.waitForFunction(()=>globalThis.__richosPhone.queue.all().length===0);
+            check('locked Send submits exactly one more voice message',mac.received().filter(r=>r.kind==='voice').length===2);
+            // A pointer interruption retains rather than dispatching the recording.
+            await pressMic();await page.locator('#hold').dispatchEvent('pointercancel');await page.mouse.up();
+            await page.locator('#voice-drafts').waitFor({state:'visible'});
+            await page.reload();await page.locator('#voice-drafts').waitFor({state:'visible'});
+            check('interrupted audio survives page reload without sending',mac.received().filter(r=>r.kind==='voice').length===2);
+            await page.locator('#voice-drafts button').filter({hasText:'Send voice message'}).click();
+            await page.locator('#voice-drafts').waitFor({state:'hidden'});
+            await page.waitForFunction(()=>globalThis.__richosPhone.queue.all().length===0);
+            check('recovered voice uses the durable queue and sends once',mac.received().filter(r=>r.kind==='voice').length===3);
+
 			// --- hear it ---
 			const hear = page.locator('.msg-rich .hear').last();
 			if (await hear.count()) {

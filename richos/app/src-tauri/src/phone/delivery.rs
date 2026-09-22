@@ -13,7 +13,7 @@ struct Receipt { device: String, client: String, body_hash: String, answer: Opti
 
 pub struct DeliveryDesk { path: PathBuf, receipts: Mutex<VecDeque<Receipt>> }
 #[derive(Debug, PartialEq)]
-pub enum Delivery { Accepted(String), Duplicate(String), Conflict, Uncertain, Full }
+pub enum Delivery { Accepted(String), Duplicate(String), Conflict, Uncertain, Full, Rejected(String) }
 
 impl DeliveryDesk {
     pub fn open(dir: &Path) -> Result<Self, PhoneError> {
@@ -42,6 +42,12 @@ impl DeliveryDesk {
 
     pub fn execute<F>(&self, device: &str, client: &str, body: &[u8], submit: F) -> Result<Delivery, PhoneError>
     where F: FnOnce() -> Result<String, String> {
+        self.execute_prepared(device,client,body,|| Ok(()),|_| submit())
+    }
+    /// Preparation has no intake side effect. A failed transcription must not create
+    /// an uncertain delivery reservation; a completed receipt skips preparation entirely.
+    pub fn execute_prepared<T,P,F>(&self,device:&str,client:&str,body:&[u8],prepare:P,submit:F)->Result<Delivery,PhoneError>
+    where P:FnOnce()->Result<T,String>, F:FnOnce(T)->Result<String,String> {
         let mut receipts = self.receipts.lock().unwrap();
         let now = super::now_millis();
         let hash = super::hex(&super::sha256(body));
@@ -57,9 +63,10 @@ impl DeliveryDesk {
             return Ok(Delivery::Uncertain);
         }
         if receipts.len() >= MAX_RECEIPTS { return Ok(Delivery::Full); }
+        let prepared = match prepare() { Ok(value)=>value, Err(message)=>return Ok(Delivery::Rejected(message)) };
         receipts.push_back(Receipt { device: device.into(), client: client.into(), body_hash: hash, answer: None, at: now });
         if let Err(error) = self.persist(&receipts) { receipts.pop_back(); return Err(error); }
-        let answer = match submit() { Ok(answer) => answer, Err(_) => return Ok(Delivery::Uncertain) };
+        let answer = match submit(prepared) { Ok(answer) => answer, Err(_) => return Ok(Delivery::Uncertain) };
         receipts.back_mut().unwrap().answer = Some(answer.clone());
         self.persist(&receipts)?;
         Ok(Delivery::Accepted(answer))
@@ -69,6 +76,16 @@ impl DeliveryDesk {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_preparation_is_retryable_but_receipts_skip_it_after_restart() {
+        let dir=Scratch::new();
+        let desk=DeliveryDesk::open(&dir.0).unwrap();
+        assert_eq!(desk.execute_prepared::<(),_,_>("phone","voice",b"wav",||Err("no speech".into()),|_|panic!("submitted")).unwrap(),Delivery::Rejected("no speech".into()));
+        assert_eq!(desk.execute_prepared("phone","voice",b"wav",||Ok("transcript"),|text| {assert_eq!(text,"transcript");Ok("receipt".into())}).unwrap(),Delivery::Accepted("receipt".into()));
+        drop(desk);
+        let reopened=DeliveryDesk::open(&dir.0).unwrap();
+        assert_eq!(reopened.execute_prepared::<(),_,_>("phone","voice",b"wav",||panic!("transcribed twice"),|_|panic!("submitted twice")).unwrap(),Delivery::Duplicate("receipt".into()));
+    }
     struct Scratch(PathBuf);
     impl Scratch { fn new() -> Self { let p=std::env::temp_dir().join(format!("phone-receipts-{}",super::super::hex(&super::super::random_bytes(8).unwrap()))); std::fs::create_dir_all(&p).unwrap(); Self(p) } }
     impl Drop for Scratch { fn drop(&mut self) { let _=std::fs::remove_dir_all(&self.0); } }

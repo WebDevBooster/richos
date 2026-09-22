@@ -31,7 +31,9 @@ test('suspend closes the sole stream; relaunch retains paired outbox and resume 
   await app.dispatch({ type: 'compose', text: 'offline' }); await app.dispatch({ type: 'send' });
   app.close(); app = await createClient(h.ports); await turn();
   assert.equal(app.state().outbox.length, 1); assert.equal(app.state().messages[0].text, 'answer');
-  assert.match(h.opened.at(-1).url, /since=7/);
+  assert.match(h.opened.at(-1).url, /since=6/,'Replay one known row so quiet reconnects do not wait for a heartbeat');
+  h.opened.at(-1).event('message',{id:'reply',role:'rich',text:'answer',cursor:7});await app.settle();
+  assert.equal(app.state().messages.filter(row=>row.id==='reply').length,1,'Inclusive replay must not duplicate the visible reply');
   await app.dispatch({ type: 'resume' }); await turn();
   assert.equal(h.opened.filter(x => !x.closed).length, 1);
 });
@@ -158,9 +160,78 @@ test('a late Connect outage probe cannot overwrite a recovered stream or queued 
   await app.dispatch({type:'pair',link:origin+'/#pair=secret'});
   await app.dispatch({type:'confirm-pair',matched:true}); await turn();
   await app.dispatch({type:'compose',text:'Keep this draft'});
+  await h.opened.at(-1).onerror();await turn();
+  await app.dispatch({type:'resume'});await turn();
   h.opened.at(-1).event('hello',{challenge:'fresh',capabilities:['text']}); await app.settle();
   assert(app.state().online);
   resolveProbe({serviceState:'unavailable'}); await turn();
   assert.equal(app.state().connectionReason,'connected');
   assert.equal(app.state().draft,'Keep this draft');
+});
+
+
+test('a fresh stream clears a transient connection error and preserves the unsent draft', async t => {
+  const h = harness(), original = h.ports.fetch;
+  let unavailable = false;
+  h.ports.fetch = async (...args) => unavailable && args[0].includes('before=') ? new Response('Bad Gateway', {status:502}) : original(...args);
+  const app = await createClient(h.ports); t.after(() => app.close()); await pair(app);
+  h.opened.at(-1).event('message',{id:'reply',role:'rich',text:'Recent reply',cursor:10}); await app.settle();
+  await app.dispatch({type:'compose',text:'Keep this draft'});
+  unavailable=true;
+  await app.dispatch({type:'older'}); await turn();
+  assert.match(app.state().error,/temporarily unavailable/);
+  h.opened.at(-1).event('hello',{challenge:'fresh',capabilities:['text']}); await app.settle();
+  assert.equal(app.state().error,null);
+  assert.equal(app.state().draft,'Keep this draft');
+});
+
+
+test('opening and transient reconnects never blame the Mac, retain drafts and recover without hello', async t => {
+  const h=harness(), reasons=[], app=await createClient(h.ports);t.after(()=>app.close());
+  app.subscribe(state=>reasons.push(state.connectionReason));
+  await pair(app);
+  assert.equal(app.state().connectionReason,'connecting');
+  assert(h.requests.some(r=>r.url.endsWith('/api/challenge')),'Refresh persisted authentication before opening');
+  h.opened.at(-1).onopen();await app.settle();
+  await app.dispatch({type:'compose',text:'Still writing'});
+  await h.opened.at(-1).onerror();await app.settle();
+  assert.equal(app.state().online,false);
+  assert.equal(app.state().connectionReason,'reconnecting');
+  assert.equal(app.state().error,null);
+  assert.equal(app.state().draft,'Still writing');
+  const before=h.requests.filter(r=>r.url.endsWith('/api/challenge')).length;
+  await app.dispatch({type:'resume'});await turn();
+  h.opened.at(-1).onopen();await app.settle();
+  assert.equal(app.state().connectionReason,'connected');
+  assert(h.requests.filter(r=>r.url.endsWith('/api/challenge')).length>before);
+  assert(!reasons.includes('mac-unreachable'));
+  assert.equal(app.state().draft,'Still writing');
+  await app.dispatch({type:'suspend'});await app.dispatch({type:'resume'});await turn();
+  assert.equal(app.state().connectionReason,'reconnecting');
+  assert.equal(h.opened.filter(source=>!source.closed).length,1);
+});
+
+
+test('brief recovery is invisible, sustained recovery is explained and queued work drains once', async t => {
+  const h=harness(), timers=new Set();
+  h.ports.setTimeout=(fn,ms)=>{const timer={fn,ms};timers.add(timer);return timer;};
+  h.ports.clearTimeout=timer=>timers.delete(timer);
+  const fire=async ms=>{const timer=[...timers].find(t=>t.ms===ms);assert(timer,`No ${ms}ms timer`);timers.delete(timer);timer.fn();await turn();};
+  const app=await createClient(h.ports);t.after(()=>app.close());await pair(app);
+  h.opened.at(-1).onopen();await app.settle();
+  await h.opened.at(-1).onerror();await app.settle();
+  assert.equal(app.state().connectionNoticeReason,null);
+  assert.equal(app.state().online,false,'Invisible recovery must not pretend delivery is possible');
+  await app.dispatch({type:'compose',text:'Safely queued'});await app.dispatch({type:'send'});
+  assert.equal(app.state().outbox.length,1);
+  await fire(1000);
+  assert.equal(app.state().connectionNoticeReason,null,'Retrying does not flash an alert');
+  h.opened.at(-1).onopen();await app.settle();
+  assert.equal(app.state().connectionNoticeReason,null,'Normal operation is never announced');
+  assert.equal(app.state().outbox.length,0);
+  assert.equal(h.requests.filter(r=>r.url.endsWith('/api/messages')).length,1);
+  assert(![...timers].some(t=>t.ms===3000),'Recovery cancels the pending notice');
+  await h.opened.at(-1).onerror();await app.settle();await fire(3000);
+  assert.equal(app.state().connectionNoticeReason,'reconnecting','A sustained outage must not be hidden');
+  app.close();assert.equal(timers.size,0);
 });

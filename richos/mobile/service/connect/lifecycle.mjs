@@ -1,4 +1,5 @@
 const knownErrors = new Set(['provider_unavailable', 'resource_conflict', 'tunnel_missing', 'lease_lost', 'provider_transport_failed']);
+import { Notifications } from './notifications.mjs';
 export function view(host) {
   return { id: host.id, generation: host.generation, enabled: !!host.desired,
     phase: host.phase, endpoint: `https://${host.hostname}`, deviceKeyHash: host.device_key_hash,
@@ -17,6 +18,7 @@ export async function transition(store, provider, id, action, domain) {
         desired: 1, phase: 'pending', tunnel_id: null, dns_id: null, device_key_hash: null });
     } else if (action === 'disable') {
       await store.write(id, lease, { desired: 0, phase: 'pending', device_key_hash: null });
+      await new Notifications(store).invalidate(id);
     }
     host = await store.get(id);
     if (!host.desired) {

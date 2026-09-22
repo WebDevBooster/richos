@@ -34,7 +34,7 @@
 //! not worth a `[[package]]` line.
 
 use super::routes::{dispatch, Channel, Incoming, Outcome};
-use super::{PhoneError, KEEPALIVE_MS, MAX_BODY_BYTES};
+use super::{PhoneError, KEEPALIVE_MS};
 #[cfg(test)]
 use super::HTTPS_PORT;
 use bytes::Bytes;
@@ -446,7 +446,10 @@ async fn accept_https(
 
 async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<BoxBody> {
     let method = request.method().as_str().to_string();
-    let path = percent_decode(request.uri().path());
+    // Authenticated signatures cover the wire path. Decode an audio ID only after
+    // verification in its route; decoding here changes signed %3A into ':' first.
+    let wire_path = request.uri().path();
+    let path = if wire_path.starts_with("/api/") { wire_path.to_string() } else { percent_decode(wire_path) };
     let query = request.uri().query().unwrap_or("").to_string();
     let header = |name: &str| {
         request.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
@@ -455,16 +458,20 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
     let last_event_id = header("last-event-id");
     let content_type = header("content-type");
 
+    let body_limit = super::routes::body_limit(&method,&path,content_type.as_deref());
     // THE LIMIT IS APPLIED BEFORE THE BODY IS READ, which is the difference between a limit and a
     // check. `Limited` fails the read rather than buffering four gigabytes and then measuring it.
-    let body = match tokio::time::timeout(std::time::Duration::from_secs(15), Limited::new(request.into_body(), MAX_BODY_BYTES).collect()).await {
+    let upload_seconds = if body_limit > super::MAX_BODY_BYTES { 120 } else { 15 };
+    let body = match tokio::time::timeout(std::time::Duration::from_secs(upload_seconds), Limited::new(request.into_body(), body_limit).collect()).await {
         Ok(Ok(collected)) => collected.to_bytes().to_vec(),
         _ => return render(&channel, Outcome::PayloadTooLarge),
     };
 
     let incoming =
         Incoming { method, path, query, authorization, last_event_id, content_type, body };
-    match dispatch(&channel, &incoming) {
+    let target = Arc::clone(&channel);
+    let outcome = tokio::task::spawn_blocking(move || dispatch(&target, &incoming)).await.unwrap_or(Outcome::NotFound);
+    match outcome {
         Outcome::Stream { opening, .. } => open_stream(channel, opening),
         other => render(&channel, other),
     }
@@ -1509,6 +1516,15 @@ mod tests {
         let mut challenge = paired["challenge"].as_str().unwrap().to_string();
         assert_eq!(paired["ca_fingerprint_sha256"], ca.fingerprint_hex());
         assert_eq!(paired["api_base"], TEST_API_BASE);
+
+        // Real URL encoding must survive TLS/HTTP parsing before signature verification.
+        let audio_file=dir.join("signed-audio.wav");std::fs::write(&audio_file,b"RIFF....WAVE").unwrap();
+        devices.mint_audio("turn_audio:text:0",audio_file);
+        let audio_path="/api/audio/turn_audio%3Atext%3A0";
+        let sig=super::super::b64url(&phone.sign(&signing_string(&challenge,"GET",audio_path,b"")));
+        let auth=format!("RichOS-Device {device_id}.{challenge}.{sig}");
+        let (status,_,bytes)=client.request("GET",audio_path,&[("Authorization",&auth)],b"");
+        assert_eq!(status,200);assert_eq!(bytes,b"RIFF....WAVE");
 
         // 2. AN UNPAIRED CALLER STILL SEES NOTHING, over the same real socket. The positive
         //    control for every 404 in the unit tests, asserted against the wire this time.

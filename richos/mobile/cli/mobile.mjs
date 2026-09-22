@@ -10,9 +10,9 @@ const { createRuntime } = require('../dev/runtime.js');
 const usage = `Mobile development loop (JSON output; nonzero exit on failure)
   node richos/mobile/cli/mobile.mjs connect artifact
   node richos/mobile/cli/mobile.mjs connect managed-artifact <private-profile.json>
-  node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption|update-controls
-  node richos/mobile/cli/mobile.mjs lab serve|mac|updates
-  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|updates]
+  node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption|voice-restart|voice-gestures|update-controls
+  node richos/mobile/cli/mobile.mjs lab serve|mac [--manual]|updates
+  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|voice|notifications|updates|cleanup]
   node richos/mobile/cli/mobile.mjs update preview|publish <request.json>
   node richos/mobile/cli/mobile.mjs update serve|metrics
   node richos/mobile/cli/mobile.mjs release-config-check
@@ -70,7 +70,10 @@ try {
   else if (mode === 'update') result = await (await import('../service/policy.mjs')).command(command, arg, cache);
   else if (mode === 'client' && command === 'scenario') result = await require('../dev/client-runtime.js').scenario(arg);
   else if (mode === 'lab' && command === 'updates') result = await (await import('../dev/policy-lab.mjs')).policyLab(cache);
-  else if (mode === 'lab' && command === 'mac') result = await (await import('../dev/mac-server.mjs')).serveMac(cache);
+  else if (mode === 'lab' && command === 'mac') {
+    if (arg && arg !== '--manual') throw Error('Expected lab mac [--manual]');
+    result = await (await import('../dev/mac-server.mjs')).serveMac(cache, { manual: arg === '--manual' });
+  }
   else if (mode === 'lab' && command === 'serve') result = await (await import('../dev/lab.mjs')).serve(cache);
   else if (mode === 'release-config-check') result = (await import('./release.mjs')).configuration(undefined, true);
   else if (mode === 'doctor') result = simulator.doctor();
