@@ -30,7 +30,7 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
   JSON.stringify({suite:'sample.js',label:'fixture',checks:1,failed:0})+'\\n');
 ''')
         self.env = {**os.environ, 'TMPDIR': str(self.scratch)}
-        for name in ('NODE_OPTIONS', 'RICHOS_UI_TESTS_LEDGER'):
+        for name in ('NODE_OPTIONS', 'RICHOS_UI_TESTS_LEDGER', 'RICHOS_UI_NAV_EVIDENCE_DIR'):
             self.env.pop(name, None)
 
     def runner(self, preload=None):
@@ -118,6 +118,46 @@ fs.writeFileSync = function(file, ...args) {
         directory = self.ledger('dead', child.pid)
         self.sweep()
         self.assertFalse(directory.exists())
+
+    def navigation_dir_seen_by_a_suite(self, *args, env=None):
+        """Run the real runner sharded and report the evidence directory its suite inherited."""
+        seen = self.root / 'nav-dir.txt'
+        seen.unlink(missing_ok=True)
+        (self.root / 'sample.js').write_text('''
+const fs = require('fs');
+const run = {check() {}};
+run.check();
+fs.writeFileSync(SEEN, process.env.RICHOS_UI_NAV_EVIDENCE_DIR || '<unset>');
+fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
+  JSON.stringify({suite:'sample.js',label:'fixture',checks:1,failed:0})+'\\n');
+'''.replace('SEEN', json.dumps(str(seen))))
+        result = subprocess.run(['node', str(self.root / 'run.js'), '--shards=1', *args], cwd=self.root,
+                                env={**self.env, **(env or {})}, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return seen.read_text()
+
+    def test_navigation_evidence_lands_beside_the_receipts_and_starts_empty(self):
+        # A failed page load's bundle (ui/tests/lib/navigation-evidence.js) belongs in the
+        # directory a build keeps, and a bundle left from an earlier run is not this run's.
+        receipts = self.root / 'receipts'
+        (receipts / 'navigation').mkdir(parents=True)
+        stale = receipts / 'navigation' / 'contrast-1-1.json'
+        stale.write_text('{}')
+        self.assertEqual(self.navigation_dir_seen_by_a_suite(f'--receipts={receipts}'),
+                         str((receipts / 'navigation').resolve()))
+        self.assertFalse(stale.exists(), 'a previous run\'s navigation bundle survived into this run')
+
+    def test_navigation_evidence_outlives_a_run_that_owns_its_receipts(self):
+        # Without --receipts the runner deletes its own receipt directory at exit, so evidence
+        # written there would vanish with it; the harness's gitignored default is used instead.
+        self.assertEqual(self.navigation_dir_seen_by_a_suite(),
+                         str(self.root / '.shots' / 'navigation-failures'))
+
+    def test_an_explicit_navigation_evidence_directory_wins(self):
+        chosen = self.root / 'chosen'
+        self.assertEqual(self.navigation_dir_seen_by_a_suite(
+            f'--receipts={self.root / "receipts"}', env={'RICHOS_UI_NAV_EVIDENCE_DIR': str(chosen)}),
+            str(chosen))
 
     def test_permission_denied_is_not_proof_of_death(self):
         directory = self.ledger('permission', os.getpid())
