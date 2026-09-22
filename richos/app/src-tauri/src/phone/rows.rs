@@ -175,8 +175,13 @@ pub fn event_from_live(name: &str, payload: &Value, cursor: u64) -> Option<(&'st
         )),
         "rich://message-delta" => Some((
             "delta",
+            // **`thread_id` IS ON THE DELTA TOO** (phone protocol contract 2026-09-22 §11 item 4).
+            // The hub is one broadcast for every conversation, and a delta without its thread is
+            // a reply that a phone can only place in whatever conversation is on screen. Every
+            // `message` row already carries it; an older client ignores the extra key.
             json!({
                 "message_id": message_id,
+                "thread_id": thread_id,
                 "cursor": cursor,
                 "text": payload.get("textDelta").and_then(|v| v.as_str()).unwrap_or(""),
             }),
@@ -399,6 +404,13 @@ mod tests {
         assert_eq!(delta["message_id"], "msg_1");
         assert_eq!(delta["text"], "On it");
         assert_eq!(delta["cursor"], 7);
+        // The conversation a delta belongs to, so a phone can drop one for another conversation
+        // instead of growing it in the one on screen (contract 2026-09-22 §11 item 4).
+        assert_eq!(delta["thread_id"], "thr_5c1e");
+        assert_eq!(started["thread_id"], delta["thread_id"], "a delta and its row disagree about the conversation");
+        let mut keys: Vec<&str> = delta.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["cursor", "message_id", "text", "thread_id"], "the delta's shape moved");
 
         // THE COMPLETION CARRIES THE WHOLE TEXT AGAIN, deliberately: a phone that came back
         // mid-reply and missed every delta is correct without a reload.
@@ -407,6 +419,7 @@ mod tests {
         assert_eq!(name, "message");
         assert_eq!(done["complete"], true);
         assert_eq!(done["text"], "On it! Here it is.");
+        assert_eq!(done["thread_id"], "thr_5c1e");
     }
 
     #[test]
