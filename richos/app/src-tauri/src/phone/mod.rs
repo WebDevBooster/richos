@@ -773,7 +773,7 @@ impl PhoneRuntime {
     pub fn disable_connect(&self) -> Result<PhoneStatus, PhoneError> {
         let _action = self.connect_actions.lock().unwrap();
         let marked = connect::state::mark_disabled(&self.data_dir);
-        let _=notifications::Desk::open(&self.data_dir).and_then(|mut d|d.clear());
+        let push_cleanup = notifications::Desk::open(&self.data_dir).and_then(|mut d| d.clear());
         self.stop_connect_listener();
         // Revocation is durable before any remote cleanup attempt.
         if let Some(device) = device::DeviceDesk::open(&self.data_dir)?.paired() {
@@ -782,6 +782,8 @@ impl PhoneRuntime {
         marked?;
         // Cleanup failure remains visible and is retried by the monitor and next launch.
         let _ = connect::state::cleanup(&self.data_dir,&secrets::Keychain::for_app_data(&self.data_dir));
+        // Finish revocation even if notification storage failed, then surface that failure.
+        push_cleanup.map_err(PhoneError::Malformed)?;
         Ok(self.status())
     }
     fn stop_connect_listener(&self) {
@@ -800,7 +802,9 @@ impl PhoneRuntime {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 let Some(owner) = me.upgrade() else { return };
                 let Ok(_action) = owner.connect_actions.try_lock() else { continue };
-                let _ = owner.reconcile_native_notifications();
+                if let Err(error) = owner.reconcile_native_notifications() {
+                    eprintln!("[richos] native notification recovery failed; pending work will be retried: {error}");
+                }
                 let _ = owner.reconcile_connect(app.clone());
             }
         });
@@ -1325,7 +1329,7 @@ impl PhoneRuntime {
         ca::PhoneCa::forget(&self.data_dir, &secrets::Keychain::for_app_data(&self.data_dir))?;
         drop(running);
         push_cleanup.map_err(PhoneError::Malformed)?;
-        let _=self.reconcile_native_notifications();
+        self.reconcile_native_notifications().map_err(PhoneError::Malformed)?;
         Ok(())
     }
 
@@ -1368,7 +1372,9 @@ impl PhoneRuntime {
         let Ok(payload)=bridge.snapshot(Some(thread_id)) else {return};
         if notifications::queue_reply(&mut desk,&device,thread_id,&payload).is_err() {return}
         let Ok(identity)=connect::client::Identity::open(&secrets::Keychain::for_app_data(&self.data_dir)) else {return};
-        let _=desk.reconcile(&connect::client::Client::new(identity),Some(&device));
+        if let Err(error) = desk.reconcile(&connect::client::Client::new(identity), Some(&device)) {
+            eprintln!("[richos] native reply notification could not be sent; queued work will be retried: {error}");
+        }
     }
 
     /// Make the cached view of the conversation current. Called after a turn the channel started.

@@ -736,7 +736,21 @@ impl Recognizer {
 pub(crate) fn bounded_decoder(command:&mut Command,dir:&Path,timeout:std::time::Duration)->std::io::Result<std::process::Output> {
     use std::{io,process::{Child,Stdio},os::unix::fs::OpenOptionsExt};
     struct Owned(Child);
-    impl Drop for Owned {fn drop(&mut self){let _=self.0.kill();let _=self.0.wait();}}
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            match self.0.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => {},
+                Err(error) => eprintln!("[richos] could not check owned decoder before cleanup: {error}"),
+            }
+            if let Err(error) = self.0.kill() {
+                eprintln!("[richos] could not stop owned decoder: {error}");
+            }
+            if let Err(error) = self.0.wait() {
+                eprintln!("[richos] could not reap owned decoder: {error}");
+            }
+        }
+    }
     let output=dir.join("decoder.stdout");let errors=dir.join("decoder.stderr");
     let file=|path:&Path|std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path);
     let mut child=Owned(command.stdin(Stdio::null()).stdout(file(&output)?).stderr(file(&errors)?).spawn()?);

@@ -133,11 +133,11 @@ mod tests {
         let device:Device=serde_json::from_value(json!({"id":"phone","name":"iPhone","public_key":super::super::b64url(&[4;65]),"paired_at":1,"push":null,"delivered_cursor":null,"fingerprint_confirmed":true,"paired_via":"connect"})).unwrap();
         (dir,device,Registration{token:"a".repeat(64),environment:"sandbox".into(),topic:"dev.richos.mobile.integration".into()})
     }
-    #[derive(Default)] struct Fake {calls:Mutex<Vec<(String,Value)>>, fail:Mutex<bool>}
+    #[derive(Default)] struct Fake {calls:Mutex<Vec<(String,Value)>>, fail:Mutex<bool>, fail_events:Mutex<bool>}
     impl Control for Fake {
         fn call(&self,_method:&str,path:&str,body:&str)->Result<Reply,String> {
             self.calls.lock().unwrap().push((path.into(),serde_json::from_str(body).unwrap()));
-            if *self.fail.lock().unwrap() {return Err("offline".into())}
+            if *self.fail.lock().unwrap() || (path.ends_with("events") && *self.fail_events.lock().unwrap()) {return Err("offline".into())}
             Ok(Reply {status:if path.ends_with("events"){202}else{200},value:json!({"hostId":"a".repeat(32),"generation":1})})
         }
     }
@@ -160,6 +160,25 @@ mod tests {
         *fake.fail.lock().unwrap()=false;desk.reconcile(&fake,None).unwrap();
         let calls=fake.calls.lock().unwrap();assert!(calls.iter().all(|(path,_)|!path.ends_with("events")));
         assert_eq!(calls.last().unwrap().1["token"],Value::Null);
+    }
+    #[test] fn failed_reply_delivery_remains_pending_after_restart() {
+        let (dir,device,registration)=fixture();let fake=Fake::default();
+        let mut desk=Desk::open(&dir.0).unwrap();
+        desk.set(&device,Some(registration)).unwrap();desk.reconcile(&fake,Some(&device)).unwrap();
+        desk.enqueue(&device,"thread","reply").unwrap();
+        *fake.fail_events.lock().unwrap()=true;
+        assert!(desk.reconcile(&fake,Some(&device)).is_err());drop(desk);
+        let mut desk=Desk::open(&dir.0).unwrap();
+        assert!(desk.needs_reconcile(Some(&device)));
+        assert_eq!(desk.state.jobs.len(),1);
+        *fake.fail_events.lock().unwrap()=false;
+        desk.reconcile(&fake,Some(&device)).unwrap();
+        assert!(!desk.needs_reconcile(Some(&device)));
+        drop(desk);
+        let mut desk=Desk::open(&dir.0).unwrap();
+        desk.reconcile(&fake,Some(&device)).unwrap();
+        let calls=fake.calls.lock().unwrap();
+        assert_eq!(calls.iter().filter(|(path,_)|path.ends_with("events")).count(),2);
     }
     #[test] fn malformed_native_registrations_are_rejected() {
         let (_,_,mut r)=fixture();assert!(r.validate());r.topic="unrelated.app".into();assert!(!r.validate());
