@@ -29,11 +29,11 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "accepted"
       }
     },
     {
@@ -58,11 +58,11 @@
           "signing_string": "oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen\nPOST\n/api/messages\ndfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
           "signature_b64url": "IR1uLQPUddn6FFeIPMOScF-nqSd0kcRiaCV9Vl9-6nRY5pw4gQrRR8GscOa91MPYYc30pBWyKF6EMzMLxLwrRw",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen.IR1uLQPUddn6FFeIPMOScF-nqSd0kcRiaCV9Vl9-6nRY5pw4gQrRR8GscOa91MPYYc30pBWyKF6EMzMLxLwrRw"
+        },
+        "mac": {
+          "signing_string": "oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen\nPOST\n/api/messages\ndfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen\nPOST\n/api/messages\ndfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
-        "verdict": "accepted"
       }
     },
     {
@@ -87,11 +87,11 @@
           "signing_string": "AowYnjDkqsnV7nB1X5FQ-9-929EGNufL\nPOST\n/api/messages\n1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
           "signature_b64url": "72hISJ9uZcymCDWeq7UG7OXvZGeyXx5uAvs0ox_wvJBIspEQfZ54KwbT5nGHFrnr28nZes0KlWWw5Y32L2GkfA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.AowYnjDkqsnV7nB1X5FQ-9-929EGNufL.72hISJ9uZcymCDWeq7UG7OXvZGeyXx5uAvs0ox_wvJBIspEQfZ54KwbT5nGHFrnr28nZes0KlWWw5Y32L2GkfA"
+        },
+        "mac": {
+          "signing_string": "AowYnjDkqsnV7nB1X5FQ-9-929EGNufL\nPOST\n/api/messages\n1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "AowYnjDkqsnV7nB1X5FQ-9-929EGNufL\nPOST\n/api/messages\n1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
-        "verdict": "accepted"
       }
     },
     {
@@ -116,11 +116,11 @@
           "signing_string": "rUmDIYItc62BsAW5vfy3sTU8tSX4owDA\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z\n7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
           "signature_b64url": "TTJxLQm4ss8EtnTT-YelIzVWfzom0ZdztwdnwMhueYhFRnbgeEU0dnY0cVtNSkOVTnKShY8h7Pt0cCTuzjZPOg",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.rUmDIYItc62BsAW5vfy3sTU8tSX4owDA.TTJxLQm4ss8EtnTT-YelIzVWfzom0ZdztwdnwMhueYhFRnbgeEU0dnY0cVtNSkOVTnKShY8h7Pt0cCTuzjZPOg"
+        },
+        "mac": {
+          "signing_string": "rUmDIYItc62BsAW5vfy3sTU8tSX4owDA\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z\n7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "rUmDIYItc62BsAW5vfy3sTU8tSX4owDA\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z\n7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
-        "verdict": "accepted"
       }
     },
     {
@@ -138,11 +138,11 @@
           "signing_string": "OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b\nGET\n/api/events?thread_id=thr_5c1e\n",
           "signature_b64url": "HI08-9DQ56VzrL3VjiANhxq72NpjKigVN-e3UOlZAsG-QPv4DVulnx5zhu3rQMbxwFVqIcFry8VOMKbq65LwNA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b.HI08-9DQ56VzrL3VjiANhxq72NpjKigVN-e3UOlZAsG-QPv4DVulnx5zhu3rQMbxwFVqIcFry8VOMKbq65LwNA"
+        },
+        "mac": {
+          "signing_string": "OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b\nGET\n/api/events?thread_id=thr_5c1e\n",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b\nGET\n/api/events?thread_id=thr_5c1e\n",
-        "verdict": "accepted"
       }
     },
     {
@@ -160,11 +160,11 @@
           "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
           "signature_b64url": "n6yym3-BW_pCAhl1uptXuh9ZQ4LEI1HSlxAIbtsHrnWJTU-jeekhuB5BTZAeKSL_Rmf4M3k_0RSqgTrTUOo8gQ",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.n6yym3-BW_pCAhl1uptXuh9ZQ4LEI1HSlxAIbtsHrnWJTU-jeekhuB5BTZAeKSL_Rmf4M3k_0RSqgTrTUOo8gQ"
+        },
+        "mac": {
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
-        "verdict": "accepted"
       }
     },
     {
@@ -182,11 +182,11 @@
           "signing_string": "u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
           "signature_b64url": "W0OLw_wEybI0stOC_hQI1jngLGw3IFO-nGnskYaC8T6kgN3ptMrPgiLRq_al1V6RB0sb1lK1jes6J1_mr_8NIA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg.W0OLw_wEybI0stOC_hQI1jngLGw3IFO-nGnskYaC8T6kgN3ptMrPgiLRq_al1V6RB0sb1lK1jes6J1_mr_8NIA"
+        },
+        "mac": {
+          "signing_string": "u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
-        "verdict": "accepted"
       }
     },
     {
@@ -204,11 +204,11 @@
           "signing_string": "xPut9fQwjub--BYjBja0SdJzqndebeE9\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
           "signature_b64url": "_MSKkhCQYmZHCTBIZShe5dP6RDfcOw9_qIVvT2He6EeFjsKpKlpSSIDT-nrzcHPbo6e15gjf_FnXBDimsldU_Q",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.xPut9fQwjub--BYjBja0SdJzqndebeE9._MSKkhCQYmZHCTBIZShe5dP6RDfcOw9_qIVvT2He6EeFjsKpKlpSSIDT-nrzcHPbo6e15gjf_FnXBDimsldU_Q"
+        },
+        "mac": {
+          "signing_string": "xPut9fQwjub--BYjBja0SdJzqndebeE9\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "xPut9fQwjub--BYjBja0SdJzqndebeE9\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
-        "verdict": "accepted"
       }
     },
     {
@@ -228,11 +228,11 @@
           "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
           "signature_b64url": "4SO4fdyMVeQRvoABirnCyHXqVgCEpQUdHytiqnfcAuBntmW8HYziMto0DcmZK1sJ_3Grl9-DhDF2rkXuBqVeIA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF.4SO4fdyMVeQRvoABirnCyHXqVgCEpQUdHytiqnfcAuBntmW8HYziMto0DcmZK1sJ_3Grl9-DhDF2rkXuBqVeIA"
+        },
+        "mac": {
+          "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
-        "verdict": "accepted"
       }
     },
     {
@@ -257,11 +257,11 @@
           "signing_string": "1jSQKbwebV-n6DUqNYMifyp_c-EywMAL\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
           "signature_b64url": "CRSVk2EIsSr15n02IGuX_uHvyqlsE71_uDJ93afbse4zeUh1xCwHOWPVHxaqk0SkuhMgQYE3o8wctWbZzv2sqg",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.1jSQKbwebV-n6DUqNYMifyp_c-EywMAL.CRSVk2EIsSr15n02IGuX_uHvyqlsE71_uDJ93afbse4zeUh1xCwHOWPVHxaqk0SkuhMgQYE3o8wctWbZzv2sqg"
+        },
+        "mac": {
+          "signing_string": "1jSQKbwebV-n6DUqNYMifyp_c-EywMAL\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "1jSQKbwebV-n6DUqNYMifyp_c-EywMAL\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
-        "verdict": "accepted"
       }
     },
     {
@@ -286,11 +286,11 @@
           "signing_string": "UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
           "signature_b64url": "aWqLWN6TRs6AfkeJ6ufbloqBUNQe6JgncMr1dOljhyW8Zz1wfQCceQATnuqmVwX-V6d7sduabPE1l6d76tgkAg",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ.aWqLWN6TRs6AfkeJ6ufbloqBUNQe6JgncMr1dOljhyW8Zz1wfQCceQATnuqmVwX-V6d7sduabPE1l6d76tgkAg"
+        },
+        "mac": {
+          "signing_string": "UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
-        "verdict": "accepted"
       }
     },
     {
@@ -315,11 +315,11 @@
           "signing_string": "tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4\nPOST\n/api/pair\n34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
           "signature_b64url": "WMyMTKxVauS9wnKD3OsuzP4NyMx4evsNWBQ77fRzP4eKwPcoZg4JvOgjVdOdXk0W8hjhaWvMPTswaa2JrOtaag",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4.WMyMTKxVauS9wnKD3OsuzP4NyMx4evsNWBQ77fRzP4eKwPcoZg4JvOgjVdOdXk0W8hjhaWvMPTswaa2JrOtaag"
+        },
+        "mac": {
+          "signing_string": "tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4\nPOST\n/api/pair\n34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4\nPOST\n/api/pair\n34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
-        "verdict": "accepted"
       }
     },
     {
@@ -344,11 +344,11 @@
           "signing_string": "9El8t3WwrecNgTLtQlwlRd-91zuC79y6\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
           "signature_b64url": "oVofrhFHcapmQOr7QIUEzghnrwBtNWoNddyydzxThwHMMCJPkCV4uvgSdBeJo_BzRTTIhjEdgZJO_QTvsssxMw",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.9El8t3WwrecNgTLtQlwlRd-91zuC79y6.oVofrhFHcapmQOr7QIUEzghnrwBtNWoNddyydzxThwHMMCJPkCV4uvgSdBeJo_BzRTTIhjEdgZJO_QTvsssxMw"
+        },
+        "mac": {
+          "signing_string": "9El8t3WwrecNgTLtQlwlRd-91zuC79y6\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "9El8t3WwrecNgTLtQlwlRd-91zuC79y6\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
-        "verdict": "accepted"
       }
     },
     {
@@ -373,11 +373,11 @@
           "signing_string": "nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU\nPOST\n/api/pair\n42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
           "signature_b64url": "aB8oeBK9rGJGhp9K9NP3vB-No7dQs721bpZxZwe3aWte0WiK3FLjyja4lXZHGg4QS-7XcvFGBoNyb7UkDWOjjQ",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU.aB8oeBK9rGJGhp9K9NP3vB-No7dQs721bpZxZwe3aWte0WiK3FLjyja4lXZHGg4QS-7XcvFGBoNyb7UkDWOjjQ"
+        },
+        "mac": {
+          "signing_string": "nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU\nPOST\n/api/pair\n42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU\nPOST\n/api/pair\n42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
-        "verdict": "accepted"
       }
     }
   ],
@@ -404,12 +404,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "MEUCIQDcfoc0PpeywT0WGJquvUvnjYUAfQN_u-GNyfatJHlpxQIgTHtDSgi1jE-tLlmY4rREtsn_rRvdZSl37uXIw_ReE70",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.MEUCIQDcfoc0PpeywT0WGJquvUvnjYUAfQN_u-GNyfatJHlpxQIgTHtDSgi1jE-tLlmY4rREtsn_rRvdZSl37uXIw_ReE70"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -434,12 +434,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhmarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhmarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -464,12 +464,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4T",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4T"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -494,12 +494,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "TUPa-g7EbzJwX3QBvQwQcXiQjpeQBsTky-qw-xvScweJyRgx4WE9nJJAj9vUcqS-CNjGNPtleA19NFgcYz1lsA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.TUPa-g7EbzJwX3QBvQwQcXiQjpeQBsTky-qw-xvScweJyRgx4WE9nJJAj9vUcqS-CNjGNPtleA19NFgcYz1lsA"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -524,12 +524,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\npost\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3tuDBPUZUFEG0CEzRTyFCi6ZZcJnAXEBn6c6XQHW3W2ojP6TSIW0sIS1ckAuF8X9Du3xWd5jDM7FZEmbr7QSSA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3tuDBPUZUFEG0CEzRTyFCi6ZZcJnAXEBn6c6XQHW3W2ojP6TSIW0sIS1ckAuF8X9Du3xWd5jDM7FZEmbr7QSSA"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -554,12 +554,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\nfd8a56585a29cc59207fcf5382d9f9108bd3c89c83f8ca48a8ad29674b3cc01c",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\nfd8a56585a29cc59207fcf5382d9f9108bd3c89c83f8ca48a8ad29674b3cc01c",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -577,12 +577,12 @@
           "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "signature_b64url": "tO6WWksKPOuWsg-ZIlVnbAf_iVEzTrShPPAejEd76X6t_bUE3vHlsmc41D8chionc6xCHCBXsBS1LyzbEYZarA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.tO6WWksKPOuWsg-ZIlVnbAf_iVEzTrShPPAejEd76X6t_bUE3vHlsmc41D8chionc6xCHCBXsBS1LyzbEYZarA"
+        },
+        "mac": {
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -600,12 +600,12 @@
           "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41&auth=\n",
           "signature_b64url": "9O4CPrp_Qzy3cb7pZgerLHAoyK-VMt9e3WCs-JzoYvPyWuDVPo2yetx7DQmC2qkaUwDfGjoJbEx8s8b8hbmUbw",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.9O4CPrp_Qzy3cb7pZgerLHAoyK-VMt9e3WCs-JzoYvPyWuDVPo2yetx7DQmC2qkaUwDfGjoJbEx8s8b8hbmUbw"
+        },
+        "mac": {
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -625,12 +625,12 @@
           "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9:text:0?thread_id=thr_5c1e\n",
           "signature_b64url": "kyx23I1jvKkVdCUOR2-zY3AXay9dqvMBgcrr3-KqcbNq8V31WmZC8lts637Zb9pI1qbDk6ZIVQowalpG54ESJA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF.kyx23I1jvKkVdCUOR2-zY3AXay9dqvMBgcrr3-KqcbNq8V31WmZC8lts637Zb9pI1qbDk6ZIVQowalpG54ESJA"
+        },
+        "mac": {
+          "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     },
     {
@@ -655,12 +655,12 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.13qSiDc12bGRXgBy7EgbL8GFsV-3h-zG.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "13qSiDc12bGRXgBy7EgbL8GFsV-3h-zG\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
         }
-      },
-      "mac": {
-        "signing_string": "13qSiDc12bGRXgBy7EgbL8GFsV-3h-zG\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "refused",
-        "refusal": "BadSignature"
       }
     }
   ],
@@ -687,11 +687,11 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acWzhLy090pzsVLRpmcdS7tI8udNkcmydQ0E1AH_CAURlA",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acWzhLy090pzsVLRpmcdS7tI8udNkcmydQ0E1AH_CAURlA"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "accepted"
       }
     },
     {
@@ -716,11 +716,11 @@
           "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
           "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ=",
           "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ="
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "accepted"
         }
-      },
-      "mac": {
-        "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
-        "verdict": "accepted"
       }
     }
   ]

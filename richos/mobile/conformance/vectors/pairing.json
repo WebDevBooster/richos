@@ -508,6 +508,10 @@
             "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
             "signature_b64url": "BeUyuNXz3iN2_yp1zun6sfQzAN7w99K8oiW0iXoNMZqh-KdRQ5pi6ZQdX7JXC9QWBdYJBDYqZCKYT4i_xorryA",
             "authorization": "RichOS-Device dev_8d4c57b7ff82.8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS.BeUyuNXz3iN2_yp1zun6sfQzAN7w99K8oiW0iXoNMZqh-KdRQ5pi6ZQdX7JXC9QWBdYJBDYqZCKYT4i_xorryA"
+          },
+          "mac": {
+            "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "verdict": "accepted"
           }
         }
       ],
@@ -541,6 +545,10 @@
             "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
             "signature_b64url": "GhiHr6elP9EK5eblnP1hPFDXT69AH5zuAyyyTcjMT9vPd0cKB-kIXJr1ArWKTp637usLbsYIMQeYNqzmqBB5tA",
             "authorization": "RichOS-Device dev_8d4c57b7ff82.8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS.GhiHr6elP9EK5eblnP1hPFDXT69AH5zuAyyyTcjMT9vPd0cKB-kIXJr1ArWKTp637usLbsYIMQeYNqzmqBB5tA"
+          },
+          "mac": {
+            "signing_string": "8fDAAMlkOLIjgs4WISdYP-70q-mTl7VS\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+            "verdict": "accepted"
           }
         }
       ],

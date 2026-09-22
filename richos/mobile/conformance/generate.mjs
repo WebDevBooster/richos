@@ -44,7 +44,7 @@ async function signing() {
 		const verdict = mac(request);
 		if (expected && verdict.verdict !== expected) throw new Error(`signing case "${name}" was expected to be ${expected} by the Mac, and node:crypto says ${verdict.verdict}`);
 		if (expected === 'accepted' && verdict.signing_string !== request.signed.signing_string) throw new Error(`signing case "${name}": the client signed a different string than the Mac computes`);
-		return { name, request, mac: verdict };
+		return { name, request: { ...request, mac: verdict } };
 	});
 	return {
 		source: 'web/web-app/lib/api.js (every valid request is one real call); invalid requests are one mutation of a valid one',

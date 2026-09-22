@@ -1,6 +1,7 @@
 // keys.json, pairing.json and fingerprint.json.
 
 import { createPublicKey } from 'node:crypto';
+import { mac as macVerdict } from './signing.mjs';
 import {
 	load, sha256, sha256hex, b64url, makeApi, answer, unreachable, transcript, outcome,
 	KEY_SEED, PRIVATE_KEY, POINT, DEVICE_ID, ORIGIN, CONNECT_ORIGIN, challenge
@@ -117,9 +118,9 @@ export async function pairing() {
 	];
 	const confirms = [];
 	for (const [name, matched] of [['they match', true], ['they do not match', false]]) {
-		const { api, mac, signer } = makeApi({ script: [answer(200, { ok: true }, { 'X-RichOS-Challenge': challenge('confirm') })], state: { challenge: challenge('confirm') } });
+		const { api, mac: fake, signer } = makeApi({ script: [answer(200, { ok: true }, { 'X-RichOS-Challenge': challenge('confirm') })], state: { challenge: challenge('confirm') } });
 		const result = await outcome(api.confirmFingerprint(matched));
-		confirms.push({ name, requests: transcript(mac, signer), outcome: result });
+		confirms.push({ name, requests: transcript(fake, signer).map((request) => ({ ...request, mac: macVerdict(request) })), outcome: result });
 	}
 	const code = { alphabet: '23456789ABCDEFGHJKMNPQRSTVWXYZ', length: 8 };
 	return {
