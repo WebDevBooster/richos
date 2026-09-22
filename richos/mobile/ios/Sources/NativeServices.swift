@@ -80,7 +80,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
     private func endpoint(_ value: String) throws -> URL {
         guard let expected = origin, let url = URL(string: value), url.scheme == "https", url.user == nil, url.password == nil,
               url.host == expected.host, (url.port ?? 443) == (expected.port ?? 443), url.fragment == nil,
-              ["/api/pair", "/api/messages", "/api/events", "/api/challenge"].contains(url.path) else { throw fail("Request is outside the paired HTTPS endpoint") }
+              (["/api/pair", "/api/messages", "/api/events", "/api/challenge"].contains(url.path) || url.path.range(of:"^/api/audio/[A-Za-z0-9_-]{1,128}$",options:.regularExpression) != nil) else { throw fail("Request is outside the paired HTTPS endpoint") }
         return url
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler reply: @escaping (Any?, String?) -> Void) {
@@ -106,11 +106,15 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 let bytes = try JSONSerialization.data(withJSONObject: value)
                 guard bytes.count <= 8 * 1024 * 1024 else { throw fail("Local session exceeds its storage limit") }
                 try protectedWrite(bytes, to: folder.appendingPathComponent("session.json")); reply(true, nil)
+            case "recordHash":
+                let file = try recordingFile(string(args,"id"))
+                reply(SHA256.hash(data: try Data(contentsOf:file)).map { String(format:"%02x",$0) }.joined(),nil)
             case "request":
                 guard requestReplies.count < 8 else { throw fail("Too many pending requests") }
                 let url = try endpoint(string(args, "url")); let verb = try string(args, "method")
                 guard ["GET", "POST"].contains(verb) else { throw fail("Unsupported method") }
-                let text = try string(args, "body"); guard text.utf8.count <= 65536 else { throw fail("Request exceeds the text limit") }
+                let reference = args["body"] as? [String:String]
+                let text = args["body"] as? String ?? ""; guard text.utf8.count <= 65536 else { throw fail("Request exceeds the text limit") }
                 var request = URLRequest(url: url); request.httpMethod = verb
                 for (name, value) in args["headers"] as? [String: String] ?? [:] {
                     guard ["authorization", "content-type"].contains(name.lowercased()) else { throw fail("Unsupported header") }
@@ -121,7 +125,12 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 request.setValue(client["version"] as? String, forHTTPHeaderField: "X-RichOS-Client-Version")
                 request.setValue(client["build"] as? String, forHTTPHeaderField: "X-RichOS-Client-Build")
                 if !text.isEmpty { request.httpBody = Data(text.utf8) }
-                let task = session.dataTask(with: request); requestReplies[task.taskIdentifier] = reply; requestBuffers[task.taskIdentifier] = Data(); task.resume()
+                let task: URLSessionTask
+                if let reference {
+                    guard reference.count == 1, let id=reference["recordingFile"], verb == "POST", url.path == "/api/messages", request.value(forHTTPHeaderField:"Content-Type") == "audio/wav" else { throw fail("Invalid recording upload") }
+                    task=session.uploadTask(with:request,fromFile:try recordingFile(id))
+                } else { task=session.dataTask(with:request) }
+                requestReplies[task.taskIdentifier] = reply; requestBuffers[task.taskIdentifier] = Data(); task.resume()
             case "streamOpen":
                 let url = try endpoint(string(args, "url")); guard url.path == "/api/events" else { throw fail("Invalid stream route") }
                 closeStream(); streamID = try string(args, "id")
@@ -170,6 +179,14 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 guard let controller = webView?.window?.rootViewController, controller.presentedViewController == nil else { throw fail("Camera is unavailable") }
                 let scanner = PairScanner(); scanner.completion = reply
                 controller.present(scanner, animated: true); scanner.presentationController?.delegate = scanner
+            case "playbackStop":
+                player?.stop(); player=nil; try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation); reply(true,nil)
+            case "replyPlay":
+                let id=try string(args,"id"); guard UUID(uuidString:id) != nil, recorder == nil else { throw fail("Invalid reply playback") }
+                player?.stop();try AVAudioSession.sharedInstance().setCategory(.playback);try AVAudioSession.sharedInstance().setActive(true)
+                do { player=try AVAudioPlayer(contentsOf:folder.appendingPathComponent("replies").appendingPathComponent(id+".wav"));player?.delegate=self
+                    guard player?.play() == true else { throw fail("Could not play this reply") };reply(true,nil)
+                } catch { try? AVAudioSession.sharedInstance().setActive(false,options:.notifyOthersOnDeactivation); throw error }
             case "recordPlay":
                 let id = try string(args, "id")
                 guard recorder == nil, UUID(uuidString: id) != nil else { throw fail("Stop recording before playback") }
@@ -191,6 +208,12 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
             default: throw fail("Unknown native operation")
             }
         } catch { reply(nil, error.localizedDescription) }
+    }
+    private func recordingFile(_ id:String) throws -> URL {
+        guard UUID(uuidString:id) != nil, recordingID != id else { throw fail("Choose a saved recording") }
+        let url=folder.appendingPathComponent(id+".wav")
+        let size=try FileManager.default.attributesOfItem(atPath:url.path)[.size] as? Int ?? 0
+        guard size>44,size<=2_000_000 else {throw fail("Recording exceeds its upload limit")};return url
     }
     private func key() throws -> SecKey {
         guard let origin else { throw fail("Pairing endpoint is not configured") }
@@ -327,7 +350,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         if dataTask == stream { emit(["kind": "stream-data", "id": streamID ?? "", "data": data.base64EncodedString()]); return }
         guard requestBuffers[dataTask.taskIdentifier] != nil else { return }
         requestBuffers[dataTask.taskIdentifier]?.append(data)
-        if (requestBuffers[dataTask.taskIdentifier]?.count ?? 0) > 2_000_000 { dataTask.cancel() }
+        if (requestBuffers[dataTask.taskIdentifier]?.count ?? 0) > (dataTask.originalRequest?.url?.path.hasPrefix("/api/audio/") == true ? 6_000_000 : 2_000_000) { dataTask.cancel() }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if task == stream { emit(["kind": "stream-error", "id": streamID ?? ""]); stream = nil; streamID = nil; return }
@@ -335,6 +358,17 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
         let bytes = requestBuffers.removeValue(forKey: task.taskIdentifier)
         let response = requestResponses.removeValue(forKey: task.taskIdentifier)
         if let error { reply?(nil, error.localizedDescription); return }
+        if let response, let bytes, response.statusCode == 200, response.mimeType == "audio/wav", task.originalRequest?.url?.path.hasPrefix("/api/audio/") == true {
+            do {
+                let directory=folder.appendingPathComponent("replies",isDirectory:true)
+                try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
+                let files=try FileManager.default.contentsOfDirectory(at:directory,includingPropertiesForKeys:[.creationDateKey]).sorted { (try? $0.resourceValues(forKeys:[.creationDateKey]).creationDate) ?? .distantPast < (try? $1.resourceValues(forKeys:[.creationDateKey]).creationDate) ?? .distantPast }
+                for file in files.prefix(max(0,files.count-9)) {try FileManager.default.removeItem(at:file)}
+                let id=UUID().uuidString;try protectedWrite(bytes,to:directory.appendingPathComponent(id+".wav"))
+                reply?(["status":200,"headers":response.allHeaderFields,"body":"","audioId":id],nil)
+            } catch {reply?(nil,error.localizedDescription)}
+            return
+        }
         guard let response, let bytes, let text = String(data: bytes, encoding: .utf8) else { reply?(nil, "Invalid response"); return }
         reply?(["status": response.statusCode, "headers": response.allHeaderFields, "body": text], nil)
     }

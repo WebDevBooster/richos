@@ -226,3 +226,11 @@ The common CLI also supports isolated real-provider checks:
 - Stop the owned lab, then run `connect lab-disable <external-lab-directory>`. Verify the old allocation is disabled and its owned tunnel/DNS records are removed. Remove disposable token/identity files after preserving redacted evidence privately.
 
 The lab uses isolated test data and a separate integration app. It must never replace the owner's daily Android PWA pairing. Keep the device CLI's USB health guard enabled; never recover tests by resetting hubs or unrelated devices.
+
+## Voice submission
+
+`record-send` reviews a saved native recording and queues its file ID using the PWA outbox. The selected conversation is captured at Send. Cancel never sends and the transcription cannot replace a newer draft. The native adapter hashes and uploads the protected file directly; audio bytes do not cross the JavaScript bridge. A queued file cannot be deleted until its queue entry is resolved. Successful sends retain the local recording until explicitly deleted.
+
+The authenticated Mac route accepts at most 2 MB of mono 16 kHz PCM16 WAV and validates an actual duration of at most 60 seconds. It uses the existing local speech stack. Delivery receipts bind the device, client ID, conversation and original audio bytes. Failed transcription does not reserve a message; a lost acknowledgement reuses the durable receipt without transcribing or submitting again. Uncertain intake remains blocked for attention.
+
+`reply-play` synthesizes a completed CEO-visible reply on the Mac and plays the bounded WAV through the native audio session. Stop prevents a late download from starting playback. Audio from a previous conversation cannot begin after navigation. Read the conversation when playback is unavailable or a reply exceeds the playback length limit. Capability negotiation keeps recordings available on older Macs without claiming they can accept voice.

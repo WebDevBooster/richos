@@ -34,7 +34,7 @@
 //! not worth a `[[package]]` line.
 
 use super::routes::{dispatch, Channel, Incoming, Outcome};
-use super::{PhoneError, KEEPALIVE_MS, MAX_BODY_BYTES};
+use super::{PhoneError, KEEPALIVE_MS};
 #[cfg(test)]
 use super::HTTPS_PORT;
 use bytes::Bytes;
@@ -455,16 +455,19 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
     let last_event_id = header("last-event-id");
     let content_type = header("content-type");
 
+    let body_limit = super::routes::body_limit(&method,&path,content_type.as_deref());
     // THE LIMIT IS APPLIED BEFORE THE BODY IS READ, which is the difference between a limit and a
     // check. `Limited` fails the read rather than buffering four gigabytes and then measuring it.
-    let body = match tokio::time::timeout(std::time::Duration::from_secs(15), Limited::new(request.into_body(), MAX_BODY_BYTES).collect()).await {
+    let body = match tokio::time::timeout(std::time::Duration::from_secs(15), Limited::new(request.into_body(), body_limit).collect()).await {
         Ok(Ok(collected)) => collected.to_bytes().to_vec(),
         _ => return render(&channel, Outcome::PayloadTooLarge),
     };
 
     let incoming =
         Incoming { method, path, query, authorization, last_event_id, content_type, body };
-    match dispatch(&channel, &incoming) {
+    let target = Arc::clone(&channel);
+    let outcome = tokio::task::spawn_blocking(move || dispatch(&target, &incoming)).await.unwrap_or(Outcome::NotFound);
+    match outcome {
         Outcome::Stream { opening, .. } => open_stream(channel, opening),
         other => render(&channel, other),
     }

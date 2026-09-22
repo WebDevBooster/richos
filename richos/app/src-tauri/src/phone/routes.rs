@@ -101,6 +101,10 @@ pub struct Accepted {
 /// module's reach is an enumerable list. There is no path from here to the ledger, to the raw
 /// event stream or to a `Timeline`, because those are not on this trait (plan §4.2 iii).
 pub trait Bridge: Send + Sync {
+    fn voice_available(&self) -> bool { false }
+    fn transcribe(&self, _bytes: &[u8]) -> Result<String, String> { Err("Speech recognition is unavailable".into()) }
+    fn reply_audio(&self, _thread: Option<&str>, _id: &str) -> Result<Vec<u8>, String> { Err("Audio playback is unavailable".into()) }
+
     /// Write the CEO's words to the durable intake log, `fsync`, and hand them to the spine.
     /// Returns as soon as the bytes are on disk — never after the turn.
     fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String>;
@@ -219,9 +223,13 @@ pub struct Channel {
     pub pairing_path: Mutex<&'static str>,
 }
 
+pub fn body_limit(method: &str, path: &str, content_type: Option<&str>) -> usize {
+    if method == "POST" && path == "/api/messages" && content_type == Some("audio/wav") { super::voice::MAX_UPLOAD } else { MAX_BODY_BYTES }
+}
+
 /// **The whole route table.** One match, one fall-through, and the fall-through is a 404.
 pub fn dispatch(channel: &Channel, request: &Incoming) -> Outcome {
-    if request.body.len() > MAX_BODY_BYTES {
+    if request.body.len() > body_limit(&request.method, &request.path, request.content_type.as_deref()) {
         return Outcome::PayloadTooLarge;
     }
     match (request.method.as_str(), request.path.as_str()) {
@@ -442,34 +450,8 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
         return refusal;
     }
 
-    // A voice note arrives as `?kind=voice` with an `audio/wav` body. The route and its
-    // parameters are honored here so the phone's queue gets a real answer; the transcription
-    // itself is slice B and is NOT built, so this says so in a sentence he can read rather than
-    // pretending to accept a note it will never transcribe.
-    // BOTH the query's `kind` and the body's content type, because the phone sends both and a
-    // check on one of them would accept a text envelope wearing a voice query string.
-    let says_voice = query_value(&request.query, "kind") == Some("voice");
-    let sounds_like_voice = request
-        .content_type
-        .as_deref()
-        .map(|t| t.starts_with("audio/"))
-        .unwrap_or(false);
-    if says_voice || sounds_like_voice {
-        return Outcome::Json {
-            status: 503,
-            body: json!({
-                "accepted": false,
-                // THE ANSWER WILL BE THE SAME EVERY TIME THIS BUILD IS ASKED, so the phone is told
-                // not to ask again. Without this the phone reads a 503 as a fault, a fault is
-                // retryable, and the recording sits at the head of his queue holding back every
-                // text he types afterwards (contract §9, plan §2 A). The OTHER 503 on this route —
-                // the Mac could not write his words down — deliberately does NOT carry this and is
-                // still retried, which is the whole reason the flag exists rather than a status.
-                "retry": false,
-                "reason": "Voice notes are not switched on yet. Your recording is still on your phone."
-            })
-            .to_string(),
-        };
+    if query_value(&request.query, "kind") == Some("voice") || request.content_type.as_deref().is_some_and(|v| v.starts_with("audio/")) {
+        return voice_message(channel, request);
     }
 
     let Ok(body) = serde_json::from_slice::<Value>(&request.body) else { return Outcome::NotFound };
@@ -502,8 +484,41 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
         }
         Ok(Delivery::Conflict) => Outcome::Json { status: 409, body: json!({"retry":false,"reason":"That message ID was already used for different text. Your draft is still on your phone."}).to_string() },
         Ok(Delivery::Uncertain) => Outcome::Json { status: 503, body: json!({"retry":false,"reason":"Your Mac may already have this message. Check the conversation before sending it again; your text is still on your phone."}).to_string() },
+        Ok(Delivery::Rejected(reason)) => Outcome::Json { status:422,body:json!({"retry":false,"reason":reason}).to_string() },
         Ok(Delivery::Full) => Outcome::Json { status: 503, body: json!({"retry":false,"reason":"Your Mac's message recovery history is full. Your text is still on your phone."}).to_string() },
         Err(_) => Outcome::Json { status: 503, body: json!({"accepted":false,"reason":"Your Mac could not save the delivery receipt. Your text is still on your phone."}).to_string() },
+    }
+}
+
+fn voice_message(channel: &Channel, request: &Incoming) -> Outcome {
+    let refuse = |status, message: &str| Outcome::Json { status, body: json!({"accepted":false,"retry":false,"reason":message}).to_string() };
+    if !channel.bridge.voice_available() { return refuse(503,"Voice notes are not switched on yet. Your recording is still on your phone."); }
+    if request.content_type.as_deref() != Some("audio/wav") || query_value(&request.query,"kind") != Some("voice") {
+        return Outcome::NotFound;
+    }
+    let Some(client) = query_value(&request.query,"client_id").and_then(|v| percent_decode_component(v).ok()) else { return Outcome::NotFound };
+    let Some(thread) = query_value(&request.query,"thread_id").and_then(|v| percent_decode_component(v).ok()) else { return Outcome::NotFound };
+    if client.is_empty() || client.len()>128 || !channel.bridge.threads().iter().any(|(id,_)| *id == thread) { return Outcome::NotFound; }
+    if let Err(message) = super::voice::validate(&request.body) { return refuse(422,&message); }
+    let Some(device) = channel.devices.paired() else { return Outcome::NotFound };
+    // Bind the receipt to both the destination and the audio. Changing threads must not
+    // turn an old message ID into authority to submit a second turn.
+    let mut receipt_body = thread.as_bytes().to_vec(); receipt_body.push(0); receipt_body.extend_from_slice(&request.body);
+    let delivery = channel.devices.deliveries.execute_prepared(&device.id,&client,&receipt_body,|| channel.bridge.transcribe(&request.body),|text| {
+        // Revocation while recognition was running must prevent a new command.
+        if channel.devices.paired().is_none_or(|d| d.id != device.id) { return Err("revoked".into()); }
+        let accepted = channel.bridge.submit_text(Some(&thread),&text)?;
+        Ok(json!({"message_id":accepted.message_id,"cursor":channel.hub.next_cursor(),"thread_id":accepted.thread_id,
+            "accepted_at":super::rows::iso8601(accepted.at),"duplicate":false}).to_string())
+    });
+    use super::delivery::Delivery;
+    match delivery {
+        Ok(Delivery::Accepted(body)) => Outcome::Json {status:200,body},
+        Ok(Delivery::Duplicate(body)) => { let mut value:Value=serde_json::from_str(&body).unwrap_or(Value::Null); value["duplicate"]=json!(true); Outcome::Json {status:200,body:value.to_string()} },
+        Ok(Delivery::Rejected(reason)) => refuse(422,&reason),
+        Ok(Delivery::Conflict) => refuse(409,"That recording ID already belongs to a different message. The recording remains on your phone."),
+        Ok(Delivery::Uncertain) => refuse(503,"The recording could not be confirmed. Check the conversation before sending again; the recording remains on your phone."),
+        _ => refuse(503,"Your Mac could not save this recording's receipt. The recording remains on your phone."),
     }
 }
 
@@ -607,7 +622,7 @@ fn hello_frame(channel: &Channel, thread_id: &str) -> Result<Frame, ()> {
         // rather than once at pairing, because the phone outlives the build it paired with: he
         // updates the Mac and the app on his phone is the same app, holding whatever it was last
         // told. The phone replaces its answer from each frame and never merges (`api.js`).
-        "capabilities": CAPABILITIES,
+        "capabilities": if channel.bridge.voice_available() { vec!["text", "voice", "audio"] } else { CAPABILITIES.to_vec() },
         "build": BUILD,
         // The rows themselves ride along, so the first paint needs no second request. The phone
         // merges them by cursor exactly as it merges a live `message`.
@@ -628,7 +643,14 @@ fn audio(channel: &Channel, request: &Incoming, message_id: &str) -> Outcome {
     }
     // The id indexes a table the Mac wrote. There is no path here, no file name and nothing
     // derived from the request, so there is nothing to traverse.
-    let Some(file) = channel.devices.audio_file(message_id) else { return Outcome::NotFound };
+    let Some(file) = channel.devices.audio_file(message_id) else {
+        let thread = query_value(&request.query,"thread_id").and_then(|v| percent_decode_component(v).ok());
+        if !channel.bridge.voice_available() { return Outcome::NotFound; }
+        return match channel.bridge.reply_audio(thread.as_deref(),message_id) {
+            Ok(body) if body.len() <= super::voice::MAX_REPLY => Outcome::Bytes {status:200,content_type:"audio/wav".into(),body,download_as:None},
+            _ => Outcome::Json {status:503,body:json!({"retry":false,"reason":"Audio playback is unavailable. The reply remains in the conversation."}).to_string()},
+        };
+    };
     match std::fs::read(&file) {
         Ok(bytes) => Outcome::Bytes {
             status: 200,
@@ -787,9 +809,12 @@ mod tests {
     struct FakeBridge {
         submitted: Mutex<Vec<(Option<String>, String)>>,
         refuse: bool,
+        voice: bool,
         rows: usize,
     }
     impl Bridge for FakeBridge {
+        fn voice_available(&self)->bool {self.voice}
+        fn transcribe(&self,bytes:&[u8])->Result<String,String> { super::super::voice::validate(bytes)?;Ok("A spoken request".into()) }
         fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
             if self.refuse {
                 return Err("the intake log is not writable".into());
@@ -867,7 +892,7 @@ mod tests {
         let challenge = devices.issue_challenge().unwrap();
         let hub = PhoneHub::new();
         hub.set_live(true);
-        let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, rows });
+        let bridge = Arc::new(FakeBridge { submitted: Mutex::new(Vec::new()), refuse, voice:false, rows });
         let channel = Channel {
             // No listener behind these tests, so there is nothing to ring. The route's own
             // behavior on a rejection — the device record going — is asserted here; that the
@@ -886,11 +911,11 @@ mod tests {
     }
 
     /// Build a signed request exactly as `web/web-app/lib/api.js` does.
-    fn signed(f: &Fixture, method: &str, path: &str, query: &str, body: &str) -> Incoming {
+    fn signed(f: &Fixture, method: &str, path: &str, query: &str, body: impl AsRef<[u8]>) -> Incoming {
         let path_with_query =
             if query.is_empty() { path.to_string() } else { format!("{path}?{query}") };
         let message =
-            signing_string(&f.challenge, method, &path_with_query, body.as_bytes());
+            signing_string(&f.challenge, method, &path_with_query, body.as_ref());
         let sig = super::super::b64url(&f.phone.sign(&message));
         Incoming {
             method: method.into(),
@@ -899,7 +924,7 @@ mod tests {
             authorization: Some(format!("RichOS-Device {}.{}.{sig}", f.device_id, f.challenge)),
             last_event_id: None,
             content_type: Some("application/json".into()),
-            body: body.as_bytes().to_vec(),
+            body: body.as_ref().to_vec(),
         }
     }
 
@@ -1071,6 +1096,28 @@ mod tests {
                 assert!(v["reason"].as_str().unwrap().contains("still on your phone"));
             } else { panic!("missing recovery sentence"); }
         }
+    }
+
+    #[test]
+    fn bounded_signed_voice_is_durable_and_bound_to_its_thread() {
+        let mut f = fixture("voice-enabled");
+        // Install a bridge that actually accepts speech, leaving old-Mac coverage intact.
+        let bridge = Arc::new(FakeBridge {submitted:Mutex::new(Vec::new()),refuse:false,voice:true,rows:3});
+        f.channel.bridge = bridge.clone();
+        let bytes=richos_voice::wav::encode_pcm16_mono(&vec![0.1;16000],16000);
+        let query="client_id=spoken-1&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=1";
+        let mut request=signed(&f,"POST","/api/messages",query,&bytes);
+        request.content_type=Some("audio/wav".into());
+        assert_eq!(dispatch(&f.channel,&request).status(),200);
+        assert_eq!(dispatch(&f.channel,&request).status(),200);
+        assert_eq!(bridge.submitted.lock().unwrap().len(),1);
+        assert_eq!(bridge.submitted.lock().unwrap()[0],(Some("thr_5c1e".into()),"A spoken request".into()));
+        let mut changed=bytes.clone();changed[45]^=1;
+        let mut request=signed(&f,"POST","/api/messages",query,&changed);request.content_type=Some("audio/wav".into());
+        assert_eq!(dispatch(&f.channel,&request).status(),409);
+        assert_eq!(body_limit("POST","/api/pair",Some("audio/wav")),MAX_BODY_BYTES);
+        let mut oversized=signed(&f,"POST","/api/messages",query,&vec![0;super::super::voice::MAX_UPLOAD+1]);oversized.content_type=Some("audio/wav".into());
+        assert_eq!(dispatch(&f.channel,&oversized),Outcome::PayloadTooLarge);
     }
 
     #[test]

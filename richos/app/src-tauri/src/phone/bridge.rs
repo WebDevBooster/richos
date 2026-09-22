@@ -42,6 +42,7 @@ pub struct PhoneBridge {
     /// The last gated payload per thread, and the thread list. Refreshed whenever the spine lock
     /// happens to be free.
     cache: Mutex<Cache>,
+    voice: super::voice::VoiceDesk,
 }
 
 #[derive(Default)]
@@ -53,7 +54,8 @@ struct Cache {
 
 impl PhoneBridge {
     pub fn new(app: AppHandle) -> Self {
-        let bridge = PhoneBridge { app, cache: Mutex::new(Cache::default()) };
+        let directory = app.state::<AppState>().data_dir.join("phone/speech");
+        let bridge = PhoneBridge { app, cache: Mutex::new(Cache::default()), voice: super::voice::VoiceDesk::new(directory) };
         // Primed at construction, which is when the CEO opens the pairing screen — so nothing is
         // running and the lock is free. This is what makes the degraded path above rare rather
         // than ordinary.
@@ -85,6 +87,16 @@ impl PhoneBridge {
 }
 
 impl Bridge for PhoneBridge {
+    fn voice_available(&self) -> bool { self.voice.available() }
+    fn transcribe(&self, bytes: &[u8]) -> Result<String, String> { self.voice.transcribe(bytes) }
+    fn reply_audio(&self, thread: Option<&str>, id: &str) -> Result<Vec<u8>, String> {
+        let payload = self.snapshot(thread)?;
+        let rows = super::rows::rows_from_payload(&payload);
+        let row = rows.iter().find(|row| row["id"] == id && row["role"] == "rich" && row["complete"] != false)
+            .ok_or("This reply is not available for playback.")?;
+        self.voice.synthesize(row["text"].as_str().unwrap_or(""))
+    }
+
     fn submit_text(&self, thread_id: Option<&str>, text: &str) -> Result<Accepted, String> {
         let state = self.app.state::<AppState>();
         // The thread the words belong to, resolved HERE and never at drain time: the desktop's

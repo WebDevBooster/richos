@@ -30,7 +30,7 @@
     $('send').disabled = !state.canText || state.updates.blocked || !state.updates.features.text;
     $('retry').hidden = !state.outbox.length; $('retry').disabled = $('send').disabled;
     $('compatibility').textContent = state.unsupported || ((!state.updates.features.text || !state.updates.features.recording) ? state.updates.message : '');
-    const key = JSON.stringify(state.messages);
+    const key = JSON.stringify([state.messages, state.capabilities]);
     if (key !== historyKey || selected !== state.selectedThreadId) {
       const area = $('conversation'), follow = area.scrollHeight - area.scrollTop - area.clientHeight < 80 || selected !== state.selectedThreadId;
       const oldHeight = area.scrollHeight, oldTop = area.scrollTop;
@@ -42,6 +42,10 @@
           const status = document.createElement('p'); status.className = 'msg-meta'; status.textContent = m.sendState === 'blocked' ? 'Not sent · needs attention' : 'Waiting to send'; e.append(status);
           const discard = document.createElement('button'); discard.textContent = 'Discard unsent message'; discard.onclick = () => perform({ type: 'discard', clientId: m.clientId }); e.append(discard);
         } else if (m.complete === false) { const status = document.createElement('span'); status.className = 'msg-meta'; status.textContent = 'Rich is replying…'; e.append(status); }
+        if (m.role==='rich' && m.complete!==false && state.capabilities.includes('audio')) {
+          const play=document.createElement('button');play.textContent='Play reply';play.onclick=()=>perform({type:'reply-play',id:m.id});e.append(play);
+          const stop=document.createElement('button');stop.textContent='Stop playback';stop.onclick=()=>perform({type:'playback-stop'});e.append(stop);
+        }
         return e;
       }));
       if (follow) area.scrollTop = area.scrollHeight;
@@ -53,15 +57,18 @@
     $('older').hidden = !state.confirmed || !state.olderAvailable; $('older').disabled = state.paging || !state.online;
     $('record-start').disabled = state.recording || state.updates.blocked || !state.updates.features.recording;
     $('record-stop').hidden = !state.recording; $('record-cancel').hidden = !state.recording;
-    $('record-status').textContent = state.recording ? 'Recording…' : 'Voice is saved on this phone. Sending voice is coming in a later build.';
+    $('record-status').textContent = state.recording ? 'Recording…' : 'Stop to review your recording, then choose Send recording. Cancel never sends.';
     if (state.recordings.length > recordingCount) $('saved-recordings').open = true;
     recordingCount = state.recordings.length;
-    const recordingsKey = JSON.stringify(state.recordings);
+    const recordingsKey = JSON.stringify([state.recordings,state.canVoice,state.outbox,state.updates.blocked,state.updates.features]);
     if ($('recordings').dataset.value !== recordingsKey) {
       $('recordings').replaceChildren(...state.recordings.map(r => {
         const e = document.createElement('li'); e.textContent = `${Math.round(r.seconds)} seconds · saved on this phone `;
-        for (const [title, type] of [['Play recording', 'record-play'], ['Delete recording', 'record-delete']]) {
-          const button = document.createElement('button'); button.textContent = title; button.onclick = () => perform({ type, id: r.id }); e.append(button);
+        for (const [title, type] of [['Play recording', 'record-play'], ['Send recording', 'record-send'], ['Delete recording', 'record-delete']]) {
+          const button = document.createElement('button'); button.textContent = title; button.onclick = () => perform({ type, id: r.id });
+          const queued=state.outbox.some(x=>x.fileId===r.id);
+          if (type==='record-send') button.disabled=!state.canVoice || queued || state.updates.blocked || !state.updates.features.recording || !state.updates.features.text;
+          if (type==='record-delete') button.disabled=queued; e.append(button);
         } return e;
       })); $('recordings').dataset.value = recordingsKey;
     }

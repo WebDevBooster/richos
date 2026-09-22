@@ -51,6 +51,7 @@ pub mod rows;
 pub mod secrets;
 pub mod stream;
 pub mod tailnet;
+pub mod voice;
 
 use std::fmt;
 

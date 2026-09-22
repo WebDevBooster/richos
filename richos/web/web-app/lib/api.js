@@ -225,7 +225,7 @@
 			const headers = {};
 			let payload;
 			if (body !== undefined && body !== null) {
-				payload = typeof body === 'string' || body instanceof Uint8Array || body instanceof ArrayBuffer
+				payload = opts.isBodyReference?.(body) || typeof body === 'string' || body instanceof Uint8Array || body instanceof ArrayBuffer
 					? body
 					: JSON.stringify(body);
 				headers['Content-Type'] = contentType || 'application/json';
@@ -391,7 +391,7 @@
 				// written to storage and read back in a later launch. It becomes bytes again HERE,
 				// at the last moment, so both the body and the hash that is signed are the same
 				// bytes — a `fetch` handed a plain array would quietly send the JSON text of it.
-				const bytes = item.bytes instanceof Uint8Array ? item.bytes : new Uint8Array(item.bytes || []);
+				const bytes = item.fileId && opts.voiceBody ? opts.voiceBody(item.fileId) : item.bytes instanceof Uint8Array ? item.bytes : new Uint8Array(item.bytes || []);
 				const path = '/api/messages' + query({
 					client_id: item.clientId,
 					thread_id: item.threadId,
@@ -524,9 +524,9 @@
 			// Fetched rather than handed to an <audio src>, for two reasons that both matter: the
 			// element cannot send the authorization header, and a failure here has to be a sentence
 			// he can read rather than a silent control that does nothing.
-			async fetchAudio(messageId) {
-				const response = await request('GET', `/api/audio/${encodeURIComponent(messageId)}`);
-				return response.blob ? response.blob() : response.arrayBuffer();
+			async fetchAudio(messageId, threadId) {
+				const response = await request('GET', `/api/audio/${encodeURIComponent(messageId)}` + query({thread_id:threadId}));
+				return response.nativeAudio || (response.blob ? response.blob() : response.arrayBuffer());
 			},
 
 			// ---- (d) pairing, and the device record ---------------------------------------------

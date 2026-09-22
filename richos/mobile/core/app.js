@@ -56,6 +56,13 @@
             await flush();
             break;
           }
+          case 'send-voice': {
+            if (!model.paired || !model.selectedThreadId) throw new Error('Pair this device before sending');
+            if (!action.recording || typeof action.recording.id !== 'string') throw new Error('Choose a saved recording');
+            await queue.enqueue({ clientId: nextId(), threadId: model.selectedThreadId, kind:'voice', fileId:action.recording.id,
+              codec:'wav16k', sampleRate:16000, seconds:action.recording.seconds, text:'Voice message' });
+            await flush(); break;
+          }
           case 'network':
             if (typeof action.online !== 'boolean') throw new Error('online must be boolean');
             model.online = action.online;

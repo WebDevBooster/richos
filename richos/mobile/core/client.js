@@ -48,7 +48,7 @@
     const now = ports.now || Date.now, setTimer = ports.setTimeout || setTimeout, clearTimer = ports.clearTimeout || clearTimeout;
     let api, link, app, recording = false, recordings = [], words = null, closed = false, suspended = false;
     let connectionReason = 'connecting', lastConnectionProbe = -Infinity;
-    let latestError = null, generation = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
+    let latestError = null, generation = 0, playbackGeneration = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
     let writes = Promise.resolve(), events = Promise.resolve(), pending = Promise.resolve();
     const listeners = new Set();
     function persist(outboxChange) {
@@ -80,7 +80,7 @@
     const state = () => copy({ ...app.state(), messages: thread().view(data.outbox.filter(x => x.threadId === data.session.selectedThreadId)),
       connectionReason: data.revoked ? 'revoked' : unsupported ? 'incompatible' : app.state().online ? 'connected' : connectionReason,
       confirmed: data.confirmed, words, recording, recordings, capabilities: data.api.capabilities || [], error: latestError,
-      updates: updates.state(), unsupported, canText: data.confirmed && !unsupported && (!negotiated || api?.offers('text')),
+      updates: updates.state(), unsupported, canVoice: data.confirmed && !unsupported && api?.offers('voice') === true, canText: data.confirmed && !unsupported && (!negotiated || api?.offers('text')),
       olderAvailable: !thread().atTheBeginning(), paging, focusMessage: data.focusMessage || null, migrationRequired: !data.confirmed });
     function emit() {
       if (!app) return;
@@ -100,6 +100,7 @@
     function gate(feature) {
       const policy = updates.state();
       if (policy.blocked || policy.features[feature] === false) throw Object.assign(Error(policy.message || 'This action is temporarily unavailable. Your work stays on this phone.'), { reason: 'policy', retryable: false });
+      if (feature === 'voice' && (unsupported || !api?.offers('voice'))) throw Object.assign(Error('This Mac cannot accept voice yet. Your recording stays on this phone.'), {reason:'unsupported',retryable:false});
       if (feature === 'text' && (unsupported || (negotiated && !api?.offers('text')))) throw Object.assign(Error(unsupported || 'This Mac does not support text messages.'), { reason: 'unsupported', retryable: false });
     }
     function scheduleRetry() {
@@ -131,6 +132,7 @@
     async function configure() {
       await ports.native('configure', { origin: data.api.apiBase });
       api = Api.createApi({ state: data.api, origin: data.api.apiBase,
+        isBodyReference: value => value && typeof value.recordingFile === 'string', voiceBody: id => ({recordingFile:id}),
         signer: { sign: input => ports.native('sign', { input }), sha256Hex: value => ports.hash(value) },
         fetchImpl: async (...args) => {
           const response = await ports.fetch(...args);
@@ -173,7 +175,10 @@
         put: item => { const value = copy(item); return persist(items => items.filter(x => x.clientId !== value.clientId).concat(value)); },
         remove: id => persist(items => items.filter(x => x.clientId !== id)) },
       session: { read: async () => data.session, write: async value => { data.session = value; await persist(); } },
-      transport: { sendText: async item => { gate('text'); if (closed || suspended || !data.confirmed) throw Object.assign(Error('Connection paused'), { reason: 'unreachable', retryable: true }); try { return await api.sendText(item); } catch (error) { if (error.status === 426) { error.retryable = false; error.reason = 'unsupported'; } throw error; } } },
+      transport: { sendVoice: async item => { gate('voice'); gate('recording'); gate('text');
+        if (closed || suspended || !data.confirmed) throw Object.assign(Error('Connection paused'),{reason:'unreachable',retryable:true});
+        return api.sendVoice(item);
+      }, sendText: async item => { gate('text'); if (closed || suspended || !data.confirmed) throw Object.assign(Error('Connection paused'), { reason: 'unreachable', retryable: true }); try { return await api.sendText(item); } catch (error) { if (error.status === 426) { error.retryable = false; error.reason = 'unsupported'; } throw error; } } },
       clock: { now }, nextId: ports.nextId, deferDrain: true, onError: failure,
       onFlush: async result => {
         for (const { item, answer } of result.accepted || []) {
@@ -286,9 +291,27 @@
           case 'record-cancel':
             await ports.native('recordCancel', {}); recording = false; recordings = await ports.native('recordings', {}); break;
           case 'record-refresh': recording = false; recordings = await ports.native('recordings', {}); break;
+          case 'record-send': {
+            gate('voice'); gate('recording'); gate('text');
+            if (recording) throw Error('Stop recording before sending');
+            const saved = recordings.find(r=>r.id===action.id);
+            if (!saved || data.outbox.some(x=>x.fileId===action.id)) throw Error('Choose a saved recording that is not already queued');
+            if (data.outbox.length>=100) throw Error('Resolve your unsent messages before sending more');
+            await app.dispatch({type:'send-voice',recording:saved}); break;
+          }
+          case 'reply-play': {
+            if (!data.confirmed || !app.state().online || !api.offers('audio') || recording) throw Error('Connect to your Mac and stop recording before playback');
+            const id=data.session.selectedThreadId, mine=generation, playback=++playbackGeneration;
+            // Fetch outside the action queue. Late audio must not start in a different conversation.
+            void api.fetchAudio(action.id,id).then(audio=>{
+              if (!closed && !suspended && generation===mine && playback===playbackGeneration && !recording) return ports.native('replyPlay',{id:audio});
+            }).catch(error=>{if (!closed && generation===mine && playback===playbackGeneration) failure(error);}); break;
+          }
+          case 'playback-stop': playbackGeneration++; await ports.native('playbackStop',{}); break;
           case 'record-play': await ports.native('recordPlay', { id: action.id }); break;
           case 'record-delete':
             if (recording) throw new Error('Stop recording before deleting a recording');
+            if (data.outbox.some(x=>x.fileId===action.id)) throw Error('Resolve the queued voice message before deleting its recording');
             await ports.native('recordDelete', { id: action.id }); recordings = await ports.native('recordings', {}); break;
           default:
             if (action.type === 'send') {
