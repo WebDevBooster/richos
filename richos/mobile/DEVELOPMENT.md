@@ -265,3 +265,8 @@ external test configuration containing `{"cleanupTestRecordings":"true"}`. It di
 visible unsent lab recordings through the real recovery controls and leaves the normal
 composer visible. Ordinary test selections skip this cleanup unless explicitly configured;
 the normal installed app and other conversations are outside its scope.
+
+`device verify preview` installs the current integration build and leaves its existing
+conversation open for manual testing. It requires `RICHOS_MOBILE_TEST_APP=integration`
+and a connected paired Mac. It neither resets the session nor sends, records or discards
+anything. Its connected-composer assertion is readiness evidence, not a voice gesture proof.

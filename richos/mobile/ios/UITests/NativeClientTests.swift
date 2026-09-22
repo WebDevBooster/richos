@@ -220,6 +220,25 @@ final class NativeClientTests: XCTestCase {
         XCTAssertTrue(app.webViews.buttons["Send voice message"].waitForExistence(timeout:10),"Slide up must lock the microphone")
     }
 
+    func testIntegrationManualPreview() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Manual preview preserves the existing physical integration session")
+        #else
+        guard Bundle(for: Self.self).bundleIdentifier == "dev.richos.mobile.integration.uitests" else {
+            throw XCTSkip("Manual preview is confined to the integration app")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["--native-client"]
+        app.launch()
+        XCTAssertTrue(app.webViews.buttons["Settings"].waitForExistence(timeout:15))
+        XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout:20))
+        XCTAssertTrue(app.webViews.textViews["Message"].exists)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="Manual conversation ready";shot.lifetime = .keepAlways;add(shot)
+        // Leave the app open. Do not reset pairing, send messages, record audio
+        // or discard any of the operator's saved recordings.
+        #endif
+    }
+
     func testIntegrationClearsUnsentTestRecordings() throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Only the disposable physical integration app has these operator test recordings")

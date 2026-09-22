@@ -104,9 +104,12 @@ test('recording cleanup requires the disposable app and an explicit cleanup conf
   const ports={project:()=>join(folder,'test.xcodeproj'),usbSnapshot:async()=>[],run:async()=>{calls++;return {status:0};},summary:async()=>({passedTests:1,skippedTests:0,failedTests:0,totalTestCount:1,expectedFailures:0})};
   writeFileSync(process.env.RICHOS_MOBILE_TEST_CONFIG,'{}');
   await assert.rejects(device('verify','cleanup',ports),/disposable integration app/);
+  await assert.rejects(device('verify','preview',ports),/disposable integration app/);
   process.env.RICHOS_MOBILE_TEST_APP='integration';
   await assert.rejects(device('verify','cleanup',ports),/cleanupTestRecordings/);
   assert.equal(calls,0);
   writeFileSync(process.env.RICHOS_MOBILE_TEST_CONFIG,JSON.stringify({cleanupTestRecordings:'true'}));
   await device('verify','cleanup',ports);assert.equal(calls,1);
+  delete process.env.RICHOS_MOBILE_TEST_CONFIG;
+  await device('verify','preview',ports);assert.equal(calls,2,'Preview preserves the existing session without pairing or cleanup config');
 });
