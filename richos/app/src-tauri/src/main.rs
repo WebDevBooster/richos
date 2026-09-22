@@ -738,6 +738,16 @@ fn phone_begin_pairing(
     })
 }
 
+/// Managed access uses the same pairing authority and phone actions as Tailscale.
+#[tauri::command(async)]
+fn phone_connect_enable(app: AppHandle, runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<phone::PhoneStatus, String> {
+    runtime.begin_connect(app).map_err(|e| e.ceo_sentence())
+}
+#[tauri::command(async)]
+fn phone_connect_disable(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<phone::PhoneStatus, String> {
+    runtime.disable_connect().map_err(|e| e.ceo_sentence())
+}
+
 /// **"Stop and go back", pressed while a code is live** — Urban's G2, under the name it took
 /// when CEO §61 removed the chooser it used to point at.
 ///
@@ -3113,6 +3123,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             phone_status,
             phone_begin_pairing,
+            phone_connect_enable,
+            phone_connect_disable,
             phone_stop_pairing,
             phone_forget,
             list_threads,

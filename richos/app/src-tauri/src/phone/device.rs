@@ -193,6 +193,7 @@ pub struct PairedVia;
 impl PairedVia {
     /// `https://<name>.ts.net:8443` — the Tailscale path. No certificate is installed on the
     /// phone on this path, which is the whole of its promise.
+    pub const CONNECT: &'static str = "connect";
     pub const TAILNET: &'static str = "tailnet";
     /// `https://<name>.local:8443` — the home network, which DOES install a profile.
     pub const HOME: &'static str = "home";

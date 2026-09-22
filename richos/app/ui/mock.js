@@ -40,6 +40,7 @@
   // window would draw a countdown the product never shows, so `ui/tests/phone.js` check 8c reads
   // the constant out of the Rust and asserts this line matches it.
   const PAIRING_WINDOW_MS = 300000;
+  let mockConnect = window.__RICHOS_MOCK_PRESET__?.phoneConnect || null;
   const mockPhone = {
     paired: window.__RICHOS_MOCK_PRESET__?.phonePaired === true,
     pairing:
@@ -133,9 +134,10 @@
     // see `pairUrl` below.
     const servingVia =
       mockPhone.paired || mockPhone.pairing
-        ? window.__RICHOS_MOCK_PRESET__?.phoneServingVia || "tailnet"
+        ? window.__RICHOS_MOCK_PRESET__?.phoneServingVia || (mockConnect?.enabled ? "connect" : "tailnet")
         : null;
     return {
+      ...(mockConnect ? { connect: mockConnect } : {}),
       listening: mockPhone.paired || mockPhone.pairing,
       paired: mockPhone.paired,
       // WHAT THE PAIRED PHONE IS AND HOW IT GOT HERE — the two fields `PhoneStatus` grew for
@@ -2140,6 +2142,17 @@
         // **IT TAKES NO ARGUMENT** (CEO §61). It briefly took the user's chosen route —
         // Urban's N1 — and the route went with the chooser. The Mac plans the one path, and a
         // Mac it cannot plan for refuses rather than planning a different one.
+        case "phone_connect_enable":
+          window.__RICHOS_CONNECT_ACTIONS__ = (window.__RICHOS_CONNECT_ACTIONS__ || []).concat("enable");
+          mockConnect = { enabled:true,phase:"active",endpoint:"https://c-test-g1.richos.ceo",health:{state:"connected",restarts:0} };
+          mockPhone.pairing = true;
+          mockPhone.openedAt = now();
+          return phoneStatusOf();
+        case "phone_connect_disable":
+          window.__RICHOS_CONNECT_ACTIONS__ = (window.__RICHOS_CONNECT_ACTIONS__ || []).concat("disable");
+          mockConnect = { enabled:false,phase:"disabled",health:null };
+          mockPhone.paired = false; mockPhone.pairing = false;
+          return phoneStatusOf();
         case "phone_begin_pairing":
           mockPhone.pairing = true;
           mockPhone.openedAt = now();

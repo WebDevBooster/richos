@@ -599,9 +599,7 @@ async function openSheet(browser, theme, preset) {
     );
     return (
       "PAIRING_WINDOW_MS is " + rustMs / 1000 + " s in phone/mod.rs and " + Number(mock[1]) / 1000 +
-      " s in ui/mock.js. One guess per window (complete_pairing takes the window before it " +
-      "compares), 30^8 = 656,100,000,000 codes, so the chance per window is 1.5e-12 at either " +
-      "length — the duration is not in that number."
+      " s in ui/mock.js. Pairing attempt and wrong-code behavior are verified by the Rust device tests."
     );
   });
 
@@ -2329,6 +2327,24 @@ async function openSheet(browser, theme, preset) {
     }
     assertEqual(errors, [], "the pairing screen raised a page error or logged to console.error");
     return combinations + " combination(s) of theme and state opened with no page error and nothing on console.error";
+  });
+
+  await run.check("Connect setup uses managed actions and never asks for Tailscale", async () => {
+    const page = await openSheet(browser, "dark", { phoneConnect: { enabled:false,phase:"not-configured" }, phoneTailnet:{state:"absent"} });
+    assert(await page.locator("#phone-connect").isVisible(), "Connect setup is missing");
+    assert(!await page.locator("#phone-identity").isVisible(), "Connect asks for a Tailscale identity");
+    await page.click("#phone-connect-start");
+    await page.waitForSelector("#phone-pairing:not([hidden])");
+    assert(!await page.locator("#phone-ts-steps").isVisible(), "Managed pairing shows Tailscale steps");
+    assert(await page.locator("#phone-connect-pair-help").isVisible(), "Native pairing instructions missing");
+    await page.click("#phone-connect-disable");
+    await page.waitForSelector("#phone-connect-start:not([hidden])");
+    assertEqual(await page.evaluate(() => window.__RICHOS_CONNECT_ACTIONS__), ["enable","disable"], "Visible controls did not invoke the real action names");
+    await page.click("#phone-use-tailnet");
+    assert(await page.locator("#phone-identity").isVisible(), "Tailscale route cannot be selected");
+    assert(!await page.locator("#phone-connect").isVisible(), "Connect setup remains on the Tailscale route");
+    await page.close();
+    return "Managed setup, pairing instructions, disable and alternate route controls work in WebKit";
   });
 
   await browser.close();
