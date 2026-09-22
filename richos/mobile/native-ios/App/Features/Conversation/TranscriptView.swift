@@ -299,7 +299,7 @@ final class BottomAnchoredTranscriptCollectionView: UICollectionView {
         let geometry = viewportGeometry
         // Jump directly in long threads instead of rendering every intervening
         // message. Keep keyboard focus and follow subsequent streamed output.
-        setContentOffset(CGPoint(x: contentOffset.x, y: geometry.bottomOffset), animated: true)
+        setContentOffset(CGPoint(x: contentOffset.x, y: geometry.bottomOffset), animated: false)
         updateBottomButton(geometry)
     }
 
