@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Owned by stream A1 (build plan §5.0). A3 adds the share target, FCM service and
+     permissions through its handoff notes. No debug-only component is declared here:
+     the development bridge lives in app/src/debug/AndroidManifest.xml. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:name=".app.RichApplication"
+        android:allowBackup="false"
+        android:label="RichOS"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.RichOS">
+        <activity
+            android:name=".app.MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
