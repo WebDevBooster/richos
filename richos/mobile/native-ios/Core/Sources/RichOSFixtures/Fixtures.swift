@@ -46,6 +46,15 @@ public struct Fixture: Sendable {
             s.notifications.status = .on
             s.messages = (full ? Conversation.older : []) + Conversation.round12 + extra
             edit(&s)
+            // Every unsent bubble is backed by its outbox item, exactly as a real send leaves it.
+            for m in s.messages where m.delivery != nil && !s.outbox.contains(where: { $0.clientID == m.id }) {
+                let state: OutboxItem.State = m.delivery == .sending ? .sending : m.delivery == .waiting ? .waiting : .blocked
+                s.outbox.append(OutboxItem(
+                    clientID: m.id, kind: m.kind,
+                    body: m.kind == .text ? ConversationReducer.textBody(clientID: m.id, threadID: s.mac?.threadID, text: m.text, sentAt: m.sentAt) : nil,
+                    recordingID: m.kind == .voice ? "rec_\(m.id)" : nil, queuedAt: m.sentAt, state: state,
+                    lastReason: state == .blocked ? "The Mac could not take this message." : nil))
+            }
         }
     }
 
@@ -293,7 +302,60 @@ public struct Scenario: Sendable {
                                    fingerprintHex: "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B",
                                    threadID: "thr_5c1e")
 
+    static let t0 = Conversation.at(9, 41)
+
     public static let all: [Scenario] = [
+        // A send that fails, waits its backoff, is interrupted by a relaunch mid-flight, and is
+        // accepted on the resend — with the SAME body bytes throughout (contract §5.2, §6.4).
+        Scenario(name: "outbox-retry", steps: [
+            Command(.fixture, name: "conv-empty"),
+            Command(.action, action: .compose(text: "Book the 7:10 to Denver, aisle.")),
+            Command(.action, action: .sendDraft(clientID: "c1", at: t0)),
+            Command(.action, action: .deliveryFailed(clientID: "c1", failure: .retryable(reason: "unreachable"), at: t0 + 50)),
+            Command(.action, action: .tick(at: t0 + 1049)),
+            Command(.action, action: .tick(at: t0 + 1050)),
+            Command(.restart),
+            Command(.action, action: .tick(at: t0 + 1100)),
+            Command(.action, action: .deliveryAccepted(clientID: "c1", at: t0 + 1200)),
+        ], check: { s in
+            try require(s[2].outbox.count == 1 && s[2].outbox[0].state == .sending && s[2].draft.isEmpty, "a send is persisted and in flight at once")
+            try require(s[2].messages.last?.delivery == .sending && s[2].following, "its bubble shows Sending and the conversation follows")
+            try require(s[3].outbox[0].state == .waiting && s[3].outbox[0].notBefore == t0 + 1050, "a retryable failure waits 1 s")
+            try require(s[4] == s[3], "nothing is attempted before the backoff ends")
+            try require(s[5].outbox[0].state == .sending && s[5].outbox[0].attempts == 1, "then it is sent again")
+            try require(s[6].outbox[0].state == .waiting && s[6].outbox[0].notBefore == 0, "a relaunch mid-send resends at once")
+            try require(s[7].outbox[0].state == .sending, "and it goes")
+            try require(Set(s.prefix(8).dropFirst(2).map { $0.outbox[0].body }).count == 1, "every attempt carries the same bytes")
+            try require(s[8].outbox.isEmpty && s[8].messages.last?.delivery == nil, "accepted: delivered, nothing left to send")
+        }),
+        // First in, first out: a final refusal blocks that message only; the next one goes.
+        Scenario(name: "outbox-refused-continues", steps: [
+            Command(.fixture, name: "conv-empty"),
+            Command(.action, action: .compose(text: "First")),
+            Command(.action, action: .sendDraft(clientID: "a", at: t0)),
+            Command(.action, action: .compose(text: "Second")),
+            Command(.action, action: .sendDraft(clientID: "b", at: t0 + 10)),
+            Command(.action, action: .deliveryFailed(clientID: "a", failure: .refused(reason: "conflict"), at: t0 + 20)),
+            Command(.action, action: .deliveryAccepted(clientID: "b", at: t0 + 30)),
+            Command(.action, action: .discardMessage(id: "a")),
+        ], check: { s in
+            try require(s[4].outbox.map(\.state) == [.sending, .waiting], "one in flight; the second waits its turn")
+            try require(s[5].outbox.map(\.state) == [.blocked, .sending], "a final refusal blocks only that item")
+            try require(s[5].messages.first(where: { $0.id == "a" })?.delivery == .needsAttention, "it shows Not sent")
+            try require(s[6].outbox.map(\.clientID) == ["a"], "the second is delivered")
+            try require(s[7].outbox.isEmpty && !s[7].messages.contains { $0.id == "a" }, "the blocked one can be discarded")
+        }),
+        // Removed from the Mac: final for the pairing, never for his words.
+        Scenario(name: "revoked", steps: [
+            Command(.fixture, name: "conv-empty"),
+            Command(.action, action: .compose(text: "Do not retry a revoked device")),
+            Command(.action, action: .sendDraft(clientID: "r", at: t0)),
+            Command(.action, action: .deliveryFailed(clientID: "r", failure: .revoked, at: t0 + 10)),
+            Command(.action, action: .tick(at: t0 + 60_000)),
+        ], check: { s in
+            try require(s[3].screen == .connectionRevoked && s[3].outbox.count == 1, "revoked: the takeover shows and the message is kept")
+            try require(s[4] == s[3], "nothing is retried while revoked")
+        }),
         // The composer takes a draft and gives it back across a theme change and a restart.
         Scenario(name: "compose-draft", steps: [
             Command(.fixture, name: "conv-empty"),

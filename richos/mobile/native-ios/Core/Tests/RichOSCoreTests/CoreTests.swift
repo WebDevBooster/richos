@@ -99,8 +99,16 @@ let repositoryRoot: URL = {
             .compose(text: "x"), .setAppearance(.light), .openScanner, .closeScanner, .scanned(text: "x"),
             .submitPairingLink(text: "x"), .cameraPermission(.denied), .pairingAnswered(Scenario.answer), .pairingRefused,
             .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem, .openSheet(.forget), .closeSheet,
+            .sendDraft(clientID: "c", at: 1), .deliveryAccepted(clientID: "c", at: 2),
+            .deliveryFailed(clientID: "c", failure: .retryable(reason: "x"), at: 3), .deliveryFailed(clientID: "c", failure: .revoked, at: 3),
+            .tick(at: 4), .retryNow(at: 5), .discardMessage(id: "c"), .messagesArrived(Conversation.round12), .replyStarted,
+            .replyDelta(text: "Light."), .replyFinished(Conversation.round12[0]), .loadOlder,
+            .olderLoaded(Conversation.older, reachedBeginning: true), .setFollowing(false), .setComposerFocus(true),
+            .openedFromNotification(messageID: "r1"), .clearFocus, .hearReply(id: "r1"), .playbackStarted(id: "r1"),
+            .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
         ]
-        #expect(all.count == Action.knownTypes.count)
+        #expect(Set(try all.map { try #require(JSONSerialization.jsonObject(with: CoreJSON.encode($0)) as? [String: Any])["type"] as? String })
+                == Set(Action.knownTypes))
         for action in all {
             #expect(try CoreJSON.decode(Action.self, from: CoreJSON.encode(action)) == action)
         }
@@ -186,6 +194,58 @@ let repositoryRoot: URL = {
         s.pairingProblem = nil
         let (next, effects) = Reducer.reduce(s, .pairingAnswered(PairAnswer(deviceID: "dev_x", fingerprintHex: "zz")))
         #expect(next.pairing == .unpaired && next.pairingProblem == .refused && effects.contains(.forgetIdentity))
+    }
+}
+
+@Suite struct ConversationTests {
+    func paired() throws -> AppState { try Fixture.named("conv-empty").state }
+
+    @Test func theRetryClockDoublesFromOneSecondToSixteen() {
+        #expect((1...7).map { ConversationReducer.retryDelayMs(attempt: $0) } == [1000, 2000, 4000, 8000, 16000, 16000, 16000])
+    }
+
+    @Test func theBodyIsTheReferenceShapeAndFixedAtSend() throws {
+        var s = try paired()
+        s.draft = "  where are we on the proposal?  "
+        let (next, effects) = Reducer.reduce(s, .sendDraft(clientID: "01J8FIXTURE0000000000000001", at: 1_790_082_000_000))
+        #expect(effects == [.persist, .deliver(clientID: "01J8FIXTURE0000000000000001")])
+        // The contract's text vector (fixtures/signing.json) has this exact shape and field order.
+        #expect(next.outbox[0].body == #"{"client_id":"01J8FIXTURE0000000000000001","thread_id":"thr_5c1e","kind":"text","text":"where are we on the proposal?","sent_at":"2026-09-22T13:00:00.000Z"}"#)
+    }
+
+    @Test func nothingIsSentWhileOfflineAndItGoesWhenTheNoticeClears() throws {
+        var s = try paired()
+        s.connectionNotice = .phoneOffline
+        s.draft = "Hello"
+        let (queued, effects) = Reducer.reduce(s, .sendDraft(clientID: "c", at: 1))
+        #expect(effects == [.persist] && queued.outbox[0].state == .waiting)
+    }
+
+    @Test func anOverlongDraftIsNotSentAndSaysTheLimit() throws {
+        var s = try paired()
+        s.draft = String(repeating: "x", count: Limits.messageCharacters + 1)
+        let (next, _) = Reducer.reduce(s, .sendDraft(clientID: "c", at: 1))
+        #expect(next.outbox.isEmpty && next.toast == .tooLong(limit: 4000))
+    }
+
+    @Test func sendingResumesFollowing() throws {
+        var s = try paired()
+        s.following = false
+        s.draft = "Hi"
+        #expect(Reducer.reduce(s, .sendDraft(clientID: "c", at: 1)).state.following)
+    }
+
+    @Test func lateAudioForAReplyNoLongerAskedForNeverStarts() throws {
+        var s = try Fixture.named("conv-preparing-reply").state
+        s = Reducer.reduce(s, .hearReply(id: "r1")).state
+        let (next, effects) = Reducer.reduce(s, .playbackStarted(id: "h2"))
+        #expect(next.playback == Playback(messageID: "r1", phase: .preparing) && effects == [.stopAudio])
+    }
+
+    @Test func discardingTheLastUnsentMessageUnblocksPairing() throws {
+        let s = try Fixture.named("pair-blocked").state
+        let next = Reducer.reduce(s, .discardMessage(id: "q1")).state
+        #expect(next.pairingProblem == nil && next.outbox.isEmpty)
     }
 }
 
