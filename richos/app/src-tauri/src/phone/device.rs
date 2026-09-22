@@ -83,16 +83,12 @@ pub const CHALLENGE_LIFETIME_MS: u64 = 600_000;
 /// own file count so it cannot quietly go under it again.
 ///
 /// **256, and the bound is still doing its original job.** It is the same size as
-/// [`CLIENT_ID_MEMORY`] and costs about 14 KB; it is more than ten times the widest legitimate
+/// the former idempotency cache and costs about 14 KB; it is more than ten times the widest legitimate
 /// burst; and it still stops the set growing without limit under a caller that only ever asks for
 /// challenges. What it does NOT do is lengthen any challenge's life — that is
 /// [`CHALLENGE_LIFETIME_MS`]'s job alone, and `issue_challenge` now drops expired entries on the
 /// way past so age is what retires a challenge rather than a queue depth.
 const LIVE_CHALLENGES: usize = 256;
-
-/// How many recent idempotency keys are remembered. The phone retries a send; it does not send
-/// hundreds.
-const CLIENT_ID_MEMORY: usize = 256;
 
 /// 60 requests per rolling minute, and at most 4 concurrent event streams. Sized for one CEO
 /// and one phone (plan §2.5 item 6) — a hostile device on his Wi-Fi cannot exhaust the Mac by
@@ -335,6 +331,7 @@ pub fn parse_authorization(header: &str) -> Option<(String, String, Vec<u8>)> {
 pub struct DeviceDesk {
     path: PathBuf,
     state: Mutex<State>,
+    pub deliveries: super::delivery::DeliveryDesk,
 }
 
 struct State {
@@ -345,8 +342,6 @@ struct State {
     /// Device ids that were paired and have been forgotten. Kept so a phone gets a final
     /// answer rather than an endless 404.
     revoked: VecDeque<String>,
-    /// `client_id` to the answer already given for it.
-    answered: VecDeque<(String, String)>,
     requests: VecDeque<u64>,
     pairing_requests: VecDeque<u64>,
     streams: usize,
@@ -450,13 +445,13 @@ impl DeviceDesk {
         // A durable revocation wins even if the process stopped before deleting device.json.
         let device = device.filter(|d| !revoked.contains(&d.id));
         Ok(DeviceDesk {
+            deliveries: super::delivery::DeliveryDesk::open(dir)?,
             path,
             state: Mutex::new(State {
                 device,
                 pairing: None,
                 challenges: VecDeque::new(),
                 revoked,
-                answered: VecDeque::new(),
                 requests: VecDeque::new(),
                 pairing_requests: VecDeque::new(),
                 streams: 0,
@@ -645,7 +640,6 @@ impl DeviceDesk {
             state.device = None;
         }
         state.pairing = None;
-        state.answered.clear();
         state.challenges.clear();
         state.audio.clear();
         match std::fs::remove_file(&self.path) {
@@ -745,20 +739,6 @@ impl DeviceDesk {
     /// `false` when nothing is paired at all — there is no phone to have confirmed anything.
     pub fn fingerprint_confirmed(&self) -> bool {
         self.state.lock().unwrap().device.as_ref().map(|d| d.fingerprint_confirmed).unwrap_or(false)
-    }
-
-    /// Has this `client_id` already been answered? The phone's idempotency key.
-    pub fn already_answered(&self, client_id: &str) -> Option<String> {
-        let state = self.state.lock().unwrap();
-        state.answered.iter().find(|(id, _)| id == client_id).map(|(_, answer)| answer.clone())
-    }
-
-    pub fn remember_answer(&self, client_id: &str, answer: &str) {
-        let mut state = self.state.lock().unwrap();
-        state.answered.push_back((client_id.to_string(), answer.to_string()));
-        while state.answered.len() > CLIENT_ID_MEMORY {
-            state.answered.pop_front();
-        }
     }
 
     pub fn set_push(&self, sub: Option<Subscription>) -> Result<(), PhoneError> {
@@ -1597,18 +1577,6 @@ pub(crate) mod tests {
     }
 
     // --- the small memories ---------------------------------------------------------------------
-
-    #[test]
-    fn an_idempotency_key_is_answered_once_and_then_repeated() {
-        let (_dir, desk, _phone, _device, _c) = paired("idempotent");
-        assert!(desk.already_answered("01J8").is_none());
-        desk.remember_answer("01J8", "{\"message_id\":\"m1\",\"duplicate\":false}");
-        assert_eq!(
-            desk.already_answered("01J8").as_deref(),
-            Some("{\"message_id\":\"m1\",\"duplicate\":false}")
-        );
-        assert!(desk.already_answered("01J9").is_none());
-    }
 
     #[test]
     fn an_audio_id_the_mac_did_not_mint_resolves_to_nothing() {

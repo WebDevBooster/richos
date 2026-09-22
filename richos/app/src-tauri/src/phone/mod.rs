@@ -41,6 +41,7 @@ pub mod assets;
 pub mod bridge;
 pub mod ca;
 pub mod device;
+pub mod delivery;
 pub mod listen;
 pub mod names;
 pub mod push;
