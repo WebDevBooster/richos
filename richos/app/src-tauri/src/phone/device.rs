@@ -1559,6 +1559,101 @@ pub(crate) mod tests {
         assert_eq!(desk.verify(&one_more), Err(Refusal::RateLimited));
     }
 
+    /// **A STRANGER MUST NOT BE ABLE TO LOCK THE PAIRED PHONE OUT** — PRD 2026-09-21 §7
+    /// "Isolation/abuse": *"Another host/device cannot … exhaust its authenticated limits."*
+    ///
+    /// Found by `ray-opus-install2` from reading `verify`: step 0 pushed EVERY caller into one
+    /// window before the device id was looked at, so sixty requests a minute from anybody who
+    /// can reach the port — over Connect, anybody on the internet — refused the phone
+    /// `RateLimited` for as long as they kept it up.
+    #[test]
+    fn a_stranger_cannot_exhaust_the_paired_phones_allowance() {
+        let (_dir, desk, phone, device, challenge) = paired("stranger-flood");
+        let stranger = Phone::new();
+        let mut rate_limited = 0;
+        for _ in 0..RATE_LIMIT * 3 {
+            let p = present(&stranger, "dev_000000000000", &challenge, "POST", "/api/messages", b"{}");
+            match desk.verify(&p) {
+                Err(Refusal::RateLimited) => rate_limited += 1,
+                Err(Refusal::UnknownDevice) => {}
+                other => panic!("a stranger was answered {other:?}"),
+            }
+        }
+        // POSITIVE CONTROL for the property that must be KEPT: strangers are still bounded.
+        assert_eq!(rate_limited, RATE_LIMIT * 2, "strangers are no longer rate limited at all");
+
+        let p = present(&phone, &device.id, &challenge, "POST", "/api/messages", b"{}");
+        assert_eq!(
+            desk.verify(&p),
+            Ok(device),
+            "{} stranger requests locked the paired phone out of its own Mac",
+            RATE_LIMIT * 3
+        );
+    }
+
+    /// **THE REVERSE: THE PAIRED PHONE SPENDING ITS OWN ALLOWANCE STARVES NOTHING ELSE.**
+    ///
+    /// The design (see [`RATE_LIMIT`]): a forgotten phone's answer is final and costs no bucket;
+    /// strangers share one bucket of their own; the paired phone has its own, which belongs to
+    /// the device record and starts empty when a new phone pairs; pairing attempts have theirs.
+    #[test]
+    fn the_paired_phone_flooding_its_own_allowance_starves_nothing_else() {
+        let dir = TempDir::new("own-flood");
+        let desk = Arc::new(DeviceDesk::open(&dir.0).unwrap());
+        let pair = |phone: &Phone| {
+            let w = desk.open_pairing().unwrap();
+            desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS)
+                .unwrap()
+        };
+        let forgotten = Phone::new();
+        let forgotten_id = pair(&forgotten).id;
+        desk.forget().unwrap();
+        let loud = Phone::new();
+        let loud_device = pair(&loud);
+        let challenge = desk.issue_challenge().unwrap();
+
+        for i in 0..RATE_LIMIT {
+            let p = present(&loud, &loud_device.id, &challenge, "GET", "/api/events", b"");
+            assert!(desk.verify(&p).is_ok(), "request {i} was refused inside the phone's own allowance");
+        }
+        let p = present(&loud, &loud_device.id, &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Err(Refusal::RateLimited), "the phone's own bucket is unbounded");
+
+        // 1. The forgotten phone is still told, finally, rather than told to come back later.
+        let p = present(&forgotten, &forgotten_id, &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Err(Refusal::Revoked), "a revoked phone was answered with the paired phone's limit");
+
+        // 2. A stranger is answered from the stranger's bucket, not the phone's.
+        let p = present(&forgotten, "dev_000000000000", &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Err(Refusal::UnknownDevice));
+
+        // 3. Forgetting the loud phone and pairing another: the new phone is not refused for
+        //    the minute the old one spent.
+        desk.forget().unwrap();
+        let next = Phone::new();
+        let next_device = pair(&next);
+        let challenge = desk.issue_challenge().unwrap();
+        let p = present(&next, &next_device.id, &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Ok(next_device), "a newly paired phone inherited the last phone's limit");
+    }
+
+    /// **THE STATED RESIDUAL, pinned so nobody reads the fix as more than it is.** A caller that
+    /// already holds the paired phone's device id — which travels only inside TLS, and is 48 bits
+    /// of the phone's public key hash, never guessable — reaches the phone's own bucket with forged
+    /// signatures, and is bounded there BEFORE any crypto. Bounded work wins over that caller's
+    /// ability to spend the phone's minute; the id is not a secret we can rely on and the key is.
+    #[test]
+    fn forged_signatures_under_the_real_device_id_are_bounded_before_any_crypto() {
+        let (_dir, desk, _phone, device, challenge) = paired("forged-id");
+        let impostor = Phone::new();
+        for _ in 0..RATE_LIMIT {
+            let p = present(&impostor, &device.id, &challenge, "POST", "/api/messages", b"{}");
+            assert_eq!(desk.verify(&p), Err(Refusal::BadSignature));
+        }
+        let p = present(&impostor, &device.id, &challenge, "POST", "/api/messages", b"{}");
+        assert_eq!(desk.verify(&p), Err(Refusal::RateLimited));
+    }
+
     #[test]
     fn a_stream_slot_comes_back_when_the_stream_ends_however_it_ends() {
         let (_dir, desk, _phone, _device, _c) = paired("slots");
