@@ -265,7 +265,7 @@ fn verified(channel: &Channel, request: &Incoming, header: &str, path_with_query
         Err(Refusal::RateLimited) => Err(Outcome::RateLimited),
         Err(Refusal::Revoked) => Err(Outcome::Revoked),
         Err(refusal) => {
-            log_refusal(&request.path, &refusal);
+            log_refusal(&refusal);
             Err(Outcome::NotFound)
         }
     }
@@ -380,7 +380,7 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
     let device = match channel.devices.complete_pairing(code, &form, name, via, platform) {
         Ok(d) => d,
         Err(refusal) => {
-            log_refusal("POST /api/pair", &refusal);
+            log_refusal(&refusal);
             return Outcome::NotFound;
         }
     };
@@ -722,10 +722,17 @@ fn percent_decode_component(value: &str) -> Result<String, ()> {
     Ok(super::listen::percent_decode(&spaced))
 }
 
-/// Every refusal goes to the Mac's own log with its reason, and to the caller as a flat 404. A
-/// refusal nobody can explain is its own kind of defect.
-fn log_refusal(route: &str, refusal: &Refusal) {
-    eprintln!("[richos] the phone channel refused {route}: {refusal:?}");
+/// Public reach must not let unauthenticated traffic fill the Mac's log. Sample a
+/// bounded reason at most once per ten seconds, without any caller-controlled path.
+fn refusal_log_due(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    if last.is_some_and(|at| now.saturating_duration_since(at).as_secs() < 10) { return false; }
+    *last = Some(now); true
+}
+fn log_refusal(refusal: &Refusal) {
+    static LAST: std::sync::OnceLock<Mutex<Option<std::time::Instant>>> = std::sync::OnceLock::new();
+    if refusal_log_due(&mut LAST.get_or_init(|| Mutex::new(None)).lock().unwrap(), std::time::Instant::now()) {
+        eprintln!("[richos] the phone channel refused a request: {refusal:?} (sampled)");
+    }
 }
 
 #[cfg(test)]
@@ -734,6 +741,16 @@ mod tests {
     use crate::phone::device::signing_string;
     use crate::phone::device::tests::Phone;
     use std::sync::Mutex;
+
+    #[test]
+    fn unauthenticated_refusal_flood_has_a_fixed_log_bound() {
+        let start = std::time::Instant::now();
+        let mut last = None;
+        assert!(refusal_log_due(&mut last, start));
+        for millis in 0..10000 { assert!(!refusal_log_due(&mut last, start + std::time::Duration::from_millis(millis))); }
+        assert!(refusal_log_due(&mut last, start + std::time::Duration::from_secs(10)));
+        assert!(!refusal_log_due(&mut last, start));
+    }
 
     /// A stand-in for the embedded phone app: two files, named as the real table names
     /// them. These tests are about the ROUTE — which paths reach the app and which get a
