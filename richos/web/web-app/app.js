@@ -481,7 +481,11 @@ function connectStream() {
 function scheduleRender() {
 	if (renderQueued) return;
 	renderQueued = true;
-	requestAnimationFrame(() => { renderQueued = false; render(false); });
+	requestAnimationFrame(() => {
+        renderQueued=false;render(false);
+        const model=thread;
+        if(model && signer)void model.reconcileVoice(text=>signer.sha256Hex(text)).then(changed=>{if(changed && model===thread)render(false);}).catch(handleApiError);
+    });
 }
 
 function stickToBottom() { following.resume(); }

@@ -160,6 +160,7 @@
 					role: 'ceo',
 					kind: item.kind === 'voice' ? 'voice' : 'text',
 					text: item.text || '',
+                    text_sha256: answer.text_sha256,
 					seconds: item.seconds,
 					created_at: answer.accepted_at || null,
 					state: 'sent',
@@ -168,6 +169,22 @@
 				});
 				return this;
 			},
+
+            // The voice receipt carries a hash instead of storing a second transcript on the Mac.
+            // Resolve either ACK/projection order so the temporary voice bubble retires.
+            async reconcileVoice(hash) {
+                let changed=false;
+                const projected=[...rows.values()].filter(row=>row.role==='ceo');
+                for(const [clientId,held] of confirmedByClientId) {
+                    if(held.kind!=='voice' || !/^[a-f0-9]{64}$/.test(held.text_sha256 || ''))continue;
+                    for(const row of projected) {
+                        if(await hash(row.text || '')===held.text_sha256 && confirmedByClientId.get(clientId)===held) {
+                            confirmedByClientId.delete(clientId);changed=true;break;
+                        }
+                    }
+                }
+                return changed;
+            },
 
 			/// Older messages, fetched behind a scroll to the top. `more === false` means the
 			/// beginning of the thread, which is a real end and is rendered as one.

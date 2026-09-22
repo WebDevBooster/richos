@@ -130,3 +130,20 @@ test('switching threads leaves nothing of the old one behind', () => {
 	assert.strictEqual(thread.knowsClientId('c-1'), false);
 	assert.strictEqual(thread.atTheBeginning(), false);
 });
+
+test('voice confirmation retires against the transcript hash in either arrival order',async()=>{
+ const hash=text=>require('node:crypto').createHash('sha256').update(text).digest('hex');
+ for(const projectionFirst of [true,false]){
+  const model=createThread(),speech=row({id:'speech',role:'ceo',text:'Quick voice message',cursor:2});
+  if(projectionFirst)model.merge(speech);
+  model.confirm({clientId:'voice',kind:'voice',seconds:5},{cursor:1,text_sha256:hash(speech.text)});
+  if(!projectionFirst){assert.equal(await model.reconcileVoice(hash),false);model.merge(speech);}
+  assert.equal(await model.reconcileVoice(hash),true);assert.deepStrictEqual(model.view([]).map(r=>r.id),['speech']);
+  assert.equal(await model.reconcileVoice(hash),false);
+ }
+});
+test('unrelated speech cannot retire a voice confirmation',async()=>{
+ const model=createThread();model.merge(row({role:'ceo',text:'Other message'}));
+ model.confirm({clientId:'voice',kind:'voice'},{cursor:2,text_sha256:'a'.repeat(64)});
+ assert.equal(await model.reconcileVoice(()=> 'b'.repeat(64)),false);assert.equal(model.view([]).length,2);
+});
