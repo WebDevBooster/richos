@@ -59,6 +59,8 @@ struct IsolatedBridge {
     push: Arc<Mutex<phone::notifications::Desk>>,
     push_client: Option<Arc<phone::connect::client::Client>>,
     reply_delay: Duration,
+    vapid: Arc<phone::push::VapidKey>,
+    origin: String,
 
 }
 impl Bridge for IsolatedBridge {
@@ -89,6 +91,7 @@ impl Bridge for IsolatedBridge {
         let spine = Arc::clone(&self.spine);
         let devices=Arc::clone(&self.devices);let push=Arc::clone(&self.push);let client=self.push_client.clone();
         let reply_thread=thread.to_string();let delay=self.reply_delay;
+        let vapid=Arc::clone(&self.vapid);let origin=self.origin.clone();
 
         self.workers
             .lock()
@@ -100,6 +103,29 @@ impl Bridge for IsolatedBridge {
                     .unwrap()
                     .poll_intake()
                     .expect("isolated phone intake drain");
+                if let Some(device)=devices.paired() {
+                    if let Some(subscription)=device.push.as_ref().filter(|_| devices.open_streams()==0) {
+                        let payload=crate::timeline_view::timeline_payload(&*spine.lock().unwrap(),&reply_thread).unwrap();
+                        let rows=phone::rows::rows_from_payload(&payload);
+                        if let Some(last)=rows.iter().rev().find(|row|row["role"]=="rich") {
+                            if device.delivered_cursor < last["cursor"].as_u64() {
+                                // Use the production encryption, VAPID and vendor validation against the real phone subscription.
+                                let body=json!({"notification":{"title":"Rich","body":last["text"],
+                                    "navigate":format!("/#thread={}&at={}",reply_thread,last["id"].as_str().unwrap())},
+                                    "message":last,"api_base":origin,"tier":"interrupt_now","truncated":false}).to_string();
+                                assert!(phone::push::fits_in_one_push(body.as_bytes()),"Keep isolated acknowledgement messages short");
+                                let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                                runtime.block_on(async {
+                                    let http=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+                                    match phone::push::send(&http,&vapid,subscription,body.as_bytes(),"high").await {
+                                        Ok(delivery)=>eprintln!("isolated Web Push delivery status: {}",delivery.status),
+                                        Err(error)=>eprintln!("isolated Web Push delivery failed: {error}"),
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
                 if let (Some(client),Some(device))=(client,devices.paired()) {
                     if let Ok(payload)=crate::timeline_view::timeline_payload(&*spine.lock().unwrap(),&reply_thread) {
                         let mut desk=push.lock().unwrap();
@@ -180,12 +206,19 @@ fn serve() {
         let secrets=LabSecrets{directory:dir.clone()};secrets.put("connect-host-identity-v1",&std::fs::read(file).unwrap()).unwrap();
         Arc::new(phone::connect::client::Client::new(phone::connect::client::Identity::open(&secrets).unwrap()))
     });
+    use phone::secrets::SecretStore;
+    let secrets=LabSecrets{directory:dir.clone()};
+    let vapid=Arc::new(match secrets.get(phone::secrets::VAPID_KEY).unwrap() {
+        Some(key)=>phone::push::VapidKey::from_pkcs8(&key).unwrap(),
+        None=>{let key=phone::push::VapidKey::generate().unwrap();secrets.put(phone::secrets::VAPID_KEY,&key.pkcs8).unwrap();key},
+    });
     let bridge = Arc::new(IsolatedBridge {
         spine: Arc::new(Mutex::new(spine)),
         control,
         thread,
         entity,
         workers: Mutex::new(vec![]),
+        vapid:Arc::clone(&vapid),origin:origin.clone(),
         voice:if std::env::var("RICHOS_MOBILE_VOICE_TEST").as_deref()==Ok("1") {Some(phone::voice::VoiceDesk::new(dir.join("speech")))} else {None},
         devices:Arc::clone(&devices),push:Arc::new(Mutex::new(phone::notifications::Desk::open(&dir).unwrap())),push_client,
         reply_delay:Duration::from_millis(std::env::var("RICHOS_MOBILE_REPLY_DELAY_MS").ok().and_then(|s|s.parse::<u64>().ok()).unwrap_or(0).min(10000)),
@@ -197,9 +230,7 @@ fn serve() {
         hub,
         bridge: bridge.clone(),
         assets: PhoneApp::embedded(),
-        vapid_public: phone::push::VapidKey::generate()
-            .unwrap()
-            .application_server_key(),
+        vapid_public: vapid.application_server_key(),
         fingerprint_hex: ca.fingerprint_hex(),
         pairing_path: Mutex::new(if managed { phone::device::PairedVia::CONNECT } else { phone::device::PairedVia::TAILNET }),
     });
