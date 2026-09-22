@@ -164,3 +164,19 @@ test('a late Connect outage probe cannot overwrite a recovered stream or queued 
   assert.equal(app.state().connectionReason,'connected');
   assert.equal(app.state().draft,'Keep this draft');
 });
+
+
+test('a fresh stream clears a transient connection error and preserves the unsent draft', async t => {
+  const h = harness(), original = h.ports.fetch;
+  let unavailable = false;
+  h.ports.fetch = async (...args) => unavailable && args[0].includes('before=') ? new Response('Bad Gateway', {status:502}) : original(...args);
+  const app = await createClient(h.ports); t.after(() => app.close()); await pair(app);
+  h.opened.at(-1).event('message',{id:'reply',role:'rich',text:'Recent reply',cursor:10}); await app.settle();
+  await app.dispatch({type:'compose',text:'Keep this draft'});
+  unavailable=true;
+  await app.dispatch({type:'older'}); await turn();
+  assert.match(app.state().error,/temporarily unavailable/);
+  h.opened.at(-1).event('hello',{challenge:'fresh',capabilities:['text']}); await app.settle();
+  assert.equal(app.state().error,null);
+  assert.equal(app.state().draft,'Keep this draft');
+});

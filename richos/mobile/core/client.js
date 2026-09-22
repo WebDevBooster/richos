@@ -55,7 +55,7 @@
     let beforeRecording = new Set();
     let pushState = 'off', pushBusy = false, pushAgain = false, pushError = null;
     let connectionReason = 'connecting', lastConnectionProbe = -Infinity;
-    let latestError = null, generation = 0, playbackGeneration = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
+    let latestError = null, transientError = false, generation = 0, playbackGeneration = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
     let writes = Promise.resolve(), events = Promise.resolve(), pending = Promise.resolve();
     const listeners = new Set();
     function persist(outboxChange) {
@@ -109,7 +109,7 @@
         connectionReason = Connection.classify(info); emit();
       }).catch(() => {});
     }
-    function failure(error) { latestError = error.message || String(error); emit(); }
+    function failure(error) { transientError=error.retryable===true;latestError = error.message || String(error); emit(); }
     function closeStream() { generation++; link?.close(); link = null; }
     function gate(feature) {
       const policy = updates.state();
@@ -135,6 +135,7 @@
         if (name === 'state') thread(id).applyState(frame);
         if (name === 'delta') thread(id).applyDelta(frame);
         if (name === 'hello') {
+          if(transientError){latestError=null;transientError=false;}
           if (Array.isArray(frame.messages)) thread(id).merge(frame.messages);
           negotiated = true;
           unsupported = frame.protocol_version !== undefined && frame.protocol_version !== 1 ? 'Update this app or your Mac to use compatible RichOS versions.' : null;
@@ -245,7 +246,7 @@
         const captured=recordings.find(r=>!beforeRecording.has(r.id));
         if (!captured) return;
         if (send) await submitVoice(captured,context);
-        else latestError='Recording interrupted. Your voice message is kept below.';
+        else latestError=captured.seconds>=30*60-1 ? 'Your 30-minute voice message is saved below. Send it, then start another.' : 'Recording interrupted. Your voice message is kept below.';
       }
     });
     async function submitVoice(saved,context={threadId:data.session.selectedThreadId,origin:data.api.apiBase}) {
@@ -301,7 +302,7 @@
     }
     function dispatch(action) {
       if (action.type.startsWith('voice-')) {
-        latestError=null;
+        latestError=null;transientError=false;
         try {
           if(action.type==='voice-press') {gate('recording');gate('voice');if(!data.confirmed)throw Error('Pair this phone before recording');return gesture.press({threadId:data.session.selectedThreadId,origin:data.api.apiBase});}
           if(action.type==='voice-move')return gesture.move(action.dx,action.dy);
@@ -313,7 +314,7 @@
         } catch(error) {failure(error);return Promise.reject(error);}
       }
       const work = async () => {
-        latestError = null;
+        latestError = null;transientError=false;
         switch (action.type) {
           case 'notifications-enable': {
             if (!data.confirmed) throw Error('Pair this phone before enabling notifications.');

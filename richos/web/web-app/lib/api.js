@@ -329,7 +329,7 @@
 				if (final) {
 					throw new ApiError(REFUSED, final.reason || 'your Mac will not take that', response.status, true);
 				}
-				throw new ApiError(FAULT, `your Mac answered with ${response.status}`, response.status);
+				throw new ApiError(FAULT, 'Your Mac is temporarily unavailable. Your unsent messages stay on this phone.', response.status);
 			}
 			return response;
 		}
@@ -444,7 +444,7 @@
 					: null;
 				// A Mac that answered without one is not a Mac this phone can sign for. Say so
 				// rather than carrying on with the dead challenge and blaming the signature.
-				if (!next) throw new ApiError(FAULT, 'your Mac answered without a challenge');
+				if (!next) throw new ApiError(FAULT, 'Your Mac is not ready to reconnect yet. Your unsent messages stay on this phone.');
 				setChallenge(next);
 				return next;
 			},
@@ -543,7 +543,7 @@
 				if (response.status === 404 || response.status === 403) {
 					throw new ApiError(REFUSED, 'your Mac did not accept that pairing code', response.status);
 				}
-				if (!response.ok) throw new ApiError(FAULT, `your Mac answered with ${response.status}`, response.status);
+				if (!response.ok) throw new ApiError(FAULT, 'Your Mac is temporarily unavailable. Your unsent messages stay on this phone.', response.status);
 				const body = await response.json();
 				state.deviceId = body.device_id;
 				setChallenge(body.challenge);
