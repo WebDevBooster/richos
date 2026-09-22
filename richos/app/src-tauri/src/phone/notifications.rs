@@ -7,18 +7,24 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct Registration { pub token: String, pub environment: String, pub topic: String }
+pub struct Registration {
+    pub token: String, pub environment: String, pub topic: String,
+    #[serde(default)] pub preview_key: Option<String>,
+    #[serde(default = "preview_default")] pub previews: bool,
+}
+fn preview_default() -> bool { true }
 impl Registration {
     pub fn validate(&self) -> bool {
         (32..=512).contains(&self.token.len()) && self.token.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
             && ["sandbox","production"].contains(&self.environment.as_str())
+            && self.preview_key.as_ref().is_none_or(|key| unb64url(key).is_ok_and(|bytes| bytes.len()==32))
             && ["dev.richos.mobile.loop","dev.richos.mobile.integration"].contains(&self.topic.as_str())
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Target { device: String, hash: String, registration: Registration, route: String }
 #[derive(Clone, Serialize, Deserialize)]
-struct Event { event: String, thread: String, expires: u64 }
+struct Event { event: String, thread: String, expires: u64, #[serde(default)] preview: Option<Value> }
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     revision: u64, target: Option<Target>, dirty: bool, host: Option<String>, generation: u64,
@@ -71,7 +77,7 @@ impl Desk {
         if self.state.delivered.contains(&event) || self.state.jobs.iter().any(|j|j.event==event) {return Ok(())}
         self.state.jobs.retain(|j|j.expires>super::now_millis());
         if self.state.jobs.len()>=100 {return Err(unavailable())}
-        self.state.jobs.push(Event {event,thread:hex(&sha256(thread.as_bytes())),expires:super::now_millis()+3600000});self.save()
+        self.state.jobs.push(Event {event,thread:hex(&sha256(thread.as_bytes())),expires:super::now_millis()+3600000,preview:None});self.save()
     }
     pub fn reconcile(&mut self,control:&dyn Control,current:Option<&Device>)->Result<(),String> {
         if self.state.target.as_ref().is_some_and(|t|!current.is_some_and(|d|d.id==t.device && d.fingerprint_confirmed)) {self.clear()?;}
@@ -99,7 +105,7 @@ impl Desk {
             self.state.dirty=false;self.save()?;
         }
         while let (Some(target),Some(job))=(&self.state.target,self.state.jobs.first()) {
-            let result=control.call("POST","/v1/push/events",&json!({"deviceHash":target.hash,"revision":self.state.revision,"eventRef":job.event,"threadRef":job.thread}).to_string())?;
+            let result=control.call("POST","/v1/push/events",&json!({"deviceHash":target.hash,"revision":self.state.revision,"eventRef":job.event,"threadRef":job.thread,"preview":job.preview}).to_string())?;
             if result.status==409 {self.state.dirty=true;self.state.revision=self.state.revision.saturating_add(1).max(super::now_millis());self.save()?;return Err(unavailable())}
             if result.status!=202 {return Err(unavailable())}
             self.state.delivered.push(job.event.clone());if self.state.delivered.len()>1000 {self.state.delivered.remove(0);}
@@ -118,7 +124,27 @@ pub fn queue_reply(desk:&mut Desk,device:&Device,thread:&str,payload:&Value)->Re
     let Some(row)=rows.iter().rev().find(|r|r["role"]=="rich" && r["complete"]!=false) else {return Ok(())};
     if device.delivered_cursor>=row["cursor"].as_u64() {return Ok(())}
     let Some(event)=row["id"].as_str() else {return Ok(())};
-    desk.enqueue(device,thread,event)
+    desk.enqueue(device,thread,event)?;
+    let event=hex(&sha256(event.as_bytes()));
+    if let (Some(target),Some(job))=(&desk.state.target,desk.state.jobs.iter_mut().find(|job|job.event==event)) {
+        if target.registration.previews && job.preview.is_none() {
+            if let Some(key)=&target.registration.preview_key {
+                job.preview=Some(seal_preview(key,&job.thread,&job.event,row["text"].as_str().unwrap_or(""))?);
+                desk.save()?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn seal_preview(key:&str,thread:&str,event:&str,text:&str)->Result<Value,String> {
+    use ring::aead::{Aad,LessSafeKey,Nonce,UnboundKey,AES_256_GCM};
+    let key=LessSafeKey::new(UnboundKey::new(&AES_256_GCM,&unb64url(key).map_err(|_|unavailable())?).map_err(|_|unavailable())?);
+    let nonce: [u8;12]=super::random_bytes(12).map_err(|_|unavailable())?.try_into().map_err(|_|unavailable())?;
+    let mut body=text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(240).collect::<String>().into_bytes();
+    let aad=format!("richos-preview-v1\n{thread}\n{event}");
+    key.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce),Aad::from(aad.as_bytes()),&mut body).map_err(|_|unavailable())?;
+    Ok(json!({"v":1,"nonce":super::b64url(&nonce),"body":super::b64url(&body)}))
 }
 
 #[cfg(test)]
@@ -131,7 +157,7 @@ mod tests {
         let dir=Scratch(std::env::temp_dir().join(format!("native-push-{}",hex(&super::super::random_bytes(12).unwrap()))));
         std::fs::create_dir_all(&dir.0).unwrap();
         let device:Device=serde_json::from_value(json!({"id":"phone","name":"iPhone","public_key":super::super::b64url(&[4;65]),"paired_at":1,"push":null,"delivered_cursor":null,"fingerprint_confirmed":true,"paired_via":"connect"})).unwrap();
-        (dir,device,Registration{token:"a".repeat(64),environment:"sandbox".into(),topic:"dev.richos.mobile.integration".into()})
+        (dir,device,Registration{token:"a".repeat(64),environment:"sandbox".into(),topic:"dev.richos.mobile.integration".into(),preview_key:None,previews:true})
     }
     #[derive(Default)] struct Fake {calls:Mutex<Vec<(String,Value)>>, fail:Mutex<bool>, fail_events:Mutex<bool>}
     impl Control for Fake {
@@ -179,6 +205,23 @@ mod tests {
         desk.reconcile(&fake,Some(&device)).unwrap();
         let calls=fake.calls.lock().unwrap();
         assert_eq!(calls.iter().filter(|(path,_)|path.ends_with("events")).count(),2);
+    }
+    #[test] fn previews_are_authenticated_ciphertext_and_registration_keys_stay_on_mac() {
+        use ring::aead::{Aad,LessSafeKey,Nonce,UnboundKey,AES_256_GCM};
+        let (dir,device,mut registration)=fixture();let fake=Fake::default();
+        let raw=[7u8;32];registration.preview_key=Some(super::super::b64url(&raw));
+        let mut desk=Desk::open(&dir.0).unwrap();desk.set(&device,Some(registration)).unwrap();desk.reconcile(&fake,Some(&device)).unwrap();
+        assert!(!serde_json::to_string(&*fake.calls.lock().unwrap()).unwrap().contains("preview_key"));
+        let thread="b".repeat(64);let event="c".repeat(64);
+        let sealed=seal_preview(&super::super::b64url(&raw),&thread,&event,"The supplier accepted £42,000.").unwrap();
+        let nonce: [u8;12]=unb64url(sealed["nonce"].as_str().unwrap()).unwrap().try_into().unwrap();
+        let mut bytes=unb64url(sealed["body"].as_str().unwrap()).unwrap();
+        assert!(!sealed.to_string().contains("supplier"));
+        let key=LessSafeKey::new(UnboundKey::new(&AES_256_GCM,&raw).unwrap());
+        let aad=format!("richos-preview-v1\n{thread}\n{event}");
+        assert_eq!(key.open_in_place(Nonce::assume_unique_for_key(nonce),Aad::from(aad.as_bytes()),&mut bytes).unwrap(),"The supplier accepted £42,000.".as_bytes());
+        let mut bytes=unb64url(sealed["body"].as_str().unwrap()).unwrap();
+        assert!(key.open_in_place(Nonce::assume_unique_for_key(nonce),Aad::from(b"wrong reply"),&mut bytes).is_err());
     }
     #[test] fn malformed_native_registrations_are_rejected() {
         let (_,_,mut r)=fixture();assert!(r.validate());r.topic="unrelated.app".into();assert!(!r.validate());

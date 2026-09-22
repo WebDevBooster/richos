@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS push_jobs (
   next_at INTEGER NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
   state TEXT NOT NULL DEFAULT 'pending',
+  preview TEXT,
   PRIMARY KEY (host_id, event_ref)
 );
 CREATE INDEX IF NOT EXISTS push_jobs_due ON push_jobs(state,next_at);

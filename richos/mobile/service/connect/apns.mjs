@@ -32,8 +32,8 @@ export class APNs {
           authorization:'bearer '+bearer, 'content-type':'application/json',
           'apns-topic':binding.topic, 'apns-push-type':'alert', 'apns-priority':'10',
           'apns-expiration':String(Math.floor(job.expires_at/1000)), 'apns-collapse-id':job.event_ref,
-        }, body:JSON.stringify({aps:{alert:{title:'RichOS',body:'Rich has replied.'},sound:'default'},
-          richos:{host:binding.host_id,thread:job.thread_ref,event:job.event_ref}}),
+        }, body:JSON.stringify({aps:{alert:{title:'RichOS',body:'Rich has replied.'},sound:'default',...(job.preview?{'mutable-content':1}:{})},
+          richos:{host:binding.host_id,thread:job.thread_ref,event:job.event_ref},...(job.preview?{preview:JSON.parse(job.preview)}:{})}),
       });
       if (response.status === 200) return {outcome:'sent'};
       const reason = (await response.json().catch(()=>({}))).reason;

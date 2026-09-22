@@ -73,3 +73,13 @@ test('default provider transport calls global fetch with its native receiver',as
   const result=await provider.send({token:'a'.repeat(64),environment:'sandbox',topic:'dev.richos.mobile.integration'},{event_ref:'b'.repeat(64),expires_at:Date.now()+1000});assert.equal(result.outcome,'invalid');
  }finally{globalThis.fetch=original;}
 });
+
+test('provider retains only bounded ciphertext and refuses plaintext preview fields',async t=>{
+ const f=await setup(t),preview={v:1,nonce:'a'.repeat(16),body:'b'.repeat(100)};
+ assert.equal((await f.send('/v1/push/events',{...f.event,preview})).status,202);
+ assert.equal(f.pushes.length,1);assert.equal(f.pushes[0].job.preview,JSON.stringify(preview));
+ assert.equal((await f.send('/v1/push/events',{...f.event,preview:{...preview,body:'c'.repeat(100)}})).status,409);
+ for(const invalid of [{text:'private'}, {...preview,body:'a'.repeat(1400)}, {...preview,nonce:'short'}, {...preview,v:2}]) {
+  assert.equal((await f.send('/v1/push/events',{...f.event,preview:invalid})).status,400);
+ }
+});

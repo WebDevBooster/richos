@@ -1,5 +1,6 @@
 import { configuredPush } from './apns.mjs';
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const validPreview = value => value == null || (exact(value,['v','nonce','body']) && value.v===1 && /^[A-Za-z0-9_-]{16}$/.test(value.nonce || '') && /^[A-Za-z0-9_-]{22,1302}$/.test(value.body || ''));
 const revision = value => Number.isSafeInteger(value) && value > 0;
 const exact = (data, keys) => data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).every(k=>keys.includes(k));
 export class Notifications {
@@ -37,16 +38,16 @@ export class Notifications {
       (host.desired && host.phase==='active' && binding.device_hash===host.device_key_hash));
   }
   async enqueue(host,data) {
-    if (!exact(data,['eventRef','threadRef','revision','deviceHash']) || !hex(data.eventRef) || !hex(data.threadRef) || !hex(data.deviceHash) || !revision(data.revision)) return {status:400,error:'invalid_event'};
+    if (!exact(data,['eventRef','threadRef','revision','deviceHash','preview']) || !hex(data.eventRef) || !hex(data.threadRef) || !hex(data.deviceHash) || !revision(data.revision) || !validPreview(data.preview)) return {status:400,error:'invalid_event'};
     const binding=await this.binding(host.id);
     if (!this.valid(host,binding) || binding.revision!==data.revision || binding.device_hash!==data.deviceHash) return {status:409,error:'pairing_changed'};
     const now=this.store.now();
     await this.store.statement('DELETE FROM push_jobs WHERE expires_at<=?',now).run();
-    await this.store.statement(`INSERT OR IGNORE INTO push_jobs(host_id,event_ref,thread_ref,revision,expires_at,next_at)
-      SELECT ?,?,?,?,?,? WHERE (SELECT count(*) FROM push_jobs WHERE host_id=?) < 100`,host.id,data.eventRef,data.threadRef,data.revision,now+3600000,now,host.id).run();
+    await this.store.statement(`INSERT OR IGNORE INTO push_jobs(host_id,event_ref,thread_ref,revision,expires_at,next_at,preview)
+      SELECT ?,?,?,?,?,?,? WHERE (SELECT count(*) FROM push_jobs WHERE host_id=?) < 100`,host.id,data.eventRef,data.threadRef,data.revision,now+3600000,now,data.preview ? JSON.stringify(data.preview) : null,host.id).run();
     const job=await this.store.statement('SELECT * FROM push_jobs WHERE host_id=? AND event_ref=?',host.id,data.eventRef).first();
     if (!job) return {status:429,error:'queue_full'};
-    if (job.thread_ref!==data.threadRef || job.revision!==data.revision) return {status:409,error:'event_conflict'};
+    if (job.thread_ref!==data.threadRef || job.revision!==data.revision || job.preview!==(data.preview ? JSON.stringify(data.preview) : null)) return {status:409,error:'event_conflict'};
     const result=await this.deliver(host,binding,job);
     return {status:202,accepted:true,delivery:result || {outcome:job.state}};
   }
