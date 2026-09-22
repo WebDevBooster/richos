@@ -106,6 +106,8 @@ let repositoryRoot: URL = {
             .olderLoaded(Conversation.older, reachedBeginning: true), .setFollowing(false), .setComposerFocus(true),
             .openedFromNotification(messageID: "r1"), .clearFocus, .hearReply(id: "r1"), .playbackStarted(id: "r1"),
             .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
+            .networkChanged(online: false, at: 6), .connectionLost(at: 7), .connected(at: 8),
+            .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false),
         ]
         #expect(Set(try all.map { try #require(JSONSerialization.jsonObject(with: CoreJSON.encode($0)) as? [String: Any])["type"] as? String })
                 == Set(Action.knownTypes))
@@ -246,6 +248,33 @@ let repositoryRoot: URL = {
         let s = try Fixture.named("pair-blocked").state
         let next = Reducer.reduce(s, .discardMessage(id: "q1")).state
         #expect(next.pairingProblem == nil && next.outbox.isEmpty)
+    }
+}
+
+@Suite struct ConnectionTests {
+    func paired() throws -> AppState { try Fixture.named("conv-empty").state }
+
+    @Test func anIncompatibleMacPausesSendingAndKeepsTheQueue() throws {
+        var s = try Fixture.named("conv-retry").state
+        s.connectionNotice = nil
+        s = Reducer.reduce(s, .macCapabilities(text: false, voice: false)).state
+        #expect(s.connectionNotice == .incompatible && s.voiceAvailability == .unsupportedByMac)
+        let (after, effects) = Reducer.reduce(s, .retryNow(at: 1))
+        #expect(!effects.contains(.deliver(clientID: "q1")) && after.outbox.count == 1)
+        s = Reducer.reduce(s, .connected(at: 2)).state
+        #expect(s.connectionNotice == .incompatible, "a reconnect does not clear an incompatible Mac")
+    }
+
+    @Test func aDiagnosisNeverOverridesWhatThePhoneKnows() throws {
+        var s = try paired()
+        s = Reducer.reduce(s, .networkChanged(online: false, at: 1)).state
+        s = Reducer.reduce(s, .connectionDiagnosed(.macUnreachable)).state
+        #expect(s.connectionNotice == .phoneOffline)
+    }
+
+    @Test func connectingReconcilesCachedHistory() throws {
+        let s = Reducer.reduce(try Fixture.named("launch-cached").state, .connected(at: 1)).state
+        #expect(!s.history.cached)
     }
 }
 

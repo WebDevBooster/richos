@@ -345,6 +345,38 @@ public struct Scenario: Sendable {
             try require(s[6].outbox.map(\.clientID) == ["a"], "the second is delivered")
             try require(s[7].outbox.isEmpty && !s[7].messages.contains { $0.id == "a" }, "the blocked one can be discarded")
         }),
+        // Offline, a message queued, back online, a lost acknowledgement retried, a quiet drop that
+        // never shows, and one that lasts long enough to say "Reconnecting…".
+        Scenario(name: "offline-reconnect", steps: [
+            Command(.fixture, name: "conv-empty"),
+            Command(.action, action: .networkChanged(online: false, at: t0)),
+            Command(.action, action: .compose(text: "A message queued offline")),
+            Command(.action, action: .sendDraft(clientID: "o1", at: t0 + 100)),
+            Command(.restart),
+            Command(.action, action: .networkChanged(online: false, at: t0 + 150)),
+            Command(.action, action: .networkChanged(online: true, at: t0 + 200)),
+            Command(.action, action: .deliveryFailed(clientID: "o1", failure: .retryable(reason: "unreachable"), at: t0 + 300)),
+            Command(.action, action: .connected(at: t0 + 400)),
+            Command(.action, action: .tick(at: t0 + 1300)),
+            Command(.action, action: .deliveryAccepted(clientID: "o1", at: t0 + 1400)),
+            Command(.action, action: .connectionLost(at: t0 + 2000)),
+            Command(.action, action: .tick(at: t0 + 4999)),
+            Command(.action, action: .connected(at: t0 + 4999)),
+            Command(.action, action: .connectionLost(at: t0 + 6000)),
+            Command(.action, action: .tick(at: t0 + 9000)),
+            Command(.action, action: .connected(at: t0 + 9500)),
+        ], check: { s in
+            try require(s[1].connectionNotice == .phoneOffline, "no network is said at once")
+            try require(s[3].outbox.first?.state == .waiting && s[3].messages.last?.delivery == .waiting, "a send offline is kept, not attempted")
+            try require(s[4].outbox == s[3].outbox, "the queued message survives a relaunch")
+            try require(s[6].connectionNotice == nil && s[6].outbox.first?.state == .sending, "back online: it goes, and nothing is announced")
+            try require(s[7].outbox.first?.notBefore == t0 + 1300, "a lost acknowledgement waits its backoff")
+            try require(s[9].outbox.first?.state == .sending, "then resends")
+            try require(s[10].outbox.isEmpty, "delivered once")
+            try require(s[12].connectionNotice == nil && s[13].connectionNotice == nil, "a drop shorter than 3 s shows nothing")
+            try require(s[15].connectionNotice == .reconnecting, "a drop of 3 s or more says Reconnecting")
+            try require(s[16].connectionNotice == nil, "and it clears when the Mac answers")
+        }),
         // Removed from the Mac: final for the pairing, never for his words.
         Scenario(name: "revoked", steps: [
             Command(.fixture, name: "conv-empty"),

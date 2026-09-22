@@ -66,6 +66,17 @@ public enum Action: Equatable, Sendable {
     case playbackEnded
     case stopPlayback
     case dismissToast
+    // connection (group 7)
+    /// The phone's own network came or went (a path monitor in the app).
+    case networkChanged(online: Bool, at: Int64)
+    /// The live stream or a request to the Mac failed at the transport level.
+    case connectionLost(at: Int64)
+    /// The Mac answered again (a stream opened, or a request succeeded).
+    case connected(at: Int64)
+    /// The transport's probe says why the Mac cannot be reached (evidence-based only).
+    case connectionDiagnosed(ConnectionNotice)
+    /// What the Mac says it accepts (capability negotiation, contract §12).
+    case macCapabilities(text: Bool, voice: Bool)
 }
 
 /// How a delivery attempt ended when it did not succeed (contract §4.2, the reference classification).
@@ -115,6 +126,9 @@ extension Action: Codable {
         var reachedBeginning: Bool?
         var value: Bool?
         var progress: Double?
+        var notice: ConnectionNotice?
+        var acceptsText: Bool?
+        var acceptsVoice: Bool?
     }
 
     public static let knownTypes = [
@@ -125,6 +139,7 @@ extension Action: Codable {
         "messages-arrived", "reply-started", "reply-delta", "reply-finished", "load-older", "older-loaded",
         "set-following", "set-composer-focus", "opened-from-notification", "clear-focus", "hear-reply",
         "playback-started", "playback-progress", "playback-ended", "stop-playback", "dismiss-toast",
+        "network-changed", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities",
     ]
 
     public init(from decoder: Decoder) throws {
@@ -174,6 +189,12 @@ extension Action: Codable {
         case "playback-ended": self = .playbackEnded
         case "stop-playback": self = .stopPlayback
         case "dismiss-toast": self = .dismissToast
+        case "network-changed": self = .networkChanged(online: try need(w.value, "value"), at: try need(w.at, "at"))
+        case "connection-lost": self = .connectionLost(at: try need(w.at, "at"))
+        case "connected": self = .connected(at: try need(w.at, "at"))
+        case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
+        case "mac-capabilities":
+            self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
         default:
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription:
                 "unknown action '\(w.type)'; known: \(Self.knownTypes.joined(separator: ", "))"))
@@ -220,6 +241,11 @@ extension Action: Codable {
         case .playbackEnded: w.type = "playback-ended"
         case .stopPlayback: w.type = "stop-playback"
         case .dismissToast: w.type = "dismiss-toast"
+        case .networkChanged(let online, let at): w.type = "network-changed"; w.value = online; w.at = at
+        case .connectionLost(let at): w.type = "connection-lost"; w.at = at
+        case .connected(let at): w.type = "connected"; w.at = at
+        case .connectionDiagnosed(let n): w.type = "connection-diagnosed"; w.notice = n
+        case .macCapabilities(let t, let v): w.type = "mac-capabilities"; w.acceptsText = t; w.acceptsVoice = v
         }
         try w.encode(to: encoder)
     }
@@ -266,6 +292,11 @@ public enum Reducer {
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
              .pairingRefused, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
             PairingReducer.reduce(&next, action, &effects)
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities:
+            ConnectionReducer.reduce(&next, action, &effects)
+        case .tick:
+            ConnectionReducer.reduce(&next, action, &effects)
+            ConversationReducer.reduce(&next, action, &effects)
         default:
             ConversationReducer.reduce(&next, action, &effects)
         }

@@ -67,6 +67,8 @@ public struct AppState: Codable, Equatable, Sendable {
     /// TRANSIENT. `nil` while healthy — routine recovery is invisible, and a notice exists only for a
     /// persistent interruption (PRD §5, the CEO experience gate).
     public var connectionNotice: ConnectionNotice?
+    /// TRANSIENT. When the current transport trouble began; the notice waits `ConnectionReducer.quietMs`.
+    public var troubleSinceMs: Int64?
 
     // MARK: notifications, settings, updates (groups 8, 9, 10)
     public var notifications = Notifications()
@@ -112,7 +114,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, notifications, sheet, update, toast, appearance, screen
+        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -141,6 +143,7 @@ extension AppState {
         microphone = try c.decodeIfPresent(Permission.self, forKey: .microphone) ?? d.microphone
         camera = try c.decodeIfPresent(Permission.self, forKey: .camera) ?? d.camera
         connectionNotice = try c.decodeIfPresent(ConnectionNotice.self, forKey: .connectionNotice)
+        troubleSinceMs = try c.decodeIfPresent(Int64.self, forKey: .troubleSinceMs)
         notifications = try c.decodeIfPresent(Notifications.self, forKey: .notifications) ?? d.notifications
         sheet = try c.decodeIfPresent(Sheet.self, forKey: .sheet)
         update = try c.decodeIfPresent(UpdateNotice.self, forKey: .update)
@@ -172,6 +175,7 @@ extension AppState {
         try c.encode(microphone, forKey: .microphone)
         try c.encode(camera, forKey: .camera)
         try c.encode(connectionNotice, forKey: .connectionNotice)
+        try c.encode(troubleSinceMs, forKey: .troubleSinceMs)
         try c.encode(notifications, forKey: .notifications)
         try c.encode(sheet, forKey: .sheet)
         try c.encode(update, forKey: .update)
