@@ -81,6 +81,10 @@ object RichIcons {
     val Life = icon("life", listOf(circle(12f, 12f, 8.5f), circle(12f, 12f, 3.5f), "M6 6l3.5 3.5M14.5 14.5L18 18M18 6l-3.5 3.5M9.5 14.5L6 18"))
     val Globe = icon("globe", listOf(circle(12f, 12f, 8.5f), "M3.5 12h17M12 3.5c3 3 3 14 0 17M12 3.5c-3 3-3 14 0 17"))
     val Flash = icon("flash", listOf("M13 3L5 13h6l-1 8 8-10h-6z"))
+    // The attachments append (round 12 `attach/attach.js` `AI`).
+    val Plus = icon("plus", listOf("M12 5v14M5 12h14"), width = 2.2f)
+    val Image = icon("image", listOf(rect(3.5f, 4.5f, 17f, 15f, 2.5f), circle(9f, 10f, 1.8f), "M20.5 15.5l-4.8-4.8L6.5 19.5"))
+    val Folder = icon("folder", listOf("M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"))
     val Shift = icon("shift", listOf("M12 4l7 8h-4v7H9v-7H5z"))
     val Backspace = icon("backspace", listOf("M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7z", "M12 9.5l5 5M17 9.5l-5 5"))
 

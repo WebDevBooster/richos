@@ -21,10 +21,27 @@ class CatalogTest {
         upd-dialog upd-blocking upd-feature-off launch-cached
     """.trim().split(Regex("\\s+"))
 
+    /** `grep -o 'id: "[a-z-]*"' design/mockups/rounds/round-12/attach/screens.js` (richos-hq a2136389). */
+    private val attachments = """
+        att-entry att-menu att-voice-intact att-pick-photos att-pick-camera att-camera-review att-pick-files
+        att-pending-one att-pending-many att-pending-file att-pending-caption att-pending-remove
+        att-send-flight att-uploading att-sent att-failed att-conv-photo att-conv-album att-conv-file
+        att-conv-jump att-viewer att-viewer-file share-host share-sheet share-compose share-compose-many
+        share-compose-file share-sent share-saved share-landed att-too-large att-unsupported att-limit
+        att-queued att-denied-camera att-denied-photos att-mac-unsupported share-unpaired share-too-large
+    """.trim().split(Regex("\\s+"))
+
     @Test
     fun `every round-12 screen is in the catalog, in order`() {
         assertEquals(67, round12.size)
-        assertEquals(round12, ScreenCatalog.all.map { it.id })
+        assertEquals(round12, ScreenCatalog.round12.map { it.id })
+    }
+
+    @Test
+    fun `every attachment screen follows, by its stable id, and no id repeats`() {
+        assertEquals(39, attachments.size)
+        assertEquals(round12 + attachments, ScreenCatalog.all.map { it.id })
+        assertEquals(ScreenCatalog.all.size, ScreenCatalog.all.map { it.id }.toSet().size)
     }
 
     @Test

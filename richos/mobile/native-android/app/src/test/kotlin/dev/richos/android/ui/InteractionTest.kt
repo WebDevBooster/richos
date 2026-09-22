@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import dev.richos.android.core.Action
+import dev.richos.android.core.Sheet
 import dev.richos.android.core.Theme
 import dev.richos.android.core.protocol.Row
 import dev.richos.android.ui.catalog.ScreenCatalog
@@ -85,18 +86,38 @@ class InteractionTest {
         set(screen("settings-forget"))
         compose.waitForIdle()
         compose.onNodeWithText("Forget pairing on this phone").performClick()
-        assertEquals(Action.Forget, actions.last())
+        assertEquals(Action.ConfirmForget, actions.last())
     }
 
     @Test
-    fun `the Settings button opens the sheet and the scrim closes it`() {
-        show(screen("comp-idle"))
+    fun `the Settings button asks core for the sheet, and the scrim asks core to close it`() {
+        val set = show(screen("comp-idle"))
         compose.onNodeWithTag("settings-button").performClick()
+        assertEquals(Action.OpenSheet(Sheet.SETTINGS), actions.last())
+        // Core opens it; the screen follows core.
+        set(screen("settings"))
+        compose.waitForIdle()
         compose.onNodeWithTag("settings-sheet").assertIsDisplayed()
         // The sheet covers the middle of the scrim; press the scrim itself, as TalkBack would.
         compose.onNodeWithContentDescription("Close").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-        compose.waitForIdle()
-        assertTrue(compose.onAllNodesWithTagCount("settings-sheet") == 0)
+        assertEquals(Action.CloseSheet, actions.last())
+    }
+
+    @Test
+    fun `the voice gesture reaches core as press, move and release with the round-12 width`() {
+        show(screen("comp-idle"))
+        compose.onNodeWithTag("orb").performTouchInput {
+            down(center)
+            moveBy(androidx.compose.ui.geometry.Offset(-120f, 0f))
+            up()
+        }
+        val voice = actions.filter { it is Action.VoicePress || it is Action.VoiceMove || it is Action.VoiceRelease }
+        assertTrue("press first: $voice", voice.first() is Action.VoicePress)
+        assertTrue("release last: $voice", voice.last() is Action.VoiceRelease)
+        val press = voice.first() as Action.VoicePress
+        assertTrue("the composer's width in dp (was ${press.width})", press.width in 300.0..360.0)
+        val move = voice.filterIsInstance<Action.VoiceMove>().last()
+        assertTrue("left travel in dp (was ${move.dx})", move.dx < -20.0)
     }
 
     @Test

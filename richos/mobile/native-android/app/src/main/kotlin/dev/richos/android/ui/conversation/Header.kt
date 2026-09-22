@@ -71,6 +71,7 @@ fun noticeText(notice: ConnectionNotice): Pair<String, String>? = when (notice) 
     ConnectionNotice.MAC_NEEDS_UPDATE -> "This Mac needs a newer RichOS app. " to "Your queued messages are kept."
     ConnectionNotice.VOICE_UNSUPPORTED -> "This Mac cannot accept voice yet. " to "Your recording stays on this phone."
     ConnectionNotice.VOICE_PAUSED -> "Voice messages are paused while we fix a problem. " to "Typing works."
+    ConnectionNotice.ATTACHMENTS_UNSUPPORTED -> "This Mac needs a newer RichOS for photos and files. " to "Text and voice work."
 }
 
 /**

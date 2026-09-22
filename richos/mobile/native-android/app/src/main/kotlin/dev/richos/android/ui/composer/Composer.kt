@@ -57,6 +57,10 @@ import dev.richos.android.design.RichMotion
 import dev.richos.android.design.floating
 import dev.richos.android.design.touchTarget
 import dev.richos.android.ui.UiEvent
+import dev.richos.android.ui.attach.AttachButton
+import dev.richos.android.ui.attach.Tray
+import dev.richos.android.ui.model.Attachment
+import androidx.compose.foundation.layout.Column
 import dev.richos.android.ui.model.TimeLabels
 import dev.richos.android.ui.model.VoicePhase
 import dev.richos.android.ui.model.VoicePose
@@ -80,6 +84,8 @@ fun Composer(
     onEvent: (UiEvent) -> Unit,
     onSent: () -> Unit,
     modifier: Modifier = Modifier,
+    pending: List<Attachment> = emptyList(),
+    menuOpen: Boolean = false,
 ) {
     val c = Rich.colors
     val t = Rich.type
@@ -89,10 +95,12 @@ fun Composer(
         val widthDp = maxWidth.value
         val frame: VoiceFrame? = voice?.let { VoiceFrames.of(it, widthDp) }
         val recording = frame?.chrome == true
+        val attaching = pending.isNotEmpty()
         val mode = when {
             disabledReason != null -> OrbMode.DISABLED
             voice?.phase == VoicePhase.LOCKED -> OrbMode.SEND_RECORDING
-            draft.isNotBlank() -> OrbMode.SEND_TEXT
+            // Something waiting in the tray turns the microphone into the send arrow, as a draft does.
+            draft.isNotBlank() || attaching -> OrbMode.SEND_TEXT
             !voiceAvailable -> OrbMode.DISABLED
             else -> OrbMode.RECORD
         }
@@ -116,6 +124,8 @@ fun Composer(
                 .clip(shape)
                 .semantics { testTag = "composer" },
         ) {
+          Column(Modifier.fillMaxWidth()) {
+            if (attaching) Tray(pending, onEvent)
             // The field (hidden, not removed, while recording, so the draft survives a recording).
             Box(
                 Modifier.fillMaxWidth().heightIn(min = 52.dp)
@@ -126,7 +136,7 @@ fun Composer(
                     BasicText(
                         disabledReason,
                         style = t.body.copy(color = c.inkSoft),
-                        modifier = Modifier.padding(start = 18.dp, end = 62.dp, top = 13.dp, bottom = 13.dp).semantics { testTag = "composer-disabled" },
+                        modifier = Modifier.padding(start = 54.dp, end = 62.dp, top = 13.dp, bottom = 13.dp).semantics { testTag = "composer-disabled" },
                     )
                 } else {
                     BasicTextField(
@@ -139,18 +149,27 @@ fun Composer(
                         enabled = !recording,
                         // The whole capsule left of the circle is the field's target, not just its line.
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).semantics {
-                            contentDescription = "Message Rich"
+                            contentDescription = if (attaching) "Add a message" else "Message Rich"
                             testTag = "message-field"
                         },
                         decorationBox = { inner ->
-                            Box(Modifier.padding(start = 18.dp, end = 62.dp, top = 13.dp, bottom = 13.dp), contentAlignment = Alignment.CenterStart) {
-                                if (draft.isEmpty()) BasicText("Message Rich", style = t.body.copy(color = c.inkSoft))
+                            // The text starts at 54 dp, right of the + (attachments NOTES).
+                            Box(Modifier.padding(start = 54.dp, end = 62.dp, top = 13.dp, bottom = 13.dp), contentAlignment = Alignment.CenterStart) {
+                                if (draft.isEmpty()) BasicText(if (attaching) "Add a message" else "Message Rich", style = t.body.copy(color = c.inkSoft))
                                 inner()
                             }
                         },
                     )
                 }
+                AttachButton(
+                    open = menuOpen,
+                    recording = recording,
+                    inactive = disabledReason != null,
+                    onEvent = onEvent,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 2.dp, bottom = 2.dp),
+                )
             }
+          }
             if (frame != null && recording) RecordingChrome(frame, widthDp, onEvent)
         }
         // The circle sits outside the capsule's clip so it can swell, breathe and carry the pill.
@@ -158,22 +177,30 @@ fun Composer(
             mode = mode,
             frame = frame,
             pressedLocally = pressed,
-            onPress = { pressed = true; onEvent(UiEvent.VoiceDown) },
-            onMove = { dx, dy -> onEvent(UiEvent.VoiceMove(dx, dy, widthDp)) },
-            onRelease = { pressed = false; onEvent(UiEvent.VoiceUp) },
-            onInterrupted = { pressed = false; onEvent(UiEvent.VoiceInterrupted) },
+            onPress = { pressed = true; onEvent(UiEvent.VoiceDown(newRecordingId(), widthDp, now())) },
+            onMove = { dx, dy -> onEvent(UiEvent.VoiceMove(dx, dy, now())) },
+            onRelease = { pressed = false; onEvent(UiEvent.VoiceUp(now())) },
+            onInterrupted = { pressed = false; onEvent(UiEvent.VoiceTouchCanceled(now())) },
             onTap = {
                 when (mode) {
-                    OrbMode.SEND_TEXT -> { onEvent(UiEvent.SendText); onSent() }
-                    OrbMode.SEND_RECORDING -> { onEvent(UiEvent.VoiceSendTapped); onSent() }
-                    OrbMode.RECORD -> onEvent(UiEvent.VoiceStartHandsFree)
+                    OrbMode.SEND_TEXT -> { onEvent(if (attaching) UiEvent.SendAttachments else UiEvent.SendText); onSent() }
+                    OrbMode.SEND_RECORDING -> { onEvent(UiEvent.VoiceSendTapped(now())); onSent() }
+                    OrbMode.RECORD -> onEvent(UiEvent.VoiceStartHandsFree(newRecordingId(), widthDp, now()))
                     OrbMode.DISABLED -> Unit
                 }
             },
-            modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-2).dp).semantics { testTag = "orb" },
+            // With a tray, the circle stays with the text line: its center 26 dp above the capsule's foot.
+            modifier = Modifier.align(if (attaching) Alignment.BottomEnd else Alignment.CenterEnd)
+                .offset(x = (-2).dp, y = if (attaching) (-2).dp else 0.dp).semantics { testTag = "orb" },
         )
     }
 }
+
+/** The wall clock core's voice actions are stamped with (epoch ms, as core's clock port). */
+private fun now(): Long = System.currentTimeMillis()
+
+/** A fresh name for a recording; core keeps it through the gesture and the kept card. */
+private fun newRecordingId(): String = "rec-" + java.util.UUID.randomUUID().toString().take(8)
 
 /**
  * The recording chrome inside the capsule. At the design's text sizes it sits where round 12
@@ -265,8 +292,8 @@ private fun CancelButton(frame: VoiceFrame, onEvent: (UiEvent) -> Unit, modifier
                 alpha = frame.cancelAlpha.coerceAtLeast(if (frame.ripple >= 0f) 0.001f else 0f)
                 translationY = -frame.cancelDrop * 0.2f * size.height
             }
-            .clickable(role = Role.Button) { onEvent(UiEvent.VoiceCancelTapped) }
-            .clearAndSetSemantics { contentDescription = "Cancel recording"; role = Role.Button; onClick { onEvent(UiEvent.VoiceCancelTapped); true } }
+            .clickable(role = Role.Button) { onEvent(UiEvent.VoiceCancelTapped(now())) }
+            .clearAndSetSemantics { contentDescription = "Cancel recording"; role = Role.Button; onClick { onEvent(UiEvent.VoiceCancelTapped(now())); true } }
             .touchTarget(),
         contentAlignment = Alignment.Center,
     ) {
