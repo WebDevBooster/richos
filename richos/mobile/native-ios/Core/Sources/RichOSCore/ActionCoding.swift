@@ -9,6 +9,8 @@ import Foundation
 /// (`enabled`), `reply-play`, `record-play`, `playback-stop`, `playback-ended`, `update-dismiss`,
 /// `update-open`, `support`, `settings` — so QA's habits and the Android core (Rich's decision,
 /// build plan §9 item 4) share one grammar. The voice gesture is new; its names are the standard.
+/// Also new: `share-take` (`intake`, a share from the Share extension) and `notification-open` with
+/// `event` instead of `id` (the reply's SHA-256 reference, for a reply not loaded yet).
 ///
 /// Time and idempotency stamps (`at`, `clientId` on `send`) are optional on the wire: omitted, they
 /// are stamped from the clock when the command arrives; given, a scenario replays exactly.

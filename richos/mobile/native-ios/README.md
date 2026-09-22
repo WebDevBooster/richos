@@ -42,6 +42,12 @@ stream and thread filter, the API client with the challenge rule, the courier th
 items, and the pairing, push and attachment bodies. The tests read the shared conformance corpus
 (`../conformance/vectors/`) in place and must pass every case the Android core passes.
 
+Photos and files (`Core/Sources/RichOSCore/Conversation/Attachments.swift`): an outbox item with
+files uploads each one, then sends its commit's exact bytes. Only the commit's 200 marks it sent; a
+422 naming missing files uploads those and resends the same bytes. The app takes shares from the
+Share extension into the outbox (`App/App/ShareIntake.swift`) and removes them from the Share inbox
+only after the state holding them is on disk.
+
 ## Layout and ownership (build plan §5.0)
 
 | Path | What | Stream |
@@ -50,9 +56,9 @@ items, and the pairing, push and attachment bodies. The tests read the shared co
 | `bin/rios` | The one command-line entry | I1 |
 | `project.yml` | XcodeGen spec; the project is generated into the cache, never committed | I1 |
 | `DevBridge/` | Debug-only command mailbox inside the app; excluded from Release | I1 |
-| `App/App/` | App entry, `AppStore`, the effect-handler seam | I1 |
+| `App/App/` | App entry, `AppStore`, the effect-handler seam, taking shares into the outbox | I1 |
 | `App/Features/`, `App/Design/`, `UITests/`, `UnitTests/` | Screens, design system, UI and app tests | I2 |
-| `App/Platform/` | Microphone, recorder, notifications, Keychain signer | I3 |
+| `App/Platform/`, `ShareExtension/`, `NotificationService/`, `Release/` | Microphone, recorder, notifications, Keychain signer, the Share and notification extensions, release configuration | I3 |
 
 ## Where things are written
 
