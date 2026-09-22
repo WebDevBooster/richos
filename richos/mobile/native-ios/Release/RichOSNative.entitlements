@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The app: push (development in Debug, production in Release), the App Group the Share extension
+     hands items through, and the Keychain group the notification extension reads the preview key
+     from. Nothing else: no associated domains, no iCloud, no background modes. -->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>$(RICHOS_APS_ENVIRONMENT)</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(RICHOS_APP_GROUP)</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(RICHOS_KEYCHAIN_GROUP)</string>
+	</array>
+</dict>
+</plist>
