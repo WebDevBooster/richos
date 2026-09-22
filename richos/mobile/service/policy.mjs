@@ -5,29 +5,37 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, statSyn
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-const { validate, evaluate } = createRequire(import.meta.url)('../core/updates.js');
+import { PRESERVED, TARGETS, targetOf, validateTargeted } from './policy-store.mjs';
+const { evaluate } = createRequire(import.meta.url)('../core/updates.js');
 export const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export function readPolicy(directory) {
-  const record = JSON.parse(readFileSync(join(directory, 'active.json'), 'utf8'));
-  return validate(record.policy);
+// The preserved app's record keeps its original file; each native target has its own.
+const activeFile = target => target === PRESERVED ? 'active.json' : `active-${target}.json`;
+export function readPolicy(directory, target = PRESERVED) {
+  const record = JSON.parse(readFileSync(join(directory, activeFile(target)), 'utf8'));
+  const policy = validateTargeted(record.policy);
+  if (targetOf(policy) !== target) throw Error('Stored policy targets another app');
+  return policy;
 }
 export function preview(policy, clients, now = Date.now()) {
-  policy = validate(policy);
+  policy = validateTargeted(policy);
   if (Date.parse(policy.issuedAt) > now + 300000 || Date.parse(policy.expiresAt) <= now) throw Error('Policy is not currently valid');
-  return { digest: digest(policy), revision: policy.revision, decisions: clients.map(client => ({ client, decision: evaluate(policy, client, now) })) };
+  // Client decisions use the shared JavaScript rules, which know App Store listings only.
+  if (targetOf(policy) === 'android-native' && clients.length) throw Error('Android client decisions are evaluated by the Android core; preview android-native with no clients');
+  return { digest: digest(policy), revision: policy.revision, target: targetOf(policy), decisions: clients.map(client => ({ client, decision: evaluate(policy, client, now) })) };
 }
 // One authorization rule for every publication path: the local store and the hosted store.
 export function authorize(policy, { operator, previewDigest, availability } = {}) {
-  policy = validate(policy); preview(policy, []);
+  policy = validateTargeted(policy); preview(policy, []);
   if (typeof operator !== 'string' || !/^[a-zA-Z0-9_.@ -]{1,100}$/.test(operator)) throw Error('An operator identity is required');
   if (previewDigest !== digest(policy)) throw Error('Preview this exact policy before publication');
   if (policy.latest) {
     // Availability is a release operator's attestation of an actual download, not App Review approval.
     // Store checks must be performed for every included storefront and the supported OS floor.
-    if (!availability || availability.downloadVerified !== true || availability.appId !== policy.latest.appId ||
-      availability.version !== policy.latest.version || availability.build !== policy.latest.build ||
-      availability.minimumOS !== policy.latest.minimumOS || availability.verifiedAt !== policy.latest.verifiedAt ||
-      JSON.stringify([...availability.storefronts || []].sort()) !== JSON.stringify([...policy.latest.storefronts].sort()) ||
+    // An Android receipt attests the Google Play package, version code and API-level floor instead.
+    const android = targetOf(policy) === 'android-native';
+    const fields = android ? ['packageName', 'version', 'build', 'minimumSdk', 'verifiedAt'] : ['appId', 'version', 'build', 'minimumOS', 'verifiedAt'];
+    if (!availability || availability.downloadVerified !== true || fields.some(field => availability[field] !== policy.latest[field]) ||
+      (!android && JSON.stringify([...availability.storefronts || []].sort()) !== JSON.stringify([...policy.latest.storefronts].sort())) ||
       typeof availability.evidence !== 'string' || availability.evidence.length < 10 || availability.evidence.length > 2000) throw Error('A matching download verification receipt is required');
   }
   return { policy, audit: { operator, publishedAt: new Date().toISOString(), digest: digest(policy), availability: availability || null } };
@@ -44,13 +52,17 @@ export function publish(directory, policy, request = {}) {
     const bytes = JSON.stringify(record, null, 2) + '\n';
     // Archive first. A crash before activation consumes the revision and leaves a reviewable record.
     writeFileSync(join(directory, `revision-${policy.revision}.json`), bytes, { mode: 0o600, flag: 'wx', flush: true });
-    writeFileSync(join(directory, 'active.new'), bytes, { mode: 0o600, flush: true });
-    renameSync(join(directory, 'active.new'), join(directory, 'active.json'));
+    // Revisions are one sequence across targets; activation replaces only this target's record.
+    const active = activeFile(targetOf(policy));
+    writeFileSync(join(directory, active + '.new'), bytes, { mode: 0o600, flush: true });
+    renameSync(join(directory, active + '.new'), join(directory, active));
     return { revision: policy.revision, digest: digest(policy) };
   } finally { rmdirSync(lock); }
 }
 export function serve(directory, { port = 0, host = '127.0.0.1', signalInterval = 1000 } = {}) {
-  const streams = new Set(); let revision = 0;
+  // Each stream follows one target; /v1/policy and /v1/events are the preserved app's, unchanged.
+  const streams = new Map(), revisions = new Map(TARGETS.map(target => [target, 0]));
+  const route = url => (url.match(/^\/v1\/(policy|events)(?:\/(ios-native|android-native))?$/) || []).slice(1);
   const metricsFile = join(directory, 'metrics.json');
   let metrics = {}; try { metrics = JSON.parse(readFileSync(metricsFile, 'utf8')); } catch { /* first run */ }
   function count(event, version = 'unknown', build = 'unknown', revision = 0) {
@@ -81,33 +93,37 @@ export function serve(directory, { port = 0, host = '127.0.0.1', signalInterval 
       }); return;
     }
     if (req.method !== 'GET') { res.writeHead(405); return res.end(); }
-    if (req.url === '/v1/policy') {
-      try { const value = readPolicy(directory); count('policy-served', 'unknown', 'unknown', value.revision); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); }
+    const [kind, target = PRESERVED] = route(req.url);
+    if (kind === 'policy') {
+      try { const value = readPolicy(directory, target); count('policy-served', 'unknown', 'unknown', value.revision); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); }
       catch { res.writeHead(503); res.end(); } return;
     }
-    if (req.url === '/v1/events') {
+    if (kind === 'events') {
       if (streams.size >= 1000) { res.writeHead(503); return res.end(); }
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' });
-      res.write(`event: policy\ndata: ${revision}\n\n`); streams.add(res);
+      res.write(`event: policy\ndata: ${revisions.get(target)}\n\n`); streams.set(res, target);
       req.on('close', () => streams.delete(res)); return;
     }
     res.writeHead(404); res.end();
   });
   let ticks = 0;
   const timer = setInterval(() => {
-    let next = revision; try { next = readPolicy(directory).revision; } catch { /* clients retain bounded cached policy */ }
     ticks++;
     if (ticks % 60 === 0) { try { saveMetrics(); } catch { /* request handling does not depend on metrics storage */ } }
-    for (const stream of streams) {
-      if (next !== revision || ticks % 15 === 0) {
-        if (!stream.write(next !== revision ? `event: policy\ndata: ${next}\n\n` : ': alive\n\n')) { stream.destroy(); streams.delete(stream); }
+    for (const target of TARGETS) {
+      const revision = revisions.get(target);
+      let next = revision; try { next = readPolicy(directory, target).revision; } catch { /* clients retain bounded cached policy */ }
+      for (const [stream, followed] of streams) {
+        if (followed === target && (next !== revision || ticks % 15 === 0)) {
+          if (!stream.write(next !== revision ? `event: policy\ndata: ${next}\n\n` : ': alive\n\n')) { stream.destroy(); streams.delete(stream); }
+        }
       }
+      revisions.set(target, next);
     }
-    revision = next;
   }, signalInterval);
   server.on('close', () => { clearInterval(timer); try { saveMetrics(); } catch { /* metrics are best effort */ } });
   server.listen(port, host);
-  return { server, async close() { for (const stream of streams) stream.end(); clearInterval(timer); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
+  return { server, async close() { for (const stream of streams.keys()) stream.end(); clearInterval(timer); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 export async function command(name, file, cache) {
   const directory = process.env.RICHOS_UPDATE_DIRECTORY || join(cache, 'update-policy');

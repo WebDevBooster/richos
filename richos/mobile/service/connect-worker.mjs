@@ -3,6 +3,7 @@ import { Store } from './connect/store.mjs';
 import { Provider } from './connect/provider.mjs';
 import { transition, view } from './connect/lifecycle.mjs';
 import { APNs } from './connect/apns.mjs';
+import { FCM } from './connect/fcm.mjs';
 import { Notifications } from './connect/notifications.mjs';
 
 function json(status, body) {
@@ -51,7 +52,7 @@ export async function handle(request, env, ports = {}) {
     }
     if (host.public_key !== identity.key) return json(404, { error: 'not_found' });
     if (!await store.nonce(identity.id, identity.nonce)) return json(409, { error: 'replayed_request' });
-    const notifications = new Notifications(store, ports.apns || new APNs(env,{now}),env);
+    const notifications = new Notifications(store, ports.apns || new APNs(env,{now}),env, ports.fcm || new FCM(env,{now}));
     if (url.pathname === '/v1/push/hosts') return json(200,{hostId:host.id,generation:host.generation});
     if (url.pathname.startsWith('/v1/push/')) {
       const lease=await store.lease(host.id); if (!lease) return json(409,{error:'busy'});
@@ -100,6 +101,6 @@ export async function reconcile(env, ports = {}) {
     try { await transition(store, provider, id, 'reconcile', env.CONNECT_DOMAIN); }
     catch { /* The row retains a bounded error code. The next scheduled run retries. */ }
   }
-  await new Notifications(store,ports.apns || new APNs(env),env).reconcile();
+  await new Notifications(store,ports.apns || new APNs(env),env,ports.fcm || new FCM(env)).reconcile();
 }
 export default { fetch: handle, scheduled: (_event, env, context) => context.waitUntil(reconcile(env)) };
