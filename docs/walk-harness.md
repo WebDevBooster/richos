@@ -52,9 +52,11 @@ engine copies. The pinned engine is supplied separately to `run.sh`. Inputs stay
 unchanged; unexpected symbolic links are refused. The output `fixture.json` records
 the source and resulting ledger hashes. The caller owns deletion of these copies.
 
-`run-walk.py` holds the same `<state-dir>/release.lock` as `nightly-local.py`. Its
-default state directory is `~/.richos-nightly`; `--state-dir` must match the nightly
-when overridden. Acquisition is nonblocking and measured CPU use must be below 80%. Under
+`run-walk.py` holds the test VM's own guest lock, `<TESTVM_ROOT>/guest.lock` (default
+`~/.richos-testvm/guest.lock`), and measured CPU use must be below 80%. Since CEO ruling
+§77 (2026-09-22) a walk is a test run: it does not take the nightly `release.lock`, which
+stays with the nightly/release commands. `--state-dir` is still accepted and no longer
+read. Acquisition is nonblocking. Under
 that lock it refuses another running clone, creates a unique headless guest and
 keeps the reservation until `stop.sh` has stopped the captured processes and deleted
 the clone. It also cleans up after boot failure or interruption. Only `caffeinate -is`
@@ -106,7 +108,9 @@ included in the complete scenario duration. Busy CPU or an unavailable measureme
 refuses admission before consuming a turn or sending a prompt. Load average alone
 neither establishes another active job nor blocks work on an otherwise idle CPU.
 For an explicitly controlled benchmark, `reserve.py --max-load N` retains an opt-in
-legacy load criterion. The shared lock remains mandatory in either mode.
+legacy load criterion. `reserve.py` alone takes no lock (§77); `run-walk.py`'s guest
+lock remains mandatory for a walk in either mode, and `reserve.py --release-lock` holds
+the nightly lock only for work that writes nightly or release state.
 
 Each prompt contains spaced characters; the requested reply joins them. Thus the
 reply token is absent from the prompt. Desktop and phone OCR streams stay separate.

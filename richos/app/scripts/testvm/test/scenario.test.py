@@ -30,10 +30,10 @@ class ScenarioTests(unittest.TestCase):
         for _ in range(6):b.take()
         with self.assertRaises(Failure):b.take()
         self.assertEqual(b.used,6)
-    def test_reservation_is_held_and_released(self):
+    def test_release_lock_caller_is_held_and_released(self):
         with tempfile.TemporaryDirectory() as tmp:
             marker=Path(tmp)/'ready'
-            command=[sys.executable,str(HERE/'reserve.py'),'--state-dir',tmp,'--max-load','10000','--']
+            command=[sys.executable,str(HERE/'reserve.py'),'--state-dir',tmp,'--release-lock','--max-load','10000','--']
             first=subprocess.Popen(command+[sys.executable,'-c',f'import pathlib,time;pathlib.Path({str(marker)!r}).touch();time.sleep(30)'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             try:
                 for _ in range(100):
@@ -42,10 +42,45 @@ class ScenarioTests(unittest.TestCase):
                 self.assertTrue(marker.exists())
                 second=subprocess.run(command+[sys.executable,'-c','pass'],capture_output=True)
                 self.assertEqual(second.returncode,75)
+                # CEO ruling §77: a test run is admitted while a release command holds the lock.
+                cpu_only=[sys.executable,str(HERE/'reserve.py'),'--state-dir',tmp,'--max-load','10000','--']
+                admitted=subprocess.run(cpu_only+[sys.executable,'-c','pass'],capture_output=True,text=True)
+                self.assertEqual(admitted.returncode,0,admitted.stderr)
+                self.assertIn('no lock taken',admitted.stderr)
             finally:
                 first.terminate();first.wait(timeout=12)
             third=subprocess.run(command+[sys.executable,'-c','pass'],capture_output=True)
             self.assertEqual(third.returncode,0)
+    def test_cpu_admitted_run_never_touches_release_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state=Path(tmp)/'nightly'
+            with patch('reserve.cpu_busy_percent',return_value=20):
+                with reserve.reservation(state) as held:self.assertIsNone(held)
+            self.assertFalse(state.exists())
+            state.mkdir();lock=state/'release.lock';lock.write_text('')
+            before=lock.stat()
+            with open(lock,'a') as other:
+                import fcntl
+                fcntl.flock(other,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                with patch('reserve.cpu_busy_percent',return_value=20):
+                    with reserve.reservation(state):pass
+                with self.assertRaises(BlockingIOError):
+                    with reserve.reservation(state,release_lock=True):self.fail('admitted')
+            after=lock.stat()
+            self.assertEqual((before.st_ino,before.st_size,before.st_mtime_ns),(after.st_ino,after.st_size,after.st_mtime_ns))
+    def test_guest_lock_admits_one_walk_at_a_time(self):
+        with tempfile.TemporaryDirectory() as tmp, patch('reserve.cpu_busy_percent',return_value=20):
+            guest=Path(tmp)/'testvm'/'guest.lock'
+            with reserve.reservation(lock=guest) as held:
+                self.assertEqual(held,guest.resolve())
+                with self.assertRaisesRegex(BlockingIOError,'guest.lock'):
+                    with reserve.reservation(lock=guest):self.fail('admitted')
+            with reserve.reservation(lock=guest):pass
+    def test_unavailable_cpu_measurement_refuses_without_a_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch('reserve.cpu_busy_percent',side_effect=BlockingIOError('CPU measurement unavailable')):
+                with self.assertRaisesRegex(BlockingIOError,'unavailable'):
+                    with reserve.reservation(tmp):self.fail('admitted')
     def test_high_load_with_idle_cpu_does_not_block(self):
         with tempfile.TemporaryDirectory() as tmp, patch('reserve.os.getloadavg',return_value=(20,20,20)), patch('reserve.cpu_busy_percent',return_value=40):
             with reserve.reservation(tmp):pass
@@ -54,8 +89,10 @@ class ScenarioTests(unittest.TestCase):
             with patch('reserve.cpu_busy_percent',return_value=95):
                 with self.assertRaisesRegex(BlockingIOError,'95.0% busy'):
                     with reserve.reservation(tmp):self.fail('admitted')
+                with self.assertRaisesRegex(BlockingIOError,'95.0% busy'):
+                    with reserve.reservation(tmp,release_lock=True):self.fail('admitted')
             with patch('reserve.cpu_busy_percent',return_value=20):
-                with reserve.reservation(tmp):pass
+                with reserve.reservation(tmp,release_lock=True):pass
     def test_cpu_parse_uses_second_sample_and_fails_closed(self):
         good=subprocess.CompletedProcess([],0,'CPU usage: 1% user, 1% sys, 98% idle\nCPU usage: 30% user, 10% sys, 60.00% idle','')
         with patch('reserve.subprocess.run',return_value=good):self.assertEqual(reserve.cpu_busy_percent(),40)
