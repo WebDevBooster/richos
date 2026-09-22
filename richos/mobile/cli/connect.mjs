@@ -27,7 +27,11 @@ export function managedArtifact(profile) {
   for (const name of ['accountId', 'zoneId']) if (!/^[a-f0-9]{32}$/.test(profile[name])) throw Error('Invalid deployment identifier');
   if (!/^[a-f0-9-]{36}$/.test(profile.databaseId) || !/^[a-z0-9][a-z0-9.-]+\.[a-z]{2,}$/.test(profile.domain)) throw Error('Invalid deployment domain/database');
   if (!Number.isInteger(profile.capacity) || profile.capacity < 1 || profile.capacity > 10) throw Error('Pilot capacity must be between 1 and 10');
-  const names = ['connect-worker.mjs', 'connect/auth.mjs', 'connect/store.mjs', 'connect/provider.mjs', 'connect/lifecycle.mjs'];
+  const push = profile.push || {};
+  if (Object.keys(push).some(k=>!['teamId','sandboxKeyId','productionKeyId','topics'].includes(k))) throw Error('Invalid push profile');
+  for (const key of ['teamId','sandboxKeyId','productionKeyId']) if (push[key] && !/^[A-Z0-9]{10}$/.test(push[key])) throw Error('Invalid push identifier');
+  if (push.topics && (!Array.isArray(push.topics) || push.topics.some(t=>!['dev.richos.mobile.loop','dev.richos.mobile.integration'].includes(t)))) throw Error('Invalid push topics');
+  const names = ['connect-worker.mjs', 'connect/auth.mjs', 'connect/store.mjs', 'connect/provider.mjs', 'connect/lifecycle.mjs', 'connect/apns.mjs', 'connect/notifications.mjs'];
   return {
     stage: 'managed',
     metadata: {
@@ -37,7 +41,10 @@ export function managedArtifact(profile) {
         { name: 'DB', type: 'd1', id: profile.databaseId },
         { name: 'REQUEST_LIMIT', type: 'ratelimit', namespace_id: '18443', simple: { limit: 60, period: 60 } },
         ...Object.entries({ CF_ACCOUNT_ID: profile.accountId, CF_ZONE_ID: profile.zoneId, CONNECT_DOMAIN: profile.domain,
-          HOST_CAPACITY: String(profile.capacity), ENROLLMENT_OPEN: 'false' }).map(([name, text]) => ({ name, type: 'plain_text', text })),
+          HOST_CAPACITY: String(profile.capacity), ENROLLMENT_OPEN: 'false',
+          ...(push.teamId ? {APNS_TEAM_ID:push.teamId,APNS_TOPICS:(push.topics || []).join(',')} : {}),
+          ...(push.sandboxKeyId ? {APNS_SANDBOX_KEY_ID:push.sandboxKeyId} : {}),
+          ...(push.productionKeyId ? {APNS_PRODUCTION_KEY_ID:push.productionKeyId} : {}) }).map(([name, text]) => ({ name, type: 'plain_text', text })),
       ],
     },
     modules: names.map(name => {
