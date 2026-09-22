@@ -815,12 +815,22 @@ impl DeviceDesk {
         Ok(())
     }
 
+    /// The preserved iPhone app's call, unchanged: native push over APNs.
     pub fn use_native_push(&self, device_id: &str) -> Result<(), PhoneError> {
+        self.use_native_transport(device_id, "apns")
+    }
+
+    /// Record that this phone is reached by a native push service — `"apns"` or `"fcm"` —
+    /// instead of Web Push. Anything else is refused rather than written into the record.
+    pub fn use_native_transport(&self, device_id: &str, transport: &str) -> Result<(), PhoneError> {
+        if !["apns", "fcm"].contains(&transport) {
+            return Err(PhoneError::Malformed(format!("unknown native push transport {transport:?}")));
+        }
         let mut state = self.state.lock().unwrap();
         let device = state.device.as_mut().filter(|d| d.id == device_id && d.fingerprint_confirmed)
             .ok_or(PhoneError::NotPaired)?;
         device.push = None;
-        device.push_transport = "apns".into();
+        device.push_transport = transport.into();
         self.write(&state)
     }
 

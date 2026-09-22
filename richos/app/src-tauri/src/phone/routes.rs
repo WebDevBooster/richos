@@ -363,9 +363,11 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
                 eprintln!("[richos] could not record the phone's fingerprint confirmation: {e}");
                 return Outcome::NotFound;
             }
-            if body.get("push_transport").and_then(|v|v.as_str())==Some("apns") {
+            // A native app says which native service reaches it: `apns` (the preserved iPhone app,
+            // unchanged) or `fcm` (the native Android app). Any other value is ignored, as before.
+            if let Some(transport)=body.get("push_transport").and_then(|v|v.as_str()).filter(|t|["apns","fcm"].contains(t)) {
                 let Some((id,_,_))=parse_authorization(header) else {return Outcome::NotFound};
-                if channel.devices.use_native_push(&id).is_err() {return Outcome::NotFound}
+                if channel.devices.use_native_transport(&id,transport).is_err() {return Outcome::NotFound}
             }
         } else {
             eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
@@ -1722,6 +1724,16 @@ mod tests {
         f.channel.assets = PhoneApp::from_files(&[]);
         assert_eq!(dispatch(&f.channel, &plain("GET", "/")), Outcome::NotFound);
         assert_eq!(dispatch(&f.channel, &plain("GET", "/index.html")), Outcome::NotFound);
+    }
+
+    #[test]
+    fn an_android_confirmation_records_fcm_and_the_iphone_one_still_records_apns() {
+        let f = fixture("attach-transport");
+        for (sent, recorded) in [("fcm", "fcm"), ("apns", "apns"), ("carrier-pigeon", "apns")] {
+            let body = json!({"fingerprint_confirmed": true, "push_transport": sent}).to_string();
+            assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body)).status(), 200);
+            assert_eq!(f.channel.devices.paired().unwrap().push_transport, recorded, "{sent}");
+        }
     }
 
     // --- the trust endpoint: REMOVED, CEO §61 -------------------------------------------------
