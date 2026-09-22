@@ -179,7 +179,41 @@ async function runEngine(playwright, engine) {
 		// exception among expected noise or, worse, teach the next person to ignore the whole check.
 		const errors = [];
 		const networkNoise = [];
-		page.on('pageerror', (e) => errors.push(String(e)));
+		// WEBKIT REPORTS SOME OF THOSE FAILED REQUESTS DOWN THE EXCEPTION CHANNEL. A load that fails
+		// in CORS mode (every `EventSource`, and this app's `fetch` calls) can be logged by WebKit as
+		// "<initiator> cannot load <url> due to access control checks." with a JavaScript source
+		// (WebCore `ThreadableLoader::logError`), and Playwright's WebKit driver turns every
+		// JavaScript-source error line into `pageerror` (playwright-core `_onConsoleMessage`,
+		// `level === "error" && source === "javascript"`) — which is why these arrive as
+		// "https: /localhost…", its name/message split at the first colon. Which failed load WebKit
+		// reports this way varies run to run. Such a line is expected in exactly two cases, and
+		// both are decided from what the stub Mac recorded rather than from the wording alone:
+		//   * the OUTAGE — it names a request the stub Mac itself dropped, byte for byte;
+		//   * a RELOAD THIS HARNESS STARTED — reported while `page.reload()` is in flight, naming a
+		//     request the Mac has not received since that reload began (counted per URL, because
+		//     `/api/challenge` is the same URL every time). Measured: the link's scheduled reconnect fired
+		//     after `beforeunload`, the old document built its EventSource, WebKit refused it
+		//     locally (no request reached the Mac), and the app's stream-error probe was refused
+		//     the same way, all before `pagehide`. A dying page's requests that never left it.
+		// Anything else stays an error — including a request the Mac did receive, which is where a
+		// real cross-origin refusal would have to show up.
+		const LOADER_REPORT = /^(?:EventSource|Fetch API|XMLHttpRequest) cannot load https?:\s?\/{1,2}[^/\s]+(\/api\/\S+) due to access control checks\.$/;
+		// What the Mac had received when the current harness reload began; null when none is running.
+		let reloadBaseline = null;
+		const loaderReports = { outage: 0, reload: 0 };
+		const reload = page.reload.bind(page);
+		page.reload = async (...args) => {
+			reloadBaseline = new Map(mac.state.seen);
+			try { return await reload(...args); } finally { reloadBaseline = null; }
+		};
+		const neverReachedTheMac = (url) => (mac.state.seen.get(url) || 0) === (reloadBaseline.get(url) || 0);
+		page.on('pageerror', (e) => {
+			const text = String(e);
+			const report = LOADER_REPORT.exec(text);
+			if (report && mac.state.dropped.has(report[1])) { loaderReports.outage++; networkNoise.push(text); }
+			else if (report && reloadBaseline && neverReachedTheMac(report[1])) { loaderReports.reload++; networkNoise.push(text); }
+			else errors.push(text);
+		});
 		page.on('console', (m) => {
 			if (m.type() !== 'error') return;
 			if (/Failed to load resource|net::ERR_|status of 40[0-9]|status of 5[0-9][0-9]/.test(m.text())) networkNoise.push(m.text());
@@ -310,8 +344,12 @@ async function runEngine(playwright, engine) {
 			.some((el) => el.textContent === 'where are we on the proposal?'), null, { timeout: 5000 });
 		check('his message appears the instant he sends it, before the Mac has answered', true);
 
-		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine .msg-state'))
-			.some((el) => /Delivered/.test(el.textContent)), null, { timeout: 10000 });
+		// On HIS new message. "Delivered." already sits under the newest seeded question before he
+		// sends, so waiting on any mine row passed at once and measured nothing.
+		await page.waitForFunction((text) => Array.from(document.querySelectorAll('.msg-mine'))
+			.some((li) => li.querySelector('.msg-text')?.textContent === text
+				&& /Delivered/.test(li.querySelector('.msg-state')?.textContent || '')),
+		'where are we on the proposal?', { timeout: 10000 });
 		check('and turns to delivered when the Mac has it', true);
 
 		const mineCount = await page.evaluate((text) => Array.from(document.querySelectorAll('.msg-mine .msg-text'))
@@ -928,7 +966,11 @@ async function runEngine(playwright, engine) {
 		check('no JavaScript error in the whole run', errors.length === 0, errors.join('\n        '));
 		// Printed rather than asserted away: these are the requests this run BROKE on purpose, and
 		// seeing them is how you know the outage was real rather than simulated in the page.
-		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage this run caused deliberately:\n        ${
+		// The loader reports WebKit sent down the exception channel are named separately, so a run
+		// shows whether the classification above was exercised rather than merely present.
+		const reported = loaderReports.outage + loaderReports.reload;
+		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage or a reload this run caused deliberately` +
+			`${reported ? ` (${reported} reported by WebKit as access-control failures: ${loaderReports.outage} dropped by the outage, ${loaderReports.reload} stopped by a reload before reaching the Mac)` : ''}:\n        ${
 			networkNoise.slice(0, 6).map((t) => t.replace(/\s+/g, ' ')).join('\n        ') || '(none)'}\n`);
 		check('the outage was a REAL network failure, not something the page pretended',
 			networkNoise.length > 0, 'if this is zero, the unreachable and revoked passes above proved nothing');

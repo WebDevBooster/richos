@@ -235,3 +235,22 @@ test('brief recovery is invisible, sustained recovery is explained and queued wo
   assert.equal(app.state().connectionNoticeReason,'reconnecting','A sustained outage must not be hidden');
   app.close();assert.equal(timers.size,0);
 });
+test('KNOWN DEFECT sent-message-blink (reported, not fixed: CEO §76 preserves this client) — an accepted message leaves the screen until the outbox confirms it', async t => {
+  // The shared queue (web-app/lib/queue.js) drops an accepted item, and waits on the durable
+  // remove, before anyone confirms it into the thread; every state emitted in that window shows
+  // his message neither waiting nor sent when the stream's echo has not arrived. The PWA has the
+  // same window whenever a render lands inside it. This fails the day the defect is fixed.
+  const h = harness(), base = h.ports.fetch;
+  h.ports.fetch = async (url, options = {}) => {
+    if (!url.endsWith('/api/messages')) return base(url, options);
+    h.requests.push({ url, ...options });
+    return Response.json({ message_id: 'm-5', cursor: 5, thread_id: 'general', accepted_at: '2026-09-22T18:00:00Z' });
+  };
+  const app = await createClient(h.ports); t.after(() => app.close()); await pair(app);
+  const counts = []; app.subscribe(s => counts.push(s.messages.filter(m => m.text === 'blinks').length));
+  await app.dispatch({ type: 'compose', text: 'blinks' }); await app.dispatch({ type: 'send' });
+  h.opened.at(-1).event('hello', { challenge: 'fresh', capabilities: ['text'] }); await app.settle();
+  const shown = counts.slice(counts.indexOf(1));
+  assert(shown.includes(0), `sent-message-blink is no longer reproduced (copies per state: ${counts.join(',')}): replace this expectation with the ordinary assertion`);
+  assert.equal(shown.at(-1), 1, 'and it does come back once confirmed');
+});

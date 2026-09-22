@@ -688,3 +688,20 @@ test('an event stream network failure remains retryable and a closed stream igno
 	await late;
 	assert.strictEqual(errors.length, 1);
 });
+
+test('KNOWN DEFECT challenge-read-twice (reported, not fixed: CEO §76 preserves the PWA) — a challenge that moves during signing is presented beside a signature over the old one', async () => {
+	// `authorization()` reads `state.challenge` for the signing input, awaits WebCrypto, then reads
+	// it again for the credential. At boot the challenge probe and a backfill page answer in
+	// parallel and each moves the challenge on, so the Mac (and the harness Mac) refuse the
+	// credential with the flat 404. Seen in mobile-pwa's WebKit run as a boot stream that did not
+	// open. This expectation fails the day the defect is fixed, so it cannot outlive it.
+	const Stub = makeEventSource();
+	const { api, signer, state } = makeApi(() => response(200, {}), null, Stub);
+	const realSign = signer.sign.bind(signer);
+	signer.sign = async (input) => { state.challenge = 'moved-mid-signature'; return realSign(input); };
+	await api.openEvents('t-1', 0, {});
+	const presented = new URL(Stub.made[0].url).searchParams.get('auth').replace('RichOS-Device ', '').split('.')[1];
+	const signed = signer.signed[0].split('\n')[0];
+	assert.notStrictEqual(presented, signed, 'challenge-read-twice is no longer reproduced: replace this expectation with the ordinary assertion');
+	assert.deepStrictEqual([signed, presented], ['challenge-one', 'moved-mid-signature']);
+});

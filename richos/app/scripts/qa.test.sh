@@ -36,11 +36,12 @@
 #   T1-T6   timeline: first change, no change, no baseline, stats, refusals
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
+#   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa
-# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs
+# run-tests: covers richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,7 +81,7 @@ python3 -c 'import PIL' >/dev/null 2>&1 && HAVE_PIL=1
 echo ""
 echo "=== H. every tool answers for itself ==="
 for t in contrast.py frame.py redact.py timeline.py ocr-gate.sh ocr-find.sh \
-         ocr-watch.sh wait-for.sh phone-client.mjs fixtures/make-fixtures.py; do
+         ocr-watch.sh wait-for.sh phone-client.mjs flake-rate.sh fixtures/make-fixtures.py; do
   if [ ! -x "$QA/$t" ]; then
     bad "H $t is executable" "not present or not executable at $QA/$t"
     continue
@@ -494,6 +495,28 @@ JS
   run node "$QA/phone-client.mjs" send --state "$TMP/absent.json" --text hello
   expect "N5 a send with no paired phone state is refused by name" 2 "no phone state"
 fi
+
+echo ""
+echo "=== K. flake-rate: a failure rate counted the same way every time ==="
+
+run "$QA/flake-rate.sh" --runs 3 --log-dir "$TMP/fr1" good 'true' broken 'false'
+expect "K1 counts every run of every label and exits 0 — failures are the answer" 0 "broken: pass=0 fail=3 not-admitted=0 of 3"
+
+run "$QA/flake-rate.sh" --runs 2 --log-dir "$TMP/fr2" a "echo a >> '$TMP/order'" b "echo b >> '$TMP/order'"
+if [ "$(tr -d '\n' < "$TMP/order" 2>/dev/null)" = "abab" ]; then ok "K2 rounds are interleaved, so a before/after pair sees the same load"
+else bad "K2 rounds are interleaved" "order was '$(tr -d '\n' < "$TMP/order" 2>/dev/null)', wanted abab"; fi
+
+# Fails on its second run only: a real flake, and the failing log must survive with its words.
+run "$QA/flake-rate.sh" --runs 3 --log-dir "$TMP/fr3" flaky "n=\$(cat '$TMP/count' 2>/dev/null || echo 0); n=\$((n+1)); echo \$n > '$TMP/count'; [ \$n -ne 2 ] || { echo 'second run broke'; exit 1; }"
+if [ "$CODE" = 0 ] && printf '%s' "$OUT" | grep -Fq "flaky: pass=2 fail=1" && grep -Fq "second run broke" "$TMP/fr3/flaky-2.log" 2>/dev/null && [ ! -e "$TMP/fr3/flaky-1.log" ]; then
+  ok "K3 a one-in-three failure is counted, its log kept and named, passing logs removed"
+else bad "K3 a one-in-three failure is counted and kept" "exit $CODE: $(printf '%s' "$OUT" | tr '\n' ' ' | cut -c1-240)"; fi
+
+run "$QA/flake-rate.sh" --runs 0 x true
+expect "K4 zero runs is refused, never reported as a clean rate" 2 "positive whole number"
+
+run "$QA/flake-rate.sh" --runs 2 lonely
+expect "K5 a label without its command is refused" 2 "LABEL"
 
 echo ""
 echo "=== X. the fixtures are still the fixtures ==="
