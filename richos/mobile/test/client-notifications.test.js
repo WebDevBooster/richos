@@ -50,3 +50,14 @@ test('notification return focuses the referenced reply after it arrives',async t
  await f.app.dispatch({type:'notification-focused',id:'reply-42'});assert.equal(f.app.state().focusMessage,null);assert.equal(f.h.disk().focusMessage,null);
  f.h.opened.at(-1).event('message',{id:'reply-43',text:'Later reply',role:'rich',cursor:43,complete:true});await f.settle();assert.equal(f.app.state().focusMessage,null,'Later traffic must not refocus an already opened notification');
 });
+
+
+test('relaunch restores notification status on an authenticated stream without a hello frame',async t=>{
+ const f=await setup(t);await f.app.dispatch({type:'notifications-enable'});await f.settle();
+ assert.equal(f.app.state().notifications.status,'enabled');
+ await f.app.close();
+ const reopened=await createClient(f.h.ports);t.after(()=>reopened.close());await f.settle();
+ f.h.opened.at(-1).onopen();await f.settle();
+ assert.equal(reopened.state().notifications.status,'enabled');
+ assert.equal(f.registrations.length,1,'An unchanged registration must not be posted again');
+});

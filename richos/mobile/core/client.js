@@ -203,6 +203,7 @@
           }
           app.dispatch({ type:'network', online:status==='open' }).then(() => {
             if (status === 'away') diagnoseConnection(mine);
+            if (status === 'open' && (data.push.enabled || data.push.pendingDisable)) void syncNotifications();
           }).catch(failure);
         },
         onFailure: error => {
