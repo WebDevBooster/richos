@@ -126,10 +126,14 @@ public enum Action: Equatable, Sendable {
 
 /// How a delivery attempt ended when it did not succeed (contract §4.2, the reference classification).
 public enum DeliveryFailure: Codable, Equatable, Sendable {
-    /// Unreachable, a fault, 429, or a transient 404 already re-signed once: try again later.
-    case retryable(reason: String?)
-    /// A final answer for this item (409, 422, 503 with `retry:false`, a final 404): it needs the person.
+    /// No Mac, a fault, or 429: the same bytes again after `afterMs` (the outbox's own clock when nil).
+    case retryable(reason: String?, afterMs: Int64? = nil)
+    /// A final answer for this item (409, 413, 422, 503 with `retry:false`): it needs the person; the
+    /// rest of the queue carries on.
     case refused(reason: String?)
+    /// A final answer about the phone, not the message (a final 404, a 403 that is not a revocation):
+    /// this item is blocked and the queue stops.
+    case refusedStopQueue(reason: String?)
     /// 403 `{"revoked":true}`: this phone was removed from the Mac.
     case revoked
 }
