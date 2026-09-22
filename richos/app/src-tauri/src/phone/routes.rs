@@ -460,6 +460,12 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
             "thread_id": thread_id,
             "thread_title": thread_title,
             "threads": threads,
+            // Additive: a freshly paired native app learns what this Mac supports before its
+            // first stream. The `hello` repeats all three and is the one clients replace from.
+            "protocol_version": PROTOCOL_VERSION,
+            "capabilities": capabilities(channel.bridge.voice_available(), channel.bridge.native_notifications_available()),
+            "attachment_limits": attachment_limits(),
+            "build": BUILD,
         })
         .to_string(),
     }
@@ -482,6 +488,52 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
 /// show the button — and the day someone advertises it before it works, which is today's defect
 /// with a longer fuse.
 pub const CAPABILITIES: &[&str] = &["text"];
+
+/// **THE WIRE VERSION, AND WHY IT IS 1 AND STAYS 1 FOR EVERYTHING ADDITIVE.**
+///
+/// The preserved iOS app's core already reads this field and treats any value other than `1`
+/// as "this Mac needs a different app" (`mobile/core/client.js:147`,
+/// `frame.protocol_version !== undefined && frame.protocol_version !== 1`). So the number the
+/// Mac has always implicitly spoken is `1`, sending it changes nothing for that app, and any
+/// other value would switch it off. **New features are named in [`capabilities`], never by
+/// raising this;** it moves only for a change an old client cannot survive.
+pub const PROTOCOL_VERSION: u64 = 1;
+
+/// Everything this Mac can be asked for, as sent in `hello` and in the pairing answer. The
+/// long-standing entries keep their order; each addition is appended, and a client that does not
+/// know a name ignores it (`web/web-app/lib/api.js` `offers` is an `indexOf`).
+///
+/// - `attachments` — photos and files ([`super::attachments`]). Always: the route needs nothing
+///   but this Mac's own disk.
+/// - `native-push-fcm` — the push registration takes `{"platform":"fcm", …}` beside APNs
+///   ([`super::notifications::Registration`]), whenever native push is offered at all.
+pub fn capabilities(voice: bool, native_push: bool) -> Vec<&'static str> {
+    let mut caps = CAPABILITIES.to_vec();
+    if voice {
+        caps.extend(["voice", "audio"]);
+    }
+    if native_push {
+        caps.push("native-push");
+    }
+    caps.push("attachments");
+    if native_push {
+        caps.push("native-push-fcm");
+    }
+    caps
+}
+
+/// The attachment limits a client needs to refuse a file before it uploads it, sent beside the
+/// capabilities so the two apps never hard-code a number this Mac owns.
+fn attachment_limits() -> Value {
+    use super::attachments as a;
+    json!({
+        "max_file_bytes": a::MAX_FILE_BYTES,
+        "max_files_per_message": a::MAX_FILES_PER_MESSAGE,
+        "max_message_bytes": a::MAX_MESSAGE_BYTES,
+        "upload_seconds": a::UPLOAD_SECONDS,
+        "media_types": a::ACCEPTED.iter().map(|k| k.media_type).collect::<Vec<_>>(),
+    })
+}
 
 /// Which RichOS is answering. `CARGO_PKG_VERSION` and nothing else: `app/src-tauri/Cargo.toml` is
 /// the single source the shipped version comes from, `tauri.conf.json` has never carried a
@@ -780,7 +832,9 @@ fn hello_frame(channel: &Channel, thread_id: &str) -> Result<Frame, ()> {
         // rather than once at pairing, because the phone outlives the build it paired with: he
         // updates the Mac and the app on his phone is the same app, holding whatever it was last
         // told. The phone replaces its answer from each frame and never merges (`api.js`).
-        "capabilities": ({ let mut caps=if channel.bridge.voice_available() { vec!["text", "voice", "audio"] } else { CAPABILITIES.to_vec() }; if channel.bridge.native_notifications_available() {caps.push("native-push");} caps }),
+        "capabilities": capabilities(channel.bridge.voice_available(), channel.bridge.native_notifications_available()),
+        "protocol_version": PROTOCOL_VERSION,
+        "attachment_limits": attachment_limits(),
         "build": BUILD,
         // The rows themselves ride along, so the first paint needs no second request. The phone
         // merges them by cursor exactly as it merges a live `message`.
@@ -1601,7 +1655,12 @@ mod tests {
                 // What this Mac can be asked for, and which RichOS is answering (contract §5.3).
                 // The phone renders a control only where the capability behind it is named here,
                 // so an absent or renamed key is a button that disappears from his screen.
-                assert_eq!(data["capabilities"], json!(["text"]));
+                // `attachments` is appended, never inserted: the long-standing entries keep their
+                // place for any client that ever read them positionally.
+                assert_eq!(data["capabilities"], json!(["text", "attachments"]));
+                // The preserved iPhone core accepts exactly 1 (`mobile/core/client.js:147`).
+                assert_eq!(data["protocol_version"], 1);
+                assert_eq!(data["attachment_limits"]["max_file_bytes"], 26_214_400);
                 assert_eq!(data["build"], BUILD);
                 assert_eq!(data["threads"][0]["title"], "the proposal");
                 assert_eq!(data["messages"].as_array().unwrap().len(), 4);
@@ -2037,6 +2096,32 @@ mod tests {
         let body = r#"{"client_id":"t1","thread_id":"thr_5c1e","kind":"text","text":"plain words","attachments":[{"id":"p1"}]}"#;
         assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", body)).status(), 200);
         assert_eq!(f.bridge.submitted.lock().unwrap()[0].1, "plain words");
+    }
+
+    #[test]
+    fn attachments_are_offered_exactly_when_the_route_would_take_one() {
+        // The same agreement `voice_is_offered_exactly_when_the_route_would_take_one` holds for
+        // voice: ASK the route, read whether it took the file, and compare with what is advertised.
+        let f = fixture("attach-capability");
+        let taken = dispatch(&f.channel, &upload(&f, "msg-7", "p1", "a.jpg", "image/jpeg", JPEG)).status() == 200;
+        assert_eq!(capabilities(false, false).contains(&"attachments"), taken);
+        // And the old Mac's list is still a prefix of the new one in every combination.
+        assert_eq!(capabilities(false, false), ["text", "attachments"]);
+        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm"]);
+    }
+
+    #[test]
+    fn the_pairing_answer_tells_a_new_app_what_this_mac_supports() {
+        let f = fixture_with("attach-pair", false, false, 4);
+        let window = f.channel.devices.open_pairing().unwrap();
+        let mut request = plain("POST", "/api/pair");
+        request.body = json!({"code": window.code, "public_key_jwk": Phone::new().jwk(), "device_name": "Pixel", "platform": "android"}).to_string().into_bytes();
+        let (status, v) = json_of(dispatch(&f.channel, &request));
+        assert_eq!(status, 200);
+        assert_eq!(v["protocol_version"], 1);
+        assert_eq!(v["capabilities"], json!(capabilities(false, false)));
+        assert_eq!(v["attachment_limits"]["max_files_per_message"], 10);
+        assert_eq!(v["build"], BUILD);
     }
 
     #[test]
