@@ -119,7 +119,9 @@ try {
       assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
       assert(client.briefReconnectInvisible);
       assert(client.sendsFollowLatest && client.streamedRepliesFollowLatest && client.deliberateSmallScrollPauses && client.latestButtonResumes && client.olderReadingPreserved && client.lockedCancelCentred);
-      pass(`${engine}: native UI follows sends/replies/resizes, respects deliberate scrolls and centres locked Cancel`);
+      pass(`${engine}: native UI follows sends/replies/resizes, respects deliberate scrolls on a settled layout and centres locked Cancel`);
+      // Named and printed every run, never folded into a PASS: see client-ui.mjs for each one.
+      for (const defect of client.knownDefects || []) console.log(`  KNOWN DEFECT  ${engine}: ${defect}`);
     }
   } else {
     const preview = join(cache,'notification-preview-proof');

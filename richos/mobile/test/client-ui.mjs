@@ -13,6 +13,7 @@ const {harness}=require('../dev/client-runtime.js');
 const { loadPlaywright } = require('../../app/ui/tests/lib/harness.js');
 export async function clientUI({engine='chromium'}={}) {
   const scratch = createScratch('client-ui'), assets = join(scratch, 'mobile-ui');
+  const knownDefects = [];
   let browser;
   try {
     stageAssets(assets, false);
@@ -23,7 +24,7 @@ export async function clientUI({engine='chromium'}={}) {
     await seed.dispatch({type:'confirm-pair',matched:true}); seed.close();
     await context.addInitScript(initial => {
       let data=initial, files=[{id:'retained',seconds:9,threadId:'general',origin:'https://mac.example'}], recording=false, serial=0;
-      window.__voiceCalls=[];window.__streamCount=0;
+      window.__voiceCalls=[];window.__streamCount=0;window.RichOSClientInspect=app=>{window.__client=app;};
       window.webkit = { messageHandlers: { richos: { async postMessage({ method, args }) {
         if (method === 'load') return data;
         if (method === 'save') { await new Promise(resolve => setTimeout(resolve, 25)); data = args.value; return true; }
@@ -104,7 +105,29 @@ export async function clientUI({engine='chromium'}={}) {
     await page.locator('[data-message-id="history-18"]').waitFor();
     const bottom=()=>page.waitForFunction(()=>{const a=document.getElementById('conversation');return a.scrollHeight-a.scrollTop-a.clientHeight<=2;});
     await bottom();
-    const readOlder=async()=>{await page.locator('#conversation').hover();await page.mouse.wheel(0,-50000);await page.waitForFunction(()=>document.getElementById('conversation').scrollTop<200);await page.getByRole('button',{name:'↓ Latest messages',exact:true}).waitFor();};
+    // SETTLED, ON THE APP'S OWN RECEIPT: every dispatched action, gesture and durable write has
+    // finished (`core/client.js` `settle`), then two rendering updates so the follow policy's
+    // resize observer has seen the result. The product undoes a reader's scroll that lands on a
+    // layout change still in flight (follow-yank, below), so the checks about his scroll are made
+    // on a settled layout and that defect is measured on its own, every run.
+    const settled=()=>page.evaluate(async()=>{await window.__client.settle();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});
+    // KNOWN DEFECT follow-yank — reported, not fixed here: CEO §76 preserves the PWA and this
+    // client as they are. `web-app/lib/follow.js` `pause()` ignores upward input once scrollTop is
+    // 0, and both engines scroll before they dispatch the wheel, so a fling to the oldest message
+    // never pauses following; the scroll handler then pins to the newest message whenever the
+    // layout changed in the same frame. Modelled here as the composer growing while he drags up.
+    await settled();
+    const yank=await page.evaluate(async()=>{
+      const area=document.getElementById('conversation'),composer=document.querySelector('.composer');
+      const frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      composer.style.paddingBottom='60px';area.scrollTop=0;await frames();
+      const seen={top:Math.round(area.scrollTop),latestHidden:document.getElementById('latest').hidden};
+      composer.style.paddingBottom='';await frames();return seen;
+    });
+    assert(yank.top>200 && yank.latestHidden,`follow-yank is no longer reproduced (${JSON.stringify(yank)}): the product changed, so replace this expectation with the ordinary assertion`);
+    knownDefects.push(`follow-yank: his scroll to the oldest message, in the same frame as a layout change, was returned to the newest (scrollTop 0 -> ${yank.top}, "Latest messages" hidden)`);
+    await bottom();
+    const readOlder=async()=>{await settled();await page.locator('#conversation').hover();await page.mouse.wheel(0,-50000);await page.waitForFunction(()=>document.getElementById('conversation').scrollTop<200);await page.getByRole('button',{name:'↓ Latest messages',exact:true}).waitFor();};
     await readOlder();
     await page.evaluate(()=>window.__message({id:'history-19',cursor:19,role:'rich',text:'An incoming reply must not pull the reader away from older messages.',complete:true}));
     await page.locator('[data-message-id="history-19"]').waitFor({state:'attached'});
@@ -170,6 +193,6 @@ export async function clientUI({engine='chromium'}={}) {
     await page.getByRole('button',{name:'Settings',exact:true}).click();
     await page.getByRole('button',{name:'Close settings',exact:true}).click();
     assert.deepEqual(errors, []);
-    return { engine, briefReconnectInvisible:true, rapidTypingPreserved: true, bothThemesFitPhoneWidths: true, sendsFollowLatest: true, streamedRepliesFollowLatest: true, deliberateSmallScrollPauses: true, latestButtonResumes: true, olderReadingPreserved: true, lockedCancelCentred: true };
+    return { engine, knownDefects, briefReconnectInvisible:true, rapidTypingPreserved: true, bothThemesFitPhoneWidths: true, sendsFollowLatest: true, streamedRepliesFollowLatest: true, deliberateSmallScrollPauses: true, latestButtonResumes: true, olderReadingPreserved: true, lockedCancelCentred: true };
   } finally { await browser?.close(); rmSync(scratch, { recursive: true, force: true }); }
 }

@@ -41,3 +41,16 @@ test('notification focus holds its place until Latest or an explicit send',()=>{
   p.area.scrollHeight+=100;p.resize();assert.equal(p.area.scrollTop,300);assert.equal(p.follow.following,false);
   p.follow.resume();assert.equal(p.area.scrollTop,1100);p.follow.close();assert.equal(p.observed.length,0);
 });
+// KNOWN DEFECT follow-yank (reported, not fixed: CEO §76 preserves the PWA and the iPhone client).
+// WebKit and Chromium both move the view BEFORE they dispatch the wheel, so a fling to the oldest
+// message reaches pause() with scrollTop 0 and pause() does nothing; a layout change in the same
+// frame then sends the scroll handler down its "geometry changed while following" branch, which
+// pins him back to the newest message. Measured in real engines by mobile/test/client-ui.mjs. This
+// fails the day the defect is fixed, so the expectation cannot outlive it.
+test('KNOWN DEFECT follow-yank — a fling to the top with a layout change in the same frame is returned to the newest message',()=>{
+  const p=setup();
+  p.area.scrollTop=0;p.area.clientHeight-=30;
+  p.event('wheel',{deltaY:-50000});p.event('scroll');p.resize();
+  assert.notEqual(p.area.scrollTop,0,'follow-yank is no longer reproduced: replace this expectation with the ordinary assertion');
+  assert.equal(p.follow.following,true);assert.equal(p.latest.hidden,true);
+});
