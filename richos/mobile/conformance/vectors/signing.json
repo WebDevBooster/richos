@@ -1,0 +1,727 @@
+{
+  "schema": 1,
+  "file": "signing.json",
+  "source": "web/web-app/lib/api.js (every valid request is one real call); invalid requests are one mutation of a valid one",
+  "canonical_string": "<challenge>\\n<METHOD uppercased>\\n<path?query as sent, minus the auth parameter>\\n<lowercase hex SHA-256 of the body bytes, or EMPTY when there is no body>",
+  "signature": "ECDSA P-256 over SHA-256 of the UTF-8 canonical string; raw r||s, 64 bytes, base64url without padding",
+  "authorization": "RichOS-Device <device_id>.<challenge>.<signature>; in the Authorization header, except GET /api/events where it is the LAST query parameter auth=<percent-encoded value>",
+  "signatures_are_deterministic": "RFC 6979. A native client VERIFIES these signatures and reproduces signing_string; its own signatures will differ (randomized) and must verify the same way.",
+  "valid": [
+    {
+      "name": "text message",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "text with non-ASCII, quotes and a newline (UTF-8 bytes are hashed)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen.IR1uLQPUddn6FFeIPMOScF-nqSd0kcRiaCV9Vl9-6nRY5pw4gQrRR8GscOa91MPYYc30pBWyKF6EMzMLxLwrRw",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000002\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"Café “naïve” 🚀\\nsecond line with a \\\\ backslash\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "dfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
+          "length": 183
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "dfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
+          "signing_string": "oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen\nPOST\n/api/messages\ndfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
+          "signature_b64url": "IR1uLQPUddn6FFeIPMOScF-nqSd0kcRiaCV9Vl9-6nRY5pw4gQrRR8GscOa91MPYYc30pBWyKF6EMzMLxLwrRw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen.IR1uLQPUddn6FFeIPMOScF-nqSd0kcRiaCV9Vl9-6nRY5pw4gQrRR8GscOa91MPYYc30pBWyKF6EMzMLxLwrRw"
+        },
+        "mac": {
+          "signing_string": "oiRKcaOW_LuSBVtcuFlYIoMJXnw8PRen\nPOST\n/api/messages\ndfff5aa2746234df25211815850a1b01f1b400e0abba49adc209be131d630227",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "text with no thread_id (the Mac uses its active thread)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.AowYnjDkqsnV7nB1X5FQ-9-929EGNufL.72hISJ9uZcymCDWeq7UG7OXvZGeyXx5uAvs0ox_wvJBIspEQfZ54KwbT5nGHFrnr28nZes0KlWWw5Y32L2GkfA",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000003\",\"kind\":\"text\",\"text\":\"no thread\",\"sent_at\":\"2026-09-22T13:00:01.000Z\"}",
+          "sha256_hex": "1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
+          "length": 113
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "AowYnjDkqsnV7nB1X5FQ-9-929EGNufL",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
+          "signing_string": "AowYnjDkqsnV7nB1X5FQ-9-929EGNufL\nPOST\n/api/messages\n1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
+          "signature_b64url": "72hISJ9uZcymCDWeq7UG7OXvZGeyXx5uAvs0ox_wvJBIspEQfZ54KwbT5nGHFrnr28nZes0KlWWw5Y32L2GkfA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.AowYnjDkqsnV7nB1X5FQ-9-929EGNufL.72hISJ9uZcymCDWeq7UG7OXvZGeyXx5uAvs0ox_wvJBIspEQfZ54KwbT5nGHFrnr28nZes0KlWWw5Y32L2GkfA"
+        },
+        "mac": {
+          "signing_string": "AowYnjDkqsnV7nB1X5FQ-9-929EGNufL\nPOST\n/api/messages\n1d6411a25c313741f3ff2a84abf79f7a7e43ae95a2a376208269b350b90685d9",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "voice message (WAV bytes, metadata in the signed query)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.rUmDIYItc62BsAW5vfy3sTU8tSX4owDA.TTJxLQm4ss8EtnTT-YelIzVWfzom0ZdztwdnwMhueYhFRnbgeEU0dnY0cVtNSkOVTnKShY8h7Pt0cCTuzjZPOg",
+          "Content-Type": "audio/wav"
+        },
+        "body": {
+          "base64": "UklGRmQBAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YUABAAAAAOoHVw/PFe0aXR7rH3wfGB3lGCYTNgyEBIr8x/S27cnnXeO54AbgUeGE5G3pve8Q9/H+4gZmDgUVVhoDHtMfqB+FHY0Z/RMvDZAFmf3H9Zjufuja4/bgAeAI4f3jr+jV7gz24f3XBXENNRS4GaEdsh/LH+odLRrOFCUOmwao/sr2fu866V/kPeEE4MjgfeP45/LtC/XS/MsEeQxgExMZNh2JH+UfRh7FGpoVFw+kB7j/0Pdq8Pzp7OSM4RDgkeAG40jnFO0N9MT7vgN9C4USZhjDHFYf9h+aHlYbXxYFEKsIxwDX+FnxxOqB5eThJuBj4Jfin+Y87BPzt/qvAn4KpRGzF0gcGx//H+Ue4BsfF+4QrwnWAeH5TfKS6x3mROJE4D3gMOL95WnrHPKs+aABewm/EPkWxRvXHv4fJx9hHA==",
+          "sha256_hex": "7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
+          "length": 364
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "rUmDIYItc62BsAW5vfy3sTU8tSX4owDA",
+          "path_with_query": "/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z",
+          "body_sha256_hex": "7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
+          "signing_string": "rUmDIYItc62BsAW5vfy3sTU8tSX4owDA\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z\n7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
+          "signature_b64url": "TTJxLQm4ss8EtnTT-YelIzVWfzom0ZdztwdnwMhueYhFRnbgeEU0dnY0cVtNSkOVTnKShY8h7Pt0cCTuzjZPOg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.rUmDIYItc62BsAW5vfy3sTU8tSX4owDA.TTJxLQm4ss8EtnTT-YelIzVWfzom0ZdztwdnwMhueYhFRnbgeEU0dnY0cVtNSkOVTnKShY8h7Pt0cCTuzjZPOg"
+        },
+        "mac": {
+          "signing_string": "rUmDIYItc62BsAW5vfy3sTU8tSX4owDA\nPOST\n/api/messages?client_id=01J8CONFORMANCEVOICE0000001&thread_id=thr_5c1e&kind=voice&codec=wav16k&sample_rate=16000&seconds=0.01&sent_at=2026-09-22T13%3A00%3A02.000Z\n7916363df941165ae5a77636053b23bfe809b817ad2136a69667726b27c61351",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "event stream, first connect (no since)",
+      "request": {
+        "method": "GET",
+        "target": "/api/events?thread_id=thr_5c1e&auth=RichOS-Device%20dev_8d4c57b7ff82.OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b.HI08-9DQ56VzrL3VjiANhxq72NpjKigVN-e3UOlZAsG-QPv4DVulnx5zhu3rQMbxwFVqIcFry8VOMKbq65LwNA",
+        "headers": {},
+        "body": null,
+        "signed": {
+          "credential": "query",
+          "challenge": "OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b",
+          "path_with_query": "/api/events?thread_id=thr_5c1e",
+          "body_sha256_hex": "",
+          "signing_string": "OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b\nGET\n/api/events?thread_id=thr_5c1e\n",
+          "signature_b64url": "HI08-9DQ56VzrL3VjiANhxq72NpjKigVN-e3UOlZAsG-QPv4DVulnx5zhu3rQMbxwFVqIcFry8VOMKbq65LwNA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b.HI08-9DQ56VzrL3VjiANhxq72NpjKigVN-e3UOlZAsG-QPv4DVulnx5zhu3rQMbxwFVqIcFry8VOMKbq65LwNA"
+        },
+        "mac": {
+          "signing_string": "OjrrmxwvqVQnRuvT8b3fv-8PJZnMqg-b\nGET\n/api/events?thread_id=thr_5c1e\n",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "event stream, reconnect with since",
+      "request": {
+        "method": "GET",
+        "target": "/api/events?thread_id=thr_5c1e&since=41&auth=RichOS-Device%20dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.n6yym3-BW_pCAhl1uptXuh9ZQ4LEI1HSlxAIbtsHrnWJTU-jeekhuB5BTZAeKSL_Rmf4M3k_0RSqgTrTUOo8gQ",
+        "headers": {},
+        "body": null,
+        "signed": {
+          "credential": "query",
+          "challenge": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d",
+          "path_with_query": "/api/events?thread_id=thr_5c1e&since=41",
+          "body_sha256_hex": "",
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "signature_b64url": "n6yym3-BW_pCAhl1uptXuh9ZQ4LEI1HSlxAIbtsHrnWJTU-jeekhuB5BTZAeKSL_Rmf4M3k_0RSqgTrTUOo8gQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.n6yym3-BW_pCAhl1uptXuh9ZQ4LEI1HSlxAIbtsHrnWJTU-jeekhuB5BTZAeKSL_Rmf4M3k_0RSqgTrTUOo8gQ"
+        },
+        "mac": {
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "backfill (query credential, same route as the stream)",
+      "request": {
+        "method": "GET",
+        "target": "/api/events?thread_id=thr_5c1e&before=41&limit=50&auth=RichOS-Device%20dev_8d4c57b7ff82.u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg.W0OLw_wEybI0stOC_hQI1jngLGw3IFO-nGnskYaC8T6kgN3ptMrPgiLRq_al1V6RB0sb1lK1jes6J1_mr_8NIA",
+        "headers": {},
+        "body": null,
+        "signed": {
+          "credential": "query",
+          "challenge": "u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg",
+          "path_with_query": "/api/events?thread_id=thr_5c1e&before=41&limit=50",
+          "body_sha256_hex": "",
+          "signing_string": "u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+          "signature_b64url": "W0OLw_wEybI0stOC_hQI1jngLGw3IFO-nGnskYaC8T6kgN3ptMrPgiLRq_al1V6RB0sb1lK1jes6J1_mr_8NIA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg.W0OLw_wEybI0stOC_hQI1jngLGw3IFO-nGnskYaC8T6kgN3ptMrPgiLRq_al1V6RB0sb1lK1jes6J1_mr_8NIA"
+        },
+        "mac": {
+          "signing_string": "u-EltxOTP6vhnXnprAW6NLuRhVBoc3Kg\nGET\n/api/events?thread_id=thr_5c1e&before=41&limit=50\n",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "revocation probe after a stream error",
+      "request": {
+        "method": "GET",
+        "target": "/api/events?thread_id=thr_5c1e&before=0&limit=1&auth=RichOS-Device%20dev_8d4c57b7ff82.xPut9fQwjub--BYjBja0SdJzqndebeE9._MSKkhCQYmZHCTBIZShe5dP6RDfcOw9_qIVvT2He6EeFjsKpKlpSSIDT-nrzcHPbo6e15gjf_FnXBDimsldU_Q",
+        "headers": {},
+        "body": null,
+        "signed": {
+          "credential": "query",
+          "challenge": "xPut9fQwjub--BYjBja0SdJzqndebeE9",
+          "path_with_query": "/api/events?thread_id=thr_5c1e&before=0&limit=1",
+          "body_sha256_hex": "",
+          "signing_string": "xPut9fQwjub--BYjBja0SdJzqndebeE9\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+          "signature_b64url": "_MSKkhCQYmZHCTBIZShe5dP6RDfcOw9_qIVvT2He6EeFjsKpKlpSSIDT-nrzcHPbo6e15gjf_FnXBDimsldU_Q",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.xPut9fQwjub--BYjBja0SdJzqndebeE9._MSKkhCQYmZHCTBIZShe5dP6RDfcOw9_qIVvT2He6EeFjsKpKlpSSIDT-nrzcHPbo6e15gjf_FnXBDimsldU_Q"
+        },
+        "mac": {
+          "signing_string": "xPut9fQwjub--BYjBja0SdJzqndebeE9\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "audio fetch, id percent-encoded in the signed path",
+      "request": {
+        "method": "GET",
+        "target": "/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF.4SO4fdyMVeQRvoABirnCyHXqVgCEpQUdHytiqnfcAuBntmW8HYziMto0DcmZK1sJ_3Grl9-DhDF2rkXuBqVeIA"
+        },
+        "body": null,
+        "signed": {
+          "credential": "header",
+          "challenge": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF",
+          "path_with_query": "/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e",
+          "body_sha256_hex": "",
+          "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
+          "signature_b64url": "4SO4fdyMVeQRvoABirnCyHXqVgCEpQUdHytiqnfcAuBntmW8HYziMto0DcmZK1sJ_3Grl9-DhDF2rkXuBqVeIA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF.4SO4fdyMVeQRvoABirnCyHXqVgCEpQUdHytiqnfcAuBntmW8HYziMto0DcmZK1sJ_3Grl9-DhDF2rkXuBqVeIA"
+        },
+        "mac": {
+          "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "six words confirmed (native client adds push_transport)",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.1jSQKbwebV-n6DUqNYMifyp_c-EywMAL.CRSVk2EIsSr15n02IGuX_uHvyqlsE71_uDJ93afbse4zeUh1xCwHOWPVHxaqk0SkuhMgQYE3o8wctWbZzv2sqg",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+          "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+          "length": 85
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "1jSQKbwebV-n6DUqNYMifyp_c-EywMAL",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+          "signing_string": "1jSQKbwebV-n6DUqNYMifyp_c-EywMAL\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+          "signature_b64url": "CRSVk2EIsSr15n02IGuX_uHvyqlsE71_uDJ93afbse4zeUh1xCwHOWPVHxaqk0SkuhMgQYE3o8wctWbZzv2sqg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.1jSQKbwebV-n6DUqNYMifyp_c-EywMAL.CRSVk2EIsSr15n02IGuX_uHvyqlsE71_uDJ93afbse4zeUh1xCwHOWPVHxaqk0SkuhMgQYE3o8wctWbZzv2sqg"
+        },
+        "mac": {
+          "signing_string": "1jSQKbwebV-n6DUqNYMifyp_c-EywMAL\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "six words refused",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ.aWqLWN6TRs6AfkeJ6ufbloqBUNQe6JgncMr1dOljhyW8Zz1wfQCceQATnuqmVwX-V6d7sduabPE1l6d76tgkAg",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":false,\"push_transport\":\"apns\"}",
+          "sha256_hex": "27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+          "length": 86
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+          "signing_string": "UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+          "signature_b64url": "aWqLWN6TRs6AfkeJ6ufbloqBUNQe6JgncMr1dOljhyW8Zz1wfQCceQATnuqmVwX-V6d7sduabPE1l6d76tgkAg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ.aWqLWN6TRs6AfkeJ6ufbloqBUNQe6JgncMr1dOljhyW8Zz1wfQCceQATnuqmVwX-V6d7sduabPE1l6d76tgkAg"
+        },
+        "mac": {
+          "signing_string": "UYTjOiQC_-A-cBi4rG7qhjkBWgjYmtrQ\nPOST\n/api/pair\n27a495a3827264ba5ee3e97e83bbf4877992af85ad0592a34b0f0c92fba42cae",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "native push registration (APNs shape today)",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4.WMyMTKxVauS9wnKD3OsuzP4NyMx4evsNWBQ77fRzP4eKwPcoZg4JvOgjVdOdXk0W8hjhaWvMPTswaa2JrOtaag",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"native_push\":{\"token\":\"abababababababababababababababababababababababababababababababab\",\"environment\":\"sandbox\",\"topic\":\"dev.richos.mobile.loop\",\"preview_key\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"previews\":true}}",
+          "sha256_hex": "34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
+          "length": 225
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
+          "signing_string": "tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4\nPOST\n/api/pair\n34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
+          "signature_b64url": "WMyMTKxVauS9wnKD3OsuzP4NyMx4evsNWBQ77fRzP4eKwPcoZg4JvOgjVdOdXk0W8hjhaWvMPTswaa2JrOtaag",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4.WMyMTKxVauS9wnKD3OsuzP4NyMx4evsNWBQ77fRzP4eKwPcoZg4JvOgjVdOdXk0W8hjhaWvMPTswaa2JrOtaag"
+        },
+        "mac": {
+          "signing_string": "tUyQb8Z3gMD90QFB4VvqRCrK6rd78bx4\nPOST\n/api/pair\n34ad18750c6c7c43510ecd6995c70bc403b1bf1dbcbb635bd8ac1e95a9cadf11",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "native push unregistration",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.9El8t3WwrecNgTLtQlwlRd-91zuC79y6.oVofrhFHcapmQOr7QIUEzghnrwBtNWoNddyydzxThwHMMCJPkCV4uvgSdBeJo_BzRTTIhjEdgZJO_QTvsssxMw",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"native_push\":null}",
+          "sha256_hex": "1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "length": 20
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "9El8t3WwrecNgTLtQlwlRd-91zuC79y6",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "signing_string": "9El8t3WwrecNgTLtQlwlRd-91zuC79y6\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "signature_b64url": "oVofrhFHcapmQOr7QIUEzghnrwBtNWoNddyydzxThwHMMCJPkCV4uvgSdBeJo_BzRTTIhjEdgZJO_QTvsssxMw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.9El8t3WwrecNgTLtQlwlRd-91zuC79y6.oVofrhFHcapmQOr7QIUEzghnrwBtNWoNddyydzxThwHMMCJPkCV4uvgSdBeJo_BzRTTIhjEdgZJO_QTvsssxMw"
+        },
+        "mac": {
+          "signing_string": "9El8t3WwrecNgTLtQlwlRd-91zuC79y6\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "reply receipt",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU.aB8oeBK9rGJGhp9K9NP3vB-No7dQs721bpZxZwe3aWte0WiK3FLjyja4lXZHGg4QS-7XcvFGBoNyb7UkDWOjjQ",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"seen_reply\":{\"thread\":\"thr_5c1e\",\"id\":\"turn_9:text:0\"}}",
+          "sha256_hex": "42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
+          "length": 57
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
+          "signing_string": "nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU\nPOST\n/api/pair\n42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
+          "signature_b64url": "aB8oeBK9rGJGhp9K9NP3vB-No7dQs721bpZxZwe3aWte0WiK3FLjyja4lXZHGg4QS-7XcvFGBoNyb7UkDWOjjQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU.aB8oeBK9rGJGhp9K9NP3vB-No7dQs721bpZxZwe3aWte0WiK3FLjyja4lXZHGg4QS-7XcvFGBoNyb7UkDWOjjQ"
+        },
+        "mac": {
+          "signing_string": "nF1LtJWG3r-veQUZTJSOzpsM_A9vDjIU\nPOST\n/api/pair\n42e6b4530efe0369b17d7b9a5726510a2026e78c691f120e736ce69b3803ac82",
+          "verdict": "accepted"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "DER-encoded signature (Android SHA256withECDSA and iOS SecKeyCreateSignature output, not converted to raw r||s)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.MEUCIQDcfoc0PpeywT0WGJquvUvnjYUAfQN_u-GNyfatJHlpxQIgTHtDSgi1jE-tLlmY4rREtsn_rRvdZSl37uXIw_ReE70",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "MEUCIQDcfoc0PpeywT0WGJquvUvnjYUAfQN_u-GNyfatJHlpxQIgTHtDSgi1jE-tLlmY4rREtsn_rRvdZSl37uXIw_ReE70",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.MEUCIQDcfoc0PpeywT0WGJquvUvnjYUAfQN_u-GNyfatJHlpxQIgTHtDSgi1jE-tLlmY4rREtsn_rRvdZSl37uXIw_ReE70"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "one bit of the signature flipped",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhmarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhmarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhmarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "signature truncated to 63 bytes",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4T",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4T",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4T"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "signed with a different key under this device id",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.TUPa-g7EbzJwX3QBvQwQcXiQjpeQBsTky-qw-xvScweJyRgx4WE9nJJAj9vUcqS-CNjGNPtleA19NFgcYz1lsA",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "TUPa-g7EbzJwX3QBvQwQcXiQjpeQBsTky-qw-xvScweJyRgx4WE9nJJAj9vUcqS-CNjGNPtleA19NFgcYz1lsA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.TUPa-g7EbzJwX3QBvQwQcXiQjpeQBsTky-qw-xvScweJyRgx4WE9nJJAj9vUcqS-CNjGNPtleA19NFgcYz1lsA"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "method signed in lowercase",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3tuDBPUZUFEG0CEzRTyFCi6ZZcJnAXEBn6c6XQHW3W2ojP6TSIW0sIS1ckAuF8X9Du3xWd5jDM7FZEmbr7QSSA",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\npost\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3tuDBPUZUFEG0CEzRTyFCi6ZZcJnAXEBn6c6XQHW3W2ojP6TSIW0sIS1ckAuF8X9Du3xWd5jDM7FZEmbr7QSSA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3tuDBPUZUFEG0CEzRTyFCi6ZZcJnAXEBn6c6XQHW3W2ojP6TSIW0sIS1ckAuF8X9Du3xWd5jDM7FZEmbr7QSSA"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "body changed after signing (the retry-must-resend-the-same-bytes trap)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal!?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "fd8a56585a29cc59207fcf5382d9f9108bd3c89c83f8ca48a8ad29674b3cc01c",
+          "length": 157
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\nfd8a56585a29cc59207fcf5382d9f9108bd3c89c83f8ca48a8ad29674b3cc01c",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "GET signed with SHA-256 of zero bytes instead of an empty fourth line",
+      "request": {
+        "method": "GET",
+        "target": "/api/events?thread_id=thr_5c1e&since=41&auth=RichOS-Device%20dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.tO6WWksKPOuWsg-ZIlVnbAf_iVEzTrShPPAejEd76X6t_bUE3vHlsmc41D8chionc6xCHCBXsBS1LyzbEYZarA",
+        "headers": {},
+        "body": null,
+        "signed": {
+          "credential": "query",
+          "challenge": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d",
+          "path_with_query": "/api/events?thread_id=thr_5c1e&since=41",
+          "body_sha256_hex": "",
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "signature_b64url": "tO6WWksKPOuWsg-ZIlVnbAf_iVEzTrShPPAejEd76X6t_bUE3vHlsmc41D8chionc6xCHCBXsBS1LyzbEYZarA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.tO6WWksKPOuWsg-ZIlVnbAf_iVEzTrShPPAejEd76X6t_bUE3vHlsmc41D8chionc6xCHCBXsBS1LyzbEYZarA"
+        },
+        "mac": {
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "stream signed with the auth parameter still in the path",
+      "request": {
+        "method": "GET",
+        "target": "/api/events?thread_id=thr_5c1e&since=41&auth=RichOS-Device%20dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.9O4CPrp_Qzy3cb7pZgerLHAoyK-VMt9e3WCs-JzoYvPyWuDVPo2yetx7DQmC2qkaUwDfGjoJbEx8s8b8hbmUbw",
+        "headers": {},
+        "body": null,
+        "signed": {
+          "credential": "query",
+          "challenge": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d",
+          "path_with_query": "/api/events?thread_id=thr_5c1e&since=41",
+          "body_sha256_hex": "",
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41&auth=\n",
+          "signature_b64url": "9O4CPrp_Qzy3cb7pZgerLHAoyK-VMt9e3WCs-JzoYvPyWuDVPo2yetx7DQmC2qkaUwDfGjoJbEx8s8b8hbmUbw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d.9O4CPrp_Qzy3cb7pZgerLHAoyK-VMt9e3WCs-JzoYvPyWuDVPo2yetx7DQmC2qkaUwDfGjoJbEx8s8b8hbmUbw"
+        },
+        "mac": {
+          "signing_string": "-On2ivD7fcFs5Dz5dK64Tw6jB5fSQw-d\nGET\n/api/events?thread_id=thr_5c1e&since=41\n",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "audio id signed decoded instead of as sent on the wire",
+      "request": {
+        "method": "GET",
+        "target": "/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF.kyx23I1jvKkVdCUOR2-zY3AXay9dqvMBgcrr3-KqcbNq8V31WmZC8lts637Zb9pI1qbDk6ZIVQowalpG54ESJA"
+        },
+        "body": null,
+        "signed": {
+          "credential": "header",
+          "challenge": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF",
+          "path_with_query": "/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e",
+          "body_sha256_hex": "",
+          "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9:text:0?thread_id=thr_5c1e\n",
+          "signature_b64url": "kyx23I1jvKkVdCUOR2-zY3AXay9dqvMBgcrr3-KqcbNq8V31WmZC8lts637Zb9pI1qbDk6ZIVQowalpG54ESJA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF.kyx23I1jvKkVdCUOR2-zY3AXay9dqvMBgcrr3-KqcbNq8V31WmZC8lts637Zb9pI1qbDk6ZIVQowalpG54ESJA"
+        },
+        "mac": {
+          "signing_string": "8gOo4dBoZFaCNd7iQDgrjVV0OpMNanWF\nGET\n/api/audio/turn_9%3Atext%3A0?thread_id=thr_5c1e\n",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    },
+    {
+      "name": "credential names a different challenge than the one signed",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.13qSiDc12bGRXgBy7EgbL8GFsV-3h-zG.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.13qSiDc12bGRXgBy7EgbL8GFsV-3h-zG.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ"
+        },
+        "mac": {
+          "signing_string": "13qSiDc12bGRXgBy7EgbL8GFsV-3h-zG\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "refused",
+          "refusal": "BadSignature"
+        }
+      }
+    }
+  ],
+  "accepted_by_the_mac_though_unusual": [
+    {
+      "name": "high-S form of a valid signature (s replaced by n - s)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acWzhLy090pzsVLRpmcdS7tI8udNkcmydQ0E1AH_CAURlA",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acWzhLy090pzsVLRpmcdS7tI8udNkcmydQ0E1AH_CAURlA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acWzhLy090pzsVLRpmcdS7tI8udNkcmydQ0E1AH_CAURlA"
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "base64url signature with = padding",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ=",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"01J8CONFORMANCE000000000001\",\"thread_id\":\"thr_5c1e\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"sent_at\":\"2026-09-22T13:00:00.000Z\"}",
+          "sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "length": 156
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "signature_b64url": "3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ=",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT.3H6HND6XssE9Fhiarr1L542FAH0Df7vhjcn2rSR5acVMe0NKCLWMT60uWZjitES2yf-tG91lKXfu5cjD9F4TvQ="
+        },
+        "mac": {
+          "signing_string": "mCAYaPNmpAlSOkCHhjnOw0-bX9ZhjclT\nPOST\n/api/messages\n04d044fb38ceb6006c0015f1afc0c8073295b65b5935a70521f87d44f000fdea",
+          "verdict": "accepted"
+        }
+      }
+    }
+  ]
+}

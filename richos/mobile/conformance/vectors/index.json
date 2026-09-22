@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "file": "index.json",
+  "purpose": "The RichOS phone protocol conformance corpus. Both native apps (Swift, Kotlin) load these files in their fast logic tests and must pass every case. See README.md.",
+  "generated_by": "richos/mobile/conformance/generate.mjs",
+  "generated_from": [
+    "richos/web/web-app/lib/api.js",
+    "richos/web/web-app/lib/queue.js",
+    "richos/web/web-app/lib/thread.js",
+    "richos/web/web-app/lib/inbound.js",
+    "richos/web/web-app/lib/fingerprint.js",
+    "richos/web/web-app/lib/wordlist.js",
+    "richos/web/web-app/lib/pcm.js",
+    "richos/mobile/core/client.js",
+    "richos/mobile/platform/native.js"
+  ],
+  "verified_by": [
+    "node:crypto (every signature, at generation)",
+    "richos/mobile/conformance/verifier (the Mac production Rust verifier, cargo test)"
+  ],
+  "files": [
+    {
+      "file": "keys.json",
+      "cases": 1,
+      "status": "generated"
+    },
+    {
+      "file": "pairing.json",
+      "cases": 38,
+      "status": "generated"
+    },
+    {
+      "file": "fingerprint.json",
+      "cases": 12,
+      "status": "generated"
+    },
+    {
+      "file": "signing.json",
+      "cases": 26,
+      "status": "generated"
+    },
+    {
+      "file": "challenge.json",
+      "cases": 9,
+      "status": "generated"
+    },
+    {
+      "file": "retry.json",
+      "cases": 5,
+      "status": "generated"
+    },
+    {
+      "file": "errors.json",
+      "cases": 15,
+      "status": "generated"
+    },
+    {
+      "file": "events.json",
+      "cases": 13,
+      "status": "generated"
+    },
+    {
+      "file": "voice.json",
+      "cases": 5,
+      "status": "generated"
+    },
+    {
+      "file": "attachments.json",
+      "cases": 0,
+      "status": "placeholder"
+    },
+    {
+      "file": "push-registration-fcm.json",
+      "cases": 0,
+      "status": "placeholder"
+    }
+  ]
+}

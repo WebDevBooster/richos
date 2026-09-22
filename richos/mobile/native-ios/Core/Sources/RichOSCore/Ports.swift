@@ -68,32 +68,47 @@ public enum CoreJSON {
     }
 }
 
+/// Performs everything that is not a state change: the network, the microphone, notifications,
+/// opening Settings. The app supplies one (the platform adapter, stream I3, plus the network
+/// courier); tests and the headless CLI supply fakes or none. Each effect may answer with actions —
+/// "the OS said the microphone is allowed", "the Mac accepted the message" — which the store
+/// dispatches like any other, so an answer can never bypass the reducer.
+public protocol EffectHandler: Sendable {
+    func handle(_ effect: Effect, state: AppState) async -> [Action]
+}
+
 /// Performs the effects a reducer asked for, through the ports. An actor, not main-actor-bound: the
-/// UI thread never waits on storage (the Avelor iOS lesson, build plan §3.2).
+/// UI thread never waits on storage or the network (the Avelor iOS lesson, build plan §3.2).
 ///
-/// Effects whose port is not wired yet (`pair`, `confirmFingerprint`, `forgetIdentity`,
-/// `openSystemSettings`) are counted in `skipped` and otherwise ignored: the transport and platform
-/// ports arrive with their features, and until then a fixture or the CLI supplies the answer
-/// (for example `pairing-answered`). Nothing is guessed.
+/// `.persist` is handled here; every other effect goes to the `EffectHandler`. With none wired (the
+/// headless CLI, a test), those effects are recorded in `skipped` — never guessed at — and a fixture
+/// or the CLI supplies the answer instead (for example `pairing-answered`).
 public actor EffectRunner {
     public static let stateKey = "state.json"
 
     private let storage: any Storage
+    private let handler: (any EffectHandler)?
     public private(set) var skipped: [Effect] = []
 
-    public init(storage: any Storage) { self.storage = storage }
+    public init(storage: any Storage, handler: (any EffectHandler)? = nil) {
+        self.storage = storage
+        self.handler = handler
+    }
 
-    public func run(_ effects: [Effect], state: AppState) async throws {
+    /// Runs the effects in order and returns the actions their answers produced, in order.
+    @discardableResult
+    public func run(_ effects: [Effect], state: AppState) async throws -> [Action] {
+        var followUps: [Action] = []
         for effect in effects {
-            switch effect {
-            case .persist:
+            if effect == .persist {
                 try await storage.write(Self.stateKey, try CoreJSON.encode(state.persisted))
-            case .pair, .confirmFingerprint, .forgetIdentity, .openSystemSettings, .deliver, .loadOlder,
-                 .fetchReplyAudio, .stopAudio, .requestMicrophone, .startRecording, .stopRecording, .deleteRecording,
-                 .hapticTick, .playRecording, .requestNotifications, .unregisterNotifications, .openAppStore, .openSupport:
+            } else if let handler {
+                followUps += await handler.handle(effect, state: state)
+            } else {
                 skipped.append(effect)
             }
         }
+        return followUps
     }
 
     /// The stored state, or `nil` for a new install. A stored file that cannot be read THROWS — it

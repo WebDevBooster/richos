@@ -190,7 +190,10 @@ enum VoiceReducer {
     /// was captured when recording began (the Mac this phone is paired with).
     private static func enqueueVoice(_ s: inout AppState, id: String, durationMs: Int, levels: [Double], at: Int64, _ effects: inout [Effect]) {
         guard !s.outbox.contains(where: { $0.clientID == id }) else { return }
-        s.outbox.append(OutboxItem(clientID: id, kind: .voice, body: nil, recordingID: id, queuedAt: at))
+        s.outbox.append(OutboxItem(clientID: id, kind: .voice, body: nil, recordingID: id,
+                                   target: Delivery.voiceTarget(clientID: id, threadID: s.mac?.threadID, seconds: Double(durationMs) / 1000,
+                                                                sentAtISO: ConversationReducer.isoMillis(at)),
+                                   queuedAt: at))
         s.messages.append(Message(id: id, author: .me, kind: .voice, text: "", sentAt: at, delivery: .waiting,
                                   durationMs: durationMs, levels: levels))
         s.following = true

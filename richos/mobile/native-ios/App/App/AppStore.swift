@@ -26,9 +26,11 @@ final class AppStore {
         self.runner = runner
     }
 
-    /// The store for this launch: the saved state, or a new install.
-    static func launch(storage: any Storage) async -> AppStore {
-        let runner = EffectRunner(storage: storage)
+    /// The store for this launch: the saved state, or a new install. `effects` is the platform and
+    /// network adapter (stream I3 supplies the platform half); without it, non-storage effects are
+    /// recorded and skipped.
+    static func launch(storage: any Storage, effects: (any EffectHandler)? = nil) async -> AppStore {
+        let runner = EffectRunner(storage: storage, handler: effects)
         do {
             return AppStore(state: try await runner.load() ?? .initial, runner: runner)
         } catch let error as StoredSchemaError where error.newer {
@@ -95,14 +97,19 @@ final class AppStore {
 
     private func perform(_ effects: [Effect], snapshot: AppState) -> Task<Void, Never> {
         let previous = lastWrite
-        guard !effects.isEmpty, !storageIsReadOnly else {
+        // An unreadable stored state is never written over; every other effect still runs.
+        let effects = storageIsReadOnly ? effects.filter { $0 != .persist } : effects
+        guard !effects.isEmpty else {
             return Task { await previous?.value }
         }
         let runner = self.runner
         let task = Task { [weak self] in
             await previous?.value
             do {
-                try await runner.run(effects, state: snapshot)
+                // An effect's answer ("the microphone is allowed", "the Mac accepted it") is an
+                // action like any other: it goes through the reducer, in order.
+                let followUps = try await runner.run(effects, state: snapshot)
+                for action in followUps { self?.apply(action) }
             } catch {
                 self?.persistenceProblem = "This iPhone could not save your latest changes."
             }
