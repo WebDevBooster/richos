@@ -466,12 +466,18 @@ async fn attempt_once(
 /// already checked for an update — two unrelated features, one ordering, and the first run is
 /// exactly the case where the update check has not happened yet.
 ///
-/// `install_default` returns `Err` when a provider is already installed, which is not a failure
-/// and is why the result is discarded: the post-condition this function promises is "a provider
-/// exists", and both branches satisfy it. Idempotent, so calling it per attempt costs nothing.
-fn ensure_crypto_provider() {
-    if rustls::crypto::CryptoProvider::get_default().is_none() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+/// `install_default` returns `Err` only when a provider is already installed — here, another
+/// thread installing one between the check and the install. That is not a failure: the
+/// post-condition this function promises is "a provider exists", and the `Err` branch asserts
+/// exactly that rather than discarding it. Idempotent, so calling it per attempt costs nothing.
+///
+/// The phone channel's TLS listener and its Connect client need the same provider for the same
+/// reason, so they call this one function rather than repeating the install.
+pub(crate) fn ensure_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none()
+        && rustls::crypto::ring::default_provider().install_default().is_err()
+    {
+        debug_assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 }
 

@@ -327,10 +327,10 @@ pub fn tls_config_with_tailnet(
     leaf_key_pkcs8: &[u8],
     tailnet: Option<(String, Vec<Vec<u8>>, super::tailnet::KeyDer)>,
 ) -> Result<Arc<rustls::ServerConfig>, PhoneError> {
-    // The same `ring` provider `voice_provision.rs` installs, installed idempotently here for the
-    // same reason it does: a process-level provider must exist before a config is built, and
+    // The same `ring` provider `voice_provision.rs` installs, through the same idempotent function,
+    // for the same reason it does: a process-level provider must exist before a config is built, and
     // depending on which unrelated feature ran first is a defect waiting for one first run.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    crate::voice_provision::ensure_crypto_provider();
 
     // The ROOT is deliberately not in this chain. Nothing that reaches this leaf trusts the
     // root anyway — §61 removed the path that put it on a phone — so sending it would be a
