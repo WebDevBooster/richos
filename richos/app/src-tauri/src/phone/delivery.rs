@@ -19,11 +19,11 @@ impl DeliveryDesk {
     pub fn open(dir: &Path) -> Result<Self, PhoneError> {
         let path = dir.join("phone/delivery.json");
         let receipts: VecDeque<Receipt> = match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| PhoneError::Malformed("phone delivery receipts are unreadable".into()))?,
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| PhoneError::Malformed("Your Mac's message recovery history is unreadable. Whoever set RichOS up needs to recover it.".into()))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => VecDeque::new(),
             Err(e) => return Err(e.into()),
         };
-        if receipts.len() > MAX_RECEIPTS { return Err(PhoneError::Malformed("too many phone delivery receipts".into())); }
+        if receipts.len() > MAX_RECEIPTS { return Err(PhoneError::Malformed("Your Mac's message recovery history exceeds its safe limit. Whoever set RichOS up needs to recover it.".into())); }
         Ok(Self { path, receipts: Mutex::new(receipts) })
     }
 

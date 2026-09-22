@@ -732,7 +732,7 @@ fn connect_helper() -> Result<std::path::PathBuf, PhoneError> {
         let path = std::path::PathBuf::from(path);
         if path.is_absolute() && path.is_file() { return Ok(path); }
     }
-    Err(PhoneError::Malformed("This RichOS build is missing its Connect helper. Install a complete RichOS build.".into()))
+    Err(PhoneError::Malformed("This RichOS build is missing its Connect helper. Whoever set RichOS up needs to install a complete build.".into()))
 }
 
 impl PhoneRuntime {

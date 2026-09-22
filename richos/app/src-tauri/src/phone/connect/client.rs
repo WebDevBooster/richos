@@ -91,7 +91,7 @@ impl Client {
     }
     pub fn allocation(&self, reply: &Reply) -> Result<Allocation, PhoneError> {
         if reply.status == 403 {
-            return Err(PhoneError::Malformed("RichOS Connect is in a private pilot. This Mac has not been admitted yet.".into()));
+            return Err(PhoneError::Malformed("RichOS Connect is in a private pilot. An operator must admit this Mac before setup can continue.".into()));
         }
         if reply.status != 200 { return Err(unavailable()); }
         let allocation: Allocation = serde_json::from_value(reply.value.clone()).map_err(|_| unavailable())?;

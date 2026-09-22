@@ -19,7 +19,7 @@ impl Supervisor {
             return Err(PhoneError::Malformed("RichOS Connect returned an invalid connection credential.".into()));
         }
         let helper = helper.to_path_buf();
-        if !helper.is_file() { return Err(PhoneError::Malformed("This RichOS build is missing its Connect helper. Install a complete RichOS build.".into())); }
+        if !helper.is_file() { return Err(PhoneError::Malformed("This RichOS build is missing its Connect helper. Whoever set RichOS up needs to install a complete build.".into())); }
         let health = Arc::new(Mutex::new(Health { state: "connecting".into(), restarts: 0 }));
         let shared = Arc::clone(&health);
         let (stop, rx) = mpsc::channel();

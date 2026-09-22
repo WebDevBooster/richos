@@ -16,7 +16,7 @@ fn path(data: &Path) -> PathBuf { data.join("phone/connect.json") }
 pub fn load(data: &Path) -> Result<Config, PhoneError> {
     let p = path(data);
     match std::fs::read(&p) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| PhoneError::Malformed("RichOS Connect's saved setup is unreadable. Ask Rich to help recover it.".into())),
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| PhoneError::Malformed("RichOS Connect's saved setup is unreadable. Whoever set RichOS up needs to recover it.".into())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
         Err(e) => Err(e.into()),
     }
