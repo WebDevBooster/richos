@@ -5,6 +5,10 @@ body { font-size: 1rem; padding: 0; height: 100dvh; overflow: hidden; }
 h1 { font-size: 1.25rem; margin: 0; } h2 { font-size: 1.2rem; }
 p { margin: .5rem 0; overflow-wrap: anywhere; }
 button, summary { min-height: 44px; font: inherit; }
+/* A held gesture may end over a newly revealed control. iOS must activate it,
+   not select its label or open the text-selection callout. Messages stay selectable. */
+button, summary, #voice-controls { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+button { touch-action: manipulation; }
 button { border: 1px solid var(--line-control); border-radius: 9px; color: var(--ink); background: var(--surface-sunk); padding: 8px 12px; cursor: pointer; }
 button:disabled { opacity: .6; cursor: default; }
 button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid var(--gold-text); outline-offset: 2px; }

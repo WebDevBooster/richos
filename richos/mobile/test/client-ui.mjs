@@ -22,7 +22,7 @@ export async function clientUI() {
     await seed.dispatch({type:'pair',link:'https://mac.example/#pair=code'});
     await seed.dispatch({type:'confirm-pair',matched:true}); seed.close();
     await context.addInitScript(initial => {
-      let data=initial, files=[], recording=false, serial=0;
+      let data=initial, files=[{id:'retained',seconds:9,threadId:'general',origin:'https://mac.example'}], recording=false, serial=0;
       window.__voiceCalls=[];
       window.webkit = { messageHandlers: { richos: { async postMessage({ method, args }) {
         if (method === 'load') return data;
@@ -34,7 +34,7 @@ export async function clientUI() {
         if (method === 'recordCancel') {recording=false;window.__voiceCalls.push(method);return true;}
         if (['configure','sign','hash','recordHash'].includes(method)) return method==='hash'?'0'.repeat(64):'fixture';
         if (method === 'streamClose') return true;
-        if (method === 'streamOpen') {setTimeout(()=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: hello\ndata: '+JSON.stringify({capabilities:['text','voice','audio']})+'\n\n')}),10);return true;}
+        if (method === 'streamOpen') {window.__hello=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: hello\ndata: '+JSON.stringify({capabilities:['text','voice','audio']})+'\n\n')});return true;}
         if (method === 'request') return {status:200,body:JSON.stringify({messages:[]}),headers:{'X-RichOS-Challenge':'fresh'}};
         if (method === 'incomingLink' || method === 'pushIncoming') return null;
         throw Error(method);
@@ -44,6 +44,11 @@ export async function clientUI() {
     await page.goto(pathToFileURL(join(assets, 'client.html')).href);
     const message = page.getByRole('textbox', { name: 'Message', exact: true });
     await page.getByRole('button', { name: 'Hold to record', exact: true }).waitFor();
+    const recoveredSend=page.getByRole('button',{name:'Send unsent recording',exact:true});
+    await recoveredSend.waitFor(); assert(await recoveredSend.isDisabled());
+    await page.waitForFunction(()=>typeof window.__hello==='function');
+    await page.evaluate(()=>window.__hello());
+    await page.waitForFunction(()=>!document.querySelector('#recordings button[aria-label="Send unsent recording"]').disabled);
     const text = 'Native phone check 0123456789';
     await message.pressSequentially(text, { delay: 1 });
     await page.waitForFunction(value => document.querySelector('#message').value === value, text);
@@ -76,6 +81,11 @@ export async function clientUI() {
     assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordCancel').length),2);
     await hold();await page.mouse.up();await page.waitForFunction(()=>document.body.dataset.voice==='idle');
     assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),1);
+    box=await hold();await page.mouse.move(box.x+20,box.y-85,{steps:5});
+    await page.waitForFunction(()=>document.body.dataset.voice==='locked');await page.mouse.up();
+    await page.getByRole('button',{name:'Send voice message',exact:true}).click();
+    await page.waitForFunction(()=>document.body.dataset.voice==='idle');
+    assert.equal(await page.evaluate(()=>window.__voiceCalls.filter(x=>x==='recordStop').length),2);
     await page.getByRole('button',{name:'Settings',exact:true}).click();
     await page.getByRole('button',{name:'Close settings',exact:true}).click();
     assert.deepEqual(errors, []);

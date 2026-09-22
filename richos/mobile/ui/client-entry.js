@@ -75,7 +75,7 @@
     $('voice-cancel').hidden=!locked; $('voice-send').hidden=!locked; $('voice-lock').hidden=phase!=='held';
     $('voice-hint').textContent=phase==='preparing'?'Opening microphone…':phase==='finishing'?'Saving your message…':locked?'Recording · hands free':'← Slide to cancel';
     $('record-status').textContent=phase==='held'?'Release to send · slide up to lock':locked?'Keep talking. Send when you’re finished.':'';
-    const recordingsKey=JSON.stringify([state.recoveredRecordings,state.outbox,state.playbackId,state.playbackState]);
+    const recordingsKey=JSON.stringify([state.recoveredRecordings,state.outbox,state.playbackId,state.playbackState,state.canVoice]);
     $('recovered').hidden=!state.recoveredRecordings.length;
     if($('recordings').dataset.value!==recordingsKey) {
       $('recordings').replaceChildren(...state.recoveredRecordings.map(r=>{
