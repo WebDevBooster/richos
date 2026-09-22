@@ -2337,6 +2337,7 @@ async function openSheet(browser, theme, preset) {
     await page.waitForSelector("#phone-pairing:not([hidden])");
     assert(!await page.locator("#phone-ts-steps").isVisible(), "Managed pairing shows Tailscale steps");
     assert(await page.locator("#phone-connect-pair-help").isVisible(), "Native pairing instructions missing");
+    assert((await page.locator("#phone-pair-url").textContent()).startsWith("https://c-00000000000000000000000000000000-g1.richos.ceo/"), "Managed fixture paired through a Tailscale address");
     await page.click("#phone-connect-disable");
     await page.waitForSelector("#phone-connect-start:not([hidden])");
     assertEqual(await page.evaluate(() => window.__RICHOS_CONNECT_ACTIONS__), ["enable","disable"], "Visible controls did not invoke the real action names");
