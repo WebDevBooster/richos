@@ -77,6 +77,32 @@ public enum Action: Equatable, Sendable {
     case connectionDiagnosed(ConnectionNotice)
     /// What the Mac says it accepts (capability negotiation, contract §12).
     case macCapabilities(text: Bool, voice: Bool)
+    // voice (groups 4, 5, 6)
+    /// Touch-down on the microphone. `id` names the recording (`Action.voicePressNow` in the app).
+    case voicePress(id: String, width: Double, at: Int64)
+    /// VoiceOver's "record hands-free": start a recording already locked.
+    case voiceStartLocked(id: String, width: Double, at: Int64)
+    /// The OS answered or reports the microphone permission (a mirror; nothing parallel is stored).
+    case microphonePermission(Permission)
+    /// The finger moved: offsets from the touch-down point, in points (negative = left / up).
+    case voiceMove(dx: Double, dy: Double, at: Int64)
+    case voiceRelease(at: Int64)
+    /// Tap on the send circle while locked.
+    case voiceLockedSend(at: Int64)
+    /// Tap on Cancel while locked.
+    case voiceLockedCancel(at: Int64)
+    /// The system took the touch away (an alert over the app).
+    case voiceTouchCanceled(at: Int64)
+    /// The app left the screen or the OS took the audio: the recording is kept, never sent.
+    case voiceInterrupted(at: Int64)
+    /// The recording's level, 0 to 1, sampled every 100 ms, for the bubble it becomes.
+    case voiceLevel(Double)
+    /// The end animation finished.
+    case voiceSettled
+    case sendKept(id: String, at: Int64)
+    case discardKept(id: String)
+    /// Play one of your own recordings (a kept one or a sent voice bubble).
+    case playRecording(id: String)
 }
 
 /// How a delivery attempt ended when it did not succeed (contract §4.2, the reference classification).
@@ -90,6 +116,11 @@ public enum DeliveryFailure: Codable, Equatable, Sendable {
 }
 
 extension Action {
+    /// The app's touch-down on the microphone: a fresh recording id and the current time.
+    public static func voicePressNow(width: Double, clock: any Clock = SystemClock()) -> Action {
+        .voicePress(id: UUID().uuidString.lowercased(), width: width, at: clock.nowMs())
+    }
+
     /// The app's way to send the draft: a fresh idempotency key and the current time.
     public static func sendDraftNow(clock: any Clock = SystemClock()) -> Action {
         .sendDraft(clientID: UUID().uuidString.lowercased(), at: clock.nowMs())
@@ -129,6 +160,10 @@ extension Action: Codable {
         var notice: ConnectionNotice?
         var acceptsText: Bool?
         var acceptsVoice: Bool?
+        var width: Double?
+        var dx: Double?
+        var dy: Double?
+        var level: Double?
     }
 
     public static let knownTypes = [
@@ -140,6 +175,9 @@ extension Action: Codable {
         "set-following", "set-composer-focus", "opened-from-notification", "clear-focus", "hear-reply",
         "playback-started", "playback-progress", "playback-ended", "stop-playback", "dismiss-toast",
         "network-changed", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities",
+        "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
+        "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
+        "send-kept", "discard-kept", "play-recording",
     ]
 
     public init(from decoder: Decoder) throws {
@@ -195,6 +233,20 @@ extension Action: Codable {
         case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
         case "mac-capabilities":
             self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
+        case "voice-press": self = .voicePress(id: try need(w.id, "id"), width: try need(w.width, "width"), at: try need(w.at, "at"))
+        case "voice-start-locked": self = .voiceStartLocked(id: try need(w.id, "id"), width: try need(w.width, "width"), at: try need(w.at, "at"))
+        case "microphone-permission": self = .microphonePermission(try need(w.permission, "permission"))
+        case "voice-move": self = .voiceMove(dx: try need(w.dx, "dx"), dy: try need(w.dy, "dy"), at: try need(w.at, "at"))
+        case "voice-release": self = .voiceRelease(at: try need(w.at, "at"))
+        case "voice-locked-send": self = .voiceLockedSend(at: try need(w.at, "at"))
+        case "voice-locked-cancel": self = .voiceLockedCancel(at: try need(w.at, "at"))
+        case "voice-touch-canceled": self = .voiceTouchCanceled(at: try need(w.at, "at"))
+        case "voice-interrupted": self = .voiceInterrupted(at: try need(w.at, "at"))
+        case "voice-level": self = .voiceLevel(try need(w.level, "level"))
+        case "voice-settled": self = .voiceSettled
+        case "send-kept": self = .sendKept(id: try need(w.id, "id"), at: try need(w.at, "at"))
+        case "discard-kept": self = .discardKept(id: try need(w.id, "id"))
+        case "play-recording": self = .playRecording(id: try need(w.id, "id"))
         default:
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription:
                 "unknown action '\(w.type)'; known: \(Self.knownTypes.joined(separator: ", "))"))
@@ -246,6 +298,20 @@ extension Action: Codable {
         case .connected(let at): w.type = "connected"; w.at = at
         case .connectionDiagnosed(let n): w.type = "connection-diagnosed"; w.notice = n
         case .macCapabilities(let t, let v): w.type = "mac-capabilities"; w.acceptsText = t; w.acceptsVoice = v
+        case .voicePress(let id, let width, let at): w.type = "voice-press"; w.id = id; w.width = width; w.at = at
+        case .voiceStartLocked(let id, let width, let at): w.type = "voice-start-locked"; w.id = id; w.width = width; w.at = at
+        case .microphonePermission(let p): w.type = "microphone-permission"; w.permission = p
+        case .voiceMove(let dx, let dy, let at): w.type = "voice-move"; w.dx = dx; w.dy = dy; w.at = at
+        case .voiceRelease(let at): w.type = "voice-release"; w.at = at
+        case .voiceLockedSend(let at): w.type = "voice-locked-send"; w.at = at
+        case .voiceLockedCancel(let at): w.type = "voice-locked-cancel"; w.at = at
+        case .voiceTouchCanceled(let at): w.type = "voice-touch-canceled"; w.at = at
+        case .voiceInterrupted(let at): w.type = "voice-interrupted"; w.at = at
+        case .voiceLevel(let l): w.type = "voice-level"; w.level = l
+        case .voiceSettled: w.type = "voice-settled"
+        case .sendKept(let id, let at): w.type = "send-kept"; w.id = id; w.at = at
+        case .discardKept(let id): w.type = "discard-kept"; w.id = id
+        case .playRecording(let id): w.type = "play-recording"; w.id = id
         }
         try w.encode(to: encoder)
     }
@@ -272,6 +338,15 @@ public enum Effect: Equatable, Sendable {
     /// Fetch and play the reply's audio (contract §5.6).
     case fetchReplyAudio(messageID: String)
     case stopAudio
+    /// Ask the OS for the microphone (once, on the first deliberate press).
+    case requestMicrophone
+    case startRecording(id: String)
+    /// Stop capturing; `keep` retains the file (sent or kept), otherwise it is removed.
+    case stopRecording(id: String, keep: Bool)
+    case deleteRecording(id: String)
+    /// The light tick when the lock engages (`UIImpactFeedbackGenerator(.light)`).
+    case hapticTick
+    case playRecording(id: String)
 }
 
 /// The one place state changes. Pure: the same state and action always give the same result, so a
@@ -297,6 +372,10 @@ public enum Reducer {
         case .tick:
             ConnectionReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)
+            VoiceReducer.reduce(&next, action, &effects)
+        case .voicePress, .voiceStartLocked, .microphonePermission, .voiceMove, .voiceRelease, .voiceLockedSend, .voiceLockedCancel,
+             .voiceTouchCanceled, .voiceInterrupted, .voiceLevel, .voiceSettled, .sendKept, .discardKept, .playRecording:
+            VoiceReducer.reduce(&next, action, &effects)
         default:
             ConversationReducer.reduce(&next, action, &effects)
         }

@@ -397,6 +397,8 @@ public struct Playback: Codable, Equatable, Sendable {
 /// One recording gesture (round-12 NOTES "What an engineer should know": `idle → pressed → held →
 /// locked → ending → idle`). Every threshold is in `VoiceGesture`; the view only draws this.
 public struct VoiceSession: Codable, Equatable, Sendable {
+    /// Names the recording, and becomes its outbox `clientID` and bubble id if it is sent.
+    public var id: String
     public enum Phase: Codable, Equatable, Sendable {
         /// The first 200 ms after touch-down (`voice-press`): the button squishes, nothing records.
         case pressed
@@ -426,15 +428,18 @@ public struct VoiceSession: Codable, Equatable, Sendable {
     /// The session reached `.locked` at some point: its ending animates from the locked layout
     /// (`voice-locked-cancel`, `voice-locked-send`) rather than from a held finger.
     public var wasLocked: Bool
+    /// The one-minute warning has been shown for this recording (it is shown once).
+    public var ceilingWarned: Bool
 
     /// What the timer shows, `M:SS.t` of this.
     public var elapsedMs: Int64 { recordingStartedAtMs.map { max(0, nowMs - $0) } ?? 0 }
 
-    public init(phase: Phase, startedAtMs: Int64, nowMs: Int64, recordingStartedAtMs: Int64?, dx: Double = 0, dy: Double = 0,
-                width: Double, cancelProgress: Double = 0, lockProgress: Double = 0, levels: [Double] = [], wasLocked: Bool = false) {
+    public init(id: String = "voice-1", phase: Phase, startedAtMs: Int64, nowMs: Int64, recordingStartedAtMs: Int64?, dx: Double = 0, dy: Double = 0,
+                width: Double, cancelProgress: Double = 0, lockProgress: Double = 0, levels: [Double] = [], wasLocked: Bool = false, ceilingWarned: Bool = false) {
+        self.id = id
         self.phase = phase; self.startedAtMs = startedAtMs; self.nowMs = nowMs; self.recordingStartedAtMs = recordingStartedAtMs
         self.dx = dx; self.dy = dy; self.width = width; self.cancelProgress = cancelProgress; self.lockProgress = lockProgress
-        self.levels = levels; self.wasLocked = wasLocked
+        self.levels = levels; self.wasLocked = wasLocked; self.ceilingWarned = ceilingWarned
     }
 }
 

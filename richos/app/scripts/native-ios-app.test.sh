@@ -85,7 +85,7 @@ else bad "A5 screenshot" "$(tail -c 400 "$SCRATCH/err")"; fi
 
 # A6 — the two names the CLI and the app must share are spelled the same in both.
 A6_BAD=""
-for name in rios-commands rios-fixture; do
+for name in rios-commands rios-fixture rios-appearance; do
   grep -q "\"$name\"" "$NATIVE/DevBridge/DevBridge.swift" && grep -q "\"$name\"" "$NATIVE/Core/Sources/RichOSCLI/Simulator.swift" \
     || A6_BAD="$A6_BAD $name"
 done
@@ -97,13 +97,13 @@ if "$RIOS" sim check-release >"$SCRATCH/release.json" 2>"$SCRATCH/err"; then
   ok "A7 Release excludes the bridge and fixtures: $(json '", ".join(d["result"]["markersAbsentFromRelease"])' < "$SCRATCH/release.json")"
 else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 
-# A8 — visible-control UI tests, once the screens stream has written them.
-if find "$NATIVE/UITests" -name '*.swift' 2>/dev/null | grep -q .; then
+# A8 — visible-control UI tests and app unit tests, once the screens stream has written them.
+if find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
   if "$RIOS" sim ui-test >"$SCRATCH/ui.json" 2>"$SCRATCH/err"; then
     ok "A8 UI tests: $(json 'd["result"]["tests"]' < "$SCRATCH/ui.json")"
   else bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"; fi
 else
-  echo "  NOT RUN  A8 UI tests: UITests/ has no test files yet (stream I2 writes them)"
+  echo "  NOT RUN  A8 UI tests: UITests/ and UnitTests/ have no test files yet (stream I2 writes them)"
 fi
 
 # Z — the simulator is shut down and deleted.

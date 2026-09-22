@@ -377,6 +377,53 @@ public struct Scenario: Sendable {
             try require(s[15].connectionNotice == .reconnecting, "a drop of 3 s or more says Reconnecting")
             try require(s[16].connectionNotice == nil, "and it clears when the Mac answers")
         }),
+        // Hold to record: press, the 200 ms delay, levels, slide toward cancel and back, release to send.
+        Scenario(name: "voice-hold-send", steps: [
+            Command(.fixture, name: "comp-idle"),
+            Command(.action, action: .microphonePermission(.granted)),
+            Command(.action, action: .voicePress(id: "v1", width: 386, at: t0)),
+            Command(.action, action: .tick(at: t0 + 200)),
+            Command(.action, action: .voiceLevel(0.4)),
+            Command(.action, action: .voiceMove(dx: -60, dy: 0, at: t0 + 1200)),
+            Command(.action, action: .voiceMove(dx: -10, dy: 0, at: t0 + 2000)),
+            Command(.action, action: .voiceRelease(at: t0 + 2800)),
+            Command(.action, action: .voiceSettled),
+        ], check: { s in
+            try require(s[2].voice?.phase == .pressed && s[3].voice?.phase == .held, "recording starts after the press delay")
+            try require(abs((s[5].voice?.cancelProgress ?? 0) - 60 / 135.1) < 1e-9, "sliding left reports progress toward cancel")
+            try require(s[7].voice?.phase == .ending(.sent) && s[7].messages.last?.durationMs == 2600, "release sends a 2.6 s voice message")
+            try require(s[8].voice == nil && s[8].outbox.first?.recordingID == "v1", "the bubble is backed by the outbox")
+        }),
+        // Slide up to lock, scroll away (following off), then send from the locked layout.
+        Scenario(name: "voice-lock-send", steps: [
+            Command(.fixture, name: "comp-idle"),
+            Command(.action, action: .microphonePermission(.granted)),
+            Command(.action, action: .voicePress(id: "v2", width: 386, at: t0)),
+            Command(.action, action: .tick(at: t0 + 200)),
+            Command(.action, action: .voiceMove(dx: 0, dy: -60, at: t0 + 700)),
+            Command(.action, action: .voiceRelease(at: t0 + 800)),
+            Command(.action, action: .setFollowing(false)),
+            Command(.action, action: .voiceLockedSend(at: t0 + 14_200)),
+        ], check: { s in
+            try require(s[4].voice?.phase == .locked, "60 pt up locks")
+            try require(s[5].voice?.phase == .locked, "lifting the finger keeps recording")
+            try require(s[7].voice?.phase == .ending(.sent) && s[7].following, "sending resumes following")
+        }),
+        // Interrupted while locked: kept, never sent; then sent from the recovery card.
+        Scenario(name: "voice-interrupted", steps: [
+            Command(.fixture, name: "comp-idle"),
+            Command(.action, action: .microphonePermission(.granted)),
+            Command(.action, action: .voicePress(id: "v3", width: 386, at: t0)),
+            Command(.action, action: .tick(at: t0 + 200)),
+            Command(.action, action: .voiceMove(dx: 0, dy: -60, at: t0 + 700)),
+            Command(.action, action: .voiceInterrupted(at: t0 + 42_200)),
+            Command(.restart),
+            Command(.action, action: .sendKept(id: "v3", at: t0 + 60_000)),
+        ], check: { s in
+            try require(s[5].voice == nil && s[5].keptRecordings.first?.durationMs == 42_000 && s[5].outbox.isEmpty, "kept, not sent")
+            try require(s[6].keptRecordings == s[5].keptRecordings, "the kept recording survives a relaunch")
+            try require(s[7].keptRecordings.isEmpty && s[7].outbox.first?.recordingID == "v3", "Send on the card queues it")
+        }),
         // Removed from the Mac: final for the pairing, never for his words.
         Scenario(name: "revoked", steps: [
             Command(.fixture, name: "conv-empty"),

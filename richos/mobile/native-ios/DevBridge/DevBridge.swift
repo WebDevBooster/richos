@@ -40,8 +40,11 @@ extension AppStore: CommandHost {
 enum DevBridge {
     static let directoryName = "rios-commands"
     /// `-rios-fixture <name>` on the launch command line starts the app in that fixture — how UI
-    /// tests and `bin/rios sim launch --fixture` reach a screen with no navigation.
+    /// tests and `bin/rios sim launch <fixture>` reach a screen with no navigation.
     static let fixtureArgument = "rios-fixture"
+    /// `-rios-appearance dark|light`, applied after the fixture, so every fixture can be
+    /// photographed in both themes.
+    static let appearanceArgument = "rios-appearance"
 
     @MainActor
     static func start(store: AppStore) async {
@@ -50,6 +53,13 @@ enum DevBridge {
                 _ = try await store.replace(with: try Fixture.named(name).state)
             } catch {
                 print("rios: launch fixture refused: \(error)")
+            }
+        }
+        if let raw = UserDefaults.standard.string(forKey: appearanceArgument) {
+            if let appearance = Appearance(rawValue: raw) {
+                _ = try? await store.dispatch(.setAppearance(appearance))
+            } else {
+                print("rios: launch appearance refused: '\(raw)'; known: dark, light")
             }
         }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
