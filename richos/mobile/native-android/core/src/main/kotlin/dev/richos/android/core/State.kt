@@ -72,7 +72,16 @@ data class Session(
     val paired: Boolean = false,
     val theme: Theme = Theme.DARK,
     val pairing: Pairing = Pairing(),
-)
+    /** The bounded message cache, per conversation, newest [CACHE_ROWS] rows (contract §2.2). */
+    val cache: Map<String, List<dev.richos.android.core.protocol.Row>> = emptyMap(),
+    /** What the Mac said it can do in its last `hello`; replaced, never merged (contract §5.4). */
+    val capabilities: List<String> = emptyList(),
+    val macBuild: String? = null,
+) {
+    companion object {
+        const val CACHE_ROWS = 100
+    }
+}
 
 @Serializable
 enum class OutboxState {
@@ -123,6 +132,9 @@ data class AppState(
     val paired: Boolean,
     val theme: Theme,
     val pairing: Pairing,
+    /** The selected conversation's rows, oldest first. */
+    val messages: List<dev.richos.android.core.protocol.Row>,
+    val capabilities: List<String>,
     val outbox: List<OutboxItem>,
     val dueInMs: Long?,
     val lastSend: SendReport?,
@@ -144,6 +156,8 @@ data class AppState(
             paired = session.paired,
             theme = session.theme,
             pairing = session.pairing,
+            messages = session.selectedThreadId?.let { session.cache[it] }.orEmpty(),
+            capabilities = session.capabilities,
             outbox = outbox,
             dueInMs = dueInMs,
             lastSend = lastSend,

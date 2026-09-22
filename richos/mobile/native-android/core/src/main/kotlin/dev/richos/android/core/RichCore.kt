@@ -2,7 +2,14 @@ package dev.richos.android.core
 
 import dev.richos.android.core.protocol.Fingerprint
 import dev.richos.android.core.protocol.MacApi
+import dev.richos.android.core.protocol.Delta
+import dev.richos.android.core.protocol.Hello
 import dev.richos.android.core.protocol.PairLink
+import dev.richos.android.core.protocol.Row
+import dev.richos.android.core.protocol.SseFrame
+import dev.richos.android.core.protocol.SseItem
+import dev.richos.android.core.protocol.SseParser
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,20 +71,64 @@ class RichCore private constructor(
             if (action.online && session.paired) flush() else flow.value
         }
         is Action.SendVoice -> throw CoreError("send-voice is not built yet: it arrives with the voice recording lifecycle")
-        is Action.SelectThread, is Action.Compose, is Action.SetTheme -> mutex.withLock {
-            commit(
-                when (action) {
-                    is Action.SelectThread -> {
-                        if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
-                        session.copy(selectedThreadId = action.threadId)
-                    }
-                    is Action.Compose -> session.copy(draft = action.text)
-                    is Action.SetTheme -> session.copy(theme = action.theme)
-                    else -> error("unreachable")
-                },
-            )
+        is Action.Receive -> mutex.withLock { receive(action.wire) }
+        is Action.SelectThread -> mutex.withLock {
+            if (session.threads.none { it.id == action.threadId }) throw CoreError("Unknown conversation")
+            commit(session.copy(selectedThreadId = action.threadId))
         }
+        is Action.Compose -> mutex.withLock { commit(session.copy(draft = action.text)) }
+        is Action.SetTheme -> mutex.withLock { commit(session.copy(theme = action.theme)) }
     }
+
+    // --- the conversation, from the Mac's event stream (contract §5.4) -----------------------------
+
+    private val sse = SseParser()
+    private val lenient = Json { ignoreUnknownKeys = true }
+
+    /** True once the Mac said this socket fell behind; the connection owner reconnects without `since`. */
+    var resnapshotRequested: Boolean = false
+        private set
+
+    private suspend fun receive(wire: String): AppState {
+        var next = session
+        for (item in sse.feed(wire)) {
+            when (item) {
+                is SseItem.Frame -> next = apply(next, item.frame)
+                SseItem.KeepAlive -> Unit
+                is SseItem.Resnapshot -> resnapshotRequested = true
+            }
+        }
+        return if (next != session) commit(next) else emit()
+    }
+
+    private fun <T> decode(serializer: kotlinx.serialization.KSerializer<T>, data: String): T? =
+        runCatching { lenient.decodeFromString(serializer, data) }.getOrNull()
+
+    private fun apply(s: Session, frame: SseFrame): Session = when (frame.event) {
+        "hello" -> decode(Hello.serializer(), frame.data)?.let { h ->
+            resnapshotRequested = false
+            val thread = h.threadId ?: s.selectedThreadId
+            s.copy(
+                threads = h.threads.ifEmpty { s.threads },
+                selectedThreadId = s.selectedThreadId ?: thread,
+                capabilities = h.capabilities,
+                macBuild = h.build ?: s.macBuild,
+                pairing = h.challenge?.let { s.pairing.copy(challenge = it) } ?: s.pairing,
+                cache = if (thread == null) s.cache else s.cache + (thread to bounded(h.messages)),
+            )
+        } ?: s
+        "message" -> decode(Row.serializer(), frame.data)?.let { row ->
+            val merged = (s.cache[row.threadId].orEmpty().filter { it.id != row.id } + row)
+            s.copy(cache = s.cache + (row.threadId to bounded(merged)))
+        } ?: s
+        "delta" -> decode(Delta.serializer(), frame.data)?.let { d ->
+            val thread = s.cache.entries.firstOrNull { (_, rows) -> rows.any { it.id == d.messageId } }?.key ?: return@let s
+            s.copy(cache = s.cache + (thread to s.cache.getValue(thread).map { if (it.id == d.messageId) it.copy(text = it.text + d.text) else it }))
+        } ?: s
+        else -> s
+    }
+
+    private fun bounded(rows: List<Row>): List<Row> = rows.sortedBy { it.cursor }.takeLast(Session.CACHE_ROWS)
 
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
 
@@ -262,6 +313,7 @@ class RichCore private constructor(
             is Action.Pair -> "pair"
             is Action.ConfirmWords -> "confirm-words"
             Action.Forget -> "forget"
+            is Action.Receive -> "receive"
         }
     }
 }

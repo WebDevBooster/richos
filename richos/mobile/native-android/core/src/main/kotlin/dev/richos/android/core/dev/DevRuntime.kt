@@ -262,6 +262,34 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.Sync))
                 check(s.outbox.isEmpty() && doc.receipts.size == 1 && s.lastSend?.duplicates == 1, "interrupted delivery must deduplicate")
             }
+            // One turn over the event stream (contract §5.4): hello with history, the user's row,
+            // Rich's empty streaming row, two deltas, then the full reply that overwrites them.
+            "stream-turn" -> {
+                step(DevRequest.Fixture("online"))
+                fun row(id: String, cursor: Int, role: String, text: String, state: String) =
+                    """{"id":"$id","thread_id":"general","cursor":$cursor,"role":"$role","kind":"text","text":"$text",""" +
+                        """"created_at":"2023-11-14T22:13:20.000Z","client_id":null,"has_audio":false,"from_microphone":false,""" +
+                        """"state":"$state","complete":${state != "streaming"}}"""
+                fun frame(id: Int, event: String, data: String) = "id: $id\nevent: $event\ndata: $data\n\n"
+                var s = step(
+                    DevRequest.Dispatch(
+                        Action.Receive(
+                            frame(
+                                1, "hello",
+                                """{"challenge":"${Fixtures.CHALLENGE}","thread_id":"general","latest_cursor":1,"threads":[{"id":"general","title":"General"}],""" +
+                                    """"capabilities":["text"],"build":"1.2.0","messages":[${row("t1:user", 1, "ceo", "Hello Rich", "sent")}]}""",
+                            ),
+                        ),
+                    ),
+                )
+                check(s.messages.size == 1 && s.capabilities == listOf("text"), "hello replaces history and capabilities")
+                step(DevRequest.Dispatch(Action.Receive(frame(2, "message", row("t1:text:0", 2, "rich", "", "streaming")))))
+                step(DevRequest.Dispatch(Action.Receive(frame(2, "delta", """{"message_id":"t1:text:0","cursor":2,"text":"On "}"""))))
+                s = step(DevRequest.Dispatch(Action.Receive(frame(2, "delta", """{"message_id":"t1:text:0","cursor":2,"text":"it!"}"""))))
+                check(s.messages.last().text == "On it!" && s.messages.last().state == "streaming", "deltas append to the streaming row")
+                s = step(DevRequest.Dispatch(Action.Receive(frame(2, "message", row("t1:text:0", 2, "rich", "On it! Done.", "complete")))))
+                check(s.messages.size == 2 && s.messages.last().text == "On it! Done." && s.messages.last().complete, "the Mac's final row wins")
+            }
             // Pairing (contract §2): the link goes out, the six words come back computed on the
             // phone from the Mac's hash, "They match" makes the pairing, and the key survives.
             "pair-and-confirm" -> {
@@ -299,7 +327,7 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused")
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn")
 
         suspend fun create(
             initial: DevDoc? = null,
