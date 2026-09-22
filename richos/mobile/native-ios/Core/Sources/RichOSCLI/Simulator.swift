@@ -58,7 +58,7 @@ final class Simulator {
     static let deviceTypeName = "iPhone 16 Pro"
     /// Strings that exist only in development code. The Release binary must contain none of them,
     /// and the Debug binary must contain all of them (a negative check needs its positive probe).
-    static let developmentMarkers = ["rios-commands", "rios-fixture", "compose-draft", "Henderson proposal"]
+    static let developmentMarkers = ["rios-commands", "rios-fixture", "rios-appearance", "compose-draft", "Henderson proposal"]
 
     let cache: URL
     let root: URL
@@ -277,11 +277,12 @@ final class Simulator {
     }
 
     func uiTest() throws -> SimReport {
-        let tests = root.appendingPathComponent("UITests")
-        let files = (try? FileManager.default.subpathsOfDirectory(atPath: tests.path))?.filter { $0.hasSuffix(".swift") } ?? []
+        let files = ["UITests", "UnitTests"].flatMap { dir in
+            (try? FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent(dir).path))?.filter { $0.hasSuffix(".swift") } ?? []
+        }
         guard !files.isEmpty else {
             // A green run of nothing is the defect run-tests.sh exists to stop; say it plainly.
-            throw CoreError("UITests/ has no test files yet; nothing to run")
+            throw CoreError("UITests/ and UnitTests/ have no test files yet; nothing to run")
         }
         let udid = try boot()
         try generateProject()
@@ -360,6 +361,7 @@ final class Simulator {
 enum DevBridgeNames {
     static let directory = "rios-commands"
     static let fixtureArgument = "rios-fixture"
+    static let appearanceArgument = "rios-appearance"
 }
 
 /// Runs a tool to completion. Output goes to a file, never a pipe, so a chatty xcodebuild cannot

@@ -7,7 +7,7 @@
 # file or regenerating the project.
 #
 # Owner: stream I1 (build plan §5.0). Screens (App/Features, App/Design) and UI tests (UITests)
-# belong to I2 and need no change here to be added.
+# belong to I2 and need no change here to be added; so does UnitTests.
 name: RichOSNative
 options:
   deploymentTarget:
@@ -62,6 +62,21 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
           # The development mailbox is also `#if DEBUG`; excluding its files is the second lock.
           EXCLUDED_SOURCE_FILE_NAMES: "DevBridge*.swift"
+  # Unit tests that need the app's UIKit views in a window (the adopted T3 transcript tests,
+  # adoption ledger §2.8 M2, "with their tests"). UnitTests/ belongs to stream I2.
+  RichOSNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: UnitTests
+        optional: true
+    dependencies:
+      - target: RichOSNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.native.ios.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/RichOSNative.app/RichOSNative"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   RichOSNativeUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -82,5 +97,6 @@ schemes:
     test:
       config: Debug
       targets:
+        - RichOSNativeTests
         - RichOSNativeUITests
       gatherCoverageData: false
