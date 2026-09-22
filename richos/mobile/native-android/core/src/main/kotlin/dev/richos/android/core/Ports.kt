@@ -51,7 +51,12 @@ data class Receipt(
  * Why a send did not reach the Mac. [retryable] separates "try again later" (unreachable)
  * from a final answer that needs the user (revoked).
  */
-class TransportFailure(val reason: String, val retryable: Boolean) : Exception(reason)
+class TransportFailure(
+    val reason: String,
+    val retryable: Boolean,
+    /** A final answer about THIS message only (409/422/503 with `retry:false`): the queue moves on. */
+    val aboutThisMessage: Boolean = false,
+) : Exception(reason)
 
 class Ports(
     val storage: OutboxStorage,

@@ -110,6 +110,8 @@ data class SendReport(
     val blocked: Int = 0,
     val reason: String? = null,
     val duplicates: Int = 0,
+    /** Something is queued and its retry clock has not come round yet. */
+    val deferred: Int = 0,
 )
 
 @Serializable
