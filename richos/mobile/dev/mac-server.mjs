@@ -22,7 +22,7 @@ export async function startMac(cache) {
   const env = { ...process.env, TMPDIR: scratch + '/', RICHOS_MOBILE_MAC_DIR: data, RICHOS_MOBILE_MAC_ORIGIN: origin };
   const log = join(cache, 'mac-server.log');
   const fd = openSync(log, 'w', 0o600);
-  let child, stopped, proxy, serving = false;
+  let child, stopped, proxy, serving = false, binary;
   function killOwned(signal) {
     if (!child?.pid) return;
     try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
@@ -59,7 +59,7 @@ export async function startMac(cache) {
     try { [code] = await stopped; } finally { clearTimeout(timeout); clearTimeout(force); }
     writeFileSync(join(cache, 'mac-build.jsonl'), compiled);
     if (code !== 0) throw Error(`Rust server build failed. Read ${log} and mac-build.jsonl`);
-    const binary = compiled.split('\n').filter(Boolean).map(line => JSON.parse(line))
+    binary = compiled.split('\n').filter(Boolean).map(line => JSON.parse(line))
       .find(row => row.reason === 'compiler-artifact' && row.profile.test && row.target.name === 'richos-tauri' && row.executable)?.executable;
     if (!binary) throw Error('Cargo did not produce the Rust test executable');
     child = spawn(binary, ['mobile_mac_server::serve', '--exact', '--ignored', '--nocapture'], { env, detached: true, stdio: ['ignore', fd, fd] });
@@ -72,6 +72,7 @@ export async function startMac(cache) {
     serving = true;
     const state = JSON.parse(readFileSync(join(data, 'ready.json'), 'utf8'));
     const ca = readFileSync(state.ca);
+    if (state.protocol !== "http") {
     proxy = http.createServer((request, response) => {
       const upstream = https.request({ hostname: '127.0.0.1', servername: 'localhost', port: state.port,
         path: request.url, method: request.method, headers: request.headers, ca }, result => {
@@ -81,11 +82,31 @@ export async function startMac(cache) {
       request.pipe(upstream); response.on('close', () => upstream.destroy());
     });
     await new Promise((resolve, reject) => { proxy.once('error', reject); proxy.listen(0, '127.0.0.1', resolve); });
+    }
     const config = { pairLink: state.pairLink, words: state.words, replyMarker: state.replyMarker, serverRun: randomUUID() };
     writeFileSync(join(cache, 'mac-test-config.json'), JSON.stringify(config), { mode: 0o600 });
-    const publicState = { ...state, port: proxy.address().port, rustPort: state.port, origin, log, data };
+    const publicState = { ...state, port: proxy ? proxy.address().port : state.port, rustPort: state.port, origin, log, data };
     writeFileSync(join(cache, 'mac.json'), JSON.stringify(publicState, null, 2), { mode: 0o600 });
-    return { state: publicState, close, exited: stopped };
+    async function restart() {
+      if (closed || !serving) throw Error('Only the owned running Mac fixture can restart');
+      child.kill('SIGKILL'); // One exact owned process. Its guard must notice the parent pipe closing.
+      await stopped;
+      rmSync(join(data,'ready.json'),{force:true});
+      rmSync(join(data,'stop'),{force:true});
+      child = spawn(binary, ['mobile_mac_server::serve','--exact','--ignored','--nocapture'], {
+        env: {...env,RICHOS_MOBILE_MAC_RESTART:'1'}, detached:true, stdio:['ignore',fd,fd] });
+      stopped = once(child,'close');
+      const deadline = Date.now() + 20000;
+      while (!existsSync(join(data,'ready.json'))) {
+        if (child.exitCode !== null || Date.now() > deadline) throw Error(`Restart failed. Read ${log}`);
+        await pause(50);
+      }
+      Object.assign(state,JSON.parse(readFileSync(join(data,'ready.json'),'utf8')));
+      publicState.pid = state.pid; publicState.rustPort = state.port;
+      writeFileSync(join(cache,'mac.json'),JSON.stringify(publicState),{mode:0o600});
+      return publicState;
+    }
+    return { state: publicState, close, restart, get exited() { return stopped; } };
   } catch (error) { await close(); throw error; }
 }
 export async function serveMac(cache) {

@@ -48,6 +48,16 @@ export function managedArtifact(profile) {
 }
 
 export async function command(action, file) {
+  if (action === 'lab-check') {
+    if (!file?.startsWith('/Volumes/E1TB/')) throw Error('Live proof state must be on the external SSD');
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const run = spawnSync(process.execPath, ['--test', fileURLToPath(new URL('../test/mac-server.test.mjs', import.meta.url))],
+      { env: { ...process.env, RICHOS_MOBILE_REMOTE_STATE: file }, encoding: 'utf8', timeout: 120000 });
+    if (run.status !== 0) throw Error((run.stdout || '') + (run.stderr || '') + (run.error?.message || ''));
+    return { verified: true, output: run.stdout };
+  }
+  if (action?.startsWith("lab-")) return (await import("../dev/connect-lab.mjs")).lab(action, file);
   if (action === 'managed-artifact' && file) return managedArtifact(JSON.parse(readFileSync(file, 'utf8')));
   if (action !== 'artifact') throw Error('Expected connect artifact or managed-artifact <profile.json>. This command prepares an upload; it does not deploy.');
   return artifact();

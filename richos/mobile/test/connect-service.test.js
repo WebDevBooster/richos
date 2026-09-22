@@ -188,3 +188,27 @@ test('provider uses Worker-compatible manual redirects and rejects redirect resp
   });
   await assert.rejects(provider.api('/fixture'), /provider_unavailable/);
 });
+
+test('isolated host CLI signs control requests and keeps scoped credentials out of its result', async t => {
+  const { lab } = await import('../dev/connect-lab.mjs');
+  const { authenticate } = await import('../service/connect/auth.mjs');
+  const fs = require('node:fs');
+  const dir = require('./storage.cjs').createScratch('connect-host');
+  t.after(() => fs.rmSync(dir,{recursive:true,force:true}));
+  const identity = await lab('lab-identity',dir);
+  assert.equal((await lab('lab-identity',dir)).id,identity.id);
+  const transport = async (url, options) => {
+    const request = new Request(url,options);
+    const auth = await authenticate(request,options.body || '');
+    assert.equal(auth.id,identity.id);
+    return Response.json({id:identity.id,generation:1,enabled:options.method!=='DELETE',phase:'active',
+      endpoint:`https://c-${identity.id}-g1.richos.ceo`,...(url.endsWith('/token')?{token:'scoped-fixture-token'}:{})});
+  };
+  const result = await lab('lab-enable',dir,transport);
+  assert(!JSON.stringify(result).includes('scoped-fixture-token'));
+  assert.equal(fs.statSync(join(dir,'tunnel-token')).mode & 0o777,0o600);
+  await lab('lab-disable',dir,transport);
+  assert(!fs.existsSync(join(dir,'tunnel-token')));
+  await assert.rejects(lab('lab-identity','/not-external'),/external SSD/);
+});
+
