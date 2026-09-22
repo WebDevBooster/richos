@@ -70,16 +70,20 @@ public struct StreamRow: Codable, Equatable, Sendable {
     public var createdAt: String?
     public var clientID: String?
     public var complete: Bool
+    /// A phone voice note's length (Echo's `4ce79d6e`): present on that note's row in `hello` and
+    /// backfill, absent on the live frame and on desktop voice turns. Present means "a voice note";
+    /// absent means show no length — never 0:00.
+    public var durationMs: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, cursor, role, kind, text, complete
-        case threadID = "thread_id", createdAt = "created_at", clientID = "client_id"
+        case threadID = "thread_id", createdAt = "created_at", clientID = "client_id", durationMs = "duration_ms"
     }
 
     public init(id: String, threadID: String?, cursor: Int, role: String, kind: String? = "text", text: String,
-                createdAt: String? = nil, clientID: String? = nil, complete: Bool) {
+                createdAt: String? = nil, clientID: String? = nil, complete: Bool, durationMs: Int? = nil) {
         self.id = id; self.threadID = threadID; self.cursor = cursor; self.role = role; self.kind = kind; self.text = text
-        self.createdAt = createdAt; self.clientID = clientID; self.complete = complete
+        self.createdAt = createdAt; self.clientID = clientID; self.complete = complete; self.durationMs = durationMs
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +97,18 @@ public struct StreamRow: Codable, Equatable, Sendable {
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         clientID = try c.decodeIfPresent(String.self, forKey: .clientID)
         complete = try c.decodeIfPresent(Bool.self, forKey: .complete) ?? true
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+    }
+
+    /// The conversation bubble this row is. A row carrying `duration_ms` is a voice note whatever
+    /// its `kind` says (the Mac keeps `kind: "text"` for phone voice notes).
+    public var message: Message {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let sentAt = createdAt.flatMap { formatter.date(from: $0) }.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
+        let voice = durationMs != nil || kind == "voice"
+        return Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: text, sentAt: sentAt,
+                       durationMs: durationMs)
     }
 }
 
