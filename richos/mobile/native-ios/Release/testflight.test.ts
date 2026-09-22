@@ -8,6 +8,7 @@
 // with the same cases, plus RichOS's own: internal-only publishing, the bundle identifier from the
 // private file, and the refusal of a credentials file inside a git working tree.
 import * as NodeAssert from "node:assert/strict";
+import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -455,6 +456,12 @@ describe("release command input", () => {
       NodeAssert.throws(() => validateUploadMetadata(info, options, BUNDLE));
     });
   }
+
+  it("the committed Release/ExportOptions.plist passes the upload's own checks", () => {
+    const plist = NodePath.join(import.meta.dirname, "ExportOptions.plist");
+    const json = NodeChildProcess.execFileSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", plist], { encoding: "utf8" });
+    NodeAssert.deepEqual(validateUploadMetadata(info, JSON.parse(json), BUNDLE), selection);
+  });
 
   it("accepts an internal-only export (RichOS's first target)", () => {
     NodeAssert.deepEqual(validateUploadMetadata(info, { ...exportOptions, testFlightInternalTestingOnly: true }, BUNDLE), selection);

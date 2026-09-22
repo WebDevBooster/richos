@@ -110,3 +110,36 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/ShareExtension.entitlements
         SKIP_INSTALL: "YES"
         APPLICATION_EXTENSION_API_ONLY: "YES"
+
+  # Stream I3's tests on a simulator: the share sheet's model and rendering, the platform effect
+  # handler, the notification platform. The extension's and the platform's own sources are compiled
+  # in (they are not importable from the app module); the app hosts the bundle so UIApplication,
+  # the Keychain and the bundled fonts exist. Run by richos/app/scripts/native-ios-share.test.sh.
+  RichOSPlatformTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ../PlatformTests
+      - path: ../ShareExtension/Sources
+      - path: ../App/Platform
+      - path: ../App/Design
+    dependencies:
+      - target: RichOSNative
+      - package: RichOSCore
+        product: RichOSCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID).platform-tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/RichOSNative.app/RichOSNative"
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  RichOSPlatformTests:
+    build:
+      targets:
+        RichOSPlatformTests: [test]
+    test:
+      config: Debug
+      targets:
+        - RichOSPlatformTests
+      gatherCoverageData: false
