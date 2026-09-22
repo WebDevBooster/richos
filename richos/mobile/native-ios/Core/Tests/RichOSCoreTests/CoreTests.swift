@@ -108,6 +108,10 @@ let repositoryRoot: URL = {
             .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
             .networkChanged(online: false, at: 6), .connectionLost(at: 7), .connected(at: 8),
             .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false),
+            .voicePress(id: "v", width: 386, at: 9), .voiceStartLocked(id: "v", width: 386, at: 9), .microphonePermission(.granted), .voiceMove(dx: -10, dy: -5, at: 10),
+            .voiceRelease(at: 11), .voiceLockedSend(at: 12), .voiceLockedCancel(at: 13), .voiceTouchCanceled(at: 14),
+            .voiceInterrupted(at: 15), .voiceLevel(0.4), .voiceSettled, .sendKept(id: "k", at: 16), .discardKept(id: "k"),
+            .playRecording(id: "k"),
         ]
         #expect(Set(try all.map { try #require(JSONSerialization.jsonObject(with: CoreJSON.encode($0)) as? [String: Any])["type"] as? String })
                 == Set(Action.knownTypes))
@@ -275,6 +279,160 @@ let repositoryRoot: URL = {
     @Test func connectingReconcilesCachedHistory() throws {
         let s = Reducer.reduce(try Fixture.named("launch-cached").state, .connected(at: 1)).state
         #expect(!s.history.cached)
+    }
+}
+
+@Suite struct VoiceTests {
+    let t: Int64 = 1_000_000
+    let width = 386.0
+    var cancelDistance: Double { VoiceGeometry.cancelDistance(width: width) }
+
+    func ready() throws -> AppState {
+        var s = try Fixture.named("comp-idle").state
+        s.microphone = .granted
+        return s
+    }
+
+    /// Press, wait `holdMs` past the press delay, and return the state.
+    func held(_ holdMs: Int64) throws -> AppState {
+        var s = try ready()
+        s = Reducer.reduce(s, .voicePress(id: "v", width: width, at: t)).state
+        s = Reducer.reduce(s, .tick(at: t + VoiceGeometry.pressDelayMs)).state
+        return Reducer.reduce(s, .tick(at: t + VoiceGeometry.pressDelayMs + holdMs)).state
+    }
+
+    @Test func theNotesThresholds() {
+        #expect(VoiceGeometry.cancelDistance(width: 386) == 135.1)
+        #expect(VoiceGeometry.cancelDistance(width: 440) == 140)   // capped at 140 pt
+        #expect(VoiceGeometry.lockDistance == 60 && VoiceGeometry.pressDelayMs == 200 && VoiceGeometry.tooShortMs == 500)
+    }
+
+    @Test func nothingRecordsForTheFirst200ms() throws {
+        var s = try ready()
+        let (pressed, e1) = Reducer.reduce(s, .voicePress(id: "v", width: width, at: t))
+        #expect(pressed.voice?.phase == .pressed && e1.isEmpty)
+        s = Reducer.reduce(pressed, .tick(at: t + 199)).state
+        #expect(s.voice?.phase == .pressed)
+        let (recording, e2) = Reducer.reduce(s, .tick(at: t + 200))
+        #expect(recording.voice?.phase == .held && e2 == [.startRecording(id: "v")])
+    }
+
+    @Test func aTapIsNotAMessage() throws {
+        var s = try ready()
+        s = Reducer.reduce(s, .voicePress(id: "v", width: width, at: t)).state
+        let (tapped, effects) = Reducer.reduce(s, .voiceRelease(at: t + 150))
+        #expect(tapped.voice?.phase == .ending(.tooShort) && tapped.toast == .tooShort && tapped.outbox.isEmpty && effects.isEmpty)
+        let short = Reducer.reduce(try held(499), .voiceRelease(at: t + 699)).state
+        #expect(short.voice?.phase == .ending(.tooShort) && short.outbox.isEmpty)
+    }
+
+    @Test func holdingAndReleasingSendsAVoiceMessage() throws {
+        var s = try held(2600)
+        for level in [0.2, 0.5, 0.8] { s = Reducer.reduce(s, .voiceLevel(level)).state }
+        let (sent, effects) = Reducer.reduce(s, .voiceRelease(at: t + 2800))
+        #expect(sent.voice?.phase == .ending(.sent))
+        #expect(sent.outbox.last?.kind == .voice && sent.outbox.last?.recordingID == "v")
+        #expect(sent.messages.last == Message(id: "v", author: .me, kind: .voice, text: "", sentAt: t + 2800, delivery: .sending, durationMs: 2600, levels: [0.2, 0.5, 0.8]))
+        #expect(effects.contains(.stopRecording(id: "v", keep: true)) && effects.contains(.deliver(clientID: "v")))
+        #expect(Reducer.reduce(sent, .voiceSettled).state.voice == nil)
+    }
+
+    @Test func slidingLeftCancelsAtTheThresholdWithoutARelease() throws {
+        var s = try held(3000)
+        s = Reducer.reduce(s, .voiceMove(dx: -0.99 * cancelDistance, dy: 0, at: t + 3300)).state
+        #expect(s.voice?.phase == .held)
+        let (canceled, effects) = Reducer.reduce(s, .voiceMove(dx: -cancelDistance, dy: 0, at: t + 3350))
+        #expect(canceled.voice?.phase == .ending(.canceled) && canceled.outbox.isEmpty && effects == [.stopRecording(id: "v", keep: false)])
+    }
+
+    @Test func aReleasePast55PercentCancelsAndBelowItSends() throws {
+        let past = Reducer.reduce(Reducer.reduce(try held(3000), .voiceMove(dx: -0.56 * cancelDistance, dy: 0, at: t + 3300)).state, .voiceRelease(at: t + 3400)).state
+        #expect(past.voice?.phase == .ending(.canceled))
+        let before = Reducer.reduce(Reducer.reduce(try held(3000), .voiceMove(dx: -0.54 * cancelDistance, dy: 0, at: t + 3300)).state, .voiceRelease(at: t + 3400)).state
+        #expect(before.voice?.phase == .ending(.sent))
+    }
+
+    @Test func slidingUp60ptLocksAndLockIsRefusedAfter30PercentSlide() throws {
+        let locked = Reducer.reduce(try held(1000), .voiceMove(dx: 0, dy: -60, at: t + 1300))
+        #expect(locked.state.voice?.phase == .locked && locked.effects == [.hapticTick])
+        var s = Reducer.reduce(try held(1000), .voiceMove(dx: -0.31 * cancelDistance, dy: -80, at: t + 1300)).state
+        #expect(s.voice?.phase == .held && s.voice?.lockProgress == 0)
+        s = Reducer.reduce(try held(1000), .voiceMove(dx: 0, dy: -40, at: t + 1300)).state
+        #expect(abs((s.voice?.lockProgress ?? 0) - 40.0 / 60.0) < 1e-9)
+    }
+
+    @Test func lockedCancelAndLockedSend() throws {
+        let locked = Reducer.reduce(try held(1000), .voiceMove(dx: 0, dy: -60, at: t + 1300)).state
+        #expect(Reducer.reduce(locked, .voiceRelease(at: t + 1400)).state.voice?.phase == .locked, "lifting the finger does not end a locked recording")
+        let canceled = Reducer.reduce(locked, .voiceLockedCancel(at: t + 5000)).state
+        #expect(canceled.voice?.phase == .ending(.canceled) && canceled.voice?.wasLocked == true && canceled.outbox.isEmpty)
+        let sent = Reducer.reduce(locked, .voiceLockedSend(at: t + 5000)).state
+        #expect(sent.voice?.phase == .ending(.sent) && sent.messages.last?.durationMs == 4800)
+    }
+
+    @Test func anInterruptionKeepsTheRecordingAndNeverSends() throws {
+        let (kept, effects) = Reducer.reduce(try held(42000), .voiceInterrupted(at: t + 42200))
+        #expect(kept.voice == nil && kept.outbox.isEmpty)
+        #expect(kept.keptRecordings == [KeptRecording(id: "v", durationMs: 42000, levels: [], reason: .interrupted, recordedAt: t + 200)])
+        #expect(effects.contains(.stopRecording(id: "v", keep: true)))
+        #expect(try AppState(restoring: kept.persisted).keptRecordings == kept.keptRecordings, "and it survives a relaunch")
+    }
+
+    @Test func aTouchTakenByTheSystemLocksUnder30PercentElseCancels() throws {
+        #expect(Reducer.reduce(try held(1000), .voiceTouchCanceled(at: t + 1300)).state.voice?.phase == .locked)
+        let slid = Reducer.reduce(try held(1000), .voiceMove(dx: -0.4 * cancelDistance, dy: 0, at: t + 1250)).state
+        #expect(Reducer.reduce(slid, .voiceTouchCanceled(at: t + 1300)).state.voice?.phase == .ending(.canceled))
+    }
+
+    @Test func theCeilingWarnsOnceAt29AndStopsAndKeepsAt30() throws {
+        let locked = Reducer.reduce(try held(1000), .voiceMove(dx: 0, dy: -60, at: t + 1300)).state
+        var s = Reducer.reduce(locked, .tick(at: t + 200 + Limits.voiceWarningMs)).state
+        #expect(s.toast == .ceilingWarning && s.voice?.ceilingWarned == true)
+        s = Reducer.reduce(s, .dismissToast).state
+        s = Reducer.reduce(s, .tick(at: t + 200 + Limits.voiceWarningMs + 1000)).state
+        #expect(s.toast == nil, "the warning shows once")
+        s = Reducer.reduce(s, .tick(at: t + 200 + Limits.voiceCeilingMs)).state
+        #expect(s.voice?.phase == .ending(.ceiling) && s.keptRecordings.first?.reason == .ceiling && s.outbox.isEmpty)
+    }
+
+    @Test func theFirstPressAsksForTheMicrophoneAndNeverRecords() throws {
+        var s = try Fixture.named("comp-idle").state
+        let (asking, effects) = Reducer.reduce(s, .voicePress(id: "v", width: width, at: t))
+        #expect(asking.sheet == .microphonePrompt && effects == [.requestMicrophone])
+        s = Reducer.reduce(asking, .voiceRelease(at: t + 900)).state
+        s = Reducer.reduce(s, .tick(at: t + 1000)).state
+        #expect(s.voice?.phase == .pressed && s.toast == nil, "the release under the system question is not a gesture")
+        s = Reducer.reduce(s, .microphonePermission(.granted)).state
+        #expect(s.voice == nil && s.sheet == nil && s.microphone == .granted && s.outbox.isEmpty)
+    }
+
+    @Test func voiceIsRefusedWhenOffByPolicyOrDenied() throws {
+        var s = try ready()
+        s.voiceAvailability = .pausedByPolicy
+        #expect(Reducer.reduce(s, .voicePress(id: "v", width: width, at: t)).state.voice == nil)
+        s = try ready()
+        s.microphone = .denied
+        #expect(Reducer.reduce(s, .voicePress(id: "v", width: width, at: t)).state.voice == nil)
+    }
+
+    @Test func aKeptRecordingCanBeSentOrDiscarded() throws {
+        let kept = try Fixture.named("rec-card").state
+        let sent = Reducer.reduce(kept, .sendKept(id: "rec_unsent", at: t))
+        #expect(sent.state.keptRecordings.isEmpty && sent.state.outbox.last?.recordingID == "rec_unsent" && sent.effects.contains(.deliver(clientID: "rec_unsent")))
+        let discarded = Reducer.reduce(kept, .discardKept(id: "rec_unsent"))
+        #expect(discarded.state.keptRecordings.isEmpty && discarded.effects == [.persist, .deleteRecording(id: "rec_unsent")])
+        let unsupported = try Fixture.named("rec-unsupported").state
+        #expect(Reducer.reduce(unsupported, .sendKept(id: "rec_unsent", at: t)).state.keptRecordings.count == 1, "not while the Mac cannot take voice")
+    }
+
+    @Test func handsFreeRecordingStartsLockedForVoiceOver() throws {
+        let (s, effects) = Reducer.reduce(try ready(), .voiceStartLocked(id: "v", width: width, at: t))
+        #expect(s.voice?.phase == .locked && s.voice?.recordingStartedAtMs == t && effects == [.startRecording(id: "v")])
+    }
+
+    @Test func aMoveAtTouchRateWritesNothing() throws {
+        let (_, effects) = Reducer.reduce(try held(1000), .voiceMove(dx: -3, dy: -2, at: t + 1216))
+        #expect(effects.isEmpty)
     }
 }
 
