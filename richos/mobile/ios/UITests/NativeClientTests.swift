@@ -239,6 +239,7 @@ final class NativeClientTests: XCTestCase {
         XCTAssertEqual(app.webViews.buttons.matching(identifier: "Discard unsent recording").count, initialCount + 1)
         try lockMicrophone(app)
         app.webViews.buttons["Cancel recording"].tap()
+        XCTAssertTrue(app.webViews.buttons["Hold to record"].waitForExistence(timeout: 5), "Cancel must activate instead of a text selection menu")
         XCTAssertEqual(app.webViews.buttons.matching(identifier: "Discard unsent recording").count, initialCount + 1)
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Interrupted voice survives relaunch"; shot.lifetime = .keepAlways; add(shot)
         app.webViews.buttons.matching(identifier: "Discard unsent recording").element(boundBy: initialCount).tap()
@@ -246,6 +247,11 @@ final class NativeClientTests: XCTestCase {
         // spoken phrase is needed to prove that each creates exactly one bubble.
         let bubbles = app.webViews.buttons.matching(identifier: "Play voice message")
         let before = bubbles.count
+        let cancelStart=app.webViews.buttons["Hold to record"].coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
+        cancelStart.press(forDuration:0.5,thenDragTo:cancelStart.withOffset(CGVector(dx:-120,dy:0)))
+        XCTAssertTrue(app.webViews.buttons["Hold to record"].waitForExistence(timeout:5))
+        XCTAssertEqual(bubbles.count,before,"Sliding left must cancel without sending")
+        XCTAssertEqual(app.webViews.buttons.matching(identifier:"Discard unsent recording").count,initialCount,"Cancellation must not create a recovery step")
         try lockMicrophone(app)
         app.webViews.buttons["Send voice message"].tap()
         let sentLocked = NSPredicate { _, _ in bubbles.count == before + 1 && !app.webViews.buttons["Send voice message"].exists }

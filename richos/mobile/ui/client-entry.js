@@ -68,7 +68,7 @@
     const phase=state.voice.phase, active=phase!=='idle', locked=phase==='locked';
     document.body.dataset.voice=phase;
     $('record-start').disabled = !state.canVoice || state.updates.blocked || !state.updates.features.recording;
-    $('record-start').hidden=locked || phase==='finishing' || (!active && !!state.draft.trim());
+    $('record-start').hidden=(locked && !document.body.dataset.voiceDragging) || phase==='finishing' || (!active && !!state.draft.trim());
     $('send').hidden=active || !state.draft.trim();
     $('message').hidden=active; $('message').disabled=!state.confirmed;
     $('voice-controls').hidden=!active;
@@ -118,14 +118,31 @@
   };
   $('thread').onchange = () => perform({ type: 'select-thread', threadId: $('thread').value });
   $('retry').onclick = () => perform({ type: 'retry' }); $('older').onclick = () => perform({ type: 'older' });
-  let pointer=null, startX=0, startY=0;
+  let pointer=null, touch=null, startX=0, startY=0;
   const mic=$('record-start');
+  const endVoicePointer=()=>{pointer=null;touch=null;delete document.body.dataset.voiceDragging;if(current?.voice.phase==='locked')mic.hidden=true;window.getSelection()?.removeAllRanges();};
   mic.oncontextmenu=event=>event.preventDefault();
-  mic.onpointerdown=event=>{if(pointer!==null || event.button!==0)return;event.preventDefault();pointer=event.pointerId;startX=event.clientX;startY=event.clientY;mic.setPointerCapture(pointer);void perform({type:'voice-press'});};
+  // iOS may cancel Pointer Events during a long hold even though the finger
+  // remains down. Touch Events retain their original target through release.
+  const beginVoiceTouch=(x,y)=>{window.getSelection()?.removeAllRanges();document.body.dataset.voiceDragging='true';startX=x;startY=y;void perform({type:'voice-press'});};
+  mic.addEventListener('touchstart',event=>{
+    event.preventDefault();if(touch!==null || pointer!==null)return;
+    const point=event.changedTouches[0];touch=point.identifier;beginVoiceTouch(point.clientX,point.clientY);
+  },{passive:false});
+  mic.addEventListener('touchmove',event=>{
+    event.preventDefault();const point=Array.from(event.changedTouches).find(p=>p.identifier===touch);
+    if(point)void perform({type:'voice-move',dx:point.clientX-startX,dy:point.clientY-startY});
+  },{passive:false});
+  mic.addEventListener('touchend',event=>{
+    event.preventDefault();if(!Array.from(event.changedTouches).some(p=>p.identifier===touch))return;
+    endVoicePointer();void perform({type:'voice-release'});
+  },{passive:false});
+  mic.addEventListener('touchcancel',()=>{endVoicePointer();if(current?.voice.phase!=='locked')void perform({type:'voice-interrupt'});});
+  mic.onpointerdown=event=>{if(event.pointerType==='touch' || touch!==null || pointer!==null || event.button!==0)return;event.preventDefault();window.getSelection()?.removeAllRanges();document.body.dataset.voiceDragging='true';pointer=event.pointerId;startX=event.clientX;startY=event.clientY;mic.setPointerCapture(pointer);void perform({type:'voice-press'});};
   mic.onpointermove=event=>{if(event.pointerId===pointer)void perform({type:'voice-move',dx:event.clientX-startX,dy:event.clientY-startY});};
-  mic.onpointerup=event=>{if(event.pointerId!==pointer)return;pointer=null;void perform({type:'voice-release'});};
-  mic.onpointercancel=()=>{pointer=null;if(current?.voice.phase!=='locked')void perform({type:'voice-interrupt'});};
-  mic.onlostpointercapture=()=>{if(pointer!==null){pointer=null;if(current?.voice.phase!=='locked')void perform({type:'voice-interrupt'});}};
+  mic.onpointerup=event=>{if(event.pointerId!==pointer)return;event.preventDefault();endVoicePointer();void perform({type:'voice-release'});};
+  mic.onpointercancel=event=>{if(event.pointerType==='touch')return;endVoicePointer();if(current?.voice.phase!=='locked')void perform({type:'voice-interrupt'});};
+  mic.onlostpointercapture=()=>{if(pointer!==null){endVoicePointer();if(current?.voice.phase!=='locked')void perform({type:'voice-interrupt'});}};
   mic.onclick=event=>{if(event.detail===0)void perform({type:'voice-press'}).then(()=>perform({type:'voice-lock'}));};
   $('voice-send').onclick=()=>perform({type:'voice-send'});$('voice-cancel').onclick=()=>perform({type:'voice-cancel'});$('voice-lock').onclick=()=>perform({type:'voice-lock'});
   setInterval(()=>{const start=current?.voice.startedAt;const seconds=start?Math.max(0,Math.floor((Date.now()-start)/1000)):0;const value=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;if($('voice-timer').textContent!==value)$('voice-timer').textContent=value;},250);
