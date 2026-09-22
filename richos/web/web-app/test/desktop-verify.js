@@ -947,7 +947,11 @@ async function runEngine(playwright, engine) {
 		check('no JavaScript error in the whole run', errors.length === 0, errors.join('\n        '));
 		// Printed rather than asserted away: these are the requests this run BROKE on purpose, and
 		// seeing them is how you know the outage was real rather than simulated in the page.
-		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage this run caused deliberately:\n        ${
+		// The loader reports WebKit sent down the exception channel are named separately, so a run
+		// shows whether the classification above was exercised rather than merely present.
+		const loaderReports = networkNoise.filter((t) => LOADER_REPORT.test(t)).length;
+		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage this run caused deliberately` +
+			`${loaderReports ? ` (${loaderReports} reported by WebKit as an access-control failure of a request the outage dropped)` : ''}:\n        ${
 			networkNoise.slice(0, 6).map((t) => t.replace(/\s+/g, ' ')).join('\n        ') || '(none)'}\n`);
 		check('the outage was a REAL network failure, not something the page pretended',
 			networkNoise.length > 0, 'if this is zero, the unreachable and revoked passes above proved nothing');
