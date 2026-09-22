@@ -12,6 +12,11 @@ user CPU is at or above --max-cpu (default 80%) or when the machine is swapping
 hard (kernel pressure CRITICAL, or swap-out at or above --max-swapout-mb-s
 during the sample). --wait N retries for at most N seconds, one sample every
 --retry-every seconds (at least 30), and reports how long it waited.
+
+--low-priority is CEO ruling §78's mode for the 30-hour native build: the CPU
+line is not applied, the memory rule and the backoff still are, and the command
+runs under nice -n 10. Every use is announced. When that build ends, the 80%
+line applies again: stop passing the flag.
 """
 import argparse
 from contextlib import contextmanager, ExitStack
@@ -26,6 +31,7 @@ import time
 import math
 
 MIN_RETRY_SECONDS = 30
+LOW_PRIORITY_NICE = 10
 MAX_WAIT_SECONDS = 3600
 PRESSURE_NAMES = {1: 'normal', 2: 'warn', 4: 'critical'}
 
@@ -116,8 +122,8 @@ def cpu_busy_percent():
     return host_sample()['cpu_user_percent']
 
 
-def _refusal(s, max_cpu, max_swapout):
-    if s['cpu_user_percent'] >= max_cpu:
+def _refusal(s, max_cpu, max_swapout, cpu_rule=True):
+    if cpu_rule and s['cpu_user_percent'] >= max_cpu:
         return f"user CPU is {s['cpu_user_percent']:.1f}% (limit {max_cpu:g}%)"
     if s['memory_pressure'] == 'critical':
         return 'kernel memory pressure is CRITICAL'
@@ -133,9 +139,11 @@ def describe(s):
             f"swap-out {s['swapout_mb_per_s']:.1f} MB/s")
 
 
-def cpu_admission(max_cpu=80, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16):
+def cpu_admission(max_cpu=80, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, cpu_rule=True):
     """Bounded admission before work or a paid send; never infer jobs from load.
-    Retries at most every `retry_every` (>= 30) seconds, never spins."""
+    Retries at most every `retry_every` (>= 30) seconds, never spins.
+    `cpu_rule=False` is the low-priority mode (CEO ruling §78): the CPU line is
+    not applied, the memory rule still is."""
     if not math.isfinite(max_cpu) or not 0 < max_cpu <= 100:
         raise ValueError('max_cpu must be greater than 0 and at most 100')
     if not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
@@ -150,7 +158,7 @@ def cpu_admission(max_cpu=80, wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max
         s = host_sample()
         samples += 1
         elapsed = time.monotonic() - started
-        why = _refusal(s, max_cpu, max_swapout)
+        why = _refusal(s, max_cpu, max_swapout, cpu_rule)
         if not why:
             return {**s, 'cpu_busy_percent': s['cpu_user_percent'], 'load': os.getloadavg()[0],
                     'admission_wait_seconds': elapsed, 'admission_samples': samples}
@@ -185,8 +193,13 @@ def exclusive_lock(path):
 
 @contextmanager
 def reservation(state=None, max_load=None, max_cpu=80, release_lock=False, lock=None,
-                wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16):
+                wait_seconds=0, retry_every=MIN_RETRY_SECONDS, max_swapout=16, low_priority=False):
     """Admission for heavy work (CEO ruling §77).
+
+    `low_priority=True` is CEO ruling §78's explicit mode for the 30-hour native
+    build: the CPU line is not applied (the memory rule and the backoff still
+    are) and the caller runs the command under `nice -n LOW_PRIORITY_NICE`. It
+    is announced on every use; it is never a default.
 
     By default this is the CPU rule alone (with the memory rule beside it, see
     `cpu_admission`): nothing is locked and nothing under
@@ -210,12 +223,17 @@ def reservation(state=None, max_load=None, max_cpu=80, release_lock=False, lock=
             if not math.isfinite(max_load) or max_load <= 0 or os.getloadavg()[0] >= max_load:
                 raise BlockingIOError('load is above the explicitly requested limit; admission refused')
         else:
-            sample = cpu_admission(max_cpu, wait_seconds, retry_every, max_swapout)
+            sample = cpu_admission(max_cpu, wait_seconds, retry_every, max_swapout, cpu_rule=not low_priority)
             print(f"admission: {describe(sample)}; waited {sample['admission_wait_seconds']:.0f}s over "
                   f"{sample['admission_samples']} sample(s); load {sample['load']:.2f} is informational",
                   file=sys.stderr, flush=True)
+            if low_priority:
+                over = sample['cpu_user_percent'] >= max_cpu
+                print(f"LOW PRIORITY (CEO ruling §78): the {max_cpu:g}% CPU line was NOT applied"
+                      f"{' and user CPU is over it' if over else ''}; the command runs under "
+                      f"nice -n {LOW_PRIORITY_NICE}. The memory rule was applied.", file=sys.stderr, flush=True)
         if not paths:
-            print('admitted by CPU alone; no lock taken (CEO ruling §77)', file=sys.stderr, flush=True)
+            print('admitted without a lock (CEO ruling §77)', file=sys.stderr, flush=True)
         yield paths[0] if paths else None
 
 
@@ -233,13 +251,19 @@ def main():
                    help=f'retry admission for at most SECONDS (0-{MAX_WAIT_SECONDS}; default 0: refuse at once)')
     p.add_argument('--retry-every', type=float, default=MIN_RETRY_SECONDS, metavar='SECONDS',
                    help=f'seconds between samples while waiting (at least {MIN_RETRY_SECONDS})')
+    p.add_argument('--low-priority', action='store_true',
+                   help=f'CEO ruling §78, the 30-hour native build only: skip the CPU line (memory rule and '
+                        f'backoff still apply) and run the command under nice -n {LOW_PRIORITY_NICE}; announced')
     p.add_argument('command', nargs=argparse.REMAINDER)
     args = p.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     if not command:
         p.error('a command is required')
+    if args.low_priority:
+        command = ['/usr/bin/nice', '-n', str(LOW_PRIORITY_NICE), *command]
     with reservation(args.state_dir, args.max_load, args.max_cpu, release_lock=args.release_lock,
-                     wait_seconds=args.wait, retry_every=args.retry_every, max_swapout=args.max_swapout_mb_s):
+                     wait_seconds=args.wait, retry_every=args.retry_every, max_swapout=args.max_swapout_mb_s,
+                     low_priority=args.low_priority):
         # Any lock FD stays in the supervisor until the command is reaped.
         child = subprocess.Popen(command, start_new_session=True)
         def stop(signum, frame):
