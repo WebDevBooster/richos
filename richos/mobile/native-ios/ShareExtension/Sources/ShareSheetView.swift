@@ -150,7 +150,7 @@ struct ShareSheetView: View {
         HStack(alignment: .top, spacing: 10) {
             IconView(.alert, size: 20).foregroundStyle(palette.danger).padding(.top, 1)
             (Text("Too large to send.").fontWeight(.semibold).foregroundColor(palette.danger)
-                + Text(" Rich can take files up to \(FileCard.megabytes(model.context.limits.maxFileBytes)) each; this one is \(FileCard.megabytes(large.bytes)). Send a smaller part of it, or share it from your Mac."))
+                + Text(" " + Self.tooLargeReason(bytes: large.bytes, limit: model.context.limits.maxFileBytes)))
                 .type(Typography.read)
                 .foregroundStyle(palette.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -160,6 +160,16 @@ struct ShareSheetView: View {
         .padding(.horizontal, 4)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("share-too-large")
+    }
+
+    /// The reason under a too-large file. When the file rounds to the same size as the limit
+    /// ("this one is 25 MB" beside "up to 25 MB") the numbers would contradict each other, so it
+    /// says "just over that" instead.
+    static func tooLargeReason(bytes: Int, limit: Int) -> String {
+        let limitText = FileCard.megabytes(limit)
+        let sizeText = FileCard.megabytes(bytes)
+        let size = sizeText == limitText ? "just over that" : sizeText
+        return "Rich can take files up to \(limitText) each; this one is \(size). Send a smaller part of it, or share it from your Mac."
     }
 
     // MARK: unpaired and failure
