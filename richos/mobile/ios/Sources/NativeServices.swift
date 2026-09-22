@@ -113,6 +113,9 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
               let args = body["args"] as? [String: Any] else { reply(nil, "Invalid native request"); return }
         do {
             switch method {
+            case "pushPreview":
+                guard let enabled = args["enabled"] as? Bool else { throw fail("Choose whether to show previews") }
+                try NotificationPreview.setPreviews(enabled); reply(true,nil)
             case "pushInfo": push.info(reply)
             case "pushRequest": push.request(reply)
             case "pushIncoming": reply(push.takeIncoming() as Any? ?? NSNull(), nil)
@@ -121,6 +124,7 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 let value = try string(args, "origin")
                 guard let u = URL(string: value), u.scheme == "https", u.host != nil, u.user == nil, u.password == nil,
                       u.query == nil, u.fragment == nil, u.path.isEmpty || u.path == "/", !value.contains("\\"), !value.contains(where: { $0.isWhitespace }) else { throw fail("An HTTPS origin is required") }
+                try NotificationPreview.configure(origin:value)
                 closeStream(); origin = u; reply(true, nil)
             case "publicKey": reply(try publicKey(), nil)
             case "sign": reply(try sign(string(args, "input")), nil)

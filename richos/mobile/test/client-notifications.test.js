@@ -2,10 +2,10 @@ const test=require('node:test'),assert=require('node:assert/strict'),{createHash
 const {harness}=require('../dev/client-runtime.js'),{createClient}=require('../core/client.js');
 const tick=()=>new Promise(r=>setImmediate(r));
 async function setup(t) {
- const h=harness();let permission='allowed',token='d'.repeat(64);const registrations=[];
+ const h=harness();let previews=true,permission='allowed',token='d'.repeat(64);const registrations=[];
  const native=h.ports.native,fetch=h.ports.fetch;
  h.ports.hash=async text=>createHash('sha256').update(text).digest('hex');
- h.ports.native=async(method,args)=>['pushInfo','pushRequest'].includes(method)?{permission,registration:permission==='allowed'?{token,topic:'dev.richos.mobile.integration',environment:'sandbox'}:undefined}:native(method,args);
+ h.ports.native=async(method,args)=>method==='pushPreview'?(previews=args.enabled):['pushInfo','pushRequest'].includes(method)?{permission,registration:permission==='allowed'?{token,topic:'dev.richos.mobile.integration',environment:'sandbox',previews,preview_key:'a'.repeat(43)}:undefined}:native(method,args);
  h.ports.fetch=async(url,options)=>{if(url.endsWith('/api/pair') && JSON.parse(options.body).native_push!==undefined){const registration=JSON.parse(options.body).native_push;registrations.push(registration);return Response.json({host_id:'a'.repeat(32),registered:!!registration});}return fetch(url,options)};
  const app=await createClient(h.ports);t.after(()=>app.close());
  await app.dispatch({type:'pair',link:'https://mac.example/#pair=code'});await app.dispatch({type:'confirm-pair',matched:true});await tick();
@@ -31,4 +31,20 @@ test('a notification opens only an opaque thread reference belonging to the pair
 test('failed notification registration does not disable foreground text and keeps a retry action',async t=>{
  const f=await setup(t);const fetch=f.h.ports.fetch;f.h.ports.fetch=async(url,options)=>options.body?.includes('native_push')?Response.json({reason:'unreachable',retryable:true},{status:503}):fetch(url,options);
  await f.app.dispatch({type:'notifications-enable'});await f.settle();assert.equal(f.app.state().notifications.status,'service-unavailable');assert(f.app.state().canText);
+});
+
+test('preview preference defaults on, persists, updates registration and never stores the key in JS state',async t=>{
+ const f=await setup(t);assert.equal(f.app.state().notifications.previews,true);
+ await f.app.dispatch({type:'notifications-enable'});await f.settle();assert.equal(f.registrations.at(-1).previews,true);
+ await f.app.dispatch({type:'notifications-previews',enabled:false});await f.settle();assert.equal(f.registrations.at(-1).previews,false);
+ assert.equal(f.h.disk().push.previews,false);assert(!JSON.stringify(f.h.disk()).includes('a'.repeat(43)));
+ await f.app.dispatch({type:'notifications-previews',enabled:true});await f.settle();assert.equal(f.registrations.at(-1).previews,true);
+});
+
+test('notification return focuses the referenced reply after it arrives',async t=>{
+ const f=await setup(t);await f.app.dispatch({type:'notifications-enable'});await f.settle();
+ const value={host:'a'.repeat(32),thread:await f.h.ports.hash('general'),event:await f.h.ports.hash('reply-42')};
+ await f.app.dispatch({type:'notification-open',value});assert.equal(f.app.state().focusMessage,null);
+ f.h.opened.at(-1).event('message',{id:'reply-42',text:'Your approval is needed',role:'rich',cursor:42,complete:true});await f.settle();
+ assert.equal(f.app.state().focusMessage,'reply-42');
 });

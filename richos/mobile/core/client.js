@@ -34,7 +34,7 @@
     // Retain the paired Mac’s last advertised abilities for offline composition.
     // Its next hello replaces these; authentication and dispatch stay server-gated.
     data.api = { ...data.api, capabilities: data.confirmed && Array.isArray(data.api?.capabilities) ? data.api.capabilities : [] };
-    data.push = { enabled:false, hostId:null, registrationHash:null, pendingDisable:false, ...data.push };
+    data.push = { previews:true, enabled:false, hostId:null, registrationHash:null, pendingDisable:false, ...data.push };
     // One-time migration of the pilot's single-conversation cache. Never discard unsent work.
     if (Array.isArray(data.messages) && data.session.selectedThreadId && !data.cache[data.session.selectedThreadId]) data.cache[data.session.selectedThreadId] = data.messages;
     delete data.messages; delete data.cursor;
@@ -94,7 +94,7 @@
       }),
       connectionReason: effectiveConnectionReason(),
       connectionNoticeReason: effectiveConnectionReason()==='connected'?null:['connecting','reconnecting'].includes(effectiveConnectionReason())?(reconnectNotice?'reconnecting':null):effectiveConnectionReason(),
-      notifications: {enabled:data.push.enabled,status:pushState,error:pushError},
+      notifications: {previews:data.push.previews,enabled:data.push.enabled,status:pushState,error:pushError},
       confirmed: data.confirmed, words, recording, recordings, playbackState, playbackId, voice: gesture?.snapshot() || {phase:"idle"},
       recoveredRecordings: recordings.filter(r => !data.voiceFiles[r.id]?.sent && !data.outbox.some(x=>x.fileId===r.id) && (!r.threadId || (r.threadId===data.session.selectedThreadId && r.origin===data.api.apiBase))), capabilities: data.api.capabilities || [], error: latestError,
       updates: updates.state(), unsupported, canVoice: data.confirmed && !unsupported && api?.offers('voice') === true, canText: data.confirmed && !unsupported && (!negotiated || api?.offers('text')),
@@ -147,6 +147,7 @@
           if (Array.isArray(frame.threads)) data.session.threads = frame.threads.filter(x => x && typeof x.id === 'string' && typeof x.title === 'string');
         }
         await reconcileVoice(id);
+        await reconcileNotification();
         await persist(); await app.dispatch({ type: 'network', online: true }); emit();
         if (name==='hello' && (data.push.enabled || data.push.pendingDisable)) void syncNotifications();
       }).catch(failure);
@@ -294,6 +295,7 @@
       if (!api?.offers('native-push')) {pushState='unsupported';emit();return;}
       pushBusy=true; const device=data.api.deviceId, origin=data.api.apiBase;
       try {
+        await ports.native('pushPreview',{enabled:data.push.previews});
         const info=await ports.native('pushInfo',{});
         if(info.permission!=='allowed') data.push.enabled=false;
         pushState=info.permission==='denied' ? 'denied' : info.registrationFailed ? 'apple-unavailable' : 'registering';
@@ -314,16 +316,23 @@
     }
     async function openNotification(value) {
       if (!data.confirmed || !value || value.host!==data.push.hostId || !/^[a-f0-9]{64}$/.test(value.thread || '') || !/^[a-f0-9]{64}$/.test(value.event || '')) return;
-      for (const candidate of data.session.threads) {
-        if (await ports.hash(candidate.id)===value.thread) {
-          await gesture.interrupt();
-          data.drafts[data.session.selectedThreadId]=app.state().draft;
+      data.notificationTarget=value;await reconcileNotification();await persist();emit();
+    }
+    async function reconcileNotification() {
+      const value=data.notificationTarget;
+      if(!value || value.host!==data.push.hostId)return;
+      for(const candidate of data.session.threads) {
+        if(await ports.hash(candidate.id)!==value.thread)continue;
+        if(data.session.selectedThreadId!==candidate.id) {
+          await gesture.interrupt();data.drafts[data.session.selectedThreadId]=app.state().draft;
           await app.dispatch({type:'select-thread',threadId:candidate.id});
           await app.dispatch({type:'compose',text:data.drafts[candidate.id] || ''});
           data.focusMessage=null;connect();return;
         }
+        for(const row of thread(candidate.id).view([]))if(await ports.hash(row.id)===value.event) {
+          data.focusMessage=row.id;delete data.notificationTarget;return;
+        }
       }
-      throw Error('That conversation is no longer available on this paired Mac.');
     }
     function dispatch(action) {
       if (action.type.startsWith('voice-')) {
@@ -341,6 +350,11 @@
       const work = async () => {
         latestError = null;transientError=false;
         switch (action.type) {
+          case 'notification-focused':
+            if(data.focusMessage===action.id)data.focusMessage=null;break;
+          case 'notifications-previews':
+            await ports.native('pushPreview',{enabled:action.enabled===true});
+            data.push.previews=action.enabled===true;await persist();void syncNotifications(true);break;
           case 'notifications-enable': {
             if (!data.confirmed) throw Error('Pair this phone before enabling notifications.');
             const info=await ports.native('pushRequest',{});
@@ -378,7 +392,7 @@
               data.push.enabled=false;data.push.pendingDisable=true;await persist();await syncNotifications(true);
               if (data.push.pendingDisable) throw Error('Connect to your Mac and disable notifications before forgetting this pairing.');
             }
-            data.push={enabled:false,hostId:null,registrationHash:null,pendingDisable:false};pushState='off';
+            data.push={enabled:false,previews:data.push.previews!==false,hostId:null,registrationHash:null,pendingDisable:false};pushState='off';
             closeStream(); data.confirmed = false; data.session.paired = false; data.api = {}; data.fingerprint = null; words = null;
             models.clear(); data.cache = {}; data.session.threads = []; data.session.selectedThreadId = null;
             await app.dispatch({ type: 'network', online: false }); break;

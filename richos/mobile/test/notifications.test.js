@@ -64,6 +64,9 @@ test('APNs signs only the chosen environment and sends a generic alert with opaq
  assert.equal(JSON.parse(request.options.body).aps.alert.body,'Rich has replied.');
  assert.equal(request.options.redirect,'manual');assert.equal(request.options.headers['apns-topic'],env.APNS_TOPICS);
  assert(!request.options.body.includes('private'));assert(!request.options.body.includes(key));
+ const preview={v:1,nonce:'a'.repeat(16),body:'b'.repeat(100)};
+ await provider.send({host_id:'a'.repeat(32),token:'d'.repeat(64),environment:'sandbox',topic:env.APNS_TOPICS},{event_ref:'b'.repeat(64),thread_ref:'c'.repeat(64),expires_at:1790003600000,preview:JSON.stringify(preview)});
+ const sealed=JSON.parse(request.options.body);assert.deepEqual(sealed.preview,preview);assert.equal(sealed.aps['mutable-content'],1);assert.equal(sealed.aps.alert.body,'Rich has replied.');
 });
 test('default provider transport calls global fetch with its native receiver',async()=>{
  const {APNs}=await import('../service/connect/apns.mjs');const original=globalThis.fetch;

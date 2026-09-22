@@ -117,6 +117,11 @@ try {
       pass(`${engine}: native UI follows sends/replies/resizes, respects deliberate scrolls and centres locked Cancel`);
     }
   } else {
+    const preview = join(cache,'notification-preview-proof');
+    const previewBuild = hostTool('xcrun',['swiftc','-module-cache-path',join(cache,'swift-module-cache'),join(mobile,'ios/Shared/NotificationPreview.swift'),join(mobile,'ios/Tests/NotificationPreviewTests.swift'),'-o',preview]);
+    assert.equal(previewBuild.status,0,previewBuild.stderr);
+    const previewProof=hostTool(preview,[join(mobile,'test/fixtures/notification-preview.json')]);
+    assert.equal(previewProof.status,0,previewProof.stderr);pass('native preview decryption, wrong key and tampered payload refusal');
     const recovery = join(cache, 'recording-recovery-test');
     const compiled = hostTool('xcrun', ['swiftc', '-module-cache-path', join(cache,'swift-module-cache'), join(mobile,'ios/Sources/RecordingRecovery.swift'), join(mobile,'ios/Tests/RecordingRecoveryTests.swift'), '-o', recovery]);
     assert.equal(compiled.status, 0, compiled.stderr);
