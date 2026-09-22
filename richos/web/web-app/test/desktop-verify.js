@@ -325,8 +325,12 @@ async function runEngine(playwright, engine) {
 			.some((el) => el.textContent === 'where are we on the proposal?'), null, { timeout: 5000 });
 		check('his message appears the instant he sends it, before the Mac has answered', true);
 
-		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine .msg-state'))
-			.some((el) => /Delivered/.test(el.textContent)), null, { timeout: 10000 });
+		// On HIS new message. "Delivered." already sits under the newest seeded question before he
+		// sends, so waiting on any mine row passed at once and measured nothing.
+		await page.waitForFunction((text) => Array.from(document.querySelectorAll('.msg-mine'))
+			.some((li) => li.querySelector('.msg-text')?.textContent === text
+				&& /Delivered/.test(li.querySelector('.msg-state')?.textContent || '')),
+		'where are we on the proposal?', { timeout: 10000 });
 		check('and turns to delivered when the Mac has it', true);
 
 		const mineCount = await page.evaluate((text) => Array.from(document.querySelectorAll('.msg-mine .msg-text'))
