@@ -1465,7 +1465,7 @@ impl PhoneRuntime {
             return;
         };
         runtime.block_on(async move {
-            let Ok(client) = reqwest::Client::builder().build() else { return };
+            let Ok(client) = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build() else { return };
             match push::send(&client, &vapid, &subscription, body.as_bytes(), "high").await {
                 Ok(delivery) if delivery.gone => {
                     eprintln!(
