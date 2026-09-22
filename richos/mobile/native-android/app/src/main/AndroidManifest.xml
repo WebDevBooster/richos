@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- The tick when a recording locks. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Rich's replies as notifications (Android 13+ asks; FCM data messages). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".app.RichApplication"
@@ -26,6 +28,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".platform.RichMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

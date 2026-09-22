@@ -11,6 +11,7 @@ import dev.richos.android.core.Ports
 import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
 import dev.richos.android.core.FileStore
+import dev.richos.android.core.Platform
 import dev.richos.android.core.Recorder
 import dev.richos.android.platform.HttpsMac
 import dev.richos.android.platform.KeystoreKeys
@@ -33,7 +34,7 @@ object AppPorts {
      * [wire] is the HTTPS connection to the Mac (requests and the event stream); the caller keeps
      * it to hand the same instance to the connection owner.
      */
-    fun create(context: Context, wire: HttpsMac = HttpsMac(), recorder: Recorder = Recorder.NONE): Ports {
+    fun create(context: Context, wire: HttpsMac = HttpsMac(), recorder: Recorder = Recorder.NONE, platform: Platform = Platform.NONE): Ports {
         val dir = File(context.filesDir, "core")
         val outboxFile = JsonFile(File(dir, "outbox.json"), ListSerializer(OutboxItem.serializer())) { emptyList() }
         val sessionFile = JsonFile(File(dir, "session.json"), Session.serializer()) { Session() }
@@ -56,6 +57,7 @@ object AppPorts {
             deviceName = "Android phone",
             files = StagedFiles(stagedDir(context)),
             recorder = recorder,
+            platform = platform,
         )
     }
 

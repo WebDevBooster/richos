@@ -1,5 +1,7 @@
-// :app — the Compose app. Owned by stream A1 (build plan §5.0): A2 and A3 send their lines
-// for this file through their handoff notes.
+import java.time.Duration
+
+// :app — the Compose app. Owned by stream A1 (build plan §5.0): A2 sends its lines for this
+// file through its handoff notes; A3's platform features are A1's while A3 is held.
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -23,6 +25,15 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-dev"
+
+        // Firebase, initialized in code with no google-services plugin (build plan §3.3). The four
+        // public identifiers come from Gradle properties (richos.firebase.projectId, .appId,
+        // .apiKey, .senderId, e.g. in ~/.gradle/gradle.properties); left empty, the app still
+        // builds and reports notifications as platform-unavailable.
+        for (key in listOf("projectId", "appId", "apiKey", "senderId")) {
+            val value = providers.gradleProperty("richos.firebase.$key").orElse("").get()
+            buildConfigField("String", "FIREBASE_" + key.replace(Regex("([A-Z])"), "_$1").uppercase(), "\"$value\"")
+        }
     }
 
     buildTypes {
@@ -39,6 +50,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
@@ -54,6 +66,8 @@ android {
 // Java 17 toolchain for the tests to match the bytecode target (measured: "Android SDK 36
 // requires Java 21 (have Java 17)" with Homebrew's openjdk@17 on this Mac). The bytecode stays 17.
 tasks.withType<Test>().configureEach {
+    // A hung test (a blocked main looper, say) fails the run instead of holding the Mac.
+    timeout.set(Duration.ofMinutes(10))
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
     // Robolectric reaches into FileDescriptor internals on Java 21 (measured: IllegalAccessException
     // on jdk.internal.access.SharedSecrets without these).
@@ -72,6 +86,8 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.compose)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
