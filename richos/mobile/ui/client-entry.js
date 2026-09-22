@@ -19,7 +19,7 @@
   }
   app.subscribe(state => {
     current = state;
-    $('connection').textContent = state.confirmed ? state.online ? 'Connected to your Mac' : 'Mac is offline · messages stay on this phone' : 'Pairing required';
+    $('connection').textContent = state.confirmed || state.connectionReason === 'revoked' ? globalThis.RichOSConnection.sentence(state.connectionReason) : 'Pairing required';
     $('pairing').hidden = state.confirmed; $('fingerprint').hidden = !state.words; $('words').textContent = state.words || '';
     const options = JSON.stringify(state.threads);
     if ($('thread').dataset.options !== options) {

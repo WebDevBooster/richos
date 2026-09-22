@@ -24,7 +24,9 @@ export async function handle(request, env, ports = {}) {
   if (url.protocol !== 'https:') return json(400, { error: 'https_required' });
   if (request.method === 'GET' && url.pathname === '/healthz' && !url.search) {
     const ready = configured(env);
-    return json(ready ? 200 : 503, { service: 'richos-connect', protocol: 1, ready });
+    const response = json(ready ? 200 : 503, { service: 'richos-connect', protocol: 1, ready });
+    response.headers.set('Access-Control-Allow-Origin','*');
+    return response;
   }
   if (url.search || !routes.has(request.method + ' ' + url.pathname)) return json(404, { error: 'not_found' });
   if (!configured(env)) return json(503, { error: 'service_unavailable' });

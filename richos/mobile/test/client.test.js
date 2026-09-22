@@ -139,3 +139,28 @@ test('native update subscriptions cannot close or receive data from the Mac even
   stream.close(); assert.equal(calls.filter(call => call.method === 'streamClose').length, 0);
   mac.close(); assert.equal(calls.filter(call => call.method === 'streamClose').length, 1);
 });
+
+test('a late Connect outage probe cannot overwrite a recovered stream or queued work', async t => {
+  const h = harness(), fetchOriginal = h.ports.fetch;
+  const origin = 'https://c-' + 'a'.repeat(32) + '-g1.richos.ceo';
+  h.ports.fetch = async (url, options) => {
+    const result = await fetchOriginal(url, options);
+    if (url.endsWith('/api/pair')) {
+      const body = await result.json();
+      if (body.api_base) body.api_base = origin;
+      return Response.json(body);
+    }
+    return result;
+  };
+  let resolveProbe;
+  h.ports.connectionHealth = () => new Promise(resolve => { resolveProbe = resolve; });
+  const app = await createClient(h.ports); t.after(() => app.close());
+  await app.dispatch({type:'pair',link:origin+'/#pair=secret'});
+  await app.dispatch({type:'confirm-pair',matched:true}); await turn();
+  await app.dispatch({type:'compose',text:'Keep this draft'});
+  h.opened.at(-1).event('hello',{challenge:'fresh',capabilities:['text']}); await app.settle();
+  assert(app.state().online);
+  resolveProbe({serviceState:'unavailable'}); await turn();
+  assert.equal(app.state().connectionReason,'connected');
+  assert.equal(app.state().draft,'Keep this draft');
+});

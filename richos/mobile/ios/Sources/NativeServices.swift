@@ -130,6 +130,28 @@ final class NativeServices: NSObject, WKScriptMessageHandlerWithReply, URLSessio
                 stream = session.dataTask(with: request); stream?.resume(); reply(true, nil)
             case "streamClose":
                 if args["id"] as? String == streamID { closeStream() }; reply(true, nil)
+            case "connectHealth":
+                if lastNetwork == .unsatisfied { reply(["phoneOnline": false], nil); return }
+                guard origin?.absoluteString.range(of: "^https://c-[a-f0-9]{32}-g[1-9][0-9]*\\.richos\\.ceo$", options: .regularExpression) != nil else {
+                    reply(["serviceState": "unknown"], nil); return
+                }
+                guard requestReplies.count < 8 else { reply(["serviceState": "unknown"], nil); return }
+                var request = URLRequest(url: URL(string: "https://connect.richos.ceo/healthz")!)
+                request.timeoutInterval = 6
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                let task = session.dataTask(with: request)
+                requestBuffers[task.taskIdentifier] = Data()
+                requestReplies[task.taskIdentifier] = { [weak self] result, _ in
+                    if self?.lastNetwork == .unsatisfied { reply(["phoneOnline": false], nil); return }
+                    guard let payload = result as? [String: Any], let text = payload["body"] as? String,
+                          let bytes = text.data(using: .utf8),
+                          let body = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] else {
+                        reply(["serviceState": "unknown"], nil); return
+                    }
+                    let ready = payload["status"] as? Int == 200 && body["service"] as? String == "richos-connect" && body["ready"] as? Bool == true
+                    reply(["serviceState": ready ? "available" : "unavailable"], nil)
+                }
+                task.resume()
             case "updateInfo": reply(updates.info(), nil)
             case "updateMetric": updates.metric(try string(args, "event"), revision: args["revision"] as? Int ?? 0); reply(true, nil)
             case "updateFetch": updates.fetch(reply)

@@ -1077,7 +1077,7 @@
     field("phone-words-note").hidden = !live;
     // AND THE CONTAINER, which is the first thing on this screen: an empty box at the top of
     // the panel is worse than the same emptiness at the bottom was.
-    codeBlock.hidden = !live;
+    codeBlock.hidden = !live || (onConnect && health !== "connected");
     field("phone-expired").hidden = !expired;
     if (expired) {
       field("phone-expired-note").textContent = EXPIRED_NOTE;

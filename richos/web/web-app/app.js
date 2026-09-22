@@ -60,6 +60,9 @@ let currentThreadId = null;
 let link = null;
 /// The sentence currently under the header, by name. Read only to keep a retry from flickering it.
 let linkStateNow = null;
+let lastConnectionProbe = -Infinity;
+let connectionDetail = null;
+let connectionProbeGeneration = 0;
 let vapidPublicKey = null;
 // See `refreshPushOffer` — his answer, not his permission state.
 let notificationsDeclined = false;
@@ -328,10 +331,20 @@ function setLinkState(which, detail) {
 	const el = $('link-state');
 	linkStateNow = which;
 	el.classList.toggle('away', which === 'away');
-	if (which === 'connected') el.textContent = 'Connected to your Mac.';
+	if (which === 'connected') { connectionDetail = null; el.textContent = 'Connected to your Mac.'; }
 	else if (which === 'opening') el.textContent = 'Looking for your Mac…';
-	else if (which === 'away') el.textContent = detail || 'Your Mac isn’t reachable from here.';
+	else if (which === 'away') el.textContent = detail || connectionDetail || 'Your Mac isn’t reachable from here.';
 	else el.textContent = detail || '';
+    const generation = ++connectionProbeGeneration;
+    const connection = globalThis.RichOSConnection;
+    if (which === 'away' && !detail && connection?.managed(location.origin)) {
+        if (navigator.onLine === false) { connectionDetail = connection.sentence('phone-offline'); el.textContent = connectionDetail; return; }
+        if (Date.now() - lastConnectionProbe < 60000) return;
+        lastConnectionProbe = Date.now();
+        connection.probe({fetch,online:()=>navigator.onLine}).then(info => {
+            if (generation === connectionProbeGeneration && linkStateNow === 'away') { connectionDetail = connection.sentence(connection.classify(info)); el.textContent = connectionDetail; }
+        });
+    }
 }
 
 // A CONTROL IS RENDERED ONLY WHERE THE MAC HAS NAMED THE CAPABILITY BEHIND IT (plan §2 A).
@@ -949,7 +962,7 @@ function scheduleOutboxDrain() {
 
 // Back on the network. A wakeup fires what is already owed rather than adding an attempt.
 if (typeof window !== 'undefined' && window.addEventListener) {
-	window.addEventListener('online', () => { if (link) link.wake(); flushQueue(); });
+	window.addEventListener('online', () => { connectionDetail = null; lastConnectionProbe = -Infinity; if (link) link.wake(); flushQueue(); });
 }
 
 async function flushQueue() {
