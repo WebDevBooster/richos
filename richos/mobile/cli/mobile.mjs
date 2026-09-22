@@ -12,7 +12,7 @@ const usage = `Mobile development loop (JSON output; nonzero exit on failure)
   node richos/mobile/cli/mobile.mjs connect managed-artifact <private-profile.json>
   node richos/mobile/cli/mobile.mjs client scenario connection-restart|recording-interruption|voice-restart|voice-gestures|update-controls
   node richos/mobile/cli/mobile.mjs lab serve|mac|updates
-  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|voice|notifications|updates]
+  node richos/mobile/cli/mobile.mjs device build|verify [all|text|recording|voice|notifications|updates|cleanup]
   node richos/mobile/cli/mobile.mjs update preview|publish <request.json>
   node richos/mobile/cli/mobile.mjs update serve|metrics
   node richos/mobile/cli/mobile.mjs release-config-check

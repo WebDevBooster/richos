@@ -220,6 +220,33 @@ final class NativeClientTests: XCTestCase {
         XCTAssertTrue(app.webViews.buttons["Send voice message"].waitForExistence(timeout:10),"Slide up must lock the microphone")
     }
 
+    func testIntegrationClearsUnsentTestRecordings() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Only the disposable physical integration app has these operator test recordings")
+        #else
+        guard Bundle(for: Self.self).bundleIdentifier == "dev.richos.mobile.integration.uitests",
+              let url = Bundle(for: Self.self).url(forResource:"native-test-config",withExtension:"json"),
+              let config = try JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:String],
+              config["cleanupTestRecordings"] == "true" else { throw XCTSkip("Cleanup requires an explicit request in the disposable integration app") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--native-client"]
+        app.launch()
+        XCTAssertTrue(app.webViews.buttons["Hold to record"].waitForExistence(timeout:15))
+        let discard = app.webViews.buttons.matching(identifier:"Discard unsent recording")
+        for _ in 0..<100 {
+            let before=discard.count
+            if before == 0 { break }
+            discard.firstMatch.tap()
+            expectation(for:NSPredicate { _, _ in discard.count < before },evaluatedWith:nil)
+            waitForExpectations(timeout:5)
+        }
+        XCTAssertEqual(discard.count,0)
+        XCTAssertFalse(app.webViews.buttons["Send unsent recording"].exists)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="Normal composer after test recording cleanup";shot.lifetime = .keepAlways;add(shot)
+        // No microphone is used; leave the cleaned composer visible for the operator.
+        #endif
+    }
+
     func testNativeRecordingAndRelaunch() throws {
         #if targetEnvironment(simulator)
         throw XCTSkip("Recording is verified on the physical iPhone with device verify recording; a simulator would capture the Mac microphone")

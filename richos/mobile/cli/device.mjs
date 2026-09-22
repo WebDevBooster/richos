@@ -23,12 +23,14 @@ export async function device(command, selection = 'all', ports = {}) {
   if (!id || !/^[a-fA-F0-9-]{20,64}$/.test(id)) throw Error('Set RICHOS_IOS_DEVICE to the connected physical device identifier');
   if (!team || !/^[A-Z0-9]{10}$/.test(team)) throw Error('Set RICHOS_APPLE_TEAM to the signing team identifier');
   if (!['build', 'verify'].includes(command)) throw Error('device expects build or verify');
-  const tests = { notifications: 'NativeClientTests/testNativeReplyNotification', voice: 'NativeClientTests/testSpokenVoiceSubmissionAndReply', updates: 'NativeClientTests/testIndependentUpdateService', all: 'NativeClientTests', text: 'NativeClientTests/testAuthenticatedTextAndStreamResume', recording: 'NativeClientTests/testNativeRecordingAndRelaunch' };
-  if (!tests[selection]) throw Error('Device test selection must be all, text, recording, voice, notifications or updates');
-  if (command === 'verify' && ['text','updates','all','voice','notifications','recording'].includes(selection)) {
+  const tests = { cleanup: 'NativeClientTests/testIntegrationClearsUnsentTestRecordings', notifications: 'NativeClientTests/testNativeReplyNotification', voice: 'NativeClientTests/testSpokenVoiceSubmissionAndReply', updates: 'NativeClientTests/testIndependentUpdateService', all: 'NativeClientTests', text: 'NativeClientTests/testAuthenticatedTextAndStreamResume', recording: 'NativeClientTests/testNativeRecordingAndRelaunch' };
+  if(selection==='cleanup' && process.env.RICHOS_MOBILE_TEST_APP!=='integration') throw Error('Recording cleanup is only allowed in the disposable integration app');
+  if (!tests[selection]) throw Error('Device test selection must be all, text, recording, voice, notifications, updates or cleanup');
+  if (command === 'verify' && ['text','updates','all','voice','notifications','recording','cleanup'].includes(selection)) {
     const file = process.env.RICHOS_MOBILE_TEST_CONFIG;
     if (!file) throw Error('Set RICHOS_MOBILE_TEST_CONFIG to the prepared lab configuration before this physical test');
     const config = JSON.parse(readFileSync(file, 'utf8'));
+    if(selection==='cleanup' && config.cleanupTestRecordings!=='true') throw Error('Recording cleanup requires cleanupTestRecordings: true in the integration test configuration');
     if (['text','all','voice','notifications','recording'].includes(selection) && (typeof config.pairLink !== 'string' || !config.pairLink.startsWith('https://') || typeof config.words !== 'string')) throw Error('Physical text test requires an HTTPS pairLink and fingerprint words');
     if (selection === 'voice' && !config.spokenPhrase) throw Error('Physical voice proof requires the agreed spokenPhrase');
     if (selection === 'notifications' && config.notificationTest !== 'true') throw Error('Physical notification proof requires the live notification lab configuration');

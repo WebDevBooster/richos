@@ -258,3 +258,10 @@ Physical selections use the same guarded device CLI:
 Both selections refuse missing configuration before launching Xcode. A skipped test is not a successful physical proof. Keep Android's production pairing intact by using the integration app and isolated lab. The lab's deterministic `ack:` reply does not prove a live AI provider turn.
 
 See [native notification operations](service/notifications.md) for APNs provisioning, token rotation, revocation and delivery limits. Notifications are opt-in. The Mac retains registration intent and pending opaque events for retry; the phone retains its preference and registration fingerprint, not an APNs token in shared session JSON. Phone permission denial leaves foreground conversations usable. Closed-app alerts require Apple delivery and a reachable Mac/provider; they are not an emergency-update transport guarantee.
+
+
+`device verify cleanup` only operates on `RICHOS_MOBILE_TEST_APP=integration` with an
+external test configuration containing `{"cleanupTestRecordings":"true"}`. It discards
+visible unsent lab recordings through the real recovery controls and leaves the normal
+composer visible. Ordinary test selections skip this cleanup unless explicitly configured;
+the normal installed app and other conversations are outside its scope.

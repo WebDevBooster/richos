@@ -90,3 +90,23 @@ test('physical verification rejects an Xcode success with skipped or absent test
   const result=await device('verify','recording',{...ports,summary:async()=>({passedTests:1,skippedTests:0,failedTests:0,totalTestCount:1,expectedFailures:0})});
   assert.deepEqual(result.verification,{passed:1,skipped:0,failed:0});
 });
+
+
+test('recording cleanup requires the disposable app and an explicit cleanup configuration', async t => {
+  const {device}=await import('../cli/device.mjs');
+  const folder=createScratch('device-cleanup');
+  const names=['RICHOS_MOBILE_CACHE','RICHOS_IOS_DEVICE','RICHOS_APPLE_TEAM','RICHOS_MOBILE_TEST_CONFIG','RICHOS_MOBILE_TEST_APP'];
+  const saved=Object.fromEntries(names.map(name=>[name,process.env[name]]));
+  t.after(()=>{for(const name of names)saved[name]===undefined?delete process.env[name]:process.env[name]=saved[name];rmSync(folder,{recursive:true,force:true});});
+  Object.assign(process.env,{RICHOS_MOBILE_CACHE:folder,RICHOS_IOS_DEVICE:'a'.repeat(40),RICHOS_APPLE_TEAM:'TESTTEAM01',RICHOS_MOBILE_TEST_CONFIG:join(folder,'test.json')});
+  delete process.env.RICHOS_MOBILE_TEST_APP;
+  let calls=0;
+  const ports={project:()=>join(folder,'test.xcodeproj'),usbSnapshot:async()=>[],run:async()=>{calls++;return {status:0};},summary:async()=>({passedTests:1,skippedTests:0,failedTests:0,totalTestCount:1,expectedFailures:0})};
+  writeFileSync(process.env.RICHOS_MOBILE_TEST_CONFIG,'{}');
+  await assert.rejects(device('verify','cleanup',ports),/disposable integration app/);
+  process.env.RICHOS_MOBILE_TEST_APP='integration';
+  await assert.rejects(device('verify','cleanup',ports),/cleanupTestRecordings/);
+  assert.equal(calls,0);
+  writeFileSync(process.env.RICHOS_MOBILE_TEST_CONFIG,JSON.stringify({cleanupTestRecordings:'true'}));
+  await device('verify','cleanup',ports);assert.equal(calls,1);
+});
