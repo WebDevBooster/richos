@@ -104,7 +104,7 @@ let repositoryRoot: URL = {
             .tick(at: 4), .retryNow(at: 5), .discardMessage(id: "c"), .messagesArrived(Conversation.round12), .replyStarted,
             .replyDelta(text: "Light."), .replyFinished(Conversation.round12[0]), .loadOlder,
             .olderLoaded(Conversation.older, reachedBeginning: true), .setFollowing(false), .setComposerFocus(true),
-            .openedFromNotification(messageID: "r1"), .takeShare(SharedIntake(messages: [.init(clientID: "s1", commitBody: "{}", text: "Hi", files: [OutboxFile(id: "p", name: "a.jpg", mediaType: "image/jpeg", byteCount: 1, sha256: "00", path: "s1/p-a.jpg")])], createdAt: 1, alreadyAccepted: false), at: 2), .clearFocus, .hearReply(id: "r1"), .playbackStarted(id: "r1"),
+            .openedFromNotification(messageID: "r1"), .openedFromNotificationReference(String(repeating: "ab", count: 32)), .takeShare(SharedIntake(messages: [.init(clientID: "s1", commitBody: "{}", text: "Hi", files: [OutboxFile(id: "p", name: "a.jpg", mediaType: "image/jpeg", byteCount: 1, sha256: "00", path: "s1/p-a.jpg")])], createdAt: 1, alreadyAccepted: false), at: 2), .clearFocus, .hearReply(id: "r1"), .playbackStarted(id: "r1"),
             .playbackProgress(id: "r1", progress: 0.5), .playbackEnded, .stopPlayback, .dismissToast,
             .networkChanged(online: false, at: 6), .connectionLost(at: 7), .connected(at: 8),
             .connectionDiagnosed(.macUnreachable), .macCapabilities(text: true, voice: false), .pairingRevoked, .pairingUnreachable, .foregrounded(at: 20), .backgrounded(at: 21), .pushRegistered(hostID: "h"), .macAttachmentLimits(nil),
@@ -644,5 +644,52 @@ actor FakePlatform: EffectHandler {
         }
         let unknown = try CoreJSON.decode(CommandResponse.self, from: await CommandRunner.respond(to: Data(#"{"command":"fixture","name":"nope"}"#.utf8), on: host))
         #expect(unknown.error?.contains("known: pair-intro") == true)
+    }
+
+    // MARK: a tapped reply that is not loaded yet (contract §7.3 step 3)
+
+    func loadsOlder(_ effects: [Effect]) -> Bool { effects.contains { if case .loadOlder = $0 { return true } else { return false } } }
+
+    func conversation() throws -> AppState {
+        var s = try Fixture.named("conv-empty").state
+        s.messages = Conversation.round12
+        s.history.reachedBeginning = false
+        return s
+    }
+
+    @Test func aTappedReplyNotLoadedYetIsFetchedPageByPageUntilFound() throws {
+        let target = Conversation.older[1]
+        let reference = ConversationReducer.notificationReference(target.id)
+        #expect(reference == "\(reference.lowercased())" && reference.count == 64)
+        var (s, effects) = Reducer.reduce(try conversation(), .openedFromNotificationReference(reference))
+        #expect(loadsOlder(effects) && s.history.loadingOlder && s.notifiedReply == reference && s.focusedMessageID == nil)
+        #expect(effects.contains(.persist), "the search survives a relaunch")
+        #expect(try AppState(restoring: s.persisted).notifiedReply == reference)
+
+        (s, effects) = Reducer.reduce(s, .olderLoaded(Array(Conversation.older.suffix(1)), reachedBeginning: false))
+        #expect(loadsOlder(effects) && s.focusedMessageID == nil, "not on that page: the next one")
+        (s, effects) = Reducer.reduce(s, .olderLoaded(Array(Conversation.older.prefix(2)), reachedBeginning: false))
+        #expect(s.focusedMessageID == target.id && s.notifiedReply == nil && !loadsOlder(effects), "found, focused, and the search ends")
+    }
+
+    @Test func aPageWithNothingNewStopsTheSearchUntilTheMacSendsMore() throws {
+        let reference = ConversationReducer.notificationReference("turn_99:text:0")
+        var (s, _) = Reducer.reduce(try conversation(), .openedFromNotificationReference(reference))
+        var effects: [Effect]
+        (s, effects) = Reducer.reduce(s, .olderLoaded([], reachedBeginning: false))
+        #expect(!loadsOlder(effects) && s.notifiedReply == reference, "a failed or stale page never loops")
+        (s, effects) = Reducer.reduce(s, .messagesArrived([Message(id: "turn_98:text:0", author: .rich, text: "Later.", sentAt: 1, cursor: 98)]))
+        #expect(loadsOlder(effects), "new messages from the Mac start it again")
+        (s, effects) = Reducer.reduce(s, .olderLoaded(Conversation.older, reachedBeginning: true))
+        #expect(!loadsOlder(effects) && s.history.reachedBeginning && s.notifiedReply == reference, "at the beginning: no more pages")
+        (s, effects) = Reducer.reduce(s, .messagesArrived([Message(id: "turn_99:text:0", author: .rich, text: "The reply.", sentAt: 2, cursor: 99)]))
+        #expect(s.focusedMessageID == "turn_99:text:0" && s.notifiedReply == nil, "a reply that arrives live is found too")
+    }
+
+    @Test func aTappedReplyAlreadyLoadedIsFocusedAtOnce() throws {
+        let (s, effects) = Reducer.reduce(try conversation(), .openedFromNotificationReference(ConversationReducer.notificationReference("r2")))
+        #expect(s.focusedMessageID == "r2" && s.notifiedReply == nil && !loadsOlder(effects))
+        let wire = try CoreJSON.decode(Action.self, from: Data(#"{"type":"notification-open","event":"\#(String(repeating: "0", count: 64))"}"#.utf8))
+        #expect(wire == .openedFromNotificationReference(String(repeating: "0", count: 64)))
     }
 }

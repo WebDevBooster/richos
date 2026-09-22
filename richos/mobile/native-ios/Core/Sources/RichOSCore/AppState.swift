@@ -47,6 +47,10 @@ public struct AppState: Codable, Equatable, Sendable {
     public var following = true
     /// TRANSIENT. A message opened from a notification, glowing once.
     public var focusedMessageID: String?
+    /// A tapped notification's reply that is not loaded yet: the SHA-256 (lowercase hex) of its id,
+    /// as the notification carries it (contract §7.3). Older history is fetched until a message with
+    /// that reference appears, then it is focused and this clears. Saved, so a relaunch keeps looking.
+    public var notifiedReply: String?
     /// TRANSIENT. The keyboard is up for the composer.
     public var composerFocused = false
     /// TRANSIENT. The one reply being heard, if any.
@@ -117,7 +121,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
+        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -138,6 +142,7 @@ extension AppState {
         history = try c.decodeIfPresent(History.self, forKey: .history) ?? d.history
         following = try c.decodeIfPresent(Bool.self, forKey: .following) ?? d.following
         focusedMessageID = try c.decodeIfPresent(String.self, forKey: .focusedMessageID)
+        notifiedReply = try c.decodeIfPresent(String.self, forKey: .notifiedReply)
         composerFocused = try c.decodeIfPresent(Bool.self, forKey: .composerFocused) ?? d.composerFocused
         playback = try c.decodeIfPresent(Playback.self, forKey: .playback)
         voice = try c.decodeIfPresent(VoiceSession.self, forKey: .voice)
@@ -171,6 +176,7 @@ extension AppState {
         try c.encode(history, forKey: .history)
         try c.encode(following, forKey: .following)
         try c.encode(focusedMessageID, forKey: .focusedMessageID)
+        try c.encode(notifiedReply, forKey: .notifiedReply)
         try c.encode(composerFocused, forKey: .composerFocused)
         try c.encode(playback, forKey: .playback)
         try c.encode(voice, forKey: .voice)
@@ -206,13 +212,15 @@ extension AppState {
         public var keptRecordings: [KeptRecording]
         public var notifications: Notifications
         public var appearance: Appearance
+        public var notifiedReply: String?
     }
 
     public var persisted: Persisted {
         // A pairing in flight is not a pairing: a relaunch starts it again from the link.
         Persisted(schema: schema, pairing: pairing == .connecting ? .unpaired : pairing, mac: pairing == .connecting ? nil : mac,
                   fingerprintWords: fingerprintWords, consentGiven: consentGiven, messages: messages, draft: draft,
-                  outbox: outbox, keptRecordings: keptRecordings, notifications: notifications, appearance: appearance)
+                  outbox: outbox, keptRecordings: keptRecordings, notifications: notifications, appearance: appearance,
+                  notifiedReply: notifiedReply)
     }
 
     public init(restoring p: Persisted) throws {
@@ -220,7 +228,7 @@ extension AppState {
         self.init()
         pairing = p.pairing; mac = p.mac; fingerprintWords = p.fingerprintWords; consentGiven = p.consentGiven
         messages = p.messages; draft = p.draft; outbox = p.outbox; keptRecordings = p.keptRecordings
-        notifications = p.notifications; appearance = p.appearance
+        notifications = p.notifications; appearance = p.appearance; notifiedReply = p.notifiedReply
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).
         for i in outbox.indices where outbox[i].state == .sending {

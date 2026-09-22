@@ -60,6 +60,9 @@ public enum Action: Equatable, Sendable {
     case setFollowing(Bool)
     case setComposerFocus(Bool)
     case openedFromNotification(messageID: String)
+    /// A tapped notification for this Mac and conversation, by its reply's reference (SHA-256 hex of
+    /// the id). Focuses the reply, fetching older history until it appears (contract §7.3 step 3).
+    case openedFromNotificationReference(String)
     /// A share the Share extension saved, taken into the outbox with its own ids and commit bytes.
     case takeShare(SharedIntake, at: Int64)
     case clearFocus

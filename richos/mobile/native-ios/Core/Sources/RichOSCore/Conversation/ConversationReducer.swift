@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The conversation and the outbox, round-12 groups 2 and 3.
@@ -66,6 +67,7 @@ public enum ConversationReducer {
             if s.sheet == .forgetBlocked, s.outbox.isEmpty { s.sheet = .forget }
         case .messagesArrived(let arrived):
             merge(&s, arrived)
+            seekNotified(&s, &effects, progressed: true)
         case .replyStarted:
             s.reply = .thinking
         case .replyDelta(let text):
@@ -73,6 +75,7 @@ public enum ConversationReducer {
         case .replyFinished(let message):
             s.reply = nil
             merge(&s, [message])
+            seekNotified(&s, &effects, progressed: true)
         case .loadOlder:
             guard !s.history.loadingOlder, !s.history.reachedBeginning else { return }
             s.history.loadingOlder = true
@@ -80,14 +83,22 @@ public enum ConversationReducer {
         case .olderLoaded(let older, let reachedBeginning):
             s.history.loadingOlder = false
             s.history.reachedBeginning = reachedBeginning
+            let known = Set(s.messages.map(\.id))
             merge(&s, older)
+            // A page that brought nothing new ends this search (a failed or stale page must not loop);
+            // the next messages from the Mac start it again.
+            seekNotified(&s, &effects, progressed: older.contains { !known.contains($0.id) })
         case .setFollowing(let following):
             s.following = following
         case .setComposerFocus(let focused):
             s.composerFocused = focused
         case .openedFromNotification(let messageID):
+            s.notifiedReply = nil
             s.focusedMessageID = messageID
             s.following = true
+        case .openedFromNotificationReference(let reference):
+            s.notifiedReply = reference
+            seekNotified(&s, &effects, progressed: true)
         case .takeShare(let intake, let at):
             take(intake, &s, at: at, &effects)
         case .clearFocus:
@@ -149,6 +160,26 @@ public enum ConversationReducer {
         s.outbox[head].state = .sending
         setDelivery(&s, s.outbox[head].clientID, .sending)
         effects.append(.deliver(clientID: s.outbox[head].clientID))
+    }
+
+    /// SHA-256 (lowercase hex) of a message id: how a notification names its reply (contract §7.3).
+    public static func notificationReference(_ id: String) -> String {
+        SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Focuses the notified reply once it is loaded; otherwise asks for the next older page, while the
+    /// last step made progress and the beginning has not been reached (`web/lib/notification-target.js`).
+    static func seekNotified(_ s: inout AppState, _ effects: inout [Effect], progressed: Bool) {
+        guard let reference = s.notifiedReply else { return }
+        if let found = s.messages.last(where: { notificationReference($0.id) == reference }) {
+            s.notifiedReply = nil
+            s.focusedMessageID = found.id
+            s.following = true
+            return
+        }
+        guard progressed, s.pairing == .paired, !s.history.loadingOlder, !s.history.reachedBeginning else { return }
+        s.history.loadingOlder = true
+        effects.append(.loadOlder(before: s.messages.first?.id))
     }
 
     private static func setDelivery(_ s: inout AppState, _ id: String, _ delivery: Message.Delivery?) {

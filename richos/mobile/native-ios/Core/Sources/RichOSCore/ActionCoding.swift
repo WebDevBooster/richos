@@ -47,6 +47,7 @@ extension Action: Codable {
         var limits: AttachmentLimits?
         var hostId: String?
         var intake: SharedIntake?
+        var event: String?
 
         init(_ type: String) { self.type = type }
     }
@@ -108,7 +109,10 @@ extension Action: Codable {
         case "older-loaded": self = .olderLoaded(try need(w.messages, "messages"), reachedBeginning: try need(w.reachedBeginning, "reachedBeginning"))
         case "set-following": self = .setFollowing(try need(w.value, "value"))
         case "set-composer-focus": self = .setComposerFocus(try need(w.value, "value"))
-        case "notification-open": self = .openedFromNotification(messageID: try need(w.id, "id"))
+        case "notification-open":
+            if let event = w.event, w.id == nil { self = .openedFromNotificationReference(event) } else {
+                self = .openedFromNotification(messageID: try need(w.id, "id"))
+            }
         case "share-take": self = .takeShare(try need(w.intake, "intake"), at: w.at ?? now)
         case "notification-focused": self = .clearFocus
         case "reply-play": self = .hearReply(id: try need(w.id, "id"))
@@ -198,6 +202,7 @@ extension Action: Codable {
         case .setFollowing(let v): w = Wire("set-following"); w.value = v
         case .setComposerFocus(let v): w = Wire("set-composer-focus"); w.value = v
         case .openedFromNotification(let id): w = Wire("notification-open"); w.id = id
+        case .openedFromNotificationReference(let event): w = Wire("notification-open"); w.event = event
         case .takeShare(let intake, let at): w = Wire("share-take"); w.intake = intake; w.at = at
         case .clearFocus: w = Wire("notification-focused")
         case .hearReply(let id): w = Wire("reply-play"); w.id = id

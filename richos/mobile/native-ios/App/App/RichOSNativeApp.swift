@@ -47,8 +47,12 @@ struct RichOSNativeApp: App {
                     }
                 }
                 NotificationPlatform.shared.onOpen = { target in
-                    if let action = NotificationTapRouter.action(for: target, state: loaded.state, hostID: loaded.state.notifications.hostID) {
+                    let state = loaded.state
+                    if let action = NotificationTapRouter.action(for: target, state: state, hostID: state.notifications.hostID) {
                         loaded.send(action)
+                    } else if target.belongs(toHost: state.notifications.hostID, thread: state.mac?.threadID) {
+                        // The reply is not loaded yet: the core fetches older history until it appears.
+                        loaded.send(.openedFromNotificationReference(target.event))
                     }
                 }
                 PlatformEffects.permissionMirror().forEach { loaded.send($0) }
