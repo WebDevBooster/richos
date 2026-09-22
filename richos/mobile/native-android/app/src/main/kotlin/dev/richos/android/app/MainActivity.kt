@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * PLACEHOLDER ROOT, owned by A1 until the screens stream (A2, `ui/**` and `design/**`)
+ * PLACEHOLDER ROOT, owned by A1 until the screens stream (A2, the `ui/` and `design/` packages)
  * replaces its body with the round-12 screens. It shows only the draft, so the development
  * loop can see a bridge action reach the screen. Colors are the ruled ink on the ruled ground
  * of each theme (design/system/tokens.css §14/§15): 14.55:1 dark, 14.90:1 light, 18 sp.
