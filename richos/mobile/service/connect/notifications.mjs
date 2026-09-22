@@ -19,7 +19,7 @@ export class Notifications {
   binding(id) { return this.store.statement('SELECT * FROM push_bindings WHERE host_id=?',id).first(); }
   async register(host, data) {
     const platform = data?.platform === undefined ? 'apns' : data.platform;
-    if (!shapes[platform] || !exact(data,shapes[platform]) || !revision(data.revision)
+    if (!['apns','fcm'].includes(platform) || !exact(data,shapes[platform]) || !revision(data.revision)
       || data.generation !== host.generation || !['connect','tailnet'].includes(data.route)
       || (data.token !== null && (!hex(data.deviceHash) || !deliverable(this.env,data,platform)))) return {status:400,error:'invalid_registration'};
     if (data.token !== null && data.route === 'connect' && (!host.desired || host.phase !== 'active' || host.device_key_hash !== data.deviceHash)) return {status:409,error:'pairing_changed'};

@@ -205,6 +205,10 @@ test('FCM registrations with the wrong shape or no server configuration are refu
     { ...s.android, topic: 'dev.richos.mobile.integration' },
     { ...s.android, platform: 'gcm' },
     { ...s.android, platform: null },
+    // Names that exist on every object must be refused as input, not looked up on the prototype.
+    { ...s.android, platform: 'constructor' },
+    { ...s.android, platform: '__proto__' },
+    { ...s.android, platform: 'toString' },
     { ...s.iphone, platform: 'fcm' },
     { ...s.android, platform: 'apns' },
     { ...s.android, extra: true },
