@@ -24,9 +24,8 @@
 // (G13), the scroll that lands on the code (N2, G4), and the one control on the pairing screen
 // that actually puts something down (G2). Each of those is a fix to a screen that still exists.
 //
-// **THE SECOND HALF OF §61 — the paid relay for non-technical users — is not built here and is
-// not stubbed here.** It is a path this product does not have yet, and a screen offering it would
-// be a screen promising one.
+// RichOS Connect adds managed remote access while preserving the existing Tailscale route.
+// Both routes use the same Mac pairing authority and phone application actions.
 //
 // NO NEW COLORS. Every piece of text here uses a class the shipped shell already paints and the
 // contrast suite already walks. The only new visual is the QR canvas, which paints its own white
@@ -59,6 +58,22 @@
          screenshots 13, 14, 15 and 17). The fix then was to key it off the route; CEO 61
          removed the route, so the key went with it. Filled from LEAD below. -->
     <p class="overlay-note" id="phone-lead"></p>
+    <div id="phone-route-choice" hidden class="desk-card-actions">
+      <button id="phone-use-connect" type="button" class="desk-btn">RichOS Connect</button>
+      <button id="phone-use-tailnet" type="button" class="desk-btn">Use Tailscale</button>
+    </div>
+    <div id="phone-connect" hidden>
+      <h3 class="phone-step-title">RichOS Connect</h3>
+      <p class="overlay-note">Reach this Mac from your phone without setting up a VPN. Your Mac must stay awake with RichOS running.</p>
+      <p class="overlay-note">Connections are encrypted through Cloudflare. Cloudflare can process the traffic; conversations are stored on your devices.</p>
+      <p id="phone-connect-status" class="overlay-note" role="status"></p>
+      <p id="phone-connect-host" class="overlay-note"></p>
+      <div class="desk-card-actions">
+        <button id="phone-connect-start" type="button" class="desk-btn">Set up RichOS Connect</button>
+        <button id="phone-connect-disable" type="button" class="desk-btn" hidden>Turn off RichOS Connect</button>
+      </div>
+    </div>
+
 
     <!-- SCREEN 6 — THE PAIRED CARD, AND IT NOW HAS A TOP — Urban's G8.
          *"Paired card has no heading and one text color for all five paragraphs — the actionable
@@ -134,6 +149,7 @@
          subtree that is re-inserted on every two-second poll is a subtree that can take the focus
          out of itself. -->
     <div id="phone-pairing" hidden>
+      <p id="phone-connect-pair-help" class="overlay-note" hidden>In the RichOS iPhone app, paste the pairing link below. On Android, scan the code to open the web app. Compare the six words before confirming.</p>
       <!-- IT IS HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was already
            emptied on expiry (Ray's defect 3.3, and his defect B for the last of them); with the
            block at the top of the screen an empty wrapper is a gap where the thing he came for
@@ -617,6 +633,8 @@
 
   let ticker = null;
   let busy = false;
+  let selectedRoute = null;
+  let latestStatus = null;
   let returnFocus = null;
   let poller = null;
 
@@ -777,6 +795,25 @@
   WAITING["other-user"] = WAITING["needs-sign-in"];
 
   function render(status) {
+    latestStatus = status;
+    const managed = status.connect;
+    const route = status.pairedVia || status.servingVia || selectedRoute || (managed ? "connect" : "tailnet");
+    const onConnect = route === "connect";
+    field("phone-route-choice").hidden = !managed || status.paired || status.listening;
+    field("phone-use-connect").setAttribute("aria-pressed", String(onConnect));
+    field("phone-use-tailnet").setAttribute("aria-pressed", String(!onConnect));
+    field("phone-connect").hidden = !onConnect || status.rejected;
+    field("phone-connect-start").hidden = !!status.paired || !!status.listening;
+    field("phone-connect-disable").hidden = !managed || (!managed.enabled && !managed.cleanupPending);
+    const health = managed && managed.health && managed.health.state;
+    field("phone-connect-status").textContent = managed && managed.cleanupPending
+      ? "Connect is off on this Mac. Its remote address is being removed."
+      : health === "connected" ? "This Mac is connected."
+      : health === "reconnecting" ? "Reconnecting this Mac. Your phone keeps unsent messages until it can reach RichOS again."
+      : health ? "Connecting this Mac…" : "Set up this Mac, then pair your phone with its code.";
+    field("phone-connect-host").textContent = managed && managed.hostId && !managed.endpoint
+      ? "Pilot setup reference: " + managed.hostId : "";
+
     const live = !!status.pairUrl;
     // **A CODE THAT RAN OUT IS A STATE OF THIS SCREEN, NOT A REASON TO LEAVE IT.**
     //
@@ -803,7 +840,7 @@
     // key: see LEAD. It used to be selected by `status.pairedVia` while paired and by
     // `status.servingVia` while a window was open, and both of those existed to tell two paths
     // apart on a screen that now has one.
-    field("phone-lead").textContent = LEAD;
+    field("phone-lead").textContent = onConnect ? "Keep talking to Rich when you are away from your Mac." : LEAD;
 
     // **THE ALARM BUTTON, ANSWERED, AND IT OUTRANKS EVERYTHING BELOW** — Ray's nightly `.8`,
     // defect 1. It is taken before the six screens rather than folded into them because it is
@@ -856,11 +893,11 @@
     // which is exactly the window in which the choice of identity can still be made freely. Once
     // detection can name an account the screens say WHICH one instead, and this never returns.
     const identity =
-      !status.paired && !pairing && !tailnet.account && !identityUnderstood;
+      !onConnect && !status.paired && !pairing && !tailnet.account && !identityUnderstood;
     // Rows 2, 3 and 5: something has to happen in somebody else's software first.
-    const waiting = !status.paired && !pairing && !identity && tailnet.state !== "ready";
+    const waiting = !onConnect && !status.paired && !pairing && !identity && tailnet.state !== "ready";
     // Row 4: ready, and the only thing left is the code.
-    const ready = !status.paired && !pairing && !identity && tailnet.state === "ready";
+    const ready = !onConnect && !status.paired && !pairing && !identity && tailnet.state === "ready";
 
     field("phone-identity").hidden = !identity;
     field("phone-ts-wait").hidden = !waiting;
@@ -889,7 +926,7 @@
     // until he closed it by hand. It moves the confirming case too — `It is paired` now arrives
     // by itself rather than on the next open.
     const askingAboutTheWords = status.paired && !status.fingerprintConfirmed;
-    setPolling(waiting || ready || (pairing && !status.paired) || askingAboutTheWords);
+    setPolling(onConnect || waiting || ready || (pairing && !status.paired) || askingAboutTheWords);
 
     // **THE WATCH STARTS WHEN THE USER IS FIRST TOLD TO GO TO THEIR PHONE**, which is Screen 4 as
     // well as Screen 5 — see the note beside `#phone-ts-peer-ready` for the frame math that makes
@@ -901,14 +938,16 @@
       waitingForPhoneSince = null;
     }
 
+    if (onConnect && !status.paired && !pairing) { stopTicking(); return; }
     if (status.paired) {
       field("phone-device-name").textContent = status.deviceName || "Your phone";
       // Ray's defect 2. `It is paired` is a claim about something only the person can settle,
       // so it waits for him to settle it. What is true before that is that the phone reached
       // this Mac and is asking him the question — so that is what the line says, and it names
       // the thing he is being asked to do rather than leaving him to work it out.
-      field("phone-paired-state").textContent = status.fingerprintConfirmed
-        ? PAIRED_CONFIRMED
+      field("phone-paired-state").textContent = status.listening === false
+        ? "Your phone's pairing is saved. RichOS is trying to restore its connection."
+        : status.fingerprintConfirmed ? PAIRED_CONFIRMED
         : PAIRED_AWAITING_WORDS;
       field("phone-paired-words").textContent = (status.fingerprintWords || []).join("  ");
       field("phone-paired-words").hidden = status.fingerprintConfirmed;
@@ -923,7 +962,7 @@
       const pairedOverTailnet = status.pairedVia === "tailnet";
       field("phone-ts-limit").textContent = PAIRED_TAILNET_LIMIT;
       field("phone-ts-limit").hidden = !pairedOverTailnet;
-      field("phone-forget-note").textContent = forgetNoteFor(status.pairedVia);
+      field("phone-forget-note").textContent = onConnect ? "Forgetting this phone removes its access immediately. You can pair it again with a new code." : forgetNoteFor(status.pairedVia);
       return;
     }
     if (waiting) {
@@ -980,8 +1019,9 @@
     // whole of Urban's blocker `esc-20260919T041857Z-640acd39` was those conditions answering
     // for the wrong path on a reopen. One path cannot answer wrongly.
     const codeBlock = field("phone-code-block");
-    field("phone-ts-steps").hidden = expired;
-    field("phone-ts-failure").hidden = expired;
+    field("phone-connect-pair-help").hidden = expired || !onConnect;
+    field("phone-ts-steps").hidden = expired || onConnect;
+    field("phone-ts-failure").hidden = expired || onConnect;
     field("phone-ts-store").textContent = !expired
       ? "iPhone: " + LINKS.phone + "      Android: " + LINKS.android
       : "";
@@ -1038,7 +1078,7 @@
     field("phone-words-note").hidden = !live;
     // AND THE CONTAINER, which is the first thing on this screen: an empty box at the top of
     // the panel is worse than the same emptiness at the bottom was.
-    codeBlock.hidden = !live;
+    codeBlock.hidden = !live || (onConnect && health !== "connected");
     field("phone-expired").hidden = !expired;
     if (expired) {
       field("phone-expired-note").textContent = EXPIRED_NOTE;
@@ -1250,19 +1290,22 @@
     // NOT "making a certificate for your phone" any more: nothing is made FOR the phone on this
     // path, and the sentence described the work the other one did.
     field("phone-message").textContent = "Getting this Mac ready…";
+    field("phone-connect-start").disabled = true;
     field("phone-ts-start").disabled = true;
     field("phone-refresh").disabled = true;
     // The rejection screen's own control calls this too, so it is held with the other two:
     // two presses would ask for two windows.
     field("phone-rejected-again").disabled = true;
     try {
-      render(await bridge.invoke("phone_begin_pairing"));
+      const route = latestStatus && (latestStatus.servingVia || latestStatus.pairedVia) || selectedRoute || (latestStatus && latestStatus.connect ? "connect" : "tailnet");
+      render(await bridge.invoke(route === "connect" ? "phone_connect_enable" : "phone_begin_pairing"));
       field("phone-message").textContent = "";
       if (toCode) scrollToCode();
     } catch (error) {
       field("phone-message").textContent = String(error);
     } finally {
       busy = false;
+      field("phone-connect-start").disabled = false;
       field("phone-ts-start").disabled = false;
       field("phone-refresh").disabled = false;
       field("phone-rejected-again").disabled = false;
@@ -1275,6 +1318,25 @@
   //
   // TWO DOORS INTO THE PAIRING SCREEN, NOT THREE. `#phone-start`, on the screen the other route
   // landed on, went with that route.
+  field("phone-connect-start").addEventListener("click", () => begin(false));
+  field("phone-use-connect").addEventListener("click", () => { selectedRoute = "connect"; render(latestStatus); });
+  async function disableConnect(useTailnet) {
+    if (busy) return;
+    busy = true;
+    field("phone-connect-disable").disabled = true;
+    try {
+      const status = await bridge.invoke("phone_connect_disable");
+      selectedRoute = useTailnet ? "tailnet" : "connect";
+      render(status);
+      field("phone-message").textContent = "";
+    } catch (error) { field("phone-message").textContent = String(error); }
+    finally { busy = false; field("phone-connect-disable").disabled = false; }
+  }
+  field("phone-use-tailnet").addEventListener("click", () => {
+    if (latestStatus && latestStatus.connect && latestStatus.connect.enabled) return disableConnect(true);
+    selectedRoute = "tailnet"; render(latestStatus);
+  });
+  field("phone-connect-disable").addEventListener("click", () => disableConnect(false));
   field("phone-ts-start").addEventListener("click", () => begin(false));
   // **THE ONE WAY OFF THE SCREEN THAT SAYS THE MAC STOPPED.** It is `begin` and not a
   // dismiss: the flag lives on the Mac (`PhoneRuntime::rejected`) and is cleared by

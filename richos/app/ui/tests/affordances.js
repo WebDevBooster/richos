@@ -540,6 +540,23 @@ async function openHomePrefs(browser, setup) {
 }
 
 const FIXTURES = {
+  async "connect-setup"(browser) {
+    const page = await openApp(browser, undefined, {phoneConnect:{enabled:false,phase:"not-configured"}});
+    await page.click("#set-btn"); await page.click("#set-phone-open");
+    await page.waitForSelector("#phone-connect-start",{state:"visible"}); return page;
+  },
+  ...Object.fromEntries([
+    "connect-admission", "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
+    "connect-history-unreadable", "connect-unavailable", "connect-address-invalid", "connect-credential-invalid",
+  ].map(name => [name, async (browser) => {
+    const page = await FIXTURES["connect-setup"](browser);
+    const entry = REGISTRY.find(row => row.fixture === name);
+    assert(entry, "Missing Connect error classification: " + name);
+    await page.evaluate(text => { window.__overrides.phone_connect_enable = {reject:true,value:text}; },entry.s);
+    await page.click("#phone-connect-start");
+    await page.waitForFunction(text => document.getElementById("phone-message").textContent === text, entry.s);
+    return page;
+  }])),
   async "repository-empty"(browser) {
     const page = await openApp(browser);
     await page.click("#set-btn");
@@ -1408,6 +1425,8 @@ const FIXTURES = {
 /// names is present and usable on the screen the sentence appears on. Said here rather than
 /// left as an unexplained asymmetry.
 const TEXT_RENDERING_FIXTURES = new Set([
+  "connect-setup", "connect-admission", "connect-setup-unreadable", "connect-helper-missing", "connect-history-full",
+  "connect-history-unreadable", "connect-unavailable", "connect-address-invalid", "connect-credential-invalid",
   "repository-empty", "permission-pending", "provider-start-error", "provider-poll-error", "provider-cancel-error",
   // The assignment surface renders its own words out of `work-summary.js`, with nothing but
   // software behind it — and §7.8 says the wording IS the test, so the sentence is asserted
@@ -1883,6 +1902,24 @@ async function main() {
   const { webkit } = loadPlaywright();
   const browser = await webkit.launch();
   let statesChecked = 0;
+
+  await run.check("Connect setup and recovery keep their controls in the same view", async () => {
+    for (const recovering of [false, true]) {
+      const page = await openApp(browser, undefined, {
+        phoneConnect: { enabled:recovering, phase:recovering ? "active" : "not-configured", health:recovering ? {state:"reconnecting"} : null },
+        phonePaired:recovering, phonePairedVia:"connect", phoneListenerStopped:recovering,
+      });
+      await page.click("#set-btn"); await page.click("#set-phone-open");
+      await page.waitForSelector("#phone-connect", {state:"visible"});
+      const control = recovering ? "#phone-connect-disable" : "#phone-connect-start";
+      const text = recovering ? "Your phone's pairing is saved. RichOS is trying to restore its connection." : "Set up this Mac, then pair your phone with its code.";
+      await assertAffordance(page, {s:text, c:"ACTIONABLE", control}, {requireText:true});
+      assert(await page.locator("#phone-close").isVisible(), "Connect has no visible way out");
+      if (recovering) assert(await page.locator("#phone-forget").isVisible(), "Saved phone cannot be revoked from this view");
+      await page.close();
+    }
+    return "Setup offers enable; recovery offers disable and phone revocation; both retain Close";
+  });
 
   // Every row that names a fixture, INCLUDING the ones with no control. A
   // NEEDS-SOMEONE-ELSE state with nothing to press still has to actually render the

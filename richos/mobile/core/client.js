@@ -8,10 +8,11 @@
     node ? require('../../web/web-app/lib/fingerprint.js') : root.RichOSFingerprint,
     node ? require('../../web/web-app/lib/thread.js') : root.RichOSThread,
     node ? require('./updates.js') : root.RichOSUpdates,
-    node ? require('./links.js') : root.RichOSMobileLinks);
+    node ? require('./links.js') : root.RichOSMobileLinks,
+    node ? require('../../web/web-app/lib/connection.js') : root.RichOSConnection);
   if (node) module.exports = value;
   root.RichOSClient = value;
-})(globalThis, function (Mobile, Api, Link, Fingerprint, Thread, Updates, Links) {
+})(globalThis, function (Mobile, Api, Link, Fingerprint, Thread, Updates, Links, Connection) {
   const copy = value => JSON.parse(JSON.stringify(value));
   function pairingLink(value) {
     if (typeof value !== 'string' || value.length > 4096 || /[\s\\]/.test(value)) throw new Error('Paste the complete HTTPS pairing link from your Mac');
@@ -46,6 +47,7 @@
     }
     const now = ports.now || Date.now, setTimer = ports.setTimeout || setTimeout, clearTimer = ports.clearTimeout || clearTimeout;
     let api, link, app, recording = false, recordings = [], words = null, closed = false, suspended = false;
+    let connectionReason = 'connecting', lastConnectionProbe = -Infinity;
     let latestError = null, generation = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
     let writes = Promise.resolve(), events = Promise.resolve(), pending = Promise.resolve();
     const listeners = new Set();
@@ -76,6 +78,7 @@
       client: updatePorts.client || { version: '0.0.0', build: '1', osVersion: '16.7', appId: null, storefront: null },
       load: async () => data.updates, save: async value => { data.updates = value; await persist(); } });
     const state = () => copy({ ...app.state(), messages: thread().view(data.outbox.filter(x => x.threadId === data.session.selectedThreadId)),
+      connectionReason: data.revoked ? 'revoked' : unsupported ? 'incompatible' : app.state().online ? 'connected' : connectionReason,
       confirmed: data.confirmed, words, recording, recordings, capabilities: data.api.capabilities || [], error: latestError,
       updates: updates.state(), unsupported, canText: data.confirmed && !unsupported && (!negotiated || api?.offers('text')),
       olderAvailable: !thread().atTheBeginning(), paging, focusMessage: data.focusMessage || null, migrationRequired: !data.confirmed });
@@ -83,6 +86,14 @@
       if (!app) return;
       updates.setBusy(recording || data.outbox.some(x => x.state === 'sending'));
       for (const listener of listeners) listener(state());
+    }
+    function diagnoseConnection(mine) {
+      if (!Connection.managed(data.api.apiBase) || now() - lastConnectionProbe < 60000) return;
+      lastConnectionProbe = now();
+      Promise.resolve(ports.connectionHealth?.() || {}).then(info => {
+        if (closed || mine !== generation || app.state().online) return;
+        connectionReason = Connection.classify(info); emit();
+      }).catch(() => {});
     }
     function failure(error) { latestError = error.message || String(error); emit(); }
     function closeStream() { generation++; link?.close(); link = null; }
@@ -140,11 +151,18 @@
           return api.openEvents(id, cursor > 0 ? Math.min(cursor, ...incomplete) : null, handlers);
         },
         handlers: Object.fromEntries(['hello', 'message', 'delta', 'heartbeat', 'state'].map(name => [name, frame => receive(name, frame, mine, id)])),
-        onState: status => { if (mine === generation) app.dispatch({ type: 'network', online: status === 'open' }).catch(failure); },
+        onState: status => {
+          if (mine !== generation) return;
+          if (status === 'open') connectionReason = 'connected';
+          else if (['connected','connecting'].includes(connectionReason)) connectionReason = 'mac-unreachable';
+          app.dispatch({ type:'network', online:status==='open' }).then(() => {
+            if (status !== 'open') diagnoseConnection(mine);
+          }).catch(failure);
+        },
         onFailure: error => {
           if (mine !== generation) return;
           if (error?.reason === 'revoked') {
-            data.confirmed = false; data.session.paired = false; closeStream(); persist().catch(failure);
+            data.revoked = true; data.confirmed = false; data.session.paired = false; closeStream(); persist().catch(failure);
           }
           if (error) failure(error);
         }, setTimeoutImpl: setTimer, clearTimeoutImpl: clearTimer });
@@ -165,7 +183,7 @@
             data.accepted = data.accepted.filter(value => value.item.clientId !== item.clientId).concat({ item: copy(item), answer: copy(answer) });
           }
         }
-        if (result.reason === 'revoked') { data.confirmed = false; data.session.paired = false; closeStream(); }
+        if (result.reason === 'revoked') { data.revoked = true; data.confirmed = false; data.session.paired = false; closeStream(); }
         await persist(); scheduleRetry();
       } });
     app.subscribe(() => { emit(); scheduleRetry(); });
@@ -187,6 +205,7 @@
           case 'pair': {
             if (data.confirmed || data.outbox.length) throw new Error('Existing pairing or queued messages must be resolved before pairing again');
             const { origin, code } = pairingLink(action.link);
+            data.revoked = false; lastConnectionProbe = -Infinity;
             closeStream(); negotiated = false; unsupported = null;
             data.api = { apiBase: origin, deviceId: null, challenge: null, capabilities: [] };
             await configure();
@@ -220,7 +239,8 @@
             void updates.start(); recordings = await ports.native('recordings', {}); if (wasSuspended) recording = false;
             if (!link) connect(); else link.wake(); break;
           }
-          case 'network-recovered': void updates.refresh(true); link?.wake(); break;
+          case 'network-recovered':
+            lastConnectionProbe = -Infinity; void updates.refresh(true); link?.wake(); break;
           case 'update-check': await updates.refresh(true); break;
           case 'update-dismiss': await updates.dismiss(); break;
           case 'update-open':

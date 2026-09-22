@@ -41,6 +41,7 @@
     }
     return {
       native: call, EventSource: NativeEvents,
+      connectionHealth: () => call('connectHealth', {}),
       updates: async () => {
         const clientInfo = () => call('updateInfo', {}), client = await clientInfo();
         return { client, clientInfo, authority: client.authority, metric: (event, revision) => client.metrics ? call('updateMetric', { event, revision }) : Promise.resolve(), ...(client.configured ? {

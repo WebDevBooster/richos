@@ -40,7 +40,9 @@ pub mod api_base;
 pub mod assets;
 pub mod bridge;
 pub mod ca;
+pub mod connect;
 pub mod device;
+pub mod delivery;
 pub mod listen;
 pub mod names;
 pub mod push;
@@ -85,18 +87,10 @@ pub const MAX_BODY_BYTES: usize = 65536;
 /// The code is `device::CODE_LENGTH` = 8 characters from a 30-character alphabet:
 /// `30^8 = 656,100,000,000` codes.
 ///
-/// **A guess costs the attacker the window.** `DeviceDesk::complete_pairing` does
-/// `state.pairing.take()` BEFORE it compares, so a wrong code closes the window — one guess per
-/// window, and the window is only ever opened by the user pressing a button on this Mac. So the
-/// chance of an unpaired caller on the network pairing itself is `1 / 6.561e11` per window he
-/// opens, which is `1.5e-12`, and it is the SAME number at sixty seconds and at five minutes:
-/// the duration does not appear in it. That is what makes this change cheap, and it is a
-/// property of the one-shot window rather than of the length.
-///
-/// What the extra 240 seconds does buy an attacker is exposure: four more minutes in which
-/// `/api/pair` will answer an unauthenticated POST at all, and four more minutes of a QR on a
-/// screen. Both are bounded by the rate limit (`device::RATE_LIMIT`, 60 requests a minute) and
-/// by the single-guess property above.
+/// Incorrect requests do not consume another person's window. Pairing attempts are limited
+/// to 60 per minute separately from authenticated requests. A successful durable pairing or
+/// explicit cancellation consumes the window. At most 300 guesses fit in its five minutes;
+/// the QR secret still has roughly 39 bits of entropy.
 ///
 /// **AND IT MOVES ONE OTHER PIECE OF FRAME MATH, named because it was written down.**
 /// `ui/phone.js`'s `PHONE_JOIN_GRACE_MS` is 60 s and its comment records that the phone step's
@@ -360,6 +354,8 @@ pub struct PhoneRuntime {
     /// until a listener runs, so there is no second code path for "attach the emitter later".
     hub: Arc<stream::PhoneHub>,
     running: Mutex<Option<Running>>,
+    connect_actions: Mutex<()>,
+    connect_monitor_started: std::sync::atomic::AtomicBool,
     /// The last answer [`tailnet::detect`] gave, and when. See [`PhoneRuntime::tailnet_now`].
     tailnet: Mutex<Option<(u64, tailnet::TailnetState)>>,
     /// **A HANDLE ON ITSELF, SO THE THING THAT OWNS THE LISTENER CAN BE REACHED FROM THE THREAD
@@ -451,6 +447,7 @@ where
 
 struct Running {
     listener: listen::Listener,
+    connector: Option<connect::supervisor::Supervisor>,
     channel: Arc<routes::Channel>,
     bridge: Arc<bridge::PhoneBridge>,
     vapid: Arc<push::VapidKey>,
@@ -475,6 +472,7 @@ struct Running {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PhoneStatus {
+    pub connect: ConnectView,
     /// Is a socket open right now?
     pub listening: bool,
     /// Is a phone paired? `listening && !paired` means a pairing window is open.
@@ -715,6 +713,137 @@ fn serving_plan(
     Some(Serving { addresses, origin, tailnet: (name.to_string(), cert.chain_der, cert.key) })
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectView {
+    pub enabled: bool,
+    pub host_id: Option<String>,
+    pub endpoint: Option<String>,
+    pub phase: String,
+    pub cleanup_pending: bool,
+    pub health: Option<connect::supervisor::Health>,
+}
+fn connect_helper() -> Result<std::path::PathBuf, PhoneError> {
+    let exe = std::env::current_exe()?;
+    let bundled = exe.parent().unwrap().join("cloudflared");
+    if bundled.is_file() { return Ok(bundled); }
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("RICHOS_CONNECT_HELPER") {
+        let path = std::path::PathBuf::from(path);
+        if path.is_absolute() && path.is_file() { return Ok(path); }
+    }
+    Err(PhoneError::Malformed("This RichOS build is missing its Connect helper. Whoever set RichOS up needs to install a complete build.".into()))
+}
+
+impl PhoneRuntime {
+    fn connect_view(&self, supervisor: Option<&connect::supervisor::Supervisor>) -> ConnectView {
+        match connect::state::load(&self.data_dir) {
+            Ok(config) => ConnectView {
+                enabled: config.desired, host_id: config.host_id,
+                endpoint: config.allocation.as_ref().map(|a| a.endpoint.clone()),
+                phase: if config.cleanup_pending { "disabling".into() } else {
+                    config.allocation.map(|a| a.phase).unwrap_or_else(|| "not-configured".into()) },
+                cleanup_pending: config.cleanup_pending, health: supervisor.map(|s| s.health()),
+            },
+            Err(_) => ConnectView { enabled:false,host_id:None,endpoint:None,phase:"setup-unreadable".into(),cleanup_pending:false,health:None },
+        }
+    }
+    pub fn begin_connect(&self, app: tauri::AppHandle) -> Result<PhoneStatus, PhoneError> {
+        let _action = self.connect_actions.lock().unwrap();
+        if let Some(device) = device::DeviceDesk::open(&self.data_dir)?.paired() {
+            if device.paired_via != device::PairedVia::CONNECT {
+                return Err(PhoneError::Malformed("This Mac already has a phone paired through Tailscale. Forget that phone before changing its connection.".into()));
+            }
+        }
+        let old_tailnet_window = self.running.lock().unwrap().as_ref().is_some_and(|r| r.connector.is_none());
+        if old_tailnet_window { self.stop_pairing(); }
+        // Check the packaged prerequisite before allocating any remote resources.
+        connect_helper()?;
+        self.watch_connect(app.clone());
+        let keychain = secrets::Keychain::for_app_data(&self.data_dir);
+        connect::state::enable(&self.data_dir,&keychain)?;
+        device::clear_rejection(&self.data_dir);
+        *self.rejected.lock().unwrap() = false;
+        let paired = device::DeviceDesk::open(&self.data_dir)?.is_paired();
+        self.start(app,!paired)
+    }
+    pub fn disable_connect(&self) -> Result<PhoneStatus, PhoneError> {
+        let _action = self.connect_actions.lock().unwrap();
+        let marked = connect::state::mark_disabled(&self.data_dir);
+        self.stop_connect_listener();
+        // Revocation is durable before any remote cleanup attempt.
+        if let Some(device) = device::DeviceDesk::open(&self.data_dir)?.paired() {
+            if device.paired_via == device::PairedVia::CONNECT { device::DeviceDesk::open(&self.data_dir)?.forget()?; }
+        }
+        marked?;
+        // Cleanup failure remains visible and is retried by the monitor and next launch.
+        let _ = connect::state::cleanup(&self.data_dir,&secrets::Keychain::for_app_data(&self.data_dir));
+        Ok(self.status())
+    }
+    fn stop_connect_listener(&self) {
+        let old = {
+            let mut running = self.running.lock().unwrap();
+            if running.as_ref().is_some_and(|r| r.connector.is_some()) { running.take() } else { None }
+        };
+        drop(old);
+    }
+    fn watch_connect(&self, app: tauri::AppHandle) {
+        use std::sync::atomic::Ordering;
+        if self.connect_monitor_started.swap(true,Ordering::SeqCst) { return; }
+        let me = self.me.clone();
+        let spawn = std::thread::Builder::new().name("richos-connect-recovery".into()).spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                let Some(owner) = me.upgrade() else { return };
+                let Ok(_action) = owner.connect_actions.try_lock() else { continue };
+                let _ = owner.reconcile_connect(app.clone());
+            }
+        });
+        if spawn.is_err() { self.connect_monitor_started.store(false,Ordering::SeqCst); }
+    }
+    fn reconcile_connect(&self, app: tauri::AppHandle) -> Result<(), PhoneError> {
+        let config = connect::state::load(&self.data_dir)?;
+        let keychain = secrets::Keychain::for_app_data(&self.data_dir);
+        if config.cleanup_pending { return connect::state::cleanup(&self.data_dir,&keychain); }
+        if !config.desired { return Ok(()); }
+        let client = connect::client::Client::new(connect::client::Identity::open(&keychain)?);
+        let device = device::DeviceDesk::open(&self.data_dir)?.paired();
+        if device.is_some() && self.running.lock().unwrap().is_none() {
+            // Local restart recovery must not depend on control-service availability.
+            let _ = self.start(app.clone(),false);
+        }
+        let reply = client.call("GET","/v1/host","")?;
+        if reply.status == 404 {
+            connect::state::enable(&self.data_dir,&keychain)?;
+            if device.is_some() { self.start(app,false)?; }
+            return Ok(());
+        }
+        if reply.status == 410 {
+            let mut disabled = config; disabled.desired = false;
+            let saved = connect::state::save(&self.data_dir,&disabled);
+            self.stop_connect_listener();
+            device::DeviceDesk::open(&self.data_dir)?.forget()?;
+            saved?; return Ok(());
+        }
+        let mut allocation = client.allocation(&reply)?;
+        if allocation.phase != "active" { allocation = connect::state::enable(&self.data_dir,&keychain)?; }
+        let hash = device.as_ref().and_then(|d| unb64url(&d.public_key).ok()).map(|p| hex(&sha256(&p)));
+        if allocation.device_key_hash != hash {
+            let body = serde_json::json!({"generation": allocation.generation,"deviceKeyHash":hash}).to_string();
+            let updated = client.call("PUT","/v1/host/device",&body)?;
+            client.allocation(&updated)?;
+        }
+        if device.is_some() && self.running.lock().unwrap().is_none() {
+            // Cached setup is tried first. A missing credential is repaired by the control plane.
+            if self.start(app.clone(),false).is_err() {
+                connect::state::enable(&self.data_dir,&keychain)?;
+                self.start(app,false)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl PhoneRuntime {
     /// Build the inert runtime and the emitter that will feed it.
     ///
@@ -735,6 +864,8 @@ impl PhoneRuntime {
             data_dir,
             hub,
             running: Mutex::new(None),
+            connect_actions: Mutex::new(()),
+            connect_monitor_started: std::sync::atomic::AtomicBool::new(false),
             tailnet: Mutex::new(None),
             me: me.clone(),
             rejected: Mutex::new(rejected),
@@ -798,16 +929,20 @@ impl PhoneRuntime {
         let tailnet = TailnetView::from(&self.tailnet_now());
         let running = self.running.lock().unwrap();
         let Some(running) = running.as_ref() else {
+            // A listener failure does not erase the saved pairing. The recovery monitor
+            // can restart it without asking the person to replace the phone's identity.
+            let device = device::DeviceDesk::open(&self.data_dir).ok().and_then(|d| d.paired());
             return PhoneStatus {
+                connect: self.connect_view(None),
                 listening: false,
-                paired: false,
-                device_name: None,
-                paired_via: None,
+                paired: device.is_some(),
+                device_name: device.as_ref().map(|d| d.name.clone()),
+                paired_via: device.as_ref().map(|d| d.paired_via.clone()),
                 // Nothing is listening, so no window is being served over anything.
                 serving_via: None,
-                platform: None,
+                platform: device.as_ref().map(|d| d.platform.clone()),
                 push_ready: false,
-                fingerprint_confirmed: false,
+                fingerprint_confirmed: device.as_ref().is_some_and(|d| d.fingerprint_confirmed),
                 pair_url: None,
                 fingerprint_words: Vec::new(),
                 fingerprint_hex: None,
@@ -830,6 +965,7 @@ impl PhoneRuntime {
         // would outlive the borrow of `running`.
         let serving_via = (*running.channel.pairing_path.lock().unwrap()).to_string();
         PhoneStatus {
+            connect: self.connect_view(running.connector.as_ref()),
             listening: running.listener.is_running(),
             paired: device.is_some(),
             device_name: device.as_ref().map(|d| d.name.clone()),
@@ -946,6 +1082,14 @@ impl PhoneRuntime {
     /// a sixty-second code that appears at every launch without him asking is a code that gets
     /// used by something other than him.
     pub fn resume_if_paired(&self, app: tauri::AppHandle) {
+        self.watch_connect(app.clone());
+        if connect::state::load(&self.data_dir).map(|c| c.desired).unwrap_or(false) {
+            let _action = self.connect_actions.lock().unwrap();
+            if device::DeviceDesk::open(&self.data_dir).map(|d| d.is_paired()).unwrap_or(false) {
+                let _ = self.start(app, false);
+            }
+            return;
+        }
         // `listener_should_run` rather than `is_paired`, so there is ONE expression of "should the
         // socket exist" rather than two that each cover half of it. At boot no pairing window can
         // be open, so the two happen to agree here — and they would stop agreeing the first time
@@ -1014,13 +1158,22 @@ impl PhoneRuntime {
         };
         let vapid = Arc::new(vapid);
 
-        // **THE TAILSCALE PATH, AND THERE IS NO OTHER** (CEO §61) — see [`serving_plan`] for
-        // what the decision is, why it is a function rather than four lines here, and why `None`
-        // is a refusal rather than a second plan.
-        let Some(Serving { addresses, origin, tailnet: tailnet_tls }) =
-            serving_plan(&self.tailnet_now(), tailnet::find_cli().as_deref(), &names)
-        else {
-            return Err(PhoneError::TailnetNotReady);
+        let config = connect::state::load(&self.data_dir)?;
+        let (addresses, origin, tailnet_tls, connector) = if config.desired {
+            let allocation = config.allocation.ok_or_else(connect::client::unavailable)?;
+            allocation.validate(&connect::client::Identity::open(&keychain)?)?;
+            let bytes = keychain.get(connect::client::TOKEN_KEY)?.ok_or_else(connect::client::unavailable)?;
+            let cached: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| connect::client::unavailable())?;
+            if cached["generation"].as_u64() != Some(allocation.generation) { return Err(connect::client::unavailable()); }
+            let token = cached["token"].as_str().ok_or_else(connect::client::unavailable)?;
+            let helper = connect_helper()?;
+            let connector = connect::supervisor::Supervisor::start(&helper, token.into())?;
+            (vec![], allocation.endpoint, None, Some(connector))
+        } else {
+            let Some(Serving { addresses, origin, tailnet }) =
+                serving_plan(&self.tailnet_now(), tailnet::find_cli().as_deref(), &names)
+            else { return Err(PhoneError::TailnetNotReady); };
+            (addresses, origin, Some(tailnet), None)
         };
 
         let devices = Arc::new(device::DeviceDesk::open(&self.data_dir)?);
@@ -1045,24 +1198,19 @@ impl PhoneRuntime {
             // rather than an assumption on the reading side, because a record written by an
             // older build says something else and the paired card has to tell the two apart
             // (Ray's candidate .11 defect 3.2).
-            pairing_path: std::sync::Mutex::new(device::PairedVia::TAILNET),
+            pairing_path: std::sync::Mutex::new(if connector.is_some() { device::PairedVia::CONNECT } else { device::PairedVia::TAILNET }),
         });
 
         // The window opens BEFORE the socket, so a failure to bind leaves nothing half-armed.
         if open_window {
             devices.open_pairing()?;
         }
-        let tls =
-            listen::tls_config_with_tailnet(&ca.leaf_der, &ca.leaf_key_pkcs8, Some(tailnet_tls))?;
-        // **A BIND FAILURE IS THE END OF IT NOW, AND THAT IS THE HONEST SHAPE.**
-        //
-        // This used to retry without the tailnet addresses when the extra ones would not bind,
-        // and serve the local network instead. Under §61 that retry would leave the channel up
-        // with a `…ts.net` origin nobody could reach: the name resolves to the tailnet address,
-        // and a socket that is not bound there cannot answer it. A listener that is up and
-        // unreachable is worse than one that says it could not start.
-        let listener =
-            listen::Listener::start(Arc::clone(&channel), tls, &addresses, HTTPS_PORT)?;
+        let listener = if connector.is_some() {
+            listen::Listener::start_connect(Arc::clone(&channel), connect::PORT)?
+        } else {
+            let tls = listen::tls_config_with_tailnet(&ca.leaf_der, &ca.leaf_key_pkcs8, tailnet_tls)?;
+            listen::Listener::start(Arc::clone(&channel), tls, &addresses, HTTPS_PORT)?
+        };
 
         eprintln!(
             "[richos] the phone channel is listening on {} — pairing at {}",
@@ -1074,6 +1222,7 @@ impl PhoneRuntime {
         self.watch_for_rejection(rejections);
         *running = Some(Running {
             listener,
+            connector,
             channel,
             bridge,
             vapid,
@@ -1154,6 +1303,7 @@ impl PhoneRuntime {
     /// it is. That sentence is the settings screen's job and it is named here so it is not
     /// forgotten: *"A cleanup the user has to know to do is a cleanup that does not happen."*
     pub fn forget(&self) -> Result<(), PhoneError> {
+        let _action = self.connect_actions.lock().unwrap();
         let mut running = self.running.lock().unwrap();
         if let Some(mut was) = running.take() {
             was.listener.stop();

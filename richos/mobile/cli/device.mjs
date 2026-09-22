@@ -14,6 +14,10 @@ export async function device(command, selection = 'all', ports = {}) {
   const snapshot = ports.usbSnapshot || usbSnapshot;
   const generate = ports.project || project;
   const run = ports.run || runDeviceProcess;
+  const summary = ports.summary || (async path => {
+    const { stdout } = await execute('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', path, '--format', 'json'], { timeout: 15000, maxBuffer: 1024 * 1024 });
+    return JSON.parse(stdout);
+  });
   const id = process.env.RICHOS_IOS_DEVICE;
   const team = process.env.RICHOS_APPLE_TEAM;
   if (!id || !/^[a-fA-F0-9-]{20,64}$/.test(id)) throw Error('Set RICHOS_IOS_DEVICE to the connected physical device identifier');
@@ -21,6 +25,13 @@ export async function device(command, selection = 'all', ports = {}) {
   if (!['build', 'verify'].includes(command)) throw Error('device expects build or verify');
   const tests = { updates: 'NativeClientTests/testIndependentUpdateService', all: 'NativeClientTests', text: 'NativeClientTests/testAuthenticatedTextAndStreamResume', recording: 'NativeClientTests/testNativeRecordingAndRelaunch' };
   if (!tests[selection]) throw Error('Device test selection must be all, text, recording or updates');
+  if (command === 'verify' && ['text','updates','all'].includes(selection)) {
+    const file = process.env.RICHOS_MOBILE_TEST_CONFIG;
+    if (!file) throw Error('Set RICHOS_MOBILE_TEST_CONFIG to the prepared lab configuration before this physical test');
+    const config = JSON.parse(readFileSync(file, 'utf8'));
+    if (['text','all'].includes(selection) && (typeof config.pairLink !== 'string' || !config.pairLink.startsWith('https://') || typeof config.words !== 'string')) throw Error('Physical text test requires an HTTPS pairLink and fingerprint words');
+    if (['updates','all'].includes(selection) && config.updateServiceTest !== 'true') throw Error('Physical update test requires the independent update lab configuration');
+  }
   const cache = cacheRoot();
   const stamp = Date.now();
   const log = join(cache, `device-${command}-${stamp}.log`);
@@ -39,5 +50,15 @@ export async function device(command, selection = 'all', ports = {}) {
     { log, health, env: { ...process.env, CLANG_MODULE_CACHE_PATH: join(cache, 'module-cache') } })
     .catch(error => { throw Error(`${error.message}. Read ${log}`); });
   if (output.status !== 0) throw Error(`Device ${command} failed. Read ${log}\n${readFileSync(log, 'utf8').slice(-1600)}`);
-  return { bundleId, app: join(cache, 'device-derived-data/Build/Products/Debug-iphoneos/RichOSMobile.app'), log, result };
+  let verification;
+  if (command === 'verify') {
+    verification = await summary(result);
+    const minimum = selection === 'all' ? 3 : 1;
+    if (!Number.isInteger(verification.passedTests) || verification.passedTests < minimum
+      || verification.failedTests !== 0 || verification.expectedFailures !== 0
+      || (selection !== 'all' && (verification.skippedTests !== 0 || verification.totalTestCount !== 1))) {
+      throw Error(`Device test was not proved: ${verification.passedTests || 0} passed, ${verification.skippedTests || 0} skipped, ${verification.failedTests || 0} failed. Read ${result}`);
+    }
+  }
+  return { ...(verification ? { verification: { passed: verification.passedTests, skipped: verification.skippedTests, failed: verification.failedTests } } : {}), bundleId, app: join(cache, 'device-derived-data/Build/Products/Debug-iphoneos/RichOSMobile.app'), log, result };
 }

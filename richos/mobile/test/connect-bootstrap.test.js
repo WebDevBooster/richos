@@ -50,6 +50,7 @@ test('CLI prepares the exact runnable upload without credentials or remote opera
   assert.equal(result.status, 0, result.stderr);
   const artifact = JSON.parse(result.stdout).result;
   assert.deepEqual(artifact.metadata.bindings, []);
+  assert.deepEqual(artifact.metadata.keep_bindings, ['secret_text','d1'], 'Rollback must preserve the managed service credential and database binding');
   assert.equal(artifact.metadata.observability.enabled, false);
   assert.equal(artifact.metadata.logpush, false);
   assert.deepEqual(artifact.metadata.tail_consumers, []);

@@ -11,7 +11,6 @@ use crate::phone::{
     listen::{tls_config, Listener},
     names::LocalNames,
     routes::{Accepted, Bridge, Channel, StopSwitch},
-    secrets::MemorySecrets,
     stream::{PhoneHub, PhoneLiveEmitter},
 };
 use richos_core::{
@@ -28,6 +27,26 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+
+// Test-only storage survives an isolated process restart. Production uses Keychain.
+struct LabSecrets { directory: PathBuf }
+impl phone::secrets::SecretStore for LabSecrets {
+    fn get(&self, account: &str) -> Result<Option<Vec<u8>>, phone::PhoneError> {
+        let path = self.directory.join(format!("secret-{}",phone::hex(&phone::sha256(account.as_bytes()))));
+        match std::fs::read(path) { Ok(bytes)=>Ok(Some(bytes)), Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(None), Err(e)=>Err(e.into()) }
+    }
+    fn put(&self, account: &str, bytes: &[u8]) -> Result<(), phone::PhoneError> {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::io::Write;
+        let path = self.directory.join(format!("secret-{}",phone::hex(&phone::sha256(account.as_bytes()))));
+        let mut file = std::fs::OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(path)?;
+        file.write_all(bytes)?; file.sync_all()?; Ok(())
+    }
+    fn delete(&self, account: &str) -> Result<(), phone::PhoneError> {
+        let path = self.directory.join(format!("secret-{}",phone::hex(&phone::sha256(account.as_bytes()))));
+        match std::fs::remove_file(path) { Ok(())=>Ok(()), Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(()), Err(e)=>Err(e.into()) }
+    }
+}
 
 struct IsolatedBridge {
     spine: Arc<Mutex<Spine>>,
@@ -85,18 +104,22 @@ fn serve() {
     );
     let dir = dir.canonicalize().unwrap();
     assert!(dir.starts_with("/Volumes/E1TB/"));
-    assert_eq!(
-        std::fs::read_dir(&dir).unwrap().count(),
-        0,
-        "never reuse an existing data directory"
-    );
+    let restarting = std::env::var("RICHOS_MOBILE_MAC_RESTART").as_deref() == Ok("1");
+    if restarting {
+        assert_eq!(std::fs::read_to_string(dir.join("lab-owner")).unwrap(), "richos-mobile-isolated-v1");
+    } else {
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(),0,"never reuse an existing data directory");
+        std::fs::write(dir.join("lab-owner"),"richos-mobile-isolated-v1").unwrap();
+    }
+    let connect_token_file = std::env::var_os("RICHOS_MOBILE_CONNECT_TOKEN_FILE");
+    let managed = connect_token_file.is_some();
     let origin = std::env::var("RICHOS_MOBILE_MAC_ORIGIN").expect("explicit public test origin");
     let names = LocalNames {
         host: "Mobile integration".into(),
         bonjour: "localhost".into(),
         addresses: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
     };
-    let ca = PhoneCa::open(&dir, &MemorySecrets::default(), names).unwrap();
+    let ca = PhoneCa::open(&dir, &LabSecrets {directory:dir.clone()}, names).unwrap();
     let mut spine = Spine::new(Ledger::open(dir.join("ledger.jsonl")).unwrap());
     let root = dir.to_str().unwrap();
     spine.set_entity_registry(
@@ -106,9 +129,9 @@ fn serve() {
         .unwrap(),
     );
     let entity = EntityId::parse("mobile-check").unwrap();
-    let thread = spine
-        .create_thread("Isolated mobile check", &entity)
-        .unwrap();
+    let thread = if restarting { std::fs::read_to_string(dir.join("lab-thread")).unwrap() }
+        else { let thread=spine.create_thread("Isolated mobile check",&entity).unwrap();
+            std::fs::write(dir.join("lab-thread"),&thread).unwrap(); thread };
     spine.switch_thread(&thread).unwrap();
     // Empty scripted replies make the existing test provider emit `ack: <fresh message>`.
     spine.set_lease_factory(Box::new(MockLeaseFactory::new(vec![])));
@@ -135,18 +158,23 @@ fn serve() {
             .unwrap()
             .application_server_key(),
         fingerprint_hex: ca.fingerprint_hex(),
-        pairing_path: Mutex::new(phone::device::PairedVia::TAILNET),
+        pairing_path: Mutex::new(if managed { phone::device::PairedVia::CONNECT } else { phone::device::PairedVia::TAILNET }),
     });
-    let mut listener = Listener::start(
-        channel,
-        tls_config(&ca.leaf_der, &ca.leaf_key_pkcs8).unwrap(),
-        &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
-        0,
-    )
-    .unwrap();
-    devices.open_pairing().unwrap();
-    let ready = json!({"port":listener.bound[0].port(), "ca":dir.join("phone/ca.crt"),
-        "pairLink":format!("{origin}/#pair={}", devices.pairing_window().unwrap().code),
+    let mut listener = if managed {
+        Listener::start_connect(channel, phone::connect::PORT).unwrap()
+    } else {
+        Listener::start(channel, tls_config(&ca.leaf_der,&ca.leaf_key_pkcs8).unwrap(), &[IpAddr::V4(Ipv4Addr::LOCALHOST)],0).unwrap()
+    };
+    let _connector = connect_token_file.map(|file| {
+        let path = PathBuf::from(file).canonicalize().unwrap();
+        assert!(path.starts_with("/Volumes/E1TB/"));
+        let token = std::fs::read_to_string(path).unwrap();
+        let helper = std::env::var_os("RICHOS_CONNECT_HELPER").expect("explicit test helper");
+        phone::connect::supervisor::Supervisor::start(&PathBuf::from(helper),token).unwrap()
+    });
+    if !devices.is_paired() { devices.open_pairing().unwrap(); }
+    let ready = json!({"protocol":if managed {"http"} else {"https"},"port":listener.bound[0].port(), "ca":dir.join("phone/ca.crt"),
+        "pairLink":devices.pairing_window().map(|window|format!("{origin}/#pair={}",window.code)),
         "words":ca.fingerprint_words().join(" "), "replyMarker":"ack: ", "pid":std::process::id()});
     std::fs::write(dir.join("ready.new"), ready.to_string()).unwrap();
     std::fs::rename(dir.join("ready.new"), dir.join("ready.json")).unwrap();

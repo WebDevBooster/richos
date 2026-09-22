@@ -122,6 +122,41 @@ impl Listener {
         Ok(Listener { shutdown, thread: Some(thread), bound })
     }
 
+    /// The managed tunnel's final hop. No LAN address or alternate origin is accepted.
+    pub fn start_connect(channel: Arc<Channel>, port: u16) -> Result<Self, PhoneError> {
+        let listener = StdTcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
+        listener.set_nonblocking(true)?;
+        let bound = vec![listener.local_addr()?];
+        let (shutdown, rx) = watch::channel(false);
+        let thread = std::thread::Builder::new().name("richos-connect-listener".into()).spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
+            runtime.block_on(async {
+                let Ok(listener) = tokio::net::TcpListener::from_std(listener) else { return };
+                let slots = Arc::new(tokio::sync::Semaphore::new(32));
+                channel.hub.set_live(true);
+                while !*rx.borrow() {
+                    let Some((stream, _)) = accept_one(&listener, &rx).await else { continue };
+                    let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else { continue };
+                    let channel = Arc::clone(&channel);
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        let service = service_fn(move |request| {
+                            let channel = Arc::clone(&channel);
+                            async move { Ok::<_, std::convert::Infallible>(handle(channel, request).await) }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .timer(hyper_util::rt::TokioTimer::new())
+                            .header_read_timeout(std::time::Duration::from_secs(10))
+                            .max_buf_size(16 * 1024)
+                            .serve_connection(hyper_util::rt::TokioIo::new(stream), service).await;
+                    });
+                }
+                channel.hub.set_live(false);
+            });
+        })?;
+        Ok(Self { shutdown, thread: Some(thread), bound })
+    }
+
     /// Stop serving and wait for the sockets to be gone.
     pub fn stop(&mut self) {
         let _ = self.shutdown.send(true);
@@ -378,6 +413,7 @@ async fn accept_https(
     channel: Arc<Channel>,
     shutdown: watch::Receiver<bool>,
 ) {
+    let slots = Arc::new(tokio::sync::Semaphore::new(32));
     while !*shutdown.borrow() {
         let Some((stream, _peer)) = accept_one(&listener, &shutdown).await else {
             if *shutdown.borrow() {
@@ -385,19 +421,24 @@ async fn accept_https(
             }
             continue;
         };
+        let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else { continue };
         let acceptor = acceptor.clone();
         let channel = Arc::clone(&channel);
         tokio::spawn(async move {
             // A handshake that fails is a device on his Wi-Fi that does not hold the certificate
             // authority. Nothing is logged per connection: a TV that probes the port every minute
             // would otherwise fill his log with noise.
-            let Ok(tls_stream) = acceptor.accept(stream).await else { return };
+            let _permit = permit;
+            let Ok(Ok(tls_stream)) = tokio::time::timeout(std::time::Duration::from_secs(10), acceptor.accept(stream)).await else { return };
             let io = hyper_util::rt::TokioIo::new(tls_stream);
             let service = service_fn(move |request| {
                 let channel = Arc::clone(&channel);
                 async move { Ok::<_, std::convert::Infallible>(handle(channel, request).await) }
             });
-            let _ = hyper::server::conn::http1::Builder::new().serve_connection(io, service).await;
+            let _ = hyper::server::conn::http1::Builder::new()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .header_read_timeout(std::time::Duration::from_secs(10))
+                .max_buf_size(16 * 1024).serve_connection(io, service).await;
         });
     }
 }
@@ -416,9 +457,9 @@ async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<
 
     // THE LIMIT IS APPLIED BEFORE THE BODY IS READ, which is the difference between a limit and a
     // check. `Limited` fails the read rather than buffering four gigabytes and then measuring it.
-    let body = match Limited::new(request.into_body(), MAX_BODY_BYTES).collect().await {
-        Ok(collected) => collected.to_bytes().to_vec(),
-        Err(_) => return render(&channel, Outcome::PayloadTooLarge),
+    let body = match tokio::time::timeout(std::time::Duration::from_secs(15), Limited::new(request.into_body(), MAX_BODY_BYTES).collect()).await {
+        Ok(Ok(collected)) => collected.to_bytes().to_vec(),
+        _ => return render(&channel, Outcome::PayloadTooLarge),
     };
 
     let incoming =

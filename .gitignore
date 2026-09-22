@@ -55,3 +55,6 @@ __pycache__/
 # Evidence OF a run, never an input to one — the same footing as the evidence ledger
 # this directory already keeps in a temp dir.
 richos/app/ui/tests/receipts/
+
+# Source link for the pinned helper; binary bytes live in the external build cache.
+/richos/app/src-tauri/connect-helper

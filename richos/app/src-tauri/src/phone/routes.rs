@@ -265,7 +265,7 @@ fn verified(channel: &Channel, request: &Incoming, header: &str, path_with_query
         Err(Refusal::RateLimited) => Err(Outcome::RateLimited),
         Err(Refusal::Revoked) => Err(Outcome::Revoked),
         Err(refusal) => {
-            log_refusal(&request.path, &refusal);
+            log_refusal(&refusal);
             Err(Outcome::NotFound)
         }
     }
@@ -380,7 +380,7 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
     let device = match channel.devices.complete_pairing(code, &form, name, via, platform) {
         Ok(d) => d,
         Err(refusal) => {
-            log_refusal("POST /api/pair", &refusal);
+            log_refusal(&refusal);
             return Outcome::NotFound;
         }
     };
@@ -476,17 +476,7 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
     let Some(client_id) = body.get("client_id").and_then(|v| v.as_str()) else {
         return Outcome::NotFound;
     };
-    // The phone's own idempotency key. A retried POST gets the ORIGINAL answer with
-    // `duplicate: true` rather than acting twice — the CEO's one message stays one message on a
-    // flaky Wi-Fi, which is what makes the on-phone queue safe to retry.
-    if let Some(already) = channel.devices.already_answered(client_id) {
-        let mut value: Value = serde_json::from_str(&already).unwrap_or(Value::Null);
-        if let Some(map) = value.as_object_mut() {
-            map.insert("duplicate".into(), json!(true));
-        }
-        return Outcome::Json { status: 200, body: value.to_string() };
-    }
-
+    if client_id.is_empty() || client_id.len() > 128 { return Outcome::NotFound; }
     if body.get("kind").and_then(|v| v.as_str()).unwrap_or("text") != "text" {
         return Outcome::NotFound;
     }
@@ -496,38 +486,24 @@ fn messages(channel: &Channel, request: &Incoming) -> Outcome {
     }
     let thread_id = body.get("thread_id").and_then(|v| v.as_str());
 
-    match channel.bridge.submit_text(thread_id, &text) {
-        Ok(accepted) => {
-            // The cursor a new CEO row will land on. One past the current one, and the `hello`
-            // of the next connection re-seeds from the projection, so an estimate here cannot
-            // survive a reconnection.
-            let cursor = channel.hub.next_cursor();
-            let answer = json!({
-                "message_id": accepted.message_id,
-                "cursor": cursor,
-                "thread_id": accepted.thread_id,
-                "accepted_at": super::rows::iso8601(accepted.at),
-                "duplicate": false,
-            })
-            .to_string();
-            channel.devices.remember_answer(client_id, &answer);
-            Outcome::Json { status: 200, body: answer }
+    let Some(device) = channel.devices.paired() else { return Outcome::NotFound; };
+    let delivery = channel.devices.deliveries.execute(&device.id, client_id, &request.body, || {
+        let accepted = channel.bridge.submit_text(thread_id, &text)?;
+        Ok(json!({ "message_id": accepted.message_id, "cursor": channel.hub.next_cursor(),
+            "thread_id": accepted.thread_id, "accepted_at": super::rows::iso8601(accepted.at), "duplicate": false }).to_string())
+    });
+    use super::delivery::Delivery;
+    match delivery {
+        Ok(Delivery::Accepted(body)) => Outcome::Json { status: 200, body },
+        Ok(Delivery::Duplicate(answer)) => {
+            let mut value: Value = serde_json::from_str(&answer).unwrap_or(Value::Null);
+            if let Some(map) = value.as_object_mut() { map.insert("duplicate".into(), json!(true)); }
+            Outcome::Json { status: 200, body: value.to_string() }
         }
-        Err(e) => {
-            // The one refusal that is NOT a 404, because it is not about the caller: the Mac
-            // could not write his words down. A silent 404 here would look to the phone exactly
-            // like "you are not paired", and he would re-pair instead of being told his Mac has
-            // a problem.
-            eprintln!("[richos] the phone channel could not accept a message: {e}");
-            Outcome::Json {
-                status: 503,
-                body: json!({
-                    "accepted": false,
-                    "reason": "Your Mac could not save that message. Nothing was lost on your phone — try again."
-                })
-                .to_string(),
-            }
-        }
+        Ok(Delivery::Conflict) => Outcome::Json { status: 409, body: json!({"retry":false,"reason":"That message ID was already used for different text. Your draft is still on your phone."}).to_string() },
+        Ok(Delivery::Uncertain) => Outcome::Json { status: 503, body: json!({"retry":false,"reason":"Your Mac may already have this message. Check the conversation before sending it again; your text is still on your phone."}).to_string() },
+        Ok(Delivery::Full) => Outcome::Json { status: 503, body: json!({"retry":false,"reason":"Your Mac's message recovery history is full. Your text is still on your phone."}).to_string() },
+        Err(_) => Outcome::Json { status: 503, body: json!({"accepted":false,"reason":"Your Mac could not save the delivery receipt. Your text is still on your phone."}).to_string() },
     }
 }
 
@@ -746,10 +722,17 @@ fn percent_decode_component(value: &str) -> Result<String, ()> {
     Ok(super::listen::percent_decode(&spaced))
 }
 
-/// Every refusal goes to the Mac's own log with its reason, and to the caller as a flat 404. A
-/// refusal nobody can explain is its own kind of defect.
-fn log_refusal(route: &str, refusal: &Refusal) {
-    eprintln!("[richos] the phone channel refused {route}: {refusal:?}");
+/// Public reach must not let unauthenticated traffic fill the Mac's log. Sample a
+/// bounded reason at most once per ten seconds, without any caller-controlled path.
+fn refusal_log_due(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    if last.is_some_and(|at| now.saturating_duration_since(at).as_secs() < 10) { return false; }
+    *last = Some(now); true
+}
+fn log_refusal(refusal: &Refusal) {
+    static LAST: std::sync::OnceLock<Mutex<Option<std::time::Instant>>> = std::sync::OnceLock::new();
+    if refusal_log_due(&mut LAST.get_or_init(|| Mutex::new(None)).lock().unwrap(), std::time::Instant::now()) {
+        eprintln!("[richos] the phone channel refused a request: {refusal:?} (sampled)");
+    }
 }
 
 #[cfg(test)]
@@ -758,6 +741,16 @@ mod tests {
     use crate::phone::device::signing_string;
     use crate::phone::device::tests::Phone;
     use std::sync::Mutex;
+
+    #[test]
+    fn unauthenticated_refusal_flood_has_a_fixed_log_bound() {
+        let start = std::time::Instant::now();
+        let mut last = None;
+        assert!(refusal_log_due(&mut last, start));
+        for millis in 0..10000 { assert!(!refusal_log_due(&mut last, start + std::time::Duration::from_millis(millis))); }
+        assert!(refusal_log_due(&mut last, start + std::time::Duration::from_secs(10)));
+        assert!(!refusal_log_due(&mut last, start));
+    }
 
     /// A stand-in for the embedded phone app: two files, named as the real table names
     /// them. These tests are about the ROUTE — which paths reach the app and which get a
@@ -1066,27 +1059,17 @@ mod tests {
     }
 
     #[test]
-    fn a_mac_that_cannot_write_his_words_down_says_so_instead_of_pretending_to_be_unpaired() {
+    fn an_uncertain_bridge_result_never_becomes_an_automatic_second_submission() {
         let f = fixture_with("unwritable", true, true, 4);
-        let out = dispatch(&f.channel, &signed(&f, "POST", "/api/messages", "", r#"{"client_id":"c","kind":"text","text":"hello"}"#));
-        assert_eq!(out.status(), 503);
-        match out {
-            Outcome::Json { body, .. } => {
+        let request = signed(&f, "POST", "/api/messages", "", r#"{"client_id":"c","kind":"text","text":"hello"}"#);
+        for _ in 0..2 {
+            let out = dispatch(&f.channel, &request);
+            assert_eq!(out.status(), 503);
+            if let Outcome::Json { body, .. } = out {
                 let v: Value = serde_json::from_str(&body).unwrap();
-                assert_eq!(v["accepted"], false);
-                let reason = v["reason"].as_str().unwrap();
-                assert!(reason.contains("Nothing was lost on your phone"), "{reason}");
-                assert!(!reason.contains("intake"), "the reason leaks an internal name: {reason}");
-                // THE ONE 503 THAT MUST BE RETRIED. A disk that would not take his words this
-                // second may take them the next, and the phone is holding the only copy. If this
-                // ever grows a `retry: false` his message is marked "Not sent." and stops being
-                // tried — the exact opposite of what this branch is for (contract §9).
-                assert!(
-                    v.get("retry").is_none(),
-                    "the Mac told the phone not to retry the one failure that must be retried: {body}"
-                );
-            }
-            other => panic!("{other:?}"),
+                assert_eq!(v["retry"], false);
+                assert!(v["reason"].as_str().unwrap().contains("still on your phone"));
+            } else { panic!("missing recovery sentence"); }
         }
     }
 
