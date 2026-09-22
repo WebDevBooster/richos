@@ -780,7 +780,7 @@ fn percent_decode_component(value: &str) -> Result<String, ()> {
 
 /// Public reach must not let unauthenticated traffic fill the Mac's log. Sample a
 /// bounded reason at most once per ten seconds, without any caller-controlled path.
-fn refusal_log_due(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+pub(super) fn refusal_log_due(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
     if last.is_some_and(|at| now.saturating_duration_since(at).as_secs() < 10) { return false; }
     *last = Some(now); true
 }
