@@ -38,7 +38,7 @@ function memoryStorage() {
 		settings,
 		rows,
 		module: {
-			async open() { return { fake: true }; },
+			async open() { return { fake: true, close() {} }; },
 			settings: () => ({
 				async get(key, fallback) { return settings.has(key) ? settings.get(key) : fallback; },
 				async set(key, value) { settings.set(key, value); }
@@ -224,4 +224,16 @@ test('an undecryptable payload still shows a notification, because WebKit revoke
 	assert.strictEqual(w.shown.length, 1);
 	assert.strictEqual(w.shown[0].title, 'Rich');
 	assert.strictEqual(w.shown[0].options.data.url, '/');
+});
+
+
+test('reply previews default on, can be hidden and follow the current preference with the app closed',async()=>{
+ const w=loadWorker();const payload={notification:{title:'Rich',body:'The supplier accepted £42,000.'}};
+ await push(w,payload);assert.strictEqual(w.shown.at(-1).options.body,payload.notification.body);
+ w.store.settings.set('notificationPreviews',false);
+ await push(w,payload);assert.strictEqual(w.shown.at(-1).options.body,'Rich has replied.');
+ w.store.settings.set('notificationPreviews',true);
+ await push(w,{notification:{body:'x'.repeat(500)}});assert.strictEqual(w.shown.at(-1).options.body.length,240);
+ w.self.RichOSStorage.open=async()=>{throw Error('storage unavailable');};
+ await push(w,payload);assert.strictEqual(w.shown.at(-1).options.body,'Rich has replied.');
 });

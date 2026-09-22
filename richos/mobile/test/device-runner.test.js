@@ -13,10 +13,10 @@ async function setup(t) {
 test('device runner writes live diagnostics and checks host health before and after success', async t => {
   const { runDeviceProcess, log } = await setup(t);
   let checks = 0, observedLive = false;
-  const result = await runDeviceProcess(process.execPath, ['-e', 'console.log("started"); setTimeout(() => console.log("finished"), 150)'], {
+  const result = await runDeviceProcess(process.execPath, ['-e', 'console.log("started"); const fs=require("node:fs"); const timer=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(timer);console.log("finished");}},10)',log+'.continue'], {
     log, healthIntervalMs: 20, health: async () => {
       checks++;
-      try { const text = readFileSync(log, 'utf8'); observedLive ||= text.includes('started') && !text.includes('finished'); } catch {}
+      try { const text = readFileSync(log, 'utf8'); observedLive ||= text.includes('started') && !text.includes('finished');if(observedLive)writeFileSync(log+'.continue','continue'); } catch {}
     }
   });
   assert.equal(result.status, 0); assert(observedLive); assert(checks >= 3);
@@ -26,7 +26,7 @@ test('device runner terminates its child on a host-health failure without retryi
   const { runDeviceProcess, log } = await setup(t);
   let checks = 0;
   await assert.rejects(runDeviceProcess(process.execPath, ['-e', 'console.log("one launch"); setInterval(() => {}, 1000)'], {
-    log, healthIntervalMs: 50, health: async () => { if (++checks === 4) throw Error('receiver disappeared'); }
+    log, healthIntervalMs: 50, health: async () => { checks++;try{if(readFileSync(log,'utf8').includes('one launch'))throw Error('receiver disappeared');}catch(error){if(error.code!=='ENOENT')throw error;} }
   }), /receiver disappeared/);
   const text = readFileSync(log, 'utf8');
   assert.equal(text.match(/one launch/g).length, 1); assert.match(text, /Device test stopped: receiver disappeared/);
@@ -36,7 +36,7 @@ test('device runner bounds a hung test and preserves its diagnostics', async t =
   await assert.rejects(runDeviceProcess(process.execPath, ['-e', 'console.log("hung stage"); setInterval(() => {}, 1000)'], {
     log, timeoutMs: 200
   }), /time limit/);
-  assert.match(readFileSync(log, 'utf8'), /hung stage/);
+  assert.match(readFileSync(log, 'utf8'), /Device test stopped: Device test exceeded its time limit/);
 });
 test('device runner refuses to launch when its initial health check fails', async t => {
   const { runDeviceProcess, log } = await setup(t);

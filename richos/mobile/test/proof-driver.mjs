@@ -109,6 +109,11 @@ try {
     assert.equal(refreshed.state.online, true);
     assert.equal(refreshed.state.revoked, false);
     pass('page restart and source refresh retain the paired session');
+    const browserProof=spawnSync(process.execPath,[join(mobile,'../web/web-app/test/desktop-verify.js')],{env:{...env,PHONE_SHOTS_DIR:join(cache,'pwa-shots')},encoding:'utf8',timeout:180000,maxBuffer:8*1024*1024});
+    assert.ifError(browserProof.error);
+    assert.equal(browserProof.status,0,browserProof.stdout+'\n'+browserProof.stderr);
+    assert.match(browserProof.stdout,/ALL CHECKS PASSED/);
+    pass('actual PWA in Chromium and WebKit: notification settings, draft recovery, notification return, following and locked voice controls; WebKit microphone explicitly not run');
     for(const engine of ['chromium','webkit']) {
       const client = await (await import('./client-ui.mjs')).clientUI({engine});
       assert(client.rapidTypingPreserved && client.bothThemesFitPhoneWidths);
@@ -117,6 +122,11 @@ try {
       pass(`${engine}: native UI follows sends/replies/resizes, respects deliberate scrolls and centres locked Cancel`);
     }
   } else {
+    const preview = join(cache,'notification-preview-proof');
+    const previewBuild = hostTool('xcrun',['swiftc','-module-cache-path',join(cache,'swift-module-cache'),join(mobile,'ios/Shared/NotificationPreview.swift'),join(mobile,'ios/Tests/NotificationPreviewTests.swift'),'-o',preview]);
+    assert.equal(previewBuild.status,0,previewBuild.stderr);
+    const previewProof=hostTool(preview,[join(mobile,'test/fixtures/notification-preview.json')]);
+    assert.equal(previewProof.status,0,previewProof.stderr);pass('native preview decryption, wrong key and tampered payload refusal');
     const recovery = join(cache, 'recording-recovery-test');
     const compiled = hostTool('xcrun', ['swiftc', '-module-cache-path', join(cache,'swift-module-cache'), join(mobile,'ios/Sources/RecordingRecovery.swift'), join(mobile,'ios/Tests/RecordingRecoveryTests.swift'), '-o', recovery]);
     assert.equal(compiled.status, 0, compiled.stderr);

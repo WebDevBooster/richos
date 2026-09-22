@@ -104,26 +104,34 @@ final class NativeClientTests: XCTestCase {
         }
         XCTAssertTrue(app.webViews.staticTexts["Reply notifications are on."].waitForExistence(timeout: 30), "Apple token must be registered through the authenticated Mac and managed provider")
         app.webViews.buttons["Close settings"].tap()
-        let editor = app.webViews.textViews["Message"]
-        editor.tap()
-        let message = "Native notification check " + String(UUID().uuidString.prefix(8))
-        app.typeText(message)
-        app.webViews.buttons["Send"].tap()
-        XCUIDevice.shared.press(.home)
-        app.terminate()
-        let alert = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Rich has replied.")).firstMatch
-        if !alert.waitForExistence(timeout: 15) {
-            // Focus or banner preferences may defer presentation. Inspect Notification
-            // Center without changing the owner's system notification preferences.
-            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
-                .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)))
+        for showPreview in [true, false] {
+            settings.tap()
+            let previews = app.webViews.switches["Show reply previews"].firstMatch
+            let checkbox = previews.exists ? previews : app.webViews.descendants(matching: .any).matching(identifier: "Show reply previews").firstMatch
+            XCTAssertTrue(checkbox.waitForExistence(timeout: 5))
+            if !showPreview { checkbox.tap() }
+            app.webViews.buttons["Close settings"].tap()
+            let editor = app.webViews.textViews["Message"]
+            editor.tap()
+            let message = "Preview check " + String(UUID().uuidString.prefix(8))
+            app.typeText(message)
+            app.webViews.buttons["Send"].tap()
+            XCUIDevice.shared.press(.home)
+            app.terminate()
+            let expected = showPreview ? message : "Rich has replied."
+            let alert = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", expected)).firstMatch
+            if !alert.waitForExistence(timeout: 15) {
+                springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
+                    .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)))
+            }
+            XCTAssertTrue(alert.waitForExistence(timeout: 45), "A real Apple alert must honor the preview preference while RichOS is closed")
+            let shot = XCTAttachment(screenshot: springboard.screenshot())
+            shot.name = showPreview ? "Private reply preview" : "Preview disabled"; shot.lifetime = .keepAlways; add(shot)
+            alert.tap()
+            XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+            let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
+            XCTAssertTrue(reply.waitForExistence(timeout: 25), "Opening the alert must retrieve its specific reply from the paired Mac")
         }
-        XCTAssertTrue(alert.waitForExistence(timeout: 45), "A real Apple alert must appear while RichOS is closed")
-        let shot = XCTAttachment(screenshot: springboard.screenshot()); shot.name = "Generic native reply alert"; shot.lifetime = .keepAlways; add(shot)
-        alert.tap()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
-        let reply = app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", message, config["replyMarker"] ?? "That is the whole answer.")).firstMatch
-        XCTAssertTrue(reply.waitForExistence(timeout: 25), "Opening the opaque alert must fetch its conversation from the paired Mac")
         settings.tap()
         app.webViews.buttons["Disable reply notifications"].tap()
         XCTAssertTrue(app.webViews.staticTexts["Reply notifications are off."].waitForExistence(timeout: 25))

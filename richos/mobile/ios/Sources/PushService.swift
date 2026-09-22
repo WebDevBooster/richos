@@ -26,14 +26,18 @@ final class PushService: NSObject, UNUserNotificationCenterDelegate {
                 case .denied: permission = "denied"
                 default: permission = "not-determined"
                 }
-                var value: [String: Any] = ["permission": permission, "registrationFailed": self.registrationFailed]
+                let preview: NotificationPreview.Settings
+                do { preview = try NotificationPreview.load() } catch { reply(nil,"Notification previews could not be loaded."); return }
+                var value: [String: Any] = ["permission": permission, "registrationFailed": self.registrationFailed, "previews":preview.previews]
                 if permission == "allowed", let token = self.token, let topic = Bundle.main.bundleIdentifier {
                     #if DEBUG
                     let environment = "sandbox"
                     #else
                     let environment = "production"
                     #endif
-                    value["registration"] = ["token": token, "topic": topic, "environment": environment]
+                    var registration: [String:Any] = ["token":token,"topic":topic,"environment":environment,"previews":preview.previews]
+                    if let key = preview.key { registration["preview_key"] = NotificationPreview.base64(key) }
+                    value["registration"] = registration
                 }
                 reply(value, nil)
             }

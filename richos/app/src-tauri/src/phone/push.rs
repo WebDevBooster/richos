@@ -1,9 +1,8 @@
 //! **WEB PUSH, IN RUST, WITH NO NEW CRATE** — RFC 8291 (message encryption), RFC 8292 (VAPID)
 //! and RFC 8188 §2 (the record framing `aes128gcm` actually uses).
 //!
-//! Plan §2.6: *"**Mac → outbound: exactly one destination, `*.push.apple.com`.** That is the
-//! entire outbound footprint of this feature, and it is the sentence to hold the
-//! implementation to."* [`send`] refuses any other host before a connection is opened.
+//! Supports encrypted Web Push through Apple, Google and Mozilla. Only explicitly
+//! allowlisted HTTPS endpoints are accepted; redirects must remain disabled.
 //!
 //! # Why this is longhand rather than a crate
 //!
@@ -75,14 +74,11 @@ pub struct SubscriptionKeys {
 }
 
 impl Subscription {
-    /// Plan §2.6, enforced rather than documented: the only host the Mac ever dials.
-    ///
-    /// The check is on the host, parsed out of the URL, and not on the string — `https://
-    /// evil.example/?x=.push.apple.com` contains the suffix and is not Apple.
-    pub fn is_apple(&self) -> bool {
-        let Some(rest) = self.endpoint.strip_prefix("https://") else { return false };
-        let host = rest.split('/').next().unwrap_or("").split(':').next().unwrap_or("");
-        host.ends_with(PUSH_HOST_SUFFIX)
+    /// Only the browser vendors' HTTPS push services may receive encrypted payloads.
+    pub fn is_supported(&self) -> bool {
+        let Ok(url)=reqwest::Url::parse(&self.endpoint) else {return false};
+        if url.scheme()!="https" || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() || url.port_or_known_default()!=Some(443) {return false}
+        url.host_str().is_some_and(|host|host.ends_with(PUSH_HOST_SUFFIX) || ["fcm.googleapis.com","updates.push.services.mozilla.com"].contains(&host))
     }
 }
 
@@ -315,9 +311,9 @@ pub fn fits_in_one_push(plaintext: &[u8]) -> bool {
 
 /// POST one encrypted payload to the push service.
 ///
-/// **The host check is first and it is not advisory.** Plan §2.6 makes `*.push.apple.com` the
-/// entire outbound footprint of this feature; a subscription pointing anywhere else is a
-/// refusal here rather than a request that happens not to have been made yet.
+/// The host check is mandatory. Only the browser vendor endpoints accepted by
+/// `Subscription::is_supported` receive encrypted requests. The shared HTTP client
+/// disables redirects, so a push service cannot redirect delivery to another host.
 pub async fn send(
     client: &reqwest::Client,
     vapid: &VapidKey,
@@ -325,9 +321,9 @@ pub async fn send(
     payload: &[u8],
     urgency: &str,
 ) -> Result<Delivery, PhoneError> {
-    if !sub.is_apple() {
+    if !sub.is_supported() {
         return Err(PhoneError::Malformed(format!(
-            "this feature dials {PUSH_HOST_SUFFIX} and nothing else; refused: {}",
+            "unsupported web push service; refused: {}",
             origin_of(&sub.endpoint).unwrap_or_else(|_| "a malformed endpoint".into())
         )));
     }
@@ -481,18 +477,20 @@ mod tests {
     // --- the outbound footprint ---------------------------------------------------------
 
     #[test]
-    fn the_only_host_this_feature_dials_is_apples() {
+    fn the_only_host_this_feature_dials_is_supporteds() {
         let apple = |e: &str| Subscription {
             endpoint: e.into(),
             keys: SubscriptionKeys { p256dh: UA_PUBLIC.into(), auth: AUTH_SECRET.into() },
         };
-        assert!(apple("https://api.push.apple.com/3/device/abc").is_apple());
-        assert!(apple("https://web.push.apple.com/anything").is_apple());
+        assert!(apple("https://api.push.apple.com/3/device/abc").is_supported());
+        assert!(apple("https://web.push.apple.com/anything").is_supported());
         // The three ways a string check would have been fooled.
-        assert!(!apple("https://fcm.googleapis.com/fcm/send/abc").is_apple());
-        assert!(!apple("https://evil.example/?x=.push.apple.com").is_apple());
-        assert!(!apple("https://notpush.apple.com.evil.example/x").is_apple());
-        assert!(!apple("http://api.push.apple.com/3/device/abc").is_apple(), "plain HTTP was accepted");
+        assert!(apple("https://fcm.googleapis.com/fcm/send/abc").is_supported());
+        assert!(apple("https://updates.push.services.mozilla.com/wpush/v2/abc").is_supported());
+        for endpoint in ["https://fcm.googleapis.com.evil.example/x","https://user@fcm.googleapis.com/x","https://fcm.googleapis.com:8443/x","https://127.0.0.1/x"] {assert!(!apple(endpoint).is_supported());}
+        assert!(!apple("https://evil.example/?x=.push.apple.com").is_supported());
+        assert!(!apple("https://notpush.apple.com.evil.example/x").is_supported());
+        assert!(!apple("http://api.push.apple.com/3/device/abc").is_supported(), "plain HTTP was accepted");
     }
 
     #[test]

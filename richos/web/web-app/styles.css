@@ -556,3 +556,25 @@ body.revoked .offer { display: none; }
 #voice-drafts button {margin:4px;min-height:44px;}
 
 #voice-actions[hidden], #voice-drafts[hidden] {display:none;}
+
+#link-state:empty {display:none;}
+#latest {align-self:center;flex:none;margin:6px 12px;}
+body[data-voice="locked"] #voice-actions {display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:24px;}
+body[data-voice="locked"] #voice-timer {grid-column:1;grid-row:1;}
+body[data-voice="locked"] #voice-cancel {grid-column:2;grid-row:1;justify-self:center;}
+body[data-voice="locked"] #voice-send {grid-column:3;grid-row:1;justify-self:end;}
+.composer, .composer * {-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+.composer textarea {-webkit-user-select:text;user-select:text;}
+
+.heading-row {display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.heading-row .title {flex:1;min-width:0;}
+#settings {max-width:min(90vw,420px);background:var(--ground);color:var(--ink);border:1px solid var(--line-control);border-radius:16px;padding:20px;}
+#settings::backdrop {background:#0008;}
+
+/* Keep text and voice in the same compact composer, as on iPhone. */
+.composer-row #hold, .composer-row #send {flex:none;width:48px;height:48px;min-height:48px;margin:0;padding:0;border-radius:50%;display:grid;place-items:center;}
+.composer-row #send {font-size:26px;}
+.composer-row #hold[hidden] {display:none;}
+#hold svg {width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;}
+body[data-voice="locked"] #composer-bar #composer, body[data-voice="locked"] #composer-bar #send {display:none;}
+body[data-voice="locked"] .composer-row {justify-content:flex-end;}

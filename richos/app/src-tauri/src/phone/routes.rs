@@ -315,9 +315,9 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
         let Ok(subscription) = serde_json::from_value::<Subscription>(push.clone()) else {
             return Outcome::NotFound;
         };
-        if !subscription.is_apple() {
+        if !subscription.is_supported() {
             // Plan §2.6 at the edge: what cannot be stored can never be dialed.
-            eprintln!("[richos] a push subscription that is not Apple's was refused at the edge");
+            eprintln!("[richos] an unsupported web push subscription was refused at the edge");
             return Outcome::NotFound;
         }
         if let Err(e) = channel.devices.set_push(Some(subscription)) {
@@ -1390,12 +1390,12 @@ mod tests {
     }
 
     #[test]
-    fn a_push_subscription_that_is_not_apples_is_never_stored() {
+    fn a_push_subscription_outside_the_allowlist_is_never_stored() {
         // Plan §2.6 at the edge: what cannot be stored can never be dialed.
         let f = fixture("push-host");
         let bad = json!({
             "device_id": f.device_id,
-            "push": { "endpoint": "https://fcm.googleapis.com/x", "keys": { "p256dh": "BA", "auth": "AA" } }
+            "push": { "endpoint": "https://fcm.googleapis.com.evil.example/x", "keys": { "p256dh": "BA", "auth": "AA" } }
         })
         .to_string();
         assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &bad)), Outcome::NotFound);

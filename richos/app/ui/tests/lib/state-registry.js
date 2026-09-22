@@ -66,6 +66,11 @@
 "use strict";
 
 module.exports = [
+  {
+    "s": "unsupported web push service; refused: {}",
+    "c": "NOT-RENDERED",
+    "why": "Internal PhoneError from the outbound Web Push allowlist. The Mac logs this refusal; the phone receives the existing generic API error. It is not rendered as a CEO instruction or a desktop state."
+  },
   {"s":"Manage reply notifications in the RichOS iPhone app under Settings.","c":"ACTIONABLE","control":"#phone-close","fixture":null,"why":"Native preferences are on the phone. This Mac view names their exact location and retains the close control, like the existing phone-side Web Push instructions. phone.js check 9d proves the native instruction excludes Safari installation."},
   // Native notification API states.
   {"s": "Invalid notification registration", "c": "UNREACHABLE", "why": "Defensive duplicate validation inside the native notification desk. The authenticated route rejects malformed registrations before calling it and the native adapter supplies fixed bundle/environment values."},
@@ -4336,11 +4341,7 @@ module.exports = [
     "c": "NOT-RENDERED",
     "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/names.rs:109)"
   },
-  {
-    "s": "this feature dials {PUSH_HOST_SUFFIX} and nothing else; refused: {}",
-    "c": "NOT-RENDERED",
-    "why": "An internal `PhoneError` string. It is the Display form, which goes to the Mac's own log (`eprintln!`) and never to the webview: every refusal on the network is a flat 404 with an empty body, and the two commands that can surface a failure at all — `phone_begin_pairing` and `phone_forget` — map it through `PhoneError::ceo_sentence` first. This scrape sees it because it sits beside `Err(` in the command layer's crate, which is the one shape RUST_CEO_CONTEXT cannot tell apart from CEO copy. (richos/app/src-tauri/src/phone/push.rs:330)"
-  },
+
   {
     "s": "unterminated {label} block",
     "c": "NOT-RENDERED",

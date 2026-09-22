@@ -61,7 +61,7 @@ export function stageAssets(destination, development, allowedContainer) {
   {
     files['client.html'] = 'ui/client.html';
     Object.assign(files, { 'client.js': 'core/client.js', 'updates.js': 'core/updates.js', 'mobile-links.js': 'core/links.js', 'release-config.json': 'release-config.json', 'client.css': 'ui/client.css', 'styles.css': '../web/web-app/styles.css', 'native.js': 'platform/native.js', 'client-entry.js': 'ui/client-entry.js' });
-    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection', 'voice']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
+    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection', 'follow', 'notification-target', 'voice']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
   }
   for (const [name, source] of Object.entries(files)) copyFileSync(join(mobile, source), join(destination, name));
   writeFileSync(join(destination, 'release-config.json'), JSON.stringify(releaseConfiguration()));
@@ -81,7 +81,9 @@ export function project() {
   mkdirSync(appIcon, { recursive: true });
   copyFileSync(join(mobile, '../web/web-app/icons/apple-touch-icon.png'), join(appIcon, 'iphone-180.png'));
   writeFileSync(join(appIcon, 'Contents.json'), JSON.stringify({ images: [{ idiom: 'iphone', size: '60x60', scale: '3x', filename: 'iphone-180.png' }], info: { version: 1, author: 'xcode' } }));
-  const base = '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>' + release.version + '</string><key>CFBundleVersion</key><string>' + release.build + '</string><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>richos</string></array><key>CFBundleURLName</key><string>RichOS conversation</string></dict></array><key>LSRequiresIPhoneOS</key><true/><key>NSCameraUsageDescription</key><string>Scan the pairing code shown on your Mac.</string><key>NSMicrophoneUsageDescription</key><string>Record a voice message for Rich.</string><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
+  const previewGroup = '$(AppIdentifierPrefix)' + bundleId;
+  const previewInfo = '<key>PreviewKeychainGroup</key><string>' + previewGroup + '</string>';
+  const base = previewInfo + '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>' + release.version + '</string><key>CFBundleVersion</key><string>' + release.build + '</string><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>richos</string></array><key>CFBundleURLName</key><string>RichOS conversation</string></dict></array><key>LSRequiresIPhoneOS</key><true/><key>NSCameraUsageDescription</key><string>Scan the pairing code shown on your Mac.</string><key>NSMicrophoneUsageDescription</key><string>Record a voice message for Rich.</string><key>UILaunchScreen</key><dict/><key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>';
   writeFileSync(join(output, 'Debug.plist'), plist(base));
   writeFileSync(join(output, 'Release.plist'), plist(base));
   const quote = (s) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -89,20 +91,27 @@ export function project() {
     name: 'RichOSMobile', options: { deploymentTarget: { iOS: '16.7' } },
     settings: { base: { SWIFT_VERSION: '5.0', CODE_SIGNING_ALLOWED: 'YES', CODE_SIGN_IDENTITY: '-', TARGETED_DEVICE_FAMILY: '1', ENABLE_USER_SCRIPT_SANDBOXING: 'NO' } },
     targets: {
-      RichOSMobile: { type: 'application', platform: 'iOS', sources: [...readdirSync(join(mobile, 'ios/Sources')).filter(name=>name.endsWith('.swift')).sort().map(name=>({path:join(mobile,'ios/Sources',name)})), { path: catalog, buildPhase: 'resources' }],
+      RichOSMobile: { type: 'application', platform: 'iOS', sources: [{path:join(mobile,'ios/Shared')}, ...readdirSync(join(mobile, 'ios/Sources')).filter(name=>name.endsWith('.swift')).sort().map(name=>({path:join(mobile,'ios/Sources',name)})), { path: catalog, buildPhase: 'resources' }],
         settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: bundleId, ASSETCATALOG_COMPILER_APPICON_NAME: 'AppIcon' }, configs: {
           Debug: { INFOPLIST_FILE: join(output, 'Debug.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG' },
           Release: { INFOPLIST_FILE: join(output, 'Release.plist'), SWIFT_ACTIVE_COMPILATION_CONDITIONS: '' }
         } },
         postBuildScripts: [{ name: 'Bundle shared mobile core and UI', basedOnDependencyAnalysis: false,
           script: `${quote(process.execPath)} ${quote(join(mobile, 'cli/mobile.mjs'))} bundle "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/mobile-ui" "$CONFIGURATION" "$PLATFORM_NAME"` }] },
+      RichOSNotification: {type:'app-extension',platform:'iOS',sources:[{path:join(mobile,'ios/Shared')},{path:join(mobile,'ios/NotificationExtension')}],settings:{base:{PRODUCT_BUNDLE_IDENTIFIER:bundleId+'.notifications',INFOPLIST_FILE:join(output,'Notification.plist'),APPLICATION_EXTENSION_API_ONLY:'YES',SKIP_INSTALL:'YES'}}},
       RichOSMobileUITests: { type: 'bundle.ui-testing', platform: 'iOS', sources: [{ path: join(mobile, 'ios/UITests') }],
         dependencies: [{ target: 'RichOSMobile' }], settings: { base: { GENERATE_INFOPLIST_FILE: 'YES', PRODUCT_BUNDLE_IDENTIFIER: bundleId + '.uitests', TEST_TARGET_NAME: 'RichOSMobile' } } }
     },
     schemes: { RichOSMobile: { build: { targets: { RichOSMobile: 'all' } }, test: { targets: ['RichOSMobileUITests'], gatherCoverageData: false } } }
   };
+  writeFileSync(join(output,'Notification.plist'),plist(previewInfo + '<key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string><key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string><key>CFBundleName</key><string>RichOS Notifications</string><key>CFBundlePackageType</key><string>XPC!</string><key>CFBundleShortVersionString</key><string>'+release.version+'</string><key>CFBundleVersion</key><string>'+release.build+'</string><key>NSExtension</key><dict><key>NSExtensionPointIdentifier</key><string>com.apple.usernotifications.service</string><key>NSExtensionPrincipalClass</key><string>$(PRODUCT_MODULE_NAME).NotificationService</string></dict>'));
+  const previewEntitlement = '<key>keychain-access-groups</key><array><string>'+previewGroup+'</string></array>';
+  const extensionEntitlements = join(output,'Notification.entitlements');
+  writeFileSync(extensionEntitlements,plist(previewEntitlement));
+  spec.targets.RichOSNotification.settings.base.CODE_SIGN_ENTITLEMENTS=extensionEntitlements;
+  spec.targets.RichOSMobile.dependencies=[{target:'RichOSNotification',embed:true}];
   const entitlements = join(output, 'RichOS.entitlements');
-  writeFileSync(entitlements, plist('<key>aps-environment</key><string>$(APS_ENVIRONMENT)</string>' +
+  writeFileSync(entitlements, plist(previewEntitlement + '<key>aps-environment</key><string>$(APS_ENVIRONMENT)</string>' +
     (release.universalHosts.length ? '<key>com.apple.developer.associated-domains</key><array>' + release.universalHosts.map(host => '<string>applinks:' + host + '</string>').join('') + '</array>' : '')));
   Object.assign(spec.targets.RichOSMobile.settings.base, {CODE_SIGN_ENTITLEMENTS:entitlements});
   spec.targets.RichOSMobile.settings.configs.Debug.APS_ENVIRONMENT = 'development';

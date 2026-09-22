@@ -5,20 +5,13 @@
   const ports = RichOSNative.createPorts(call, fn => { listeners.add(fn); return () => listeners.delete(fn); });
   const fixture = globalThis.RichOSUpdateFixture ? await RichOSUpdateFixture.wrap(ports) : null;
   const app = await RichOSClient.createClient(fixture?.ports || ports);
-  let followLatest = true, renderedScrollTop=0, renderedGeometry='';
-  const atBottom = () => { const area=$('conversation'); return area.scrollHeight-area.scrollTop-area.clientHeight<=2; };
-  const geometry=()=>{const a=$('conversation');return [a.clientWidth,a.clientHeight,a.scrollHeight].join(':');};
-  function scrollLatest() {
-    $('latest').hidden=true;
-    $('conversation').scrollTop=$('conversation').scrollHeight;
-    renderedScrollTop=$('conversation').scrollTop;renderedGeometry=geometry();
-  }
+  const following=RichOSFollow.attach($('conversation'),$('history'),$('latest'));
   async function perform(action) {
     // An intentional send returns to the conversation's newest message, even
     // when the user was reading older history. Releasing a locked mic does not.
     if (['send','record-send','voice-send'].includes(action.type) ||
         (action.type==='voice-release' && ['held','preparing'].includes(current?.voice.phase))) {
-      followLatest=true; scrollLatest();
+      following.resume();
     }
     try { return await app.dispatch(action); } catch (error) { $('error').textContent = error.message; $('dialog-error').textContent = error.message; } }
   globalThis.RichOSClientInspect?.(app, fixture);
@@ -34,9 +27,9 @@
   }
   app.subscribe(state => {
     current = state;
-    const area=$('conversation'), oldHeight=area.scrollHeight, oldTop=area.scrollTop;
+    const before=following.capture();
     const changedThread=selected!==state.selectedThreadId;
-    if(changedThread)followLatest=true;
+    if(changedThread)following.resume();
     let historyChanged=false;
     $('connection').textContent = state.confirmed || state.connectionReason === 'revoked' ? (state.connectionNoticeReason===null?'':globalThis.RichOSConnection.sentence(state.connectionNoticeReason || state.connectionReason)) : '';
     $('pairing').hidden = state.confirmed; document.body.classList.toggle('is-paired',state.confirmed); document.querySelector('.pair-intro').hidden=!!state.words; $('fingerprint').hidden = !state.words; $('words').textContent = state.words || '';
@@ -101,6 +94,7 @@
     }
     $('playback-status').textContent=state.playbackState==='playing'?'Playing reply…':state.playbackState==='loading'?'Preparing reply audio…':'';
     const notifications=state.notifications;
+    $('notification-previews').checked=notifications.previews!==false;
     const notificationText={off:'Reply notifications are off.',enabled:'Reply notifications are on.',registering:'Registering with Apple and your Mac…',denied:'Notifications are denied. Enable them in iPhone Settings.',unsupported:'Update your Mac to enable native reply notifications.',disabling:'Disabling notifications when your Mac is reachable…','apple-unavailable':'Apple registration is unavailable. Retry notifications.','service-unavailable':'The notification service is unavailable. Retry notifications; your conversation still works.'};
     $('notification-status').textContent=notificationText[notifications.status] || 'Reply notifications are off.';
     $('notifications-enable').hidden=notifications.enabled;
@@ -119,41 +113,12 @@
     $('update-status').textContent = !update.configured ? 'App Store updates are not configured for this development build.' : update.error || (update.expired ? 'The last update notice expired. Checking again keeps this app usable.' : update.mode === 'none' ? 'No verified update is currently being shown.' : 'A verified update is available.');
     // Apply the scroll only after every layout change, including the composer,
     // unsent recording panel and empty state. Keep older reading positions.
-    if(followLatest)scrollLatest();
-    else if(historyChanged)area.scrollTop=state.paging?oldTop+area.scrollHeight-oldHeight:oldTop;
-    if(historyChanged && state.focusMessage) {
-      [...$('history').children].find(row=>row.dataset.messageId===state.focusMessage)?.scrollIntoView({block:'center'});
-      followLatest=atBottom();
+    following.restore(before,{prepend:historyChanged && state.paging});
+    if(state.focusMessage) {
+      const row=[...$('history').children].find(row=>row.dataset.messageId===state.focusMessage);
+      if(row){following.focus(row);void perform({type:'notification-focused',id:state.focusMessage});}
     }
-    $('latest').hidden=followLatest;
-    renderedScrollTop=area.scrollTop;renderedGeometry=geometry();
   });
-  // Capture deliberate upward movement before asynchronous message renders
-  // can pull the viewport back down. Layout-driven scroll events are different.
-  let readingTouchY=null;
-  const areaForReading=$('conversation');
-  const pauseFollowing=()=>{if(areaForReading.scrollTop>0){followLatest=false;$('latest').hidden=false;}};
-  areaForReading.addEventListener('wheel',event=>{if(event.deltaY<0)pauseFollowing();},{passive:true});
-  areaForReading.addEventListener('touchstart',event=>{readingTouchY=event.touches[0]?.clientY;},{passive:true});
-  areaForReading.addEventListener('touchmove',event=>{
-    const y=event.touches[0]?.clientY;
-    if(readingTouchY!==null && y>readingTouchY)pauseFollowing();
-    readingTouchY=y;
-  },{passive:true});
-  areaForReading.addEventListener('touchend',()=>{readingTouchY=null;},{passive:true});
-  areaForReading.addEventListener('keydown',event=>{if(['ArrowUp','PageUp','Home'].includes(event.key))pauseFollowing();});
-  $('conversation').onscroll=()=>{
-    const top=$('conversation').scrollTop;
-    // A viewport resize can emit scroll without the reader moving. Let the
-    // ResizeObserver preserve following in that case (including the keyboard).
-    if(geometry()!==renderedGeometry){if(followLatest)scrollLatest();else renderedGeometry=geometry();return;}
-    if(top===renderedScrollTop)return;
-    renderedScrollTop=top;followLatest=atBottom();$('latest').hidden=followLatest;
-  };
-  $('latest').onclick=()=>{followLatest=true;scrollLatest();};
-  // Keyboard, viewport and streamed reply growth can resize outside a render.
-  const conversationResize=new ResizeObserver(()=>{if(followLatest)scrollLatest();});
-  conversationResize.observe($('conversation'));conversationResize.observe($('history'));
   $('pair-form').onsubmit = event => { event.preventDefault(); perform({ type: 'pair', link: $('pair-link').value }); };
   $('scan').onclick = async () => { const result = await perform({ type: 'scan-pair' }); if (result?.pairingLink) { $('pair-link').value = result.pairingLink; await perform({type:'pair',link:result.pairingLink}); } };
   $('confirm').onclick = () => perform({ type: 'confirm-pair', matched: true }); $('reject').onclick = () => perform({ type: 'confirm-pair', matched: false });
@@ -193,6 +158,7 @@
   mic.onclick=event=>{if(event.detail===0)void perform({type:'voice-press'}).then(()=>perform({type:'voice-lock'}));};
   $('voice-send').onclick=()=>perform({type:'voice-send'});$('voice-cancel').onclick=()=>perform({type:'voice-cancel'});$('voice-lock').onclick=()=>perform({type:'voice-lock'});
   setInterval(()=>{const start=current?.voice.startedAt;const seconds=start?Math.max(0,Math.floor((Date.now()-start)/1000)):0;const value=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;if($('voice-timer').textContent!==value)$('voice-timer').textContent=value;},250);
+  $('notification-previews').onchange=()=>perform({type:'notifications-previews',enabled:$('notification-previews').checked});
   $('settings-open').onclick=()=>$('settings').showModal();$('settings-close').onclick=()=>$('settings').close();
   for (const type of ['notifications-enable','notifications-disable','notifications-refresh']) $(type).onclick=()=>perform({type});
   $('permissions').onclick = () => perform({ type: 'settings' }); $('support').onclick = $('dialog-support').onclick = () => perform({ type: 'support' });

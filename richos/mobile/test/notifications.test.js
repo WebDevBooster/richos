@@ -64,6 +64,9 @@ test('APNs signs only the chosen environment and sends a generic alert with opaq
  assert.equal(JSON.parse(request.options.body).aps.alert.body,'Rich has replied.');
  assert.equal(request.options.redirect,'manual');assert.equal(request.options.headers['apns-topic'],env.APNS_TOPICS);
  assert(!request.options.body.includes('private'));assert(!request.options.body.includes(key));
+ const preview={v:1,nonce:'a'.repeat(16),body:'b'.repeat(100)};
+ await provider.send({host_id:'a'.repeat(32),token:'d'.repeat(64),environment:'sandbox',topic:env.APNS_TOPICS},{event_ref:'b'.repeat(64),thread_ref:'c'.repeat(64),expires_at:1790003600000,preview:JSON.stringify(preview)});
+ const sealed=JSON.parse(request.options.body);assert.deepEqual(sealed.preview,preview);assert.equal(sealed.aps['mutable-content'],1);assert.equal(sealed.aps.alert.body,'Rich has replied.');
 });
 test('default provider transport calls global fetch with its native receiver',async()=>{
  const {APNs}=await import('../service/connect/apns.mjs');const original=globalThis.fetch;
@@ -72,4 +75,14 @@ test('default provider transport calls global fetch with its native receiver',as
   const provider=new APNs({APNS_TEAM_ID:'A123456789',APNS_SANDBOX_KEY_ID:'B123456789',APNS_SANDBOX_KEY:'fixture',APNS_TOPICS:'dev.richos.mobile.integration'});provider.token=async()=> 'signed-fixture';
   const result=await provider.send({token:'a'.repeat(64),environment:'sandbox',topic:'dev.richos.mobile.integration'},{event_ref:'b'.repeat(64),expires_at:Date.now()+1000});assert.equal(result.outcome,'invalid');
  }finally{globalThis.fetch=original;}
+});
+
+test('provider retains only bounded ciphertext and refuses plaintext preview fields',async t=>{
+ const f=await setup(t),preview={v:1,nonce:'a'.repeat(16),body:'b'.repeat(100)};
+ assert.equal((await f.send('/v1/push/events',{...f.event,preview})).status,202);
+ assert.equal(f.pushes.length,1);assert.equal(f.pushes[0].job.preview,JSON.stringify(preview));
+ assert.equal((await f.send('/v1/push/events',{...f.event,preview:{...preview,body:'c'.repeat(100)}})).status,409);
+ for(const invalid of [{text:'private'}, {...preview,body:'a'.repeat(1400)}, {...preview,nonce:'short'}, {...preview,v:2}]) {
+  assert.equal((await f.send('/v1/push/events',{...f.event,preview:invalid})).status,400);
+ }
 });

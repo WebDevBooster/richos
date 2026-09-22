@@ -1,0 +1,16 @@
+{
+  "key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+  "text": "The supplier accepted £42,000. Your approval is needed.",
+  "payload": {
+    "richos": {
+      "host": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "thread": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "preview": {
+      "v": 1,
+      "nonce": "CQkJCQkJCQkJCQkJ",
+      "body": "c-3htM2FsRHMC65KxovAvLHAF5ZQzjVjW5xqluVEL1qKipKxwjNaYA3c03coFIqnXDr78XbxymBH6z5pqbYRSOqSk9ipbsuc"
+    }
+  }
+}

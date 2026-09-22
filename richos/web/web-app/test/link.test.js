@@ -528,13 +528,14 @@ test('the shipped phone app routes a stream revocation to its removed-phone scre
 	let handlers;
 	const context = vm.createContext({
 		RichOSLink: { createLink },
-		api: { openEvents: async (_thread, _cursor, h) => { handlers = h; return { close() {} }; } },
-		thread: { latestCursor: () => 0 }, currentThreadId: 't-1', linkStateNow: 'opening',
+		api: { refreshChallenge: async () => {}, openEvents: async (_thread, _cursor, h) => { handlers = h; return { close() {} }; } },
+		thread: { latestCursor: () => 0, view: () => [] }, currentThreadId: 't-1', linkStateNow: 'opening',
 		setLinkState() {}, updateQueueBanner() {},
 		goRevoked: () => { removed += 1; }
 	});
 	vm.runInContext(make + '\n' + handle + '\nglobalThis.testLink = makeLink();', context);
 	context.testLink.connect();
+	await settle();
 	await settle();
 	handlers.error({ reason: 'revoked' });
 	assert.strictEqual(removed, 1);
