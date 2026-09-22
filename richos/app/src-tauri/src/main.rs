@@ -1751,6 +1751,9 @@ fn install_correction_desk(
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--richos-connect-guard") {
+        std::process::exit(phone::connect::supervisor::guard_main());
+    }
     // This is compile-generated metadata, before any application runtime exists.
     // Use the same merged build version for the probe, startup and final app.
     let context = tauri::generate_context!();
