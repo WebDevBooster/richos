@@ -74,7 +74,13 @@ public enum CoreJSON {
 /// "the OS said the microphone is allowed", "the Mac accepted the message" — which the store
 /// dispatches like any other, so an answer can never bypass the reducer.
 public protocol EffectHandler: Sendable {
+    /// Whether this handler takes `effect` (a composite routes by it).
+    func handles(_ effect: Effect) -> Bool
     func handle(_ effect: Effect, state: AppState) async -> [Action]
+}
+
+extension EffectHandler {
+    public func handles(_ effect: Effect) -> Bool { true }
 }
 
 /// Performs the effects a reducer asked for, through the ports. An actor, not main-actor-bound: the

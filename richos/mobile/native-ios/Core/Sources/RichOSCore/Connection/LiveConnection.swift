@@ -26,6 +26,10 @@ public actor LiveConnection {
     private var model: ThreadModel
     /// What the store has been told, by row id, so only changes are sent.
     private var told: [String: StreamRow] = [:]
+    /// The last frame's `id:` (the live cursor). A reconnect resumes from it — never from a row's
+    /// history cursor or `latest_cursor`, which drift apart (Echo's measurement: three live cursors
+    /// per phone message, two history positions).
+    private var lastFrameID: Int?
     private var task: Task<Void, Never>?
     private var generation = 0
     public private(set) var attempts = 0
@@ -52,6 +56,15 @@ public actor LiveConnection {
         generation += 1
         task?.cancel()
         task = nil
+    }
+
+    /// The oldest cursor held, for `before=` when older history is asked for.
+    public func oldestCursor() -> Int? { model.view.first?.cursor }
+
+    /// An older page fetched elsewhere joins the model, so later frames and pages line up with it.
+    public func prepend(_ rows: [StreamRow], more: Bool) {
+        model.prependOlder(rows, more: more)
+        for row in rows { told[row.id] = row }
     }
 
     /// Waits for the current run to end (tests).
@@ -97,10 +110,11 @@ public actor LiveConnection {
             guard mine == generation, !Task.isCancelled else { return }
             if resnapshot {
                 since = nil
+                lastFrameID = nil
                 told = [:]
                 model = ThreadModel(selectedThread: threadID)
             } else {
-                since = model.view.last.map { max(0, $0.cursor - 1) }
+                since = lastFrameID.map { max(0, $0 - 1) }
                 await sink(.connectionLost(at: clock.nowMs()))
                 if await probeRevoked() {
                     await sink(.pairingRevoked)
@@ -125,6 +139,7 @@ public actor LiveConnection {
     }
 
     private func apply(_ event: SSEParser.Event) async throws {
+        if let id = event.id { lastFrameID = id }
         if event.event == "hello" {
             let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
             if let challenge = hello.challenge { await api.adopt(challenge: challenge) }

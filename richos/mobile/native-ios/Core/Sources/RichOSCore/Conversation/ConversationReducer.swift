@@ -173,9 +173,17 @@ public enum ConversationReducer {
                 s.messages.append(message)
             }
         }
-        s.messages = s.messages.enumerated()
-            .sorted { $0.element.sentAt != $1.element.sentAt ? $0.element.sentAt < $1.element.sentAt : $0.offset < $1.offset }
-            .map(\.element)
+        // The Mac's rows in history-cursor order; the phone's own bubbles (no cursor yet) after them
+        // in the order they were sent.
+        s.messages = s.messages.enumerated().sorted { a, b in
+            switch (a.element.cursor, b.element.cursor) {
+            case let (x?, y?) where x != y: return x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default:
+                return a.element.sentAt != b.element.sentAt ? a.element.sentAt < b.element.sentAt : a.offset < b.offset
+            }
+        }.map(\.element)
     }
 
     /// The text request body (contract §5.2), in the reference's field order, serialized once.

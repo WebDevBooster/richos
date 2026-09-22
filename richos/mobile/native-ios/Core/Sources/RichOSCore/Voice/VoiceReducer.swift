@@ -90,7 +90,7 @@ enum VoiceReducer {
             } else {
                 end(&s, .canceled, &effects)
             }
-        case .voiceInterrupted(let at):
+        case .voiceInterrupted(let at), .backgrounded(let at):
             // The app left the screen, or the OS took the audio: keep what was recorded. Never a send.
             guard let v = s.voice else { return }
             s.voice?.nowMs = at

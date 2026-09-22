@@ -281,6 +281,8 @@ public enum PairingProblem: Codable, Equatable, Sendable {
     case sessionNeedsNewerApp
     /// A pasted or scanned link is not a pairing link; the text is the reference client's message.
     case invalidLink(String)
+    /// No Mac answered the pairing request: check that the Mac is awake and the route reachable.
+    case macUnreachable
 }
 
 /// Round-12 screen identifiers for the FULL-SCREEN surfaces, spelled as
@@ -324,11 +326,14 @@ public struct Message: Codable, Equatable, Identifiable, Sendable {
     /// The idempotency key of one of your messages: the phone's own bubble carries it as its id, and
     /// the Mac's projected row carries it here, which is how the row replaces the bubble.
     public var clientID: String?
+    /// The Mac's history position; the conversation is ordered by it. `nil` for the phone's own
+    /// bubbles until the Mac's row replaces them.
+    public var cursor: Int?
 
     public init(id: String, author: Author, kind: Kind = .text, text: String, sentAt: Int64,
-                delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil) {
+                delivery: Delivery? = nil, durationMs: Int? = nil, levels: [Double]? = nil, clientID: String? = nil, cursor: Int? = nil) {
         self.id = id; self.author = author; self.kind = kind; self.text = text; self.sentAt = sentAt
-        self.delivery = delivery; self.durationMs = durationMs; self.levels = levels; self.clientID = clientID
+        self.delivery = delivery; self.durationMs = durationMs; self.levels = levels; self.clientID = clientID; self.cursor = cursor
     }
 }
 

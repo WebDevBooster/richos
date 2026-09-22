@@ -92,13 +92,19 @@ import Testing
         // Echo's 4ce79d6e: duration_ms on the note's row in hello and backfill; kind stays "text".
         let note = try CoreJSON.decode(StreamRow.self, from: Data(#"{"id":"turn_12:user","thread_id":"thr_5c1e","cursor":9,"role":"ceo","kind":"text","text":"call Dana at noon","created_at":"2026-09-22T13:09:00.000Z","complete":true,"duration_ms":8250}"#.utf8))
         #expect(note.durationMs == 8250)
-        #expect(note.message == Message(id: "turn_12:user", author: .me, kind: .voice, text: "call Dana at noon", sentAt: 1_790_082_540_000, durationMs: 8250))
+        #expect(note.message == Message(id: "turn_12:user", author: .me, kind: .voice, text: "call Dana at noon", sentAt: 1_790_082_540_000, durationMs: 8250, cursor: 9))
         let live = try CoreJSON.decode(StreamRow.self, from: Data(#"{"id":"turn_12:user","thread_id":"thr_5c1e","cursor":9,"role":"ceo","kind":"text","text":"call Dana at noon","complete":true}"#.utf8))
         #expect(live.durationMs == nil && live.message.kind == .text && live.message.durationMs == nil, "absent: no length, never 0:00")
         // Every corpus row decodes, and none claims a length it was not given.
         let hello = try #require((try Corpus.cases(try Corpus.load("events"), "hello_cases")).first?["hello"] as? [String: Any])
         let rows = try CoreJSON.decode([StreamRow].self, from: JSONSerialization.data(withJSONObject: hello["messages"] ?? []))
         #expect(rows.allSatisfy { $0.durationMs == nil })
+    }
+
+    @Test func framesCarryTheirLiveCursor() throws {
+        var parser = SSEParser()
+        let events = parser.feed(Data("id: 9\nevent: message\ndata: {}\n\n: keep-alive\nevent: delta\ndata: {}\n\n".utf8)).events
+        #expect(events.map(\.id) == [9, nil], "an id belongs to its own frame only")
     }
 
     @Test func everyAdvertisedAPIBaseIsAcceptedOrRefusedAsRecorded() throws {

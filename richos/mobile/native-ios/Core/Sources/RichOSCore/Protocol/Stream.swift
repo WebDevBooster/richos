@@ -8,10 +8,17 @@ public struct SSEParser: Sendable {
     public struct Event: Equatable, Sendable {
         public var event: String
         public var data: String
+        /// The frame's `id:` — the Mac's LIVE cursor, which is what a reconnect resumes from.
+        public var id: Int?
+
+        public init(event: String, data: String, id: Int? = nil) {
+            self.event = event; self.data = data; self.id = id
+        }
     }
 
     private var buffer = Data()
     private var eventName = ""
+    private var eventID: Int?
     private var dataLines: [String] = []
 
     public init() {}
@@ -30,9 +37,10 @@ public struct SSEParser: Sendable {
             let line = String(decoding: lineBytes, as: UTF8.self)
             if line.isEmpty {
                 if !dataLines.isEmpty {
-                    events.append(Event(event: eventName.isEmpty ? "message" : eventName, data: dataLines.joined(separator: "\n")))
+                    events.append(Event(event: eventName.isEmpty ? "message" : eventName, data: dataLines.joined(separator: "\n"), id: eventID))
                 }
                 eventName = ""
+                eventID = nil
                 dataLines = []
             } else if line.hasPrefix(":") {
                 comments.append(String(line.dropFirst()).trimmingCharacters(in: .whitespaces))
@@ -50,7 +58,8 @@ public struct SSEParser: Sendable {
                 switch field {
                 case "event": eventName = String(value)
                 case "data": dataLines.append(String(value))
-                default: break  // `id` and anything else: the reference parser ignores them
+                case "id": eventID = Int(value)
+                default: break
                 }
             }
         }
@@ -108,7 +117,7 @@ public struct StreamRow: Codable, Equatable, Sendable {
         let sentAt = createdAt.flatMap { formatter.date(from: $0) }.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
         let voice = durationMs != nil || kind == "voice"
         return Message(id: id, author: role == "ceo" ? .me : .rich, kind: voice ? .voice : .text, text: text, sentAt: sentAt,
-                       durationMs: durationMs, clientID: clientID)
+                       durationMs: durationMs, clientID: clientID, cursor: cursor)
     }
 }
 

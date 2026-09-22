@@ -83,6 +83,8 @@ public actor APIClient {
     public func signed(_ method: String, _ pathWithQuery: String, body: Data? = nil, contentType: String? = nil,
                        credential: Credential = .header) async throws -> HTTPResponse {
         var resigned = false
+        // After a relaunch no challenge is held: the probe asks for one (contract §5.7).
+        if challenge == nil { try await probeChallenge() }
         while true {
             guard let current = challenge else { throw APIError(reason: .fault, status: 0, retryable: true, aboutThisMessage: false) }
             let request = try await signedRequest(method, pathWithQuery, body: body, contentType: contentType, credential: credential)

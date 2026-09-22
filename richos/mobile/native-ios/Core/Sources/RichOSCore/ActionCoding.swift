@@ -50,13 +50,13 @@ extension Action: Codable {
 
     public static let knownTypes = [
         "compose", "set-appearance",
-        "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused",
+        "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused", "pairing-unreachable",
         "confirm-pair", "accept-consent", "dismiss-pairing-problem", "open-sheet", "close-sheet",
         "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
-        "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked",
+        "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded",
         "voice-press", "voice-start-locked", "microphone-permission", "voice-move", "voice-release", "voice-locked-send",
         "voice-locked-cancel", "voice-touch-canceled", "voice-interrupted", "voice-level", "voice-settled",
         "send-kept", "discard-kept", "record-play",
@@ -85,6 +85,7 @@ extension Action: Codable {
         case "camera-permission": self = .cameraPermission(try need(w.permission, "permission"))
         case "pairing-answered": self = .pairingAnswered(try need(w.answer, "answer"))
         case "pairing-refused": self = .pairingRefused
+        case "pairing-unreachable": self = .pairingUnreachable
         case "confirm-pair": self = try need(w.matched, "matched") ? .confirmWords : .rejectWords
         case "accept-consent": self = .acceptConsent
         case "dismiss-pairing-problem": self = .dismissPairingProblem
@@ -118,6 +119,8 @@ extension Action: Codable {
         case "connection-diagnosed": self = .connectionDiagnosed(try need(w.notice, "notice"))
         case "mac-capabilities": self = .macCapabilities(text: try need(w.acceptsText, "acceptsText"), voice: try need(w.acceptsVoice, "acceptsVoice"))
         case "pairing-revoked": self = .pairingRevoked
+        case "foregrounded": self = .foregrounded(at: now)
+        case "backgrounded": self = .backgrounded(at: now)
         case "voice-press": self = .voicePress(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "voice-start-locked": self = .voiceStartLocked(id: w.id ?? UUID().uuidString.lowercased(), width: try need(w.width, "width"), at: now)
         case "microphone-permission": self = .microphonePermission(try need(w.permission, "permission"))
@@ -167,6 +170,7 @@ extension Action: Codable {
         case .cameraPermission(let p): w = Wire("camera-permission"); w.permission = p
         case .pairingAnswered(let a): w = Wire("pairing-answered"); w.answer = a
         case .pairingRefused: w = Wire("pairing-refused")
+        case .pairingUnreachable: w = Wire("pairing-unreachable")
         case .confirmWords: w = Wire("confirm-pair"); w.matched = true
         case .rejectWords: w = Wire("confirm-pair"); w.matched = false
         case .acceptConsent: w = Wire("accept-consent")
@@ -201,6 +205,8 @@ extension Action: Codable {
         case .connectionDiagnosed(let n): w = Wire("connection-diagnosed"); w.notice = n
         case .macCapabilities(let t, let v): w = Wire("mac-capabilities"); w.acceptsText = t; w.acceptsVoice = v
         case .pairingRevoked: w = Wire("pairing-revoked")
+        case .foregrounded(let at): w = Wire("foregrounded"); w.at = at
+        case .backgrounded(let at): w = Wire("backgrounded"); w.at = at
         case .voicePress(let id, let width, let at): w = Wire("voice-press"); w.id = id; w.width = width; w.at = at
         case .voiceStartLocked(let id, let width, let at): w = Wire("voice-start-locked"); w.id = id; w.width = width; w.at = at
         case .microphonePermission(let p): w = Wire("microphone-permission"); w.permission = p
