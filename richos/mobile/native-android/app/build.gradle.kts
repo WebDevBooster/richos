@@ -9,7 +9,10 @@ android {
     // The Kotlin package root. `native` is a Java keyword, so the development application ID
     // below cannot double as the namespace.
     namespace = "dev.richos.android"
-    compileSdk = 36
+    // Compile against 37: the current Compose (BOM 2026.09.00, Compose 1.12) and lifecycle 2.11
+    // refuse anything lower (checkAarMetadata). The TARGET stays 36, which is what the plan and
+    // Google Play's rule are about; compiling against a newer SDK changes no runtime behavior.
+    compileSdk = 37
 
     defaultConfig {
         // Development ID (Rich, 2026-09-22). The production IDs are the CEO's, later.
