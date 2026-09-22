@@ -10,16 +10,18 @@ enum Intent: Equatable, Sendable {
     case sendText
     case setComposerFocus(Bool)
     // Voice: the finger and the frame clock, reported; the core's gesture decides (build plan §3.2).
-    case voicePress(atMs: Int64)
+    case voicePress(width: Double, atMs: Int64)
     case voiceMove(dx: Double, dy: Double, atMs: Int64)
     case voiceRelease(atMs: Int64)
     case voiceLockedSend(atMs: Int64)
     case voiceLockedCancel(atMs: Int64)
+    /// The system took the touch away (not a release): never a send.
+    case voiceTouchCanceled(atMs: Int64)
     case voiceInterrupted(atMs: Int64)
     case voiceTick(atMs: Int64)
     case voiceSettled
     /// VoiceOver's "Record hands-free": start a recording already locked.
-    case voiceRecordHandsFree(atMs: Int64)
+    case voiceRecordHandsFree(width: Double, atMs: Int64)
     case sendKept(id: String)
     case discardKept(id: String)
     case playVoice(id: String)
@@ -84,6 +86,19 @@ enum Intent: Equatable, Sendable {
         switch self {
         case .compose(let text): return .compose(text: text)
         case .sendText: return .sendDraftNow()
+        case .voicePress(let width, let at): return .voicePress(id: Self.recordingID(), width: width, at: at)
+        case .voiceRecordHandsFree(let width, let at): return .voiceStartLocked(id: Self.recordingID(), width: width, at: at)
+        case .voiceMove(let dx, let dy, let at): return .voiceMove(dx: dx, dy: dy, at: at)
+        case .voiceRelease(let at): return .voiceRelease(at: at)
+        case .voiceLockedSend(let at): return .voiceLockedSend(at: at)
+        case .voiceLockedCancel(let at): return .voiceLockedCancel(at: at)
+        case .voiceTouchCanceled(let at): return .voiceTouchCanceled(at: at)
+        case .voiceInterrupted(let at): return .voiceInterrupted(at: at)
+        case .voiceTick(let at): return .tick(at: at)
+        case .voiceSettled: return .voiceSettled
+        case .sendKept(let id): return .sendKept(id: id, at: now)
+        case .discardKept(let id): return .discardKept(id: id)
+        case .playVoice(let id): return .playRecording(id: id)
         case .setComposerFocus(let focused): return .setComposerFocus(focused)
         case .setFollowing(let following): return .setFollowing(following)
         case .loadOlder: return .loadOlder
@@ -111,4 +126,8 @@ enum Intent: Equatable, Sendable {
         default: return nil
         }
     }
+
+    /// A fresh name for a recording, stamped at the edge like `Action.sendDraftNow()`'s key, so the
+    /// reducer stays pure.
+    static func recordingID() -> String { UUID().uuidString.lowercased() }
 }

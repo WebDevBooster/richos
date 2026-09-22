@@ -26,6 +26,8 @@ struct ComposerView: View {
     @State private var endedAt: Date?
     @State private var lockedAt: Date?
     @State private var touching = false
+    @State private var startedLocked = false
+    @GestureState private var gestureActive = false
     @State private var fieldHeight: CGFloat = 24
 
     private var hasPending: Bool { !pending.isEmpty }
@@ -45,7 +47,7 @@ struct ComposerView: View {
                         VoiceChrome(session: voice, clock: clock, anchor: anchor, capsuleWidth: width,
                                     reduceMotion: reduceMotion) { send(.voiceLockedCancel(atMs: VoiceClock.nowMs())) }
                     }
-                    orb(anchor: anchor, clock: clock)
+                    orb(anchor: anchor, clock: clock, width: width)
                 }
             }
         }
@@ -186,7 +188,7 @@ struct ComposerView: View {
 
     // MARK: The orb
 
-    @ViewBuilder private func orb(anchor: CGPoint, clock: VoiceClock) -> some View {
+    @ViewBuilder private func orb(anchor: CGPoint, clock: VoiceClock, width: CGFloat) -> some View {
         let disabled = composer.disabledReason != nil || (!composer.voiceAvailable && !typing)
         let look = OrbLook(session: voice, clock: clock, reduceMotion: reduceMotion)
         ZStack {
@@ -222,7 +224,17 @@ struct ComposerView: View {
         .offset(x: look.follow)
         .contentShape(Circle().inset(by: -6))
         .position(anchor)
-        .gesture(orbGesture, including: disabled ? .none : .all)
+        .gesture(orbGesture(width: width), including: disabled ? .none : .all)
+        .onChange(of: gestureActive) { _, active in
+            // The system ended the touch without a release (a call, Control Center, a system gesture):
+            // report it as canceled, never as a release (PRD §5).
+            guard !active, touching else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                guard touching else { return }
+                touching = false
+                send(.voiceTouchCanceled(atMs: VoiceClock.nowMs()))
+            }
+        }
         .accessibilityElement()
         .accessibilityLabel(accessibilityLabel(disabled: disabled))
         .accessibilityHint(typing || disabled ? "" : "Double-tap and hold to record. Or use the actions to record hands-free.")
@@ -235,7 +247,7 @@ struct ComposerView: View {
                     Button("Cancel recording") { send(.voiceLockedCancel(atMs: VoiceClock.nowMs())) }
                 } else if voice == nil {
                     // VoiceOver cannot slide: record hands-free, as if locked (ledger X1: named actions).
-                    Button("Record hands-free") { send(.voiceRecordHandsFree(atMs: VoiceClock.nowMs())) }
+                    Button("Record hands-free") { send(.voiceRecordHandsFree(width: Double(width), atMs: VoiceClock.nowMs())) }
                 }
             }
         }
@@ -256,24 +268,29 @@ struct ComposerView: View {
 
     /// One finger, reported as it moves. A tap on the send arrow sends the draft; on the locked circle,
     /// the recording.
-    private var orbGesture: some Gesture {
+    ///
+    /// A touch that STARTED on the locked circle is the locked Send; the finger that slid up to lock
+    /// lifting off is a release, which the core ignores while locked (the recording goes on).
+    private func orbGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .updating($gestureActive) { _, active, _ in active = true }
             .onChanged { value in
                 let now = VoiceClock.nowMs()
                 if !touching {
                     touching = true
-                    if typing || isLocked { return }
-                    send(.voicePress(atMs: now))
+                    startedLocked = isLocked
+                    if typing || startedLocked { return }
+                    send(.voicePress(width: Double(width), atMs: now))
                     return
                 }
-                if typing || isLocked { return }
+                if typing || startedLocked || isLocked { return }
                 send(.voiceMove(dx: value.translation.width, dy: value.translation.height, atMs: now))
             }
             .onEnded { _ in
                 defer { touching = false }
                 let now = VoiceClock.nowMs()
                 if typing { send(.sendText); return }
-                if isLocked { send(.voiceLockedSend(atMs: now)); return }
+                if startedLocked { send(.voiceLockedSend(atMs: now)); return }
                 send(.voiceRelease(atMs: now))
             }
     }
