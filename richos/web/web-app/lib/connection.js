@@ -23,6 +23,7 @@
   function sentence(reason) {
     return {
       connected:'Connected to your Mac',
+      reconnecting:'Reconnecting… Your messages are saved.',
       'phone-offline':'Your phone has no internet connection. Messages stay on this phone.',
       'service-unavailable':'RichOS Connect is temporarily unavailable. Messages stay on this phone.',
       'mac-unreachable':'Your Mac cannot be reached. Keep it awake with RichOS running. Messages stay on this phone.',

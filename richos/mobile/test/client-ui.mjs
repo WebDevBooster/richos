@@ -23,7 +23,7 @@ export async function clientUI({engine='chromium'}={}) {
     await seed.dispatch({type:'confirm-pair',matched:true}); seed.close();
     await context.addInitScript(initial => {
       let data=initial, files=[{id:'retained',seconds:9,threadId:'general',origin:'https://mac.example'}], recording=false, serial=0;
-      window.__voiceCalls=[];
+      window.__voiceCalls=[];window.__streamCount=0;
       window.webkit = { messageHandlers: { richos: { async postMessage({ method, args }) {
         if (method === 'load') return data;
         if (method === 'save') { await new Promise(resolve => setTimeout(resolve, 25)); data = args.value; return true; }
@@ -34,7 +34,8 @@ export async function clientUI({engine='chromium'}={}) {
         if (method === 'recordCancel') {recording=false;window.__voiceCalls.push(method);return true;}
         if (['configure','sign','hash','recordHash'].includes(method)) return method==='hash'?'0'.repeat(64):'fixture';
         if (method === 'streamClose') return true;
-        if (method === 'streamOpen') {window.__message=frame=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: message\ndata: '+JSON.stringify(frame)+'\n\n')});window.__hello=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: hello\ndata: '+JSON.stringify({capabilities:['text','voice','audio']})+'\n\n')});return true;}
+        if (method === 'connectHealth')return {serviceState:'available'};
+        if (method === 'streamOpen') {window.__streamCount++;window.__disconnect=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-error'});window.__open=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-open'});window.__message=frame=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: message\ndata: '+JSON.stringify(frame)+'\n\n')});window.__hello=()=>window.RichOSNativeEvent({id:args.id,kind:'stream-data',data:btoa('event: hello\ndata: '+JSON.stringify({capabilities:['text','voice','audio']})+'\n\n')});return true;}
         if (method === 'request') return {status:200,body:JSON.stringify({messages:[]}),headers:{'X-RichOS-Challenge':'fresh'}};
         if (method === 'incomingLink' || method === 'pushIncoming') return null;
         throw Error(method);
@@ -50,6 +51,17 @@ export async function clientUI({engine='chromium'}={}) {
     await page.waitForFunction(()=>typeof window.__hello==='function');
     await page.evaluate(()=>window.__hello());
     await page.waitForFunction(()=>!document.querySelector('#recordings button[aria-label="Send unsent recording"]').disabled);
+    assert.equal(await page.locator('#connection').textContent(),'','Healthy operation needs no connection announcement');
+    const headerBefore=await page.locator('.topbar').boundingBox();
+    const streamBefore=await page.evaluate(()=>window.__streamCount);
+    await page.evaluate(()=>window.__disconnect());
+    await page.waitForFunction(()=>document.getElementById('connection').textContent==='');
+    assert.equal((await page.locator('.topbar').boundingBox()).height,headerBefore.height,'Brief reconnection must not move the conversation');
+    assert.equal(await page.locator('#error').textContent(),'');
+    assert(await message.isEnabled(),'The composer stays usable during recovery');
+    await page.waitForFunction(n=>window.__streamCount>n,streamBefore);
+    await page.evaluate(()=>window.__open());
+    await page.waitForFunction(()=>document.getElementById('connection').textContent==='');
     const text = 'Native phone check 0123456789';
     await message.pressSequentially(text, { delay: 1 });
     await page.waitForFunction(value => document.querySelector('#message').value === value, text);
@@ -158,6 +170,6 @@ export async function clientUI({engine='chromium'}={}) {
     await page.getByRole('button',{name:'Settings',exact:true}).click();
     await page.getByRole('button',{name:'Close settings',exact:true}).click();
     assert.deepEqual(errors, []);
-    return { engine, rapidTypingPreserved: true, bothThemesFitPhoneWidths: true, sendsFollowLatest: true, streamedRepliesFollowLatest: true, deliberateSmallScrollPauses: true, latestButtonResumes: true, olderReadingPreserved: true, lockedCancelCentred: true };
+    return { engine, briefReconnectInvisible:true, rapidTypingPreserved: true, bothThemesFitPhoneWidths: true, sendsFollowLatest: true, streamedRepliesFollowLatest: true, deliberateSmallScrollPauses: true, latestButtonResumes: true, olderReadingPreserved: true, lockedCancelCentred: true };
   } finally { await browser?.close(); rmSync(scratch, { recursive: true, force: true }); }
 }

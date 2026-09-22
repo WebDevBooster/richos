@@ -269,7 +269,7 @@ the normal installed app and other conversations are outside its scope.
 `device verify preview` installs the current integration build and leaves its existing
 conversation open for manual testing. It requires `RICHOS_MOBILE_TEST_APP=integration`
 and a connected paired Mac. It neither resets the session nor sends, records or discards
-anything. Its connected-composer assertion is readiness evidence, not a voice gesture proof.
+anything. Its normal-composer assertion is readiness evidence, not a connectivity or voice gesture proof.
 
 The native conversation follows its newest message by default, including outgoing
 held/locked voice, text sends, growing replies and composer/viewport resizing.
@@ -281,3 +281,22 @@ uses trusted touch inputs; WebKit uses dispatched Touch Events for mic gestures 
 real browser layout. Neither substitutes for physical iPhone gesture acceptance.
 The same suite requires locked Cancel to stay centred, with at least 24 px separation
 from Send and 44 px minimum tap targets at 320, 375 and 430 px widths.
+
+
+Routine native reconnects are presentation-silent for three seconds: the transport
+is offline and the outbox retains work, while the ordinary header shows no connection status at all. Healthy operation is never announced. A sustained interruption shows a calm reconnecting notice. Known
+phone-offline, service-unavailable, revocation and incompatibility states remain
+explicit. An opening stream is never evidence that the Mac is asleep. Native stream
+startup refreshes the public authentication challenge before signing, including after
+suspension. Confirmed stream acceptance clears transient errors even without a hello
+frame. Headless fake-clock and Chromium/WebKit DOM tests protect these transitions.
+
+`device verify reconnect` is restricted to the integration app. It preserves the paired
+session, performs two background/foreground cycles and checks the quiet, usable
+conversation for 35 seconds. Actual delivery is proved by the text/voice selections. It sends no message, records nothing and leaves the conversation
+open. This is bounded recovery/idle evidence, not proof of every network condition.
+
+Native resume requests one previously observed row as well as newer frames. The shared
+thread model deduplicates the replay, while that immediate body avoids waiting for the
+15-second heartbeat when an existing Mac/proxy would otherwise return an empty tail.
+Incomplete reply replay keeps its earlier cursor, so missed deltas remain recoverable.

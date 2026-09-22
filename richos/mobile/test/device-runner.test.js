@@ -105,6 +105,7 @@ test('recording cleanup requires the disposable app and an explicit cleanup conf
   writeFileSync(process.env.RICHOS_MOBILE_TEST_CONFIG,'{}');
   await assert.rejects(device('verify','cleanup',ports),/disposable integration app/);
   await assert.rejects(device('verify','preview',ports),/disposable integration app/);
+  await assert.rejects(device('verify','reconnect',ports),/disposable integration app/);
   process.env.RICHOS_MOBILE_TEST_APP='integration';
   await assert.rejects(device('verify','cleanup',ports),/cleanupTestRecordings/);
   assert.equal(calls,0);

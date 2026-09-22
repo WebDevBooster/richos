@@ -81,7 +81,7 @@ final class NativeClientTests: XCTestCase {
             XCTAssertTrue(app.webViews.staticTexts[config["words"]!].exists, "The phone must derive the test server's exact fingerprint phrase")
             app.webViews.buttons["They match"].tap()
         }
-        XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.webViews.textViews["Message"].waitForExistence(timeout: 20))
         return (app, config)
     }
 
@@ -176,7 +176,7 @@ final class NativeClientTests: XCTestCase {
         XCTAssertTrue(reply.waitForExistence(timeout: 20), "Reply must arrive through the authenticated native event stream")
         XCTAssertEqual(app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", message)).count, 1, "The sent message must appear once")
         app.terminate(); app.launch()
-        XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.webViews.textViews["Message"].waitForExistence(timeout: 20))
         XCTAssertTrue(reply.waitForExistence(timeout: 10), "Cached reply must survive process termination")
         // A cached bubble alone cannot prove the restarted stream works.
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.2)).tap()
@@ -210,6 +210,7 @@ final class NativeClientTests: XCTestCase {
     private func lockMicrophone(_ app: XCUIApplication) throws {
         let mic=app.webViews.buttons["Hold to record"]
         XCTAssertTrue(mic.waitForExistence(timeout:15))
+        expectation(for:NSPredicate { _, _ in mic.isEnabled },evaluatedWith:nil);waitForExpectations(timeout:15)
         let start=mic.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5))
         start.press(forDuration:0.5,thenDragTo:start.withOffset(CGVector(dx:0,dy:-110)))
         let springboard=XCUIApplication(bundleIdentifier:"com.apple.springboard")
@@ -218,6 +219,37 @@ final class NativeClientTests: XCTestCase {
             start.press(forDuration:0.5,thenDragTo:start.withOffset(CGVector(dx:0,dy:-110)))
         }
         XCTAssertTrue(app.webViews.buttons["Send voice message"].waitForExistence(timeout:10),"Slide up must lock the microphone")
+    }
+
+    func testIntegrationForegroundReconnect() throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("This check exercises the paired physical integration session")
+        #else
+        guard Bundle(for: Self.self).bundleIdentifier == "dev.richos.mobile.integration.uitests" else {
+            throw XCTSkip("Preserve the production app during manual testing")
+        }
+        let app=XCUIApplication();app.launchArguments=["--native-client"];app.launch()
+        XCTAssertTrue(app.webViews.textViews["Message"].waitForExistence(timeout:5))
+        XCTAssertFalse(app.webViews.staticTexts["Connected to your Mac"].exists)
+        for _ in 0..<2 {
+            XCUIDevice.shared.press(.home)
+            app.activate()
+            XCTAssertFalse(app.webViews.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","Your Mac cannot be reached")).firstMatch.exists)
+            XCTAssertTrue(app.webViews.textViews["Message"].exists,"The composer stays available")
+            XCTAssertTrue(app.webViews.textViews["Message"].waitForExistence(timeout:5))
+        XCTAssertFalse(app.webViews.staticTexts["Connected to your Mac"].exists)
+        }
+        // Inspect the normal foreground experience beyond the native request timeout.
+        // Message-delivery tests separately prove authenticated connectivity.
+        for _ in 0..<35 {
+            XCTAssertTrue(app.webViews.textViews["Message"].exists,"The conversation stays usable")
+            XCTAssertFalse(app.webViews.staticTexts["Connected to your Mac"].exists,"Healthy operation must not be announced")
+            XCTAssertFalse(app.webViews.staticTexts["Reconnecting… Your messages are saved."].exists,"This healthy foreground check must recover without persistent notices")
+            Thread.sleep(forTimeInterval:1)
+        }
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="Foreground recovery preserves the conversation";shot.lifetime = .keepAlways;add(shot)
+        // Leave the same conversation open; no recording or message is created.
+        #endif
     }
 
     func testIntegrationManualPreview() throws {
@@ -231,7 +263,7 @@ final class NativeClientTests: XCTestCase {
         app.launchArguments = ["--native-client"]
         app.launch()
         XCTAssertTrue(app.webViews.buttons["Settings"].waitForExistence(timeout:15))
-        XCTAssertTrue(app.webViews.staticTexts["Connected to your Mac"].waitForExistence(timeout:20))
+        XCTAssertTrue(app.webViews.textViews["Message"].waitForExistence(timeout:20))
         XCTAssertTrue(app.webViews.textViews["Message"].exists)
         let shot=XCTAttachment(screenshot:app.screenshot());shot.name="Manual conversation ready";shot.lifetime = .keepAlways;add(shot)
         // Leave the app open. Do not reset pairing, send messages, record audio

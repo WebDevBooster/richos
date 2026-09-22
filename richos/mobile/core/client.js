@@ -54,7 +54,8 @@
     let playbackState = 'idle', playbackId = null, gesture;
     let beforeRecording = new Set();
     let pushState = 'off', pushBusy = false, pushAgain = false, pushError = null;
-    let connectionReason = 'connecting', lastConnectionProbe = -Infinity;
+    let reconnectNotice=false, reconnectNoticeTimer=null;
+    let hasConnected=false, connectionReason = 'connecting', lastConnectionProbe = -Infinity;
     let latestError = null, transientError = false, generation = 0, playbackGeneration = 0, retryTimer, negotiated = false, unsupported = null, paging = false;
     let writes = Promise.resolve(), events = Promise.resolve(), pending = Promise.resolve();
     const listeners = new Set();
@@ -86,11 +87,13 @@
     const updates = await Updates.createController({ ...updatePorts, now, setTimeout: setTimer, clearTimeout: clearTimer,
       client: updatePorts.client || { version: '0.0.0', build: '1', osVersion: '16.7', appId: null, storefront: null },
       load: async () => data.updates, save: async value => { data.updates = value; await persist(); } });
+    const effectiveConnectionReason=()=>data.revoked?'revoked':unsupported?'incompatible':app.state().online?'connected':connectionReason;
     const state = () => copy({ ...app.state(), messages: thread().view(data.outbox.filter(x => x.threadId === data.session.selectedThreadId)).map(row => {
         const note = Object.values(data.voiceFiles).find(v => v.threadId === data.session.selectedThreadId && (v.clientId === row.clientId || v.messageId === row.id));
         return note ? {...row, voice: {seconds:note.seconds,fileId:recordings.some(r=>r.id===note.id)?note.id:null}} : row;
       }),
-      connectionReason: data.revoked ? 'revoked' : unsupported ? 'incompatible' : app.state().online ? 'connected' : connectionReason,
+      connectionReason: effectiveConnectionReason(),
+      connectionNoticeReason: effectiveConnectionReason()==='connected'?null:['connecting','reconnecting'].includes(effectiveConnectionReason())?(reconnectNotice?'reconnecting':null):effectiveConnectionReason(),
       notifications: {enabled:data.push.enabled,status:pushState,error:pushError},
       confirmed: data.confirmed, words, recording, recordings, playbackState, playbackId, voice: gesture?.snapshot() || {phase:"idle"},
       recoveredRecordings: recordings.filter(r => !data.voiceFiles[r.id]?.sent && !data.outbox.some(x=>x.fileId===r.id) && (!r.threadId || (r.threadId===data.session.selectedThreadId && r.origin===data.api.apiBase))), capabilities: data.api.capabilities || [], error: latestError,
@@ -106,11 +109,13 @@
       lastConnectionProbe = now();
       Promise.resolve(ports.connectionHealth?.() || {}).then(info => {
         if (closed || mine !== generation || app.state().online) return;
-        connectionReason = Connection.classify(info); emit();
+        const reason=Connection.classify(info);
+        // A healthy relay does not prove that the Mac is asleep or broken.
+        connectionReason = reason==='mac-unreachable'?'reconnecting':reason; emit();
       }).catch(() => {});
     }
     function failure(error) { transientError=error.retryable===true;latestError = error.message || String(error); emit(); }
-    function closeStream() { generation++; link?.close(); link = null; }
+    function closeStream() { clearTimer(reconnectNoticeTimer);reconnectNoticeTimer=null;reconnectNotice=false;generation++; link?.close(); link = null; }
     function gate(feature) {
       const policy = updates.state();
       if (policy.blocked || policy.features[feature] === false) throw Object.assign(Error(policy.message || 'This action is temporarily unavailable. Your work stays on this phone.'), { reason: 'policy', retryable: false });
@@ -162,20 +167,40 @@
       closeStream();
       if (!data.confirmed || closed || suspended) return;
       const mine = generation, id = data.session.selectedThreadId;
+      let firstOpen=true;
       link = Link.createLink({ refresh: () => api.refreshChallenge(),
-        open: handlers => {
+        open: async handlers => {
+          // Persisted credentials may have expired while iOS suspended us.
+          // Refresh before the first stream instead of provoking a refused one.
+          if(firstOpen){firstOpen=false;await api.refreshChallenge();}
+          if(mine!==generation || closed || suspended)return null;
           const rows = thread(id).view([]);
           const incomplete = rows.filter(x => x.complete === false && Number.isSafeInteger(x.cursor)).map(x => Math.max(0, x.cursor - 1));
           const cursor = thread(id).latestCursor();
-          return api.openEvents(id, cursor > 0 ? Math.min(cursor, ...incomplete) : null, handlers);
+          // Replay the last observed row inclusively. An empty replay can wait
+          // behind a proxy until the 15-second heartbeat; a real opening frame
+          // makes acceptance immediate, including with existing Mac versions.
+          // The shared thread model deduplicates replayed rows/delta indexes.
+          return api.openEvents(id, cursor > 0 ? Math.min(cursor-1, ...incomplete) : null, handlers);
         },
         handlers: Object.fromEntries(['hello', 'message', 'delta', 'heartbeat', 'state'].map(name => [name, frame => receive(name, frame, mine, id)])),
         onState: status => {
           if (mine !== generation) return;
-          if (status === 'open') connectionReason = 'connected';
-          else if (['connected','connecting'].includes(connectionReason)) connectionReason = 'mac-unreachable';
+          if (status === 'open') {
+            clearTimer(reconnectNoticeTimer);reconnectNoticeTimer=null;reconnectNotice=false;
+            hasConnected=true;connectionReason='connected';
+            if(transientError){latestError=null;transientError=false;}
+          } else if(!['phone-offline','service-unavailable'].includes(connectionReason)) {
+            connectionReason=status==='opening' && !hasConnected && connectionReason==='connecting'?'connecting':'reconnecting';
+          }
+          if(['connecting','reconnecting'].includes(connectionReason) && reconnectNoticeTimer===null && !reconnectNotice) {
+            // Brief recovery is invisible. Transport/queue state remains honest;
+            // only a persistent interruption earns a user-facing notice.
+            reconnectNoticeTimer=setTimer(()=>{reconnectNoticeTimer=null;reconnectNotice=true;emit();},3000);
+            reconnectNoticeTimer?.unref?.();
+          }
           app.dispatch({ type:'network', online:status==='open' }).then(() => {
-            if (status !== 'open') diagnoseConnection(mine);
+            if (status === 'away') diagnoseConnection(mine);
           }).catch(failure);
         },
         onFailure: error => {
@@ -183,7 +208,7 @@
           if (error?.reason === 'revoked') {
             data.revoked = true; data.confirmed = false; data.session.paired = false; closeStream(); persist().catch(failure);
           }
-          if (error) failure(error);
+          if (error && error.retryable!==true) failure(error);
         }, setTimeoutImpl: setTimer, clearTimeoutImpl: clearTimer });
       link.connect();
     }

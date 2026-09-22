@@ -38,7 +38,7 @@
     const changedThread=selected!==state.selectedThreadId;
     if(changedThread)followLatest=true;
     let historyChanged=false;
-    $('connection').textContent = state.confirmed || state.connectionReason === 'revoked' ? globalThis.RichOSConnection.sentence(state.connectionReason) : 'Pairing required';
+    $('connection').textContent = state.confirmed || state.connectionReason === 'revoked' ? (state.connectionNoticeReason===null?'':globalThis.RichOSConnection.sentence(state.connectionNoticeReason || state.connectionReason)) : '';
     $('pairing').hidden = state.confirmed; document.body.classList.toggle('is-paired',state.confirmed); document.querySelector('.pair-intro').hidden=!!state.words; $('fingerprint').hidden = !state.words; $('words').textContent = state.words || '';
     const options = JSON.stringify(state.threads);
     if ($('thread').dataset.options !== options) {

@@ -107,3 +107,6 @@ body[data-voice="locked"] #voice-send { grid-column:3; grid-row:1; justify-self:
 .composer textarea { -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
 body[data-voice-dragging="true"], body[data-voice-dragging="true"] * { -webkit-user-select:none !important; user-select:none !important; -webkit-touch-callout:none !important; }
 body[data-voice="locked"][data-voice-dragging="true"] #record-start { position:absolute;bottom:0;right:0;z-index:1; }
+
+/* Healthy operation and brief recovery do not occupy the conversation header. */
+#connection:empty { display:none; }
