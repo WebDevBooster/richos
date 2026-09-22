@@ -19,5 +19,8 @@ if ! node -e 'const {createScratch}=require(process.argv[1]); const fs=require("
   echo '  NOT RUN  mobile-mac: external test storage is unavailable'
   exit 2
 fi
+mobile_cargo="$(command -v cargo || true)"
+if [[ -z "$mobile_cargo" ]]; then mobile_cargo="$HOME/.cargo/bin/cargo"; fi
+"$mobile_cargo" test --manifest-path "$ROOT/richos/app/src-tauri/Cargo.toml" mobile_mac_server::manual_session_has_no_deadline_but_automated_session_is_bounded -- --exact
 node --test "$ROOT/richos/mobile/test/mac-server.test.mjs"
 echo '  PASS  actual mobile client against isolated Rust Mac server, including restart'

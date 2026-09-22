@@ -300,3 +300,5 @@ Native resume requests one previously observed row as well as newer frames. The 
 thread model deduplicates the replay, while that immediate body avoids waiting for the
 15-second heartbeat when an existing Mac/proxy would otherwise return an empty tail.
 Incomplete reply replay keeps its earlier cursor, so missed deltas remain recoverable.
+
+For user-driven testing, use `lab mac --manual` with a fresh isolated cache. Manual sessions have no automatic shutdown deadline and retain backend state in `manual-data` under that cache. Stop the owned CLI with SIGTERM when testing is finished. Automated `lab mac` runs retain their bounded lifetime. Never leave a user testing against an expiring fixture.

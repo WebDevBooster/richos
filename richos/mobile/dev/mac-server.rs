@@ -221,8 +221,9 @@ fn serve() {
         "words":ca.fingerprint_words().join(" "), "replyMarker":"ack: ", "pid":std::process::id()});
     std::fs::write(dir.join("ready.new"), ready.to_string()).unwrap();
     std::fs::rename(dir.join("ready.new"), dir.join("ready.json")).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3600);
-    while !dir.join("stop").exists() && Instant::now() < deadline {
+    let manual = std::env::var("RICHOS_MOBILE_MAC_MANUAL").as_deref() == Ok("1");
+    let started = Instant::now();
+    while !dir.join("stop").exists() && session_within_lifetime(manual, started.elapsed()) {
         if let Ok(payload) = bridge.snapshot(None) {
             std::fs::write(dir.join("timeline.new"), payload.to_string()).unwrap();
             std::fs::rename(dir.join("timeline.new"), dir.join("timeline.json")).unwrap();
@@ -240,4 +241,17 @@ fn serve() {
         bridge.snapshot(None).unwrap().to_string(),
     )
     .unwrap();
+}
+
+fn session_within_lifetime(manual: bool, elapsed: Duration) -> bool {
+    manual || elapsed < Duration::from_secs(3600)
+}
+
+#[test]
+fn manual_session_has_no_deadline_but_automated_session_is_bounded() {
+    assert!(session_within_lifetime(false, Duration::from_secs(3599)));
+    assert!(!session_within_lifetime(false, Duration::from_secs(3600)));
+    assert!(!session_within_lifetime(false, Duration::from_secs(86400)));
+    assert!(session_within_lifetime(true, Duration::from_secs(3600)));
+    assert!(session_within_lifetime(true, Duration::from_secs(86400)));
 }

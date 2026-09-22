@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { startMac } from '../dev/mac-server.mjs';
 const require = createRequire(import.meta.url);
@@ -159,4 +159,20 @@ test('actual mobile client pairs, signs, receives and resumes against the produc
     const stoppedResponse = await fetch(local(state.origin + '/api/challenge'));
     assert(!stoppedResponse.headers.has('x-richos-challenge'),'stopped helper still reaches a phone listener');
   }
+});
+
+
+test('manual Mac fixture retains pairing state after explicit shutdown and refuses to overwrite it', { timeout: 360000 }, async t => {
+  if (process.env.RICHOS_MOBILE_REMOTE_STATE) { t.skip('Remote proof does not own the running Mac fixture'); return; }
+  const cache = createScratch('manual-mac-proof');
+  let server;
+  t.after(async () => { await server?.close(); rmSync(cache, { recursive: true, force: true }); });
+  server = await startMac(cache, { manual: true });
+  assert.equal(server.state.data, join(cache, 'manual-data'));
+  await server.close();
+  assert.deepEqual(await server.exited, [0, null]);
+  assert(existsSync(join(server.state.data, 'lab-owner')));
+  assert(existsSync(server.state.ca));
+  assert(existsSync(join(server.state.data, 'ledger.jsonl')));
+  await assert.rejects(startMac(cache, { manual: true }), /existing test data is preserved/);
 });
