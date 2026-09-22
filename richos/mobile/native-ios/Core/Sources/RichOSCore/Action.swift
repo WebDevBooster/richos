@@ -81,6 +81,10 @@ public enum Action: Equatable, Sendable {
     case macCapabilities(text: Bool, voice: Bool)
     /// The Mac answered 403 `{"revoked":true}`: this phone was removed (round-12 `conn-revoked`).
     case pairingRevoked
+    /// What the Mac accepts for attachments (from `hello` or the pairing answer); `nil` = none.
+    case macAttachmentLimits(AttachmentLimits?)
+    /// The Mac registered this phone for reply notifications; its push host id is kept.
+    case pushRegistered(hostID: String?)
     /// The app came to the screen (or launched): reconnect and move the outbox.
     case foregrounded(at: Int64)
     /// The app left the screen: the live stream closes; a recording in progress is kept.
@@ -229,7 +233,8 @@ public enum Reducer {
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
              .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
             PairingReducer.reduce(&next, action, &effects)
-        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked:
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked,
+             .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
         case .foregrounded, .backgrounded:
             ConnectionReducer.reduce(&next, action, &effects)

@@ -72,6 +72,31 @@ actor RoutedMac: HTTPTransport {
         #expect(sent.contains { $0.target == "/api/messages" && String(decoding: $0.body ?? Data(), as: UTF8.self).contains(#""text":"Thanks""#) })
     }
 
+    @Test func notificationRegistrationWaitsForTheTokenAndKeepsTheHostID() async throws {
+        actor PushMac: HTTPTransport {
+            var bodies: [String] = []
+            func send(_ request: HTTPRequest, origin: String) async throws -> HTTPResponse {
+                bodies.append(String(decoding: request.body ?? Data(), as: UTF8.self))
+                return HTTPResponse(status: 200, headers: ["X-RichOS-Challenge": "c"],
+                                    body: Data(#"{"ok":true,"registered":true,"host_id":"0123456789abcdef0123456789abcdef"}"#.utf8))
+            }
+        }
+        let mac = PushMac()
+        let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: MemoryIdentityStore())
+        await network.setPreviewKeyProvider { _, _ in Data(repeating: 7, count: 32) }
+        let host = try await HeadlessHost(storage: MemoryStorage(), handler: network)
+        _ = try await CommandRunner.execute(Command(.fixture, name: "notif-offer"), on: host)
+        var s = try await host.dispatch(.turnOnNotifications)
+        #expect(s.notifications.status == .turningOn, "no token yet: registration waits")
+        for action in await network.setPushToken(String(repeating: "ab", count: 32), sandbox: true, state: s) {
+            s = try await host.dispatch(action)
+        }
+        #expect(s.notifications.status == .on && s.notifications.hostID == "0123456789abcdef0123456789abcdef")
+        let body = try #require(await mac.bodies.last)
+        #expect(body.contains(#""topic":"dev.richos.native.ios""#) && body.contains(#""environment":"sandbox""#))
+        #expect(try AppState(restoring: s.persisted).notifications.hostID == s.notifications.hostID, "the host id survives a relaunch")
+    }
+
     @Test func noMacAtPairingSaysSoInsteadOfRefused() async throws {
         let network = NetworkEffects(transport: ScriptedMac([["transport": true]]), stream: ScriptedStream([]), identities: MemoryIdentityStore())
         let host = try await HeadlessHost(storage: MemoryStorage(), handler: network)

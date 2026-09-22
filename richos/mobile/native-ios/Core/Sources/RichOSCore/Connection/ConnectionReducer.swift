@@ -47,6 +47,12 @@ public enum ConnectionReducer {
             s.troubleSinceMs = nil
             s.connectionNotice = nil
             effects.append(.disconnect)
+        case .macAttachmentLimits(let limits):
+            s.attachmentLimits = limits
+        case .pushRegistered(let hostID):
+            s.notifications.status = .on
+            s.notifications.hostID = hostID
+            s.notifications.offerDismissed = true
         case .foregrounded(let at):
             guard s.pairing == .paired else { return }
             effects.append(.connect)

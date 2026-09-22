@@ -76,6 +76,9 @@ public struct AppState: Codable, Equatable, Sendable {
     public var sheet: Sheet?
     /// TRANSIENT. The update policy's current notice, if any.
     public var update: UpdateNotice?
+    /// TRANSIENT. What the paired Mac accepts for photos and files (`attachment_limits` in `hello`
+    /// and the pairing answer); `nil` when it does not take attachments. Read, never hard-coded.
+    public var attachmentLimits: AttachmentLimits?
     /// TRANSIENT. One calm line above the composer.
     public var toast: Toast?
 
@@ -114,7 +117,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, toast, appearance, screen
+        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -147,6 +150,7 @@ extension AppState {
         notifications = try c.decodeIfPresent(Notifications.self, forKey: .notifications) ?? d.notifications
         sheet = try c.decodeIfPresent(Sheet.self, forKey: .sheet)
         update = try c.decodeIfPresent(UpdateNotice.self, forKey: .update)
+        attachmentLimits = try c.decodeIfPresent(AttachmentLimits.self, forKey: .attachmentLimits)
         toast = try c.decodeIfPresent(Toast.self, forKey: .toast)
         appearance = try c.decodeIfPresent(Appearance.self, forKey: .appearance) ?? d.appearance
     }
@@ -179,6 +183,7 @@ extension AppState {
         try c.encode(notifications, forKey: .notifications)
         try c.encode(sheet, forKey: .sheet)
         try c.encode(update, forKey: .update)
+        try c.encode(attachmentLimits, forKey: .attachmentLimits)
         try c.encode(toast, forKey: .toast)
         try c.encode(appearance, forKey: .appearance)
         try c.encode(screen, forKey: .screen)
@@ -525,8 +530,11 @@ public struct Notifications: Codable, Equatable, Sendable {
     public var offerDismissed = false
     /// Lock-screen previews of Rich's reply (decrypted on the phone). On by default.
     public var previews = true
-    public init(status: Status = .notAsked, offerDismissed: Bool = false, previews: Bool = true) {
-        self.status = status; self.offerDismissed = offerDismissed; self.previews = previews
+    /// The Mac's push host id from the registration answer; a tapped notification from any other
+    /// host opens nothing (contract §7.3).
+    public var hostID: String?
+    public init(status: Status = .notAsked, offerDismissed: Bool = false, previews: Bool = true, hostID: String? = nil) {
+        self.status = status; self.offerDismissed = offerDismissed; self.previews = previews; self.hostID = hostID
     }
 }
 

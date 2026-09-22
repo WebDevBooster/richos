@@ -139,8 +139,9 @@ public struct StreamHello: Decodable, Equatable, Sendable {
     public var protocolVersion: Int?
     public var build: String?
     public var messages: [StreamRow]?
+    public var attachmentLimits: AttachmentLimits?
     enum CodingKeys: String, CodingKey {
-        case challenge, capabilities, build, messages
+        case challenge, capabilities, build, messages, attachmentLimits = "attachment_limits"
         case apiBase = "api_base", threadID = "thread_id", latestCursor = "latest_cursor", protocolVersion = "protocol_version"
     }
 }

@@ -14,6 +14,13 @@ public actor NetworkEffects: EffectHandler {
     private var sink: LiveConnection.Sink?
     private var api: APIClient?
     private var live: LiveConnection?
+    /// The APNs token (lowercase hex) and whether this build uses the sandbox, from the app.
+    private var pushToken: (hex: String, sandbox: Bool)?
+    /// Registration waits for the token when the person turned notifications on before iOS gave one.
+    private var registrationWanted: Bool?
+    /// The key the Mac seals previews with, per origin, and the person's choice (the app's Keychain
+    /// item the notification extension reads; stream I3).
+    private var previewKey: (@Sendable (_ origin: String, _ previews: Bool) async -> Data?)?
 
     public init(transport: any HTTPTransport, stream: any EventStreamTransport, identities: any IdentityStore,
                 recordings: (any RecordingStore)? = nil, clock: any Clock = SystemClock(), deviceName: String = "iPhone",
@@ -25,9 +32,56 @@ public actor NetworkEffects: EffectHandler {
     /// Where the live connection's actions go (the store). Set once, before the first `connect`.
     public func setSink(_ sink: @escaping LiveConnection.Sink) { self.sink = sink }
 
+    public func setPreviewKeyProvider(_ provider: @escaping @Sendable (_ origin: String, _ previews: Bool) async -> Data?) {
+        previewKey = provider
+    }
+
+    /// iOS gave (or changed) the APNs token. Registers at once when registration is wanted, and
+    /// re-registers a changed token when notifications are on.
+    public func setPushToken(_ hex: String, sandbox: Bool, state: AppState) async -> [Action] {
+        let changed = pushToken?.hex != hex
+        pushToken = (hex, sandbox)
+        if let previews = registrationWanted {
+            registrationWanted = nil
+            return await register(previews: previews, state: state)
+        }
+        if changed, state.notifications.status == .on {
+            return await register(previews: state.notifications.previews, state: state)
+        }
+        return []
+    }
+
+    /// Signed `POST /api/pair` with the APNs registration (contract §7.2); the answer's `host_id`
+    /// is kept for checking taps.
+    private func register(previews: Bool, state: AppState) async -> [Action] {
+        guard let token = pushToken, let mac = state.mac, let api = await client(for: state) else {
+            registrationWanted = previews
+            return []
+        }
+        let key = await previewKey?(mac.origin, previews)
+        let body = PairingWire.pushRegistrationBody(tokenHex: token.hex, sandbox: token.sandbox, previewKey: key, previews: previews)
+        guard let response = try? await api.signed("POST", "/api/pair", body: body, contentType: "application/json") else {
+            return [.notificationsResult(.serviceUnavailable)]
+        }
+        let json = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
+        switch response.status {
+        case 200:
+            let host = json?["host_id"] as? String
+            let valid = host.map { $0.count == 32 && $0.allSatisfy { $0.isHexDigit && !$0.isUppercase } } ?? false
+            return [.pushRegistered(hostID: valid ? host : nil)]
+        case 422 where json?["reason"] as? String == "unsupported":
+            return [.notificationsResult(.unsupported)]
+        case 503:
+            return [.notificationsResult(.serviceUnavailable)]
+        default:
+            return [.notificationsResult(.off)]
+        }
+    }
+
     public nonisolated func handles(_ effect: Effect) -> Bool {
         switch effect {
-        case .pair, .confirmFingerprint, .forgetIdentity, .deliver, .connect, .disconnect, .loadOlder: return true
+        case .pair, .confirmFingerprint, .forgetIdentity, .deliver, .connect, .disconnect, .loadOlder,
+             .requestNotifications, .unregisterNotifications: return true
         default: return false
         }
     }
@@ -45,6 +99,7 @@ public actor NetworkEffects: EffectHandler {
                                                                          threadID: paired.answer.threadID))]
                     if let capabilities = paired.answer.capabilities, !capabilities.isEmpty {
                         actions.append(.macCapabilities(text: capabilities.contains("text"), voice: capabilities.contains("voice")))
+                        actions.append(.macAttachmentLimits(capabilities.contains("attachments") ? paired.answer.attachmentLimits : nil))
                     }
                     return actions
                 case .failure(let error):
@@ -70,6 +125,14 @@ public actor NetworkEffects: EffectHandler {
                 return [.deliveryFailed(clientID: clientID, failure: .retryable(reason: "unreachable", afterMs: nil), at: clock.nowMs())]
             }
             return [await Courier(api: api, recordings: recordings).deliver(item, at: clock.nowMs()).action]
+        case .requestNotifications(let previews):
+            return await register(previews: previews, state: state)
+        case .unregisterNotifications:
+            registrationWanted = nil
+            if let api = await client(for: state) {
+                _ = try? await api.signed("POST", "/api/pair", body: PairingWire.pushUnregistrationBody, contentType: "application/json")
+            }
+            return []
         case .connect:
             await startLive(state)
             return []
