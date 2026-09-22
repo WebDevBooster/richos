@@ -17,6 +17,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import android.os.Looper
 import java.io.File
 
 /** The app entry and store wiring, headless on the JVM (Robolectric): no emulator. */
@@ -36,7 +38,14 @@ class AppTest {
         val store = compose.activity.richStore
         compose.waitUntil(5_000) { store.states.value != null }
         compose.runOnUiThread { store.dispatch(Action.Compose("Hello Rich")) }
-        compose.waitUntil(5_000) { store.states.value?.draft == "Hello Rich" }
+        // The write goes to a background thread and resumes on the main looper, which a paused
+        // Robolectric looper runs only when it is idled; idle it until the state arrives.
+        val deadline = System.currentTimeMillis() + 5_000
+        while (store.states.value?.draft != "Hello Rich" && System.currentTimeMillis() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+        assertEquals("Hello Rich", store.states.value?.draft)
         compose.onNodeWithContentDescription("draft").assertTextEquals("Hello Rich")
     }
 

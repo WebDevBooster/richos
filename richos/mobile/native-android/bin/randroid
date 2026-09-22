@@ -52,10 +52,20 @@ CACHE="$RANDROID_CACHE"
 OUT="$CACHE/out"
 mkdir -p "$CACHE"
 export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$VOLUME/caches/richos-native-android/gradle}"
-if [ -z "${JAVA_HOME:-}" ]; then
-  JBR="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-  [ -x "$JBR/bin/java" ] && export JAVA_HOME="$JBR"
-fi
+# Java 21 or newer: Robolectric's Android 36 sandbox refuses anything older. The first of
+# $RANDROID_JAVA_HOME, $JAVA_HOME and Android Studio's bundled runtime that is 21+ wins; a shell
+# whose JAVA_HOME is an older JDK (Homebrew's openjdk@17 on this Mac) is passed over, not used.
+java_major() {  # $1 = a JDK home; prints its major version or nothing
+  [ -x "$1/bin/java" ] && [ -f "$1/release" ] || return 0
+  sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$1/release"
+}
+PICKED=""
+for candidate in "${RANDROID_JAVA_HOME:-}" "${JAVA_HOME:-}" "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do
+  [ -n "$candidate" ] || continue
+  major="$(java_major "$candidate")"
+  if [ -n "$major" ] && [ "$major" -ge 21 ]; then PICKED="$candidate"; break; fi
+done
+if [ -n "$PICKED" ]; then export JAVA_HOME="$PICKED"; else unset JAVA_HOME; fi
 export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
 export ANDROID_AVD_HOME="$CACHE/avd"
 ADB="$(command -v adb || true)"
@@ -66,7 +76,7 @@ AVD="randroid-$(basename "$CACHE")"
 EMU_RECORD="$CACHE/emulator.json"
 
 need_java() {
-  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] || fail "NOT RUN: no Java runtime; set JAVA_HOME (Android Studio's bundled JBR works)" 2
+  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] || fail "NOT RUN: no Java 21+ runtime; set RANDROID_JAVA_HOME (Android Studio bundled JBR works)" 2
 }
 
 gradle() {
