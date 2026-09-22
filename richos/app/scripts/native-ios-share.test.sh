@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# The RichOS native iPhone app's extensions and release readiness (build plan §5.0, stream I3):
+# the notification service extension, "Share to Rich", the microphone and recorder's pure parts,
+# the TestFlight tool, the app icon, the privacy manifest and the Release product.
+# The platform code runs on this Mac with swiftc, the TestFlight tool against a fake App Store
+# Connect, and the Release product is checked on disk; S7 then runs the share sheet, the platform
+# effect handler and the notification platform on ONE simulator this suite creates and deletes. A host without
+# macOS, Swift, Xcode, XcodeGen, Node or the external SSD prints NOT RUN and exits 2; a failure on a
+# capable host is red.
+# run-tests: no-host-screen: `simctl boot` starts a dedicated simulator without Simulator.app; snapshots are rendered in-process, never from the Mac's screen
+# run-tests: inputs richos/mobile/native-ios/App/Platform richos/mobile/native-ios/ShareExtension richos/mobile/native-ios/NotificationService richos/mobile/native-ios/PlatformTests richos/mobile/native-ios/Release richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSCLI/Simulator.swift richos/mobile/native-ios/project.yml richos/mobile/native-ios/App/Design richos/mobile/test/fixtures/notification-preview.json richos/app/icon-source/richos-icon-1024.png richos/web/web-app/bin/make-icons.js richos/app/scripts/native-ios-share.test.sh
+# run-tests: covers richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift richos/mobile/native-ios/App/Platform/Shared/NotificationPreview.swift richos/mobile/native-ios/App/Platform/Shared/NotificationTarget.swift richos/mobile/native-ios/App/Platform/Shared/PushRegistration.swift richos/mobile/native-ios/App/Platform/Shared/ShareInbox.swift richos/mobile/native-ios/App/Platform/Shared/AttachmentDelivery.swift richos/mobile/native-ios/App/Platform/Shared/PhotoNormalizer.swift richos/mobile/native-ios/App/Platform/Shared/VoiceLevel.swift richos/mobile/native-ios/App/Platform/NotificationTapRouter.swift richos/mobile/native-ios/App/Platform/SharePlatform.swift richos/mobile/native-ios/App/Platform/PrivacyInfo.xcprivacy richos/mobile/native-ios/App/Platform/Assets.xcassets/Contents.json richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/Contents.json richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-40.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-58.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-60.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-80.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-87.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-120.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-180.png richos/mobile/native-ios/App/Platform/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png richos/mobile/native-ios/NotificationService/Sources/NotificationService.swift richos/mobile/native-ios/NotificationService/Tests/main.swift richos/mobile/native-ios/NotificationService/Info.plist richos/mobile/native-ios/NotificationService/NotificationService.entitlements richos/mobile/native-ios/ShareExtension/Tests/main.swift richos/mobile/native-ios/ShareExtension/Info.plist richos/mobile/native-ios/ShareExtension/ShareExtension.entitlements richos/mobile/native-ios/Release/platform.yml richos/mobile/native-ios/Release/App-Info.plist richos/mobile/native-ios/Release/RichOSNative.entitlements richos/mobile/native-ios/Release/generate.sh richos/mobile/native-ios/Release/check-release.sh richos/mobile/native-ios/Release/platform-tests.sh richos/mobile/native-ios/Release/make-app-icon.cjs richos/mobile/native-ios/Release/testflight.ts richos/mobile/native-ios/Release/testflight.test.ts richos/mobile/native-ios/Release/ExportOptions.plist richos/mobile/native-ios/Release/simulator-tests.sh richos/mobile/native-ios/App/Platform/NotificationPlatform.swift richos/mobile/native-ios/App/Platform/PlatformEffects.swift richos/mobile/native-ios/App/Platform/VoicePlatform.swift richos/mobile/native-ios/ShareExtension/Sources/ShareModel.swift richos/mobile/native-ios/ShareExtension/Sources/SharePayloadLoader.swift richos/mobile/native-ios/ShareExtension/Sources/ShareSheetView.swift richos/mobile/native-ios/ShareExtension/Sources/ShareViewController.swift richos/mobile/native-ios/PlatformTests/ShareSheetTests.swift richos/mobile/native-ios/PlatformTests/PlatformEffectsTests.swift
+set -uo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$DIR/../../.." && pwd)"
+NATIVE="$ROOT/richos/mobile/native-ios"
+VOLUME=/Volumes/E1TB
+
+notrun() { echo "  NOT RUN  native-ios-share: $1"; exit 2; }
+[ "$(uname -s)" = Darwin ] || notrun "macOS is required"
+for tool in swift xcrun xcodebuild xcodegen node python3; do
+  command -v "$tool" >/dev/null 2>&1 || notrun "$tool is unavailable"
+done
+if [ ! -d "$VOLUME" ] || [ "$(stat -f %d "$VOLUME")" = "$(stat -f %d /Volumes)" ]; then notrun "/Volumes/E1TB is not mounted"; fi
+
+# Build output is reused per checkout (a cold Debug + Release build is minutes); scratch is per run.
+KEY="$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-10)"
+CACHE="$VOLUME/caches/richos-native-ios-proof/$KEY-share"
+mkdir -p "$VOLUME/tmp"
+SCRATCH="$(mktemp -d "$VOLUME/tmp/native-ios-share.XXXXXX")" || { echo '  FAIL  scratch directory'; exit 1; }
+trap 'rm -rf "$SCRATCH"' EXIT HUP INT TERM
+
+PASS=0; FAILED=0
+ok()  { PASS=$((PASS + 1)); echo "  ok  $1"; }
+bad() { FAILED=$((FAILED + 1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && printf '        %s\n' "$2"; return 0; }
+
+echo "=== native-ios-share ==="
+
+# S1 — the platform code's own tests, on this Mac (notification extension, tap routing, the share
+# inbox and delivery against a fake Mac, HEIC to JPEG, the activation rule, the voice level).
+if "$NATIVE/Release/platform-tests.sh" "$CACHE/platform-tests" >"$SCRATCH/platform.log" 2>&1; then
+  N="$(grep -Eo 'Notification platform: [0-9]+ checks passed' "$SCRATCH/platform.log" | grep -Eo '[0-9]+')"
+  S="$(grep -Eo 'Share platform: [0-9]+ checks passed' "$SCRATCH/platform.log" | grep -Eo '[0-9]+')"
+  if [ "${N:-0}" -gt 0 ] && [ "${S:-0}" -gt 0 ]; then ok "S1 platform tests: notification $N checks, share $S checks (Release/platform-tests.sh)"
+  else bad "S1 platform tests" "no passing counts: $(tail -3 "$SCRATCH/platform.log" | tr '\n' ' ')"; fi
+else
+  bad "S1 platform tests" "$(grep -E 'error:|FAIL' "$SCRATCH/platform.log" | head -8 | tr '\n' ' ')"
+fi
+
+# S2 — the TestFlight tool against a fake App Store Connect (no request leaves this Mac).
+if node --test "$NATIVE/Release/testflight.test.ts" >"$SCRATCH/testflight.log" 2>&1; then
+  T="$(grep -Eo '^ℹ pass [0-9]+' "$SCRATCH/testflight.log" | grep -Eo '[0-9]+')"
+  if [ "${T:-0}" -gt 0 ]; then ok "S2 TestFlight tool: $T tests pass against a fake App Store Connect"
+  else bad "S2 TestFlight tool" "no pass count: $(tail -5 "$SCRATCH/testflight.log" | tr '\n' ' ')"; fi
+else
+  bad "S2 TestFlight tool" "$(grep -E 'not ok|Error' "$SCRATCH/testflight.log" | head -6 | tr '\n' ' ')"
+fi
+
+# S3 — the committed icon is exactly what the generator makes from the RichOS icon source.
+if node "$NATIVE/Release/make-app-icon.cjs" --check >"$SCRATCH/icon.log" 2>&1; then ok "S3 $(cat "$SCRATCH/icon.log")"
+else bad "S3 app icon" "$(cat "$SCRATCH/icon.log")"; fi
+
+# S4 — the extensions' identifiers derive from RICHOS_BUNDLE_ID, which must be the app's own.
+APP_ID="$(awk '/^  RichOSNative:/{t=1} t && /PRODUCT_BUNDLE_IDENTIFIER:/{print $2; exit}' "$NATIVE/project.yml")"
+BASE_ID="$(awk '/RICHOS_BUNDLE_ID:/{print $2; exit}' "$NATIVE/Release/platform.yml")"
+if [ -n "$APP_ID" ] && [ "$APP_ID" = "$BASE_ID" ]; then ok "S4 the app and its extensions share one identity ($APP_ID)"
+else bad "S4 RICHOS_BUNDLE_ID matches the app's identifier" "project.yml '$APP_ID', platform.yml '$BASE_ID'"; fi
+
+# S5 — the preserved iPhone app, its UI and the PWA are byte-unchanged (ceo-decisions §76).
+TAG="preserved/mobile-ios-and-pwa-2026-09-22"
+if git -C "$ROOT" rev-parse -q --verify "$TAG^{commit}" >/dev/null 2>&1; then
+  CHANGED="$(git -C "$ROOT" diff --name-only "$TAG^{commit}" -- richos/mobile/ios richos/mobile/ui richos/web/web-app)"
+  if [ -z "$CHANGED" ]; then ok "S5 the preserved app, its UI and the PWA are unchanged since $TAG"
+  else bad "S5 the preserved app and PWA are unchanged" "$(echo "$CHANGED" | head -5 | tr '\n' ' ')"; fi
+else
+  echo "  NOT RUN  S5 the tag $TAG is not in this clone"
+fi
+
+# S6 — the Release product, built from the merged project: extensions, purpose strings, export
+# compliance, groups, the privacy manifest against the APIs the binaries import, the icon, no
+# development code, nothing stray bundled (Release/check-release.sh R1–R9).
+if "$NATIVE/Release/check-release.sh" "$CACHE/release" >"$SCRATCH/release.log" 2>&1; then
+  ok "S6 Release product: $(grep -c '^  ok ' "$SCRATCH/release.log") checks (Release/check-release.sh)"
+else
+  bad "S6 Release product" "$(grep -E 'FAIL|error:' -A1 "$SCRATCH/release.log" | head -12 | tr '\n' ' ')"
+fi
+
+# S7 — on a simulator this suite creates, boots headless and deletes: the share sheet loads real item
+# providers, composes, refuses a file over the Mac's limit, is Saved with no connection and Sent only
+# on the Mac's acceptance, and renders every state (PNGs under the cache's snapshots/); the platform
+# effect handler answers the microphone question and passes network effects on; the notification
+# platform's token, cold-launch tap and preview key. Recording itself is not run here: a simulator
+# records from the Mac's own microphone. (ShareViewController is compiled and embedded; its three
+# lines of hosting run only inside a real share sheet.)
+if xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimulator.SimRuntime.iOS'; then
+  if "$NATIVE/Release/simulator-tests.sh" "$CACHE/simulator" >"$SCRATCH/sim.log" 2>&1; then
+    ok "S7 $(grep '^simulator tests:' "$SCRATCH/sim.log")"
+  else
+    bad "S7 simulator tests" "$(tail -12 "$SCRATCH/sim.log" | tr '\n' ' ')"
+  fi
+else
+  echo "  NOT RUN  S7 no iOS simulator runtime is installed"
+fi
+
+if [ "$FAILED" -eq 0 ]; then
+  echo "=== native-ios-share tests: all $PASS passed ==="
+  exit 0
+fi
+echo "=== native-ios-share tests: $FAILED FAILED, $PASS passed ==="
+exit 1
