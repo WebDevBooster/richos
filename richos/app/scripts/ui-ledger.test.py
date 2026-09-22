@@ -136,6 +136,13 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return seen.read_text()
 
+    def assertSameDirectory(self, reported, expected):
+        # The runner names a directory, not a spelling of one. On macOS /var is a symlink to
+        # /private/var: Node reports `__dirname` resolved and `path.resolve(--receipts)` as given,
+        # so a string comparison passes only where TMPDIR happens to contain no symlink.
+        self.assertEqual(os.path.realpath(reported), os.path.realpath(expected),
+                         f'reported {reported!r}, expected {str(expected)!r}')
+
     def test_navigation_evidence_lands_beside_the_receipts_and_starts_empty(self):
         # A failed page load's bundle (ui/tests/lib/navigation-evidence.js) belongs in the
         # directory a build keeps, and a bundle left from an earlier run is not this run's.
@@ -143,15 +150,15 @@ fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER,
         (receipts / 'navigation').mkdir(parents=True)
         stale = receipts / 'navigation' / 'contrast-1-1.json'
         stale.write_text('{}')
-        self.assertEqual(self.navigation_dir_seen_by_a_suite(f'--receipts={receipts}'),
-                         str((receipts / 'navigation').resolve()))
+        self.assertSameDirectory(self.navigation_dir_seen_by_a_suite(f'--receipts={receipts}'),
+                                 receipts / 'navigation')
         self.assertFalse(stale.exists(), 'a previous run\'s navigation bundle survived into this run')
 
     def test_navigation_evidence_outlives_a_run_that_owns_its_receipts(self):
         # Without --receipts the runner deletes its own receipt directory at exit, so evidence
         # written there would vanish with it; the harness's gitignored default is used instead.
-        self.assertEqual(self.navigation_dir_seen_by_a_suite(),
-                         str(self.root / '.shots' / 'navigation-failures'))
+        self.assertSameDirectory(self.navigation_dir_seen_by_a_suite(),
+                                 self.root / '.shots' / 'navigation-failures')
 
     def test_an_explicit_navigation_evidence_directory_wins(self):
         chosen = self.root / 'chosen'
