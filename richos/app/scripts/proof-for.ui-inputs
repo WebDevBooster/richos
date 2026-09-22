@@ -67,7 +67,7 @@
 # inventory, the contrast sweep and the dialect pass are whole-surface gates by definition.
 affordances.js          @allui
 appearance.js           @allui
-contrast.js             @allui
+contrast.js             @allui richos/app/ui/tests/contrast-debt.json
 corrections.js          @allui
 feedback.js             @allui
 memory.js               @allui
