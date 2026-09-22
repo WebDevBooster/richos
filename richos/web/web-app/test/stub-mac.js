@@ -243,6 +243,7 @@ function createStubMac(options) {
 		const pieces = [' Looking at it now.', ` You asked: ${text.slice(0, 40)}`, ' That is the whole answer.'];
 		let at = 0;
 		const tick = setInterval(() => {
+            if(state.pauseReplyChunks)return;
 			if (at >= pieces.length) {
 				clearInterval(tick);
 				broadcast('state', { message_id: id, complete: true, state: 'done' });

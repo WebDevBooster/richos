@@ -302,6 +302,7 @@ async function runEngine(playwright, engine) {
 		await page.fill('#composer', 'where are we on the proposal?');
 		check('and on the moment there is', !(await page.isDisabled('#send')));
 
+        mac.state.pauseReplyChunks=true;
 		await page.click('#send');
 		// The optimistic bubble, immediately — §4.2 (v): a phone that shows nothing reads as broken.
 		await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine .msg-text'))
@@ -324,7 +325,8 @@ async function runEngine(playwright, engine) {
 			const el = Array.from(document.querySelectorAll('.msg-rich .msg-text')).filter((e) => /On it!/.test(e.textContent)).pop();
 			return el.textContent;
 		});
-		await sleep(400);
+        mac.state.pauseReplyChunks=false;
+        await page.waitForFunction(length=>[...document.querySelectorAll('.msg-rich .msg-text')].filter(e=>/On it!/.test(e.textContent)).at(-1)?.textContent.length>length,firstToken.length);
 		const grown = await page.evaluate(() => {
 			const el = Array.from(document.querySelectorAll('.msg-rich .msg-text')).filter((e) => /On it!/.test(e.textContent)).pop();
 			return el.textContent;
