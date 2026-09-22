@@ -10,10 +10,11 @@
     node ? require('./updates.js') : root.RichOSUpdates,
     node ? require('./links.js') : root.RichOSMobileLinks,
     node ? require('../../web/web-app/lib/connection.js') : root.RichOSConnection,
-    node ? require('../../web/web-app/lib/voice.js') : root.RichOSVoice);
+    node ? require('../../web/web-app/lib/voice.js') : root.RichOSVoice,
+    node ? require('../../web/web-app/lib/notification-target.js') : root.RichOSNotificationTarget);
   if (node) module.exports = value;
   root.RichOSClient = value;
-})(globalThis, function (Mobile, Api, Link, Fingerprint, Thread, Updates, Links, Connection, Voice) {
+})(globalThis, function (Mobile, Api, Link, Fingerprint, Thread, Updates, Links, Connection, Voice, NotificationTarget) {
   const copy = value => JSON.parse(JSON.stringify(value));
   function pairingLink(value) {
     if (typeof value !== 'string' || value.length > 4096 || /[\s\\]/.test(value)) throw new Error('Paste the complete HTTPS pairing link from your Mac');
@@ -147,7 +148,7 @@
           if (Array.isArray(frame.threads)) data.session.threads = frame.threads.filter(x => x && typeof x.id === 'string' && typeof x.title === 'string');
         }
         await reconcileVoice(id);
-        await reconcileNotification();
+        void reconcileNotification().catch(failure);
         await persist(); await app.dispatch({ type: 'network', online: true }); emit();
         if (name==='hello' && (data.push.enabled || data.push.pendingDisable)) void syncNotifications();
       }).catch(failure);
@@ -316,8 +317,9 @@
     }
     async function openNotification(value) {
       if (!data.confirmed || !value || value.host!==data.push.hostId || !/^[a-f0-9]{64}$/.test(value.thread || '') || !/^[a-f0-9]{64}$/.test(value.event || '')) return;
-      data.notificationTarget=value;await reconcileNotification();await persist();emit();
+      data.notificationTarget=value;await persist();void reconcileNotification().catch(failure);emit();
     }
+    let resolvingNotification=false, notificationAgain=false;
     async function reconcileNotification() {
       const value=data.notificationTarget;
       if(!value || value.host!==data.push.hostId)return;
@@ -329,9 +331,14 @@
           await app.dispatch({type:'compose',text:data.drafts[candidate.id] || ''});
           data.focusMessage=null;connect();return;
         }
-        for(const row of thread(candidate.id).view([]))if(await ports.hash(row.id)===value.event) {
-          data.focusMessage=row.id;delete data.notificationTarget;return;
-        }
+        if(resolvingNotification){notificationAgain=true;return;}
+        resolvingNotification=true;
+        try {
+          const mine=generation;
+          const row=await NotificationTarget.find({model:thread(candidate.id),matches:async row=>await ports.hash(row.id)===value.event,fetchPage:before=>api.backfill(candidate.id,before,50),isCurrent:()=>!closed && mine===generation && data.notificationTarget===value});
+          if(row){data.focusMessage=row.id;delete data.notificationTarget;await persist();emit();}
+        } finally {resolvingNotification=false;if(notificationAgain){notificationAgain=false;void reconcileNotification().catch(failure);}}
+        return;
       }
     }
     function dispatch(action) {
@@ -487,12 +494,14 @@
             await ports.native('recordDelete', { id: action.id }); delete data.voiceFiles[action.id]; await persist(); recordings = await ports.native('recordings', {}); break;
           default:
             if (action.type === 'send') {
+              delete data.notificationTarget;data.focusMessage=null;
               gate('text');
               if (data.outbox.length >= 100) throw Error('The phone has 100 unsent messages. Resolve them before sending more.');
               if (new TextEncoder().encode(JSON.stringify(app.state().draft)).length > 48000) throw new Error('Message is too long; shorten it before sending');
             }
             if (action.type === 'retry') gate('text');
             if (action.type === 'select-thread') {
+              delete data.notificationTarget;data.focusMessage=null;
               await gesture.interrupt();
               data.drafts[data.session.selectedThreadId] = app.state().draft;
               await app.dispatch(action);

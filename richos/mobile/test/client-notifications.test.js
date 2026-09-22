@@ -25,7 +25,7 @@ test('a notification opens only an opaque thread reference belonging to the pair
  const f=await setup(t);await f.app.dispatch({type:'notifications-enable'});await f.settle();await f.app.dispatch({type:'compose',text:'Retain this draft'});
  const value={host:'b'.repeat(32),thread:await f.h.ports.hash('another'),event:'c'.repeat(64)};
  await f.app.dispatch({type:'notification-open',value});assert.equal(f.app.state().selectedThreadId,'general');
- await f.app.dispatch({type:'notification-open',value:{...value,host:'a'.repeat(32)}});assert.equal(f.app.state().selectedThreadId,'another');
+ await f.app.dispatch({type:'notification-open',value:{...value,host:'a'.repeat(32)}});await f.settle();assert.equal(f.app.state().selectedThreadId,'another');
  await f.app.dispatch({type:'select-thread',threadId:'general'});assert.equal(f.app.state().draft,'Retain this draft');
 });
 test('failed notification registration does not disable foreground text and keeps a retry action',async t=>{
@@ -47,4 +47,6 @@ test('notification return focuses the referenced reply after it arrives',async t
  await f.app.dispatch({type:'notification-open',value});assert.equal(f.app.state().focusMessage,null);
  f.h.opened.at(-1).event('message',{id:'reply-42',text:'Your approval is needed',role:'rich',cursor:42,complete:true});await f.settle();
  assert.equal(f.app.state().focusMessage,'reply-42');
+ await f.app.dispatch({type:'notification-focused',id:'reply-42'});assert.equal(f.app.state().focusMessage,null);
+ f.h.opened.at(-1).event('message',{id:'reply-43',text:'Later reply',role:'rich',cursor:43,complete:true});await f.settle();assert.equal(f.app.state().focusMessage,null,'Later traffic must not refocus an already opened notification');
 });
