@@ -254,6 +254,7 @@ async function runEngine(playwright, engine) {
 		check('healthy connectivity is invisible', connected.trim()==='' && await page.evaluate(()=>__richosPhone.link.isOpen()), connected.trim());
         await page.click('#settings-open');
         check('reply previews are on by default',await page.isChecked('#notification-previews'));
+        await shoot(page,`${engine}-notification-settings`);
         await page.uncheck('#notification-previews');
         await page.click('#settings-close');
         await page.reload();await page.waitForSelector('#composer',{state:'visible'});
@@ -261,6 +262,8 @@ async function runEngine(playwright, engine) {
         await page.waitForFunction(()=>document.querySelector('#notification-previews').checked===false);
         check('the preview opt-out survives relaunch',!await page.isChecked('#notification-previews'));
         await page.check('#notification-previews');await page.click('#settings-close');
+        if(await page.isVisible('#push-later'))await page.click('#push-later');
+        check('notification setup can be dismissed without nagging',!await page.isVisible('#push-offer'));
         await page.fill('#composer','Retain this unsent draft');
         await page.waitForFunction(async()=>{const db=await RichOSStorage.open();try{return await RichOSStorage.settings(db).get('draft:thread-main')==='Retain this unsent draft';}finally{db.close();}});
         await page.reload();await page.waitForSelector('#composer',{state:'visible'});
@@ -693,6 +696,7 @@ async function runEngine(playwright, engine) {
             await page.locator('#voice-send').waitFor({state:'visible'});
             const cancelBox=await page.locator('#voice-cancel').boundingBox(), actionsBox=await page.locator('#voice-actions').boundingBox();
             check('locked Cancel is centred with room away from Send',Math.abs(cancelBox.x+cancelBox.width/2-actionsBox.x-actionsBox.width/2)<3 && (await page.locator('#voice-send').boundingBox()).x-(cancelBox.x+cancelBox.width)>=20);
+            await shoot(page,`${engine}-locked-recording`);
             check('releasing after slide-up keeps recording and sends nothing',mac.received().filter(r=>r.kind==='voice').length===1);
             await page.locator('#voice-cancel').click();
             b=await pressMic();await page.mouse.move(b.x-100,b.y+b.height/2,{steps:5});await page.mouse.up();

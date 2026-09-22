@@ -336,6 +336,7 @@ async function startConversation(keys) {
 	connectStream();
 	await refreshPushOffer();
 	flushQueue();
+    if(notificationTarget)void resolveNotificationTarget().catch(handleApiError);
 }
 
 let connectionTimer=null;
@@ -368,7 +369,7 @@ function applyCapabilities() {
 	if (!api) return;
 	const phase=voiceGesture.snapshot().phase;
 	const voice = api.offers('voice');
-	hold.hidden = !voice || phase==='locked' || phase==='finishing';
+	hold.hidden = !voice || (phase==='locked' && hold.dataset.pointerHeld!=='true') || phase==='finishing';
 	$('hold-note').hidden = !voice;
 }
 
@@ -1018,7 +1019,7 @@ const voiceGesture=globalThis.RichOSVoice.createGesture({
     changed: state => {
         const active=state.phase!=='idle',locked=state.phase==='locked';document.body.dataset.voice=state.phase;
         hold.classList.toggle('recording',active);hold.classList.toggle('opening',state.phase==='preparing');
-        hold.textContent=state.phase==='preparing'?'Opening microphone…':active?'Recording · release to send':'Hold to record';
+        hold.setAttribute('aria-label',state.phase==='preparing'?'Opening microphone…':active?'Recording · release to send':'Hold to record');
         applyCapabilities();
         $('voice-actions').hidden=!active;$('voice-lock').hidden=state.phase!=='held';$('voice-cancel').hidden=!locked;$('voice-send').hidden=!locked;
         $('meter').hidden=!active;$('meter-read').hidden=!active;
@@ -1031,11 +1032,11 @@ let voicePointer=null,voiceX=0,voiceY=0;
 hold.oncontextmenu=e=>e.preventDefault();
 hold.addEventListener('pointerdown',event=>{
     if(voicePointer!==null || event.button!==0)return;
-    event.preventDefault();voicePointer=event.pointerId;voiceX=event.clientX;voiceY=event.clientY;hold.setPointerCapture(voicePointer);
+    event.preventDefault();hold.dataset.pointerHeld='true';voicePointer=event.pointerId;voiceX=event.clientX;voiceY=event.clientY;hold.setPointerCapture(voicePointer);
     gestureAction(voiceGesture.press({threadId:currentThreadId,origin:apiState.apiBase}));
 });
 hold.addEventListener('pointermove',event=>{if(event.pointerId===voicePointer)gestureAction(voiceGesture.move(event.clientX-voiceX,event.clientY-voiceY));});
-hold.addEventListener('pointerup',event=>{if(event.pointerId===voicePointer){voicePointer=null;gestureAction(voiceGesture.release());}});
+hold.addEventListener('pointerup',event=>{if(event.pointerId===voicePointer){voicePointer=null;hold.dataset.pointerHeld='false';gestureAction(voiceGesture.release());applyCapabilities();}});
 hold.addEventListener('pointercancel',()=>{voicePointer=null;if(voiceGesture.snapshot().phase!=='locked')gestureAction(voiceGesture.interrupt());});
 hold.addEventListener('lostpointercapture',()=>{if(voicePointer!==null){voicePointer=null;if(voiceGesture.snapshot().phase!=='locked')gestureAction(voiceGesture.interrupt());}});
 hold.addEventListener('click',event=>{if(event.detail===0)gestureAction(voiceGesture.press({threadId:currentThreadId,origin:apiState.apiBase}).then(()=>voiceGesture.lock()));});
@@ -1141,7 +1142,8 @@ function setLevel(rms) {
 	// level meter is for.
 	const pct = Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
 	$('meter-fill').style.setProperty('--level', `${pct.toFixed(1)}%`);
-	$('meter-read').textContent = `Level: ${pcm.formatDbfs(db)} dBFS`;
+	const heard=db>-50?'Sound detected':'Waiting for speech';
+    if($('meter-read').textContent!==heard)$('meter-read').textContent=heard;
 }
 
 function teardownGraph() {
@@ -1172,7 +1174,7 @@ async function stopRecording({send=false,context}={}) {
 	recording = false;
 	clearTimeout(autoStopTimer);
 	hold.classList.remove('recording');
-	hold.textContent = 'Hold to record';
+	hold.setAttribute('aria-label','Hold to record');
 	// His finger is off it, so a `hello` that arrived mid-hold and withdrew voice takes effect now.
 	applyCapabilities();
 	teardownGraph();
@@ -1195,7 +1197,7 @@ async function stopRecording({send=false,context}={}) {
 	}
 	if (result.outcome === 'silent') {
 		// Sending it would cost him a transcription of nothing and a reply about nothing.
-		setHoldNote(`That came through silent — peak ${pcm.formatDbfs(result.stats.peakDbfs)} dBFS, so your Mac would hear nothing. Try again, closer.`, true);
+		setHoldNote('We could not hear your message. Try again closer to the microphone.', true);
 		return;
 	}
 
@@ -1313,7 +1315,7 @@ async function refreshPushOffer() {
 	if (Notification.permission === 'denied') {
 		// There is no control this app can offer that will change this — iOS only allows it from
 		// Settings — so the sentence says where the control is instead of pretending to be one.
-		offer.hidden = false;
+		offer.hidden = true;
 		$('push-offer-text').textContent = 'Notifications are switched off for this app in your phone\u2019s settings, so Rich cannot reach you when it is closed.';
 		$('push-on').hidden = true;
 		return;
@@ -1321,7 +1323,7 @@ async function refreshPushOffer() {
 	if (Notification.permission === 'granted') {
 		const registration = await navigator.serviceWorker.getRegistration();
 		const existing = registration ? await registration.pushManager.getSubscription() : null;
-		offer.hidden = Boolean(existing);
+		offer.hidden = Boolean(existing) || notificationsDeclined;
 		return;
 	}
 	offer.hidden = false;
@@ -1338,8 +1340,10 @@ async function refreshPushOffer() {
 	$('push-offer-text').textContent = notificationsDeclined
 		? 'Notifications stayed off, so Rich can only reach you while this app is open.'
 		: 'Notifications are off, so Rich cannot reach you when this app is closed.';
+    offer.hidden=notificationsDeclined;
 }
 
+$('push-later').onclick=async()=>{notificationsDeclined=true;$('push-offer').hidden=true;await settings.set('notificationsDeclined',true);};
 $('push-on').addEventListener('click', async () => {
 	$('push-on').disabled = true;
 	try {
@@ -1448,14 +1452,14 @@ async function openNotificationURL(url) {
     if(!checked.ok)return;
     const params=new URLSearchParams(new URL(checked.value,location.origin).hash.slice(1));
     const id=params.get('thread'),at=params.get('at');
-    if(!id || !at || !thread)return;
+    if(!id || !at)return;
     notificationTarget={thread:id,at};
     await resolveNotificationTarget();
 }
 let resolvingNotification=false;
 async function resolveNotificationTarget() {
     const target=notificationTarget;
-    if(!target || !threads.some(item=>item.id===target.thread))return;
+    if(!target || !thread || !threads.some(item=>item.id===target.thread))return;
     if(currentThreadId!==target.thread)await selectThread(target.thread);
     render(false);
     if(notificationTarget!==target || resolvingNotification)return;
@@ -1478,7 +1482,7 @@ $('settings-open').onclick=()=>{$('notification-previews').disabled=true;$('sett
 $('settings-close').onclick=()=>$('settings').close();
 $('notifications-enable').onclick=()=>{$('push-on').click();};
 $('notifications-disable').onclick=async()=>{
-    try {const registration=await navigator.serviceWorker.getRegistration();const subscription=await registration?.pushManager.getSubscription();if(subscription && !await subscription.unsubscribe())throw Error('unsubscribe');await notificationSettings();await refreshPushOffer();}
+    try {const registration=await navigator.serviceWorker.getRegistration();const subscription=await registration?.pushManager.getSubscription();if(subscription && !await subscription.unsubscribe())throw Error('unsubscribe');notificationsDeclined=true;await settings.set('notificationsDeclined',true);await api.registerPush(null);await notificationSettings();await refreshPushOffer();}
     catch {$('notification-status').textContent='Notifications could not be disabled. Try again.';}
 };
 $('notification-previews').onchange=async()=>{

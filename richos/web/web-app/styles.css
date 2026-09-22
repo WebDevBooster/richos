@@ -570,3 +570,11 @@ body[data-voice="locked"] #voice-send {grid-column:3;grid-row:1;justify-self:end
 .heading-row .title {flex:1;min-width:0;}
 #settings {max-width:min(90vw,420px);background:var(--ground);color:var(--ink);border:1px solid var(--line-control);border-radius:16px;padding:20px;}
 #settings::backdrop {background:#0008;}
+
+/* Keep text and voice in the same compact composer, as on iPhone. */
+.composer-row #hold, .composer-row #send {flex:none;width:48px;height:48px;min-height:48px;margin:0;padding:0;border-radius:50%;display:grid;place-items:center;}
+.composer-row #send {font-size:26px;}
+.composer-row #hold[hidden] {display:none;}
+#hold svg {width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;}
+body[data-voice="locked"] #composer, body[data-voice="locked"] #send {display:none;}
+body[data-voice="locked"] .composer-row {justify-content:flex-end;}
