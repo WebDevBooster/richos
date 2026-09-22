@@ -139,8 +139,11 @@ impl Default for MacSay {
     }
 }
 
-impl SpeechSynth for MacSay {
-    fn synthesize(&self, text: &str, target_rate: u32, scratch_dir: &Path) -> Result<Speech, TtsError> {
+impl MacSay {
+    pub fn synthesize_bounded(&self,text:&str,target_rate:u32,scratch_dir:&Path,timeout:std::time::Duration)->Result<Speech,TtsError> {
+        self.synthesize_inner(text,target_rate,scratch_dir,Some(timeout))
+    }
+    fn synthesize_inner(&self,text:&str,target_rate:u32,scratch_dir:&Path,timeout:Option<std::time::Duration>)->Result<Speech,TtsError> {
         std::fs::create_dir_all(scratch_dir).map_err(|e| TtsError::Io(e.to_string()))?;
         let stamp = format!("{}-{:?}", std::process::id(), std::thread::current().id());
         let txt_path = scratch_dir.join(format!("say-{stamp}.txt"));
@@ -151,7 +154,8 @@ impl SpeechSynth for MacSay {
         std::fs::write(&txt_path, text).map_err(|e| TtsError::Io(e.to_string()))?;
 
         let started = Instant::now();
-        let out = Command::new("/usr/bin/say")
+        let mut command = Command::new("/usr/bin/say");
+        command
             .arg("-v")
             .arg(&self.voice)
             .arg("-r")
@@ -160,9 +164,9 @@ impl SpeechSynth for MacSay {
             .arg(&txt_path)
             .arg("-o")
             .arg(&wav_path)
-            .arg(format!("--data-format=LEI16@{target_rate}"))
-            .output()
-            .map_err(|e| TtsError::Io(e.to_string()))?;
+            .arg(format!("--data-format=LEI16@{target_rate}"));
+        let out=match timeout {Some(timeout)=>crate::stt::bounded_decoder(&mut command,scratch_dir,timeout),None=>command.output()}
+            .map_err(|e|TtsError::Io(e.to_string()))?;
         let synth_ms = started.elapsed().as_millis() as u64;
         let _ = std::fs::remove_file(&txt_path);
 
@@ -182,6 +186,11 @@ impl SpeechSynth for MacSay {
         Ok(Speech { samples, sample_rate: target_rate, synth_ms })
     }
 
+}
+impl SpeechSynth for MacSay {
+    fn synthesize(&self,text:&str,target_rate:u32,scratch_dir:&Path)->Result<Speech,TtsError> {
+        self.synthesize_inner(text,target_rate,scratch_dir,None)
+    }
     fn voice_label(&self) -> String {
         format!("macOS say · {} · {} wpm", self.voice, self.rate_wpm)
     }

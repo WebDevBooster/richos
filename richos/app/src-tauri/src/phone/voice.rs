@@ -1,6 +1,6 @@
 //! Bounded phone audio uses the same offline speech stack as the desktop.
 use std::{path::PathBuf, sync::Mutex};
-use richos_voice::{stt::Recognizer, tts::{MacSay, SpeechSynth}, voiced::VoiceEvidence, wav};
+use richos_voice::{stt::Recognizer, tts::MacSay, voiced::VoiceEvidence, wav};
 
 pub const MAX_UPLOAD: usize = 2_000_000;
 pub const MAX_REPLY: usize = 6_000_000;
@@ -22,7 +22,7 @@ impl VoiceDesk {
         if !VoiceEvidence::measure(&samples).carried_speech() { return Err("I could not hear speech in that recording. Your recording is still on your phone.".into()); }
         let recognizer = self.recognizer.as_ref().ok_or("Speech recognition is not ready on this Mac. Whoever set RichOS up needs to prepare it. Your recording is still on your phone.")?;
         let scratch = self.scratch()?;
-        let (text, _) = recognizer.transcribe(&samples, &scratch.0).map_err(|_| "I could not transcribe that recording. Your recording is still on your phone.")?;
+        let (text, _) = recognizer.transcribe_bounded(&samples, &scratch.0,std::time::Duration::from_secs(20)).map_err(|_| "I could not transcribe that recording. Your recording is still on your phone.")?;
         if text.trim().is_empty() || text.len() > 48000 { return Err("I could not understand that recording. Your recording is still on your phone.".into()); }
         Ok(text)
     }
@@ -30,7 +30,7 @@ impl VoiceDesk {
         let _guard = self.busy.try_lock().map_err(|_| "Rich is already processing audio. Try playback again shortly.")?;
         if text.is_empty() || text.chars().count() > 2400 { return Err("This reply is too long for audio playback. The complete reply is in the conversation.".into()); }
         let scratch = self.scratch()?;
-        let speech = MacSay::new().synthesize(text,16000,&scratch.0).map_err(|_| "Audio playback is unavailable. The reply remains in the conversation.")?;
+        let speech = MacSay::new().synthesize_bounded(text,16000,&scratch.0,std::time::Duration::from_secs(20)).map_err(|_| "Audio playback is unavailable. The reply remains in the conversation.")?;
         let bytes = wav::encode_pcm16_mono(&speech.samples,16000);
         if bytes.len() > MAX_REPLY { return Err("This reply is too long for audio playback. The complete reply is in the conversation.".into()); }
         Ok(bytes)

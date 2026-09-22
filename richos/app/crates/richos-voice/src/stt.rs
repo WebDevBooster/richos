@@ -699,6 +699,13 @@ impl Recognizer {
     /// Transcribe one utterance (16 kHz mono f32). Returns the text and the MEASURED
     /// wall-clock recognition latency.
     pub fn transcribe(&self, samples: &[f32], scratch_dir: &Path) -> Result<(String, u64), SttError> {
+        self.transcribe_inner(samples,scratch_dir,None)
+    }
+    /// HTTP callers can bound their owned decoder without changing the desktop loop.
+    pub fn transcribe_bounded(&self,samples:&[f32],scratch_dir:&Path,timeout:std::time::Duration)->Result<(String,u64),SttError> {
+        self.transcribe_inner(samples,scratch_dir,Some(timeout))
+    }
+    fn transcribe_inner(&self,samples:&[f32],scratch_dir:&Path,timeout:Option<std::time::Duration>)->Result<(String,u64),SttError> {
         std::fs::create_dir_all(scratch_dir).map_err(|e| SttError::Io(e.to_string()))?;
         let wav_path = scratch_dir.join(format!("utt-{}.wav", std::process::id()));
         wav::write_pcm16_mono(&wav_path, samples, SAMPLE_RATE).map_err(|e| SttError::Io(e.to_string()))?;
@@ -707,7 +714,10 @@ impl Recognizer {
         let mut cmd = Command::new(&self.bin);
         cmd.arg("-m").arg(&self.model).arg("-f").arg(&wav_path);
         cmd.args(decode_args(self.prompt.as_deref()));
-        let out = cmd.output().map_err(|e| SttError::Io(e.to_string()))?;
+        let out = match timeout {
+            Some(timeout)=>bounded_decoder(&mut cmd,scratch_dir,timeout),
+            None=>cmd.output(),
+        }.map_err(|e| SttError::Io(e.to_string()))?;
         let elapsed_ms = started.elapsed().as_millis() as u64;
         let _ = std::fs::remove_file(&wav_path);
 
@@ -718,6 +728,28 @@ impl Recognizer {
             });
         }
         Ok((clean_transcript(&String::from_utf8_lossy(&out.stdout)), elapsed_ms))
+    }
+}
+
+// Spool bounded decoder output to owned scratch rather than blocking on full pipes.
+// Drop always kills/reaps only this child. No process-name or USB resets are involved.
+pub(crate) fn bounded_decoder(command:&mut Command,dir:&Path,timeout:std::time::Duration)->std::io::Result<std::process::Output> {
+    use std::{io,process::{Child,Stdio},os::unix::fs::OpenOptionsExt};
+    struct Owned(Child);
+    impl Drop for Owned {fn drop(&mut self){let _=self.0.kill();let _=self.0.wait();}}
+    let output=dir.join("decoder.stdout");let errors=dir.join("decoder.stderr");
+    let file=|path:&Path|std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path);
+    let mut child=Owned(command.stdin(Stdio::null()).stdout(file(&output)?).stderr(file(&errors)?).spawn()?);
+    let started=Instant::now();
+    loop {
+        if started.elapsed()>=timeout {return Err(io::Error::new(io::ErrorKind::TimedOut,"decoder deadline"))}
+        if [&output,&errors].iter().any(|p|std::fs::metadata(p).map(|m|m.len()>128000).unwrap_or(true)) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData,"decoder output limit"));
+        }
+        if let Some(status)=child.0.try_wait()? {
+            return Ok(std::process::Output{status,stdout:std::fs::read(&output)?,stderr:std::fs::read(&errors)?});
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -1071,5 +1103,17 @@ mod tests {
         let _ = resolve_model("small.en");
         let _ = resolve_model("definitely-not-a-real-model");
         assert!(resolve_model("definitely-not-a-real-model").is_err());
+    }
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+    #[test] fn decoder_deadline_reaps_its_child() {
+        let directory=std::env::temp_dir().join(format!("bounded-decoder-{}",std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let started=Instant::now();let result=bounded_decoder(Command::new("/bin/sleep").arg("10"),&directory,std::time::Duration::from_millis(100));
+        assert_eq!(result.unwrap_err().kind(),std::io::ErrorKind::TimedOut);assert!(started.elapsed().as_secs()<2);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
