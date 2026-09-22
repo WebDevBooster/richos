@@ -1,0 +1,334 @@
+#!/usr/bin/env bash
+# randroid — the one command line for the native RichOS Android app (build plan §3.1).
+#
+#   randroid headless <command> [arg]   L1′: the real core, headless, one JVM start, no Gradle
+#   randroid test [core|app|all] [gradle args]   L1: JVM tests (core, CLI; app via Robolectric)
+#   randroid build [debug|release]      assemble an APK
+#   randroid check-release              prove the development bridge is absent from release
+#   randroid emu prepare                L2: create + boot this checkout's emulator (-no-window),
+#                                       build, install and launch the debug app
+#   randroid emu refresh                incremental build + reinstall + relaunch
+#   randroid emu state|reset|restart|fixture <n>|action '<json>'|transport <m>|advance <ms>|scenario <n>
+#                                       the headless grammar, executed inside the app
+#   randroid emu parity [scenario]      same scenario headless and on the emulator; states must match
+#   randroid emu verify                 the screen shows the core's draft (UI automation dump)
+#   randroid emu screenshot [file]      PNG of the emulator screen
+#   randroid emu stop | delete          quit the emulator this CLI started (by its recorded PID) /
+#                                       also delete its AVD
+#   randroid doctor                     the tools this command found
+#
+# Output is JSON; a failure exits nonzero. The command grammar and the result envelope are the
+# preserved phone CLI's (richos/mobile/cli/mobile.mjs). Devices are addressed ONLY by the serial
+# this CLI recorded when it booted the emulator — never a bare adb, which would reach whatever is
+# attached (a physical phone included).
+#
+# Everything built or cached lives on the external SSD (richos/mobile/AGENTS.md):
+#   $RANDROID_CACHE, default /Volumes/E1TB/caches/richos-native-android/<checkout hash>/
+# Gradle's own cache: $GRADLE_USER_HOME, default /Volumes/E1TB/caches/richos-native-android/gradle.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VOLUME="/Volumes/E1TB"
+PACKAGE="dev.richos.native.android"
+ACTIVITY="$PACKAGE/dev.richos.android.app.MainActivity"
+RECEIVER="$PACKAGE/dev.richos.android.app.debug.DevBridgeReceiver"
+SYSTEM_IMAGE="${RANDROID_SYSTEM_IMAGE:-system-images;android-34;google_apis;arm64-v8a}"
+
+say_json() { python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1]), indent=2))' "$1"; }
+fail() {  # $1 message, $2 exit code (default 1)
+  python3 -c 'import json,sys; print(json.dumps({"ok": False, "error": sys.argv[1]}))' "$1" >&2
+  exit "${2:-1}"
+}
+now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
+
+# --- environment ---------------------------------------------------------------------------
+if [ -z "${RANDROID_CACHE:-}" ]; then
+  if [ ! -d "$VOLUME" ] || [ "$(stat -f %d "$VOLUME")" = "$(stat -f %d /Volumes)" ]; then
+    fail "NOT RUN: mount $VOLUME (build output and caches never go into the source tree)" 2
+  fi
+  RANDROID_CACHE="$VOLUME/caches/richos-native-android/$(printf '%s' "$HERE" | shasum | cut -c1-10)"
+fi
+CACHE="$RANDROID_CACHE"
+OUT="$CACHE/out"
+mkdir -p "$CACHE"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$VOLUME/caches/richos-native-android/gradle}"
+if [ -z "${JAVA_HOME:-}" ]; then
+  JBR="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+  [ -x "$JBR/bin/java" ] && export JAVA_HOME="$JBR"
+fi
+export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
+export ANDROID_AVD_HOME="$CACHE/avd"
+ADB="$(command -v adb || true)"
+[ -n "$ADB" ] || ADB="$ANDROID_HOME/platform-tools/adb"
+EMULATOR="$ANDROID_HOME/emulator/emulator"
+AVDMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager"
+AVD="randroid-$(basename "$CACHE")"
+EMU_RECORD="$CACHE/emulator.json"
+
+need_java() {
+  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] || fail "NOT RUN: no Java runtime; set JAVA_HOME (Android Studio's bundled JBR works)" 2
+}
+
+gradle() {
+  need_java
+  "$HERE/gradlew" -p "$HERE" --project-cache-dir "$CACHE/gradle-project" -Prichos.out="$OUT" "$@"
+}
+
+# --- L1′: headless --------------------------------------------------------------------------
+headless() {
+  need_java
+  local launcher="$OUT/cli/install/randroid-headless/bin/randroid-headless"
+  local stamp="$CACHE/headless.stamp"
+  local stale=1
+  if [ -x "$launcher" ] && [ -f "$stamp" ]; then
+    stale=0
+    if [ -n "$(find "$HERE/core/src/main" "$HERE/cli/src/main" "$HERE/core/build.gradle.kts" \
+                    "$HERE/cli/build.gradle.kts" "$HERE/gradle/libs.versions.toml" \
+                    -newer "$stamp" -print -quit 2>/dev/null)" ]; then stale=1; fi
+  fi
+  if [ "$stale" -eq 1 ]; then
+    gradle -q :cli:installDist >&2 || fail "the headless CLI did not build"
+    touch "$stamp"
+  fi
+  RANDROID_SESSION="$CACHE/headless.json" "$launcher" "$@"
+}
+
+# --- the emulator -----------------------------------------------------------------------------
+record_get() {  # $1 key
+  [ -f "$EMU_RECORD" ] || return 1
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$EMU_RECORD" "$1"
+}
+
+# The serial this CLI created, and only if that emulator is still the process we started.
+serial() {
+  local s pid
+  s="$(record_get serial 2>/dev/null)" || fail "no emulator recorded for this checkout; run: randroid emu prepare"
+  pid="$(record_get pid)"
+  kill -0 "$pid" 2>/dev/null || fail "the recorded emulator (pid $pid) is not running; run: randroid emu prepare"
+  printf '%s' "$s"
+}
+
+# Never `adb -s ""`: an empty serial would fall through to whatever device is attached.
+adb_s() {
+  local s
+  s="$(serial)"
+  [ -n "$s" ] || exit 1
+  "$ADB" -s "$s" "$@"
+}
+
+free_port() {
+  local port
+  for port in $(seq 5580 2 5680); do
+    if ! "$ADB" devices | grep -q "^emulator-$port[[:space:]]" \
+       && ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 \
+       && ! lsof -nP -iTCP:"$((port + 1))" -sTCP:LISTEN >/dev/null 2>&1; then
+      printf '%s' "$port"; return 0
+    fi
+  done
+  return 1
+}
+
+emu_boot() {
+  if [ -f "$EMU_RECORD" ] && kill -0 "$(record_get pid)" 2>/dev/null; then return 0; fi
+  [ -x "$EMULATOR" ] || fail "NOT RUN: no Android emulator at $EMULATOR" 2
+  mkdir -p "$ANDROID_AVD_HOME"
+  if [ ! -f "$ANDROID_AVD_HOME/$AVD.ini" ]; then
+    echo no | "$AVDMANAGER" create avd -n "$AVD" -k "$SYSTEM_IMAGE" -d pixel_7 >/dev/null 2>"$CACHE/avdmanager.log" \
+      || fail "could not create AVD $AVD from $SYSTEM_IMAGE (see $CACHE/avdmanager.log)"
+  fi
+  local port; port="$(free_port)" || fail "no free emulator port in 5580-5680"
+  local t0; t0="$(now_ms)"
+  # -no-window: nothing opens on the Mac's screen. The PID is captured here, at spawn, and is
+  # the only process `emu stop` will ever signal.
+  nohup "$EMULATOR" -avd "$AVD" -port "$port" -no-window -no-audio -no-boot-anim \
+    -gpu swiftshader_indirect >"$CACHE/emulator.log" 2>&1 &
+  local pid=$!
+  python3 -c 'import json,sys; json.dump({"serial": "emulator-"+sys.argv[1], "port": int(sys.argv[1]), "pid": int(sys.argv[2]), "avd": sys.argv[3]}, open(sys.argv[4], "w"))' \
+    "$port" "$pid" "$AVD" "$EMU_RECORD"
+  local s="emulator-$port" booted="" i
+  for i in $(seq 1 360); do
+    kill -0 "$pid" 2>/dev/null || fail "the emulator exited during boot (see $CACHE/emulator.log)"
+    booted="$("$ADB" -s "$s" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+    [ "$booted" = "1" ] && break
+    sleep 0.5
+  done
+  [ "$booted" = "1" ] || fail "the emulator did not finish booting in 180 s (see $CACHE/emulator.log)"
+  echo "$(( $(now_ms) - t0 ))" > "$CACHE/boot-ms"
+}
+
+emu_install() {
+  local t0 t1 apk
+  t0="$(now_ms)"
+  gradle -q :app:assembleDebug >&2 || fail "the debug app did not build"
+  t1="$(now_ms)"
+  apk="$OUT/app/outputs/apk/debug/app-debug.apk"
+  adb_s install -r -t "$apk" >/dev/null || fail "install failed on $(serial)"
+  adb_s shell am start -W -n "$ACTIVITY" >/dev/null || fail "launch failed on $(serial)"
+  local t2; t2="$(now_ms)"
+  say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"$1\", \"result\": {\"serial\": \"$(serial)\", \"avd\": \"$AVD\", \"bootMs\": $(cat "$CACHE/boot-ms" 2>/dev/null || echo null), \"buildMs\": $((t1 - t0)), \"installLaunchMs\": $((t2 - t1))}}"
+}
+
+emu_command() {  # $1 command, $2 optional argument
+  local s; s="$(serial)"
+  local t0; t0="$(now_ms)"
+  local extra=()
+  if [ "$#" -ge 2 ]; then extra=(--es arg64 "$(printf '%s' "$2" | base64 | tr -d '\n')"); fi
+  local out
+  out="$("$ADB" -s "$s" shell am broadcast -n "$RECEIVER" --es command "$1" ${extra[@]+"${extra[@]}"} 2>&1)" \
+    || fail "broadcast failed on $s: $out"
+  local code data
+  code="$(printf '%s' "$out" | sed -n 's/.*Broadcast completed: result=\([0-9-]*\).*/\1/p' | tr -d '\r')"
+  data="$(printf '%s' "$out" | sed -n 's/.*data="\([^"]*\)".*/\1/p' | tr -d '\r')"
+  [ -n "$data" ] || fail "the app did not answer (is the debug build installed on $s?): $out"
+  python3 - "$data" "$(( $(now_ms) - t0 ))" "$code" <<'PY'
+import base64, json, sys
+body = json.loads(base64.b64decode(sys.argv[1]))
+body["roundTripMs"] = int(sys.argv[2])
+stream = sys.stdout if sys.argv[3] == "0" else sys.stderr
+print(json.dumps(body, indent=2) if sys.argv[3] == "0" else json.dumps(body), file=stream)
+sys.exit(0 if sys.argv[3] == "0" else 1)
+PY
+}
+
+emu_restart() {
+  adb_s shell am force-stop "$PACKAGE"
+  adb_s shell am start -W -n "$ACTIVITY" >/dev/null || fail "relaunch failed"
+  emu_command state
+}
+
+emu_stop() {
+  [ -f "$EMU_RECORD" ] || { say_json '{"ok": true, "mode": "emu", "command": "stop", "result": {"running": false}}'; return 0; }
+  local s pid avd i
+  s="$(record_get serial)"; pid="$(record_get pid)"; avd="$(record_get avd)"
+  if kill -0 "$pid" 2>/dev/null; then
+    "$ADB" -s "$s" emu kill >/dev/null 2>&1 || true
+    for i in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    if kill -0 "$pid" 2>/dev/null; then
+      # Still alive: signal it only if the recorded PID is still the emulator this CLI started.
+      if ps -o command= -p "$pid" | grep -q -- "-avd $avd "; then kill -TERM "$pid"; fi
+      for i in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    fi
+  fi
+  kill -0 "$pid" 2>/dev/null && fail "emulator pid $pid did not exit"
+  rm -f "$EMU_RECORD"
+  say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"stop\", \"result\": {\"serial\": \"$s\", \"pid\": $pid, \"running\": false}}"
+}
+
+emu_delete() {
+  emu_stop >/dev/null
+  if [ -f "$ANDROID_AVD_HOME/$AVD.ini" ]; then
+    "$AVDMANAGER" delete avd -n "$AVD" >/dev/null 2>&1 || fail "could not delete AVD $AVD"
+  fi
+  rm -rf "$ANDROID_AVD_HOME"
+  say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"delete\", \"result\": {\"avd\": \"$AVD\", \"deleted\": true}}"
+}
+
+emu_parity() {
+  local name="${1:-draft-survives-restart}"
+  local a b
+  a="$(headless scenario "$name")" || fail "headless scenario $name failed"
+  b="$(emu_command scenario "$name")" || fail "emulator scenario $name failed"
+  python3 - "$a" "$b" "$name" <<'PY'
+import json, sys
+a, b = json.loads(sys.argv[1])["result"], json.loads(sys.argv[2])["result"]
+sa = [step["state"] for step in a["trace"]] + [a["state"]]
+sb = [step["state"] for step in b["trace"]] + [b["state"]]
+same = sa == sb
+print(json.dumps({"ok": same, "mode": "emu", "command": "parity",
+                  "result": {"scenario": sys.argv[3], "steps": len(a["trace"]), "identical": same}}, indent=2))
+sys.exit(0 if same else 1)
+PY
+}
+
+emu_verify() {
+  local expected dump
+  expected="$(emu_command state | python3 -c 'import json,sys; s=json.load(sys.stdin)["result"]["state"]; print(s["draft"] or "Message Rich")')"
+  adb_s shell uiautomator dump /sdcard/randroid-ui.xml >/dev/null
+  dump="$(adb_s exec-out cat /sdcard/randroid-ui.xml)"
+  adb_s shell rm -f /sdcard/randroid-ui.xml
+  python3 - "$dump" "$expected" <<'PY'
+import json, sys, xml.etree.ElementTree as ET
+root = ET.fromstring(sys.argv[1])
+texts = [n.get("text") for n in root.iter("node") if n.get("content-desc") == "draft" or n.get("text") == sys.argv[2]]
+ok = sys.argv[2] in texts
+print(json.dumps({"ok": ok, "mode": "emu", "command": "verify", "result": {"expectedOnScreen": sys.argv[2], "found": ok}}, indent=2))
+sys.exit(0 if ok else 1)
+PY
+}
+
+emu() {
+  local command="${1:-}"; shift || true
+  case "$command" in
+    prepare) emu_boot; emu_install prepare ;;
+    refresh) emu_install refresh ;;
+    restart) emu_restart ;;
+    state|reset) emu_command "$command" ;;
+    fixture|action|transport|advance|scenario)
+      [ "$#" -ge 1 ] || fail "$command needs an argument"
+      emu_command "$command" "$1" ;;
+    parity) emu_parity "${1:-}" ;;
+    verify) emu_verify ;;
+    screenshot)
+      local file="${1:-$CACHE/screens/$(date +%Y%m%d-%H%M%S).png}"
+      mkdir -p "$(dirname "$file")"
+      adb_s exec-out screencap -p > "$file"
+      say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"screenshot\", \"result\": {\"file\": \"$file\"}}" ;;
+    stop) emu_stop ;;
+    delete) emu_delete ;;
+    *) fail "unknown emu command '$command'; see randroid --help" ;;
+  esac
+}
+
+# --- the release check ------------------------------------------------------------------------
+check_release() {
+  gradle -q :app:assembleRelease >&2 || fail "the release app did not build"
+  local apk="$OUT/app/outputs/apk/release/app-release-unsigned.apk"
+  [ -f "$apk" ] || fail "no release APK at $apk"
+  local bt="$ANDROID_HOME/build-tools/36.0.0"
+  local manifest classes
+  manifest="$("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$apk")"
+  classes="$("$bt/dexdump" "$apk" 2>/dev/null | sed -n "s/.*Class descriptor *: *'\(.*\)'.*/\1/p")"
+  python3 - "$manifest" "$classes" "$apk" <<'PY'
+import json, sys
+manifest, classes, apk = sys.argv[1], sys.argv[2].splitlines(), sys.argv[3]
+leaks = [c for c in classes if c.startswith("Ldev/richos/android/app/debug/") or c.startswith("Ldev/richos/android/core/dev/")]
+markers = [m for m in ("DevBridge", "devbridge", "android.permission.DUMP") if m in manifest]
+ok = not leaks and not markers and len(classes) > 0
+print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
+                  "result": {"apk": apk, "classes": len(classes), "bridgeClasses": leaks, "manifestMarkers": markers}}, indent=2))
+sys.exit(0 if ok else 1)
+PY
+}
+
+doctor() {
+  python3 - "${JAVA_HOME:-}" "$ANDROID_HOME" "$ADB" "$EMULATOR" "$CACHE" "$GRADLE_USER_HOME" <<'PY'
+import json, os, sys
+keys = ["javaHome", "androidHome", "adb", "emulator", "cache", "gradleUserHome"]
+print(json.dumps({"ok": True, "mode": "doctor", "command": "doctor",
+                  "result": {k: {"path": v, "present": bool(v) and os.path.exists(v)} for k, v in zip(keys, sys.argv[1:])}}, indent=2))
+PY
+}
+
+mode="${1:-}"; shift || true
+case "$mode" in
+  headless) headless "$@" ;;
+  test)
+    which="${1:-all}"; [ "$#" -gt 0 ] && shift
+    case "$which" in
+      core) gradle :core:test :cli:test "$@" ;;
+      app) gradle :app:testDebugUnitTest "$@" ;;
+      all) gradle :core:test :cli:test :app:testDebugUnitTest "$@" ;;
+      *) fail "test takes core, app or all" ;;
+    esac ;;
+  build)
+    case "${1:-debug}" in
+      debug) gradle -q :app:assembleDebug; echo "$OUT/app/outputs/apk/debug/app-debug.apk" ;;
+      release) gradle -q :app:assembleRelease; echo "$OUT/app/outputs/apk/release/app-release-unsigned.apk" ;;
+      *) fail "build takes debug or release" ;;
+    esac ;;
+  check-release) check_release ;;
+  emu) emu "$@" ;;
+  doctor) doctor ;;
+  ""|-h|--help|help) sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) fail "unknown mode '$mode'; see randroid --help" ;;
+esac
