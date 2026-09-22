@@ -375,6 +375,15 @@ if (PLAN !== null) {
 // THE SHARDS' EXIT CODES ARE NOT THE VERDICT. They are reported because a reader wants
 // them; the verdict is the coverage job's, which is the only thing that has seen every
 // receipt and the only thing that can tell a failed suite from an absent one.
+// WHERE A FAILED NAVIGATION'S EVIDENCE GOES (`lib/navigation-evidence.js`). Beside the
+// receipts, because the receipts directory is the one a build keeps and names when the UI gate
+// refuses it ("the receipts are in …", `nightly-local.py`'s `ui_suite`). Every suite and every
+// shard inherits it through the environment. With no receipts directory, the harness's own
+// default applies: `.shots/navigation-failures/`, gitignored scratch in this directory.
+if (!process.env.RICHOS_UI_NAV_EVIDENCE_DIR && RECEIPTS) {
+  process.env.RICHOS_UI_NAV_EVIDENCE_DIR = path.join(path.resolve(RECEIPTS), "navigation");
+}
+
 if (SHARDS !== null) {
   const { spawn } = require("child_process");
   const dir = RECEIPTS || fs.mkdtempSync(path.join(os.tmpdir(), "richos-ui-receipts-"));
@@ -385,6 +394,14 @@ if (SHARDS !== null) {
   // empty rather than being trusted to be overwritten file for file.
   for (const f of fs.readdirSync(dir)) {
     if (f.endsWith(".receipt.json")) fs.rmSync(path.join(dir, f));
+  }
+  // AND A LEFTOVER NAVIGATION BUNDLE IS A FAILURE FROM A RUN THAT IS NOT THIS ONE, sitting
+  // beside this run's receipts. Same rule, same moment.
+  if (!owned) fs.rmSync(path.join(dir, "navigation"), { recursive: true, force: true });
+  // A directory this process made is deleted when it exits, so its shards' evidence must not
+  // be written inside it: they get the harness's own default, which outlives the run.
+  if (owned && !process.env.RICHOS_UI_NAV_EVIDENCE_DIR) {
+    process.env.RICHOS_UI_NAV_EVIDENCE_DIR = path.join(__dirname, ".shots", "navigation-failures");
   }
   console.log(`${SUITES.length} suite(s) over ${SHARDS} shard(s), receipts in ${dir}\n`);
   const started = Date.now();

@@ -40,6 +40,8 @@ const path = require("path");
 const fs = require("fs");
 const png = require("./png");
 const stability = require("./shot-stability");
+// On a navigation that fails, write down what the page was doing (`lib/navigation-evidence.js`).
+const navigation = require("./navigation-evidence");
 
 const UI_DIR = path.resolve(__dirname, "..", "..");
 const SHOT_DIR = path.resolve(__dirname, "..", ".shots");
@@ -87,11 +89,16 @@ function loadPlaywright() {
   const derived = mainCheckoutPlaywright();
   if (derived) candidates.push(derived);
   for (const c of candidates) {
+    let pw;
     try {
-      return require(c);
+      pw = require(c);
     } catch (_e) {
-      /* keep looking */
+      continue; /* keep looking */
     }
+    // EVERY SUITE'S BROWSER COMES THROUGH HERE, so this is where a failed navigation gets its
+    // evidence bundle — once, rather than at eighty `page.goto` call sites. Timeouts and the
+    // error a suite sees are untouched; see the header of `navigation-evidence.js`.
+    return navigation.instrumentPlaywright(pw);
   }
   // NAME THE FIX, not the symptom. The message this replaced offered three options and
   // left the reader to work out which one applied to the directory they were standing in.
@@ -702,11 +709,15 @@ function createRun(label) {
   return {
     label,
     async check(name, fn) {
+      // A navigation that fails inside this check names it in its evidence bundle.
+      navigation.setCurrentCheck(label, name);
       try {
         const detail = await fn();
         results.push({ name, ok: true, detail: detail || "" });
       } catch (e) {
         results.push({ name, ok: false, detail: (e && e.message) || String(e) });
+      } finally {
+        navigation.setCurrentCheck(label, null);
       }
     },
     report() {
