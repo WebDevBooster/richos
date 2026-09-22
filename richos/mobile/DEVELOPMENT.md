@@ -84,12 +84,20 @@ The Swift/WKWebView client uses the PWA's API, signing-input contract, fingerpri
 single event-stream owner and durable queue. `core/client.js` owns pairing confirmation,
 messages, reconnect cursors and recording actions. `platform/native.js` adapts those ports
 to protected files, Keychain signing, URLSession and AVAudioRecorder. The private key and
-recording bytes stay behind the native boundary. The current voice control saves bounded
-recordings locally; it does not claim the Mac accepts uploaded voice.
+recording bytes stay behind the native boundary. Hold the mic and release to submit, slide left
+to cancel or slide up to lock. Locked recording leaves the conversation scrollable and
+provides Send and Cancel. Interrupted recordings remain unsent with recovery controls.
+The same headless gesture module drives the PWA and native client.
+
+The sending ceiling is 30 minutes of 16 kHz PCM (under 60 MB). Reaching it saves unsent
+audio instead of automatically sending. Successfully delivered audio is pruned to a
+50-file/200 MB playback cache; unsent and queued recordings are never evicted. The current
+Mac recognition budget is 90 seconds; a processing failure retains audio for retry.
 
 ```sh
 node richos/mobile/cli/mobile.mjs client scenario connection-restart
 node richos/mobile/cli/mobile.mjs client scenario recording-interruption
+node richos/mobile/cli/mobile.mjs client scenario voice-gestures
 node richos/mobile/cli/mobile.mjs sim client-prepare
 node richos/mobile/cli/mobile.mjs sim action '{"type":"compose","text":"Client action check"}'
 node richos/mobile/cli/mobile.mjs sim state
@@ -105,7 +113,7 @@ Physical builds and focused checks use the connected device identifier and signi
 
 ```sh
 RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> node richos/mobile/cli/mobile.mjs device build
-RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> node richos/mobile/cli/mobile.mjs device verify recording
+RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> RICHOS_MOBILE_TEST_CONFIG=<external-json-path> node richos/mobile/cli/mobile.mjs device verify recording
 RICHOS_IOS_DEVICE=<device-id> RICHOS_APPLE_TEAM=<team-id> RICHOS_MOBILE_TEST_CONFIG=<external-json-path> node richos/mobile/cli/mobile.mjs device verify text
 ```
 

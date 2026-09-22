@@ -68,3 +68,32 @@ for (const projectionFirst of [true,false]) test(`voice transcript replaces its 
  assert.equal(app.state().outbox.length,0);
  assert.deepEqual(app.state().messages.map(row=>row.text),[transcript]);
 });
+
+test('Telegram gestures enqueue immediately on release and preserve a simultaneous typed draft',async t=>{
+ const {h,app}=await setup(t);await app.dispatch({type:'record-delete',id:'recording-1'});
+ await app.dispatch({type:'network',online:false});await app.dispatch({type:'compose',text:'Typed thought'});
+ await app.dispatch({type:'voice-press'});assert.equal(app.state().voice.phase,'held');
+ await app.dispatch({type:'voice-release'});
+ assert.equal(app.state().outbox.length,1);assert.equal(app.state().messages[0].voice.seconds,2);
+ assert.equal(app.state().draft,'Typed thought');assert.equal(app.state().recoveredRecordings.length,0);
+ assert.equal(app.state().voice.phase,'idle');assert.equal(h.disk().outbox[0].fileId,'recording-1');
+});
+test('locked release keeps recording; an interruption retains an unsent in-conversation draft',async t=>{
+ const {app}=await setup(t);await app.dispatch({type:'record-delete',id:'recording-1'});
+ await app.dispatch({type:'voice-press'});await app.dispatch({type:'voice-move',dx:0,dy:-90});
+ await app.dispatch({type:'voice-release'});assert.equal(app.state().voice.phase,'locked');assert.equal(app.state().outbox.length,0);
+ await app.dispatch({type:'voice-interrupt'});assert.equal(app.state().outbox.length,0);assert.equal(app.state().recoveredRecordings.length,1);
+ await app.dispatch({type:'voice-release'});assert.equal(app.state().outbox.length,0);
+});
+test('cancelled and accidentally interrupted gestures never submit voice',async t=>{
+ const {app}=await setup(t);await app.dispatch({type:'record-delete',id:'recording-1'});
+ await app.dispatch({type:'voice-press'});await app.dispatch({type:'voice-move',dx:-90,dy:0});await app.dispatch({type:'voice-release'});
+ assert.equal(app.state().outbox.length,0);assert.equal(app.state().recordings.length,0);
+});
+
+test('a paired offline relaunch can record without waiting for another server hello',async t=>{
+ const {h,app}=await setup(t);await app.dispatch({type:'network',online:false});app.close();
+ const next=await createClient(h.ports);t.after(()=>next.close());assert.equal(next.state().canVoice,true);
+ await next.dispatch({type:'voice-press'});await next.dispatch({type:'voice-move',dx:0,dy:-90});
+ await next.dispatch({type:'voice-cancel'});assert.equal(next.state().outbox.length,0);
+});

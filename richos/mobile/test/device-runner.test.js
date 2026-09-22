@@ -75,10 +75,12 @@ test('physical orchestration selects one test, detects a reset and never invokes
 test('physical verification rejects an Xcode success with skipped or absent tests', async t => {
   const { device } = await import('../cli/device.mjs');
   const folder = createScratch('device-results');
-  const names = ['RICHOS_MOBILE_CACHE','RICHOS_IOS_DEVICE','RICHOS_APPLE_TEAM'];
+  const names = ['RICHOS_MOBILE_CACHE','RICHOS_IOS_DEVICE','RICHOS_APPLE_TEAM','RICHOS_MOBILE_TEST_CONFIG'];
   const saved = Object.fromEntries(names.map(name=>[name,process.env[name]]));
   Object.assign(process.env,{RICHOS_MOBILE_CACHE:folder,RICHOS_IOS_DEVICE:'a'.repeat(40),RICHOS_APPLE_TEAM:'TESTTEAM01'});
   t.after(()=>{for(const name of names) saved[name]===undefined?delete process.env[name]:process.env[name]=saved[name];rmSync(folder,{recursive:true,force:true});});
+  process.env.RICHOS_MOBILE_TEST_CONFIG=join(folder,'test.json');
+  writeFileSync(process.env.RICHOS_MOBILE_TEST_CONFIG,JSON.stringify({pairLink:'https://example.com/#pair=code',words:'synthetic words'}));
   const ports={project:()=>join(folder,'test.xcodeproj'),usbSnapshot:async()=>[],run:async()=>({status:0})};
   for(const result of [
     {passedTests:0,skippedTests:1,failedTests:0,totalTestCount:1,expectedFailures:0},

@@ -49,7 +49,7 @@ async function scenario(name) {
       return { name, trace, state: app.state() };
     } finally { app.close(); }
   }
-  if (!['connection-restart', 'recording-interruption','voice-restart'].includes(name)) throw Error('Unknown client scenario');
+  if (!['connection-restart', 'recording-interruption','voice-restart','voice-gestures'].includes(name)) throw Error('Unknown client scenario');
   const environment = harness();
   let app = await createClient(environment.ports);
   const trace = [];
@@ -62,7 +62,16 @@ async function scenario(name) {
       await action({ type: 'pair', link: 'https://mac.example/#pair=secret' });
       await action({ type: 'confirm-pair', matched: true });
       await new Promise(resolve => setImmediate(resolve));
-      if(name==='voice-restart') {
+      if(name==='voice-gestures') {
+        environment.opened.at(-1).event('hello',{capabilities:['text','voice','audio']});await app.settle();
+        await action({type:'network',online:false});
+        await action({type:'voice-press'});await action({type:'voice-move',dx:0,dy:-90});await action({type:'voice-release'});
+        if(app.state().voice.phase!=='locked' || app.state().outbox.length)throw Error('Locked release sent or stopped');
+        await action({type:'voice-cancel'});
+        await action({type:'voice-press'});await action({type:'voice-release'});
+        if(app.state().outbox.length!==1)throw Error('Held release did not enqueue once');
+        return {name,trace,state:app.state()};
+      } else if(name==='voice-restart') {
         environment.opened.at(-1).event('hello',{capabilities:['text','voice','audio']});await app.settle();
         await action({type:'network',online:false});await action({type:'record-start'});await action({type:'record-stop'});
         await action({type:'record-send',id:'recording-1'});

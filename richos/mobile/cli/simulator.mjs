@@ -61,7 +61,7 @@ export function stageAssets(destination, development, allowedContainer) {
   {
     files['client.html'] = 'ui/client.html';
     Object.assign(files, { 'client.js': 'core/client.js', 'updates.js': 'core/updates.js', 'mobile-links.js': 'core/links.js', 'release-config.json': 'release-config.json', 'client.css': 'ui/client.css', 'styles.css': '../web/web-app/styles.css', 'native.js': 'platform/native.js', 'client-entry.js': 'ui/client-entry.js' });
-    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
+    for (const name of ['api', 'inbound', 'link', 'fingerprint', 'wordlist', 'thread', 'connection', 'voice']) files[name + '.js'] = '../web/web-app/lib/' + name + '.js';
   }
   for (const [name, source] of Object.entries(files)) copyFileSync(join(mobile, source), join(destination, name));
   writeFileSync(join(destination, 'release-config.json'), JSON.stringify(releaseConfiguration()));
