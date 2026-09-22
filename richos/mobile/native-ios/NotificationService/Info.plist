@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The notification service extension's keys that a build setting cannot express; Xcode merges
+     them with the generated ones (Release/platform.yml, target RichOSNotificationService). -->
+<plist version="1.0">
+<dict>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.usernotifications.service</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).NotificationService</string>
+	</dict>
+	<key>RichOSKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(RICHOS_KEYCHAIN_GROUP)</string>
+</dict>
+</plist>

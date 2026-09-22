@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The RichOS iPhone app's privacy manifest (required by App Store Connect since 2024-05-01).
+
+  REQUIRED-REASON APIs: none. The Release app and both extensions call no API in Apple's
+  required-reason list (file timestamps, system boot time, disk space, active keyboards,
+  UserDefaults). That is measured, not assumed: `Release/check-release.sh` scans every Release
+  Mach-O's symbols for each category and fails if one appears that is not declared here. The
+  preserved app declared two (file timestamps C617.1, disk space E174.1); this app does not store
+  recordings by date or check free space, so it has neither. Add a category here in the same
+  commit as the code that needs it; the check will refuse the build otherwise.
+
+  COLLECTED DATA ("collect" = sent off the phone and kept by us or a partner longer than the
+  request needs; developer.apple.com/app-store/app-privacy-details). Messages, voice, photos and
+  files go to the person's own Mac and are not collected by us. What the hosted RichOS Connect
+  service keeps to deliver reply notifications: the phone's push token and a hash of its device
+  key (Device ID), and redacted delivery diagnostics for at most seven days. Neither is linked to
+  a person (there are no accounts) or used for tracking. DRAFT: to be checked against the final
+  Connect Worker schema before submission (approval research §4.4).
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

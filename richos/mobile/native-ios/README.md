@@ -1,0 +1,79 @@
+# RichOS native iPhone app
+
+SwiftUI, iOS 17 and later. This is the new native app. The preserved app in `../ios/`, `../ui/` and
+the PWA in `../../web/web-app/` are separate and are not modified from here.
+
+**The command line comes first.** Application behavior lives in `Core/`, a Swift package that builds
+and tests on this Mac with no simulator. The SwiftUI app renders the core's `AppState` and dispatches
+its `Action`s; the command line dispatches the same actions and prints the same state. A logic change
+is proven in seconds with `bin/rios test` or `bin/rios headless`; only screens, gestures and platform
+behavior need the simulator.
+
+## Commands
+
+Run from anywhere; `bin/rios` finds its own checkout.
+
+| Loop | Command | What it proves |
+|---|---|---|
+| L1 logic | `richos/mobile/native-ios/bin/rios test` (add `--filter <name>` for one test) | The core's unit and conformance tests, on this Mac, no simulator. |
+| L1′ headless | `richos/mobile/native-ios/bin/rios headless scenario pair-by-scan` | The real core runs a scenario and prints its trace. |
+| L2 simulator | `bin/rios sim prepare conv-empty`, then `sim fixture <screen>`, `sim action '<json>'`, `sim state`, `sim screenshot`, `sim verify`, `sim stop` | The same commands inside the Debug app on a simulator the CLI created. |
+
+`bin/rios --help` lists every command. Output is JSON: `{ok, mode, command, elapsedMs, result}` on
+stdout, or `{ok:false, error, elapsedMs}` on stderr with exit 1 — the preserved mobile CLI's shape
+(`../cli/mobile.mjs`). Actions use the preserved CLI's names and fields wherever it already names
+the action (`send`, `network`, `retry`, `discard`, `pair`, `confirm-pair`, `forget-pair`, `older`, …);
+the voice gesture's names are new (`voice-press`, `voice-move`, `voice-release`, …). Time and id stamps
+are optional: `{"type":"send"}` is stamped on arrival, `{"type":"send","clientId":"c","at":5}` replays.
+
+**Fixtures** are named after the round-12 screen they show — one for each of the 63 screens that are
+app screens on iPhone (`bin/rios headless fixture nope` lists them). `sim launch <fixture>` and the
+launch arguments `-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one.
+
+**Scenarios** (`compose-draft`, `pair-by-scan`, `pair-refused-and-rejected`, `outbox-retry`,
+`outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,
+`voice-interrupted`, `revoked`) carry their own checks and run identically headless and in the
+simulator (`sim verify` requires byte-identical results).
+
+## The protocol, and the shared corpus
+
+`Core/Sources/RichOSCore/Protocol/` speaks the Mac's phone protocol: request signing, the event
+stream and thread filter, the API client with the challenge rule, the courier that sends outbox
+items, and the pairing, push and attachment bodies. The tests read the shared conformance corpus
+(`../conformance/vectors/`) in place and must pass every case the Android core passes.
+
+Photos and files (`Core/Sources/RichOSCore/Conversation/Attachments.swift`): an outbox item with
+files uploads each one, then sends its commit's exact bytes. Only the commit's 200 marks it sent; a
+422 naming missing files uploads those and resends the same bytes. The app takes shares from the
+Share extension into the outbox (`App/App/ShareIntake.swift`) and removes them from the Share inbox
+only after the state holding them is on disk.
+
+## Layout and ownership (build plan §5.0)
+
+| Path | What | Stream |
+|---|---|---|
+| `Core/` | Swift package: `RichOSCore` (state, actions, reducers, effects, ports, protocol), `RichOSFixtures` (fixtures, scenarios, the command envelope; `#if DEBUG` only), `RichOSCLI` (`rios-cli`) | I1 |
+| `bin/rios` | The one command-line entry | I1 |
+| `project.yml` | XcodeGen spec; the project is generated into the cache, never committed | I1 |
+| `DevBridge/` | Debug-only command mailbox inside the app; excluded from Release | I1 |
+| `App/App/` | App entry, `AppStore`, the effect-handler seam, taking shares into the outbox | I1 |
+| `App/Features/`, `App/Design/`, `UITests/`, `UnitTests/` | Screens, design system, UI and app tests | I2 |
+| `App/Platform/`, `ShareExtension/`, `NotificationService/`, `Release/` | Microphone, recorder, notifications, Keychain signer, the Share and notification extensions, release configuration | I3 |
+
+## Where things are written
+
+Everything generated goes under one per-checkout cache on the external SSD:
+`/Volumes/E1TB/caches/richos-native-ios/<checkout-hash>/` (override with `RICHOS_NATIVE_IOS_CACHE`,
+which must stay on `/Volumes/E1TB`): SwiftPM's scratch, the Clang module cache, the generated Xcode
+project, DerivedData, screenshots, logs and the headless session. Nothing is written into the tree.
+
+## Rules this app keeps
+
+- Core types are `Sendable` values and actors, never `@MainActor`; the one `@Observable` store lives on
+  the main actor in the app. Swift 5 language mode with complete strict-concurrency checking.
+- No behavior lives only in a view. A touch-rate action writes nothing to disk.
+- Fixtures, scenarios and the command envelope compile only in Debug; `bin/rios sim check-release`
+  proves the Release app carries none of their markers (and that the Debug app carries all of them).
+- The CLI addresses only the simulator it created (its UDID is recorded in the cache); it never uses
+  `booted`, and `sim stop` shuts it down and deletes it.
+- Development bundle identifier `dev.richos.native.ios`. The production identifier is the CEO's.
