@@ -261,7 +261,11 @@ final class Simulator {
         _ = try await request(Command(.fixture, name: "conv-empty"))
         let before = try await request(Command(.action, action: .compose(text: "Survives process termination")))
         let after = try await launch(fixture: nil)
-        guard after.state == before.state else { throw CoreError("state changed across a real process restart") }
+        // What a relaunch must keep is the durable state; transient fields (a connection attempt the
+        // fresh process makes, the cached-history marker) are rebuilt by design.
+        guard after.state?.persisted == before.state.persisted else {
+            throw CoreError("durable state changed across a real process restart")
+        }
         _ = try await request(Command(.fixture, name: "conv-empty"))
         return SimReport(scenarios: parity, processRestartPreservedState: true)
     }

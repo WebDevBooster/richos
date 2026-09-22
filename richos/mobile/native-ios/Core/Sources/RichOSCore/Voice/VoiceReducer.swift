@@ -90,7 +90,7 @@ enum VoiceReducer {
             } else {
                 end(&s, .canceled, &effects)
             }
-        case .voiceInterrupted(let at):
+        case .voiceInterrupted(let at), .backgrounded(let at):
             // The app left the screen, or the OS took the audio: keep what was recorded. Never a send.
             guard let v = s.voice else { return }
             s.voice?.nowMs = at
@@ -195,7 +195,7 @@ enum VoiceReducer {
                                                                 sentAtISO: ConversationReducer.isoMillis(at)),
                                    queuedAt: at))
         s.messages.append(Message(id: id, author: .me, kind: .voice, text: "", sentAt: at, delivery: .waiting,
-                                  durationMs: durationMs, levels: levels))
+                                  durationMs: durationMs, levels: levels, clientID: id))
         s.following = true
         ConversationReducer.pump(&s, at: at, &effects)
     }

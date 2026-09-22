@@ -23,6 +23,8 @@ public enum Action: Equatable, Sendable {
     case pairingAnswered(PairAnswer)
     /// The Mac refused the pairing code (404 after the one retry, contract §2.3).
     case pairingRefused
+    /// No Mac answered the pairing request.
+    case pairingUnreachable
     /// "They match" on the six-word check.
     case confirmWords
     /// "They do not match": the Mac forgets this phone and the phone discards its key (§2.5).
@@ -77,6 +79,16 @@ public enum Action: Equatable, Sendable {
     case connectionDiagnosed(ConnectionNotice)
     /// What the Mac says it accepts (capability negotiation, contract §12).
     case macCapabilities(text: Bool, voice: Bool)
+    /// The Mac answered 403 `{"revoked":true}`: this phone was removed (round-12 `conn-revoked`).
+    case pairingRevoked
+    /// What the Mac accepts for attachments (from `hello` or the pairing answer); `nil` = none.
+    case macAttachmentLimits(AttachmentLimits?)
+    /// The Mac registered this phone for reply notifications; its push host id is kept.
+    case pushRegistered(hostID: String?)
+    /// The app came to the screen (or launched): reconnect and move the outbox.
+    case foregrounded(at: Int64)
+    /// The app left the screen: the live stream closes; a recording in progress is kept.
+    case backgrounded(at: Int64)
     // voice (groups 4, 5, 6)
     /// Touch-down on the microphone. `id` names the recording (`Action.voicePressNow` in the app).
     case voicePress(id: String, width: Double, at: Int64)
@@ -172,8 +184,8 @@ public enum Effect: Equatable, Sendable {
     case pair(PairLink)
     /// Send the signed six-word answer (contract §2.5).
     case confirmFingerprint(matches: Bool)
-    /// Discard this phone's key and pairing for the current origin.
-    case forgetIdentity
+    /// Discard this phone's key for that origin.
+    case forgetIdentity(origin: String)
     /// Open this app's page in iPhone Settings (camera or microphone turned off).
     case openSystemSettings
     /// POST the outbox item's exact bytes (contract §5.2).
@@ -183,6 +195,10 @@ public enum Effect: Equatable, Sendable {
     /// Fetch and play the reply's audio (contract §5.6).
     case fetchReplyAudio(messageID: String)
     case stopAudio
+    /// Open (or keep) the live connection to the paired Mac.
+    case connect
+    /// Close it (backgrounded, revoked, forgotten).
+    case disconnect
     /// Ask the OS for the microphone (once, on the first deliberate press).
     case requestMicrophone
     case startRecording(id: String)
@@ -215,10 +231,14 @@ public enum Reducer {
         case .closeSheet:
             next.sheet = nil
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
-             .pairingRefused, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
+             .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
             PairingReducer.reduce(&next, action, &effects)
-        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities:
+        case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked,
+             .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
+        case .foregrounded, .backgrounded:
+            ConnectionReducer.reduce(&next, action, &effects)
+            VoiceReducer.reduce(&next, action, &effects)
         case .tick:
             ConnectionReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)

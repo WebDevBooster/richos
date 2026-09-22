@@ -35,7 +35,7 @@ enum PairingReducer {
             } catch {
                 // A Mac that cannot state its fingerprint cannot be checked, so it is not trusted.
                 refuse(&s)
-                effects.append(.forgetIdentity)
+                effects.append(.forgetIdentity(origin: mac.origin))
                 return
             }
             mac.deviceID = answer.deviceID
@@ -47,11 +47,16 @@ enum PairingReducer {
         case .pairingRefused:
             guard s.pairing == .connecting else { return }
             refuse(&s)
+        case .pairingUnreachable:
+            guard s.pairing == .connecting else { return }
+            refuse(&s)
+            s.pairingProblem = .macUnreachable
         case .confirmWords:
             guard s.pairing == .confirming else { return }
             s.pairing = .paired
             s.fingerprintWords = []
             effects.append(.confirmFingerprint(matches: true))
+            effects.append(.connect)
         case .rejectWords:
             // The Mac forgets the phone synchronously and the phone discards its key on the same
             // press (contract §2.5). Nothing about this pairing is kept.
@@ -59,7 +64,7 @@ enum PairingReducer {
             s.pairing = .unpaired
             s.fingerprintWords = []
             effects.append(.confirmFingerprint(matches: false))
-            effects.append(.forgetIdentity)
+            if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
             s.mac = nil
         case .acceptConsent:
             s.consentGiven = true

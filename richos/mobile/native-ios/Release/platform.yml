@@ -1,0 +1,112 @@
+# Release, extensions and platform additions to the RichOS native iPhone app (stream I3, build
+# plan §5.0). Owner: stream I3.
+#
+# HOW IT JOINS THE PROJECT. `../project.yml` (stream I1's file) includes this file:
+#
+#     include:
+#       - path: Release/platform.yml
+#
+# XcodeGen merges an included spec into the including one: dictionaries merge key by key, ARRAYS
+# ARE APPENDED, and where both set the same scalar the including file (project.yml) wins
+# (measured with `xcodegen dump` on 2.45.4). So this file only ADDS: two extension targets, the
+# app's embedding of them, and app settings project.yml does not set. It never restates a
+# project.yml key, so neither file can silently override the other.
+#
+# PATHS: XcodeGen reads `sources` paths in an included file relative to THAT file, so they start
+# with `../`. Build-setting paths (INFOPLIST_FILE, CODE_SIGN_ENTITLEMENTS) are NOT adjusted by
+# XcodeGen and Xcode reads them relative to the GENERATED project's folder, which is in the cache;
+# so they start from `${RICHOS_NATIVE_IOS_ROOT}`, which XcodeGen expands from the environment.
+# `bin/rios` exports it (and `Release/generate.sh` does too), so every generation defines it.
+#
+# Until that include line lands, `Release/generate.sh` generates the same merged project for the
+# release checks and the suite (`richos/app/scripts/native-ios-share.test.sh`).
+
+settings:
+  base:
+    # One place for the identity the extensions derive from. It MUST equal the app's
+    # PRODUCT_BUNDLE_IDENTIFIER in project.yml (the suite checks it): an extension's identifier
+    # has to start with its app's. The production identifier is the CEO's decision (build plan
+    # §6 item 3); changing it here and in project.yml is the whole switch.
+    RICHOS_BUNDLE_ID: dev.richos.native.ios
+    RICHOS_APP_GROUP: group.$(RICHOS_BUNDLE_ID)
+    RICHOS_KEYCHAIN_GROUP: $(RICHOS_BUNDLE_ID).shared
+
+targets:
+  RichOSNative:
+    dependencies:
+      # Embedded in the app's PlugIns folder.
+      - target: RichOSNotificationService
+      - target: RichOSShare
+    settings:
+      base:
+        # Custom keys the generated Info.plist cannot express (the App Group and Keychain group
+        # names the extensions share); merged with the generated keys.
+        INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/Release/App-Info.plist
+        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/Release/RichOSNative.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Purpose strings, American English (ceo-decisions §13). Each says what is used, when,
+        # and where it goes, and nothing more (App Review 5.1.1(ii)). Drafts from
+        # richos-hq docs/research/2026-09-22-app-store-approval-t3-and-first-time.md §4.3.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "RichOS records only while you hold or lock the microphone button, then sends the voice message to your Mac so Rich can reply."
+        INFOPLIST_KEY_NSCameraUsageDescription: "RichOS uses the camera to scan the pairing code on your Mac, and to take a photo when you choose to send one to Rich. Photos go only to your Mac."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "RichOS sends Rich only the photos you pick. It does not read the rest of your library."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "RichOS uses your network only to reach your own Mac. It does not look for other devices."
+        # Export compliance: the app's only cryptography is Apple's own — HTTPS through URLSession,
+        # and CryptoKit/Security for P-256 request signing and AES-GCM decryption of reply
+        # previews. That is encryption within the Apple operating system, which Apple's
+        # "Complying with encryption export regulations" names as exempt; set here so App Store
+        # Connect does not ask on every upload. The account holder confirms the answer in App
+        # Store Connect (approval research §2, "Export compliance").
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+      configs:
+        Debug:
+          RICHOS_APS_ENVIRONMENT: development
+        Release:
+          RICHOS_APS_ENVIRONMENT: production
+
+  # Decrypts the reply preview on the phone before the alert shows (PRD §5; the preserved app's
+  # design, richos/mobile/ios/NotificationExtension/, ported, never modified).
+  RichOSNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../NotificationService/Sources
+      - path: ../App/Platform/Shared
+    dependencies:
+      # The shared platform code speaks the core's types (base64url, wire shapes); Foundation only.
+      - package: RichOSCore
+        product: RichOSCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID).notification-service
+        PRODUCT_NAME: RichOSNotificationService
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/NotificationService/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: RichOS
+        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/NotificationService/NotificationService.entitlements
+        SKIP_INSTALL: "YES"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+
+  # "Share to Rich" from any app (ceo-decisions §75; round-12 attachments `share-*`).
+  RichOSShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../ShareExtension/Sources
+      - path: ../App/Platform/Shared
+      # The screens stream's design system (palette, type, motion, mark), shared rather than
+      # copied so the sheet cannot drift from the app. Self-contained: SwiftUI and RichOSCore only.
+      - path: ../App/Design
+    dependencies:
+      - package: RichOSCore
+        product: RichOSCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(RICHOS_BUNDLE_ID).share
+        PRODUCT_NAME: RichOSShare
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: RichOS
+        CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/ShareExtension.entitlements
+        SKIP_INSTALL: "YES"
+        APPLICATION_EXTENSION_API_ONLY: "YES"

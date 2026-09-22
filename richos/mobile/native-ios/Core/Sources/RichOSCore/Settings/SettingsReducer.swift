@@ -32,7 +32,8 @@ enum SettingsReducer {
         case .confirmForget:
             guard s.sheet == .forget, s.outbox.isEmpty else { return }
             if s.notifications.status == .on || s.notifications.status == .turningOn { effects.append(.unregisterNotifications) }
-            effects.append(.forgetIdentity)
+            effects.append(.disconnect)
+            if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
             // His recordings are kept: nothing unsent is ever discarded silently.
             let kept = s.keptRecordings
             let appearance = s.appearance

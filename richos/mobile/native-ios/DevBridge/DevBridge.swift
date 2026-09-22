@@ -22,6 +22,9 @@ extension AppStore: CommandHost {
     }
 
     func replace(with newState: AppState) async throws -> AppState {
+        // A fixture is a still frame: close any live connection, then stop effects and ticks.
+        await apply(.backgrounded(at: 0)).value
+        effectsSuspended = true
         await replaceOverwritingUnreadable(newState).value
         try check()
         return state

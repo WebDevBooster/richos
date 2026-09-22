@@ -7,7 +7,7 @@
 # is NOT RUN, exit 2; a build or check failure on a capable host is red.
 # run-tests: no-host-screen: `simctl boot` starts a dedicated simulator without Simulator.app; screenshots come from `simctl io`, never the Mac's screen
 # run-tests: inputs richos/mobile/native-ios richos/app/scripts/native-ios-app.test.sh
-# run-tests: covers richos/mobile/native-ios/project.yml richos/mobile/native-ios/App/App/AppStore.swift richos/mobile/native-ios/App/App/RichOSNativeApp.swift richos/mobile/native-ios/DevBridge/DevBridge.swift richos/mobile/native-ios/Core/Sources/RichOSCLI/Simulator.swift
+# run-tests: covers richos/mobile/native-ios/project.yml richos/mobile/native-ios/App/App/AppStore.swift richos/mobile/native-ios/App/App/RichOSNativeApp.swift richos/mobile/native-ios/DevBridge/DevBridge.swift richos/mobile/native-ios/Core/Sources/RichOSCLI/Simulator.swift richos/mobile/native-ios/Core/Sources/RichOSCore/Protocol/URLSessionTransport.swift
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../../.." && pwd)"
@@ -28,11 +28,8 @@ xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimulator
 KEY="$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-10)"
 export RICHOS_NATIVE_IOS_CACHE="$VOLUME/caches/richos-native-ios-proof/$KEY-app"
 SCRATCH="$(mktemp -d "$VOLUME/tmp/native-ios-app.XXXXXX")" || { echo '  FAIL  scratch directory'; exit 1; }
-cleanup() {
-  "$RIOS" sim stop >"$SCRATCH/stop.json" 2>&1 || true
-  rm -rf "$SCRATCH"
-}
-trap cleanup EXIT HUP INT TERM
+# However the run ends: the simulator is shut down and deleted, and the scratch removed.
+trap '"$RIOS" sim stop >"$SCRATCH/stop.json" 2>&1 || true; rm -rf "$SCRATCH"' EXIT HUP INT TERM
 # A simulator left recorded by a run that was killed before its trap is stopped first.
 "$RIOS" sim stop >/dev/null 2>&1 || true
 
