@@ -1,14 +1,370 @@
 {
   "schema": 1,
   "file": "push-registration-fcm.json",
-  "status": "placeholder",
-  "area": "push-registration-fcm",
-  "awaiting": "Echo (echo-opus-m1) publishing the FCM variant of the native push registration (build plan section 5.1, stream M item 2)",
-  "will_cover": [
-    "the {platform:\"fcm\", token} registration body",
-    "refusals for malformed tokens",
-    "unregistration",
-    "the unchanged APNs shape still accepted"
+  "source": "The Mac protocol additions for the native apps (echo-opus-m1: 65952d16 FCM registration, e9b0a89e delta thread_id, 22e59ed8 attachment intake, 194fcb75 capabilities, limits and protocol_version).",
+  "requires_capability": "native-push-fcm",
+  "rule": "Send the FCM shape only to a Mac whose hello (or pairing answer) lists native-push-fcm. An older Mac refuses the unknown platform key.",
+  "shapes": {
+    "fcm": "{\"platform\":\"fcm\",\"token\":\"<32..4096 of A-Z a-z 0-9 _ - :>\",\"topic\":\"<Android application ID>\",\"preview_key\":\"<base64url of 32 bytes>\"?,\"previews\":bool?}",
+    "apns": "{\"token\":\"<lowercase hex 32..512>\",\"environment\":\"sandbox\"|\"production\",\"topic\":\"<bundle ID>\",\"preview_key\"?,\"previews\"?}  (platform absent or \"apns\")"
+  },
+  "allowed_ids": {
+    "fcm": [
+      "dev.richos.native.android"
+    ],
+    "apns": [
+      "dev.richos.mobile.loop",
+      "dev.richos.mobile.integration",
+      "dev.richos.native.ios"
+    ]
+  },
+  "answers": [
+    {
+      "status": 200,
+      "body": "{\"host_id\":\"<32 lowercase hex>|null\",\"registered\":bool}",
+      "client_action": "check host_id and that registered matches what was asked; keep host_id to validate incoming notifications"
+    },
+    {
+      "status": 404,
+      "body": "",
+      "client_action": "the Mac refused the registration (a shape or ID it does not take, or no native-push-fcm on this Mac): do not retry the same body"
+    },
+    {
+      "status": 503,
+      "body": "{\"reason\":\"unreachable\",\"retryable\":true,\"message\":…}",
+      "client_action": "retry later (the hosted service could not be reached, or the phone is not confirmed)"
+    },
+    {
+      "status": 422,
+      "body": "{\"reason\":\"unsupported\",\"retryable\":false}",
+      "client_action": "final: this Mac offers no native push"
+    }
   ],
-  "cases": []
+  "registration_cases": [
+    {
+      "name": "FCM, minimal",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "fcm"
+      }
+    },
+    {
+      "name": "FCM with a preview key",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android",
+        "preview_key": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+        "previews": true
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "fcm"
+      }
+    },
+    {
+      "name": "FCM with previews off",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android",
+        "previews": false
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "fcm"
+      }
+    },
+    {
+      "name": "FCM token of 4,096 characters (the ceiling)",
+      "native_push": {
+        "platform": "fcm",
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "fcm"
+      }
+    },
+    {
+      "name": "FCM token of 4,097 characters",
+      "native_push": {
+        "platform": "fcm",
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "FCM token of 31 characters",
+      "native_push": {
+        "platform": "fcm",
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "FCM token with a space",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z x",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "FCM token with a slash",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z/..",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "FCM with an environment key (FCM has no sandbox)",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "environment": "production",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "FCM under the iPhone app ID",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.ios"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "platform spelled FCM in capitals",
+      "native_push": {
+        "platform": "FCM",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "an unknown platform",
+      "native_push": {
+        "platform": "hms",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "an unknown key (sender_id)",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android",
+        "sender_id": "123"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "no token",
+      "native_push": {
+        "platform": "fcm",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "a preview key that is not 32 bytes",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.native.android",
+        "preview_key": "short"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "APNs, the preserved iPhone app, byte for byte as before",
+      "native_push": {
+        "token": "abababababababababababababababababababababababababababababababab",
+        "environment": "sandbox",
+        "topic": "dev.richos.mobile.loop",
+        "preview_key": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+        "previews": true
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "apns"
+      }
+    },
+    {
+      "name": "APNs with platform spelled out",
+      "native_push": {
+        "platform": "apns",
+        "token": "abababababababababababababababababababababababababababababababab",
+        "environment": "production",
+        "topic": "dev.richos.mobile.loop"
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "apns"
+      }
+    },
+    {
+      "name": "APNs for the new native iPhone app",
+      "native_push": {
+        "token": "abababababababababababababababababababababababababababababababab",
+        "environment": "sandbox",
+        "topic": "dev.richos.native.ios"
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "apns"
+      }
+    },
+    {
+      "name": "APNs under the Android application ID",
+      "native_push": {
+        "token": "abababababababababababababababababababababababababababababababab",
+        "environment": "sandbox",
+        "topic": "dev.richos.native.android"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "APNs token in uppercase hex",
+      "native_push": {
+        "token": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB",
+        "environment": "sandbox",
+        "topic": "dev.richos.native.ios"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    }
+  ],
+  "requests": [
+    {
+      "name": "register FCM (api.js registerNativePush)",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8.T33CxcgdfekUzZJQX13nuXaCb4WvA_x6HB3w8NJy5MwcDcH3OoH_Ku2XEuylQpB3GdHL3xDxRO0R6X0JSUu63g",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"native_push\":{\"platform\":\"fcm\",\"token\":\"ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z\",\"topic\":\"dev.richos.native.android\",\"preview_key\":\"CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk\",\"previews\":true}}",
+          "sha256_hex": "4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
+          "length": 315
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
+          "signing_string": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8\nPOST\n/api/pair\n4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
+          "signature_b64url": "T33CxcgdfekUzZJQX13nuXaCb4WvA_x6HB3w8NJy5MwcDcH3OoH_Ku2XEuylQpB3GdHL3xDxRO0R6X0JSUu63g",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8.T33CxcgdfekUzZJQX13nuXaCb4WvA_x6HB3w8NJy5MwcDcH3OoH_Ku2XEuylQpB3GdHL3xDxRO0R6X0JSUu63g"
+        },
+        "mac": {
+          "signing_string": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8\nPOST\n/api/pair\n4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "unregister (api.js registerNativePush with null)",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.t0pbj73wYCrZDrArHTWhrU_TGx9D0jBY.jD3XbM8I3VbvVRPEKjUVckT7lAADqMMLSaScKZk8_uLUxKh9V9_MBTQDL0U4GTxRUH_nI_DuL77arYpCGXm0jg",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"native_push\":null}",
+          "sha256_hex": "1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "length": 20
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "t0pbj73wYCrZDrArHTWhrU_TGx9D0jBY",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "signing_string": "t0pbj73wYCrZDrArHTWhrU_TGx9D0jBY\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "signature_b64url": "jD3XbM8I3VbvVRPEKjUVckT7lAADqMMLSaScKZk8_uLUxKh9V9_MBTQDL0U4GTxRUH_nI_DuL77arYpCGXm0jg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.t0pbj73wYCrZDrArHTWhrU_TGx9D0jBY.jD3XbM8I3VbvVRPEKjUVckT7lAADqMMLSaScKZk8_uLUxKh9V9_MBTQDL0U4GTxRUH_nI_DuL77arYpCGXm0jg"
+        },
+        "mac": {
+          "signing_string": "t0pbj73wYCrZDrArHTWhrU_TGx9D0jBY\nPOST\n/api/pair\n1576d1372017c64ac99a11e95d443852972cbae9f70e897d17d595c586a28704",
+          "verdict": "accepted"
+        }
+      }
+    },
+    {
+      "name": "the Android app confirms the six words and names FCM as its push service",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.xNRLFMciBc_PULrScp1_GnV50XJknZS3.tYtJbvmJuuyBQV0Ruf18_qFkkU9axSfqsN9-fk8pvlwKHNKbZZ1yQD2U_vTZ6HtzlJug8CP9M6BLRuT6mK_M_Q",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"fcm\"}",
+          "sha256_hex": "78de56d2ef758224c1d90ab08664f02dca41f8d9267f93b7fc9a1330d55a47ab",
+          "length": 84
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "xNRLFMciBc_PULrScp1_GnV50XJknZS3",
+          "path_with_query": "/api/pair",
+          "body_sha256_hex": "78de56d2ef758224c1d90ab08664f02dca41f8d9267f93b7fc9a1330d55a47ab",
+          "signing_string": "xNRLFMciBc_PULrScp1_GnV50XJknZS3\nPOST\n/api/pair\n78de56d2ef758224c1d90ab08664f02dca41f8d9267f93b7fc9a1330d55a47ab",
+          "signature_b64url": "tYtJbvmJuuyBQV0Ruf18_qFkkU9axSfqsN9-fk8pvlwKHNKbZZ1yQD2U_vTZ6HtzlJug8CP9M6BLRuT6mK_M_Q",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.xNRLFMciBc_PULrScp1_GnV50XJknZS3.tYtJbvmJuuyBQV0Ruf18_qFkkU9axSfqsN9-fk8pvlwKHNKbZZ1yQD2U_vTZ6HtzlJug8CP9M6BLRuT6mK_M_Q"
+        },
+        "mac": {
+          "signing_string": "xNRLFMciBc_PULrScp1_GnV50XJknZS3\nPOST\n/api/pair\n78de56d2ef758224c1d90ab08664f02dca41f8d9267f93b7fc9a1330d55a47ab",
+          "verdict": "accepted"
+        }
+      }
+    }
+  ],
+  "push_transport_on_confirmation": "The Android app sends push_transport \"fcm\" with fingerprint_confirmed true. The shipped web client sends \"apns\" for every native client (api.js confirmFingerprint); an Android app must not copy that."
 }

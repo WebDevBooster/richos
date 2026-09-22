@@ -13,6 +13,7 @@
 // `Frame::to_wire`: `id: <cursor>\nevent: <name>\ndata: <json>\n\n`; comments start with `:`).
 
 import { load, makeApi, challenge, recordingEventSource, ORIGIN } from './harness.mjs';
+import { CAPABILITIES_FULL, PROTOCOL_VERSION, ATTACHMENT_LIMITS } from './native.mjs';
 
 const row = (id, thread, cursor, role, text, extra = {}) => ({
 	id, thread_id: thread, cursor, role, kind: 'text', text,
@@ -20,12 +21,17 @@ const row = (id, thread, cursor, role, text, extra = {}) => ({
 	from_microphone: false, state: role === 'ceo' ? 'sent' : 'complete', complete: true, ...extra
 });
 const streaming = (id, thread, cursor) => row(id, thread, cursor, 'rich', '', { state: 'streaming', complete: false });
-const delta = (id, cursor, text) => ({ message_id: id, cursor, text });
+// The Mac's delta carries its conversation (`phone/rows.rs`, e9b0a89e); an older Mac's did not.
+const delta = (id, cursor, text, thread = 'thr_5c1e') => ({ message_id: id, thread_id: thread, cursor, text });
+const olderMacDelta = (id, cursor, text) => ({ message_id: id, cursor, text });
 
+// The hello of a Mac with the native-app additions (194fcb75): protocol_version, the full
+// capability list in the Mac's order, and the attachment limits. Verified in `verifier/`.
 const hello = (thread, messages, extra = {}) => ({
 	challenge: challenge('hello'), api_base: ORIGIN, thread_id: thread, latest_cursor: messages.length,
 	threads: [{ id: 'thr_5c1e', title: 'the proposal' }, { id: 'thr_77aa', title: 'hiring' }],
-	vapid_public_key: 'BExampleVapidKeyOnlyTheWebPushClientUsesIt', capabilities: ['text', 'voice', 'audio', 'native-push'],
+	vapid_public_key: 'BExampleVapidKeyOnlyTheWebPushClientUsesIt', capabilities: CAPABILITIES_FULL,
+	protocol_version: PROTOCOL_VERSION, attachment_limits: ATTACHMENT_LIMITS,
 	build: '1.2.0', messages, ...extra
 });
 
@@ -87,18 +93,22 @@ function project(model) {
 	return model.view([]).map((r) => ({ id: r.id, cursor: r.cursor, role: r.role, text: r.text, complete: r.complete }));
 }
 
-/// Contract section 10 (Reed): the stream is global, so a client watching `selected` keeps only
-/// `message` rows whose `thread_id` is `selected`, and only `delta`s whose `message_id` it
-/// already holds for `selected`. The shipped clients do NOT filter (contract section 11 item 4);
-/// `unfiltered_view` below is what they show, recorded so the difference is visible.
+/// Contract section 10 (Reed), with the Mac's `thread_id` on `delta` (e9b0a89e): the stream is
+/// global, so a client watching `selected` keeps only `message` rows whose `thread_id` is
+/// `selected`, and only `delta`s whose `thread_id` is `selected`. A delta from an older Mac has
+/// no `thread_id`; keep it only if its `message_id` is a row already held for `selected`. The
+/// shipped clients do NOT filter (contract section 11 item 4); `unfiltered_view` below is what
+/// they show, recorded so the difference is visible.
+export const FILTER_RULE = 'message: keep iff thread_id == selected. delta: keep iff thread_id == selected; a delta with no thread_id (an older Mac) is kept iff its message_id is a row already held for the selected conversation.';
 function applyFrames(frames, selected, filter) {
 	const { createThread } = load('thread');
 	const model = createThread();
+	const keepDelta = (d) => ('thread_id' in d ? d.thread_id === selected : Boolean(model.get(d.message_id)));
 	for (const f of frames) {
 		if (f.comment !== undefined) continue;
 		if (f.event === 'hello') { if (Array.isArray(f.data.messages)) model.merge(filter ? f.data.messages.filter((m) => m.thread_id === selected) : f.data.messages); continue; }
 		if (f.event === 'message') { if (!filter || f.data.thread_id === selected) model.merge(f.data); continue; }
-		if (f.event === 'delta') { if (!filter || model.get(f.data.message_id)) model.applyDelta(f.data); }
+		if (f.event === 'delta') { if (!filter || keepDelta(f.data)) model.applyDelta(f.data); }
 	}
 	return project(model);
 }
@@ -151,10 +161,10 @@ export async function events() {
 		{ id: 2, event: 'hello', data: hello(A, [row('turn_8:user', A, 1, 'ceo', 'where are we on the proposal?')]) },
 		{ id: 3, event: 'message', data: row('turn_20:user', B, 3, 'ceo', 'post the job ad') },
 		{ id: 4, event: 'message', data: streaming('turn_20:text:0', B, 4) },
-		{ id: 4, event: 'delta', data: delta('turn_20:text:0', 4, 'Posted to ') },
+		{ id: 4, event: 'delta', data: delta('turn_20:text:0', 4, 'Posted to ', B) },
 		{ id: 5, event: 'message', data: row('turn_9:user', A, 5, 'ceo', 'and the numbers?') },
 		{ id: 6, event: 'message', data: streaming('turn_9:text:0', A, 6) },
-		{ id: 4, event: 'delta', data: delta('turn_20:text:0', 4, 'three boards.') },
+		{ id: 4, event: 'delta', data: delta('turn_20:text:0', 4, 'three boards.', B) },
 		{ id: 6, event: 'delta', data: delta('turn_9:text:0', 6, 'The numbers are in.') },
 		{ id: 4, event: 'message', data: row('turn_20:text:0', B, 4, 'rich', 'Posted to three boards.') }
 	];
@@ -172,6 +182,8 @@ export async function events() {
 		{ id: 4, event: 'delta', data: delta('turn_9:text:0', 4, 'early ') },
 		{ id: 4, event: 'message', data: row('turn_9:text:0', A, 4, 'rich', 'early and complete') }
 	];
+	const olderMac = interleaved.map((f) => (f.event === 'delta' ? { ...f, data: olderMacDelta(f.data.message_id, f.data.cursor, f.data.text) } : f));
+	const olderMacDeltaFirst = deltaFirst.map((f) => (f.event === 'delta' ? { ...f, data: olderMacDelta(f.data.message_id, f.data.cursor, f.data.text) } : f));
 
 	const { createThread } = load('thread');
 	const page = { messages: [row('turn_1:user', A, 1, 'ceo', 'first'), row('turn_1:text:0', A, 2, 'rich', 'first reply')], more: false };
@@ -190,10 +202,14 @@ export async function events() {
 		thread_cases: [
 			threadCase('a whole turn: deltas append, the final row overwrites', turn),
 			threadCase('two conversations interleaved on one stream: only the selected one is shown', interleaved),
+			threadCase('the same two conversations viewed from the other one', interleaved, B),
+			threadCase('an older Mac (deltas without thread_id): a delta is kept only for a row already held', olderMac),
 			threadCase('the same frames replayed after a reconnect change nothing', replay),
 			threadCase('a Mac stand-in (intake_) retires when the projected CEO row with the same text arrives', standIn),
-			threadCase('a delta before its row: dropped under the filter, the final row carries the full text', deltaFirst)
+			threadCase('a delta before its row opens the row; the final row carries the full text', deltaFirst),
+			threadCase('an older Mac: a delta before its row is dropped; the final row carries the full text', olderMacDeltaFirst)
 		],
+		filter_rule: FILTER_RULE,
 		hello_cases: [
 			await helloCase('hello takes the challenge, keeps the paired origin and replaces capabilities', hello(A, [])),
 			await helloCase('hello with no capabilities offers nothing', hello(A, [], { capabilities: undefined, build: undefined })),

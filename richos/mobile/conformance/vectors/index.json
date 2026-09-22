@@ -22,57 +22,57 @@
     {
       "file": "keys.json",
       "cases": 1,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "pairing.json",
       "cases": 38,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "fingerprint.json",
       "cases": 12,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "signing.json",
       "cases": 26,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "challenge.json",
       "cases": 9,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "retry.json",
       "cases": 5,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "errors.json",
       "cases": 15,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "events.json",
-      "cases": 13,
-      "status": "generated"
+      "cases": 16,
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "voice.json",
       "cases": 5,
-      "status": "generated"
+      "expectations": "the reference client modules; signatures proven by verifier/"
     },
     {
       "file": "attachments.json",
-      "cases": 0,
-      "status": "placeholder"
+      "cases": 39,
+      "expectations": "Mac-defined: declared in the generator, proven by verifier/ against the Mac code"
     },
     {
       "file": "push-registration-fcm.json",
-      "cases": 0,
-      "status": "placeholder"
+      "cases": 23,
+      "expectations": "Mac-defined: declared in the generator, proven by verifier/ against the Mac code"
     }
   ]
 }

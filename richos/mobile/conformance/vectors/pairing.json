@@ -229,7 +229,38 @@
                 "id": "thr_77aa",
                 "title": "hiring"
               }
-            ]
+            ],
+            "protocol_version": 1,
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm"
+            ],
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0"
           },
           "headers": {
             "Content-Type": "application/json; charset=utf-8",
@@ -271,7 +302,38 @@
               "id": "thr_77aa",
               "title": "hiring"
             }
-          ]
+          ],
+          "protocol_version": 1,
+          "capabilities": [
+            "text",
+            "voice",
+            "audio",
+            "native-push",
+            "attachments",
+            "native-push-fcm"
+          ],
+          "attachment_limits": {
+            "max_file_bytes": 26214400,
+            "max_files_per_message": 10,
+            "max_message_bytes": 104857600,
+            "upload_seconds": 300,
+            "media_types": [
+              "image/jpeg",
+              "image/png",
+              "image/heic",
+              "image/heif",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "text/plain",
+              "text/markdown",
+              "text/csv",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ]
+          },
+          "build": "1.2.0"
         }
       },
       "state_after": {
@@ -303,7 +365,38 @@
                 "id": "thr_77aa",
                 "title": "hiring"
               }
-            ]
+            ],
+            "protocol_version": 1,
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm"
+            ],
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0"
           },
           "headers": {}
         }
@@ -342,7 +435,38 @@
               "id": "thr_77aa",
               "title": "hiring"
             }
-          ]
+          ],
+          "protocol_version": 1,
+          "capabilities": [
+            "text",
+            "voice",
+            "audio",
+            "native-push",
+            "attachments",
+            "native-push-fcm"
+          ],
+          "attachment_limits": {
+            "max_file_bytes": 26214400,
+            "max_files_per_message": 10,
+            "max_message_bytes": 104857600,
+            "upload_seconds": 300,
+            "media_types": [
+              "image/jpeg",
+              "image/png",
+              "image/heic",
+              "image/heif",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "text/plain",
+              "text/markdown",
+              "text/csv",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ]
+          },
+          "build": "1.2.0"
         }
       },
       "state_after": {

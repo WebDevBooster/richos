@@ -23,20 +23,11 @@ import { validCases, invalidCases, tolerated, mac } from './generator/signing.mj
 import { challengeRefresh, retry, errors } from './generator/transport.mjs';
 import { events } from './generator/events.mjs';
 import { voice } from './generator/voice.mjs';
+import { attachments, fcm } from './generator/native.mjs';
 
 const SCHEMA = 1;
 const here = dirname(fileURLToPath(import.meta.url));
 const VECTORS = join(here, 'vectors');
-
-function placeholder(area, awaiting, covers) {
-	return {
-		status: 'placeholder',
-		area,
-		awaiting,
-		will_cover: covers,
-		cases: []
-	};
-}
 
 async function signing() {
 	const valid = await validCases();
@@ -67,6 +58,8 @@ function count(file, body) {
 		case 'signing.json': return n(body.valid) + n(body.invalid) + n(body.accepted_by_the_mac_though_unusual);
 		case 'events.json': return n(body.wire_cases) + n(body.thread_cases) + n(body.hello_cases) + 1;
 		case 'voice.json': return n(body.uploads);
+		case 'attachments.json': return n(body.attachment_id_cases) + n(body.upload_cases) + n(body.limit_sequence) + n(body.commit_cases);
+		case 'push-registration-fcm.json': return n(body.registration_cases) + n(body.requests);
 		default: return n(body.cases);
 	}
 }
@@ -83,10 +76,8 @@ export async function build() {
 		'errors.json': await errors(),
 		'events.json': await events(),
 		'voice.json': await voice(),
-		'attachments.json': placeholder('attachments', 'Echo (echo-opus-m1) publishing the Mac attachment intake route (build plan section 5.1, stream M item 1)',
-			['upload request and its signed canonical string', 'size, type and time limits', 'idempotency on client_id', 'the message row shape that carries an attachment']),
-		'push-registration-fcm.json': placeholder('push-registration-fcm', 'Echo (echo-opus-m1) publishing the FCM variant of the native push registration (build plan section 5.1, stream M item 2)',
-			['the {platform:"fcm", token} registration body', 'refusals for malformed tokens', 'unregistration', 'the unchanged APNs shape still accepted'])
+		'attachments.json': attachments(),
+		'push-registration-fcm.json': await fcm()
 	};
 	const out = {};
 	for (const [name, body] of Object.entries(files)) out[name] = { schema: SCHEMA, file: name, ...body };
@@ -97,7 +88,13 @@ export async function build() {
 		generated_by: 'richos/mobile/conformance/generate.mjs',
 		generated_from: Object.values(SOURCES),
 		verified_by: ['node:crypto (every signature, at generation)', 'richos/mobile/conformance/verifier (the Mac production Rust verifier, cargo test)'],
-		files: Object.keys(files).map((name) => ({ file: name, cases: count(name, files[name]), status: files[name].status || 'generated' }))
+		files: Object.keys(files).map((name) => ({
+			file: name,
+			cases: count(name, files[name]),
+			expectations: ['attachments.json', 'push-registration-fcm.json'].includes(name)
+				? 'Mac-defined: declared in the generator, proven by verifier/ against the Mac code'
+				: 'the reference client modules; signatures proven by verifier/'
+		}))
 	};
 	const text = {};
 	for (const [name, body] of Object.entries(out)) text[name] = JSON.stringify(body, null, 2) + '\n';

@@ -31,8 +31,32 @@
               "text",
               "voice",
               "audio",
-              "native-push"
+              "native-push",
+              "attachments",
+              "native-push-fcm"
             ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
             "build": "1.2.0",
             "messages": [
               {
@@ -107,6 +131,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
@@ -116,6 +141,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "are in."
           }
@@ -142,8 +168,8 @@
           "comment": "keep-alive 1790000000000"
         }
       ],
-      "wire_utf8": "id: 2\nevent: hello\ndata: {\"challenge\":\"UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08\",\"api_base\":\"https://mm1.tail1a2b3c.ts.net:8443\",\"thread_id\":\"thr_5c1e\",\"latest_cursor\":2,\"threads\":[{\"id\":\"thr_5c1e\",\"title\":\"the proposal\"},{\"id\":\"thr_77aa\",\"title\":\"hiring\"}],\"vapid_public_key\":\"BExampleVapidKeyOnlyTheWebPushClientUsesIt\",\"capabilities\":[\"text\",\"voice\",\"audio\",\"native-push\"],\"build\":\"1.2.0\",\"messages\":[{\"id\":\"turn_8:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":1,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"created_at\":\"2026-09-22T13:01:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true},{\"id\":\"turn_8:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":2,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"On it! The proposal is with legal.\",\"created_at\":\"2026-09-22T13:02:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}]}\n\nid: 3\nevent: message\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"cursor\":4,\"text\":\"The numbers \"}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"cursor\":4,\"text\":\"are in.\"}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"The numbers are in.\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}\n\n: keep-alive 1790000000000\n\n",
-      "wire_bytes": 1917,
+      "wire_utf8": "id: 2\nevent: hello\ndata: {\"challenge\":\"UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08\",\"api_base\":\"https://mm1.tail1a2b3c.ts.net:8443\",\"thread_id\":\"thr_5c1e\",\"latest_cursor\":2,\"threads\":[{\"id\":\"thr_5c1e\",\"title\":\"the proposal\"},{\"id\":\"thr_77aa\",\"title\":\"hiring\"}],\"vapid_public_key\":\"BExampleVapidKeyOnlyTheWebPushClientUsesIt\",\"capabilities\":[\"text\",\"voice\",\"audio\",\"native-push\",\"attachments\",\"native-push-fcm\"],\"protocol_version\":1,\"attachment_limits\":{\"max_file_bytes\":26214400,\"max_files_per_message\":10,\"max_message_bytes\":104857600,\"upload_seconds\":300,\"media_types\":[\"image/jpeg\",\"image/png\",\"image/heic\",\"image/heif\",\"image/gif\",\"image/webp\",\"application/pdf\",\"text/plain\",\"text/markdown\",\"text/csv\",\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",\"application/vnd.openxmlformats-officedocument.presentationml.presentation\"]},\"build\":\"1.2.0\",\"messages\":[{\"id\":\"turn_8:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":1,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"created_at\":\"2026-09-22T13:01:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true},{\"id\":\"turn_8:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":2,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"On it! The proposal is with legal.\",\"created_at\":\"2026-09-22T13:02:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}]}\n\nid: 3\nevent: message\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"The numbers \"}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"are in.\"}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"The numbers are in.\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}\n\n: keep-alive 1790000000000\n\n",
+      "wire_bytes": 2510,
       "chunkings": {
         "whole": {
           "cut_at": []
@@ -156,7 +182,7 @@
         },
         "between_the_two_newlines_of_a_frame_end": {
           "cut_at": [
-            912
+            1459
           ]
         },
         "inside_the_data_field_name": {
@@ -188,8 +214,32 @@
               "text",
               "voice",
               "audio",
-              "native-push"
+              "native-push",
+              "attachments",
+              "native-push-fcm"
             ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
             "build": "1.2.0",
             "messages": [
               {
@@ -261,6 +311,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
@@ -269,6 +320,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "are in."
           }
@@ -336,13 +388,14 @@
           "event": "delta",
           "data": {
             "message_id": "turn_10:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 6,
             "text": "Grüße 👋"
           }
         }
       ],
-      "wire_utf8": "id: 5\nevent: message\ndata: {\"id\":\"turn_10:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":5,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"Café naïve — 東京 🚀\",\"created_at\":\"2026-09-22T13:05:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 6\nevent: message\ndata: {\"id\":\"turn_10:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":6,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:06:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 6\nevent: delta\ndata: {\"message_id\":\"turn_10:text:0\",\"cursor\":6,\"text\":\"Grüße 👋\"}\n\n",
-      "wire_bytes": 630,
+      "wire_utf8": "id: 5\nevent: message\ndata: {\"id\":\"turn_10:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":5,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"Café naïve — 東京 🚀\",\"created_at\":\"2026-09-22T13:05:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 6\nevent: message\ndata: {\"id\":\"turn_10:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":6,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:06:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 6\nevent: delta\ndata: {\"message_id\":\"turn_10:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":6,\"text\":\"Grüße 👋\"}\n\n",
+      "wire_bytes": 653,
       "chunkings": {
         "whole": {
           "cut_at": []
@@ -408,6 +461,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_10:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 6,
             "text": "Grüße 👋"
           }
@@ -526,13 +580,14 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
         }
       ],
-      "wire_utf8": "id: 3\r\nevent: message\r\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\r\n\r\nid: 4\r\nevent: message\r\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\r\n\r\nid: 4\r\nevent: delta\r\ndata: {\"message_id\":\"turn_9:text:0\",\"cursor\":4,\"text\":\"The numbers \"}\r\n\r\n",
-      "wire_bytes": 627,
+      "wire_utf8": "id: 3\r\nevent: message\r\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\r\n\r\nid: 4\r\nevent: message\r\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\r\n\r\nid: 4\r\nevent: delta\r\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"The numbers \"}\r\n\r\n",
+      "wire_bytes": 650,
       "chunkings": {
         "whole": {
           "cut_at": []
@@ -545,7 +600,7 @@
         },
         "between_the_two_newlines_of_a_frame_end": {
           "cut_at": [
-            627
+            650
           ]
         },
         "inside_the_data_field_name": {
@@ -593,6 +648,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
@@ -628,8 +684,32 @@
               "text",
               "voice",
               "audio",
-              "native-push"
+              "native-push",
+              "attachments",
+              "native-push-fcm"
             ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
             "build": "1.2.0",
             "messages": [
               {
@@ -704,6 +784,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
@@ -713,6 +794,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "are in."
           }
@@ -828,8 +910,535 @@
               "text",
               "voice",
               "audio",
-              "native-push"
+              "native-push",
+              "attachments",
+              "native-push-fcm"
             ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_20:user",
+            "thread_id": "thr_77aa",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "post the job ad",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "text": "Posted to "
+          }
+        },
+        {
+          "id": 5,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 5,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:05:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 6,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:06:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "text": "three boards."
+          }
+        },
+        {
+          "id": 6,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "text": "The numbers are in."
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "Posted to three boards.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 5,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 6,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": false
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_20:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "post the job ad",
+          "complete": true
+        },
+        {
+          "id": "turn_20:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "Posted to three boards.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 5,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 6,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": false
+        }
+      ],
+      "filter_changes_the_view": true
+    },
+    {
+      "name": "the same two conversations viewed from the other one",
+      "selected_thread": "thr_77aa",
+      "frames": [
+        {
+          "id": 2,
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 1,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm"
+            ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_20:user",
+            "thread_id": "thr_77aa",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "post the job ad",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "text": "Posted to "
+          }
+        },
+        {
+          "id": 5,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 5,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:05:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 6,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:06:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "text": "three boards."
+          }
+        },
+        {
+          "id": 6,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "text": "The numbers are in."
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "Posted to three boards.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_20:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "post the job ad",
+          "complete": true
+        },
+        {
+          "id": "turn_20:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "Posted to three boards.",
+          "complete": true
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_20:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "post the job ad",
+          "complete": true
+        },
+        {
+          "id": "turn_20:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "Posted to three boards.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 5,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 6,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": false
+        }
+      ],
+      "filter_changes_the_view": true
+    },
+    {
+      "name": "an older Mac (deltas without thread_id): a delta is kept only for a row already held",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 2,
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 1,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm"
+            ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
             "build": "1.2.0",
             "messages": [
               {
@@ -1056,8 +1665,32 @@
               "text",
               "voice",
               "audio",
-              "native-push"
+              "native-push",
+              "attachments",
+              "native-push-fcm"
             ],
+            "protocol_version": 1,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
             "build": "1.2.0",
             "messages": [
               {
@@ -1132,6 +1765,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
@@ -1177,6 +1811,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "The numbers "
           }
@@ -1186,6 +1821,7 @@
           "event": "delta",
           "data": {
             "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
             "cursor": 4,
             "text": "are in."
           }
@@ -1336,7 +1972,60 @@
       "filter_changes_the_view": false
     },
     {
-      "name": "a delta before its row: dropped under the filter, the final row carries the full text",
+      "name": "a delta before its row opens the row; the final row carries the full text",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "text": "early "
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "early and complete",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "early and complete",
+          "complete": true
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "early and complete",
+          "complete": true
+        }
+      ],
+      "filter_changes_the_view": false
+    },
+    {
+      "name": "an older Mac: a delta before its row is dropped; the final row carries the full text",
       "selected_thread": "thr_5c1e",
       "frames": [
         {
@@ -1388,6 +2077,7 @@
       "filter_changes_the_view": false
     }
   ],
+  "filter_rule": "message: keep iff thread_id == selected. delta: keep iff thread_id == selected; a delta with no thread_id (an older Mac) is kept iff its message_id is a row already held for the selected conversation.",
   "hello_cases": [
     {
       "name": "hello takes the challenge, keeps the paired origin and replaces capabilities",
@@ -1411,8 +2101,32 @@
           "text",
           "voice",
           "audio",
-          "native-push"
+          "native-push",
+          "attachments",
+          "native-push-fcm"
         ],
+        "protocol_version": 1,
+        "attachment_limits": {
+          "max_file_bytes": 26214400,
+          "max_files_per_message": 10,
+          "max_message_bytes": 104857600,
+          "upload_seconds": 300,
+          "media_types": [
+            "image/jpeg",
+            "image/png",
+            "image/heic",
+            "image/heif",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          ]
+        },
         "build": "1.2.0",
         "messages": []
       },
@@ -1424,7 +2138,9 @@
           "text",
           "voice",
           "audio",
-          "native-push"
+          "native-push",
+          "attachments",
+          "native-push-fcm"
         ],
         "build": "1.2.0",
         "offers_voice": true,
@@ -1449,6 +2165,28 @@
           }
         ],
         "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+        "protocol_version": 1,
+        "attachment_limits": {
+          "max_file_bytes": 26214400,
+          "max_files_per_message": 10,
+          "max_message_bytes": 104857600,
+          "upload_seconds": 300,
+          "media_types": [
+            "image/jpeg",
+            "image/png",
+            "image/heic",
+            "image/heif",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          ]
+        },
         "messages": []
       },
       "state_after": {
@@ -1483,8 +2221,32 @@
           "text",
           "voice",
           "audio",
-          "native-push"
+          "native-push",
+          "attachments",
+          "native-push-fcm"
         ],
+        "protocol_version": 1,
+        "attachment_limits": {
+          "max_file_bytes": 26214400,
+          "max_files_per_message": 10,
+          "max_message_bytes": 104857600,
+          "upload_seconds": 300,
+          "media_types": [
+            "image/jpeg",
+            "image/png",
+            "image/heic",
+            "image/heif",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          ]
+        },
         "build": "1.2.0",
         "messages": []
       },
@@ -1496,7 +2258,9 @@
           "text",
           "voice",
           "audio",
-          "native-push"
+          "native-push",
+          "attachments",
+          "native-push-fcm"
         ],
         "build": "1.2.0",
         "offers_voice": true,

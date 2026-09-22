@@ -2,6 +2,7 @@
 
 import { createPublicKey } from 'node:crypto';
 import { mac as macVerdict } from './signing.mjs';
+import { CAPABILITIES_FULL, PROTOCOL_VERSION, ATTACHMENT_LIMITS } from './native.mjs';
 import {
 	load, sha256, sha256hex, b64url, makeApi, answer, unreachable, transcript, outcome,
 	KEY_SEED, PRIVATE_KEY, POINT, DEVICE_ID, ORIGIN, CONNECT_ORIGIN, challenge
@@ -92,7 +93,12 @@ const PAIR_ANSWER = {
 	api_base: ORIGIN,
 	thread_id: 'thr_5c1e',
 	thread_title: 'the proposal',
-	threads: [{ id: 'thr_5c1e', title: 'the proposal' }, { id: 'thr_77aa', title: 'hiring' }]
+	threads: [{ id: 'thr_5c1e', title: 'the proposal' }, { id: 'thr_77aa', title: 'hiring' }],
+	// Additive on a Mac with the native-app additions (194fcb75); the hello repeats all four.
+	protocol_version: PROTOCOL_VERSION,
+	capabilities: CAPABILITIES_FULL,
+	attachment_limits: ATTACHMENT_LIMITS,
+	build: '1.2.0'
 };
 
 async function pairExchange(name, script) {

@@ -1,14 +1,1324 @@
 {
   "schema": 1,
   "file": "attachments.json",
-  "status": "placeholder",
-  "area": "attachments",
-  "awaiting": "Echo (echo-opus-m1) publishing the Mac attachment intake route (build plan section 5.1, stream M item 1)",
-  "will_cover": [
-    "upload request and its signed canonical string",
-    "size, type and time limits",
-    "idempotency on client_id",
-    "the message row shape that carries an attachment"
+  "source": "The Mac protocol additions for the native apps (echo-opus-m1: 65952d16 FCM registration, e9b0a89e delta thread_id, 22e59ed8 attachment intake, 194fcb75 capabilities, limits and protocol_version).",
+  "requires_capability": "attachments",
+  "limits": {
+    "max_file_bytes": 26214400,
+    "max_files_per_message": 10,
+    "max_message_bytes": 104857600,
+    "upload_seconds": 300,
+    "media_types": [
+      "image/jpeg",
+      "image/png",
+      "image/heic",
+      "image/heif",
+      "image/gif",
+      "image/webp",
+      "application/pdf",
+      "text/plain",
+      "text/markdown",
+      "text/csv",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ]
+  },
+  "limits_rule": "Read the limits from attachment_limits in hello or the pairing answer; never hard-code them. Refuse a file on the phone before uploading it when it breaks one.",
+  "upload_route": "POST /api/messages?kind=attachment&client_id=<the message client_id>&attachment_id=<id>[&name=<percent-encoded file name>], Content-Type: the file media type, body: the raw bytes. One file per request; signed like every request.",
+  "commit_route": "POST /api/messages with {\"client_id\",\"thread_id\",\"kind\":\"attachments\",\"text\"?,\"attachments\":[{\"id\",\"sha256\"}],\"sent_at\"}. Only the 200 answer to THIS request means the Mac accepted the message.",
+  "answers": [
+    {
+      "route": "upload",
+      "status": 200,
+      "body": "{\"attachment_id\",\"name\",\"media_type\",\"size\",\"sha256\",\"duplicate\"}",
+      "client_action": "the file is held on the Mac; the message is NOT delivered until its commit is answered 200"
+    },
+    {
+      "route": "upload",
+      "status": 409,
+      "body": "{\"accepted\":false,\"retry\":false,\"reason\"}",
+      "client_action": "final for this file: that ID already holds different bytes"
+    },
+    {
+      "route": "upload",
+      "status": 422,
+      "body": "{\"accepted\":false,\"retry\":false,\"reason\"}",
+      "client_action": "final for this file: its type, content, emptiness, count or size is refused; show the reason"
+    },
+    {
+      "route": "upload",
+      "status": 413,
+      "body": "",
+      "client_action": "final for this file: over the per-file limit"
+    },
+    {
+      "route": "upload",
+      "status": 503,
+      "body": "{\"accepted\":false,\"retry\":true,\"reason\"}",
+      "client_action": "retry the same bytes later"
+    },
+    {
+      "route": "commit",
+      "status": 200,
+      "body": "{\"message_id\",\"cursor\",\"thread_id\",\"accepted_at\",\"attachments\":[{\"id\",\"name\",\"media_type\",\"size\"}],\"duplicate\"}",
+      "client_action": "delivered"
+    },
+    {
+      "route": "commit",
+      "status": 422,
+      "body": "{\"accepted\":false,\"retry\":true,\"missing\":[ids],\"reason\"}",
+      "client_action": "upload the missing files, then resend the SAME commit bytes (nothing was reserved)"
+    },
+    {
+      "route": "commit",
+      "status": 409,
+      "body": "{\"accepted\":false,\"retry\":false,\"reason\"}",
+      "client_action": "final for this message: client_id reused with different bytes"
+    },
+    {
+      "route": "commit",
+      "status": 503,
+      "body": "{\"accepted\":false,\"retry\":false,\"reason\"}",
+      "client_action": "final for this message: ask the person to check the conversation"
+    }
   ],
-  "cases": []
+  "attachment_id_cases": [
+    {
+      "id": "p1",
+      "mac_outcome": {
+        "valid": true
+      }
+    },
+    {
+      "id": "IMG-0001_a",
+      "mac_outcome": {
+        "valid": true
+      }
+    },
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "mac_outcome": {
+        "valid": true
+      }
+    },
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "mac_outcome": {
+        "valid": false
+      }
+    },
+    {
+      "id": "",
+      "mac_outcome": {
+        "valid": false
+      }
+    },
+    {
+      "id": "a b",
+      "mac_outcome": {
+        "valid": false
+      }
+    },
+    {
+      "id": "a/b",
+      "mac_outcome": {
+        "valid": false
+      }
+    },
+    {
+      "id": "a.b",
+      "mac_outcome": {
+        "valid": false
+      }
+    },
+    {
+      "id": "a:b",
+      "mac_outcome": {
+        "valid": false
+      }
+    },
+    {
+      "id": "ü",
+      "mac_outcome": {
+        "valid": false
+      }
+    }
+  ],
+  "upload_cases": [
+    {
+      "name": "a JPEG photo; the extension is lowercased",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.MfsCRKPJZX36KCM7GUabdSikDOJ6v0Ba.nP9wbEeGtfOLHG06X7hn9weJsruUmyFuQ9BA8psUIarHNUnwyN_tzRyZWtt1UnyI3scMmwuCaCf9hWsBGP5kYQ",
+          "Content-Type": "image/jpeg"
+        },
+        "body": {
+          "base64": "/9j/4AAQSkZJRgBjb25mb3JtYW5jZSBqcGVnIGJ5dGVz",
+          "sha256_hex": "b95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "length": 33
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "MfsCRKPJZX36KCM7GUabdSikDOJ6v0Ba",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG",
+          "body_sha256_hex": "b95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "signing_string": "MfsCRKPJZX36KCM7GUabdSikDOJ6v0Ba\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG\nb95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "signature_b64url": "nP9wbEeGtfOLHG06X7hn9weJsruUmyFuQ9BA8psUIarHNUnwyN_tzRyZWtt1UnyI3scMmwuCaCf9hWsBGP5kYQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.MfsCRKPJZX36KCM7GUabdSikDOJ6v0Ba.nP9wbEeGtfOLHG06X7hn9weJsruUmyFuQ9BA8psUIarHNUnwyN_tzRyZWtt1UnyI3scMmwuCaCf9hWsBGP5kYQ"
+        },
+        "mac": {
+          "signing_string": "MfsCRKPJZX36KCM7GUabdSikDOJ6v0Ba\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG\nb95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "IMG_0001.jpg",
+        "media_type": "image/jpeg",
+        "status": 200,
+        "answer": {
+          "attachment_id": "p1",
+          "name": "IMG_0001.jpg",
+          "media_type": "image/jpeg",
+          "size": 33,
+          "sha256": "b95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a PNG screenshot keeps its name",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p2&name=Screen+Shot+2026-09-22+at+10.00.00.png",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.-lUNCgMy75KJNoMQlA06Gb6jowyemuIR.BUbgR6ehHytLZaQmAA1-q3sk1Y9BFrBdYCzR7JV_sKpdV-fs1yw_C1YK4pkNLDRBivU17hkWX96a6yEB2f4KEQ",
+          "Content-Type": "image/png"
+        },
+        "body": {
+          "base64": "iVBORw0KGgpjb25mb3JtYW5jZSBwbmcgYnl0ZXM=",
+          "sha256_hex": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "length": 29
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "-lUNCgMy75KJNoMQlA06Gb6jowyemuIR",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p2&name=Screen+Shot+2026-09-22+at+10.00.00.png",
+          "body_sha256_hex": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "signing_string": "-lUNCgMy75KJNoMQlA06Gb6jowyemuIR\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p2&name=Screen+Shot+2026-09-22+at+10.00.00.png\n053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "signature_b64url": "BUbgR6ehHytLZaQmAA1-q3sk1Y9BFrBdYCzR7JV_sKpdV-fs1yw_C1YK4pkNLDRBivU17hkWX96a6yEB2f4KEQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.-lUNCgMy75KJNoMQlA06Gb6jowyemuIR.BUbgR6ehHytLZaQmAA1-q3sk1Y9BFrBdYCzR7JV_sKpdV-fs1yw_C1YK4pkNLDRBivU17hkWX96a6yEB2f4KEQ"
+        },
+        "mac": {
+          "signing_string": "-lUNCgMy75KJNoMQlA06Gb6jowyemuIR\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p2&name=Screen+Shot+2026-09-22+at+10.00.00.png\n053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "Screen Shot 2026-09-22 at 10.00.00.png",
+        "media_type": "image/png",
+        "status": 200,
+        "answer": {
+          "attachment_id": "p2",
+          "name": "Screen Shot 2026-09-22 at 10.00.00.png",
+          "media_type": "image/png",
+          "size": 29,
+          "sha256": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a HEIC photo",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p3&name=IMG_0002.HEIC",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.UNBZW1S1ylpxDisHL2l2frtaoD9P63zP._oJSG4NKVAv36nR1zubD2NoiyeZxMChOBhdgA89z1ZnXJYxHn_rbcx-7HcDDd79kU3gXkCY90w3Lib2-agrsSg",
+          "Content-Type": "image/heic"
+        },
+        "body": {
+          "base64": "AAAAGGZ0eXBoZWljAAAAAG1pZjFoZWlj",
+          "sha256_hex": "99fa2182f97726a156cf1b7b591a8988b928f7f8c6e1f32c9e0182bbcfce36fc",
+          "length": 24
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "UNBZW1S1ylpxDisHL2l2frtaoD9P63zP",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p3&name=IMG_0002.HEIC",
+          "body_sha256_hex": "99fa2182f97726a156cf1b7b591a8988b928f7f8c6e1f32c9e0182bbcfce36fc",
+          "signing_string": "UNBZW1S1ylpxDisHL2l2frtaoD9P63zP\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p3&name=IMG_0002.HEIC\n99fa2182f97726a156cf1b7b591a8988b928f7f8c6e1f32c9e0182bbcfce36fc",
+          "signature_b64url": "_oJSG4NKVAv36nR1zubD2NoiyeZxMChOBhdgA89z1ZnXJYxHn_rbcx-7HcDDd79kU3gXkCY90w3Lib2-agrsSg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.UNBZW1S1ylpxDisHL2l2frtaoD9P63zP._oJSG4NKVAv36nR1zubD2NoiyeZxMChOBhdgA89z1ZnXJYxHn_rbcx-7HcDDd79kU3gXkCY90w3Lib2-agrsSg"
+        },
+        "mac": {
+          "signing_string": "UNBZW1S1ylpxDisHL2l2frtaoD9P63zP\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p3&name=IMG_0002.HEIC\n99fa2182f97726a156cf1b7b591a8988b928f7f8c6e1f32c9e0182bbcfce36fc",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "IMG_0002.heic",
+        "media_type": "image/heic",
+        "status": 200,
+        "answer": {
+          "attachment_id": "p3",
+          "name": "IMG_0002.heic",
+          "media_type": "image/heic",
+          "size": 24,
+          "sha256": "99fa2182f97726a156cf1b7b591a8988b928f7f8c6e1f32c9e0182bbcfce36fc",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "the same bytes again under the same ID: duplicate, nothing new stored",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.uwSxOK-VEVC-IKoKzz-LNA3x0onZSW9r.0JhbxHASKJFZJ20GUpF8M8U1gYpCRj-WlCYBTXwK8YAioGWhq63fCyx963AGNAh-00FIxzdX1XVX8CHJ_ZoCmg",
+          "Content-Type": "image/jpeg"
+        },
+        "body": {
+          "base64": "/9j/4AAQSkZJRgBjb25mb3JtYW5jZSBqcGVnIGJ5dGVz",
+          "sha256_hex": "b95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "length": 33
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "uwSxOK-VEVC-IKoKzz-LNA3x0onZSW9r",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG",
+          "body_sha256_hex": "b95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "signing_string": "uwSxOK-VEVC-IKoKzz-LNA3x0onZSW9r\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG\nb95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "signature_b64url": "0JhbxHASKJFZJ20GUpF8M8U1gYpCRj-WlCYBTXwK8YAioGWhq63fCyx963AGNAh-00FIxzdX1XVX8CHJ_ZoCmg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.uwSxOK-VEVC-IKoKzz-LNA3x0onZSW9r.0JhbxHASKJFZJ20GUpF8M8U1gYpCRj-WlCYBTXwK8YAioGWhq63fCyx963AGNAh-00FIxzdX1XVX8CHJ_ZoCmg"
+        },
+        "mac": {
+          "signing_string": "uwSxOK-VEVC-IKoKzz-LNA3x0onZSW9r\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG\nb95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "duplicate",
+        "stored_name": "IMG_0001.jpg",
+        "media_type": "image/jpeg",
+        "status": 200,
+        "answer": {
+          "attachment_id": "p1",
+          "name": "IMG_0001.jpg",
+          "media_type": "image/jpeg",
+          "size": 33,
+          "sha256": "b95af25af88a2c73c745cd9f9a5c9c04dc3da73285f8dd5d5e44ece00174ae4e",
+          "duplicate": true
+        }
+      }
+    },
+    {
+      "name": "different bytes under an ID already used: conflict",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.jP77jnuiDUdoae3ysRjLmPSci_e3kQR-.6KtulddPYkyej4UBEfS53nfQpPPP4F_0tE-FAGqAaw8em1edDQF671mLA3g44CvJAbmQ5uUxCB7rNJVXAc8rhA",
+          "Content-Type": "image/jpeg"
+        },
+        "body": {
+          "base64": "/9j/4AAQSkZJRgBjb25mb3JtYW5jZSBqcGVnIGJ5dGVzY2hhbmdlZA==",
+          "sha256_hex": "35f38382d04912734566f2be13aeb9bdfdc0b3328ed7ac58d2dbfd0c0a44e467",
+          "length": 40
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "jP77jnuiDUdoae3ysRjLmPSci_e3kQR-",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG",
+          "body_sha256_hex": "35f38382d04912734566f2be13aeb9bdfdc0b3328ed7ac58d2dbfd0c0a44e467",
+          "signing_string": "jP77jnuiDUdoae3ysRjLmPSci_e3kQR-\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG\n35f38382d04912734566f2be13aeb9bdfdc0b3328ed7ac58d2dbfd0c0a44e467",
+          "signature_b64url": "6KtulddPYkyej4UBEfS53nfQpPPP4F_0tE-FAGqAaw8em1edDQF671mLA3g44CvJAbmQ5uUxCB7rNJVXAc8rhA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.jP77jnuiDUdoae3ysRjLmPSci_e3kQR-.6KtulddPYkyej4UBEfS53nfQpPPP4F_0tE-FAGqAaw8em1edDQF671mLA3g44CvJAbmQ5uUxCB7rNJVXAc8rhA"
+        },
+        "mac": {
+          "signing_string": "jP77jnuiDUdoae3ysRjLmPSci_e3kQR-\nPOST\n/api/messages?kind=attachment&client_id=msg-photos&attachment_id=p1&name=IMG_0001.JPG\n35f38382d04912734566f2be13aeb9bdfdc0b3328ed7ac58d2dbfd0c0a44e467",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "conflict",
+        "status": 409
+      }
+    },
+    {
+      "name": "a PDF",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f1&name=Q3+report.pdf",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.aSgjf3Es4ROP8GN92reqUJ600D6BPu07.51Jl-I-rjRYdWVi8-KA-0E9sl5hAkMg405rrdbpHnpLl0YDVogfbrMnYgJpgFI2BdKIytfUjZklnz6qW5nw_ig",
+          "Content-Type": "application/pdf"
+        },
+        "body": {
+          "base64": "JVBERi0xLjcKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyA+PgplbmRvYmoK",
+          "sha256_hex": "9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1",
+          "length": 45
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "aSgjf3Es4ROP8GN92reqUJ600D6BPu07",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f1&name=Q3+report.pdf",
+          "body_sha256_hex": "9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1",
+          "signing_string": "aSgjf3Es4ROP8GN92reqUJ600D6BPu07\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f1&name=Q3+report.pdf\n9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1",
+          "signature_b64url": "51Jl-I-rjRYdWVi8-KA-0E9sl5hAkMg405rrdbpHnpLl0YDVogfbrMnYgJpgFI2BdKIytfUjZklnz6qW5nw_ig",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.aSgjf3Es4ROP8GN92reqUJ600D6BPu07.51Jl-I-rjRYdWVi8-KA-0E9sl5hAkMg405rrdbpHnpLl0YDVogfbrMnYgJpgFI2BdKIytfUjZklnz6qW5nw_ig"
+        },
+        "mac": {
+          "signing_string": "aSgjf3Es4ROP8GN92reqUJ600D6BPu07\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f1&name=Q3+report.pdf\n9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "Q3 report.pdf",
+        "media_type": "application/pdf",
+        "status": 200,
+        "answer": {
+          "attachment_id": "f1",
+          "name": "Q3 report.pdf",
+          "media_type": "application/pdf",
+          "size": 45,
+          "sha256": "9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a text note with no extension gets .txt",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f2&name=notes",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.Uk6Ioz0AkXfXSfNm4LVD5xKR3hiPJQJK.MoiTSobhhuvkAYZsffGT_BltDs_Jq14XS7L-RckqeQtUQ__AHHYdtwJsC9VyJY4y3Mi2dmnL4xs6AclcUbBWuA",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "Buy milk\nCall Sam about the proposal\n",
+          "sha256_hex": "1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b",
+          "length": 37
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "Uk6Ioz0AkXfXSfNm4LVD5xKR3hiPJQJK",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f2&name=notes",
+          "body_sha256_hex": "1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b",
+          "signing_string": "Uk6Ioz0AkXfXSfNm4LVD5xKR3hiPJQJK\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f2&name=notes\n1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b",
+          "signature_b64url": "MoiTSobhhuvkAYZsffGT_BltDs_Jq14XS7L-RckqeQtUQ__AHHYdtwJsC9VyJY4y3Mi2dmnL4xs6AclcUbBWuA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.Uk6Ioz0AkXfXSfNm4LVD5xKR3hiPJQJK.MoiTSobhhuvkAYZsffGT_BltDs_Jq14XS7L-RckqeQtUQ__AHHYdtwJsC9VyJY4y3Mi2dmnL4xs6AclcUbBWuA"
+        },
+        "mac": {
+          "signing_string": "Uk6Ioz0AkXfXSfNm4LVD5xKR3hiPJQJK\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f2&name=notes\n1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "notes.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "f2",
+          "name": "notes.txt",
+          "media_type": "text/plain",
+          "size": 37,
+          "sha256": "1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a media type with parameters",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f3&name=list.csv",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.Kl8q_nKq5zsLHYex2YQmWj98xzclAqZ1.V4ueWNemAh5locXZzSRQ32rPK0HRWFj94cplINMpM0m9-qluLvjvif33jJ5VdWaDh-dhppCCrGtoRFpevXvJkw",
+          "Content-Type": "text/csv; charset=utf-8"
+        },
+        "body": {
+          "utf8": "a,b\n1,2\n",
+          "sha256_hex": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "length": 8
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "Kl8q_nKq5zsLHYex2YQmWj98xzclAqZ1",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f3&name=list.csv",
+          "body_sha256_hex": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "signing_string": "Kl8q_nKq5zsLHYex2YQmWj98xzclAqZ1\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f3&name=list.csv\n492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "signature_b64url": "V4ueWNemAh5locXZzSRQ32rPK0HRWFj94cplINMpM0m9-qluLvjvif33jJ5VdWaDh-dhppCCrGtoRFpevXvJkw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.Kl8q_nKq5zsLHYex2YQmWj98xzclAqZ1.V4ueWNemAh5locXZzSRQ32rPK0HRWFj94cplINMpM0m9-qluLvjvif33jJ5VdWaDh-dhppCCrGtoRFpevXvJkw"
+        },
+        "mac": {
+          "signing_string": "Kl8q_nKq5zsLHYex2YQmWj98xzclAqZ1\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f3&name=list.csv\n492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "list.csv",
+        "media_type": "text/csv",
+        "status": 200,
+        "answer": {
+          "attachment_id": "f3",
+          "name": "list.csv",
+          "media_type": "text/csv",
+          "size": 8,
+          "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a path in the name is cut to its last component",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f4&name=..%2F..%2Fetc%2Fplan.md",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.8sLqarZxfbpbaM7SqrwvUdhSM8mJlPDq.h71VUjF6ioXfi9m7YyDIX5AI-64e1uK8TGd65LvWGB9ffrlWxQJyPIiR9KWIuQ67dI3v_7C7xHukmmOUsrBmzg",
+          "Content-Type": "text/markdown"
+        },
+        "body": {
+          "utf8": "# Plan\n",
+          "sha256_hex": "c3964bb3b70a957ec9b233c7dd3653f6ba17701ab00facf88ae1393dc6155577",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "8sLqarZxfbpbaM7SqrwvUdhSM8mJlPDq",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f4&name=..%2F..%2Fetc%2Fplan.md",
+          "body_sha256_hex": "c3964bb3b70a957ec9b233c7dd3653f6ba17701ab00facf88ae1393dc6155577",
+          "signing_string": "8sLqarZxfbpbaM7SqrwvUdhSM8mJlPDq\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f4&name=..%2F..%2Fetc%2Fplan.md\nc3964bb3b70a957ec9b233c7dd3653f6ba17701ab00facf88ae1393dc6155577",
+          "signature_b64url": "h71VUjF6ioXfi9m7YyDIX5AI-64e1uK8TGd65LvWGB9ffrlWxQJyPIiR9KWIuQ67dI3v_7C7xHukmmOUsrBmzg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.8sLqarZxfbpbaM7SqrwvUdhSM8mJlPDq.h71VUjF6ioXfi9m7YyDIX5AI-64e1uK8TGd65LvWGB9ffrlWxQJyPIiR9KWIuQ67dI3v_7C7xHukmmOUsrBmzg"
+        },
+        "mac": {
+          "signing_string": "8sLqarZxfbpbaM7SqrwvUdhSM8mJlPDq\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f4&name=..%2F..%2Fetc%2Fplan.md\nc3964bb3b70a957ec9b233c7dd3653f6ba17701ab00facf88ae1393dc6155577",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "plan.md",
+        "media_type": "text/markdown",
+        "status": 200,
+        "answer": {
+          "attachment_id": "f4",
+          "name": "plan.md",
+          "media_type": "text/markdown",
+          "size": 7,
+          "sha256": "c3964bb3b70a957ec9b233c7dd3653f6ba17701ab00facf88ae1393dc6155577",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a Word document (ZIP container)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f5&name=Contract.docx",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.l9WToKr67FPhpjk5VoTUBT0abcDiHv-z.5UdYhui9eE9cJiOWrgXQTMjogkIOJopqOgjVsGxBCuaIQYgmaKlCAQl9OYYuEMC_Jvk0YZCQHKfFek6tWy1erQ",
+          "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        },
+        "body": {
+          "base64": "UEsDBGNvbmZvcm1hbmNlIGRvY3ggY29udGFpbmVy",
+          "sha256_hex": "c8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "length": 30
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "l9WToKr67FPhpjk5VoTUBT0abcDiHv-z",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f5&name=Contract.docx",
+          "body_sha256_hex": "c8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "signing_string": "l9WToKr67FPhpjk5VoTUBT0abcDiHv-z\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f5&name=Contract.docx\nc8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "signature_b64url": "5UdYhui9eE9cJiOWrgXQTMjogkIOJopqOgjVsGxBCuaIQYgmaKlCAQl9OYYuEMC_Jvk0YZCQHKfFek6tWy1erQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.l9WToKr67FPhpjk5VoTUBT0abcDiHv-z.5UdYhui9eE9cJiOWrgXQTMjogkIOJopqOgjVsGxBCuaIQYgmaKlCAQl9OYYuEMC_Jvk0YZCQHKfFek6tWy1erQ"
+        },
+        "mac": {
+          "signing_string": "l9WToKr67FPhpjk5VoTUBT0abcDiHv-z\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f5&name=Contract.docx\nc8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "Contract.docx",
+        "media_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "status": 200,
+        "answer": {
+          "attachment_id": "f5",
+          "name": "Contract.docx",
+          "media_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "size": 30,
+          "sha256": "c8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "no name at all",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f6",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.NQ6Aq--WwqpzCcjrmdIeqF7JgiE3RXws.8zc6qzsZXtQByIeZZeUBwX6x7zqH1wnK7xXSJAX4Z8SLpZnqojlezd514rM68aKMk24Aau7kQK49LWoGZzEOeg",
+          "Content-Type": "image/png"
+        },
+        "body": {
+          "base64": "iVBORw0KGgpjb25mb3JtYW5jZSBwbmcgYnl0ZXM=",
+          "sha256_hex": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "length": 29
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "NQ6Aq--WwqpzCcjrmdIeqF7JgiE3RXws",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-files&attachment_id=f6",
+          "body_sha256_hex": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "signing_string": "NQ6Aq--WwqpzCcjrmdIeqF7JgiE3RXws\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f6\n053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "signature_b64url": "8zc6qzsZXtQByIeZZeUBwX6x7zqH1wnK7xXSJAX4Z8SLpZnqojlezd514rM68aKMk24Aau7kQK49LWoGZzEOeg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.NQ6Aq--WwqpzCcjrmdIeqF7JgiE3RXws.8zc6qzsZXtQByIeZZeUBwX6x7zqH1wnK7xXSJAX4Z8SLpZnqojlezd514rM68aKMk24Aau7kQK49LWoGZzEOeg"
+        },
+        "mac": {
+          "signing_string": "NQ6Aq--WwqpzCcjrmdIeqF7JgiE3RXws\nPOST\n/api/messages?kind=attachment&client_id=msg-files&attachment_id=f6\n053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "attachment.png",
+        "media_type": "image/png",
+        "status": 200,
+        "answer": {
+          "attachment_id": "f6",
+          "name": "attachment.png",
+          "media_type": "image/png",
+          "size": 29,
+          "sha256": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "a PNG sent as image/jpeg is refused",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r1&name=photo.jpg",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.ZvE90_B_YfuLTwamsHto7O_xe_E-22jQ.MKH_Aar-8cGTEKin1mHeeGTr1IcvTAZ3iKcNzm-6lk1D6JKG2jiwWfNGnXx5ePQeDKSM2vN0CDPeK4QphfOLlA",
+          "Content-Type": "image/jpeg"
+        },
+        "body": {
+          "base64": "iVBORw0KGgpjb25mb3JtYW5jZSBwbmcgYnl0ZXM=",
+          "sha256_hex": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "length": 29
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "ZvE90_B_YfuLTwamsHto7O_xe_E-22jQ",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r1&name=photo.jpg",
+          "body_sha256_hex": "053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "signing_string": "ZvE90_B_YfuLTwamsHto7O_xe_E-22jQ\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r1&name=photo.jpg\n053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "signature_b64url": "MKH_Aar-8cGTEKin1mHeeGTr1IcvTAZ3iKcNzm-6lk1D6JKG2jiwWfNGnXx5ePQeDKSM2vN0CDPeK4QphfOLlA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.ZvE90_B_YfuLTwamsHto7O_xe_E-22jQ.MKH_Aar-8cGTEKin1mHeeGTr1IcvTAZ3iKcNzm-6lk1D6JKG2jiwWfNGnXx5ePQeDKSM2vN0CDPeK4QphfOLlA"
+        },
+        "mac": {
+          "signing_string": "ZvE90_B_YfuLTwamsHto7O_xe_E-22jQ\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r1&name=photo.jpg\n053f99bb3f6164553046d928bec55d3c265577a7b2106f3dc94363b77afdde1a",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "refused",
+        "status": 422
+      }
+    },
+    {
+      "name": "text containing a NUL byte is refused",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r2&name=notes.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.R0HIt-rBj2ihQ52Jo20W8BLshsKYaVbm.ixPWecEMS2A1CSPwoNniR4Z6OxA0GPuKcmQYEvDB434Dc2WpWjzUBkN8OtYMXiSBzROhKkw5ar73S4eWfrIQHg",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "a\u0000b",
+          "sha256_hex": "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
+          "length": 3
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "R0HIt-rBj2ihQ52Jo20W8BLshsKYaVbm",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r2&name=notes.txt",
+          "body_sha256_hex": "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
+          "signing_string": "R0HIt-rBj2ihQ52Jo20W8BLshsKYaVbm\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r2&name=notes.txt\n59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
+          "signature_b64url": "ixPWecEMS2A1CSPwoNniR4Z6OxA0GPuKcmQYEvDB434Dc2WpWjzUBkN8OtYMXiSBzROhKkw5ar73S4eWfrIQHg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.R0HIt-rBj2ihQ52Jo20W8BLshsKYaVbm.ixPWecEMS2A1CSPwoNniR4Z6OxA0GPuKcmQYEvDB434Dc2WpWjzUBkN8OtYMXiSBzROhKkw5ar73S4eWfrIQHg"
+        },
+        "mac": {
+          "signing_string": "R0HIt-rBj2ihQ52Jo20W8BLshsKYaVbm\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r2&name=notes.txt\n59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "refused",
+        "status": 422
+      }
+    },
+    {
+      "name": "a ZIP archive is a type the Mac does not take",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r3&name=photos.zip",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.Ep66KuYLDrT-l7nRITL0gNpfQ6gHNq7L.cguNGgnmmdAWiIklAN-LTkUDk-EZ3tuWTDoJWAFfR5FYgzYZ8ST2D4r2BWEZwhholO_kHXrOOebVnKdLNjYRzw",
+          "Content-Type": "application/zip"
+        },
+        "body": {
+          "base64": "UEsDBGNvbmZvcm1hbmNlIGRvY3ggY29udGFpbmVy",
+          "sha256_hex": "c8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "length": 30
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "Ep66KuYLDrT-l7nRITL0gNpfQ6gHNq7L",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r3&name=photos.zip",
+          "body_sha256_hex": "c8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "signing_string": "Ep66KuYLDrT-l7nRITL0gNpfQ6gHNq7L\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r3&name=photos.zip\nc8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "signature_b64url": "cguNGgnmmdAWiIklAN-LTkUDk-EZ3tuWTDoJWAFfR5FYgzYZ8ST2D4r2BWEZwhholO_kHXrOOebVnKdLNjYRzw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.Ep66KuYLDrT-l7nRITL0gNpfQ6gHNq7L.cguNGgnmmdAWiIklAN-LTkUDk-EZ3tuWTDoJWAFfR5FYgzYZ8ST2D4r2BWEZwhholO_kHXrOOebVnKdLNjYRzw"
+        },
+        "mac": {
+          "signing_string": "Ep66KuYLDrT-l7nRITL0gNpfQ6gHNq7L\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r3&name=photos.zip\nc8ac29314c9424f94c74bbab3586883e61250fa86ec8a3f8197024585e9d5c01",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "refused",
+        "status": 422
+      }
+    },
+    {
+      "name": "an empty file is refused (signed with an EMPTY fourth line, as every bodiless request)",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r4&name=empty.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.QHiGgXxrzGBnvGDF1q8BS9dI4TnX-x0k.1JXRVKyL6vzNDxTlrE4jPwXS32np1OpEQR17rK9WWt1fYBM13KgmDlLEuzUa3HXUwXBqsStwBRFT26ZijJlfxQ",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "",
+          "sha256_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "length": 0
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "QHiGgXxrzGBnvGDF1q8BS9dI4TnX-x0k",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r4&name=empty.txt",
+          "body_sha256_hex": "",
+          "signing_string": "QHiGgXxrzGBnvGDF1q8BS9dI4TnX-x0k\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r4&name=empty.txt\n",
+          "signature_b64url": "1JXRVKyL6vzNDxTlrE4jPwXS32np1OpEQR17rK9WWt1fYBM13KgmDlLEuzUa3HXUwXBqsStwBRFT26ZijJlfxQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.QHiGgXxrzGBnvGDF1q8BS9dI4TnX-x0k.1JXRVKyL6vzNDxTlrE4jPwXS32np1OpEQR17rK9WWt1fYBM13KgmDlLEuzUa3HXUwXBqsStwBRFT26ZijJlfxQ"
+        },
+        "mac": {
+          "signing_string": "QHiGgXxrzGBnvGDF1q8BS9dI4TnX-x0k\nPOST\n/api/messages?kind=attachment&client_id=msg-refused&attachment_id=r4&name=empty.txt\n",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "refused",
+        "status": 422
+      }
+    }
+  ],
+  "limit_sequence": [
+    {
+      "name": "message with many files: file 1",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m1&name=f1.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.GD3c53z_v-seTbsB5kB2fRTUPHfOvAA9.tTSNtJ7tFqbHsnBfriQ9_mJ2MeX3_6gzRV-LqcotHDok2KLE361Cif2aBT4wejq7Tw5URkcQLLSRhelvGFiKWQ",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 1\n",
+          "sha256_hex": "5f5d584c5857d85af911ade1b2ae7cb593c17654282091f3ace31efd9e951360",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "GD3c53z_v-seTbsB5kB2fRTUPHfOvAA9",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m1&name=f1.txt",
+          "body_sha256_hex": "5f5d584c5857d85af911ade1b2ae7cb593c17654282091f3ace31efd9e951360",
+          "signing_string": "GD3c53z_v-seTbsB5kB2fRTUPHfOvAA9\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m1&name=f1.txt\n5f5d584c5857d85af911ade1b2ae7cb593c17654282091f3ace31efd9e951360",
+          "signature_b64url": "tTSNtJ7tFqbHsnBfriQ9_mJ2MeX3_6gzRV-LqcotHDok2KLE361Cif2aBT4wejq7Tw5URkcQLLSRhelvGFiKWQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.GD3c53z_v-seTbsB5kB2fRTUPHfOvAA9.tTSNtJ7tFqbHsnBfriQ9_mJ2MeX3_6gzRV-LqcotHDok2KLE361Cif2aBT4wejq7Tw5URkcQLLSRhelvGFiKWQ"
+        },
+        "mac": {
+          "signing_string": "GD3c53z_v-seTbsB5kB2fRTUPHfOvAA9\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m1&name=f1.txt\n5f5d584c5857d85af911ade1b2ae7cb593c17654282091f3ace31efd9e951360",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f1.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m1",
+          "name": "f1.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "5f5d584c5857d85af911ade1b2ae7cb593c17654282091f3ace31efd9e951360",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 2",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m2&name=f2.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.MTlj_27ay3GazK7ltuXW3tc_UsORrLr_.9E5UlMLSck0fHC84sba8RZIutSpET2lcXP-um5NQtp2HjKLLFThU94RDuS5NYlUF5mpglRcCnDFioDPD5rRulA",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 2\n",
+          "sha256_hex": "0b7e1391e807365614c548fd10a4a543cf0654268529f3fe768ed7042624c006",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "MTlj_27ay3GazK7ltuXW3tc_UsORrLr_",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m2&name=f2.txt",
+          "body_sha256_hex": "0b7e1391e807365614c548fd10a4a543cf0654268529f3fe768ed7042624c006",
+          "signing_string": "MTlj_27ay3GazK7ltuXW3tc_UsORrLr_\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m2&name=f2.txt\n0b7e1391e807365614c548fd10a4a543cf0654268529f3fe768ed7042624c006",
+          "signature_b64url": "9E5UlMLSck0fHC84sba8RZIutSpET2lcXP-um5NQtp2HjKLLFThU94RDuS5NYlUF5mpglRcCnDFioDPD5rRulA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.MTlj_27ay3GazK7ltuXW3tc_UsORrLr_.9E5UlMLSck0fHC84sba8RZIutSpET2lcXP-um5NQtp2HjKLLFThU94RDuS5NYlUF5mpglRcCnDFioDPD5rRulA"
+        },
+        "mac": {
+          "signing_string": "MTlj_27ay3GazK7ltuXW3tc_UsORrLr_\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m2&name=f2.txt\n0b7e1391e807365614c548fd10a4a543cf0654268529f3fe768ed7042624c006",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f2.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m2",
+          "name": "f2.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "0b7e1391e807365614c548fd10a4a543cf0654268529f3fe768ed7042624c006",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 3",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m3&name=f3.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.A2xMobmIieq4MBMiOP9d2jFTEXVNJ4mQ.t-pTsIeLbzeKGwuopt5PBS1eZQBPfewfGmuk3OLruAdVWJWdCXkzY499cy_xb8pJgQOnvDSuqdaLXf6Tyl4d4g",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 3\n",
+          "sha256_hex": "b90ae9387f8c3b679f6bbd62649e3b0649fd2f5ab82cc174af8977671367f761",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "A2xMobmIieq4MBMiOP9d2jFTEXVNJ4mQ",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m3&name=f3.txt",
+          "body_sha256_hex": "b90ae9387f8c3b679f6bbd62649e3b0649fd2f5ab82cc174af8977671367f761",
+          "signing_string": "A2xMobmIieq4MBMiOP9d2jFTEXVNJ4mQ\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m3&name=f3.txt\nb90ae9387f8c3b679f6bbd62649e3b0649fd2f5ab82cc174af8977671367f761",
+          "signature_b64url": "t-pTsIeLbzeKGwuopt5PBS1eZQBPfewfGmuk3OLruAdVWJWdCXkzY499cy_xb8pJgQOnvDSuqdaLXf6Tyl4d4g",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.A2xMobmIieq4MBMiOP9d2jFTEXVNJ4mQ.t-pTsIeLbzeKGwuopt5PBS1eZQBPfewfGmuk3OLruAdVWJWdCXkzY499cy_xb8pJgQOnvDSuqdaLXf6Tyl4d4g"
+        },
+        "mac": {
+          "signing_string": "A2xMobmIieq4MBMiOP9d2jFTEXVNJ4mQ\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m3&name=f3.txt\nb90ae9387f8c3b679f6bbd62649e3b0649fd2f5ab82cc174af8977671367f761",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f3.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m3",
+          "name": "f3.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "b90ae9387f8c3b679f6bbd62649e3b0649fd2f5ab82cc174af8977671367f761",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 4",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m4&name=f4.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.Aszmgyw9M94RSHmS6he8o-v-3fiHUqdQ.dYSN2uLbBHp-9vN6Uxk8imAXTeM8MqGo7ZjQyhOiIkLbbHafoZj-y56fuKlmJEz4VfefDzNEeOUhhEuHTM3L_Q",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 4\n",
+          "sha256_hex": "76f61e3503f81ffc8ccff1db16486d49a5f602267027e5ae85ae17d0c5e041b1",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "Aszmgyw9M94RSHmS6he8o-v-3fiHUqdQ",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m4&name=f4.txt",
+          "body_sha256_hex": "76f61e3503f81ffc8ccff1db16486d49a5f602267027e5ae85ae17d0c5e041b1",
+          "signing_string": "Aszmgyw9M94RSHmS6he8o-v-3fiHUqdQ\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m4&name=f4.txt\n76f61e3503f81ffc8ccff1db16486d49a5f602267027e5ae85ae17d0c5e041b1",
+          "signature_b64url": "dYSN2uLbBHp-9vN6Uxk8imAXTeM8MqGo7ZjQyhOiIkLbbHafoZj-y56fuKlmJEz4VfefDzNEeOUhhEuHTM3L_Q",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.Aszmgyw9M94RSHmS6he8o-v-3fiHUqdQ.dYSN2uLbBHp-9vN6Uxk8imAXTeM8MqGo7ZjQyhOiIkLbbHafoZj-y56fuKlmJEz4VfefDzNEeOUhhEuHTM3L_Q"
+        },
+        "mac": {
+          "signing_string": "Aszmgyw9M94RSHmS6he8o-v-3fiHUqdQ\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m4&name=f4.txt\n76f61e3503f81ffc8ccff1db16486d49a5f602267027e5ae85ae17d0c5e041b1",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f4.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m4",
+          "name": "f4.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "76f61e3503f81ffc8ccff1db16486d49a5f602267027e5ae85ae17d0c5e041b1",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 5",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m5&name=f5.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.2ReXvpTmFDhg-rQ0dfvymFXfwaVUvtFY.FtTpwe6WS1xonJqtKOHwNgQrVjeBcKNXjz49AUcYSeXwNdhnTx1coZ1R0ezdOwUkSZSNK8jF3mJeYC6-VkN2mQ",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 5\n",
+          "sha256_hex": "27c7d24edb77a005c6109792cc4efc120bc2388a5464d54745b99f006d241db9",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "2ReXvpTmFDhg-rQ0dfvymFXfwaVUvtFY",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m5&name=f5.txt",
+          "body_sha256_hex": "27c7d24edb77a005c6109792cc4efc120bc2388a5464d54745b99f006d241db9",
+          "signing_string": "2ReXvpTmFDhg-rQ0dfvymFXfwaVUvtFY\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m5&name=f5.txt\n27c7d24edb77a005c6109792cc4efc120bc2388a5464d54745b99f006d241db9",
+          "signature_b64url": "FtTpwe6WS1xonJqtKOHwNgQrVjeBcKNXjz49AUcYSeXwNdhnTx1coZ1R0ezdOwUkSZSNK8jF3mJeYC6-VkN2mQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.2ReXvpTmFDhg-rQ0dfvymFXfwaVUvtFY.FtTpwe6WS1xonJqtKOHwNgQrVjeBcKNXjz49AUcYSeXwNdhnTx1coZ1R0ezdOwUkSZSNK8jF3mJeYC6-VkN2mQ"
+        },
+        "mac": {
+          "signing_string": "2ReXvpTmFDhg-rQ0dfvymFXfwaVUvtFY\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m5&name=f5.txt\n27c7d24edb77a005c6109792cc4efc120bc2388a5464d54745b99f006d241db9",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f5.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m5",
+          "name": "f5.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "27c7d24edb77a005c6109792cc4efc120bc2388a5464d54745b99f006d241db9",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 6",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m6&name=f6.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.jz0jx4xnujtChckXYIAxVIYLbnepn49k.Ee27zF07ScDIEP6r5rmkEa3uVdZSsPE3-vqgKT8YzRHOqtyORugfEVyqhu2Vrb_4NnsaNL89aWPV1hwftWH0uA",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 6\n",
+          "sha256_hex": "180fa4e69eabbd12afde1390092594798e083d97f779d089cd753363c6905cd0",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "jz0jx4xnujtChckXYIAxVIYLbnepn49k",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m6&name=f6.txt",
+          "body_sha256_hex": "180fa4e69eabbd12afde1390092594798e083d97f779d089cd753363c6905cd0",
+          "signing_string": "jz0jx4xnujtChckXYIAxVIYLbnepn49k\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m6&name=f6.txt\n180fa4e69eabbd12afde1390092594798e083d97f779d089cd753363c6905cd0",
+          "signature_b64url": "Ee27zF07ScDIEP6r5rmkEa3uVdZSsPE3-vqgKT8YzRHOqtyORugfEVyqhu2Vrb_4NnsaNL89aWPV1hwftWH0uA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.jz0jx4xnujtChckXYIAxVIYLbnepn49k.Ee27zF07ScDIEP6r5rmkEa3uVdZSsPE3-vqgKT8YzRHOqtyORugfEVyqhu2Vrb_4NnsaNL89aWPV1hwftWH0uA"
+        },
+        "mac": {
+          "signing_string": "jz0jx4xnujtChckXYIAxVIYLbnepn49k\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m6&name=f6.txt\n180fa4e69eabbd12afde1390092594798e083d97f779d089cd753363c6905cd0",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f6.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m6",
+          "name": "f6.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "180fa4e69eabbd12afde1390092594798e083d97f779d089cd753363c6905cd0",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 7",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m7&name=f7.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.h0apMg49K8slgCWKI1y0bEz2SRupEcNw.U-xlyKNI6_TABuciLH7dajwfypCyAv0zftr6F2wWx6i2Bh60LZYep6wABpA9a4xOY3hc0FKa6eYgk9gaEa0nzA",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 7\n",
+          "sha256_hex": "cdc4f52fe4cd55696b22732e3d35afd38e2905551ac4f7b4ceb44357740b62ea",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "h0apMg49K8slgCWKI1y0bEz2SRupEcNw",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m7&name=f7.txt",
+          "body_sha256_hex": "cdc4f52fe4cd55696b22732e3d35afd38e2905551ac4f7b4ceb44357740b62ea",
+          "signing_string": "h0apMg49K8slgCWKI1y0bEz2SRupEcNw\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m7&name=f7.txt\ncdc4f52fe4cd55696b22732e3d35afd38e2905551ac4f7b4ceb44357740b62ea",
+          "signature_b64url": "U-xlyKNI6_TABuciLH7dajwfypCyAv0zftr6F2wWx6i2Bh60LZYep6wABpA9a4xOY3hc0FKa6eYgk9gaEa0nzA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.h0apMg49K8slgCWKI1y0bEz2SRupEcNw.U-xlyKNI6_TABuciLH7dajwfypCyAv0zftr6F2wWx6i2Bh60LZYep6wABpA9a4xOY3hc0FKa6eYgk9gaEa0nzA"
+        },
+        "mac": {
+          "signing_string": "h0apMg49K8slgCWKI1y0bEz2SRupEcNw\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m7&name=f7.txt\ncdc4f52fe4cd55696b22732e3d35afd38e2905551ac4f7b4ceb44357740b62ea",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f7.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m7",
+          "name": "f7.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "cdc4f52fe4cd55696b22732e3d35afd38e2905551ac4f7b4ceb44357740b62ea",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 8",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m8&name=f8.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.3tFvUvn-q4hLtPPwVh3-vbhknO8jk7NM.f6-HqBsVW9-eCJByXi9aneS_2cZJMEab9VpEbwBo1hAPUzSPf0w-JuMYXo3Ts1ACHwO7g16UTS8ituikr3UPkQ",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 8\n",
+          "sha256_hex": "3e7e2b6c54af7ff67e199f44eb09494ab201c828ea140470d0327a9155beee78",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "3tFvUvn-q4hLtPPwVh3-vbhknO8jk7NM",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m8&name=f8.txt",
+          "body_sha256_hex": "3e7e2b6c54af7ff67e199f44eb09494ab201c828ea140470d0327a9155beee78",
+          "signing_string": "3tFvUvn-q4hLtPPwVh3-vbhknO8jk7NM\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m8&name=f8.txt\n3e7e2b6c54af7ff67e199f44eb09494ab201c828ea140470d0327a9155beee78",
+          "signature_b64url": "f6-HqBsVW9-eCJByXi9aneS_2cZJMEab9VpEbwBo1hAPUzSPf0w-JuMYXo3Ts1ACHwO7g16UTS8ituikr3UPkQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.3tFvUvn-q4hLtPPwVh3-vbhknO8jk7NM.f6-HqBsVW9-eCJByXi9aneS_2cZJMEab9VpEbwBo1hAPUzSPf0w-JuMYXo3Ts1ACHwO7g16UTS8ituikr3UPkQ"
+        },
+        "mac": {
+          "signing_string": "3tFvUvn-q4hLtPPwVh3-vbhknO8jk7NM\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m8&name=f8.txt\n3e7e2b6c54af7ff67e199f44eb09494ab201c828ea140470d0327a9155beee78",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f8.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m8",
+          "name": "f8.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "3e7e2b6c54af7ff67e199f44eb09494ab201c828ea140470d0327a9155beee78",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 9",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m9&name=f9.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.GcRCEofNDI1tlrYV3kET2BGqS4JrqP_N.dPejVIqlhH8wJVZblaONw6k-DsdJT4LBf_fWOeDkB2zQFwPdRwjA7GMfJpzO3RdzGlySHhvO8mKL_l-V9MvdRA",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 9\n",
+          "sha256_hex": "9ab1c487d62413afc31c76ab9865cb9d50585772654047fba84311614a423c95",
+          "length": 7
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "GcRCEofNDI1tlrYV3kET2BGqS4JrqP_N",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m9&name=f9.txt",
+          "body_sha256_hex": "9ab1c487d62413afc31c76ab9865cb9d50585772654047fba84311614a423c95",
+          "signing_string": "GcRCEofNDI1tlrYV3kET2BGqS4JrqP_N\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m9&name=f9.txt\n9ab1c487d62413afc31c76ab9865cb9d50585772654047fba84311614a423c95",
+          "signature_b64url": "dPejVIqlhH8wJVZblaONw6k-DsdJT4LBf_fWOeDkB2zQFwPdRwjA7GMfJpzO3RdzGlySHhvO8mKL_l-V9MvdRA",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.GcRCEofNDI1tlrYV3kET2BGqS4JrqP_N.dPejVIqlhH8wJVZblaONw6k-DsdJT4LBf_fWOeDkB2zQFwPdRwjA7GMfJpzO3RdzGlySHhvO8mKL_l-V9MvdRA"
+        },
+        "mac": {
+          "signing_string": "GcRCEofNDI1tlrYV3kET2BGqS4JrqP_N\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m9&name=f9.txt\n9ab1c487d62413afc31c76ab9865cb9d50585772654047fba84311614a423c95",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f9.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m9",
+          "name": "f9.txt",
+          "media_type": "text/plain",
+          "size": 7,
+          "sha256": "9ab1c487d62413afc31c76ab9865cb9d50585772654047fba84311614a423c95",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 10",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m10&name=f10.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.l0dXLT9-3KmuyDreCWahMFRpzZgJQE8Z.U3ks6pIQGpvOkpYrdMHrmlixFHz85sHkguinDMuPE180TWcI0gBDMkdp-MYBsjAiuQ9JVZcA7ByV0YxqbM9i5Q",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 10\n",
+          "sha256_hex": "c2756086b5d70a1bcd6da71277f1238568b3c35aaacdf9e10e426d1876022e0d",
+          "length": 8
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "l0dXLT9-3KmuyDreCWahMFRpzZgJQE8Z",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m10&name=f10.txt",
+          "body_sha256_hex": "c2756086b5d70a1bcd6da71277f1238568b3c35aaacdf9e10e426d1876022e0d",
+          "signing_string": "l0dXLT9-3KmuyDreCWahMFRpzZgJQE8Z\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m10&name=f10.txt\nc2756086b5d70a1bcd6da71277f1238568b3c35aaacdf9e10e426d1876022e0d",
+          "signature_b64url": "U3ks6pIQGpvOkpYrdMHrmlixFHz85sHkguinDMuPE180TWcI0gBDMkdp-MYBsjAiuQ9JVZcA7ByV0YxqbM9i5Q",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.l0dXLT9-3KmuyDreCWahMFRpzZgJQE8Z.U3ks6pIQGpvOkpYrdMHrmlixFHz85sHkguinDMuPE180TWcI0gBDMkdp-MYBsjAiuQ9JVZcA7ByV0YxqbM9i5Q"
+        },
+        "mac": {
+          "signing_string": "l0dXLT9-3KmuyDreCWahMFRpzZgJQE8Z\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m10&name=f10.txt\nc2756086b5d70a1bcd6da71277f1238568b3c35aaacdf9e10e426d1876022e0d",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "stored",
+        "stored_name": "f10.txt",
+        "media_type": "text/plain",
+        "status": 200,
+        "answer": {
+          "attachment_id": "m10",
+          "name": "f10.txt",
+          "media_type": "text/plain",
+          "size": 8,
+          "sha256": "c2756086b5d70a1bcd6da71277f1238568b3c35aaacdf9e10e426d1876022e0d",
+          "duplicate": false
+        }
+      }
+    },
+    {
+      "name": "message with many files: file 11 is one more than a message can carry",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m11&name=f11.txt",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.OArFhZfUcSzvCUfoSWTwwm-1pHD0a6au.Uy2zLLfTLoufUKRmMUSB9PNsOrU29Vp0VRp6DSpM1QnVXnrfXNxVY8kk_oM6qEjnJEG0Vg5zz39wnK6UZyiD_w",
+          "Content-Type": "text/plain"
+        },
+        "body": {
+          "utf8": "file 11\n",
+          "sha256_hex": "d71ce34c7d3a21bcc34ca421a1746d4edb5fb5c9ab350989dea7427f44f08be2",
+          "length": 8
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "OArFhZfUcSzvCUfoSWTwwm-1pHD0a6au",
+          "path_with_query": "/api/messages?kind=attachment&client_id=msg-many&attachment_id=m11&name=f11.txt",
+          "body_sha256_hex": "d71ce34c7d3a21bcc34ca421a1746d4edb5fb5c9ab350989dea7427f44f08be2",
+          "signing_string": "OArFhZfUcSzvCUfoSWTwwm-1pHD0a6au\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m11&name=f11.txt\nd71ce34c7d3a21bcc34ca421a1746d4edb5fb5c9ab350989dea7427f44f08be2",
+          "signature_b64url": "Uy2zLLfTLoufUKRmMUSB9PNsOrU29Vp0VRp6DSpM1QnVXnrfXNxVY8kk_oM6qEjnJEG0Vg5zz39wnK6UZyiD_w",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.OArFhZfUcSzvCUfoSWTwwm-1pHD0a6au.Uy2zLLfTLoufUKRmMUSB9PNsOrU29Vp0VRp6DSpM1QnVXnrfXNxVY8kk_oM6qEjnJEG0Vg5zz39wnK6UZyiD_w"
+        },
+        "mac": {
+          "signing_string": "OArFhZfUcSzvCUfoSWTwwm-1pHD0a6au\nPOST\n/api/messages?kind=attachment&client_id=msg-many&attachment_id=m11&name=f11.txt\nd71ce34c7d3a21bcc34ca421a1746d4edb5fb5c9ab350989dea7427f44f08be2",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "outcome": "limit",
+        "status": 422
+      }
+    }
+  ],
+  "commit_cases": [
+    {
+      "name": "commit two uploaded files with text",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.Fnfnu0io5UkGuXMpdDrTzx9G26ICD1uj.k4CBon6QEYz67-UYw5tkhVMteySbMOGEvGKEQ4MDWILB3J27Bd0EnKR03p3Lvn-d1z0xggzf6iDGH-A0wa9uWg",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"msg-files\",\"thread_id\":\"thr_5c1e\",\"kind\":\"attachments\",\"text\":\"Here are the files\",\"attachments\":[{\"id\":\"f1\",\"sha256\":\"9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1\"},{\"id\":\"f2\",\"sha256\":\"1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b\"}],\"sent_at\":\"2026-09-22T13:05:00.000Z\"}",
+          "sha256_hex": "fb3e542a078dcd852e7e8d4847573cdd5f6a6de1dfdd11463d7a9a51633e025b",
+          "length": 326
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "Fnfnu0io5UkGuXMpdDrTzx9G26ICD1uj",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "fb3e542a078dcd852e7e8d4847573cdd5f6a6de1dfdd11463d7a9a51633e025b",
+          "signing_string": "Fnfnu0io5UkGuXMpdDrTzx9G26ICD1uj\nPOST\n/api/messages\nfb3e542a078dcd852e7e8d4847573cdd5f6a6de1dfdd11463d7a9a51633e025b",
+          "signature_b64url": "k4CBon6QEYz67-UYw5tkhVMteySbMOGEvGKEQ4MDWILB3J27Bd0EnKR03p3Lvn-d1z0xggzf6iDGH-A0wa9uWg",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.Fnfnu0io5UkGuXMpdDrTzx9G26ICD1uj.k4CBon6QEYz67-UYw5tkhVMteySbMOGEvGKEQ4MDWILB3J27Bd0EnKR03p3Lvn-d1z0xggzf6iDGH-A0wa9uWg"
+        },
+        "mac": {
+          "signing_string": "Fnfnu0io5UkGuXMpdDrTzx9G26ICD1uj\nPOST\n/api/messages\nfb3e542a078dcd852e7e8d4847573cdd5f6a6de1dfdd11463d7a9a51633e025b",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "all_present": true,
+        "files": [
+          {
+            "id": "f1",
+            "name": "Q3 report.pdf"
+          },
+          {
+            "id": "f2",
+            "name": "notes.txt"
+          }
+        ]
+      }
+    },
+    {
+      "name": "commit naming a file that was never uploaded",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.v6DUcvR33wnd-0g0V07TazAeMFdG-oK0.NoeNE5ynEEDM9JfA2l-W7ctWpxgItY9L_6fdKX5cehg8vH-C2rnSGCZ2Jg-mMf55UIsnrGdXuBNzhVv5AdWt9Q",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"msg-files\",\"thread_id\":\"thr_5c1e\",\"kind\":\"attachments\",\"text\":null,\"attachments\":[{\"id\":\"f1\",\"sha256\":\"9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1\"},{\"id\":\"never\",\"sha256\":\"1dcc23069b4aeb675c2cc68a03fe13ba1b3d7888fa7649f61fc8abf9a119c95b\"}],\"sent_at\":\"2026-09-22T13:05:00.000Z\"}",
+          "sha256_hex": "f92ecc4b8e5f387922c8fad9f07dc1d046bc0c18fa278027ff8307bbca899004",
+          "length": 313
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "v6DUcvR33wnd-0g0V07TazAeMFdG-oK0",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "f92ecc4b8e5f387922c8fad9f07dc1d046bc0c18fa278027ff8307bbca899004",
+          "signing_string": "v6DUcvR33wnd-0g0V07TazAeMFdG-oK0\nPOST\n/api/messages\nf92ecc4b8e5f387922c8fad9f07dc1d046bc0c18fa278027ff8307bbca899004",
+          "signature_b64url": "NoeNE5ynEEDM9JfA2l-W7ctWpxgItY9L_6fdKX5cehg8vH-C2rnSGCZ2Jg-mMf55UIsnrGdXuBNzhVv5AdWt9Q",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.v6DUcvR33wnd-0g0V07TazAeMFdG-oK0.NoeNE5ynEEDM9JfA2l-W7ctWpxgItY9L_6fdKX5cehg8vH-C2rnSGCZ2Jg-mMf55UIsnrGdXuBNzhVv5AdWt9Q"
+        },
+        "mac": {
+          "signing_string": "v6DUcvR33wnd-0g0V07TazAeMFdG-oK0\nPOST\n/api/messages\nf92ecc4b8e5f387922c8fad9f07dc1d046bc0c18fa278027ff8307bbca899004",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "all_present": false,
+        "missing": [
+          "never"
+        ]
+      }
+    },
+    {
+      "name": "commit naming a file with the wrong SHA-256",
+      "request": {
+        "method": "POST",
+        "target": "/api/messages",
+        "headers": {
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.vu-B2iGFiwSJVxYJCwr_Saov2hO2oZvL.x-XSbyxs5GaHX2dDp_36Jn2cp6TOhkRGCtXCIfFR0_5cCGWBKz7sWLdQwz3xBUfiougQeAw-ySWd5J8KrawaMw",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"client_id\":\"msg-files\",\"thread_id\":\"thr_5c1e\",\"kind\":\"attachments\",\"text\":null,\"attachments\":[{\"id\":\"f2\",\"sha256\":\"9cd7cf199d804501d42bdac4121fab7239452011cc3d994be69cf5078218cad1\"}],\"sent_at\":\"2026-09-22T13:05:00.000Z\"}",
+          "sha256_hex": "31162c18d4bf8e9dfb4caa3adb0f9538fdba91b07b04a4b218042a8b996913d4",
+          "length": 222
+        },
+        "signed": {
+          "credential": "header",
+          "challenge": "vu-B2iGFiwSJVxYJCwr_Saov2hO2oZvL",
+          "path_with_query": "/api/messages",
+          "body_sha256_hex": "31162c18d4bf8e9dfb4caa3adb0f9538fdba91b07b04a4b218042a8b996913d4",
+          "signing_string": "vu-B2iGFiwSJVxYJCwr_Saov2hO2oZvL\nPOST\n/api/messages\n31162c18d4bf8e9dfb4caa3adb0f9538fdba91b07b04a4b218042a8b996913d4",
+          "signature_b64url": "x-XSbyxs5GaHX2dDp_36Jn2cp6TOhkRGCtXCIfFR0_5cCGWBKz7sWLdQwz3xBUfiougQeAw-ySWd5J8KrawaMw",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.vu-B2iGFiwSJVxYJCwr_Saov2hO2oZvL.x-XSbyxs5GaHX2dDp_36Jn2cp6TOhkRGCtXCIfFR0_5cCGWBKz7sWLdQwz3xBUfiougQeAw-ySWd5J8KrawaMw"
+        },
+        "mac": {
+          "signing_string": "vu-B2iGFiwSJVxYJCwr_Saov2hO2oZvL\nPOST\n/api/messages\n31162c18d4bf8e9dfb4caa3adb0f9538fdba91b07b04a4b218042a8b996913d4",
+          "verdict": "accepted"
+        }
+      },
+      "mac_outcome": {
+        "all_present": false,
+        "missing": [
+          "f2"
+        ]
+      }
+    }
+  ]
 }

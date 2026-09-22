@@ -21,6 +21,13 @@ richos/app/scripts/native-conformance.test.sh           # both of the above, as 
   (Reed's 2026-09-22 specification, kept in the private RichOS records; the section numbers in this
   corpus are its sections) requires something other than what the reference does, the case says so
   in the open (see "Reference versus contract" below).
+- **The Mac-defined areas.** Attachments and the FCM registration have no reference client. Their
+  requests still use the real `api.js` canonicalization (and `registerNativePush` itself), but their
+  expected Mac outcomes are declared in `generator/native.mjs` beside each case, citing the Mac
+  commits they come from. `verifier/` proves every one against the production code
+  (`Registration` parsing and `validate`, `AttachmentDesk::stage` and `staged`, `valid_id`, the
+  limits and `capabilities`). On a Mac tree without those additions the verifier prints
+  `NOT PROVEN HERE` with the count; once they are in the tree, a wrong expectation fails.
 - **The Mac side.** `verifier/` compiles the Mac's production credential code
   (`app/src-tauri/src/phone/device.rs` and the modules it reaches, `signed_path` from `routes.rs`,
   the helpers from `mod.rs`) unchanged, in a small detached crate. Its one test runs every signed
@@ -45,8 +52,9 @@ richos/app/scripts/native-conformance.test.sh           # both of the above, as 
 | `errors.json` | For each Mac answer, your client must take `required.client_action` (with `required.retry_after_ms`). `reference` is what the shipped web client did, for context. |
 | `events.json` | `wire_cases`: parse `wire_utf8` as bytes cut per every `chunkings` plan (`every: n` or `cut_at: [offsets]`) and deliver exactly `expected_events`. `thread_cases`: apply `frames` for `selected_thread` and show exactly `expected_view` (ids, cursors, text, complete). `hello_cases`, `backfill_case`: the recorded state. |
 | `voice.json` | Build the upload exactly: query parameter order, encoding, `Content-Type: audio/wav`, body hash. `limits` are read out of the Mac's Rust source, with the constant each came from. |
-| `attachments.json`, `push-registration-fcm.json` | **Placeholders**, `status: "placeholder"`, empty `cases`. They fill in when Echo publishes the Mac's attachment route and FCM registration (build plan section 5.1, stream M). A suite should load them and skip on `placeholder`, so the day they fill in, the cases run without a code change. |
-| `index.json` | Every file, its case count and status. Assert every file you expect is listed. |
+| `attachments.json` | Offer attachments only when `capabilities` has `attachments`; take the limits from `attachment_limits`. `attachment_id_cases`: accept or refuse each ID. `upload_cases` and `limit_sequence` (in order, one Mac): build each signed upload exactly and expect `mac_outcome` (`stored`, `duplicate`, `conflict`, `refused`, `limit`; the stored name the Mac gives the file). `commit_cases`: the commit body, and which files the Mac reports missing. `answers`: the client action for every status of both routes. |
+| `push-registration-fcm.json` | Send the FCM shape only when `capabilities` has `native-push-fcm`. `registration_cases`: a test double of the Mac must accept or refuse each `native_push` value as `mac_outcome` says, and record the transport. `requests`: the signed registration, unregistration and the Android confirmation (`push_transport: "fcm"`). |
+| `index.json` | Every file, its case count and where its expectations come from. Assert every file you expect is listed. |
 
 ## Shared shapes
 
@@ -82,6 +90,10 @@ request that never reached a Mac (the platform's network call fails).
 
 An **error** is `{ "reason": "unreachable" | "revoked" | "refused" | "fault", "status", "retryable",
 "about_this_message" }`, the reference client's classification.
+
+A case's **`mac_outcome`** (Mac-defined areas only) is what the Mac's own code decides about the
+case's content: a registration accepted or refused, a file stored under a given name, a commit's
+missing files. It sits beside `request`, whose `mac` is only the signature verdict.
 
 ## Consuming it from Swift and Kotlin
 
@@ -120,14 +132,17 @@ client must do otherwise, the case says so in the open and native clients follow
 - `errors.json`: `413` is final for that exact request (the reference retries it forever); `429`
   waits `Retry-After` (the reference retries after 1 s); `422 {"retryable":false}` is final (the
   reference reads only `retry`). Each carries `required_source: "contract"` and `required_because`.
-- `events.json`: the stream is global, so `expected_view` keeps only the selected conversation's rows
-  and drops a `delta` whose message it does not hold (contract section 10). `unfiltered_view` is what
-  the shipped clients show, for contrast.
+- `events.json`: the stream is global, so `expected_view` keeps only the selected conversation's
+  `message` rows and the `delta`s whose `thread_id` is the selected conversation (`filter_rule`). A
+  delta from an older Mac has no `thread_id` and is kept only for a row already held. The shipped
+  clients do not filter; `unfiltered_view` is what they show, for contrast.
 - `pairing.json`: native apps add `"platform"` to the pairing body (contract section 2.3); the shipped
   client does not send it.
 
 ## Not covered yet
 
-- Attachments and FCM registration: placeholders until the Mac shapes are published.
 - The build plan's section 3.4 also lists voice gesture thresholds, update policy, the headless
   scenario traces and design tokens. They are not in this corpus yet.
+- The attachment and FCM routes' HTTP-level refusals (404 for a malformed query, 413 before the body
+  is read) are listed in `answers` but not replayed: the verifier compiles the desks the routes call,
+  not the route table itself.

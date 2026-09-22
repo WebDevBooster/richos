@@ -182,6 +182,24 @@ export function transcript(mac, signer, base = ORIGIN) {
 	});
 }
 
+/// A signed request for a route the reference client has no method for (attachments, the
+/// Android confirmation). The canonical string is still the real `api.js` `signingInput`, the
+/// query is built the way `api.js` builds every query (`URLSearchParams`), and the body hash is
+/// the MAC's rule: empty when the body has no bytes, including a zero-length file (`api.js` would
+/// hash those, and the Mac would refuse the signature; contract section 3.1).
+export function signedRequest({ method, path, query = null, body = null, contentType = null, label }) {
+	const { signingInput } = load('api');
+	const c = challenge(label);
+	const search = query ? '?' + new URLSearchParams(query).toString() : '';
+	const target = path + search;
+	const bytes = body === null ? null : typeof body === 'string' ? Buffer.from(body, 'utf8') : Buffer.from(body);
+	const input = signingInput(c, method, target, bytes && bytes.length ? sha256hex(bytes) : '');
+	const signature = b64url(signDeterministic(PRIVATE_KEY, Buffer.from(input, 'utf8')));
+	const headers = { Authorization: `RichOS-Device ${DEVICE_ID}.${c}.${signature}` };
+	if (contentType) headers['Content-Type'] = contentType;
+	return describeRequest({ url: ORIGIN + target, method, headers, bytes }, input);
+}
+
 /// Run a promise that may reject with an ApiError, and describe the outcome.
 export async function outcome(promise) {
 	try {
