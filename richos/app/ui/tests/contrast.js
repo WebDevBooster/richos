@@ -192,6 +192,7 @@ const shellSettled = (p) => harnessShellSettled(p);
 /// (probed at `934f127`: one animation found, 192 ms awaited, opacity 1 and zero animations
 /// left). The two frames afterwards are the paint.
 async function overlaySettled(p, selector) {
+  await p.waitForSelector(selector, { state: "visible" });
   await p.evaluate(async (sel) => {
     const el = document.querySelector(sel);
     if (!el) return;
@@ -358,6 +359,7 @@ const SURFACES = [
         const words = document.getElementById("phone-words");
         return words && words.textContent.trim().split(/\s+/).length === 6;
       });
+      await p.waitForSelector("#phone-pairing", {state:"visible"});
       await overlaySettled(p, "#phone-sheet");
     },
   },
@@ -372,6 +374,7 @@ const SURFACES = [
         const name = document.getElementById("phone-device-name");
         return name && name.textContent.trim().length > 0;
       });
+      await p.waitForSelector("#phone-paired", {state:"visible"});
       await overlaySettled(p, "#phone-sheet");
     },
   },
@@ -418,6 +421,7 @@ const SURFACES = [
         const note = document.getElementById("phone-rejected-note");
         return note && note.textContent.trim().length > 0;
       });
+      await p.waitForSelector("#phone-rejected", {state:"visible"});
       await overlaySettled(p, "#phone-sheet");
     },
   },
@@ -441,9 +445,23 @@ const SURFACES = [
         const name = document.getElementById("phone-ts-name");
         return name && name.textContent.trim().length > 0;
       });
+      await p.waitForSelector("#phone-ts-name", {state:"visible"});
       await overlaySettled(p, "#phone-sheet");
     },
   },
+  ...[
+    { name:"phone-connect-setup", preset:{phoneConnect:{enabled:false,phase:"not-configured"}}, target:"#phone-connect-start" },
+    { name:"phone-connect-pairing", preset:{phoneConnect:{enabled:true,phase:"active",endpoint:"https://c-00000000000000000000000000000000-g1.richos.ceo",health:{state:"connected"}},phonePairing:true,phonePairingSecondsLeft:270}, target:"#phone-connect-pair-help" },
+    { name:"phone-connect-recovery", preset:{phoneConnect:{enabled:true,phase:"active",health:{state:"reconnecting"}},phonePaired:true,phonePairedVia:"connect",phoneListenerStopped:true}, target:"#phone-paired-state" },
+  ].map(({name,preset,target}) => ({
+    name, preset, what:"managed Connect " + name.split("-").pop() + " with its own visible controls",
+    drive: async (p) => {
+      await p.click("#set-btn"); await p.click("#set-phone-open");
+      await p.waitForSelector("#phone-connect", {state:"visible"});
+      await p.waitForSelector(target, {state:"visible"});
+      await overlaySettled(p,"#phone-sheet");
+    },
+  })),
   {
     name: "permission",
     what: "a native action request with its description, input and scoped decision controls",
@@ -1830,6 +1848,7 @@ async function main() {
       let debtHits = 0;
       let checked = 0;
       let considered = 0;
+      const reachedPanels = [];
       // For a surface that holds the curtain: the proof that it was still held, in the log.
       let curtain = null;
       for (const theme of THEMES) {
@@ -1842,6 +1861,7 @@ async function main() {
         // panel in the shipped shell that no driver reaches at all?" — the list getting
         // stale by the product growing past it.
         for (const id of await panelsOnScreen(page, PANELS)) {
+          reachedPanels.push(id + "/" + theme);
           if (!seen.panelsReached.has(id)) seen.panelsReached.set(id, []);
           seen.panelsReached.get(id).push(surface.name + "/" + theme);
         }
@@ -1954,7 +1974,7 @@ async function main() {
       // 3-node tolerance. Check 9's negative control at the end of this file proves that on
       // a real surface rather than asserting it here.
       // ---------------------------------------------------------------------------------
-      console.log("CONTRAST_COUNTS " + JSON.stringify({surface: surface.name, checked, considered}));
+      console.log("CONTRAST_COUNTS " + JSON.stringify({surface: surface.name, checked, considered, panels: reachedPanels}));
       const floor = debt.surfaceFloors[surface.name];
       assert(floor !== undefined, surface.name + " has no floor in contrast-debt.json — add one rather than letting a surface that stops rendering read as clean");
       // TOP-LEVEL, NOT INSIDE `surfaceFloors`: check 10b reconciles the walk inventory
