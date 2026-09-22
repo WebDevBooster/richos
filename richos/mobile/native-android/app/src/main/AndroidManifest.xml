@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Owned by stream A1 (build plan §5.0). A3 adds the share target, FCM service and
-     permissions through its handoff notes. No debug-only component is declared here:
+<!-- Owned by stream A1 (build plan §5.0; A3's platform features taken over by A1 while A3 is
+     held). No debug-only component is declared here:
      the development bridge lives in app/src/debug/AndroidManifest.xml. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The Mac is reached over HTTPS. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice notes (round-12 groups 4-6); asked once, on the first deliberate press. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The tick when a recording locks. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".app.RichApplication"

@@ -9,7 +9,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -39,6 +41,23 @@ class AppStore(private val scope: CoroutineScope) {
 
     val current: RichCore? get() = core.value
 
+    init {
+        // THE APP'S ONE TIMER (queue.js rule 5; the core sets none): while a recording runs, a tick
+        // every 100 ms drives the press delay, the timer and the ceiling; otherwise one tick when
+        // the reconnecting notice falls due. Every new state restarts the wait.
+        scope.launch {
+            states.collectLatest { s ->
+                val due = when {
+                    s == null -> null
+                    s.voice != null -> VOICE_TICK_MS
+                    else -> s.connection.noticeDueInMs
+                } ?: return@collectLatest
+                delay(due)
+                dispatch(Action.Tick)
+            }
+        }
+    }
+
     /** Opens the production core, unless something (the debug bridge) installed one first. */
     fun open(factory: suspend () -> RichCore) {
         scope.launch {
@@ -62,5 +81,9 @@ class AppStore(private val scope: CoroutineScope) {
                 refusal.value = e.message
             }
         }
+    }
+
+    companion object {
+        const val VOICE_TICK_MS = 100L
     }
 }

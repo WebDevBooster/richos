@@ -3,7 +3,12 @@ package dev.richos.android.app
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import androidx.activity.ComponentActivity
+import dev.richos.android.core.Action
 import dev.richos.android.core.ConnectionOwner
+import dev.richos.android.core.Microphone
+import dev.richos.android.platform.MicRecorder
+import java.lang.ref.WeakReference
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.platform.HttpsMac
@@ -20,6 +25,9 @@ class RichApplication : Application() {
     private val scope = MainScope()
     val store: AppStore by lazy { AppStore(scope) }
 
+    @Volatile
+    private var foreground: WeakReference<Activity>? = null
+
     /** The live connection's owner; null until the production core has opened, and in a dev world. */
     @Volatile
     var owner: ConnectionOwner? = null
@@ -32,25 +40,44 @@ class RichApplication : Application() {
             store.open(dev)
         } else {
             val wire = HttpsMac()
-            val ports = AppPorts.create(this, wire)
+            val recorder = MicRecorder(
+                context = this,
+                dir = AppPorts.stagedDir(this),
+                onLevel = { store.dispatch(Action.VoiceLevel(it)) },
+                onPermission = { store.dispatch(Action.MicrophonePermission(it)) },
+                foreground = { foreground?.get() as? ComponentActivity },
+            )
+            val ports = AppPorts.create(this, wire, recorder)
             store.open {
                 RichCore.open(ports).also { core ->
+                    // The core mirrors the OS's microphone answer; a revoke in Settings is seen here.
+                    val os = if (recorder.granted()) Microphone.GRANTED else Microphone.UNKNOWN
+                    if (core.state.microphone != os && !(os == Microphone.UNKNOWN && core.state.microphone == Microphone.DENIED)) {
+                        core.dispatch(Action.MicrophonePermission(os))
+                    }
                     val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire)
                     owner = connection
                     scope.launch { connection.run() }
                 }
             }
         }
-        // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js).
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {
+                // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js).
                 override fun onActivityStarted(activity: Activity) {
                     owner?.wake()
                 }
 
+                // The activity on screen, for the one OS question the recorder asks.
+                override fun onActivityResumed(activity: Activity) {
+                    foreground = WeakReference(activity)
+                }
+
+                override fun onActivityPaused(activity: Activity) {
+                    if (foreground?.get() === activity) foreground = null
+                }
+
                 override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-                override fun onActivityResumed(activity: Activity) = Unit
-                override fun onActivityPaused(activity: Activity) = Unit
                 override fun onActivityStopped(activity: Activity) = Unit
                 override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
                 override fun onActivityDestroyed(activity: Activity) = Unit
