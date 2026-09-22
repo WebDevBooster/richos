@@ -11,6 +11,7 @@
 #   randroid emu state|reset|restart|fixture <n>|action '<json>'|transport <m>|advance <ms>|scenario <n>
 #                                       the headless grammar, executed inside the app
 #   randroid emu parity [scenario]      same scenario headless and on the emulator; states must match
+#   randroid emu identity-check         the real Android Keystore: sign, convert to raw, verify, delete
 #   randroid emu verify                 the screen shows the core's draft (UI automation dump)
 #   randroid emu screenshot [file]      PNG of the emulator screen
 #   randroid emu stop | delete          quit the emulator this CLI started (by its recorded PID) /
@@ -295,7 +296,7 @@ emu() {
     prepare) emu_boot; emu_install prepare ;;
     refresh) emu_install refresh ;;
     restart) emu_restart ;;
-    state|reset) emu_command "$command" ;;
+    state|reset|identity-check) emu_command "$command" ;;
     fixture|action|transport|advance|scenario)
       [ "$#" -ge 1 ] || fail "$command needs an argument"
       emu_command "$command" "$1" ;;
