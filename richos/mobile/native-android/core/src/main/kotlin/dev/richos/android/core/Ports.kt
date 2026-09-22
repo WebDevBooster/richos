@@ -98,4 +98,5 @@ class Ports(
     /** What the Mac lists this phone as (contract §2.3: trimmed to 40 characters there). */
     val deviceName: String = "Android phone",
     val recorder: Recorder = Recorder.NONE,
+    val platform: Platform = Platform.NONE,
 )

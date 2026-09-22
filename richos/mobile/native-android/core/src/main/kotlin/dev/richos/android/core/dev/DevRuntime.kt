@@ -12,6 +12,10 @@ import dev.richos.android.core.OutboxStorage
 import dev.richos.android.core.Ports
 import dev.richos.android.core.Receipt
 import dev.richos.android.core.Recorder
+import dev.richos.android.core.Platform
+import dev.richos.android.core.NotificationStatus
+import dev.richos.android.core.Sheet
+import dev.richos.android.core.UpdateNotice
 import dev.richos.android.core.KeptReason
 import dev.richos.android.core.Microphone
 import dev.richos.android.core.Toast
@@ -156,6 +160,17 @@ class DevRuntime private constructor(
                 override suspend fun delete(id: String) = log("delete:$id")
                 override suspend fun requestMicrophone() = log("ask-microphone")
                 override suspend fun haptic() = log("haptic")
+            },
+            platform = object : Platform {
+                private suspend fun log(entry: String) {
+                    doc = doc.copy(platform = doc.platform + entry)
+                    persist()
+                }
+                override suspend fun requestNotifications(previews: Boolean) = log("register:${if (previews) "previews" else "no-previews"}")
+                override suspend fun unregisterNotifications() = log("unregister")
+                override suspend fun openSystemSettings() = log("open:system-settings")
+                override suspend fun openAppStore() = log("open:app-store")
+                override suspend fun openSupport() = log("open:support")
             },
             clock = Clock { doc.now },
             ids = IdSource {
@@ -355,6 +370,37 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.SendKept("rec-3")))
                 check(s.keptRecordings.isEmpty() && doc.receipts.single().clientId == "rec-3", "a kept recording can be sent")
             }
+            // Notifications asked once and answered; then forgetting: refused while work waits,
+            // otherwise notifications off first, then the key and the pairing (contract §2.6).
+            "settings-forget" -> {
+                step(DevRequest.Fixture("queued"))
+                var s = step(DevRequest.Dispatch(Action.ForgetPairing))
+                check(s.sheet == Sheet.FORGET_BLOCKED, "unsent work refuses the forget")
+                s = step(DevRequest.Dispatch(Action.ConfirmForget))
+                check(s.paired, "confirming a blocked forget does nothing")
+                step(DevRequest.Fixture("online"))
+                s = step(DevRequest.Dispatch(Action.TurnOnNotifications))
+                check(s.notifications.status == NotificationStatus.TURNING_ON && doc.platform == listOf("register:previews"), "turning on registers, with previews by default")
+                s = step(DevRequest.Dispatch(Action.NotificationsResult(NotificationStatus.ON)))
+                check(s.notifications.status == NotificationStatus.ON && s.notifications.offerDismissed, "on answers the offer for good")
+                step(DevRequest.Dispatch(Action.ForgetPairing))
+                s = step(DevRequest.Dispatch(Action.ConfirmForget))
+                check(!s.paired && s.pairing.phase == PairingPhase.UNPAIRED && doc.platform.last() == "unregister" && Fixtures.ORIGIN !in doc.keys,
+                    "forget turns notifications off, then discards the key and the pairing")
+            }
+            // Update notices: a banner can be dismissed, a required update cannot; voice paused by
+            // policy stops recording and leaves text working.
+            "update-policy" -> {
+                step(DevRequest.Fixture("online"))
+                var s = step(DevRequest.Dispatch(Action.UpdatePolicy(UpdateNotice(UpdateNotice.Prominence.BANNER, "1.1.0", "A new version is ready."))))
+                s = step(DevRequest.Dispatch(Action.DismissUpdate))
+                check(s.update == null, "a banner can be dismissed")
+                step(DevRequest.Dispatch(Action.UpdatePolicy(UpdateNotice(UpdateNotice.Prominence.REQUIRED, "2.0.0", "Update to keep using RichOS."), voicePaused = true)))
+                s = step(DevRequest.Dispatch(Action.DismissUpdate))
+                check(s.update?.prominence == UpdateNotice.Prominence.REQUIRED && !s.canRecord && s.voicePaused, "a required update stays, and voice is paused")
+                s = step(DevRequest.Restart)
+                check(s.update?.version == "2.0.0" && s.voicePaused, "the policy survives a restart, so an offline launch still shows it")
+            }
             // The quiet 3-second rule: brief recovery is invisible, persistent trouble earns one
             // line, and the phone's own offline state is said at once.
             "reconnect-notice" -> {
@@ -409,7 +455,7 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice", "voice-hold-send", "voice-lock-interrupt")
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice", "voice-hold-send", "voice-lock-interrupt", "settings-forget", "update-policy")
 
         suspend fun create(
             initial: DevDoc? = null,

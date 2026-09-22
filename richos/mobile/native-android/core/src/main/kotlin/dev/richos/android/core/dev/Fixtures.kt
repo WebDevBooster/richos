@@ -76,6 +76,8 @@ data class DevDoc(
     val keys: List<String> = emptyList(),
     /** What the scripted recorder was told, in order: `start:<id>`, `stop:<id>:keep|drop`, … */
     val recorder: List<String> = emptyList(),
+    /** What the scripted platform was asked: `register:previews|no-previews`, `unregister`, `open:<where>`. */
+    val platform: List<String> = emptyList(),
 )
 
 object Fixtures {

@@ -124,6 +124,63 @@ sealed interface Action {
     /** Let a kept recording go. */
     @Serializable @SerialName("discard-kept")
     data class DiscardKept(val id: String) : Action
+
+    // --- notifications, settings, update notices (round-12 groups 8, 9, 10; iOS names) -----------
+
+    @Serializable @SerialName("turn-on-notifications")
+    data object TurnOnNotifications : Action
+
+    /** What the OS and the Mac said to a registration (or its absence). */
+    @Serializable @SerialName("notifications-result")
+    data class NotificationsResult(val status: NotificationStatus) : Action
+
+    @Serializable @SerialName("turn-off-notifications")
+    data object TurnOffNotifications : Action
+
+    /** `notif-offer`'s "Not now": asked once. */
+    @Serializable @SerialName("dismiss-notification-offer")
+    data object DismissNotificationOffer : Action
+
+    @Serializable @SerialName("set-previews")
+    data class SetPreviews(val on: Boolean) : Action
+
+    @Serializable @SerialName("open-sheet")
+    data class OpenSheet(val sheet: Sheet) : Action
+
+    @Serializable @SerialName("close-sheet")
+    data object CloseSheet : Action
+
+    /** Settings' red row: opens `settings-forget`, or `settings-forget-blocked` while unsent work waits. */
+    @Serializable @SerialName("forget-pairing")
+    data object ForgetPairing : Action
+
+    /** The forget sheet's confirmation: notifications off first, then the key and the pairing go. */
+    @Serializable @SerialName("confirm-forget")
+    data object ConfirmForget : Action
+
+    @Serializable @SerialName("open-system-settings")
+    data object OpenSystemSettings : Action
+
+    /** A notification was tapped: open that conversation and let that reply glow once (`conv-focused`). */
+    @Serializable @SerialName("opened-from-notification")
+    data class OpenedFromNotification(val messageId: String, val threadId: String? = null) : Action
+
+    @Serializable @SerialName("clear-focus")
+    data object ClearFocus : Action
+
+    /** The hosted policy's answer: a notice (or none) and whether voice is paused by policy. */
+    @Serializable @SerialName("update-policy")
+    data class UpdatePolicy(val notice: UpdateNotice? = null, val voicePaused: Boolean = false) : Action
+
+    /** A banner or a dialog can be dismissed; a required update cannot. */
+    @Serializable @SerialName("dismiss-update")
+    data object DismissUpdate : Action
+
+    @Serializable @SerialName("open-app-store")
+    data object OpenAppStore : Action
+
+    @Serializable @SerialName("open-support")
+    data object OpenSupport : Action
 }
 
 @Serializable

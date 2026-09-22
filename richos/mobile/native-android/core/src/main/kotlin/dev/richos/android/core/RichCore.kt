@@ -60,6 +60,10 @@ class RichCore private constructor(
         is Action.VoicePress, is Action.VoiceStartLocked, is Action.MicrophonePermission, is Action.VoiceMove,
         is Action.VoiceRelease, is Action.VoiceLockedSend, is Action.VoiceLockedCancel, is Action.VoiceTouchCanceled,
         is Action.VoiceInterrupted, is Action.VoiceLevel, Action.VoiceSettled, is Action.SendKept, is Action.DiscardKept -> voice(action)
+        Action.TurnOnNotifications, is Action.NotificationsResult, Action.TurnOffNotifications, Action.DismissNotificationOffer,
+        is Action.SetPreviews, is Action.OpenSheet, Action.CloseSheet, Action.ForgetPairing, Action.ConfirmForget,
+        Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
+        Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport -> settings(action)
         is Action.Link -> link(action.status)
         is Action.Health -> mutex.withLock {
             // Only while away: a probe that lands after the socket reopened is stale.
@@ -316,7 +320,68 @@ class RichCore private constructor(
     private var toast: Toast? = null
     private var microphonePrompt = false
 
-    private fun canRecord() = session.paired && "voice" in session.capabilities && !unsupported
+    private fun canRecord() = session.paired && "voice" in session.capabilities && !unsupported && !session.voicePaused
+
+    // --- notifications, settings, update notices (the iOS core's SettingsReducer, UpdateReducer) ----
+
+    private var sheet: Sheet? = null
+    private var focusMessageId: String? = null
+
+    private suspend fun settings(action: Action): AppState = mutex.withLock {
+        val n = session.notifications
+        when (action) {
+            Action.TurnOnNotifications -> {
+                if (!session.paired || n.status == NotificationStatus.ON || n.status == NotificationStatus.TURNING_ON) return@withLock emit()
+                commit(session.copy(notifications = n.copy(status = NotificationStatus.TURNING_ON))).also { ports.platform.requestNotifications(n.previews) }
+            }
+            is Action.NotificationsResult -> commit(
+                session.copy(notifications = n.copy(status = action.status, offerDismissed = n.offerDismissed || action.status == NotificationStatus.ON)),
+            )
+            Action.TurnOffNotifications -> {
+                if (n.status != NotificationStatus.ON && n.status != NotificationStatus.TURNING_ON) return@withLock emit()
+                commit(session.copy(notifications = n.copy(status = NotificationStatus.OFF))).also { ports.platform.unregisterNotifications() }
+            }
+            Action.DismissNotificationOffer -> commit(session.copy(notifications = n.copy(offerDismissed = true)))
+            is Action.SetPreviews -> {
+                if (n.previews == action.on) return@withLock emit()
+                commit(session.copy(notifications = n.copy(previews = action.on))).also {
+                    if (n.status == NotificationStatus.ON) ports.platform.requestNotifications(action.on)
+                }
+            }
+            is Action.OpenSheet -> { sheet = action.sheet; emit() }
+            Action.CloseSheet -> { sheet = null; emit() }
+            Action.ForgetPairing -> {
+                if (session.pairing.phase == PairingPhase.UNPAIRED) return@withLock emit()
+                sheet = if (outbox.isEmpty()) Sheet.FORGET else Sheet.FORGET_BLOCKED
+                emit()
+            }
+            Action.ConfirmForget -> {
+                if (sheet != Sheet.FORGET || !outbox.isEmpty()) return@withLock emit()
+                if (n.status == NotificationStatus.ON || n.status == NotificationStatus.TURNING_ON) ports.platform.unregisterNotifications()
+                session.pairing.apiBase?.let { ports.keys.delete(it) }
+                ++generation
+                sheet = null
+                // Nothing unsent is discarded silently: kept recordings stay, as do the theme and the
+                // OS's microphone answer. Everything that belonged to that Mac goes.
+                commit(Session(theme = session.theme, keptRecordings = session.keptRecordings, microphone = session.microphone))
+            }
+            Action.OpenSystemSettings -> { ports.platform.openSystemSettings(); emit() }
+            is Action.OpenedFromNotification -> {
+                focusMessageId = action.messageId
+                val thread = action.threadId?.takeIf { id -> session.threads.any { it.id == id } }
+                if (thread != null && thread != session.selectedThreadId) commit(session.copy(selectedThreadId = thread)) else emit()
+            }
+            Action.ClearFocus -> { focusMessageId = null; emit() }
+            is Action.UpdatePolicy -> commit(session.copy(update = action.notice, voicePaused = action.voicePaused))
+            Action.DismissUpdate -> {
+                val notice = session.update
+                if (notice == null || notice.prominence == UpdateNotice.Prominence.REQUIRED) emit() else commit(session.copy(update = null))
+            }
+            Action.OpenAppStore -> { ports.platform.openAppStore(); emit() }
+            Action.OpenSupport -> { ports.platform.openSupport(); emit() }
+            else -> emit()
+        }
+    }
 
     private fun voiceItem(id: String, threadId: String, durationMs: Long, levels: List<Double>) =
         voiceItem(id, threadId, id, durationMs, levels)
@@ -374,6 +439,11 @@ class RichCore private constructor(
             keptRecordings = session.keptRecordings,
             toast = toast,
             canRecord = canRecord(),
+            notifications = session.notifications,
+            sheet = sheet,
+            focusMessageId = focusMessageId,
+            update = session.update,
+            voicePaused = session.voicePaused,
         )
 
     // --- the connection (connection.js + client.js onState) --------------------------------------
@@ -447,6 +517,7 @@ class RichCore private constructor(
             Action.VoiceSettled -> "voice-settled"
             is Action.SendKept -> "send-kept"
             is Action.DiscardKept -> "discard-kept"
+            else -> action::class.simpleName ?: "action"
         }
     }
 }

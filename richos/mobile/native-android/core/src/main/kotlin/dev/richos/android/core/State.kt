@@ -81,6 +81,11 @@ data class Session(
     val microphone: Microphone = Microphone.UNKNOWN,
     /** Recordings kept on the phone and not sent (`rec-card`). */
     val keptRecordings: List<KeptRecording> = emptyList(),
+    val notifications: Notifications = Notifications(),
+    /** The hosted policy's last notice, kept so an offline launch still shows it. */
+    val update: UpdateNotice? = null,
+    /** Voice is switched off by policy (`upd-feature-off`); text still works. */
+    val voicePaused: Boolean = false,
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -158,8 +163,14 @@ data class AppState(
     val microphonePrompt: Boolean = false,
     val keptRecordings: List<KeptRecording> = emptyList(),
     val toast: Toast? = null,
-    /** A press may record: paired, the Mac offers voice, and the Mac is compatible. */
+    /** A press may record: paired, the Mac offers voice, the Mac is compatible, voice not paused. */
     val canRecord: Boolean = false,
+    val notifications: Notifications = Notifications(),
+    val sheet: Sheet? = null,
+    /** The reply opened from a notification, which glows once (`conv-focused`). */
+    val focusMessageId: String? = null,
+    val update: UpdateNotice? = null,
+    val voicePaused: Boolean = false,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow
