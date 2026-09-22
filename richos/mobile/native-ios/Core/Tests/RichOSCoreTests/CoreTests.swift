@@ -112,6 +112,10 @@ let repositoryRoot: URL = {
             .voiceRelease(at: 11), .voiceLockedSend(at: 12), .voiceLockedCancel(at: 13), .voiceTouchCanceled(at: 14),
             .voiceInterrupted(at: 15), .voiceLevel(0.4), .voiceSettled, .sendKept(id: "k", at: 16), .discardKept(id: "k"),
             .playRecording(id: "k"),
+            .turnOnNotifications, .notificationsResult(.denied), .turnOffNotifications, .dismissNotificationOffer,
+            .setPreviews(false), .forgetPairing, .confirmForget, .openSystemSettings,
+            .updatePolicy(UpdateNotice(prominence: .banner, version: "1.1", message: "x"), voicePaused: true),
+            .updatePolicy(nil, voicePaused: false), .dismissUpdate, .openAppStore, .openSupport,
         ]
         #expect(Set(try all.map { try #require(JSONSerialization.jsonObject(with: CoreJSON.encode($0)) as? [String: Any])["type"] as? String })
                 == Set(Action.knownTypes))
@@ -433,6 +437,52 @@ let repositoryRoot: URL = {
     @Test func aMoveAtTouchRateWritesNothing() throws {
         let (_, effects) = Reducer.reduce(try held(1000), .voiceMove(dx: -3, dy: -2, at: t + 1216))
         #expect(effects.isEmpty)
+    }
+}
+
+@Suite struct SettingsTests {
+    @Test func notificationsAreAskedOnceAndEveryStatusIsKept() throws {
+        var s = try Fixture.named("notif-offer").state
+        let (turning, effects) = Reducer.reduce(s, .turnOnNotifications)
+        #expect(turning.notifications.status == .turningOn && effects == [.persist, .requestNotifications(previews: true)])
+        s = Reducer.reduce(turning, .notificationsResult(.denied)).state
+        #expect(s.notifications.status == .denied)
+        s = Reducer.reduce(try Fixture.named("notif-offer").state, .dismissNotificationOffer).state
+        #expect(s.notifications.offerDismissed && s.notifications.status == .notAsked)
+    }
+
+    @Test func forgettingIsRefusedWhileWorkIsUnsent() throws {
+        let s = Reducer.reduce(try Fixture.named("conv-retry").state, .forgetPairing).state
+        #expect(s.sheet == .forgetBlocked)
+        #expect(Reducer.reduce(s, .confirmForget).state.pairing == .paired, "the refusal cannot be confirmed through")
+        let cleared = Reducer.reduce(s, .discardMessage(id: "q1")).state
+        #expect(cleared.sheet == .forget, "once the work is resolved the confirmation takes its place")
+    }
+
+    @Test func forgettingTurnsNotificationsOffFirstAndKeepsRecordings() throws {
+        var s = try Fixture.named("rec-card").state
+        s = Reducer.reduce(s, .forgetPairing).state
+        let (forgotten, effects) = Reducer.reduce(s, .confirmForget)
+        #expect(effects == [.persist, .unregisterNotifications, .forgetIdentity])
+        #expect(forgotten.screen == .pairIntro && forgotten.messages.isEmpty && forgotten.mac == nil && !forgotten.consentGiven)
+        #expect(forgotten.keptRecordings.count == 1)
+    }
+
+    @Test func aRequiredUpdateCannotBeDismissedAndThePolicyCanPauseVoice() throws {
+        var s = try Fixture.named("upd-blocking").state
+        #expect(Reducer.reduce(s, .dismissUpdate).state.update != nil)
+        s = Reducer.reduce(try Fixture.named("upd-banner").state, .dismissUpdate).state
+        #expect(s.update == nil)
+        s = Reducer.reduce(s, .updatePolicy(nil, voicePaused: true)).state
+        #expect(s.voiceAvailability == .pausedByPolicy)
+        s = Reducer.reduce(s, .updatePolicy(nil, voicePaused: false)).state
+        #expect(s.voiceAvailability == .available)
+    }
+
+    @Test func aRelaunchShowsSavedHistoryAsCachedUntilTheMacAnswers() throws {
+        let restored = try AppState(restoring: try Fixture.named("conv-populated").state.persisted)
+        #expect(restored.history.cached)
+        #expect(!Reducer.reduce(restored, .connected(at: 1)).state.history.cached)
     }
 }
 

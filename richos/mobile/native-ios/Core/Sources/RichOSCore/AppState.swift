@@ -223,6 +223,9 @@ extension AppState {
             outbox[i].notBefore = 0
         }
         for i in messages.indices where messages[i].delivery == .sending { messages[i].delivery = .waiting }
+        // Saved history is on screen before the Mac has confirmed it (round-12 `launch-cached`);
+        // connecting clears this.
+        history.cached = !messages.isEmpty
     }
 }
 
