@@ -144,11 +144,14 @@ impl Listener {
                             let channel = Arc::clone(&channel);
                             async move { Ok::<_, std::convert::Infallible>(handle(channel, request).await) }
                         });
-                        let _ = hyper::server::conn::http1::Builder::new()
+                        if let Err(error) = hyper::server::conn::http1::Builder::new()
                             .timer(hyper_util::rt::TokioTimer::new())
                             .header_read_timeout(std::time::Duration::from_secs(10))
                             .max_buf_size(16 * 1024)
-                            .serve_connection(hyper_util::rt::TokioIo::new(stream), service).await;
+                            .serve_connection(hyper_util::rt::TokioIo::new(stream), service).await
+                        {
+                            log_connect_connection_error(&error);
+                        }
                     });
                 }
                 channel.hub.set_live(false);
@@ -327,10 +330,10 @@ pub fn tls_config_with_tailnet(
     leaf_key_pkcs8: &[u8],
     tailnet: Option<(String, Vec<Vec<u8>>, super::tailnet::KeyDer)>,
 ) -> Result<Arc<rustls::ServerConfig>, PhoneError> {
-    // The same `ring` provider `voice_provision.rs` installs, installed idempotently here for the
-    // same reason it does: a process-level provider must exist before a config is built, and
+    // The same `ring` provider `voice_provision.rs` installs, through the same idempotent function,
+    // for the same reason it does: a process-level provider must exist before a config is built, and
     // depending on which unrelated feature ran first is a defect waiting for one first run.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    crate::voice_provision::ensure_crypto_provider();
 
     // The ROOT is deliberately not in this chain. Nothing that reaches this leaf trusts the
     // root anyway — §61 removed the path that put it on a phone — so sending it would be a
@@ -443,6 +446,18 @@ async fn accept_https(
     }
 }
 
+
+/// A RichOS Connect connection that ends in an error — a client that hung up mid-request, a
+/// header that never finished inside its ten seconds — is routine on a public edge, and one
+/// line per connection would let anyone on the internet fill his log. So it is said at most
+/// once per ten seconds, under the same bound `routes::log_refusal` puts on refused requests.
+fn log_connect_connection_error(error: &hyper::Error) {
+    static LAST: std::sync::OnceLock<std::sync::Mutex<Option<std::time::Instant>>> = std::sync::OnceLock::new();
+    let mut last = LAST.get_or_init(|| std::sync::Mutex::new(None)).lock().unwrap();
+    if super::routes::refusal_log_due(&mut last, std::time::Instant::now()) {
+        eprintln!("[richos] a RichOS Connect connection ended with an error: {error} (sampled)");
+    }
+}
 
 async fn handle(channel: Arc<Channel>, request: Request<HyperBody>) -> Response<BoxBody> {
     let method = request.method().as_str().to_string();

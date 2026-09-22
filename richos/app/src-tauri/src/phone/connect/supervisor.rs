@@ -69,8 +69,17 @@ impl Supervisor {
     }
     pub fn health(&self) -> Health { self.health.lock().unwrap().clone() }
     pub fn stop(&mut self) {
-        let _ = self.stop.send(());
-        if let Some(thread) = self.thread.take() { let _ = thread.join(); }
+        // Already stopped (the explicit call, then Drop): nothing to signal and nothing to join.
+        let Some(thread) = self.thread.take() else { return };
+        // The receiver lives inside the supervisor thread and that thread only returns after
+        // this signal, so a refused send means it ended some other way: a panic, which the
+        // join below then reports.
+        if self.stop.send(()).is_err() {
+            eprintln!("[richos] RichOS Connect's supervisor had already ended when it was asked to stop");
+        }
+        if thread.join().is_err() {
+            eprintln!("[richos] RichOS Connect's supervisor panicked; its helper is ended by the closed guard pipe");
+        }
     }
 }
 impl Drop for Supervisor { fn drop(&mut self) { self.stop(); } }
@@ -93,7 +102,18 @@ fn stop_guard(child: &mut std::process::Child) {
         if matches!(child.try_wait(), Ok(Some(_))) { return; }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let _ = child.kill(); let _ = child.wait();
+    reap(child);
+}
+/// Kill and collect a child this module spawned. `kill` on a child that has already exited
+/// returns `Ok`, so either failure is unexpected; the `wait` still runs after a failed `kill`
+/// because a child that exited on its own must be collected all the same.
+fn reap(child: &mut std::process::Child) {
+    if let Err(error) = child.kill() {
+        eprintln!("[richos] could not stop a RichOS Connect process: {error}");
+    }
+    if let Err(error) = child.wait() {
+        eprintln!("[richos] could not collect a RichOS Connect process after stopping it: {error}");
+    }
 }
 /// Entered before Tauri initialization. Never opens a window or reads conversation state.
 pub fn guard_main() -> i32 {
@@ -102,26 +122,28 @@ pub fn guard_main() -> i32 {
     let Ok(mut child) = Command::new(helper)
         .args(["tunnel", "--no-autoupdate", "--metrics", &metrics, "--loglevel", "error", "run"])
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else { return 2 };
-    let (closed, rx) = mpsc::channel();
-    if std::thread::Builder::new().name("connect-parent-pipe".into()).spawn(move || {
+    // The watcher thread returns exactly when the parent's pipe ends, so its being finished IS
+    // the signal; no channel is needed to carry it.
+    let Ok(parent_pipe) = std::thread::Builder::new().name("connect-parent-pipe".into()).spawn(|| {
         use std::io::Read;
         let mut byte = [0u8;1];
-        // No commands or secrets cross this pipe. Any input also ends the helper.
-        let _ = std::io::stdin().read(&mut byte);
-        let _ = closed.send(());
-    }).is_err() { let _ = child.kill(); let _ = child.wait(); return 2; }
-    loop {
-        match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = child.kill(); let _ = child.wait(); return 0;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        // No commands or secrets cross this pipe. End of file (the parent closed it or exited)
+        // and any input both end the helper. A read ERROR ends it too, because a pipe that
+        // cannot be read is a parent that can no longer be heard; only that case is unexpected.
+        // Nobody sees this line in normal use (the parent sends this process's stderr to
+        // /dev/null); a run by hand does.
+        if let Err(error) = std::io::stdin().read(&mut byte) {
+            eprintln!("[richos] the Connect guard could not read its parent's pipe ({error}); stopping the helper");
         }
+    }) else { reap(&mut child); return 2 };
+    loop {
+        if parent_pipe.is_finished() { reap(&mut child); return 0; }
         match child.try_wait() {
             Ok(Some(status)) => return status.code().unwrap_or(1),
             Ok(None) => {}
-            Err(_) => { let _ = child.kill(); let _ = child.wait(); return 1; }
+            Err(_) => { reap(&mut child); return 1; }
         }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -129,8 +151,10 @@ fn ready() -> bool {
     use std::io::{Read, Write};
     let Ok(mut stream) = std::net::TcpStream::connect_timeout(
         &([127,0,0,1],super::METRICS_PORT).into(),Duration::from_millis(200)) else { return false };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+    // Without both timeouts the read below could block this supervisor indefinitely, so a
+    // stream that refuses them is reported as not ready rather than probed without them.
+    if stream.set_read_timeout(Some(Duration::from_millis(200))).is_err()
+        || stream.set_write_timeout(Some(Duration::from_millis(200))).is_err() { return false; }
     if stream.write_all(b"GET /ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").is_err() { return false; }
     let mut bytes = [0u8;128];
     let Ok(n) = stream.read(&mut bytes) else { return false };

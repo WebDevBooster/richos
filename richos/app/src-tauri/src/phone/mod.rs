@@ -780,8 +780,11 @@ impl PhoneRuntime {
             if device.paired_via == device::PairedVia::CONNECT { device::DeviceDesk::open(&self.data_dir)?.forget()?; }
         }
         marked?;
-        // Cleanup failure remains visible and is retried by the monitor and next launch.
-        let _ = connect::state::cleanup(&self.data_dir,&secrets::Keychain::for_app_data(&self.data_dir));
+        // Cleanup failure leaves `cleanup_pending` set, so the monitor and the next launch retry
+        // it; it is said here too, because a revocation whose remote half failed is worth a line.
+        if let Err(error) = connect::state::cleanup(&self.data_dir,&secrets::Keychain::for_app_data(&self.data_dir)) {
+            eprintln!("[richos] RichOS Connect was turned off, but its remote cleanup did not finish and will be retried: {error}");
+        }
         // Finish revocation even if notification storage failed, then surface that failure.
         push_cleanup.map_err(PhoneError::Malformed)?;
         Ok(self.status())
@@ -805,7 +808,9 @@ impl PhoneRuntime {
                 if let Err(error) = owner.reconcile_native_notifications() {
                     eprintln!("[richos] native notification recovery failed; pending work will be retried: {error}");
                 }
-                let _ = owner.reconcile_connect(app.clone());
+                if let Err(error) = owner.reconcile_connect(app.clone()) {
+                    eprintln!("[richos] RichOS Connect recovery did not complete; it will be retried: {error}");
+                }
             }
         });
         if spawn.is_err() { self.connect_monitor_started.store(false,Ordering::SeqCst); }
@@ -818,8 +823,11 @@ impl PhoneRuntime {
         let client = connect::client::Client::new(connect::client::Identity::open(&keychain)?);
         let device = device::DeviceDesk::open(&self.data_dir)?.paired();
         if device.is_some() && self.running.lock().unwrap().is_none() {
-            // Local restart recovery must not depend on control-service availability.
-            let _ = self.start(app.clone(),false);
+            // Local restart recovery must not depend on control-service availability, so a
+            // failed restart is said and the control-service check below still runs.
+            if let Err(error) = self.start(app.clone(),false) {
+                eprintln!("[richos] your phone is paired but the channel could not restart, so the phone cannot reach this Mac: {error}");
+            }
         }
         let reply = client.call("GET","/v1/host","")?;
         if reply.status == 404 {
@@ -1097,7 +1105,13 @@ impl PhoneRuntime {
         if connect::state::load(&self.data_dir).map(|c| c.desired).unwrap_or(false) {
             let _action = self.connect_actions.lock().unwrap();
             if device::DeviceDesk::open(&self.data_dir).map(|d| d.is_paired()).unwrap_or(false) {
-                let _ = self.start(app, false);
+                // Not fatal and not silent, for the same reasons as the local-network branch below.
+                if let Err(e) = self.start(app, false) {
+                    eprintln!(
+                        "[richos] your phone is paired but the channel could not start, so the phone \
+                         cannot reach this Mac: {e}"
+                    );
+                }
             }
             return;
         }

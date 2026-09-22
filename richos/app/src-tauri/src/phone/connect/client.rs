@@ -71,7 +71,7 @@ impl Client {
         let headers = self.identity.headers(method,path,body,now_millis(),&hex(&random_bytes(16)?))?;
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
         runtime.block_on(async {
-            let _ = rustls::crypto::ring::default_provider().install_default();
+            crate::voice_provision::ensure_crypto_provider();
             let client = reqwest::Client::builder().timeout(Duration::from_secs(25))
                 .connect_timeout(Duration::from_secs(8)).redirect(reqwest::redirect::Policy::none())
                 .build().map_err(|_| unavailable())?;

@@ -780,7 +780,7 @@ fn percent_decode_component(value: &str) -> Result<String, ()> {
 
 /// Public reach must not let unauthenticated traffic fill the Mac's log. Sample a
 /// bounded reason at most once per ten seconds, without any caller-controlled path.
-fn refusal_log_due(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+pub(super) fn refusal_log_due(last: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
     if last.is_some_and(|at| now.saturating_duration_since(at).as_secs() < 10) { return false; }
     *last = Some(now); true
 }
@@ -1186,7 +1186,7 @@ mod tests {
         let mut request=signed(&f,"POST","/api/messages",query,&changed);request.content_type=Some("audio/wav".into());
         assert_eq!(dispatch(&f.channel,&request).status(),409);
         assert_eq!(body_limit("POST","/api/pair",Some("audio/wav")),MAX_BODY_BYTES);
-        let mut oversized=signed(&f,"POST","/api/messages",query,&vec![0;super::super::voice::MAX_UPLOAD+1]);oversized.content_type=Some("audio/wav".into());
+        let mut oversized=signed(&f,"POST","/api/messages",query,vec![0;super::super::voice::MAX_UPLOAD+1]);oversized.content_type=Some("audio/wav".into());
         assert_eq!(dispatch(&f.channel,&oversized),Outcome::PayloadTooLarge);
     }
 
