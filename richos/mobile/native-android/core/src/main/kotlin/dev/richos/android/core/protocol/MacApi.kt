@@ -126,6 +126,35 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
         return signed(apiBase, deviceId, challenge, "POST", "/api/pair", body.toByteArray(), "application/json")
     }
 
+    /**
+     * A signed GET on `/api/events`, whose credential travels as the LAST query parameter `auth`
+     * and is not part of the signed path (contract §3.2, §5.5). Same 404 recovery as [signed].
+     */
+    suspend fun signedQuery(apiBase: String, deviceId: String, challenge: String, pathWithQuery: String): Signed {
+        var current = challenge
+        repeat(2) { attempt ->
+            val raw = Signing.derToRaw(keys.sign(apiBase, Signing.signingString(current, "GET", pathWithQuery, null).toByteArray(Charsets.UTF_8)))
+            val target = Signing.withAuthQuery(pathWithQuery, Signing.authorization(deviceId, current, raw))
+            val response = exchange(HttpRequest("GET", apiBase + target, emptyMap(), null))
+            val fresh = response.headers["x-richos-challenge"]
+            if (response.status in 200..299) return Signed(response, fresh ?: current)
+            if (response.status == 404 && attempt == 0 && fresh != null && fresh != current) {
+                current = fresh
+                return@repeat
+            }
+            throw classify(response, afterResign = true)
+        }
+        throw TransportFailure("refused", retryable = false)
+    }
+
+    /** Older rows of one conversation (contract §5.5): `{"messages":[row…],"more":bool}`, oldest first. */
+    suspend fun backfill(apiBase: String, deviceId: String, challenge: String, threadId: String, before: Long, limit: Int = 50): Pair<Backfill, String> {
+        val path = "/api/events?thread_id=${Signing.encodeURIComponent(threadId)}&before=$before&limit=$limit"
+        val signed = signedQuery(apiBase, deviceId, challenge, path)
+        val answer = runCatching { lenient.decodeFromString(Backfill.serializer(), signed.response.text) }.getOrElse { throw TransportFailure("fault", retryable = true) }
+        return answer to signed.challenge
+    }
+
     /** `{"native_push": {...}}` or `{"native_push": null}` on a signed `POST /api/pair`. */
     suspend fun registerPush(apiBase: String, deviceId: String, challenge: String, push: NativePush?): Pair<PushAnswer, String> {
         val registration = if (push == null) "null" else buildString {

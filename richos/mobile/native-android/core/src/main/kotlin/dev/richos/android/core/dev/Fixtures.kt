@@ -59,6 +59,8 @@ data class DevMac(
     val devicePoint: String? = null,
     val confirmed: Boolean = false,
     val threads: List<ConversationThread> = Fixtures.THREADS,
+    /** The Mac's whole conversation, per thread, for backfill (`GET /api/events?before=`). */
+    val history: Map<String, List<dev.richos.android.core.protocol.Row>> = emptyMap(),
 )
 
 @Serializable

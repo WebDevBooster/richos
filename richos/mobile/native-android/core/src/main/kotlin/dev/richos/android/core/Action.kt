@@ -186,6 +186,10 @@ sealed interface Action {
     @Serializable @SerialName("push-token")
     data class PushToken(val token: String, val previewKey: String? = null) : Action
 
+    /** Scrolled to the top: fetch the next older chunk (contract §5.5; no pagination, chunked loading). */
+    @Serializable @SerialName("load-older")
+    data object LoadOlder : Action
+
     /** Photos and files to Rich (CEO §75), already staged and hashed by the platform. */
     @Serializable @SerialName("send-attachments")
     data class SendAttachments(val files: List<Attachment>, val text: String = "") : Action

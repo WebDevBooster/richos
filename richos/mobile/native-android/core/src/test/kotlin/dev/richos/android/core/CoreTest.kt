@@ -26,7 +26,7 @@ class CoreTest {
             """"connection":{"reason":"connecting","notice":null,"noticeDueInMs":null,"hasConnected":false,"troubleSince":null},""" +
             """"outbox":[],"dueInMs":null,"lastSend":null,""" +
             """"voice":null,"voiceElapsedMs":null,"microphone":"unknown","microphonePrompt":false,"keptRecordings":[],"toast":null,"canRecord":true,""" +
-            """"notifications":{"status":"not-asked","offerDismissed":false,"previews":true},"sheet":null,"focusMessageId":null,"update":null,"voicePaused":false,"attachmentLimits":null,""" +
+            """"notifications":{"status":"not-asked","offerDismissed":false,"previews":true},"sheet":null,"focusMessageId":null,"update":null,"voicePaused":false,"attachmentLimits":null,"olderAvailable":false,"loadingOlder":false,""" +
             """"environment":{"now":1700000000000,"mode":"accept","receipts":[],"calls":[]}}"""
         assertEquals(expected, runtime.state().toString())
     }

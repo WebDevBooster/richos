@@ -90,6 +90,8 @@ data class Session(
     val attachmentLimits: AttachmentLimits? = null,
     /** The Mac's push host id from a native registration, kept to validate incoming alerts. */
     val pushHostId: String? = null,
+    /** Per conversation: whether the Mac holds rows older than the oldest one cached. */
+    val olderAvailable: Map<String, Boolean> = emptyMap(),
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -179,6 +181,10 @@ data class AppState(
     val update: UpdateNotice? = null,
     val voicePaused: Boolean = false,
     val attachmentLimits: AttachmentLimits? = null,
+    /** What sits above the oldest message: more to load (true), the beginning (false). */
+    val olderAvailable: Boolean = false,
+    /** A chunk of older messages is on its way (`conv-older-loading`). */
+    val loadingOlder: Boolean = false,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow

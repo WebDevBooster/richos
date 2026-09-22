@@ -401,6 +401,21 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Restart)
                 check(s.update?.version == "2.0.0" && s.voicePaused, "the policy survives a restart, so an offline launch still shows it")
             }
+            // Scrolling up: older messages arrive in chunks, oldest first, until the beginning.
+            "load-older" -> {
+                fun row(n: Long) = dev.richos.android.core.protocol.Row("t$n", "general", n, if (n % 2 == 0L) "rich" else "ceo", text = "message $n")
+                step(DevRequest.Fixture("online"))
+                doc = doc.copy(mac = doc.mac.copy(history = mapOf("general" to (1L..80L).map(::row))))
+                val newest = (71L..80L).joinToString(",") { dev.richos.android.core.CoreJson.encodeToString(dev.richos.android.core.protocol.Row.serializer(), row(it)) }
+                var s = step(DevRequest.Dispatch(Action.Receive("id: 80\nevent: hello\ndata: {\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[$newest]}\n\n")))
+                check(s.messages.size == 10 && s.olderAvailable, "hello's oldest row is not the first: more is available")
+                s = step(DevRequest.Dispatch(Action.LoadOlder))
+                check(s.messages.size == 60 && s.messages.first().cursor == 21L && s.olderAvailable && !s.loadingOlder, "a chunk of 50 arrives, oldest first")
+                s = step(DevRequest.Dispatch(Action.LoadOlder))
+                check(s.messages.size == 80 && s.messages.first().cursor == 1L && !s.olderAvailable, "the last chunk reaches the beginning")
+                s = step(DevRequest.Dispatch(Action.Receive("event: message\ndata: ${dev.richos.android.core.CoreJson.encodeToString(dev.richos.android.core.protocol.Row.serializer(), row(81))}\n\n")))
+                check(s.messages.size == 81 && s.messages.first().cursor == 1L, "a live message never evicts history just loaded")
+            }
             // The quiet 3-second rule: brief recovery is invisible, persistent trouble earns one
             // line, and the phone's own offline state is said at once.
             "reconnect-notice" -> {
@@ -455,7 +470,7 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice", "voice-hold-send", "voice-lock-interrupt", "settings-forget", "update-policy")
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice", "voice-hold-send", "voice-lock-interrupt", "settings-forget", "update-policy", "load-older")
 
         suspend fun create(
             initial: DevDoc? = null,

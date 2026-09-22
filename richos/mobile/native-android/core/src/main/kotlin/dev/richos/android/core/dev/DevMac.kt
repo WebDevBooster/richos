@@ -81,6 +81,7 @@ internal object DevMacRoutes {
         if (origin != mac.origin) return doc to refused(mac)
         val path = uri.rawPath + (uri.rawQuery?.let { "?$it" } ?: "")
         val auth = request.headers.entries.firstOrNull { it.key.equals("Authorization", true) }?.value
+        if (request.method == "GET" && uri.rawPath == "/api/events") return doc to backfill(doc, uri)
         if (request.method != "POST" || uri.rawPath != "/api/pair") return doc to refused(mac)
         val body = request.body?.let { runCatching { json.parseToJsonElement(String(it, Charsets.UTF_8)).jsonObject }.getOrNull() }
             ?: return doc to refused(mac)
@@ -132,6 +133,32 @@ internal object DevMacRoutes {
             false -> doc.copy(mac = mac.copy(devicePoint = null, confirmed = false)).let { it to ok(it.mac, buildJsonObject { put("ok", true) }) }
             null -> doc to ok(mac, buildJsonObject { put("ok", true) })
         }
+    }
+
+    /** `GET /api/events?thread_id&before&limit&auth=` (contract §5.5): the credential is the query's last parameter. */
+    private fun backfill(doc: DevDoc, uri: URI): HttpResponse {
+        val mac = doc.mac
+        if (doc.mode == TransportMode.REVOKED) return HttpResponse(403, headers(mac), """{"revoked":true}""".toByteArray())
+        val raw = uri.rawQuery ?: return refused(mac)
+        val authAt = raw.lastIndexOf("&auth=")
+        if (authAt < 0) return refused(mac)
+        val signedPath = uri.rawPath + "?" + raw.substring(0, authAt)
+        val credential = java.net.URLDecoder.decode(raw.substring(authAt + 6), Charsets.UTF_8).removePrefix("RichOS-Device ")
+        val point = mac.devicePoint?.let(Signing::fromBase64url) ?: return refused(mac)
+        val parts = credential.split('.')
+        if (parts.size != 3 || parts[0] != Signing.deviceId(point) || parts[1] != mac.challenge) return refused(mac)
+        if (!DevKeys.verify(point, Signing.signingString(parts[1], "GET", signedPath, null).toByteArray(Charsets.UTF_8), Signing.fromBase64url(parts[2]))) return refused(mac)
+        val query = raw.substring(0, authAt).split('&').associate { it.substringBefore('=') to it.substringAfter('=', "") }
+        val thread = query["thread_id"] ?: return refused(mac)
+        val before = query["before"]?.toLongOrNull() ?: return refused(mac)
+        val limit = (query["limit"]?.toIntOrNull() ?: 40).coerceIn(1, 200)
+        val older = mac.history[thread].orEmpty().filter { it.cursor < before }.sortedBy { it.cursor }
+        val chunk = older.takeLast(limit)
+        val body = buildJsonObject {
+            put("messages", Json.encodeToJsonElement(ListSerializer(dev.richos.android.core.protocol.Row.serializer()), chunk))
+            put("more", older.size > chunk.size)
+        }
+        return ok(mac, body)
     }
 
     private fun headers(mac: DevMac) = mapOf("x-richos-challenge" to mac.challenge, "cache-control" to "no-store")

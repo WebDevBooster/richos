@@ -69,6 +69,7 @@ class RichCore private constructor(
         Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
         Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport -> settings(action)
         is Action.PushToken -> pushToken(action)
+        Action.LoadOlder -> loadOlder()
         is Action.SendAttachments -> sendAttachments(action)
         is Action.Link -> link(action.status)
         is Action.Health -> mutex.withLock {
@@ -156,11 +157,13 @@ class RichCore private constructor(
                 attachmentLimits = if ("attachments" in h.capabilities) h.attachmentLimits ?: s.attachmentLimits else null,
                 pairing = h.challenge?.let { s.pairing.copy(challenge = it) } ?: s.pairing,
                 cache = if (thread == null) s.cache else s.cache + (thread to bounded(h.messages)),
+                // The Mac holds older rows exactly when the oldest one it sent is not cursor 1.
+                olderAvailable = if (thread == null) s.olderAvailable else s.olderAvailable + (thread to ((h.messages.minOfOrNull { it.cursor } ?: 1L) > 1L)),
             )
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
             val merged = (s.cache[row.threadId].orEmpty().filter { it.id != row.id } + row)
-            s.copy(cache = s.cache + (row.threadId to bounded(merged)))
+            s.copy(cache = s.cache + (row.threadId to bounded(merged, s.cache[row.threadId].orEmpty().size)))
         } ?: s
         "delta" -> decode(Delta.serializer(), frame.data)?.let { d ->
             // A delta names its conversation on newer Macs (Echo e9b0a89e): it lands only there.
@@ -171,7 +174,12 @@ class RichCore private constructor(
         else -> s
     }
 
-    private fun bounded(rows: List<Row>): List<Row> = rows.sortedBy { it.cursor }.takeLast(Session.CACHE_ROWS)
+    /**
+     * The newest [Session.CACHE_ROWS] rows — or, once older history was loaded by scrolling up,
+     * never fewer than were already held, so a live message never evicts what was just loaded.
+     */
+    private fun bounded(rows: List<Row>, held: Int = 0): List<Row> =
+        rows.sortedBy { it.cursor }.distinctBy { it.id }.takeLast(maxOf(Session.CACHE_ROWS, held))
 
     // --- sending (queue.js rules, via [Outbox]) --------------------------------------------------
 
@@ -221,6 +229,41 @@ class RichCore private constructor(
             } else {
                 emit()
             }
+        }
+    }
+
+    // --- older messages (contract §5.5) ----------------------------------------------------------
+
+    private var loadingOlder = false
+
+    private suspend fun loadOlder(): AppState {
+        val request = mutex.withLock {
+            val thread = session.selectedThreadId
+            val p = session.pairing
+            val oldest = thread?.let { session.cache[it] }?.minOfOrNull { it.cursor }
+            if (loadingOlder || thread == null || oldest == null || session.olderAvailable[thread] != true || !session.paired ||
+                p.apiBase == null || p.deviceId == null || p.challenge == null
+            ) {
+                return@withLock null
+            }
+            loadingOlder = true
+            emit()
+            Triple(thread, oldest, p)
+        } ?: return flow.value
+        val (thread, oldest, p) = request
+        val outcome = runCatching { api.backfill(p.apiBase!!, p.deviceId!!, p.challenge!!, thread, oldest) }
+        return mutex.withLock {
+            loadingOlder = false
+            val (answer, challenge) = outcome.getOrNull() ?: return@withLock emit()
+            val held = session.cache[thread].orEmpty()
+            val merged = bounded(answer.messages + held, held.size + answer.messages.size)
+            commit(
+                session.copy(
+                    cache = session.cache + (thread to merged),
+                    olderAvailable = session.olderAvailable + (thread to answer.more),
+                    pairing = session.pairing.copy(challenge = challenge),
+                ),
+            )
         }
     }
 
@@ -536,6 +579,8 @@ class RichCore private constructor(
             canRecord = canRecord(),
             notifications = session.notifications,
             attachmentLimits = session.attachmentLimits,
+            olderAvailable = session.selectedThreadId?.let { session.olderAvailable[it] } ?: false,
+            loadingOlder = loadingOlder,
             sheet = sheet,
             focusMessageId = focusMessageId,
             update = session.update,

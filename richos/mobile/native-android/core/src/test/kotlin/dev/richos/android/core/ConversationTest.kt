@@ -91,6 +91,12 @@ class ConversationTest {
     }
 
     @Test
+    fun `older messages load in chunks until the beginning, over the signed event route`() = runTest {
+        val result = DevRuntime.create().execute(DevRequest.Scenario("load-older")).jsonObject
+        assertEquals("load-older", result["name"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `the stream scenario passes`() = runTest {
         val result = DevRuntime.create().execute(DevRequest.Scenario("stream-turn")).jsonObject
         assertEquals("stream-turn", result["name"]!!.jsonPrimitive.content)
