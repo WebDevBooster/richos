@@ -135,3 +135,8 @@ docs-claims.js          richos/app/README.md richos/app/STREAMING.md richos/app/
 vouch-template.js       .github/workflows/vouch-pr.yml .github/workflows/ui-suite-ci.yml docs/verification/pr-trust-gate-2026-09-05/README.md docs/verification/pr-trust-gate-2026-09-05/raw/close-comment-rendered.md
 
 thread-switch.js       @shell richos/app/ui/timeline.js richos/app/ui/mock.js
+
+# ---- the harness's own behavior ------------------------------------------------------------
+# The navigation capture in `lib/navigation-evidence.js` (reached by the library rule), proven
+# against a fixture suite it runs as a child process and one load of the shipping shell.
+navigation-evidence.js  @shell richos/app/ui/tests/fixtures/navigation-hang-suite.js
