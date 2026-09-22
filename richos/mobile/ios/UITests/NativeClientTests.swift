@@ -101,8 +101,14 @@ final class NativeClientTests: XCTestCase {
         app.webViews.buttons["Send"].tap()
         XCUIDevice.shared.press(.home)
         app.terminate()
-        let alert = springboard.staticTexts["Rich has replied."].firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 60), "A real Apple alert must appear while RichOS is closed")
+        let alert = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Rich has replied.")).firstMatch
+        if !alert.waitForExistence(timeout: 15) {
+            // Focus or banner preferences may defer presentation. Inspect Notification
+            // Center without changing the owner's system notification preferences.
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.01))
+                .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)))
+        }
+        XCTAssertTrue(alert.waitForExistence(timeout: 45), "A real Apple alert must appear while RichOS is closed")
         let shot = XCTAttachment(screenshot: springboard.screenshot()); shot.name = "Generic native reply alert"; shot.lifetime = .keepAlways; add(shot)
         alert.tap()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
