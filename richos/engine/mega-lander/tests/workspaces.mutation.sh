@@ -61,9 +61,24 @@ mutant p05-turn-end-not-blocked "test_point_05_no_turn_end_while_finished_work_i
     "Rich could end his turn with finished work pending (point 5)."
 
 mutant p05-ceo-wait-unblocks-new-work "test_point_05_a_ceo_discard_question_blocks_nothing_else" "$W" \
-    '            "blocks_new_work": True,' \
+    '            "blocks_new_work": not under_way,' \
     '            "blocks_new_work": kind != "ceo-discard",' \
     "the round-7 mis-build restored: an item waiting on the CEO's word would be the one kind of pending item that lets new work start, against \"New work stays blocked either way\" (point 5)."
+
+mutant p05-land-under-way-still-blocks "test_point_05_a_land_under_way_does_not_block_new_work" "$W" \
+    '    under_way = _land_under_way(rec, kind)[0]' \
+    '    under_way = False' \
+    "the freeze CEO ruling §77 ended restored: a land recorded as started and merged locally would still block every new agent while its checks run (point 5 as amended)."
+
+mutant p05-started-record-alone-unblocks "test_point_05_a_started_record_with_no_merge_still_blocks_new_work" "$W" \
+    '            if not is_ancestor(repo, sha, tip):{NL}                return False, "%s is not merged into %s yet" % (label, branch)' \
+    '            if False:{NL}                return False, "%s is not merged into %s yet" % (label, branch)' \
+    "a --started record with nothing merged behind it would let new work start, so a promise to land would count as a land under way (§77: merged locally or with its checks running)."
+
+mutant p05-any-wait-counts-as-under-way "test_point_05_only_a_started_land_counts_as_under_way" "$W" \
+    '    if kind != "started":{NL}        return False, "no land has been recorded as started"' \
+    '    if not kind:{NL}        return False, "no land has been recorded as started"' \
+    "a merged item waiting on something outside Rich's reach would let new work start, though no land is in progress (§77 names only a land under way)."
 
 mutant p05-a-notification-counts-as-the-ceo "test_point_05_answering_the_ceo_names_the_pending_work" "$W" \
     '    if d.get("queueSkipAttachments") or d.get("promptSource") == "system":{NL}        return False{AND}    if isinstance(origin, dict):{NL}        return kind == "human"' \

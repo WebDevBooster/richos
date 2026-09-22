@@ -193,7 +193,7 @@ mutant S-p05-his-word-blocks-the-turn "C5.13" "$W" \
     '            "blocks_turn_end": kind not in ("started", "outside"),' \
     "SPEC-DERIVED (point 5 negated, 'that one item then waits on him, is on his TODO list'): a discard waiting on the CEO's word, asked and recorded, would still block the turn."
 mutant S-p05-ceo-wait-unblocks-new-work "C5.13" "$W" \
-    '            "blocks_new_work": True,' \
+    '            "blocks_new_work": not under_way,' \
     '            "blocks_new_work": kind != "ceo-discard",' \
     "SPEC-DERIVED (point 5 negated, 'New work stays blocked either way' — its parenthesis names 'the CEO's word'; the round-7 mis-build restored, brief-audit-sage-round8 §3: with one item waiting on his word an unrelated spawn returned rc=0 at a0c1e1bd): an item waiting on the CEO's word would be the one kind of pending item that lets new work start."
 mutant S-p05-his-word-blocks-the-other-items "C5.14" "$W" \

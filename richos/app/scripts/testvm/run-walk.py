@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Hold the nightly lock through guest boot, a scenario command and guest cleanup.
+"""Hold the test VM's guest lock through guest boot, a scenario command and guest cleanup.
 
 The command after -- receives the owned VM name as its first argument. Example:
 run-walk.py --bundle BUNDLE --home FIXTURE --engine ENGINE -- delta-walk.py --out OUT ...
+
+CEO ruling §77: a walk is a test run, admitted by the CPU rule; it does not take
+the nightly release.lock. The VM is one shared resource, so the walk holds
+<TESTVM_ROOT>/guest.lock (default ~/.richos-testvm) instead: one walk guest at a time.
 """
 import argparse
 import json
@@ -25,22 +29,25 @@ def main():
     p.add_argument('--bundle',required=True);p.add_argument('--home',required=True);p.add_argument('--engine',required=True)
     p.add_argument('--previous-bundle',type=Path,help='published previous zip or app to stage for rollback')
     p.add_argument('--report',type=Path,required=True,help='whole-run boot/scenario/cleanup timing report outside scratch')
-    p.add_argument('--state-dir',type=Path,default=Path.home()/'.richos-nightly')
+    p.add_argument('--state-dir',type=Path,default=Path.home()/'.richos-nightly',
+                   help='accepted so older command lines parse; a walk no longer takes release.lock (CEO ruling §77)')
     p.add_argument('command',nargs=argparse.REMAINDER)
     a=p.parse_args();command=a.command[1:] if a.command[:1]==['--'] else a.command
     if not command:p.error('a scenario command is required after --')
     vm='walk-'+uuid.uuid4().hex[:12]
-    state=Path(os.environ.get('TESTVM_ROOT',str(Path.home()/'.richos-testvm')))/'run'/vm
+    root=Path(os.environ.get('TESTVM_ROOT',str(Path.home()/'.richos-testvm')))
+    state=root/'run'/vm
+    guest_lock=root/'guest.lock'
     def interrupted(signum,frame):raise KeyboardInterrupt('interrupted by signal '+str(signum))
     for sig in (signal.SIGTERM,signal.SIGHUP):signal.signal(sig,interrupted)
-    with reservation(a.state_dir):
+    with reservation(lock=guest_lock):
         listing=subprocess.run(['bash','-c','. "$1/lib.sh"; preflight_tart; tart list --format json','walk',str(HERE)],capture_output=True,text=True,timeout=20,check=True)
         rows=json.loads(listing.stdout)
         base=os.environ.get('TESTVM_BASE_VM','richos-base')
         if any(r.get('Source')=='local' and r.get('Running') and r.get('Name')!=base for r in rows):
             raise BlockingIOError('another clone is running; guest admission refused')
         if state.exists() or any(r.get('Name')==vm for r in rows):raise RuntimeError('owned VM name already exists')
-        child=None;began=time.monotonic();result={'vm':vm,'load':os.getloadavg()[0],'outcome':'harness failure','reservation':str((a.state_dir/'release.lock').resolve()),'resources':{k:os.environ.get(k,v) for k,v in [('TESTVM_CPU','4'),('TESTVM_RAM_MB','7168'),('TESTVM_DISPLAY','1680x1050')]}}
+        child=None;began=time.monotonic();result={'vm':vm,'load':os.getloadavg()[0],'outcome':'harness failure','reservation':str(guest_lock.resolve()),'resources':{k:os.environ.get(k,v) for k,v in [('TESTVM_CPU','4'),('TESTVM_RAM_MB','7168'),('TESTVM_DISPLAY','1680x1050')]}}
         try:
             # Give each subprocess a group so interruption cannot strand the SSH
             # command. stop.sh subsequently reaps the captured VM process.
