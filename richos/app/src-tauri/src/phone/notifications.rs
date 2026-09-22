@@ -152,7 +152,8 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
     struct Scratch(PathBuf);
-    impl Drop for Scratch {fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);}}
+    // Said, not asserted: a panic inside Drop while a failing test unwinds would abort the run.
+    impl Drop for Scratch {fn drop(&mut self){if let Err(e)=std::fs::remove_dir_all(&self.0){eprintln!("test scratch {} was not removed: {e}",self.0.display());}}}
     fn fixture()->(Scratch,Device,Registration) {
         let dir=Scratch(std::env::temp_dir().join(format!("native-push-{}",hex(&super::super::random_bytes(12).unwrap()))));
         std::fs::create_dir_all(&dir.0).unwrap();

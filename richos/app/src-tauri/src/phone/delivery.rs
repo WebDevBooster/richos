@@ -88,7 +88,8 @@ mod tests {
     }
     struct Scratch(PathBuf);
     impl Scratch { fn new() -> Self { let p=std::env::temp_dir().join(format!("phone-receipts-{}",super::super::hex(&super::super::random_bytes(8).unwrap()))); std::fs::create_dir_all(&p).unwrap(); Self(p) } }
-    impl Drop for Scratch { fn drop(&mut self) { let _=std::fs::remove_dir_all(&self.0); } }
+    // Said, not asserted: a panic inside Drop while a failing test unwinds would abort the run.
+    impl Drop for Scratch { fn drop(&mut self) { if let Err(e)=std::fs::remove_dir_all(&self.0) { eprintln!("test scratch {} was not removed: {e}",self.0.display()); } } }
     #[test]
     fn lost_ack_retry_after_relaunch_does_not_submit_twice_and_is_body_bound() {
         let dir=Scratch::new();

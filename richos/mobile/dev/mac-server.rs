@@ -262,7 +262,9 @@ fn serve() {
         std::thread::sleep(Duration::from_millis(200));
     }
     listener.stop();
-    if let Some(client)=&bridge.push_client {let mut desk=bridge.push.lock().unwrap();desk.clear().unwrap();let _=desk.reconcile(client.as_ref(),None);}
+    // Teardown continues past a failed deregistration so the workers below are still joined; the
+    // failure is printed because a registration left behind outlives this harness.
+    if let Some(client)=&bridge.push_client {let mut desk=bridge.push.lock().unwrap();desk.clear().unwrap();if let Err(error)=desk.reconcile(client.as_ref(),None) {eprintln!("mac-server: push deregistration at teardown failed: {error}");}}
 
     for worker in bridge.workers.lock().unwrap().drain(..) {
         worker.join().unwrap();

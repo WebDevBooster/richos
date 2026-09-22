@@ -8,7 +8,17 @@ pub const MAX_UPLOAD: usize = 60_000_000;
 pub const MAX_REPLY: usize = 6_000_000;
 pub struct VoiceDesk { recognizer: Option<Recognizer>, busy: Mutex<()>, directory: PathBuf }
 struct Scratch(PathBuf);
-impl Drop for Scratch { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // What this folder holds is his recorded voice, so a copy left behind on disk is said
+        // rather than dropped. Already gone is the one outcome that is not a failure.
+        if let Err(error) = std::fs::remove_dir_all(&self.0) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("[richos] a phone recording's scratch folder could not be removed: {error}");
+            }
+        }
+    }
+}
 impl VoiceDesk {
     pub fn new(directory: PathBuf) -> Self { Self { recognizer: Recognizer::resolve().ok(), busy: Mutex::new(()), directory } }
     pub fn available(&self) -> bool { self.recognizer.is_some() }
