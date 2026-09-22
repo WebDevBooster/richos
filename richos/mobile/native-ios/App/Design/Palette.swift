@@ -43,6 +43,11 @@ struct Palette: Equatable, Sendable {
     /// `.banner .ic`, `.vdur.playing` all switch to ink in light for this reason).
     var accentGlyph: Color { appearance == .dark ? signal : ink }
 
+    /// The gold play button on YOUR bubble in the light theme is 2.80:1 against the gold-washed plane
+    /// (computed by `native-ios-ui.test.sh`), under the 3:1 floor for a control; it gets a 1 pt ink
+    /// edge there. Dark needs none. A deviation from round 12, which did not measure this pairing.
+    var playEdgeOnMine: Color? { appearance == .dark ? nil : ink }
+
     /// The drop shadow every floating element wears (`--sh-float`). SwiftUI shadows have no spread, so
     /// the CSS's negative spread is approximated by a smaller radius; it is decoration, not information.
     var floatShadow: Color { appearance == .dark ? Color.black.opacity(0.55) : Color(hex: 0x2E2816).opacity(0.22) }

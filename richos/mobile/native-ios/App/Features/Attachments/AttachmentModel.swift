@@ -15,9 +15,11 @@ extension ScreenModel {
         var viewer: Viewer?
         /// A system picker the menu handed off to (`att-pick-photos`, `att-pick-files`, `att-pick-camera`).
         var picker: Picker?
-        /// Round 12's proposals, to be replaced by what the Mac's intake enforces (NOTES "Gaps" A1, A2).
+        /// What the Mac's intake enforces (stream M, `cc/echo-opus-m1` 22e59ed8): 10 files a message and
+        /// 25 MiB each. These replace round 12's proposed 100 MB (attachments NOTES "Gaps" A1); the core
+        /// owns the check, these are the numbers the refusal card states.
         static let itemLimit = 10
-        static let bytesLimit = 100 * 1_000_000
+        static let bytesLimit = 25 * 1024 * 1024
     }
 
     enum Picker: Equatable, Sendable { case photos, camera, files }

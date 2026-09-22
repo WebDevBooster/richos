@@ -198,6 +198,15 @@ struct TypeRoleModifier: ViewModifier {
     }
 }
 
+extension Text {
+    /// A run inside a composed `Text` in another weight of the bundled face ("Use Rich from your phone"
+    /// in the pairing steps, "Not sent", the reassurance in a status line). `fontWeight` cannot do this:
+    /// it asks the system for a weight of a font that is not the system's.
+    func run(_ role: Typography.Role, _ size: DynamicTypeSize) -> Text {
+        font(Font(Typography.uiFont(role, size) as CTFont))
+    }
+}
+
 extension View {
     /// `cap` stops growth at a text size, for the few places round 12 must keep on one row at every
     /// size (the recording bar: accessibility audit F9). Capped text is still larger than default.

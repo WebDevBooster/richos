@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The app's own Info.plist keys, merged by Xcode with the generated ones (GENERATE_INFOPLIST_FILE).
+     Only what a build setting cannot express lives here: the shared container and Keychain group
+     the app and its two extensions agree on (Release/platform.yml). -->
+<plist version="1.0">
+<dict>
+	<key>RichOSAppGroup</key>
+	<string>$(RICHOS_APP_GROUP)</string>
+	<key>RichOSKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(RICHOS_KEYCHAIN_GROUP)</string>
+</dict>
+</plist>

@@ -561,6 +561,7 @@ private struct AttachRefusedCard: View {
     let tooLarge: Bool
     let send: (Intent) -> Void
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         CardView {
@@ -569,7 +570,8 @@ private struct AttachRefusedCard: View {
                 Text(tooLarge ? "Too large to send" : "Rich can’t open this type yet")
                     .type(Typography.body.weight(600)).foregroundStyle(palette.ink)
             }
-            (Text(name).fontWeight(.semibold).foregroundColor(palette.ink) + Text(" " + detail).foregroundColor(palette.inkSoft))
+            (Text(name).run(Typography.read.weight(600), dynamicTypeSize).foregroundColor(palette.ink)
+             + Text(" " + detail).foregroundColor(palette.inkSoft))
                 .type(Typography.read)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 3)

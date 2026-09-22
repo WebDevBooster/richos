@@ -170,8 +170,8 @@ struct RToggleStyle: ToggleStyle {
             configuration.isOn.toggle()
         } label: {
             HStack(spacing: 12) {
-                configuration.label
-                Spacer(minLength: 0)
+                // The row beside the switch shows its title; the label reaches VoiceOver through the
+                // standard Toggle this control represents (below), so it is never drawn twice.
                 ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                     Capsule(style: .continuous)
                         .fill(configuration.isOn ? palette.signal : Color.clear)
@@ -188,6 +188,9 @@ struct RToggleStyle: ToggleStyle {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }
+        }
     }
 }
 

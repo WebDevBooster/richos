@@ -61,13 +61,14 @@ struct ConversationHeader: View {
 struct ConnectionText: View {
     let line: ScreenModel.ConnectionLine
     @Environment(\.palette) private var palette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         let (lead, reassurance) = Self.words(line.kind)
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             if line.kind == .reconnecting { PulseDot() }
             (Text(lead + " ").foregroundColor(palette.inkSoft)
-             + Text(reassurance).fontWeight(.medium).foregroundColor(palette.ink))
+             + Text(reassurance).run(Typography.read.weight(500).lineHeight(1.3), dynamicTypeSize).foregroundColor(palette.ink))
                 .type(Typography.read.lineHeight(1.3))
         }
         .accessibilityElement(children: .combine)
