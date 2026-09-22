@@ -211,6 +211,9 @@ fn main() {
          pub fn events_credential(query: &str) -> Option<String> {\n    \
          let auth = query_value(query, \"auth\")?;\n    percent_decode_component(auth).ok()\n}\n"
     );
+    // Where the production code was read from. A test binary reused from a shared target
+    // directory by another checkout would otherwise pass while proving another tree.
+    let _ = writeln!(generated, "pub const PHONE_DIR: &str = {:?};", phone_dir().display().to_string());
     let _ = writeln!(generated, "pub const INCLUDED_MODULES: &[&str] = &{:?};", modules.iter().collect::<Vec<_>>());
     let _ = writeln!(generated, "pub const PARENT_ITEMS: &[&str] = &{:?};", items.iter().collect::<Vec<_>>());
     std::fs::write(out.join("phone.rs"), generated).unwrap();

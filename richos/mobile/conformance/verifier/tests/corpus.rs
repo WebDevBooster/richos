@@ -16,8 +16,25 @@ use mac::device::{parse_authorization, signing_string, DeviceDesk, Presented, Pu
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+/// The package root AT RUN TIME (cargo runs integration tests there), never the compile-time
+/// `CARGO_MANIFEST_DIR`: a binary reused from another checkout must read THIS checkout's corpus.
+fn package_root() -> PathBuf {
+    std::env::current_dir().unwrap()
+}
+
 fn vectors() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../vectors")
+    package_root().join("../vectors")
+}
+
+/// Refuse to pass on production code compiled from another checkout. Cargo can consider a build
+/// fresh when a second checkout of this same crate shares its target directory.
+fn same_checkout() {
+    let here = package_root().join("../../../app/src-tauri/src/phone").canonicalize().unwrap();
+    assert_eq!(
+        here,
+        Path::new(mac::PHONE_DIR),
+        "this test binary compiled the Mac's code from another checkout; run `cargo clean -p richos-conformance-verifier` with this target directory, or use the crate's own target/"
+    );
 }
 
 fn load(name: &str) -> Value {
@@ -114,6 +131,7 @@ fn verify(desk: &DeviceDesk, r: &Read) -> Result<String, Refusal> {
 
 #[test]
 fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
+    same_checkout();
     let dir = std::env::temp_dir().join(format!("richos-conformance-verifier-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let _scratch = Scratch(dir.clone());
@@ -190,9 +208,10 @@ fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
     assert_eq!(verify(&desk, &control), Err(Refusal::StaleChallenge), "control: a challenge past its lifetime (the reason for the 404 re-sign rule)");
 
     println!(
-        "conformance verifier: {} signed requests from {} files through the production DeviceDesk::verify: {accepted} accepted, {refused} refused as recorded; included modules {:?}",
+        "conformance verifier: {} signed requests from {} files through the production DeviceDesk::verify: {accepted} accepted, {refused} refused as recorded; included modules {:?} from {}",
         requests.len(),
         files.len(),
-        mac::INCLUDED_MODULES
+        mac::INCLUDED_MODULES,
+        mac::PHONE_DIR
     );
 }
