@@ -119,6 +119,7 @@ function createStubMac(options) {
 		streams: new Set(),
 		received: [],
 		dropped: new Set(),
+		seen: new Map(),   // url -> how many times it arrived
 		pairCode: opts.pairCode || 'harness-pair-code',
 		threads: opts.threads || [{ id: threadId, title: 'Rich' }],
 		vapidPublicKey: opts.vapidPublicKey || 'BJ-harness-vapid-public-key',
@@ -282,6 +283,10 @@ function createStubMac(options) {
 			res.end(fs.readFileSync(file));
 			return;
 		}
+
+		// Every /api/ request that reached this Mac, exactly as the phone sent it and counted — so a
+		// harness can tell a request the Mac saw from one the browser never let leave the page.
+		state.seen.set(req.url, (state.seen.get(req.url) || 0) + 1);
 
 		if (state.mode === 'unreachable') {
 			// Not a 503: a Mac that is asleep does not answer at all, and the difference decides

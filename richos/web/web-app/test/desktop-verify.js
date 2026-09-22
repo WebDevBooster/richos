@@ -186,13 +186,32 @@ async function runEngine(playwright, engine) {
 		// JavaScript-source error line into `pageerror` (playwright-core `_onConsoleMessage`,
 		// `level === "error" && source === "javascript"`) — which is why these arrive as
 		// "https: /localhost…", its name/message split at the first colon. Which failed load WebKit
-		// reports this way varies run to run. So such a line is the outage ONLY when it names a
-		// request the stub Mac itself dropped, byte for byte; anything else stays an error.
+		// reports this way varies run to run. Such a line is expected in exactly two cases, and
+		// both are decided from what the stub Mac recorded rather than from the wording alone:
+		//   * the OUTAGE — it names a request the stub Mac itself dropped, byte for byte;
+		//   * a RELOAD THIS HARNESS STARTED — reported while `page.reload()` is in flight, naming a
+		//     request the Mac has not received since that reload began (counted per URL, because
+		//     `/api/challenge` is the same URL every time). Measured: the link's scheduled reconnect fired
+		//     after `beforeunload`, the old document built its EventSource, WebKit refused it
+		//     locally (no request reached the Mac), and the app's stream-error probe was refused
+		//     the same way, all before `pagehide`. A dying page's requests that never left it.
+		// Anything else stays an error — including a request the Mac did receive, which is where a
+		// real cross-origin refusal would have to show up.
 		const LOADER_REPORT = /^(?:EventSource|Fetch API|XMLHttpRequest) cannot load https?:\s?\/{1,2}[^/\s]+(\/api\/\S+) due to access control checks\.$/;
+		// What the Mac had received when the current harness reload began; null when none is running.
+		let reloadBaseline = null;
+		const loaderReports = { outage: 0, reload: 0 };
+		const reload = page.reload.bind(page);
+		page.reload = async (...args) => {
+			reloadBaseline = new Map(mac.state.seen);
+			try { return await reload(...args); } finally { reloadBaseline = null; }
+		};
+		const neverReachedTheMac = (url) => (mac.state.seen.get(url) || 0) === (reloadBaseline.get(url) || 0);
 		page.on('pageerror', (e) => {
 			const text = String(e);
 			const report = LOADER_REPORT.exec(text);
-			if (report && mac.state.dropped.has(report[1])) networkNoise.push(text);
+			if (report && mac.state.dropped.has(report[1])) { loaderReports.outage++; networkNoise.push(text); }
+			else if (report && reloadBaseline && neverReachedTheMac(report[1])) { loaderReports.reload++; networkNoise.push(text); }
 			else errors.push(text);
 		});
 		page.on('console', (m) => {
@@ -949,9 +968,9 @@ async function runEngine(playwright, engine) {
 		// seeing them is how you know the outage was real rather than simulated in the page.
 		// The loader reports WebKit sent down the exception channel are named separately, so a run
 		// shows whether the classification above was exercised rather than merely present.
-		const loaderReports = networkNoise.filter((t) => LOADER_REPORT.test(t)).length;
-		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage this run caused deliberately` +
-			`${loaderReports ? ` (${loaderReports} reported by WebKit as an access-control failure of a request the outage dropped)` : ''}:\n        ${
+		const reported = loaderReports.outage + loaderReports.reload;
+		process.stdout.write(`        ${networkNoise.length} failed request(s), all of them the outage or a reload this run caused deliberately` +
+			`${reported ? ` (${reported} reported by WebKit as access-control failures: ${loaderReports.outage} dropped by the outage, ${loaderReports.reload} stopped by a reload before reaching the Mac)` : ''}:\n        ${
 			networkNoise.slice(0, 6).map((t) => t.replace(/\s+/g, ' ')).join('\n        ') || '(none)'}\n`);
 		check('the outage was a REAL network failure, not something the page pretended',
 			networkNoise.length > 0, 'if this is zero, the unreachable and revoked passes above proved nothing');
