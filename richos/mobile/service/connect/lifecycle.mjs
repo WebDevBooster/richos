@@ -1,4 +1,4 @@
-const knownErrors = new Set(['provider_unavailable', 'resource_conflict', 'tunnel_missing', 'lease_lost']);
+const knownErrors = new Set(['provider_unavailable', 'resource_conflict', 'tunnel_missing', 'lease_lost', 'provider_transport_failed']);
 export function view(host) {
   return { id: host.id, generation: host.generation, enabled: !!host.desired,
     phase: host.phase, endpoint: `https://${host.hostname}`, deviceKeyHash: host.device_key_hash,
@@ -36,7 +36,7 @@ export async function transition(store, provider, id, action, domain) {
     }
     return view(await store.get(id));
   } catch (error) {
-    const code = knownErrors.has(error.message) ? error.message : 'service_unavailable';
+    const code = knownErrors.has(error.message) ? error.message : error instanceof TypeError ? 'runtime_type_error' : error.name === 'TimeoutError' ? 'provider_timeout' : 'service_unavailable';
     try { await store.write(id, lease, { last_error: code }); } catch { /* A newer lease owns recovery. */ }
     throw Error(code);
   } finally { await store.release(id, lease); }

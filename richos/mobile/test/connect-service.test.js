@@ -179,3 +179,12 @@ test('managed artifact preserves only server secrets and packages the tested ser
   assert.throws(()=>managedArtifact({...profile,capacity:11}),/capacity/);
   assert.throws(()=>managedArtifact({...profile,domain:'https://example.com'}),/Invalid/);
 });
+
+test('provider uses Worker-compatible manual redirects and rejects redirect responses', async () => {
+  const { Provider } = await import('../service/connect/provider.mjs');
+  const provider = new Provider({CF_API_TOKEN:'fixture'}, async (_url, options) => {
+    assert.equal(options.redirect, 'manual');
+    return new Response('', {status:302,headers:{location:'https://unrelated.example'}});
+  });
+  await assert.rejects(provider.api('/fixture'), /provider_unavailable/);
+});

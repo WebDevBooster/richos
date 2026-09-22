@@ -1,13 +1,13 @@
 // This adapter alone holds the operator's Cloudflare credential. Never return or log
 // provider error bodies: tunnel creation/token responses contain connector secrets.
 export class Provider {
-  constructor(env, transport = fetch) { this.env = env; this.transport = transport; }
+  constructor(env, transport = (url, options) => fetch(url, options)) { this.env = env; this.transport = transport; }
   async api(path, method = 'GET', value) {
     const response = await this.transport('https://api.cloudflare.com/client/v4' + path, {
       method, headers: { Authorization: `Bearer ${this.env.CF_API_TOKEN}`, 'Content-Type': 'application/json' },
       ...(value === undefined ? {} : { body: JSON.stringify(value) }),
-      redirect: 'error', signal: AbortSignal.timeout(10_000),
-    });
+      redirect: 'manual', signal: AbortSignal.timeout(10_000),
+    }).catch(() => { throw Error('provider_transport_failed'); });
     if (response.status === 404) return null;
     if (!response.ok) throw Error('provider_unavailable');
     const body = await response.json();
