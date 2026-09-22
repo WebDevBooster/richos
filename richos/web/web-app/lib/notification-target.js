@@ -8,7 +8,7 @@
       const page=await fetchPage(before);
       if(!isCurrent())return null;
       model.prependOlder(page);
-      found=await match(page.messages || []);
+      found=await match(model.view([]));
       // A malformed or stale page must not cause an endless request loop.
       if(!found && (model.oldestCursor()===null || model.oldestCursor()>=before))break;
     }

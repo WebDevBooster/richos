@@ -266,11 +266,26 @@ async function runEngine(playwright, engine) {
         check('notification setup can be dismissed without nagging',!await page.isVisible('#push-offer'));
         await page.fill('#composer','Retain this unsent draft');
         await page.waitForFunction(async()=>{const db=await RichOSStorage.open();try{return await RichOSStorage.settings(db).get('draft:thread-main')==='Retain this unsent draft';}finally{db.close();}});
+        // Hold real history restoration so the notification arrives at a precise startup boundary.
+        await page.addInitScript(()=>{
+            if(sessionStorage.getItem('notification-startup-proof'))return;
+            sessionStorage.setItem('notification-startup-proof','used');
+            let storage, historyHeld=false;
+            Object.defineProperty(globalThis,'RichOSStorage',{configurable:true,get:()=>storage,set:value=>{
+                storage={...value,messages(db){const store=value.messages(db);return {...store,async recent(...args){
+                    if(!historyHeld){historyHeld=true;await new Promise(resolve=>{globalThis.__releaseHistory=resolve;globalThis.__historyWaiting=true;});}
+                    return store.recent(...args);
+                }};}};
+            }});
+        });
         await page.reload();await page.waitForSelector('#composer',{state:'visible'});
+        await page.waitForFunction(()=>globalThis.__historyWaiting===true);
         await page.waitForFunction(()=>document.querySelector('#composer').value==='Retain this unsent draft');
         check('an unsent text draft survives relaunch',await page.inputValue('#composer')==='Retain this unsent draft');
         await page.evaluate(()=>navigator.serviceWorker.dispatchEvent(new MessageEvent('message',{data:{type:'notification-clicked',url:'/#thread=thread-main&at=seed-1'}})));
-        await page.waitForFunction(()=>[...document.querySelectorAll('#messages li')].some(row=>row.dataset.messageId==='seed-1'));
+        await page.evaluate(()=>globalThis.__releaseHistory());
+        try {await page.waitForFunction(()=>[...document.querySelectorAll('#messages li')].some(row=>row.dataset.messageId==='seed-1'));}
+        catch(error){console.error('Notification return diagnostic',await page.evaluate(()=>({target:__richosPhone.notificationTarget,rows:__richosPhone.thread?.view([]).map(r=>r.id),beginning:__richosPhone.thread?.atTheBeginning(),link:document.querySelector('#link-state').textContent,errors:document.querySelector('#hold-note').textContent})),errors);throw error;}
         await sleep(100);
         check('notification return loads its older reply and focuses it',await page.evaluate(()=>{const row=document.querySelector('[data-message-id="seed-1"]'),r=row.getBoundingClientRect(),t=document.querySelector('#thread').getBoundingClientRect();return r.top>=t.top && r.bottom<=t.bottom && !__richosPhone.pinnedToBottom;}));
         check('opening a notification preserves the unsent draft',await page.inputValue('#composer')==='Retain this unsent draft');
@@ -666,12 +681,14 @@ async function runEngine(playwright, engine) {
 			const box = await page.locator('#hold').boundingBox();
 			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 			await page.mouse.down();
+            await page.waitForFunction(()=>document.body.dataset.voice==='held');
 			await sleep(1400);
 			await page.mouse.up();
 
 			await page.waitForFunction(() => Array.from(document.querySelectorAll('.msg-mine'))
 				.some((el) => /Voice note|spoken/i.test(el.textContent)), null, { timeout: 20000 });
 
+            await page.waitForFunction(()=>__richosPhone.queue.all().length===0);
 			const voice = mac.received().filter((row) => row.kind === 'voice');
 			check('a voice note reached the Mac', voice.length === 1, `${voice.length} received`);
 			if (voice.length) {

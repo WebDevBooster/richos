@@ -576,5 +576,5 @@ body[data-voice="locked"] #voice-send {grid-column:3;grid-row:1;justify-self:end
 .composer-row #send {font-size:26px;}
 .composer-row #hold[hidden] {display:none;}
 #hold svg {width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;}
-body[data-voice="locked"] #composer, body[data-voice="locked"] #send {display:none;}
+body[data-voice="locked"] #composer-bar #composer, body[data-voice="locked"] #composer-bar #send {display:none;}
 body[data-voice="locked"] .composer-row {justify-content:flex-end;}

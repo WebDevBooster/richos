@@ -16,3 +16,9 @@ test('switching away during history fetch cannot focus or merge the previous con
  const found=await find({model,matches:()=>true,isCurrent:()=>current,fetchPage:async()=>{current=false;return {messages:[{id:'wrong',cursor:1}],more:false}}});
  assert.equal(found,null);assert.deepEqual(model.view([]),[]);
 });
+
+test('a live reply arriving during history lookup is found even if absent from that page',async()=>{
+ const model=createThread();
+ const found=await find({model,matches:row=>row.id==='wanted',fetchPage:async()=>{model.merge({id:'wanted',cursor:10});return {messages:[],more:false};}});
+ assert.equal(found.id,'wanted');
+});

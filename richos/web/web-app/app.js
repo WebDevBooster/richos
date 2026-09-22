@@ -53,6 +53,7 @@ let apiState = { apiBase: location.origin, challenge: null, deviceId: null };
 let threads = [];
 let currentThreadId = null;
 let notificationTarget = null;
+let conversationReady=false;
 // The ONE owner of the event stream (`lib/link.js`). It used to be a bare `stream` handle plus a
 // boolean, and both the closing and the reconnecting were spread across four places that could not
 // see each other. There is no `stream` variable any more on purpose: nothing outside the link is
@@ -331,6 +332,7 @@ async function startConversation(keys) {
 	const cached = await messageCache.recent(currentThreadId, 60);
 	if (cached.length) thread.merge(cached);
 	render(true);
+    conversationReady=true;
 
 	setLinkState('opening');
 	connectStream();
@@ -798,8 +800,9 @@ async function sendText() {
         await queue.enqueue({clientId:newClientId(),threadId,kind:'text',text,sentAt:new Date().toISOString()});
         notificationTarget=null;
         if(currentThreadId===threadId && composer.value===original){composer.value='';resizeComposer();}
-        await settings.set('draft:'+threadId,currentThreadId===threadId?composer.value:'');
         render(currentThreadId===threadId);flushQueue();
+        try {await settings.set('draft:'+threadId,currentThreadId===threadId?composer.value:'');}
+        catch {setHoldNote('Your message was saved to send. Keep this app open while it finishes.',true);}
     } catch(error) { setHoldNote('Your message was not saved. Your draft is still here. Try again.',true); }
     finally {sendingText=false;$('send').disabled=composer.value.trim().length===0;}
 }
@@ -1438,6 +1441,7 @@ boot().catch((err) => {
 globalThis.__richosPhone = {
 	get queue() { return queue; },
 	get thread() { return thread; },
+    get notificationTarget(){return notificationTarget;},
 	get api() { return api; },
 	get state() { return apiState; },
 	get link() { return link; },
@@ -1456,18 +1460,19 @@ async function openNotificationURL(url) {
     notificationTarget={thread:id,at};
     await resolveNotificationTarget();
 }
-let resolvingNotification=false;
+let resolvingNotification=false, notificationAgain=false;
 async function resolveNotificationTarget() {
     const target=notificationTarget;
-    if(!target || !thread || !threads.some(item=>item.id===target.thread))return;
+    if(!target || !conversationReady || !thread || !threads.some(item=>item.id===target.thread))return;
     if(currentThreadId!==target.thread)await selectThread(target.thread);
     render(false);
-    if(notificationTarget!==target || resolvingNotification)return;
+    if(notificationTarget!==target)return;
+    if(resolvingNotification){notificationAgain=true;return;}
     resolvingNotification=true;
     try {
       const row=await RichOSNotificationTarget.find({model:thread,matches:row=>row.id===target.at,isCurrent:()=>notificationTarget===target && currentThreadId===target.thread,fetchPage:async before=>{const page=await api.backfill(target.thread,before,50);await messageCache.put(page.messages || []);return page;}});
       if(row)render(false);
-    }finally{resolvingNotification=false;}
+    }finally{resolvingNotification=false;if(notificationAgain){notificationAgain=false;void resolveNotificationTarget().catch(handleApiError);}}
 }
 async function notificationSettings() {
     $('notification-previews').checked=await settings.get('notificationPreviews',true);
