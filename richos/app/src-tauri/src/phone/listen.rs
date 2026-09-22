@@ -533,6 +533,21 @@ fn render_with(outcome: Outcome, challenge: Option<String>) -> Response<BoxBody>
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::new()).boxed()))
 }
 
+// The HTTP response owns presence. A producer waiting for a heartbeat can outlive a
+// closed socket; letting that task own the slot suppresses the phone's next push.
+struct StreamBody {
+    inner: BoxBody,
+    _slot: super::device::StreamSlot,
+}
+impl hyper::body::Body for StreamBody {
+    type Data = Bytes;
+    type Error = std::convert::Infallible;
+    fn poll_frame(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>)
+        -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
+        std::pin::Pin::new(&mut self.inner).poll_frame(cx)
+    }
+}
+
 /// Open an event stream: write the opening frames, then follow the hub until the phone goes away
 /// or the channel stops.
 fn open_stream(channel: Arc<Channel>, opening: Vec<String>) -> Response<BoxBody> {
@@ -545,10 +560,6 @@ fn open_stream(channel: Arc<Channel>, opening: Vec<String>) -> Response<BoxBody>
     let mut live = channel.hub.subscribe();
 
     tokio::spawn(async move {
-        // The slot is MOVED into this task, so it is released by `Drop` however the stream ends —
-        // the phone locking itself, walking out of range, or the whole runtime being dropped when
-        // the channel stops.
-        let _slot = slot;
         for frame in opening {
             if sender.send_data(Bytes::from(frame)).await.is_err() {
                 return;
@@ -596,7 +607,7 @@ fn open_stream(channel: Arc<Channel>, opening: Vec<String>) -> Response<BoxBody>
         // uselessness. There is no proxy today and this design refuses to acquire one, so the
         // header is a note to whoever later thinks about putting one there.
         .header("x-accel-buffering", "no")
-        .body(body.boxed())
+        .body(StreamBody { inner: body.boxed(), _slot: slot }.boxed())
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::new()).boxed()))
 }
 
@@ -669,6 +680,36 @@ mod tests {
         // THERE IS ONE PORT NOW. The neighboring one served the trust page, and CEO §61 removed
         // the path that needed it — see `Listener::start`.
         assert_eq!(HTTPS_PORT, 8443);
+    }
+
+    #[test]
+    fn closing_the_http_body_releases_presence_before_the_next_heartbeat() {
+        use crate::phone::{api_base::ApiBaseDesk, device::DeviceDesk, routes::{Bridge,Accepted,StopSwitch}, stream::PhoneHub};
+        struct Quiet;
+        impl Bridge for Quiet {
+            fn submit_text(&self,_:Option<&str>,_:&str)->Result<Accepted,String>{Err("unused".into())}
+            fn snapshot(&self,_:Option<&str>)->Result<serde_json::Value,String>{Ok(serde_json::json!({}))}
+            fn current_thread(&self)->Option<(String,String)>{None}
+            fn threads(&self)->Vec<(String,String)>{vec![]}
+        }
+        let dir=std::env::temp_dir().join(format!("stream-presence-{}-{}",std::process::id(),super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let devices=Arc::new(DeviceDesk::open(&dir).unwrap());
+        let channel=Arc::new(Channel {devices:Arc::clone(&devices),rejected:StopSwitch::unwired(),
+            api_base:Arc::new(ApiBaseDesk::only("https://example.invalid")),hub:PhoneHub::new(),bridge:Arc::new(Quiet),
+            assets:super::super::assets::PhoneApp::embedded(),vapid_public:String::new(),fingerprint_hex:String::new(),
+            pairing_path:std::sync::Mutex::new(super::super::device::PairedVia::CONNECT)});
+        let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let response=open_stream(channel.clone(),vec![]);
+            assert_eq!(devices.open_streams(),1,"A live body must still suppress duplicate foreground push");
+            tokio::task::yield_now().await; // Producer is now waiting for its next frame.
+            drop(response);
+            assert_eq!(devices.open_streams(),0,"A closed body must not suppress background push for 15 seconds");
+            for _ in 0..10 {drop(open_stream(channel.clone(),vec![]));}
+            assert_eq!(devices.open_streams(),0,"Rapid reopen/close must not exhaust the stream slots");
+        });
+        drop(runtime);std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
