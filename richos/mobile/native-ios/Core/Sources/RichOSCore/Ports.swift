@@ -70,10 +70,16 @@ public enum CoreJSON {
 
 /// Performs the effects a reducer asked for, through the ports. An actor, not main-actor-bound: the
 /// UI thread never waits on storage (the Avelor iOS lesson, build plan §3.2).
+///
+/// Effects whose port is not wired yet (`pair`, `confirmFingerprint`, `forgetIdentity`,
+/// `openSystemSettings`) are counted in `skipped` and otherwise ignored: the transport and platform
+/// ports arrive with their features, and until then a fixture or the CLI supplies the answer
+/// (for example `pairing-answered`). Nothing is guessed.
 public actor EffectRunner {
     public static let stateKey = "state.json"
 
     private let storage: any Storage
+    public private(set) var skipped: [Effect] = []
 
     public init(storage: any Storage) { self.storage = storage }
 
@@ -81,15 +87,23 @@ public actor EffectRunner {
         for effect in effects {
             switch effect {
             case .persist:
-                try await storage.write(Self.stateKey, try CoreJSON.encode(state))
+                try await storage.write(Self.stateKey, try CoreJSON.encode(state.persisted))
+            case .pair, .confirmFingerprint, .forgetIdentity, .openSystemSettings:
+                skipped.append(effect)
             }
         }
     }
 
     /// The stored state, or `nil` for a new install. A stored file that cannot be read THROWS — it
-    /// is never replaced by a fresh state, because it may hold unsent work.
+    /// is never replaced by a fresh state, because it may hold unsent work. A file from a newer app
+    /// throws `StoredSchemaError` with `newer == true`, which the app shows as `pair-stale`.
     public func load() async throws -> AppState? {
         guard let data = try await storage.read(Self.stateKey) else { return nil }
-        return try CoreJSON.decode(AppState.self, from: data)
+        // The schema is read first, on its own, so a newer file is recognized as newer even when
+        // its other fields no longer decode here.
+        struct Probe: Decodable { var schema: Int }
+        let schema = try CoreJSON.decode(Probe.self, from: data).schema
+        guard schema == AppState.schemaVersion else { throw StoredSchemaError(found: schema) }
+        return try AppState(restoring: CoreJSON.decode(AppState.Persisted.self, from: data))
     }
 }

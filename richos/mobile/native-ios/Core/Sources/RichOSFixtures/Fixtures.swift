@@ -2,24 +2,17 @@
 import Foundation
 import RichOSCore
 
-/// A named starting state. Each name is the round-12 screen it produces
-/// (`design/mockups/rounds/round-12/shared/screens.js`), so `rios sim fixture conv-empty` puts the
-/// app straight onto that design with no navigation, and a screenshot can be compared to the
-/// mockup of the same name. The conversation text is round 12's synthetic conversation — one
-/// person and Rich, nothing real.
+/// A named starting state. Each name is the round-12 screen it shows
+/// (`design/mockups/rounds/round-12/shared/screens.js`), so `rios sim fixture voice-locked` puts the
+/// app straight onto that design with no navigation, and a screenshot can be compared to the mockup
+/// of the same name. All 67 round-12 ids are here except four that are not app screens on iPhone:
+/// `pair-pwa-storage`, `notif-pwa-install` (web app only) and `notif-lock-preview`,
+/// `notif-lock-generic` (Apple's lock screen; the card is the notification extension's).
+///
+/// The words are round 12's own synthetic conversation — one person and Rich, nothing real.
 public struct Fixture: Sendable {
     public var name: String
     public var state: AppState
-
-    public static let all: [Fixture] = [
-        Fixture(name: "pair-intro", state: .initial),
-        Fixture(name: "pair-words", state: AppState(
-            pairing: .confirming,
-            fingerprintWords: ["harbor", "velvet", "copper", "meadow", "lantern", "quartz"])),
-        Fixture(name: "conv-empty", state: AppState(pairing: .paired)),
-        Fixture(name: "conv-populated", state: AppState(pairing: .paired, messages: Conversation.round12)),
-        Fixture(name: "conn-revoked", state: AppState(pairing: .revoked, messages: Conversation.round12)),
-    ]
 
     public static func named(_ name: String?) throws -> Fixture {
         guard let name, let fixture = all.first(where: { $0.name == name }) else {
@@ -27,54 +20,334 @@ public struct Fixture: Sendable {
         }
         return fixture
     }
+
+    public static let all: [Fixture] = pairing + conversation + composer + voiceHold + voiceLock + recovery
+        + connection + notifications + settings + updates + launch
+
+    // MARK: builders
+
+    static let tailnet = MacLink(origin: "https://mm1.tail1a2b3c.ts.net:8443", route: .tailnet)
+    static let pairedMac = MacLink(origin: "https://mm1.tail1a2b3c.ts.net:8443", route: .tailnet,
+                                   deviceID: "dev_8d4c57b7ff82", threadID: "thr_5c1e", name: "Alex’s Mac")
+    static let composerWidth = 386.0  // the 16 Pro capsule: 402 pt less the 8 pt margins
+
+    static func make(_ edit: (inout AppState) -> Void) -> AppState {
+        var s = AppState()
+        edit(&s)
+        return s
+    }
+
+    /// Paired, consent given, with round 12's `CONVO` (or `OLDER + CONVO` when `full`).
+    static func paired(full: Bool = false, extra: [Message] = [], _ edit: (inout AppState) -> Void = { _ in }) -> AppState {
+        make { s in
+            s.pairing = .paired
+            s.mac = pairedMac
+            s.consentGiven = true
+            s.notifications.status = .on
+            s.messages = (full ? Conversation.older : []) + Conversation.round12 + extra
+            edit(&s)
+        }
+    }
+
+    static func me(_ id: String, _ text: String, _ at: Int64, _ delivery: Message.Delivery? = nil) -> Message {
+        Message(id: id, author: .me, text: text, sentAt: at, delivery: delivery)
+    }
+
+    static func rich(_ id: String, _ text: String, _ at: Int64) -> Message {
+        Message(id: id, author: .rich, text: text, sentAt: at)
+    }
+
+    static let now = Conversation.at(9, 41)
+
+    static func voice(_ phase: VoiceSession.Phase, elapsed: Int64, dx: Double = 0, dy: Double = 0,
+                      wasLocked: Bool = false) -> VoiceSession {
+        let started = now - elapsed - 200
+        let cancelDistance = VoiceGeometry.cancelDistance(width: composerWidth)
+        let recording: Int64? = phase == .pressed ? nil : now - elapsed
+        return VoiceSession(phase: phase, startedAtMs: started, nowMs: now, recordingStartedAtMs: recording,
+                            dx: dx, dy: dy, width: composerWidth,
+                            cancelProgress: min(1, max(0, -dx / cancelDistance)),
+                            lockProgress: min(1, max(0, -dy / VoiceGeometry.lockDistance)),
+                            levels: Conversation.wave(count: Int(elapsed / 100), seed: 11), wasLocked: wasLocked || phase == .locked)
+    }
+
+    static func kept(_ reason: KeptRecording.Reason, _ ms: Int) -> KeptRecording {
+        KeptRecording(id: "rec_\(reason.rawValue)", durationMs: ms, levels: Conversation.wave(count: 42, seed: 5), reason: reason, recordedAt: now - Int64(ms))
+    }
+
+    // MARK: 1 · pairing
+
+    static let pairing: [Fixture] = [
+        Fixture(name: "pair-intro", state: .initial),
+        Fixture(name: "pair-scanner", state: make { $0.scanner = .looking; $0.camera = .granted }),
+        Fixture(name: "pair-scanner-found", state: make { $0.scanner = .found; $0.camera = .granted; $0.pairing = .connecting; $0.mac = tailnet }),
+        Fixture(name: "pair-camera-denied", state: make { $0.camera = .denied; $0.sheet = .cameraDenied }),
+        Fixture(name: "pair-progress", state: make { $0.pairing = .connecting; $0.mac = tailnet }),
+        Fixture(name: "pair-words", state: make {
+            $0.pairing = .confirming; $0.mac = tailnet
+            $0.fingerprintWords = ["harbor", "velvet", "copper", "meadow", "lantern", "quartz"]
+        }),
+        Fixture(name: "pair-refused", state: make { $0.pairingProblem = .refused }),
+        Fixture(name: "pair-blocked", state: paired(extra: [me("q1", "Move the Friday review to 3 PM.", now, .waiting)]) {
+            $0.pairingProblem = .blockedByUnsentWork(count: 1)
+        }),
+        Fixture(name: "pair-stale", state: make { $0.pairingProblem = .sessionNeedsNewerApp }),
+        Fixture(name: "pair-consent", state: paired { $0.consentGiven = false }),
+    ]
+
+    // MARK: 2 · the conversation
+
+    static let portland = "Here it is. Portland team: thank you for the sprint on the Henderson bid. It landed, and it landed because of you."
+
+    static let conversation: [Fixture] = [
+        Fixture(name: "conv-empty", state: make { $0.pairing = .paired; $0.mac = pairedMac; $0.consentGiven = true; $0.notifications.status = .on }),
+        Fixture(name: "conv-populated", state: paired(full: true)),
+        Fixture(name: "conv-pending", state: paired(extra: [
+            me("p1", "Book the 7:10 to Denver, aisle.", now, .sending),
+            Message(id: "p2", author: .me, kind: .voice, text: "", sentAt: now, delivery: .waiting, durationMs: 14000,
+                    levels: Conversation.wave(count: 42, seed: 21)),
+            me("p3", "And cancel the car.", Conversation.at(8, 40), .needsAttention),
+        ])),
+        Fixture(name: "conv-replying", state: paired(extra: [me("t1", "What does my Thursday look like?", now)]) { $0.reply = .thinking }),
+        Fixture(name: "conv-streaming", state: paired(extra: [me("t1", "What does my Thursday look like?", now)]) {
+            $0.reply = .streaming(text: "Light. Two things: Dana at 2:00 for board prep, and the dentist at")
+        }),
+        Fixture(name: "conv-playing-reply", state: paired(extra: [me("h1", "Read me the Portland note.", now), rich("h2", portland, now)]) {
+            $0.playback = Playback(messageID: "h2", phase: .playing, progress: 0.35)
+        }),
+        Fixture(name: "conv-preparing-reply", state: paired(extra: [me("h1", "Read me the Portland note.", now), rich("h2", portland, now)]) {
+            $0.playback = Playback(messageID: "h2", phase: .preparing)
+        }),
+        Fixture(name: "conv-older-loading", state: paired(full: true) { $0.history.loadingOlder = true; $0.following = false }),
+        Fixture(name: "conv-beginning", state: paired { $0.history.reachedBeginning = true; $0.following = false }),
+        Fixture(name: "conv-scrolled", state: paired(full: true) { $0.following = false }),
+        Fixture(name: "conv-focused", state: paired(extra: [
+            me("f1", "Did the lease amendment go through?", Conversation.at(9, 2)),
+            rich("f2", "Signed and countersigned at 9:18. The landlord’s copy is in your inbox.", Conversation.at(9, 20)),
+        ]) { $0.focusedMessageID = "f2" }),
+        Fixture(name: "conv-retry", state: paired(extra: [me("q1", "Book the 7:10 to Denver, aisle.", now, .waiting)]) {
+            $0.connectionNotice = .reconnecting
+        }),
+    ]
+
+    // MARK: 3 · the composer
+
+    static let longDraft: String = {
+        let paragraph = "Here is the full agenda for the offsite, with every session, owner and the questions I want answered by the end of each block. Start with the morning: strategy review, then the Henderson debrief, then… "
+        var text = ""
+        while text.count <= Limits.messageCharacters { text += paragraph }
+        return text
+    }()
+
+    static let composer: [Fixture] = [
+        Fixture(name: "comp-idle", state: paired()),
+        Fixture(name: "comp-typing", state: paired { $0.draft = "Move the Friday review to 3 PM and let the Portland team know it’s optional." }),
+        Fixture(name: "comp-keyboard", state: paired { $0.draft = "Move the Friday review to 3"; $0.composerFocused = true }),
+        Fixture(name: "comp-disabled", state: paired { $0.connectionNotice = .incompatible }),
+        Fixture(name: "comp-too-long", state: paired { $0.draft = longDraft; $0.toast = .tooLong(limit: Limits.messageCharacters) }),
+    ]
+
+    // MARK: 4 · voice, hold to record
+
+    static let sentVoice = Message(id: "v1", author: .me, kind: .voice, text: "", sentAt: now, delivery: .sending,
+                                   durationMs: 2600, levels: Conversation.wave(count: 26, seed: 11))
+
+    static let voiceHold: [Fixture] = [
+        Fixture(name: "voice-press", state: paired { $0.microphone = .granted; $0.voice = voice(.pressed, elapsed: 0) }),
+        Fixture(name: "voice-permission", state: paired { $0.voice = voice(.pressed, elapsed: 0); $0.sheet = .microphonePrompt }),
+        Fixture(name: "voice-holding", state: paired { $0.microphone = .granted; $0.voice = voice(.held, elapsed: 5500) }),
+        Fixture(name: "voice-slide-left", state: paired {
+            $0.microphone = .granted
+            $0.voice = voice(.held, elapsed: 11800, dx: -0.72 * VoiceGeometry.cancelDistance(width: composerWidth))
+        }),
+        Fixture(name: "voice-bin", state: paired { $0.microphone = .granted; $0.voice = voice(.ending(.canceled), elapsed: 900) }),
+        Fixture(name: "voice-sent", state: paired(extra: [sentVoice]) { $0.microphone = .granted; $0.voice = voice(.ending(.sent), elapsed: 2600) }),
+        Fixture(name: "voice-too-short", state: paired { $0.microphone = .granted; $0.voice = voice(.ending(.tooShort), elapsed: 180); $0.toast = .tooShort }),
+    ]
+
+    // MARK: 5 · voice, slide up to lock
+
+    static let voiceLock: [Fixture] = [
+        Fixture(name: "voice-slide-up", state: paired { $0.microphone = .granted; $0.voice = voice(.held, elapsed: 3200, dy: -40) }),
+        Fixture(name: "voice-lock-transition", state: paired { $0.microphone = .granted; $0.voice = voice(.locked, elapsed: 700) }),
+        Fixture(name: "voice-locked", state: paired { $0.microphone = .granted; $0.voice = voice(.locked, elapsed: 27900) }),
+        Fixture(name: "voice-locked-scrolled", state: paired(full: true) { $0.microphone = .granted; $0.voice = voice(.locked, elapsed: 41300); $0.following = false }),
+        Fixture(name: "voice-locked-cancel", state: paired { $0.microphone = .granted; $0.voice = voice(.ending(.canceled), elapsed: 14200, wasLocked: true) }),
+        Fixture(name: "voice-locked-send", state: paired(extra: [sentVoice]) { $0.microphone = .granted; $0.voice = voice(.ending(.sent), elapsed: 22600, wasLocked: true) }),
+        Fixture(name: "voice-ceiling-warning", state: paired {
+            $0.microphone = .granted
+            $0.voice = voice(.locked, elapsed: Limits.voiceWarningMs + 400)
+            $0.toast = .ceilingWarning
+        }),
+        Fixture(name: "voice-ceiling-reached", state: paired { $0.microphone = .granted; $0.keptRecordings = [kept(.ceiling, Int(Limits.voiceCeilingMs))] }),
+        Fixture(name: "voice-interrupted", state: paired { $0.microphone = .granted; $0.keptRecordings = [kept(.interrupted, 42000)] }),
+    ]
+
+    // MARK: 6 · recording recovery
+
+    static let recovery: [Fixture] = [
+        Fixture(name: "rec-card", state: paired { $0.keptRecordings = [kept(.unsent, 42000)] }),
+        Fixture(name: "rec-unsupported", state: paired { $0.voiceAvailability = .unsupportedByMac; $0.keptRecordings = [kept(.unsent, 42000)] }),
+        Fixture(name: "rec-mic-denied", state: paired { $0.microphone = .denied }),
+    ]
+
+    // MARK: 7 · connection
+
+    static let connection: [Fixture] = [
+        Fixture(name: "conn-reconnecting", state: paired { $0.connectionNotice = .reconnecting }),
+        Fixture(name: "conn-offline", state: paired { $0.connectionNotice = .phoneOffline }),
+        Fixture(name: "conn-service", state: paired { $0.connectionNotice = .serviceUnavailable; $0.mac?.route = .connect }),
+        Fixture(name: "conn-mac", state: paired { $0.connectionNotice = .macUnreachable }),
+        Fixture(name: "conn-revoked", state: paired { $0.pairing = .revoked }),
+        Fixture(name: "conn-incompatible", state: paired(extra: [me("q1", "Send the Q4 deck to the board.", now, .waiting)]) {
+            $0.connectionNotice = .incompatible
+        }),
+        Fixture(name: "conn-cached", state: paired(full: true) { $0.history.cached = true; $0.connectionNotice = .phoneOffline }),
+    ]
+
+    // MARK: 8 · notifications
+
+    static let notifications: [Fixture] = [
+        Fixture(name: "notif-offer", state: paired { $0.notifications.status = .notAsked }),
+        Fixture(name: "notif-settings", state: paired { $0.notifications.status = .denied; $0.sheet = .settings }),
+    ]
+
+    // MARK: 9 · settings
+
+    static let settings: [Fixture] = [
+        Fixture(name: "settings", state: paired { $0.sheet = .settings }),
+        Fixture(name: "settings-forget", state: paired { $0.sheet = .forget }),
+        Fixture(name: "settings-forget-blocked", state: paired(extra: [me("q1", "Book the 7:10 to Denver, aisle.", now, .waiting)]) {
+            $0.sheet = .forgetBlocked
+        }),
+    ]
+
+    // MARK: 10 · update notices
+
+    static let updates: [Fixture] = [
+        Fixture(name: "upd-banner", state: paired { $0.update = UpdateNotice(prominence: .banner, version: "1.1", message: "Faster voice messages. Update in one tap.") }),
+        Fixture(name: "upd-dialog", state: paired { $0.update = UpdateNotice(prominence: .dialog, version: "1.1", message: "Version 1.1 fixes voice messages that were cut off on cellular.") }),
+        Fixture(name: "upd-blocking", state: paired { $0.update = UpdateNotice(prominence: .required, version: "1.1", message: "Version 1.1 is in the App Store now. Updating takes about a minute.") }),
+        Fixture(name: "upd-feature-off", state: paired { $0.voiceAvailability = .pausedByPolicy }),
+    ]
+
+    // MARK: 11 · launch
+
+    static let launch: [Fixture] = [
+        Fixture(name: "launch-cached", state: paired(full: true) { $0.history.cached = true }),
+    ]
 }
 
-/// Round 12's `CONVO` (`shared/app.js`), with times as fixed instants on 2026-09-22 (UTC) so every
-/// run is identical.
-enum Conversation {
+/// Round 12's synthetic conversation (`shared/app.js` `CONVO`, `OLDER`), with times as fixed instants
+/// on 2026-09-22 (UTC) so every run is identical.
+public enum Conversation {
     static let day: Int64 = 1_790_035_200_000  // 2026-09-22T00:00:00Z
-    static func at(_ hour: Int64, _ minute: Int64) -> Int64 { day + (hour * 60 + minute) * 60_000 }
+    public static func at(_ hour: Int64, _ minute: Int64, dayOffset: Int64 = 0) -> Int64 {
+        day + dayOffset * 86_400_000 + (hour * 60 + minute) * 60_000
+    }
 
-    static let round12: [Message] = [
+    public static let round12: [Message] = [
         Message(id: "r1", author: .rich, text: "Morning. Three things moved overnight: the Henderson proposal came back signed, payroll cleared, and the offsite venue is confirmed for the 14th. Nothing needs you before ten.", sentAt: at(8, 2)),
         Message(id: "m1", author: .me, text: "Push my 10:30 with Dana to Thursday and tell her why.", sentAt: at(8, 14)),
         Message(id: "r2", author: .rich, text: "Done. Dana has Thursday at 2:00 PM and knows it’s board prep. I also moved your prep block to Wednesday afternoon so it isn’t the night before.", sentAt: at(8, 15)),
-        Message(id: "m2", author: .me, kind: .voice, text: "", sentAt: at(8, 31), durationMs: 8000),
+        Message(id: "m2", author: .me, kind: .voice, text: "", sentAt: at(8, 31), durationMs: 8000, levels: wave(count: 42, seed: 3)),
         Message(id: "r3", author: .rich, text: "Got it. I’ll draft the note to the Portland team tonight and have it in your inbox by seven tomorrow. Want me to copy Priya?", sentAt: at(8, 32)),
         Message(id: "m3", author: .me, text: "Yes. And keep it short.", sentAt: at(8, 33)),
         Message(id: "r4", author: .rich, text: "Short it is.", sentAt: at(8, 33)),
     ]
+
+    public static let older: [Message] = [
+        Message(id: "o1", author: .me, text: "Did the insurance renewal go out?", sentAt: at(18, 10, dayOffset: -1)),
+        Message(id: "o2", author: .rich, text: "Yes, at 4:52 PM, with the updated headcount. The broker confirmed receipt.", sentAt: at(18, 11, dayOffset: -1)),
+        Message(id: "o3", author: .rich, text: "One thing for tomorrow: the lease amendment still needs your signature. I’ve put it first in your inbox.", sentAt: at(21, 40, dayOffset: -1)),
+    ]
+
+    /// Round 12's `waveFor(n, seed)`, reproduced exactly — including JavaScript's double-precision
+    /// arithmetic in its generator — so a fixture's bubble draws the mockup's own waveform.
+    public static func wave(count: Int, seed: Int) -> [Double] {
+        var x = Int64(seed)
+        var out: [Double] = []
+        for i in 0..<count {
+            let product = Double(x) * 1_103_515_245 + 12_345   // rounded like a JS number
+            x = Int64(product.truncatingRemainder(dividingBy: 4_294_967_296)) & 0x7fff_ffff
+            let r = Double(x >> 8) / 8_388_608
+            let value = 0.15 + abs(sin(Double(i) * 0.9 + Double(seed))) * 0.6 * r + r * 0.25
+            out.append(min(1, max(0.05, value)))
+        }
+        return out
+    }
 }
 
 /// A deterministic sequence of commands with the checks that make it a test, in the preserved
-/// runtime's shape (`richos/mobile/dev/runtime.js` `scenario`). The same steps run headless and
-/// inside the Debug app; `rios sim verify` requires identical traces.
+/// runtime's shape (`richos/mobile/dev/runtime.js` `scenario`). The same steps run headless and inside
+/// the Debug app; `rios sim verify` requires identical results.
 public struct Scenario: Sendable {
     public var name: String
     public var steps: [Command]
     public var check: @Sendable ([AppState]) throws -> Void
 
+    static func require(_ ok: Bool, _ why: String) throws { if !ok { throw CoreError("Scenario failed: \(why)") } }
+
+    static let link = "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H"
+    static let answer = PairAnswer(deviceID: "dev_8d4c57b7ff82",
+                                   fingerprintHex: "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B",
+                                   threadID: "thr_5c1e")
+
     public static let all: [Scenario] = [
-        // The composer takes a draft and gives it back across a theme change and a restart: the
-        // smallest round trip through every action and effect this foundation has.
-        Scenario(
-            name: "compose-draft",
-            steps: [
-                Command(.fixture, name: "conv-empty"),
-                Command(.action, action: .compose(text: "Hello Rich")),
-                Command(.action, action: .setAppearance(.light)),
-                Command(.restart),
-                Command(.action, action: .compose(text: "")),
-                Command(.action, action: .setAppearance(.dark)),
-            ],
-            check: { states in
-                func require(_ ok: Bool, _ why: String) throws { if !ok { throw CoreError("Scenario failed: \(why)") } }
-                try require(states[0].screen == .conversationEmpty, "starts on conv-empty")
-                try require(states[1].draft == "Hello Rich", "compose sets the draft")
-                try require(states[2].appearance == .light && states[2].draft == "Hello Rich", "theme change keeps the draft")
-                try require(states[3] == states[2], "restart restores the persisted draft and theme")
-                try require(states[5] == states[0], "clearing the draft and theme returns to the fixture")
-            }),
+        // The composer takes a draft and gives it back across a theme change and a restart.
+        Scenario(name: "compose-draft", steps: [
+            Command(.fixture, name: "conv-empty"),
+            Command(.action, action: .compose(text: "Hello Rich")),
+            Command(.action, action: .setAppearance(.light)),
+            Command(.restart),
+            Command(.action, action: .compose(text: "")),
+            Command(.action, action: .setAppearance(.dark)),
+        ], check: { s in
+            try require(s[0].screen == .conversationEmpty, "starts on conv-empty")
+            try require(s[1].draft == "Hello Rich", "compose sets the draft")
+            try require(s[2].appearance == .light && s[2].draft == "Hello Rich", "theme change keeps the draft")
+            try require(s[3] == s[2], "restart restores the persisted draft and theme")
+            try require(s[5] == s[0], "clearing the draft and theme returns to the fixture")
+        }),
+        // Scan → found → progress → six words (computed on the phone) → match → consent → empty chat.
+        Scenario(name: "pair-by-scan", steps: [
+            Command(.reset),
+            Command(.action, action: .cameraPermission(.granted)),
+            Command(.action, action: .openScanner),
+            Command(.action, action: .scanned(text: "https://example.com/not-a-pairing-link")),
+            Command(.action, action: .scanned(text: link)),
+            Command(.action, action: .closeScanner),
+            Command(.action, action: .pairingAnswered(answer)),
+            Command(.action, action: .confirmWords),
+            Command(.restart),
+            Command(.action, action: .acceptConsent),
+        ], check: { s in
+            try require(s[2].screen == .pairScanner && s[2].scanner == .looking, "the scanner opens")
+            try require(s[3] == s[2], "a code that is not a pairing link keeps the camera looking")
+            try require(s[4].screen == .pairScanner && s[4].scanner == .found && s[4].pairing == .connecting, "a pairing link is found")
+            try require(s[5].screen == .pairProgress, "then pairing is in progress")
+            try require(s[6].screen == .pairWords && s[6].fingerprintWords.joined(separator: " ") == "cobra morning cargo moose grape bonus",
+                        "the six words are computed on the phone from the Mac's hex (contract fixture)")
+            try require(s[7].screen == .pairConsent && s[7].mac?.deviceID == "dev_8d4c57b7ff82", "they match; consent comes before the first message")
+            try require(s[8].screen == .pairConsent, "the pairing survives a restart")
+            try require(s[9].screen == .conversationEmpty, "Continue opens the conversation")
+        }),
+        // A refused code, a bad pasted link, and "they do not match" each leave nothing paired.
+        Scenario(name: "pair-refused-and-rejected", steps: [
+            Command(.reset),
+            Command(.action, action: .openSheet(.pairingLink)),
+            Command(.action, action: .submitPairingLink(text: "http://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H")),
+            Command(.action, action: .submitPairingLink(text: link)),
+            Command(.action, action: .pairingRefused),
+            Command(.action, action: .submitPairingLink(text: link)),
+            Command(.action, action: .pairingAnswered(answer)),
+            Command(.action, action: .rejectWords),
+        ], check: { s in
+            try require(s[2].pairingProblem == .invalidLink("Pairing requires an HTTPS origin"), "an http link is refused with the reference message")
+            try require(s[3].screen == .pairProgress && s[3].sheet == nil, "a valid pasted link starts pairing and closes the sheet")
+            try require(s[4].screen == .pairIntro && s[4].pairingProblem == .refused && s[4].mac == nil, "a refused code pairs nothing")
+            try require(s[7].screen == .pairIntro && s[7].mac == nil && s[7].fingerprintWords.isEmpty, "they do not match: nothing is kept")
+        }),
     ]
 
     public static func named(_ name: String?) throws -> Scenario {
