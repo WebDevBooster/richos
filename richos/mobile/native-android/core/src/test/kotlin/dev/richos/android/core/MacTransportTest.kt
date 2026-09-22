@@ -134,6 +134,26 @@ class MacTransportTest {
     }
 
     @Test
+    fun `a commit refused for missing uploads re-uploads exactly those and resends the same bytes`() = runTest {
+        var commits = 0
+        val mac = FakeMac { r ->
+            when {
+                r.url.contains("kind=attachment") -> ok("""{"duplicate":false}""")
+                commits++ == 0 -> HttpResponse(422, mapOf("x-richos-challenge" to "c2"), """{"accepted":false,"retry":true,"missing":["a2"],"reason":"not held"}""".toByteArray())
+                else -> ok(receipt)
+            }
+        }
+        val core = core(mac, files = mapOf("a1" to byteArrayOf(1), "a2" to byteArrayOf(2)),
+            session = Fixtures.fixture("online").session.copy(capabilities = listOf("attachments"), attachmentLimits = AttachmentLimits()))
+        val s = core.dispatch(Action.SendAttachments(listOf(Attachment("a1", "a.jpg", "image/jpeg", 1, "x"), Attachment("a2", "b.jpg", "image/jpeg", 1, "y"))))
+        val paths = mac.seen.map { it.url.substringAfter("/api/messages") }
+        assertEquals(listOf("?kind=attachment&client_id=c-1&attachment_id=a1&name=a.jpg", "?kind=attachment&client_id=c-1&attachment_id=a2&name=b.jpg", "",
+            "?kind=attachment&client_id=c-1&attachment_id=a2&name=b.jpg", ""), paths)
+        assertTrue(mac.seen[2].body!!.contentEquals(mac.seen[4].body!!), "the same commit bytes")
+        assertTrue(s.outbox.isEmpty())
+    }
+
+    @Test
     fun `the Mac's attachment limits are enforced before anything is queued`() = runTest {
         val limits = AttachmentLimits(maxFileBytes = 10, maxFilesPerMessage = 1, mediaTypes = listOf("image/jpeg"))
         val core = core(FakeMac { ok(receipt) }, session = Fixtures.fixture("online").session.copy(capabilities = listOf("attachments"), attachmentLimits = limits))

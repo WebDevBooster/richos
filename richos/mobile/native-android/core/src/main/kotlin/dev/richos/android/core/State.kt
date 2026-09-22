@@ -92,6 +92,12 @@ data class Session(
     val pushHostId: String? = null,
     /** Per conversation: whether the Mac holds rows older than the oldest one cached. */
     val olderAvailable: Map<String, Boolean> = emptyMap(),
+    /**
+     * The last live frame id the stream delivered: the Mac's HUB cursor, which a reconnect's
+     * `since` counts in. Not a row's cursor: a phone message takes 3 live cursors but 2 history
+     * positions (Echo's measurement), so the two drift apart.
+     */
+    val streamCursor: Long? = null,
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -185,6 +191,8 @@ data class AppState(
     val olderAvailable: Boolean = false,
     /** A chunk of older messages is on its way (`conv-older-loading`). */
     val loadingOlder: Boolean = false,
+    /** The last live frame id delivered (see [Session.streamCursor]); a reconnect replays from it. */
+    val streamCursor: Long? = null,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow

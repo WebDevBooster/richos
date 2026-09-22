@@ -188,7 +188,9 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
 
     private fun classify(response: HttpResponse, afterResign: Boolean): TransportFailure {
         val json = runCatching { lenient.parseToJsonElement(response.text) as? JsonObject }.getOrNull()
+        val missing = (json?.get("missing") as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty()
         return when {
+            response.status == 422 && missing.isNotEmpty() -> TransportFailure("missing", retryable = true, missing = missing)
             response.status == 403 && json?.get("revoked")?.jsonPrimitive?.booleanOrNull == true -> TransportFailure("revoked", retryable = false)
             response.status == 403 -> TransportFailure("refused", retryable = false)
             response.status == 429 -> TransportFailure("rate-limited", retryable = true)

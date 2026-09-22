@@ -86,6 +86,8 @@ class TransportFailure(
     val retryable: Boolean,
     /** A final answer about THIS message only (409/422/503 with `retry:false`): the queue moves on. */
     val aboutThisMessage: Boolean = false,
+    /** An attachment commit's 422 `{"missing":[ids]}`: the uploads the Mac does not hold. */
+    val missing: List<String> = emptyList(),
 ) : Exception(reason)
 
 class Ports(

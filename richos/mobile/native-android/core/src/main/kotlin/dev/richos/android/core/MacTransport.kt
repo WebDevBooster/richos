@@ -142,7 +142,19 @@ class MacTransport(
             onChallenge(challenge)
         }
         val body = (item.wire ?: Wire.attachments(item.clientId, item.threadId, item.text, item.attachments.orEmpty(), item.queuedAt)).toByteArray(Charsets.UTF_8)
-        val signed = api.signed(apiBase, deviceId, challenge, "POST", "/api/messages", body, "application/json")
+        val signed = try {
+            api.signed(apiBase, deviceId, challenge, "POST", "/api/messages", body, "application/json")
+        } catch (e: TransportFailure) {
+            if (e.missing.isEmpty()) throw e
+            // The Mac lost some uploads (a sweep, a restart): upload exactly those, whole, and
+            // resend the SAME commit bytes once (Echo 22e59ed8). Only the commit's 200 is accepted.
+            for (attachment in item.attachments.orEmpty().filter { it.id in e.missing }) {
+                val bytes = files.bytes(attachment.id) ?: throw TransportFailure("attachment-missing", retryable = false, aboutThisMessage = true)
+                challenge = api.signed(apiBase, deviceId, challenge, "POST", Wire.attachmentPath(item.clientId, attachment), bytes, attachment.mediaType).challenge
+                onChallenge(challenge)
+            }
+            api.signed(apiBase, deviceId, challenge, "POST", "/api/messages", body, "application/json")
+        }
         onChallenge(signed.challenge)
         return receipt(signed.response.text)
     }

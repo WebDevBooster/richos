@@ -116,18 +116,19 @@ class ConnectionOwner(
         fun backoffMs(attempt: Int): Long = minOf(FIRST_RETRY_MS shl (attempt - 1).coerceIn(0, 20), MAX_RETRY_MS)
 
         /**
-         * `/api/events?thread_id=…[&since=…]`: replay the last observed row inclusively (`since =
-         * latest - 1`, and before any row still streaming), so a reconnect gets a frame at once;
-         * no `since` after the Mac said this socket fell behind (re-snapshot) or with no history.
+         * `/api/events?thread_id=…[&since=…]`: `since` counts in the Mac's HUB cursor, so replay
+         * from the last live frame id the stream delivered, inclusively (`since = frame - 1`), so a
+         * reconnect gets a frame at once. Never from a row's cursor, hello's `latest_cursor` or a
+         * send's answer: those are history positions and drift from the hub (Echo's measurement:
+         * after 3 phone messages `latest_cursor` is 6 while the frame id is 9). No `since` after a
+         * re-snapshot or before any frame arrived.
          */
         fun eventsPath(state: AppState, resnapshot: Boolean = false): String {
             val thread = state.selectedThreadId
             val base = "/api/events" + (thread?.let { "?thread_id=${Signing.encodeURIComponent(it)}" } ?: "")
-            val latest = state.messages.maxOfOrNull { it.cursor } ?: 0L
-            if (resnapshot || latest <= 0) return base
-            val incomplete = state.messages.filter { !it.complete }.map { maxOf(0L, it.cursor - 1) }
-            val since = (incomplete + (latest - 1)).min()
-            return base + (if ('?' in base) "&" else "?") + "since=$since"
+            val frame = state.streamCursor ?: 0L
+            if (resnapshot || frame <= 0) return base
+            return base + (if ('?' in base) "&" else "?") + "since=${frame - 1}"
         }
     }
 }

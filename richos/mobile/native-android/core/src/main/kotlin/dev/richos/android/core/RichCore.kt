@@ -146,7 +146,10 @@ class RichCore private constructor(
         var next = session
         for (item in items) {
             when (item) {
-                is SseItem.Frame -> next = apply(next, item.frame)
+                is SseItem.Frame -> {
+                    next = apply(next, item.frame)
+                    item.frame.id?.toLongOrNull()?.let { next = next.copy(streamCursor = it) }
+                }
                 SseItem.KeepAlive -> Unit
                 is SseItem.Resnapshot -> resnapshotRequested = true
             }
@@ -595,6 +598,7 @@ class RichCore private constructor(
             notifications = session.notifications,
             attachmentLimits = session.attachmentLimits,
             olderAvailable = session.selectedThreadId?.let { session.olderAvailable[it] } ?: false,
+            streamCursor = session.streamCursor,
             loadingOlder = loadingOlder,
             sheet = sheet,
             focusMessageId = focusMessageId,

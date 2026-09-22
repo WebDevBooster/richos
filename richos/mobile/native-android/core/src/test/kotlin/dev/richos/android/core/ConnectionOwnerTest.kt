@@ -130,15 +130,14 @@ class ConnectionOwnerTest {
     }
 
     @Test
-    fun `a reconnect replays from the last row, or from before a row still streaming`() {
-        val base = Fixtures.fixture("online").session
-        fun state(vararg rows: Row) = AppState.of(base.copy(cache = mapOf("general" to rows.toList())), emptyList(), null, null)
-        assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(state()))
-        assertEquals("/api/events?thread_id=general&since=6", ConnectionOwner.eventsPath(state(Row("a", "general", 7, "rich"))))
-        assertEquals(
-            "/api/events?thread_id=general&since=4",
-            ConnectionOwner.eventsPath(state(Row("a", "general", 5, "rich", state = "streaming", complete = false), Row("b", "general", 7, "rich"))),
-        )
-        assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(state(Row("a", "general", 7, "rich")), resnapshot = true))
+    fun `a reconnect replays from the last live frame id, never from a row's history cursor`() = runTest {
+        val core = core(Mac { HttpResponse(404, emptyMap(), ByteArray(0)) })
+        assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(core.state))
+        // Echo's measured drift: after 3 phone messages the rows' latest cursor is 6, the frame id 9.
+        val rows = (1..6).joinToString(",") { """{"id":"r$it","thread_id":"general","cursor":$it,"role":"ceo","kind":"text","text":"m$it"}""" }
+        val s = core.receive("id: 9\nevent: hello\ndata: {\"thread_id\":\"general\",\"latest_cursor\":6,\"capabilities\":[\"text\"],\"messages\":[$rows]}\n\n".toByteArray())
+        assertEquals(9L, s.streamCursor)
+        assertEquals("/api/events?thread_id=general&since=8", ConnectionOwner.eventsPath(s))
+        assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(s, resnapshot = true))
     }
 }
