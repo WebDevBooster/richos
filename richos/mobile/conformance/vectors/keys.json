@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "file": "keys.json",
+  "purpose": "TEST ONLY. Never ship this key. Private scalar = SHA-256(seed). Identical to the test key in the 2026-09-22 phone protocol contract fixtures.",
+  "seed_utf8": "richos-phone-protocol-test-device-key-v1",
+  "test_only_private_scalar_hex": "b3de06386668d489a634655bd52f6a42448b378ced5350fb1267465f2b245bfd",
+  "public_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+  "public_key_jwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE",
+    "y": "LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw"
+  },
+  "public_key_spki_b64url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEd4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywEtd9_mVMzXBDW3tCT-XEM_iz9n9gXSULOWKqWhLfOZ3A",
+  "spki_prefix_hex": "3059301306072a8648ce3d020106082a8648ce3d030107034200",
+  "device_id": "dev_8d4c57b7ff82",
+  "device_id_rule": "\"dev_\" + lowercase hex of the first 6 bytes of SHA-256(65-byte uncompressed point)",
+  "device_key_hash_hex": "8d4c57b7ff82582e474b7ad4090dd7f6c6ab0b99b4e1575d5a46232d084e75b0"
+}

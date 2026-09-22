@@ -1,0 +1,584 @@
+{
+  "schema": 1,
+  "file": "errors.json",
+  "source": "web/web-app/lib/api.js classification (ApiError reason/retryable/aboutThisMessage) and web/web-app/lib/queue.js flush, with two messages queued",
+  "client_actions": {
+    "delivered": "remove from the outbox; keep the stand-in bubble until the Mac row arrives",
+    "retry_same_bytes_after_backoff": "keep the message waiting and resend the SAME bytes when retry_after_ms has passed; nothing behind it goes first",
+    "final_for_this_item_queue_continues": "block this message (show it to the person with a way to discard) and carry on with the rest of the queue",
+    "final_stop_queue": "block this message and stop the queue: the refusal is about the phone, not the message",
+    "phone_forgotten_stop_queue_and_unpair": "the Mac forgot this phone: stop, delete the key and pairing, clear the outbox, offer to pair again"
+  },
+  "cases": [
+    {
+      "name": "200 accepted",
+      "mac_answer": {
+        "status": 200,
+        "body": {
+          "message_id": "intake_1",
+          "cursor": 1,
+          "thread_id": "thr_5c1e",
+          "accepted_at": "2026-09-22T13:00:00.412Z",
+          "duplicate": false
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "delivered",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": null,
+        "message_state_after": "sent",
+        "retry_after_ms": null,
+        "next_message_attempted": true,
+        "queue_reason": null,
+        "client_action": "delivered",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          },
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "200 duplicate",
+      "mac_answer": {
+        "status": 200,
+        "body": {
+          "message_id": "intake_1",
+          "cursor": 1,
+          "thread_id": "thr_5c1e",
+          "accepted_at": "2026-09-22T13:00:00.412Z",
+          "duplicate": true
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "delivered",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": null,
+        "message_state_after": "sent",
+        "retry_after_ms": null,
+        "next_message_attempted": true,
+        "queue_reason": null,
+        "client_action": "delivered",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          },
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "transport failure (Mac unreachable)",
+      "mac_answer": {
+        "transport": true
+      },
+      "required": {
+        "client_action": "retry_same_bytes_after_backoff",
+        "retry_after_ms": 1000
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "unreachable",
+          "status": 0,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "unreachable",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "403 {\"revoked\":true}",
+      "mac_answer": {
+        "status": 403,
+        "body": {
+          "revoked": true
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "phone_forgotten_stop_queue_and_unpair",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "note": "core/app.js sets paired = false on reason \"revoked\"; the client then forgets the key and offers to pair again (contract section 4.2). Contract section 4.4: a forgotten phone usually sees an unreachable Mac instead, so do not wait for this 403 before offering to pair again.",
+      "reference": {
+        "classification": {
+          "reason": "revoked",
+          "status": 0,
+          "retryable": false,
+          "about_this_message": false
+        },
+        "message_state_after": "blocked",
+        "retry_after_ms": null,
+        "next_message_attempted": false,
+        "queue_reason": "revoked",
+        "client_action": "phone_forgotten_stop_queue_and_unpair",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "403 without revoked",
+      "mac_answer": {
+        "status": 403,
+        "body": {
+          "other": true
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "final_stop_queue",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "refused",
+          "status": 403,
+          "retryable": false,
+          "about_this_message": false
+        },
+        "message_state_after": "blocked",
+        "retry_after_ms": null,
+        "next_message_attempted": false,
+        "queue_reason": "refused",
+        "client_action": "final_stop_queue",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "404 empty (no new challenge)",
+      "mac_answer": {
+        "status": 404,
+        "body": "",
+        "headers": {}
+      },
+      "required": {
+        "client_action": "final_stop_queue",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "refused",
+          "status": 404,
+          "retryable": false,
+          "about_this_message": false
+        },
+        "message_state_after": "blocked",
+        "retry_after_ms": null,
+        "next_message_attempted": false,
+        "queue_reason": "refused",
+        "client_action": "final_stop_queue",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "409 {\"retry\":false} (client_id reused with different bytes)",
+      "mac_answer": {
+        "status": 409,
+        "body": {
+          "retry": false,
+          "reason": "that client_id was used for a different message"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "final_for_this_item_queue_continues",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "refused",
+          "status": 409,
+          "retryable": false,
+          "about_this_message": true
+        },
+        "message_state_after": "blocked",
+        "retry_after_ms": null,
+        "next_message_attempted": true,
+        "queue_reason": "refused",
+        "client_action": "final_for_this_item_queue_continues",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          },
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "413 empty (body too large or too slow)",
+      "mac_answer": {
+        "status": 413,
+        "body": "",
+        "headers": {}
+      },
+      "required": {
+        "client_action": "final_for_this_item_queue_continues",
+        "retry_after_ms": null
+      },
+      "required_source": "contract",
+      "required_because": "Contract section 4.2: 413 is final for that exact request. The same bytes will be refused again, and the reference retries them forever on its 1 s to 16 s backoff, holding the queue behind them.",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 413,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "422 {\"retry\":false} (this item can never be taken)",
+      "mac_answer": {
+        "status": 422,
+        "body": {
+          "accepted": false,
+          "retry": false,
+          "reason": "no speech"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "final_for_this_item_queue_continues",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "refused",
+          "status": 422,
+          "retryable": false,
+          "about_this_message": true
+        },
+        "message_state_after": "blocked",
+        "retry_after_ms": null,
+        "next_message_attempted": true,
+        "queue_reason": "refused",
+        "client_action": "final_for_this_item_queue_continues",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          },
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "422 {\"retryable\":false} (native push refusal key)",
+      "mac_answer": {
+        "status": 422,
+        "body": {
+          "reason": "unsupported",
+          "retryable": false
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "final_for_this_item_queue_continues",
+        "retry_after_ms": null
+      },
+      "required_source": "contract",
+      "required_because": "Contract sections 4.2 and 11 item 7: this body is final. api.js reads only \"retry\" === false and so calls it a retryable fault. The shipped Mac bridge never returns it today.",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 422,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "429 with Retry-After: 60",
+      "mac_answer": {
+        "status": 429,
+        "body": "",
+        "headers": {
+          "Retry-After": "60"
+        }
+      },
+      "required": {
+        "client_action": "retry_same_bytes_after_backoff",
+        "retry_after_ms": 60000
+      },
+      "required_source": "contract",
+      "required_because": "Contract sections 3.5 and 4.2: wait Retry-After seconds. The reference ignores the header and retries after 1 s, which spends the rolling 60-per-minute budget it was just refused for.",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 429,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "500 empty",
+      "mac_answer": {
+        "status": 500,
+        "body": "",
+        "headers": {}
+      },
+      "required": {
+        "client_action": "retry_same_bytes_after_backoff",
+        "retry_after_ms": 1000
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 500,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "503 {\"retry\":false} (uncertain intake)",
+      "mac_answer": {
+        "status": 503,
+        "body": {
+          "retry": false,
+          "reason": "your Mac may already have this message"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "final_for_this_item_queue_continues",
+        "retry_after_ms": null
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "refused",
+          "status": 503,
+          "retryable": false,
+          "about_this_message": true
+        },
+        "message_state_after": "blocked",
+        "retry_after_ms": null,
+        "next_message_attempted": true,
+        "queue_reason": "refused",
+        "client_action": "final_for_this_item_queue_continues",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          },
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "503 {\"accepted\":false} (receipt not written)",
+      "mac_answer": {
+        "status": 503,
+        "body": {
+          "accepted": false,
+          "reason": "could not write the receipt"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "retry_same_bytes_after_backoff",
+        "retry_after_ms": 1000
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 503,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "503 {\"reason\":\"unreachable\",\"retryable\":true}",
+      "mac_answer": {
+        "status": 503,
+        "body": {
+          "reason": "unreachable",
+          "retryable": true,
+          "message": "push service unreachable"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "retry_same_bytes_after_backoff",
+        "retry_after_ms": 1000
+      },
+      "required_source": "reference",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 503,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    }
+  ]
+}

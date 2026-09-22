@@ -1,0 +1,1583 @@
+{
+  "schema": 1,
+  "file": "events.json",
+  "source": "mobile/platform/native.js sseParser; web/web-app/lib/api.js openEvents; web/web-app/lib/thread.js createThread",
+  "wire_format": "id: <cursor>\\nevent: <hello|message|delta>\\ndata: <one line of JSON>\\n\\n; a line starting with \":\" is a comment (keep-alive, re-snapshot). The reference parser delivers (event, data) and ignores id.",
+  "reconnect_rule": "reconnect with since = latest cursor - 1 so at least one frame arrives; after \": re-snapshot\" the socket ends: reconnect WITHOUT since (contract section 5.4)",
+  "wire_cases": [
+    {
+      "name": "a whole turn: hello, CEO row, streaming row, two deltas, final row, keep-alive",
+      "frames": [
+        {
+          "id": 2,
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 2,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push"
+            ],
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              },
+              {
+                "id": "turn_8:text:0",
+                "thread_id": "thr_5c1e",
+                "cursor": 2,
+                "role": "rich",
+                "kind": "text",
+                "text": "On it! The proposal is with legal.",
+                "created_at": "2026-09-22T13:02:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "complete",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "are in."
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "The numbers are in.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        },
+        {
+          "comment": "keep-alive 1790000000000"
+        }
+      ],
+      "wire_utf8": "id: 2\nevent: hello\ndata: {\"challenge\":\"UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08\",\"api_base\":\"https://mm1.tail1a2b3c.ts.net:8443\",\"thread_id\":\"thr_5c1e\",\"latest_cursor\":2,\"threads\":[{\"id\":\"thr_5c1e\",\"title\":\"the proposal\"},{\"id\":\"thr_77aa\",\"title\":\"hiring\"}],\"vapid_public_key\":\"BExampleVapidKeyOnlyTheWebPushClientUsesIt\",\"capabilities\":[\"text\",\"voice\",\"audio\",\"native-push\"],\"build\":\"1.2.0\",\"messages\":[{\"id\":\"turn_8:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":1,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"created_at\":\"2026-09-22T13:01:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true},{\"id\":\"turn_8:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":2,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"On it! The proposal is with legal.\",\"created_at\":\"2026-09-22T13:02:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}]}\n\nid: 3\nevent: message\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"cursor\":4,\"text\":\"The numbers \"}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"cursor\":4,\"text\":\"are in.\"}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"The numbers are in.\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}\n\n: keep-alive 1790000000000\n\n",
+      "wire_bytes": 1917,
+      "chunkings": {
+        "whole": {
+          "cut_at": []
+        },
+        "one_byte_at_a_time": {
+          "every": 1
+        },
+        "seven_byte_chunks": {
+          "every": 7
+        },
+        "between_the_two_newlines_of_a_frame_end": {
+          "cut_at": [
+            912
+          ]
+        },
+        "inside_the_data_field_name": {
+          "cut_at": [
+            21
+          ]
+        }
+      },
+      "expected_events": [
+        {
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 2,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push"
+            ],
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              },
+              {
+                "id": "turn_8:text:0",
+                "thread_id": "thr_5c1e",
+                "cursor": 2,
+                "role": "rich",
+                "kind": "text",
+                "text": "On it! The proposal is with legal.",
+                "created_at": "2026-09-22T13:02:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "complete",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        },
+        {
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "are in."
+          }
+        },
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "The numbers are in.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "non-ASCII text split across chunks",
+      "frames": [
+        {
+          "id": 5,
+          "event": "message",
+          "data": {
+            "id": "turn_10:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 5,
+            "role": "ceo",
+            "kind": "text",
+            "text": "Café naïve — 東京 🚀",
+            "created_at": "2026-09-22T13:05:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 6,
+          "event": "message",
+          "data": {
+            "id": "turn_10:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:06:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 6,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_10:text:0",
+            "cursor": 6,
+            "text": "Grüße 👋"
+          }
+        }
+      ],
+      "wire_utf8": "id: 5\nevent: message\ndata: {\"id\":\"turn_10:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":5,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"Café naïve — 東京 🚀\",\"created_at\":\"2026-09-22T13:05:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 6\nevent: message\ndata: {\"id\":\"turn_10:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":6,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:06:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 6\nevent: delta\ndata: {\"message_id\":\"turn_10:text:0\",\"cursor\":6,\"text\":\"Grüße 👋\"}\n\n",
+      "wire_bytes": 630,
+      "chunkings": {
+        "whole": {
+          "cut_at": []
+        },
+        "one_byte_at_a_time": {
+          "every": 1
+        },
+        "seven_byte_chunks": {
+          "every": 7
+        },
+        "between_the_two_newlines_of_a_frame_end": {
+          "cut_at": [
+            278
+          ]
+        },
+        "inside_the_data_field_name": {
+          "cut_at": [
+            23
+          ]
+        },
+        "inside_a_multibyte_character": {
+          "cut_at": [
+            121
+          ]
+        }
+      },
+      "expected_events": [
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_10:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 5,
+            "role": "ceo",
+            "kind": "text",
+            "text": "Café naïve — 東京 🚀",
+            "created_at": "2026-09-22T13:05:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_10:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:06:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "event": "delta",
+          "data": {
+            "message_id": "turn_10:text:0",
+            "cursor": 6,
+            "text": "Grüße 👋"
+          }
+        }
+      ]
+    },
+    {
+      "name": "the lag notice comment",
+      "frames": [
+        {
+          "id": 7,
+          "event": "message",
+          "data": {
+            "id": "turn_11:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 7,
+            "role": "ceo",
+            "kind": "text",
+            "text": "ok",
+            "created_at": "2026-09-22T13:07:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "comment": "re-snapshot 300"
+        }
+      ],
+      "wire_utf8": "id: 7\nevent: message\ndata: {\"id\":\"turn_11:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":7,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"ok\",\"created_at\":\"2026-09-22T13:07:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\n: re-snapshot 300\n\n",
+      "wire_bytes": 272,
+      "chunkings": {
+        "whole": {
+          "cut_at": []
+        },
+        "one_byte_at_a_time": {
+          "every": 1
+        },
+        "seven_byte_chunks": {
+          "every": 7
+        },
+        "between_the_two_newlines_of_a_frame_end": {
+          "cut_at": [
+            252
+          ]
+        },
+        "inside_the_data_field_name": {
+          "cut_at": [
+            23
+          ]
+        }
+      },
+      "expected_events": [
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_11:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 7,
+            "role": "ceo",
+            "kind": "text",
+            "text": "ok",
+            "created_at": "2026-09-22T13:07:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "CRLF line endings are tolerated by the reference parser",
+      "frames": [
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        }
+      ],
+      "wire_utf8": "id: 3\r\nevent: message\r\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\r\n\r\nid: 4\r\nevent: message\r\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\r\n\r\nid: 4\r\nevent: delta\r\ndata: {\"message_id\":\"turn_9:text:0\",\"cursor\":4,\"text\":\"The numbers \"}\r\n\r\n",
+      "wire_bytes": 627,
+      "chunkings": {
+        "whole": {
+          "cut_at": []
+        },
+        "one_byte_at_a_time": {
+          "every": 1
+        },
+        "seven_byte_chunks": {
+          "every": 7
+        },
+        "between_the_two_newlines_of_a_frame_end": {
+          "cut_at": [
+            627
+          ]
+        },
+        "inside_the_data_field_name": {
+          "cut_at": [
+            25
+          ]
+        }
+      },
+      "expected_events": [
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        }
+      ]
+    }
+  ],
+  "thread_cases": [
+    {
+      "name": "a whole turn: deltas append, the final row overwrites",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 2,
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 2,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push"
+            ],
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              },
+              {
+                "id": "turn_8:text:0",
+                "thread_id": "thr_5c1e",
+                "cursor": 2,
+                "role": "rich",
+                "kind": "text",
+                "text": "On it! The proposal is with legal.",
+                "created_at": "2026-09-22T13:02:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "complete",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "are in."
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "The numbers are in.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        },
+        {
+          "comment": "keep-alive 1790000000000"
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_8:text:0",
+          "cursor": 2,
+          "role": "rich",
+          "text": "On it! The proposal is with legal.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": true
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_8:text:0",
+          "cursor": 2,
+          "role": "rich",
+          "text": "On it! The proposal is with legal.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": true
+        }
+      ],
+      "filter_changes_the_view": false
+    },
+    {
+      "name": "two conversations interleaved on one stream: only the selected one is shown",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 2,
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 1,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push"
+            ],
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_20:user",
+            "thread_id": "thr_77aa",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "post the job ad",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_20:text:0",
+            "cursor": 4,
+            "text": "Posted to "
+          }
+        },
+        {
+          "id": 5,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 5,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:05:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 6,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 6,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:06:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_20:text:0",
+            "cursor": 4,
+            "text": "three boards."
+          }
+        },
+        {
+          "id": 6,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 6,
+            "text": "The numbers are in."
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_20:text:0",
+            "thread_id": "thr_77aa",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "Posted to three boards.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 5,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 6,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": false
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_20:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "post the job ad",
+          "complete": true
+        },
+        {
+          "id": "turn_20:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "Posted to three boards.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 5,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 6,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": false
+        }
+      ],
+      "filter_changes_the_view": true
+    },
+    {
+      "name": "the same frames replayed after a reconnect change nothing",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 2,
+          "event": "hello",
+          "data": {
+            "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "latest_cursor": 2,
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push"
+            ],
+            "build": "1.2.0",
+            "messages": [
+              {
+                "id": "turn_8:user",
+                "thread_id": "thr_5c1e",
+                "cursor": 1,
+                "role": "ceo",
+                "kind": "text",
+                "text": "where are we on the proposal?",
+                "created_at": "2026-09-22T13:01:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "sent",
+                "complete": true
+              },
+              {
+                "id": "turn_8:text:0",
+                "thread_id": "thr_5c1e",
+                "cursor": 2,
+                "role": "rich",
+                "kind": "text",
+                "text": "On it! The proposal is with legal.",
+                "created_at": "2026-09-22T13:02:00.000Z",
+                "client_id": null,
+                "has_audio": false,
+                "from_microphone": false,
+                "state": "complete",
+                "complete": true
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        },
+        {
+          "id": 3,
+          "event": "message",
+          "data": {
+            "id": "turn_9:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 3,
+            "role": "ceo",
+            "kind": "text",
+            "text": "and the numbers?",
+            "created_at": "2026-09-22T13:03:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "streaming",
+            "complete": false
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "The numbers "
+          }
+        },
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "are in."
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "The numbers are in.",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        },
+        {
+          "comment": "keep-alive 1790000000000"
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_8:text:0",
+          "cursor": 2,
+          "role": "rich",
+          "text": "On it! The proposal is with legal.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": true
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_8:user",
+          "cursor": 1,
+          "role": "ceo",
+          "text": "where are we on the proposal?",
+          "complete": true
+        },
+        {
+          "id": "turn_8:text:0",
+          "cursor": 2,
+          "role": "rich",
+          "text": "On it! The proposal is with legal.",
+          "complete": true
+        },
+        {
+          "id": "turn_9:user",
+          "cursor": 3,
+          "role": "ceo",
+          "text": "and the numbers?",
+          "complete": true
+        },
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "The numbers are in.",
+          "complete": true
+        }
+      ],
+      "filter_changes_the_view": false
+    },
+    {
+      "name": "a Mac stand-in (intake_) retires when the projected CEO row with the same text arrives",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 1,
+          "event": "message",
+          "data": {
+            "id": "intake_42",
+            "thread_id": "thr_5c1e",
+            "cursor": 1,
+            "role": "ceo",
+            "kind": "text",
+            "text": "typed at the Mac",
+            "created_at": "2026-09-22T13:01:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        },
+        {
+          "id": 2,
+          "event": "message",
+          "data": {
+            "id": "turn_30:user",
+            "thread_id": "thr_5c1e",
+            "cursor": 2,
+            "role": "ceo",
+            "kind": "text",
+            "text": "typed at the Mac",
+            "created_at": "2026-09-22T13:02:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "sent",
+            "complete": true
+          }
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_30:user",
+          "cursor": 2,
+          "role": "ceo",
+          "text": "typed at the Mac",
+          "complete": true
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_30:user",
+          "cursor": 2,
+          "role": "ceo",
+          "text": "typed at the Mac",
+          "complete": true
+        }
+      ],
+      "filter_changes_the_view": false
+    },
+    {
+      "name": "a delta before its row: dropped under the filter, the final row carries the full text",
+      "selected_thread": "thr_5c1e",
+      "frames": [
+        {
+          "id": 4,
+          "event": "delta",
+          "data": {
+            "message_id": "turn_9:text:0",
+            "cursor": 4,
+            "text": "early "
+          }
+        },
+        {
+          "id": 4,
+          "event": "message",
+          "data": {
+            "id": "turn_9:text:0",
+            "thread_id": "thr_5c1e",
+            "cursor": 4,
+            "role": "rich",
+            "kind": "text",
+            "text": "early and complete",
+            "created_at": "2026-09-22T13:04:00.000Z",
+            "client_id": null,
+            "has_audio": false,
+            "from_microphone": false,
+            "state": "complete",
+            "complete": true
+          }
+        }
+      ],
+      "expected_view": [
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "early and complete",
+          "complete": true
+        }
+      ],
+      "unfiltered_view": [
+        {
+          "id": "turn_9:text:0",
+          "cursor": 4,
+          "role": "rich",
+          "text": "early and complete",
+          "complete": true
+        }
+      ],
+      "filter_changes_the_view": false
+    }
+  ],
+  "hello_cases": [
+    {
+      "name": "hello takes the challenge, keeps the paired origin and replaces capabilities",
+      "hello": {
+        "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "thread_id": "thr_5c1e",
+        "latest_cursor": 0,
+        "threads": [
+          {
+            "id": "thr_5c1e",
+            "title": "the proposal"
+          },
+          {
+            "id": "thr_77aa",
+            "title": "hiring"
+          }
+        ],
+        "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+        "capabilities": [
+          "text",
+          "voice",
+          "audio",
+          "native-push"
+        ],
+        "build": "1.2.0",
+        "messages": []
+      },
+      "state_after": {
+        "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": null,
+        "capabilities": [
+          "text",
+          "voice",
+          "audio",
+          "native-push"
+        ],
+        "build": "1.2.0",
+        "offers_voice": true,
+        "offers_audio": true
+      }
+    },
+    {
+      "name": "hello with no capabilities offers nothing",
+      "hello": {
+        "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "thread_id": "thr_5c1e",
+        "latest_cursor": 0,
+        "threads": [
+          {
+            "id": "thr_5c1e",
+            "title": "the proposal"
+          },
+          {
+            "id": "thr_77aa",
+            "title": "hiring"
+          }
+        ],
+        "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+        "messages": []
+      },
+      "state_after": {
+        "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": null,
+        "capabilities": [],
+        "build": null,
+        "offers_voice": false,
+        "offers_audio": false
+      }
+    },
+    {
+      "name": "hello naming another origin is refused and the paired origin is kept",
+      "hello": {
+        "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+        "api_base": "https://evil.example:8443",
+        "thread_id": "thr_5c1e",
+        "latest_cursor": 0,
+        "threads": [
+          {
+            "id": "thr_5c1e",
+            "title": "the proposal"
+          },
+          {
+            "id": "thr_77aa",
+            "title": "hiring"
+          }
+        ],
+        "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+        "capabilities": [
+          "text",
+          "voice",
+          "audio",
+          "native-push"
+        ],
+        "build": "1.2.0",
+        "messages": []
+      },
+      "state_after": {
+        "challenge": "UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08",
+        "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+        "api_base_refusal": "a different origin from the app",
+        "capabilities": [
+          "text",
+          "voice",
+          "audio",
+          "native-push"
+        ],
+        "build": "1.2.0",
+        "offers_voice": true,
+        "offers_audio": true
+      }
+    }
+  ],
+  "backfill_case": {
+    "name": "an older page is prepended; more:false marks the beginning",
+    "held": [
+      {
+        "id": "turn_2:user",
+        "thread_id": "thr_5c1e",
+        "cursor": 3,
+        "role": "ceo",
+        "kind": "text",
+        "text": "latest",
+        "created_at": "2026-09-22T13:03:00.000Z",
+        "client_id": null,
+        "has_audio": false,
+        "from_microphone": false,
+        "state": "sent",
+        "complete": true
+      }
+    ],
+    "page": {
+      "messages": [
+        {
+          "id": "turn_1:user",
+          "thread_id": "thr_5c1e",
+          "cursor": 1,
+          "role": "ceo",
+          "kind": "text",
+          "text": "first",
+          "created_at": "2026-09-22T13:01:00.000Z",
+          "client_id": null,
+          "has_audio": false,
+          "from_microphone": false,
+          "state": "sent",
+          "complete": true
+        },
+        {
+          "id": "turn_1:text:0",
+          "thread_id": "thr_5c1e",
+          "cursor": 2,
+          "role": "rich",
+          "kind": "text",
+          "text": "first reply",
+          "created_at": "2026-09-22T13:02:00.000Z",
+          "client_id": null,
+          "has_audio": false,
+          "from_microphone": false,
+          "state": "complete",
+          "complete": true
+        }
+      ],
+      "more": false
+    },
+    "expected_view": [
+      {
+        "id": "turn_1:user",
+        "cursor": 1,
+        "role": "ceo",
+        "text": "first",
+        "complete": true
+      },
+      {
+        "id": "turn_1:text:0",
+        "cursor": 2,
+        "role": "rich",
+        "text": "first reply",
+        "complete": true
+      },
+      {
+        "id": "turn_2:user",
+        "cursor": 3,
+        "role": "ceo",
+        "text": "latest",
+        "complete": true
+      }
+    ],
+    "at_the_beginning": true
+  }
+}
