@@ -28,6 +28,9 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Theme
+import dev.richos.android.ui.RichApp
+import dev.richos.android.ui.model.ScreenModel
+import dev.richos.android.ui.toAction
 
 /** The single activity (build plan §3.3). Edge to edge; Compose draws everything. */
 class MainActivity : ComponentActivity() {
@@ -52,7 +55,14 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = !dark
                 }
             }
-            AppRoot(state)
+            val refusal by store.lastRefusal.collectAsStateWithLifecycle()
+            val current = state
+            if (current != null) {
+                RichApp(ScreenModel(app = current, refusal = refusal), onEvent = { e -> e.toAction()?.let(store::dispatch) })
+            } else {
+                // Until the saved state is read (a few milliseconds): the ground, nothing else.
+                AppRoot(null)
+            }
         }
     }
 }

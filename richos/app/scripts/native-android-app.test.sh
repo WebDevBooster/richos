@@ -12,7 +12,7 @@
 # every suite and a cold emulator boot is the most expensive step in this file.
 # run-tests: no-host-screen: Robolectric runs on the JVM; the opt-in emulator is started with -no-window
 # run-tests: inputs richos/mobile/native-android/app richos/mobile/native-android/core richos/mobile/native-android/bin richos/mobile/native-android/gradle richos/mobile/native-android/gradlew richos/mobile/native-android/settings.gradle.kts richos/mobile/native-android/build.gradle.kts richos/mobile/native-android/gradle.properties richos/app/scripts/native-android-app.test.sh
-# run-tests: covers richos/mobile/native-android/app/src/debug/kotlin/dev/richos/android/app/debug/DevBridge.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/AppPorts.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/AppStore.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/MainActivity.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/RichApplication.kt richos/mobile/native-android/app/src/test/kotlin/dev/richos/android/app/AppTest.kt richos/mobile/native-android/app/src/testDebug/kotlin/dev/richos/android/app/debug/DevBridgeTest.kt richos/mobile/native-android/bin/randroid richos/mobile/native-android/gradlew richos/mobile/native-android/gradle/libs.versions.toml
+# run-tests: covers richos/mobile/native-android/app/src/debug/kotlin/dev/richos/android/app/debug/DevBridge.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/AppPorts.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/AppStore.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/MainActivity.kt richos/mobile/native-android/app/src/main/kotlin/dev/richos/android/app/RichApplication.kt richos/mobile/native-android/app/src/test/kotlin/dev/richos/android/app/AppTest.kt richos/mobile/native-android/app/src/testDebug/kotlin/dev/richos/android/app/debug/DevBridgeTest.kt richos/mobile/native-android/app/src/testDebug/kotlin/dev/richos/android/app/debug/ScreenFollowsCoreTest.kt richos/mobile/native-android/bin/randroid richos/mobile/native-android/gradle/libs.versions.toml richos/mobile/native-android/gradlew
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../../.." && pwd)"
@@ -35,7 +35,8 @@ fi
 fails=0
 bad() { echo "  FAIL  native-android-app: $1"; fails=$((fails + 1)); }
 
-"$RANDROID" test app -q
+# Only this stream's tests; the screens' screenshot sweep is native-android-ui.test.sh (A2).
+"$RANDROID" test app -q --tests 'dev.richos.android.app.*'
 code=$?
 if [ "$code" -eq 2 ]; then echo "  NOT RUN  native-android-app: bin/randroid reported a missing host tool"; exit 2; fi
 [ "$code" -eq 0 ] || bad "Robolectric tests (:app:testDebugUnitTest) exited $code"
