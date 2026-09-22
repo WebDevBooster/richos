@@ -503,6 +503,38 @@ let repositoryRoot: URL = {
     }
 }
 
+/// A pretend platform: answers the microphone question and records what it was asked.
+actor FakePlatform: EffectHandler {
+    var handled: [Effect] = []
+    let microphone: Permission
+    init(microphone: Permission) { self.microphone = microphone }
+    func handle(_ effect: Effect, state: AppState) async -> [Action] {
+        handled.append(effect)
+        return effect == .requestMicrophone ? [.microphonePermission(microphone)] : []
+    }
+}
+
+@Suite struct EffectSeamTests {
+    @Test func anEffectsAnswerGoesBackThroughTheReducer() async throws {
+        let platform = FakePlatform(microphone: .granted)
+        let host = try await HeadlessHost(storage: MemoryStorage(), handler: platform)
+        _ = try await CommandRunner.execute(Command(.fixture, name: "comp-idle"), on: host)
+        let after = try await host.dispatch(.voicePress(id: "v", width: 386, at: 1))
+        #expect(after.microphone == .granted && after.sheet == nil && after.voice == nil, "the OS answer closed the question")
+        let handled = await platform.handled
+        #expect(handled == [.requestMicrophone])
+        let pressed = try await host.dispatch(.voicePress(id: "v2", width: 386, at: 2))
+        #expect(pressed.voice?.phase == .pressed, "the next press records")
+    }
+
+    @Test func withoutAHandlerEffectsAreRecordedNotGuessed() async throws {
+        let runner = EffectRunner(storage: MemoryStorage())
+        let followUps = try await runner.run([.persist, .requestMicrophone], state: .initial)
+        let skipped = await runner.skipped
+        #expect(followUps.isEmpty && skipped == [.requestMicrophone])
+    }
+}
+
 @Suite struct StorageTests {
     func scratch() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("rios-core-tests-\(UUID().uuidString)")
