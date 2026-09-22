@@ -93,6 +93,36 @@ const LIVE_CHALLENGES: usize = 256;
 /// 60 requests per rolling minute, and at most 4 concurrent event streams. Sized for one CEO
 /// and one phone (plan §2.5 item 6) — a hostile device on his Wi-Fi cannot exhaust the Mac by
 /// being loud, and a phone that reconnects a few times in a row never trips it.
+///
+/// **THREE BUCKETS OF 60, NOT ONE** — PRD 2026-09-21 §4 (*"per-device limits, bounded
+/// unauthenticated work"*) and §7 (*"another host/device cannot … exhaust its authenticated
+/// limits"*). One shared window let anybody who could reach the port — over RichOS Connect,
+/// anybody on the internet — refuse the paired phone `RateLimited` by sending 60 requests a
+/// minute. What [`DeviceDesk::verify`] does now, in order:
+///
+/// 1. **A forgotten phone's `Revoked` is answered before any bucket.** It is a lookup over at most
+///    8 ids, no more work than checking a bucket, and a final answer must not become "come back
+///    later" because somebody else is loud.
+/// 2. **The cheap constant-time device-id match decides which bucket a request spends.**
+/// 3. **Strangers** — any id that is not the paired phone's — share one bucket. Nothing behind it
+///    does crypto; it bounds how often the refusal path runs and keeps answering a flood 429.
+/// 4. **The paired phone's own bucket** is spent before the challenge scan and the signature, so
+///    every request that can reach crypto is counted first. It belongs to the device record and
+///    starts empty when a new phone pairs.
+/// 5. **Pairing attempts** have their own bucket in [`DeviceDesk::complete_pairing`].
+///
+/// **Keyed by device, not by caller address, because there is no caller address.** Over Connect
+/// every request reaches this Mac from `cloudflared` on `127.0.0.1`. The device id is the only
+/// caller identity that exists before the signature.
+///
+/// **The residual, stated:** a caller that already holds the phone's device id reaches the phone's
+/// bucket with forged signatures and can spend it. That id is 48 bits of the phone's key hash, is
+/// never shown to anyone, and travels only inside TLS (and through Cloudflare's TLS termination on
+/// the Connect route); bounded crypto is chosen over keeping that caller out of the phone's minute.
+///
+/// **In memory only, and a restart empties all three.** Writing a window to disk would add a disk
+/// write to every refused request, which is a cost a flood could make the Mac pay; and a caller
+/// cannot restart the Mac, so a restart gives nobody an extra window they could have asked for.
 const RATE_WINDOW_MS: u64 = 60_000;
 const RATE_LIMIT: usize = 60;
 pub const MAX_STREAMS: usize = 4;
@@ -349,7 +379,10 @@ struct State {
     /// Device ids that were paired and have been forgotten. Kept so a phone gets a final
     /// answer rather than an endless 404.
     revoked: VecDeque<String>,
-    requests: VecDeque<u64>,
+    /// The paired phone's own window. Emptied when a new phone pairs (see [`RATE_LIMIT`]).
+    device_requests: VecDeque<u64>,
+    /// Every caller whose device id is not the paired phone's, together.
+    stranger_requests: VecDeque<u64>,
     pairing_requests: VecDeque<u64>,
     streams: usize,
     /// Audio blobs the Mac has minted, by the message id the phone was given. Contract: *"no
@@ -459,7 +492,8 @@ impl DeviceDesk {
                 pairing: None,
                 challenges: VecDeque::new(),
                 revoked,
-                requests: VecDeque::new(),
+                device_requests: VecDeque::new(),
+                stranger_requests: VecDeque::new(),
                 pairing_requests: VecDeque::new(),
                 streams: 0,
                 audio: VecDeque::new(),
@@ -630,6 +664,9 @@ impl DeviceDesk {
             return Err(error.into());
         }
         state.pairing = None;
+        // The phone's window belongs to the device record: a new phone does not inherit the minute
+        // the last one spent.
+        state.device_requests.clear();
         Ok(device)
     }
 
@@ -679,21 +716,23 @@ impl DeviceDesk {
         let mut state = self.state.lock().unwrap();
         let now = super::now_millis();
 
-        // 0. the rate limit, first, so a shouting caller cannot make us do crypto.
-        prune_requests(&mut state.requests, now);
-        if state.requests.len() >= RATE_LIMIT {
-            return Err(Refusal::RateLimited);
-        }
-        state.requests.push_back(now);
-
-        // 1. A known forgotten phone gets a final answer, including after a new pairing.
+        // 0. A known forgotten phone gets a final answer, including after a new pairing, and
+        //    before any bucket: nobody else's volume can turn it into "come back later".
         if state.revoked.iter().any(|id| id == presented.device_id) {
             return Err(Refusal::Revoked);
         }
-        let device = state.device.clone().ok_or(Refusal::NoDevice)?;
-        if !constant_time_eq(device.id.as_bytes(), presented.device_id.as_bytes()) {
-            return Err(Refusal::UnknownDevice);
-        }
+
+        // 1. The cheap check chooses the bucket; the bucket comes before any crypto. A stranger
+        //    spends the strangers' window and is refused without reaching step 2, so it can
+        //    neither make us do crypto nor spend the paired phone's window (see RATE_LIMIT).
+        let device = match state.device.clone() {
+            Some(d) if constant_time_eq(d.id.as_bytes(), presented.device_id.as_bytes()) => d,
+            paired => {
+                admit(&mut state.stranger_requests, now)?;
+                return Err(if paired.is_some() { Refusal::UnknownDevice } else { Refusal::NoDevice });
+            }
+        };
+        admit(&mut state.device_requests, now)?;
 
         // 2. the challenge is one WE issued, and it is still live
         let issued_at = state
@@ -858,6 +897,17 @@ impl Drop for StreamSlot {
         let mut state = self.desk.state.lock().unwrap();
         state.streams = state.streams.saturating_sub(1);
     }
+}
+
+/// Spend one request from `bucket`, or refuse `RateLimited` without spending. A refused request
+/// is not recorded, so a caller that keeps shouting does not push its own window further out.
+fn admit(bucket: &mut VecDeque<u64>, now: u64) -> Result<(), Refusal> {
+    prune_requests(bucket, now);
+    if bucket.len() >= RATE_LIMIT {
+        return Err(Refusal::RateLimited);
+    }
+    bucket.push_back(now);
+    Ok(())
 }
 
 fn prune_requests(requests: &mut VecDeque<u64>, now: u64) {
