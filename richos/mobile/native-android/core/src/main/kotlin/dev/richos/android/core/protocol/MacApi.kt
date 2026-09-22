@@ -46,7 +46,28 @@ data class PairAnswer(
     @SerialName("api_base") val apiBase: String,
     @SerialName("thread_id") val threadId: String? = null,
     val threads: List<ConversationThread> = emptyList(),
+    /** Additive on newer Macs (Echo 194fcb75); absent on older ones. */
+    val capabilities: List<String>? = null,
+    @SerialName("protocol_version") val protocolVersion: Long? = null,
+    @SerialName("attachment_limits") val attachmentLimits: dev.richos.android.core.AttachmentLimits? = null,
+    val build: String? = null,
 )
+
+/**
+ * Native push registration (contract §7.2; Echo 65952d16), the FCM shape: `platform: "fcm"`, no
+ * `environment`, `topic` = the Android application id. Null unregisters.
+ */
+@Serializable
+data class NativePush(
+    val platform: String = "fcm",
+    val token: String,
+    val topic: String,
+    @SerialName("preview_key") val previewKey: String? = null,
+    val previews: Boolean = true,
+)
+
+@Serializable
+data class PushAnswer(@SerialName("host_id") val hostId: String? = null, val registered: Boolean = false)
 
 /** A signed exchange's outcome and the newest challenge it taught us. */
 class Signed(val response: HttpResponse, val challenge: String)
@@ -103,6 +124,21 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
     suspend fun confirm(apiBase: String, deviceId: String, challenge: String, match: Boolean): Signed {
         val body = "{\"device_id\":${JsonPrimitive(deviceId)},\"fingerprint_confirmed\":$match}"
         return signed(apiBase, deviceId, challenge, "POST", "/api/pair", body.toByteArray(), "application/json")
+    }
+
+    /** `{"native_push": {...}}` or `{"native_push": null}` on a signed `POST /api/pair`. */
+    suspend fun registerPush(apiBase: String, deviceId: String, challenge: String, push: NativePush?): Pair<PushAnswer, String> {
+        val registration = if (push == null) "null" else buildString {
+            append("{\"platform\":").append(JsonPrimitive(push.platform))
+            append(",\"token\":").append(JsonPrimitive(push.token))
+            append(",\"topic\":").append(JsonPrimitive(push.topic))
+            if (push.previewKey != null) append(",\"preview_key\":").append(JsonPrimitive(push.previewKey))
+            append(",\"previews\":").append(push.previews)
+            append('}')
+        }
+        val signed = signed(apiBase, deviceId, challenge, "POST", "/api/pair", "{\"native_push\":$registration}".toByteArray(), "application/json")
+        val answer = runCatching { lenient.decodeFromString(PushAnswer.serializer(), signed.response.text) }.getOrElse { throw TransportFailure("fault", retryable = true) }
+        return answer to signed.challenge
     }
 
     private suspend fun exchange(request: HttpRequest): HttpResponse = try {

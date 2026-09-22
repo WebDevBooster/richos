@@ -40,6 +40,9 @@ interface Transport {
 
     /** A recorded voice message. A transport without voice refuses it for this message only. */
     suspend fun sendVoice(item: OutboxItem): Receipt = throw TransportFailure("unsupported", retryable = false, aboutThisMessage = true)
+
+    /** Photos and files: every upload, then the commit. Only the commit's 200 means accepted. */
+    suspend fun sendAttachments(item: OutboxItem): Receipt = throw TransportFailure("unsupported", retryable = false, aboutThisMessage = true)
 }
 
 /**
@@ -88,7 +91,8 @@ class TransportFailure(
 class Ports(
     val storage: OutboxStorage,
     val session: SessionStore,
-    val transport: Transport,
+    /** Null in the app: the core speaks to the paired Mac itself ([MacTransport]). A script supplies one. */
+    val transport: Transport?,
     val clock: Clock,
     val ids: IdSource,
     /** The wire to the Mac, for pairing and every signed request (`protocol.MacApi`). */
@@ -99,4 +103,7 @@ class Ports(
     val deviceName: String = "Android phone",
     val recorder: Recorder = Recorder.NONE,
     val platform: Platform = Platform.NONE,
+    val files: FileStore = FileStore.NONE,
+    /** The id the Mac registers push for (Echo 65952d16: `dev.richos.native.android` in development). */
+    val applicationId: String = "dev.richos.native.android",
 )

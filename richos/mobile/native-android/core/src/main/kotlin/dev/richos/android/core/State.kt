@@ -86,6 +86,10 @@ data class Session(
     val update: UpdateNotice? = null,
     /** Voice is switched off by policy (`upd-feature-off`); text still works. */
     val voicePaused: Boolean = false,
+    /** The Mac's photo and file limits; null until a Mac that takes attachments says so. */
+    val attachmentLimits: AttachmentLimits? = null,
+    /** The Mac's push host id from a native registration, kept to validate incoming alerts. */
+    val pushHostId: String? = null,
 ) {
     companion object {
         const val CACHE_ROWS = 100
@@ -124,6 +128,9 @@ data class OutboxItem(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val sampleRate: Int? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val seconds: Double? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val levels: List<Double>? = null,
+    /** The exact request bytes (text, attachment commit) or signed path (voice), built once at enqueue. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val wire: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val attachments: List<Attachment>? = null,
 )
 
 /** What one pass over the outbox did, as data (`queue.js` `flush` result). */
@@ -171,6 +178,7 @@ data class AppState(
     val focusMessageId: String? = null,
     val update: UpdateNotice? = null,
     val voicePaused: Boolean = false,
+    val attachmentLimits: AttachmentLimits? = null,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow

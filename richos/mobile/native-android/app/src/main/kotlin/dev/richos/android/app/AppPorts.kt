@@ -8,11 +8,8 @@ import dev.richos.android.core.IdSource
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxStorage
 import dev.richos.android.core.Ports
-import dev.richos.android.core.Receipt
 import dev.richos.android.core.Session
 import dev.richos.android.core.SessionStore
-import dev.richos.android.core.Transport
-import dev.richos.android.core.TransportFailure
 import dev.richos.android.core.protocol.DeviceKeys
 import dev.richos.android.core.protocol.Http
 import java.io.IOException
@@ -21,13 +18,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
 /**
  * The production ports: JSON files in app-private storage, each replaced atomically
  * (build plan §3.3 "JSON files in app-private storage with AtomicFile; no Room").
- * Transport arrives with pairing; until then every send is a final "not paired".
+ * Messages go to the paired Mac through the core's own transport over [Http] and [DeviceKeys].
  */
 object AppPorts {
     fun create(context: Context): Ports {
@@ -44,9 +42,8 @@ object AppPorts {
                 override suspend fun read(): Session = sessionFile.read()
                 override suspend fun write(session: Session) = sessionFile.write(session)
             },
-            transport = object : Transport {
-                override suspend fun sendText(item: OutboxItem): Receipt = throw TransportFailure("not-paired", retryable = false)
-            },
+            // Null: the core speaks to the paired Mac itself over [http] and [keys] (MacTransport).
+            transport = null,
             clock = Clock { System.currentTimeMillis() },
             ids = IdSource { "android-" + UUID.randomUUID() },
             // The wire to the Mac (TLS to the Mac's own authority) and the Android Keystore
@@ -69,10 +66,13 @@ object AppPorts {
 class JsonFile<T>(private val file: File, private val serializer: KSerializer<T>, private val default: () -> T) {
     private val atomic = AtomicFile(file)
 
+    /** Fields a newer build added are skipped, not a reason to set the whole file aside. */
+    private val json = Json(from = CoreJson) { ignoreUnknownKeys = true }
+
     suspend fun read(): T = withContext(Dispatchers.IO) {
         if (!file.exists()) return@withContext default()
         try {
-            CoreJson.decodeFromString(serializer, String(atomic.readFully(), Charsets.UTF_8))
+            json.decodeFromString(serializer, String(atomic.readFully(), Charsets.UTF_8))
         } catch (e: SerializationException) {
             setAside()
         } catch (e: IllegalArgumentException) {

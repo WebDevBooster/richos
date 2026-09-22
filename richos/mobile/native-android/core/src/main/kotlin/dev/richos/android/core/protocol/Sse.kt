@@ -98,6 +98,9 @@ data class Row(
     @SerialName("from_microphone") val fromMicrophone: Boolean = false,
     val state: String = "complete",
     val complete: Boolean = true,
+    /** A phone voice note's length (Echo 4ce79d6e): on hello and backfill rows only; absent means "show no length". */
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    @SerialName("duration_ms") val durationMs: Long? = null,
 )
 
 @Serializable
@@ -109,12 +112,15 @@ data class Hello(
     val capabilities: List<String> = emptyList(),
     val build: String? = null,
     @SerialName("protocol_version") val protocolVersion: Long? = null,
+    @SerialName("attachment_limits") val attachmentLimits: dev.richos.android.core.AttachmentLimits? = null,
     val messages: List<Row> = emptyList(),
 )
 
 @Serializable
 data class Delta(
     @SerialName("message_id") val messageId: String,
+    /** Which conversation the streaming row is in (Echo e9b0a89e); older Macs omit it. */
+    @SerialName("thread_id") val threadId: String? = null,
     val cursor: Long,
     val text: String,
 )

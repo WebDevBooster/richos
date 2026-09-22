@@ -2,6 +2,7 @@ package dev.richos.android.core
 
 import dev.richos.android.core.protocol.Fingerprint
 import dev.richos.android.core.protocol.MacApi
+import dev.richos.android.core.protocol.NativePush
 import dev.richos.android.core.protocol.Delta
 import dev.richos.android.core.protocol.Hello
 import dev.richos.android.core.protocol.PairLink
@@ -43,6 +44,9 @@ class RichCore private constructor(
     private var unsupported = false
     private val flow = MutableStateFlow(snapshot())
     private val api = MacApi(ports.http, ports.keys)
+    private var freshChallenge: String? = null
+    private val transport: Transport = ports.transport
+        ?: MacTransport(api, { session.pairing }, { freshChallenge = it }, ports.files)
     private var generation = 0
 
     /** The last committed state; the app collects this. */
@@ -64,6 +68,8 @@ class RichCore private constructor(
         is Action.SetPreviews, is Action.OpenSheet, Action.CloseSheet, Action.ForgetPairing, Action.ConfirmForget,
         Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
         Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport -> settings(action)
+        is Action.PushToken -> pushToken(action)
+        is Action.SendAttachments -> sendAttachments(action)
         is Action.Link -> link(action.status)
         is Action.Health -> mutex.withLock {
             // Only while away: a probe that lands after the socket reopened is stale.
@@ -147,6 +153,7 @@ class RichCore private constructor(
                 selectedThreadId = s.selectedThreadId ?: thread,
                 capabilities = h.capabilities,
                 macBuild = h.build ?: s.macBuild,
+                attachmentLimits = if ("attachments" in h.capabilities) h.attachmentLimits ?: s.attachmentLimits else null,
                 pairing = h.challenge?.let { s.pairing.copy(challenge = it) } ?: s.pairing,
                 cache = if (thread == null) s.cache else s.cache + (thread to bounded(h.messages)),
             )
@@ -156,7 +163,9 @@ class RichCore private constructor(
             s.copy(cache = s.cache + (row.threadId to bounded(merged)))
         } ?: s
         "delta" -> decode(Delta.serializer(), frame.data)?.let { d ->
-            val thread = s.cache.entries.firstOrNull { (_, rows) -> rows.any { it.id == d.messageId } }?.key ?: return@let s
+            // A delta names its conversation on newer Macs (Echo e9b0a89e): it lands only there.
+            val thread = (if (d.threadId != null) d.threadId.takeIf { t -> s.cache[t].orEmpty().any { it.id == d.messageId } }
+                else s.cache.entries.firstOrNull { (_, rows) -> rows.any { it.id == d.messageId } }?.key) ?: return@let s
             s.copy(cache = s.cache + (thread to s.cache.getValue(thread).map { if (it.id == d.messageId) it.copy(text = it.text + d.text) else it }))
         } ?: s
         else -> s
@@ -172,13 +181,16 @@ class RichCore private constructor(
             val text = session.draft.trim()
             if (text.isEmpty()) throw CoreError("Message is empty")
             val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
+            val clientId = ports.ids.next()
+            val sentAt = isoMillis(ports.clock.now())
             outbox.enqueue(
                 OutboxItem(
-                    clientId = ports.ids.next(),
+                    clientId = clientId,
                     threadId = threadId,
                     kind = "text",
                     text = text,
-                    queuedAt = isoMillis(ports.clock.now()),
+                    queuedAt = sentAt,
+                    wire = Wire.text(clientId, threadId, text, sentAt),
                 ),
             )
             commit(session.copy(draft = ""))
@@ -189,14 +201,89 @@ class RichCore private constructor(
     /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
     private suspend fun flush(): AppState {
         if (!session.online) return flow.value
-        val report = outbox.flush { item -> if (item.kind == "voice") ports.transport.sendVoice(item) else ports.transport.sendText(item) }
+        val report = outbox.flush { item ->
+            when (item.kind) {
+                "voice" -> transport.sendVoice(item)
+                "attachments" -> transport.sendAttachments(item)
+                else -> transport.sendText(item)
+            }
+        }
         return mutex.withLock {
             lastSend = report
+            // Every response's challenge replaces the one held (contract §3.3).
+            val challenge = freshChallenge?.takeIf { it != session.pairing.challenge }
+            freshChallenge = null
+            val pairing = session.pairing.let { p -> if (challenge != null) p.copy(challenge = challenge) else p }
             if (report.reason == "revoked") {
-                commit(session.copy(paired = false, pairing = session.pairing.copy(problem = "revoked")))
+                commit(session.copy(paired = false, pairing = pairing.copy(problem = "revoked")))
+            } else if (pairing != session.pairing) {
+                commit(session.copy(pairing = pairing))
             } else {
                 emit()
             }
+        }
+    }
+
+    // --- photos and files (CEO §75; Echo 22e59ed8) ------------------------------------------------
+
+    private suspend fun sendAttachments(action: Action.SendAttachments): AppState {
+        mutex.withLock {
+            if (!session.paired) throw CoreError("Pair this device before sending")
+            val limits = session.attachmentLimits ?: throw CoreError("This Mac cannot take photos or files yet. Update RichOS on your Mac.")
+            val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
+            val files = action.files
+            if (files.isEmpty()) throw CoreError("Choose a photo or a file to send")
+            if (files.size > limits.maxFilesPerMessage) throw CoreError("Up to ${limits.maxFilesPerMessage} files in one message")
+            files.firstOrNull { it.size > limits.maxFileBytes }?.let { throw CoreError("${it.name} is over the ${limits.maxFileBytes / (1024 * 1024)} MB limit for one file") }
+            if (files.sumOf { it.size } > limits.maxMessageBytes) throw CoreError("Up to ${limits.maxMessageBytes / (1024 * 1024)} MB in one message")
+            if (limits.mediaTypes.isNotEmpty()) files.firstOrNull { it.mediaType !in limits.mediaTypes }?.let { throw CoreError("${it.name} is a kind of file this Mac does not take") }
+            val clientId = ports.ids.next()
+            val sentAt = isoMillis(ports.clock.now())
+            val text = action.text.trim()
+            outbox.enqueue(
+                OutboxItem(
+                    clientId = clientId, threadId = threadId, kind = "attachments", text = text, queuedAt = sentAt,
+                    attachments = files, wire = Wire.attachments(clientId, threadId, text, files, sentAt),
+                ),
+            )
+            emit()
+        }
+        return flush()
+    }
+
+    // --- native push registration (contract §7.2; Echo 65952d16) -----------------------------------
+
+    private suspend fun pushToken(action: Action.PushToken): AppState {
+        val (p, previews) = mutex.withLock {
+            val n = session.notifications
+            if (!session.paired) return@withLock null to n.previews
+            if ("native-push-fcm" !in session.capabilities) {
+                commit(session.copy(notifications = n.copy(status = NotificationStatus.UNSUPPORTED)))
+                return@withLock null to n.previews
+            }
+            session.pairing to n.previews
+        }
+        val pairing = p ?: return flow.value
+        val outcome = runCatching {
+            api.registerPush(pairing.apiBase!!, pairing.deviceId!!, pairing.challenge!!, NativePush(token = action.token, topic = ports.applicationId, previewKey = action.previewKey, previews = previews))
+        }
+        return mutex.withLock {
+            val n = session.notifications
+            val (answer, challenge) = outcome.getOrNull() ?: (null to null)
+            val failure = outcome.exceptionOrNull() as? TransportFailure
+            val status = when {
+                answer?.registered == true -> NotificationStatus.ON
+                answer != null -> NotificationStatus.SERVICE_UNAVAILABLE
+                failure?.retryable == false -> NotificationStatus.UNSUPPORTED
+                else -> NotificationStatus.SERVICE_UNAVAILABLE
+            }
+            commit(
+                session.copy(
+                    notifications = n.copy(status = status, offerDismissed = n.offerDismissed || status == NotificationStatus.ON),
+                    pushHostId = answer?.hostId ?: session.pushHostId,
+                    pairing = challenge?.let { session.pairing.copy(challenge = it) } ?: session.pairing,
+                ),
+            )
         }
     }
 
@@ -233,6 +320,9 @@ class RichCore private constructor(
                     session.copy(
                         threads = answer.threads,
                         selectedThreadId = answer.threadId ?: answer.threads.firstOrNull()?.id,
+                        capabilities = answer.capabilities ?: session.capabilities,
+                        macBuild = answer.build ?: session.macBuild,
+                        attachmentLimits = answer.attachmentLimits?.takeIf { "attachments" in answer.capabilities.orEmpty() },
                         paired = false,
                         pairing = Pairing(
                             phase = PairingPhase.CONFIRMING,
@@ -386,10 +476,15 @@ class RichCore private constructor(
     private fun voiceItem(id: String, threadId: String, durationMs: Long, levels: List<Double>) =
         voiceItem(id, threadId, id, durationMs, levels)
 
-    private fun voiceItem(id: String, threadId: String, fileId: String, durationMs: Long, levels: List<Double>) = OutboxItem(
-        clientId = id, threadId = threadId, kind = "voice", text = "Voice message", queuedAt = isoMillis(ports.clock.now()),
-        fileId = fileId, codec = "wav16k", sampleRate = 16_000, seconds = durationMs / 1000.0, levels = levels,
-    )
+    private fun voiceItem(id: String, threadId: String, fileId: String, durationMs: Long, levels: List<Double>): OutboxItem {
+        val sentAt = isoMillis(ports.clock.now())
+        val seconds = durationMs / 1000.0
+        return OutboxItem(
+            clientId = id, threadId = threadId, kind = "voice", text = "Voice message", queuedAt = sentAt,
+            fileId = fileId, codec = "wav16k", sampleRate = 16_000, seconds = seconds, levels = levels,
+            wire = Wire.voicePath(id, threadId, seconds, sentAt),
+        )
+    }
 
     private suspend fun voice(action: Action): AppState {
         var sent = false
@@ -440,6 +535,7 @@ class RichCore private constructor(
             toast = toast,
             canRecord = canRecord(),
             notifications = session.notifications,
+            attachmentLimits = session.attachmentLimits,
             sheet = sheet,
             focusMessageId = focusMessageId,
             update = session.update,

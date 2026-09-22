@@ -181,6 +181,14 @@ sealed interface Action {
 
     @Serializable @SerialName("open-support")
     data object OpenSupport : Action
+
+    /** The platform's push token arrived (after `turn-on-notifications`): register it with the Mac. */
+    @Serializable @SerialName("push-token")
+    data class PushToken(val token: String, val previewKey: String? = null) : Action
+
+    /** Photos and files to Rich (CEO §75), already staged and hashed by the platform. */
+    @Serializable @SerialName("send-attachments")
+    data class SendAttachments(val files: List<Attachment>, val text: String = "") : Action
 }
 
 @Serializable
