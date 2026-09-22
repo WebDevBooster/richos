@@ -311,9 +311,9 @@ pub fn fits_in_one_push(plaintext: &[u8]) -> bool {
 
 /// POST one encrypted payload to the push service.
 ///
-/// **The host check is first and it is not advisory.** Plan §2.6 makes `*.push.apple.com` the
-/// entire outbound footprint of this feature; a subscription pointing anywhere else is a
-/// refusal here rather than a request that happens not to have been made yet.
+/// The host check is mandatory. Only the browser vendor endpoints accepted by
+/// `Subscription::is_supported` receive encrypted requests. The shared HTTP client
+/// disables redirects, so a push service cannot redirect delivery to another host.
 pub async fn send(
     client: &reqwest::Client,
     vapid: &VapidKey,
