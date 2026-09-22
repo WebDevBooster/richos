@@ -871,7 +871,7 @@ async function openSheet(browser, theme, preset) {
       const cases = [
         {
           platform: "ios", transport: "apns",
-          must: [/RichOS iPhone app/, /Connection and settings/],
+          must: [/RichOS iPhone app/, /Settings/],
           mustNot: [/Add to Home Screen/, /Safari/],
         },
         {
