@@ -1,0 +1,144 @@
+package dev.richos.android.core
+
+import dev.richos.android.core.dev.DevKeys
+import dev.richos.android.core.dev.Fixtures
+import dev.richos.android.core.protocol.DeviceKeys
+import dev.richos.android.core.protocol.Http
+import dev.richos.android.core.protocol.HttpRequest
+import dev.richos.android.core.protocol.HttpResponse
+import dev.richos.android.core.protocol.MacApi
+import dev.richos.android.core.protocol.Row
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import java.io.IOException
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/** The one connection owner, on virtual time: back-off, re-signing, revocation, wake. */
+@OptIn(ExperimentalCoroutinesApi::class)
+class ConnectionOwnerTest {
+    private val keys = object : DeviceKeys {
+        override suspend fun publicPoint(origin: String) = DevKeys.point
+        override suspend fun sign(origin: String, data: ByteArray) = DevKeys.sign(data)
+        override suspend fun delete(origin: String) = Unit
+    }
+
+    private class Mac(val answer: (HttpRequest) -> HttpResponse) : Http {
+        val seen = mutableListOf<String>()
+        override suspend fun send(request: HttpRequest): HttpResponse {
+            seen += request.method + " " + request.url.substringAfter(Fixtures.ORIGIN).substringBefore("&auth=")
+            return answer(request)
+        }
+    }
+
+    private class Streams(vararg val plan: suspend (onOpen: suspend (Int) -> Unit, onBytes: suspend (ByteArray) -> Unit) -> Unit) : EventStream {
+        val opened = mutableListOf<String>()
+        override suspend fun open(request: HttpRequest, onOpen: suspend (Int) -> Unit, onBytes: suspend (ByteArray) -> Unit) {
+            opened += request.url.substringAfter(Fixtures.ORIGIN).substringBefore("&auth=")
+            val step = plan.getOrNull(opened.size - 1) ?: { _, _ -> throw IOException("no more streams scripted") }
+            step(onOpen, onBytes)
+        }
+    }
+
+    private suspend fun core(http: Http): RichCore {
+        var saved = Fixtures.fixture("offline").session
+        return RichCore.open(
+            Ports(
+                storage = object : OutboxStorage {
+                    override suspend fun all() = emptyList<OutboxItem>()
+                    override suspend fun put(item: OutboxItem) = Unit
+                    override suspend fun remove(clientId: String) = Unit
+                },
+                session = object : SessionStore {
+                    override suspend fun read() = saved
+                    override suspend fun write(session: Session) { saved = session }
+                },
+                transport = null, clock = Clock { Fixtures.EPOCH }, ids = IdSource { "x" }, http = http, keys = keys,
+            ),
+        )
+    }
+
+    private val hello = "id: 2\nevent: hello\ndata: {\"challenge\":\"from-hello\",\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
+
+    @Test
+    fun `back-off is 1 s doubling to a 30 s ceiling`() {
+        assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L), (1..7).map(ConnectionOwner::backoffMs))
+    }
+
+    @Test
+    fun `a stream opens, delivers, drops, and is retried after 1 s with a fresh challenge`() = runTest {
+        val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "refreshed"), ByteArray(0)) }
+        val core = core(mac)
+        val streams = Streams(
+            { onOpen, onBytes -> onOpen(200); onBytes(hello.toByteArray()) },
+            { onOpen, _ -> onOpen(200); kotlinx.coroutines.awaitCancellation() },
+        )
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        assertEquals("from-hello", core.state.pairing.challenge)
+        assertEquals(ConnectionReason.RECONNECTING, core.state.connection.reason, "the first stream ended")
+        assertEquals(1, streams.opened.size)
+        advanceTimeBy(999)
+        runCurrent()
+        assertEquals(1, streams.opened.size, "not before the back-off")
+        advanceTimeBy(2)
+        runCurrent()
+        assertEquals(2, streams.opened.size)
+        assertTrue("GET /api/challenge" in mac.seen, "the retry fetched a fresh challenge first")
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        job.cancel()
+    }
+
+    @Test
+    fun `a stream that never opens is followed by one probe, and 403 revoked stops the knocking`() = runTest {
+        val mac = Mac { r ->
+            if (r.url.contains("/api/challenge")) HttpResponse(404, mapOf("x-richos-challenge" to "c2"), ByteArray(0))
+            else HttpResponse(403, emptyMap(), """{"revoked":true}""".toByteArray())
+        }
+        val core = core(mac)
+        val streams = Streams({ _, _ -> throw IOException("refused") })
+        val job = backgroundScope.launch { ConnectionOwner(core, MacApi(mac, keys), streams).run() }
+        runCurrent()
+        assertTrue(mac.seen.any { it.startsWith("GET /api/events?thread_id=general&before=0&limit=1") })
+        assertEquals(ConnectionReason.REVOKED, core.state.connection.reason)
+        advanceTimeBy(120_000)
+        runCurrent()
+        assertEquals(1, streams.opened.size, "a revoked phone does not keep knocking")
+        job.cancel()
+    }
+
+    @Test
+    fun `wake fires a pending retry at once`() = runTest {
+        val mac = Mac { r -> HttpResponse(if (r.url.contains("before=0")) 200 else 404, mapOf("x-richos-challenge" to "c"), """{"messages":[],"more":false}""".toByteArray()) }
+        val core = core(mac)
+        val streams = Streams({ _, _ -> throw IOException("down") }, { _, _ -> throw IOException("down") }, { _, _ -> throw IOException("down") })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertEquals(2, streams.opened.size)
+        owner.wake()
+        runCurrent()
+        assertEquals(3, streams.opened.size, "no 2 s wait after a wake")
+        job.cancel()
+    }
+
+    @Test
+    fun `a reconnect replays from the last row, or from before a row still streaming`() {
+        val base = Fixtures.fixture("online").session
+        fun state(vararg rows: Row) = AppState.of(base.copy(cache = mapOf("general" to rows.toList())), emptyList(), null, null)
+        assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(state()))
+        assertEquals("/api/events?thread_id=general&since=6", ConnectionOwner.eventsPath(state(Row("a", "general", 7, "rich"))))
+        assertEquals(
+            "/api/events?thread_id=general&since=4",
+            ConnectionOwner.eventsPath(state(Row("a", "general", 5, "rich", state = "streaming", complete = false), Row("b", "general", 7, "rich"))),
+        )
+        assertEquals("/api/events?thread_id=general", ConnectionOwner.eventsPath(state(Row("a", "general", 7, "rich")), resnapshot = true))
+    }
+}

@@ -127,9 +127,24 @@ class RichCore private constructor(
     var resnapshotRequested: Boolean = false
         private set
 
-    private suspend fun receive(wire: String): AppState {
+    /** The live stream's bytes as they arrive, split anywhere (the connection owner's input). */
+    suspend fun receive(bytes: ByteArray): AppState = mutex.withLock { apply(sse.feed(bytes)) }
+
+    /** A challenge learned outside a request the core made (the owner's refresh or probe). */
+    suspend fun adoptChallenge(challenge: String): AppState = mutex.withLock {
+        if (challenge == session.pairing.challenge) emit() else commit(session.copy(pairing = session.pairing.copy(challenge = challenge)))
+    }
+
+    /** The Mac answered 403 `{"revoked":true}` to a probe: this phone was removed from the Mac. */
+    suspend fun markRevoked(): AppState = mutex.withLock {
+        commit(session.copy(paired = false, pairing = session.pairing.copy(problem = "revoked")))
+    }
+
+    private suspend fun receive(wire: String): AppState = apply(sse.feed(wire))
+
+    private suspend fun apply(items: List<SseItem>): AppState {
         var next = session
-        for (item in sse.feed(wire)) {
+        for (item in items) {
             when (item) {
                 is SseItem.Frame -> next = apply(next, item.frame)
                 SseItem.KeepAlive -> Unit

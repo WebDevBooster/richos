@@ -155,6 +155,16 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
         return answer to signed.challenge
     }
 
+    /** The device key's signature over [data] (ASN.1 DER, as the platform returns it). */
+    suspend fun sign(apiBase: String, data: ByteArray): ByteArray = keys.sign(apiBase, data)
+
+    /**
+     * A fresh challenge without a credential: `GET /api/challenge` is not a route, and it answers
+     * 404 with the header anyway. Read the header and ignore the status (contract §5.7).
+     */
+    suspend fun freshChallenge(apiBase: String): String? =
+        exchange(HttpRequest("GET", "$apiBase/api/challenge", emptyMap(), null)).headers["x-richos-challenge"]
+
     /** `{"native_push": {...}}` or `{"native_push": null}` on a signed `POST /api/pair`. */
     suspend fun registerPush(apiBase: String, deviceId: String, challenge: String, push: NativePush?): Pair<PushAnswer, String> {
         val registration = if (push == null) "null" else buildString {
