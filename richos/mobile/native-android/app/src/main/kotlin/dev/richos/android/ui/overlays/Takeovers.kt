@@ -309,7 +309,7 @@ fun UpdateRequired(version: String, onEvent: (UiEvent) -> Unit) {
         Mark(64.dp, Modifier.padding(top = 12.dp, bottom = 18.dp))
         Eyebrow("Update required")
         BasicText(
-            "This version of RichOS can no longer send",
+            "This version of RichConnect can no longer send",
             style = t.displayBlocking.copy(color = c.ink, lineBreak = wrapping, hyphens = Hyphens.Auto),
             modifier = Modifier.padding(top = 14.dp).semantics { heading() },
         )

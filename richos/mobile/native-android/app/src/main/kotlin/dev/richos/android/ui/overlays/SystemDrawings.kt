@@ -101,7 +101,7 @@ fun MicrophonePermissionDrawing() {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             RichIcon(RichIcons.Mic, ink, 24.dp)
-            BasicText("Allow RichOS to record audio?", style = t.answer.copy(color = ink, textAlign = TextAlign.Center))
+            BasicText("Allow RichConnect to record audio?", style = t.answer.copy(color = ink, textAlign = TextAlign.Center))
             listOf("While using the app", "Only this time", "Don’t allow").forEach {
                 BasicText(
                     it,

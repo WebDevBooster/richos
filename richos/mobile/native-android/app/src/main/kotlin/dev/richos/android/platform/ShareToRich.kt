@@ -27,7 +27,7 @@ enum class ShareOutcome(val words: String) {
     SENT("Sent to Rich"),
     WAITING("Saved on this phone. Rich will get it when your Mac is reachable."),
     NOT_PAIRED("Pair this phone with your Mac first, then share again."),
-    REFUSED("Not sent to Rich. Open RichOS to see why."),
+    REFUSED("Not sent to Rich. Open RichConnect to see why."),
 }
 
 /**
