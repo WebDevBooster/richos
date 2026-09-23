@@ -197,23 +197,36 @@ PY
 # non-interactive shell already gets /dev/null on most shells, so making it
 # explicit is what keeps a local run and a runner run the same execution
 # rather than two. A unit that wants to read stdin would hang in CI today.
+#
+# THE KILL TAKES THE WHOLE TREE (2026-09-23). It used to be `kill -TERM <pid>`
+# then `kill -KILL <pid>`: the unit's shell died and everything it had started
+# lived on. workspace-spec-fourteen.test.sh was killed at 3600 s while its
+# mutation harness ran on under init for about an hour and a half, spawning
+# suites and leaving `sleep 3600`s, and ignoring SIGTERM. So the unit is started
+# in a PROCESS GROUP OF ITS OWN (`set -m` for that one launch), and the kill is
+# scripts/lib/proc_tree.py: every descendant, every group any of them is in
+# (which is how a background child re-parented to init is still reached), TERM,
+# three seconds for EXIT traps, then KILL. ci-shard.test.sh S19e proves no
+# process of a timed-out unit survives, including one that ignores TERM, one
+# re-parented to init and one in a session of its own.
 run_with_deadline() { # <seconds> <logfile> <argv...>
     local _limit="$1" _log="$2"; shift 2
     if [ "${_limit:-0}" -le 0 ]; then
         "$@" >"$_log" 2>&1 </dev/null
         return $?
     fi
+    set -m
     "$@" >"$_log" 2>&1 </dev/null &
     local _pid=$! _waited=0 _rc=0
+    set +m
     while kill -0 "$_pid" 2>/dev/null; do
         if [ "$_waited" -ge "$_limit" ]; then
-            kill -TERM "$_pid" 2>/dev/null
             # A suite that ignores TERM still has to go; three seconds is
             # enough for a bash trap to run its own cleanup first, which is
             # what leaves the sandbox removable.
-            local _g=0
-            while [ "$_g" -lt 3 ] && kill -0 "$_pid" 2>/dev/null; do sleep 1; _g=$((_g + 1)); done
-            kill -KILL "$_pid" 2>/dev/null
+            if ! python3 "$SCRIPT_DIR/lib/proc_tree.py" kill "$_pid" --grace 3 2>>"$_log"; then
+                printf '        a process of this unit survived SIGKILL; see the end of its log\n' >>"$_log"
+            fi
             wait "$_pid" 2>/dev/null
             return 124
         fi

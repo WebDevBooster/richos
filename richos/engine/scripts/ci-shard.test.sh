@@ -67,7 +67,7 @@ trap 'rm -rf "$SANDBOX"' EXIT
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh; do
+for f in ci-shard.sh ci-units.sh lib/ci-receipts.py lib/leak-canary.sh lib/record-canary.sh lib/tree-witness.sh lib/proc_tree.py; do
     [ -f "$ENGINE_ROOT/scripts/$f" ] || { echo "FATAL: missing scripts/$f" >&2; exit 1; }
 done
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 required" >&2; exit 1; }
@@ -88,7 +88,7 @@ mk_engine() { # <root>
     for f in ci-shard.sh ci-units.sh; do
         cp "$ENGINE_ROOT/scripts/$f" "$r/scripts/$f"; chmod +x "$r/scripts/$f"
     done
-    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh; do
+    for f in ci-receipts.py leak-canary.sh record-canary.sh tree-witness.sh proc_tree.py; do
         cp "$ENGINE_ROOT/scripts/lib/$f" "$r/scripts/lib/$f"
     done
     # The sectioned suite, with two real `if _section` markers, so the section
@@ -480,6 +480,41 @@ if grep -q '"verdict":"TIMED-OUT"' "$SANDBOX/hang.jsonl" 2>/dev/null; then
     ok "S19c the receipt says TIMED-OUT, not FAIL — 'never finished' and 'finished wrong' are different reports"
 else
     bad "S19c the receipt does not carry the TIMED-OUT verdict: $(cat "$SANDBOX/hang.jsonl" 2>/dev/null)"
+fi
+
+# S19e — NOTHING A TIMED-OUT UNIT STARTED SURVIVES IT (2026-09-23). The kill used
+# to reach the unit's own shell only: workspace-spec-fourteen.test.sh was killed at
+# 3600 s and its mutation harness ran on under init for about an hour and a half.
+# The fixture reproduces each way a process escaped: a child that IGNORES SIGTERM,
+# a background child whose parent already exited (re-parented to init, reachable
+# only through its process group), and a grandchild in a SESSION OF ITS OWN whose
+# parent waits on it (the shape of stop-at-line.py and reserve.py). Each writes
+# its pid; after the shard returns, every one of them must be gone. NOT covered,
+# and said so: a process that puts itself in a new session AND whose parent has
+# already exited is nobody's descendant and in no group of the unit's; nothing
+# selected by parentage or group can reach it (proc_tree.py's header).
+PIDS="$SANDBOX/s19e-pids"; mkdir -p "$PIDS"
+cat > "$E/scripts/lib/escapes.test.sh" <<ESCAPES
+#!/usr/bin/env bash
+bash -c 'trap "" TERM; echo \$\$ > "$PIDS/ignores-term"; while :; do sleep 1; done' &
+sh -c 'sleep 300 >/dev/null 2>&1 & echo \$! > "$PIDS/orphaned"'
+python3 -c 'import subprocess; p = subprocess.Popen(["sleep", "300"], start_new_session=True); open("$PIDS/own-session", "w").write(str(p.pid)); p.wait()' &
+sleep 300
+ESCAPES
+chmod +x "$E/scripts/lib/escapes.test.sh"
+RC="$(CI_SHARD_UNIT_TIMEOUT=2 run_shard --only-units scripts/lib/escapes.test.sh)"
+S19E_ALIVE=""; S19E_SEEN=0
+for f in ignores-term orphaned own-session; do
+    p="$(cat "$PIDS/$f" 2>/dev/null)"
+    [ -n "$p" ] || continue
+    S19E_SEEN=$((S19E_SEEN + 1))
+    if kill -0 "$p" 2>/dev/null; then S19E_ALIVE="$S19E_ALIVE $f=$p"; kill -KILL "$p" 2>/dev/null; fi
+done
+if [ "$RC" = "1" ] && [ "$S19E_SEEN" -eq 3 ] && [ -z "$S19E_ALIVE" ]; then
+    ok "S19e a timed-out unit takes its whole tree: a TERM-ignoring child, an orphan re-parented to init and a grandchild in its own session are all gone"
+else
+    bad "S19e rc=$RC, $S19E_SEEN of 3 fixture processes started, still alive after the shard returned:${S19E_ALIVE:- none}"
+    sed 's/^/          /' "$SANDBOX/out"
 fi
 
 # A hung unit must NOT be excusable by the known-red table. A declaration says
