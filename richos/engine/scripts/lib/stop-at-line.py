@@ -19,8 +19,11 @@ settled at the named line, on average about 40% of the way in. The rest of the r
 only print more lines nobody reads. A harness opts in with `mutation_focus stop-at-want`,
 which is a claim about ITS suite: a printed `FAIL  <case>` line always ends the run red.
 
-The group is the unit that is stopped, never a pid chosen by name: the command is started
-in its own session here, so its group is exactly what this process spawned.
+What is stopped is the command's whole tree (scripts/lib/proc_tree.py: every descendant and
+every group they are in), never a pid chosen by name. The command runs in a session of its own,
+so a signal to THIS process's group does not reach it by itself; this process therefore
+forwards SIGTERM, SIGINT and SIGHUP as a kill of that tree before it exits, which is what lets
+ci-shard.sh's deadline, or an interrupt, take a mutant's suite down with the harness.
 """
 import argparse
 import os
@@ -28,6 +31,9 @@ import signal
 import subprocess
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from proc_tree import kill_tree  # noqa: E402
 
 POLL_SECONDS = 0.1
 GRACE_SECONDS = 10
@@ -47,6 +53,13 @@ def main():
     with open(a.out, "wb") as out:
         child = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                  start_new_session=True)
+
+    def forward(signum, _frame):
+        kill_tree(child.pid, GRACE_SECONDS)
+        child.wait()
+        sys.exit(128 + signum)
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, forward)
     pending = b""
     with open(a.out, "rb") as reader:
         while True:
@@ -70,21 +83,10 @@ def main():
 def stop(child, marker):
     with open(marker, "w") as fh:
         fh.write("stopped at the named line\n")
-    signal_group(child.pid, signal.SIGTERM)
-    deadline = time.monotonic() + GRACE_SECONDS
-    while child.poll() is None and time.monotonic() < deadline:
-        time.sleep(POLL_SECONDS)
-    # Whatever is still in the group (the leader, or a child it left behind) is ended now.
-    signal_group(child.pid, signal.SIGKILL)
+    # TERM to the whole tree (EXIT traps run), KILL after the grace for whatever ignored it.
+    kill_tree(child.pid, GRACE_SECONDS)
     child.wait()
     return 0
-
-
-def signal_group(pgid, sig):
-    try:
-        os.killpg(pgid, sig)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 if __name__ == "__main__":

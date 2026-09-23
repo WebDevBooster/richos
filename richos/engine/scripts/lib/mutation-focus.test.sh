@@ -52,7 +52,7 @@ mkdir -p "$FAKE_ENG/mega-lander/tests"
 printf 'PROTECTED_PATHS="app"\n' > "$FAKE_ENG/orchestration.config"
 printf '0.0.0-fixture\n' > "$FAKE_ENG/VERSION"
 cp "$ENGINE_ROOT"/scripts/lib/*.sh "$FAKE_ENG/scripts/lib/"
-cp "$ENGINE_ROOT/scripts/lib/stop-at-line.py" "$FAKE_ENG/scripts/lib/"
+cp "$ENGINE_ROOT/scripts/lib/stop-at-line.py" "$ENGINE_ROOT/scripts/lib/proc_tree.py" "$FAKE_ENG/scripts/lib/"
 printf 'RULE_A=1\nRULE_B=1\nUNUSED=1\n' > "$FAKE_ENG/mega-lander/feature.sh"
 
 PROBE="$SANDBOX/probe"; mkdir -p "$PROBE"
@@ -69,6 +69,8 @@ red=0
 if [ "${RULE_A:-0}" = 1 ]; then echo "      ok   X1.1 rule A holds"; else echo "      FAIL  X1.1 rule A holds"; red=1; fi
 sleep "${FOCUS_TAIL:-15}" &
 echo $! > "$FOCUS_PROBE/sleeper.$$"
+# A grandchild in a session of its own whose parent waits on it: the shape of reserve.py.
+python3 -c 'import subprocess, sys; p = subprocess.Popen(["sleep", sys.argv[1]], start_new_session=True); open(sys.argv[2], "w").write(str(p.pid)); p.wait()' "${FOCUS_TAIL:-15}" "$FOCUS_PROBE/own-session.$$" &
 wait
 echo "      ok   X2.1 the tail"
 touch "$FOCUS_PROBE/tail-reached.$$"
@@ -152,6 +154,14 @@ if [ -n "$SLEEPER" ] && ! kill -0 "$SLEEPER" 2>/dev/null; then
 else
     bad "F1d nothing the stopped suite started is left running" "sleeper pid '${SLEEPER:-none}' is still alive"
     [ -n "$SLEEPER" ] && kill "$SLEEPER" 2>/dev/null
+fi
+
+OWN="$(cat "$PROBE"/own-session.* 2>/dev/null | head -1)"
+if [ -n "$OWN" ] && ! kill -0 "$OWN" 2>/dev/null; then
+    ok "F1e and so is its grandchild in a session of its own ($OWN): the stop takes the whole tree"
+else
+    bad "F1e the stop takes the whole tree" "own-session grandchild '${OWN:-none}' is still alive"
+    [ -n "$OWN" ] && kill "$OWN" 2>/dev/null
 fi
 
 # --- F2: the line never appears, the old verdict stands -----------------------------
