@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# proof-run.test.sh — the land runner (proof-run.py): every selected command runs, concurrently
+# where safe, one lane at a time where not, admitted by CPU, and the run is red by name when a
+# check is. Fixture commands only; nothing builds, boots or opens a window.
+# run-tests: no-host-screen: fixture shell commands only; nothing is launched on any screen
+# run-tests: inputs richos/app/scripts/proof-run.test.sh richos/app/scripts/proof-run.test.py richos/app/scripts/proof-run.py richos/app/scripts/proof-for.sh richos/app/scripts/testvm/reserve.py
+# run-tests: covers richos/app/scripts/proof-run.py
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$here/proof-run.test.py"
