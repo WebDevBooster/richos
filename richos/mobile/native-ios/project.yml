@@ -53,9 +53,8 @@ targets:
         product: RichOSFixtures
     settings:
       base:
-        # A DEVELOPMENT identifier (Rich's decision, 2026-09-22). Never `dev.richos.mobile.loop`,
-        # which would replace the preserved app on a phone. The production identifier is the CEO's.
-        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.native.ios
+        # Permanent identifier approved by the CEO. The preserved app keeps its own identifier.
+        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect
         PRODUCT_NAME: RichOSNative
         INFOPLIST_KEY_CFBundleDisplayName: RichConnect
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
@@ -80,7 +79,7 @@ targets:
       - target: RichOSNative
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.native.ios.tests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect.tests
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/RichOSNative.app/RichOSNative"
         BUNDLE_LOADER: "$(TEST_HOST)"
   RichOSNativeUITests:
@@ -93,7 +92,7 @@ targets:
       - target: RichOSNative
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.native.ios.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect.uitests
         TEST_TARGET_NAME: RichOSNative
 schemes:
   RichOSNative:

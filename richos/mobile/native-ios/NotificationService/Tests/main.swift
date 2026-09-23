@@ -114,7 +114,7 @@ let push = decoded["native_push"]!
 check("R1 the core's registration body carries exactly the Mac's APNs fields",
       Set(push.keys) == ["token", "environment", "topic", "preview_key", "previews"])
 check("R2 the preview key the extension decrypts with is the one registered (fixture key round-trips)", push["preview_key"] as? String == fixture["key"] as? String)
-check("R3 the topic is this app's bundle id, which the Mac allows since 65952d16", push["topic"] as? String == "dev.richos.native.ios")
+check("R3 the topic is RichConnect's permanent bundle id", push["topic"] as? String == "dev.richos.connect")
 check("R4 an unregistration's answer is read as not registered",
       PushRegistration.answer(status: 200, body: Data(#"{"host_id":null,"registered":false}"#.utf8)) == .registered(hostID: nil, registered: false))
 check("R5 the device token becomes lowercase hex", PushRegistration.token(Data([0xAB, 0x01, 0xFF])) == "ab01ff")

@@ -76,4 +76,4 @@ project, DerivedData, screenshots, logs and the headless session. Nothing is wri
   proves the Release app carries none of their markers (and that the Debug app carries all of them).
 - The CLI addresses only the simulator it created (its UDID is recorded in the cache); it never uses
   `booted`, and `sim stop` shuts it down and deletes it.
-- Development bundle identifier `dev.richos.native.ios`. The production identifier is the CEO's.
+- Permanent bundle identifier `dev.richos.connect`, approved by the CEO.

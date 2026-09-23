@@ -30,14 +30,16 @@ node richos/mobile/native-ios/Release/make-app-icon.cjs --check
 
 The suite `richos/app/scripts/native-ios-share.test.sh` runs all five.
 
-## Waiting on the CEO (build plan §6)
+## Account and distribution setup
 
 1. **Xcode 26** (App Store Connect has refused uploads built with anything older since 2026-04-28).
    Installed beside Xcode 16.4 and chosen per command with `DEVELOPER_DIR`, so the preserved app keeps
    its toolchain.
-2. **The production bundle identifier**, permanent once uploaded. One change: `RICHOS_BUNDLE_ID` in
-   `platform.yml` and `PRODUCT_BUNDLE_IDENTIFIER` in `../project.yml` (the suite checks they agree).
-   The Mac and the Connect Worker must list it as an APNs topic too.
+2. **Register the permanent bundle identifier `dev.richos.connect`** with Push Notifications and
+   App Groups. Register its `.notification-service` and `.share` extension identifiers and
+   `group.dev.richos.connect`; assign that App Group to the app and Share extension. The source,
+   CLI and push registration use this ID. Enable the same topic in the private Connect profile
+   after verifying the APNs keys cover it.
 3. **The App Store Connect app record**, the current license agreement, and a team **App Manager**
    API key (not Admin).
 4. Confirming **export compliance** in App Store Connect: the binary says
@@ -75,5 +77,6 @@ The suite `richos/app/scripts/native-ios-share.test.sh` runs all five.
 5. `node Release/testflight.ts publish --version 0.1.0 --build <n> --notes-file <notes>` puts it
    in the internal group. A rerun writes nothing twice.
 
-None of steps 2–5 has run: the App Store Connect record, the key and Xcode 26 do not exist yet. The
-tool's behavior is proven against a fake App Store Connect (`testflight.test.ts`, 36 tests).
+A simulator release check does not prove signing or TestFlight upload. Verify the account record,
+API key and current distribution toolchain before running steps 2–5. The tool is tested against a
+fake App Store Connect (`testflight.test.ts`).

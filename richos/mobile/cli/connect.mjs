@@ -30,8 +30,8 @@ export function managedArtifact(profile) {
   const push = profile.push || {};
   if (Object.keys(push).some(k=>!['teamId','sandboxKeyId','productionKeyId','topics'].includes(k))) throw Error('Invalid push profile');
   for (const key of ['teamId','sandboxKeyId','productionKeyId']) if (push[key] && !/^[A-Z0-9]{10}$/.test(push[key])) throw Error('Invalid push identifier');
-  // The preserved iPhone app's two IDs and the native iPhone app's development ID (Rich, 2026-09-22).
-  if (push.topics && (!Array.isArray(push.topics) || push.topics.some(t=>!['dev.richos.mobile.loop','dev.richos.mobile.integration','dev.richos.native.ios'].includes(t)))) throw Error('Invalid push topics');
+  // Preserved and development iPhone IDs remain valid alongside RichConnect's permanent ID.
+  if (push.topics && (!Array.isArray(push.topics) || push.topics.some(t=>!['dev.richos.mobile.loop','dev.richos.mobile.integration','dev.richos.native.ios','dev.richos.connect'].includes(t)))) throw Error('Invalid push topics');
   // Android push: the Firebase project ID and the allowed Android application IDs are identifiers.
   // The service-account key is the Worker secret FCM_SERVICE_ACCOUNT, never part of a profile.
   const fcm = profile.fcm || {};
