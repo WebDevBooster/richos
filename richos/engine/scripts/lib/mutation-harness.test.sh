@@ -68,6 +68,24 @@ FAIL=0
 SANDBOX="$(cd "$(mktemp -d -t mutation-harness-test.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
+# THE SUITE GETS ITS OWN $TMPDIR, the same shape as
+# mutation-harness-guards.test.sh. Two reasons, and both are load-bearing:
+#   1. mut_refuse_recursive_copy (added 2026-09-18, commit 84708285) refuses a
+#      SOURCE under $TMPDIR — a mutant running mutants. $SANDBOX came from
+#      mktemp, so it IS under the operator's $TMPDIR, and the fixture engine
+#      below lived in it. Every copy of it was refused for that reason, and
+#      section 2 and 3b/3c went red on 2026-09-18 for a rule working exactly
+#      as designed. With $TMPDIR moved INSIDE the sandbox, the fixture sits
+#      beside scratch rather than in it, which is what a shipped engine is.
+#   2. Section 2 kills a harness that allocates a scratch sandbox. With the
+#      operator's $TMPDIR and ledger, every run's kill -9 would leave a
+#      directory in the real scratch root and a row in the real scratch
+#      ledger. Here both land under $SANDBOX, and the EXIT trap above takes
+#      them: test data never touches live data.
+export TMPDIR="$SANDBOX/tmp"
+export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
+mkdir -p "$TMPDIR" "$CLAUDE_CONFIG_DIR/state"
+
 ok()  { printf '  PASS  %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '          %s\n' "$2"; FAIL=$((FAIL + 1)); }
 
@@ -106,16 +124,38 @@ fi
 
 # ---------------------------------------------------------------------------
 # The shared fixture: a fake engine with a fake guard, and a marker line that
-# a "mutation" removes. Nothing here is the real engine.
+# a "mutation" removes. The guard is not the real engine's; the LIBRARY the
+# harness runs on is, copied whole.
+#
+# THE FIXTURE IS DERIVED, NOT HAND-LISTED, because the hand list is how this
+# suite broke. On 2026-09-17 (commit 09f1eca1) mutation_copy_engine began
+# requiring ecs/ and agents/, which mega-lander/app.py needs at import. The
+# real engine has both; this fixture had neither, so every copy of it failed at
+# `cp -R "$src/ecs"`, and 2a, 3b and 3c went red for a production change that
+# was correct. On 2026-09-18 (commit 84708285) mutation_sandbox_engine began
+# sourcing scratch.sh from its own directory; the fixture carried two
+# hand-picked libraries and not that one. So:
+#   - every directory mutation_copy_engine REQUIRES (a `cp -R ... || return 1`
+#     line) is read from the function itself and created here with a marker
+#     file, and 3c checks each marker arrives. A directory added to the copy
+#     list tomorrow is in this fixture tomorrow.
+#   - every library in the real scripts/lib/ is copied, so whatever the harness
+#     sources from its own directory is there.
 # ---------------------------------------------------------------------------
 FAKE_ENG="$SANDBOX/fake-engine"
-mkdir -p "$FAKE_ENG/scripts/hooks" "$FAKE_ENG/scripts/lib" "$FAKE_ENG/hooks" "$FAKE_ENG/mega-lander" "$FAKE_ENG/ass-kicker"
+REQUIRED_DIRS="$(awk '/^mutation_copy_engine\(\)/{f=1; next} f && /^}/{exit} f' \
+        "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" \
+    | sed -nE 's#^[[:space:]]*cp -R "\$src/([A-Za-z0-9._-]+)" "\$dir/([A-Za-z0-9._-]+)" \|\| return 1[[:space:]]*$#\1#p')"
+mkdir -p "$FAKE_ENG/scripts/hooks" "$FAKE_ENG/scripts/lib" "$FAKE_ENG/hooks"
+for d in $REQUIRED_DIRS; do
+    mkdir -p "$FAKE_ENG/$d"
+    printf '# fixture marker for %s/\n' "$d" > "$FAKE_ENG/$d/.fixture-marker"
+done
 printf '# fixture feature code\n' > "$FAKE_ENG/mega-lander/workspaces.py"
 printf '# fixture predicate\n' > "$FAKE_ENG/ass-kicker/brief-scope.py"
 printf 'PROTECTED_PATHS="app"\n' > "$FAKE_ENG/orchestration.config"
 printf '0.0.0-fixture\n' > "$FAKE_ENG/VERSION"
-cp "$ENGINE_ROOT/scripts/lib/mutation-harness.sh" "$FAKE_ENG/scripts/lib/"
-cp "$ENGINE_ROOT/scripts/lib/tree-witness.sh" "$FAKE_ENG/scripts/lib/"
+cp "$ENGINE_ROOT"/scripts/lib/*.sh "$FAKE_ENG/scripts/lib/"
 FAKE_GUARD="$FAKE_ENG/scripts/hooks/fake-guard.sh"
 cat > "$FAKE_GUARD" <<'GUARDEOF'
 #!/usr/bin/env bash
@@ -227,6 +267,16 @@ fi
 #    A harness carrying on against an empty sandbox would report every mutant
 #    "caught" by a guard that is not there — green over nothing, again.
 # ---------------------------------------------------------------------------
+# 3.0 first, because 3b and 3c are only as good as the fixture: a derivation
+# that silently found nothing would build a fixture missing every directory,
+# and 3b would go red with a message about the function rather than the parse.
+case " $(echo $REQUIRED_DIRS) " in
+    *" scripts "*" hooks "*|*" hooks "*" scripts "*)
+        ok "3.0 the fixture was derived from mutation_copy_engine's own copy list: $(echo $REQUIRED_DIRS)" ;;
+    *)
+        bad "3.0 the fixture was derived from mutation_copy_engine's copy list" "the parse found '$(echo $REQUIRED_DIRS)', which lacks scripts or hooks — the function's copy lines changed shape, so update the sed pattern in this suite, not the fixture by hand" ;;
+esac
+
 EMPTY="$SANDBOX/not-an-engine"
 mkdir -p "$EMPTY"
 if ( . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"; mutation_copy_engine "$SANDBOX/dest-a" "$EMPTY" ) 2>/dev/null; then
@@ -239,12 +289,32 @@ if ( . "$ENGINE_ROOT/scripts/lib/mutation-harness.sh"; mutation_copy_engine "$SA
 else
     bad "3b  mutation_copy_engine accepts a real engine root" "it refused the fixture engine, so 3a proves nothing"
 fi
-if [ -f "$SANDBOX/dest-b/scripts/hooks/fake-guard.sh" ] && [ -f "$SANDBOX/dest-b/orchestration.config" ] \
-   && [ -f "$SANDBOX/dest-b/mega-lander/workspaces.py" ] \
-   && [ -f "$SANDBOX/dest-b/ass-kicker/brief-scope.py" ]; then
+MISSING_IN_COPY=""
+for d in $REQUIRED_DIRS; do
+    [ -f "$SANDBOX/dest-b/$d/.fixture-marker" ] || MISSING_IN_COPY="$MISSING_IN_COPY $d/"
+done
+for f in scripts/hooks/fake-guard.sh scripts/lib/scratch.sh orchestration.config \
+         mega-lander/workspaces.py ass-kicker/brief-scope.py; do
+    [ -f "$SANDBOX/dest-b/$f" ] || MISSING_IN_COPY="$MISSING_IN_COPY $f"
+done
+if [ -n "$REQUIRED_DIRS" ] && [ -z "$MISSING_IN_COPY" ]; then
     ok "3c  the copy carries the whole mechanical layer, not one file — the missing-dependency trap the old in-place harnesses cited"
 else
-    bad "3c  the copy carries the mechanical layer" "the sandbox is missing the guard, config or Mega Lander"
+    bad "3c  the copy carries the mechanical layer" "the sandbox is missing:${MISSING_IN_COPY:- the derived directory list itself (see 3.0)}"
+fi
+
+# 3d — THE OTHER DRIFT. The fixture follows the copy list, so it can no longer
+# lag it; but the copy list can name a directory the REAL engine does not have,
+# and then every real harness dies FATAL in mutation_sandbox_engine. A stat per
+# directory, not a copy: this costs nothing.
+MISSING_IN_ENGINE=""
+for d in $REQUIRED_DIRS; do
+    [ -d "$ENGINE_ROOT/$d" ] || MISSING_IN_ENGINE="$MISSING_IN_ENGINE $d/"
+done
+if [ -n "$REQUIRED_DIRS" ] && [ -z "$MISSING_IN_ENGINE" ] && [ -f "$ENGINE_ROOT/orchestration.config" ]; then
+    ok "3d  the real engine root has every directory mutation_copy_engine requires, so the real harnesses can build their sandbox"
+else
+    bad "3d  the real engine root has every directory the copy requires" "absent from $ENGINE_ROOT:${MISSING_IN_ENGINE:- orchestration.config or the derived list (see 3.0)} — every real mutation harness would refuse to start"
 fi
 
 # ---------------------------------------------------------------------------
