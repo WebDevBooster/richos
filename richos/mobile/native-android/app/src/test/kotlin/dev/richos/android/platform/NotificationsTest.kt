@@ -93,11 +93,11 @@ class NotificationsTest {
         seen.clear()
         platform.reconcile(notificationsOn = true, previews = false)
         assertEquals(emptyList<Action>(), seen)
-        // Revoked in Android Settings: the launch asks the OS nothing and registers nothing.
+        // Revoked in Android Settings: the launch asks nothing, registers nothing, and says it is off.
         token = "fcm:third-" + "z".repeat(40)
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         platform.reconcile(notificationsOn = true, previews = false)
-        assertTrue(seen.none { it is Action.PushToken })
+        assertEquals(listOf<Action>(Action.NotificationsResult(NotificationStatus.DENIED)), seen)
     }
 
     @Test

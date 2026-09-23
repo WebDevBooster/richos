@@ -173,9 +173,18 @@ class FcmPlatform(
      * the Mac, hand it over now. A refresh can happen while nothing is listening (the process was
      * killed before [RichMessagingService.onNewToken] finished), and an old token fails only at
      * Google, silently, when the next reply is sent. Asks the OS nothing.
+     *
+     * Notifications switched off for RichConnect in Android Settings (which also ends the process)
+     * are mirrored as DENIED, so Settings in the app says so and offers the way back, rather than
+     * showing a switch that is on while nothing can be shown.
      */
     suspend fun reconcile(notificationsOn: Boolean, previews: Boolean) {
-        if (!notificationsOn || !granted() || !firebaseReady()) return
+        if (!notificationsOn) return
+        if (!granted()) {
+            dispatch(Action.NotificationsResult(NotificationStatus.DENIED))
+            return
+        }
+        if (!firebaseReady()) return
         val token = runCatching { fetchToken() }.getOrNull()
         if (token.isNullOrBlank() || ledger.matches(token)) return
         val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.existing() }.getOrNull() } else null
