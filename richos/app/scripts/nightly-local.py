@@ -47,7 +47,7 @@ GATE_BUDGETS = {
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
 CLEANUP_TIMEOUT = 30
-TERM_GRACE = 8
+TERM_GRACE = 15
 KILL_GRACE = 2
 
 

@@ -37,6 +37,7 @@ fi
 NATIVE="$ROOT/richos/mobile/native-ios"
 VOLUME=/Volumes/E1TB
 
+SUITE_ARGS=("$@")
 MODE=all
 ONLY=()
 DEVICES=("iPhone SE (3rd generation)" "iPhone 16 Pro Max")
@@ -67,7 +68,7 @@ CACHE="${RICHOS_NATIVE_IOS_UI_CACHE:-$VOLUME/caches/richos-native-ios-ui/$KEY}"
 case "$CACHE" in "$VOLUME"/*) ;; *) not_run "RICHOS_NATIVE_IOS_UI_CACHE must be on $VOLUME" ;; esac
 CACHE="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$CACHE")"
 if [ "${RICHOS_SIMULATOR_CACHE_HELD:-}" != "$CACHE" ]; then
-  exec python3 "$DIR/lib/simulator_budget.py" cache "$CACHE" -- bash "${BASH_SOURCE[0]}" "$@"
+  exec python3 "$DIR/lib/simulator_budget.py" cache "$CACHE" -- bash "${BASH_SOURCE[0]}" "${SUITE_ARGS[@]}"
 fi
 mkdir -p "$CACHE"
 WORK="$(mktemp -d "$CACHE/run.XXXXXX")"

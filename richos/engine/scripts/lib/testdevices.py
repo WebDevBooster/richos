@@ -368,6 +368,8 @@ def register(kind, ident, owner_pid=None, script="", checkout="", device_set="")
     if not ident:
         raise ValueError("nothing to register")
     owner = choose_owner(owner_pid, checkout, script)
+    if os.environ.get("RICHOS_TEST_DEVICE_RUN_ID"):
+        owner["verification_run"] = os.environ["RICHOS_TEST_DEVICE_RUN_ID"]
     with registry_lock():
         generation = None
         if kind == "ios-simulator":
@@ -856,6 +858,50 @@ def collect(apply=False, departing=(), deadline=None):
         return res
     finally:
         _DEADLINE.reset(token)
+
+
+def cleanup_run_simulators(run_id, budget=15):
+    """Finalize this run's registered simulators after its supervised processes end.
+
+    CoreSimulator is a daemon: killing a process tree cannot stop its devices.
+    Never infer ownership from names or delete another run's registered device.
+    The regular collector/watchdog remains the fallback after runner SIGKILL.
+    """
+    errors = []
+    token = _DEADLINE.set(time.time() + budget)
+    try:
+        with registry_lock():
+            regs = [r for r in records() if r["kind"] == "ios-simulator" and any(
+                o.get("verification_run") == run_id for o in r.get("owners", [r.get("owner", {})]))]
+            inventories = {}
+            for r in regs:
+                device_set = r.get("generation", {}).get("device_set", "")
+                if device_set not in inventories:
+                    inventories[device_set] = ios_devices(device_set)
+                devices = inventories[device_set]
+                if devices is None:
+                    errors.append("simulator inventory unreadable: " + device_set)
+                    continue
+                device = next((d for d in devices if d["udid"] == r["id"]), None)
+                if device is None:
+                    continue
+                verdict, why = _registered_verdict(r)
+                if verdict != COLLECT:
+                    ours = [o for o in r.get("owners", [r.get("owner", {})]) if o.get("verification_run") == run_id]
+                    if verdict == LEAVE and all(owner_state(o)[0] == "gone" for o in ours):
+                        continue  # another live owner still has its own lease
+                    errors.append(r["id"] + ": " + why)
+                    continue
+                gone, why = _ios_remove(device)
+                if not gone:
+                    errors.append(r["id"] + ": " + why)
+    except Exception as exc:
+        errors.append("run simulator cleanup failed: " + str(exc))
+    finally:
+        _DEADLINE.reset(token)
+    if errors:
+        record_collector_failure("; ".join(errors))
+    return errors
 
 
 def _prune_registry(regs, seen):

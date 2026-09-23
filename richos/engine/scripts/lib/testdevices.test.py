@@ -135,6 +135,47 @@ class Base(unittest.TestCase):
 
 class Collector(Base):
 
+    def test_run_finalizer_preserves_a_shared_foreign_live_owner_without_failure(self):
+        device = self.device('rios-ui-shared')
+        owner = self.proc()
+        with patch.dict(os.environ, {'RICHOS_TEST_DEVICE_RUN_ID': 'mine'}):
+            T.register('ios-simulator', device, owner.pid)
+        with patch.dict(os.environ, {'RICHOS_TEST_DEVICE_RUN_ID': 'other'}):
+            T.register('ios-simulator', device, os.getpid())
+        owner.kill(); owner.wait()
+        self.assertEqual(T.cleanup_run_simulators('mine'), [])
+        self.assertEqual({d['udid'] for d in self.devices()}, {device})
+
+    def test_run_finalizer_removes_only_its_dead_registered_device(self):
+        mine = self.device('rios-ui-mine', udid='10000000-0000-4000-8000-000000000001')
+        other = self.device('rios-ui-other', udid='10000000-0000-4000-8000-000000000002')
+        live = self.device('rios-ui-live', udid='10000000-0000-4000-8000-000000000003')
+        owner = self.proc()
+        with patch.dict(os.environ, {'RICHOS_TEST_DEVICE_RUN_ID': 'mine'}):
+            T.register('ios-simulator', mine, owner.pid)
+            T.register('ios-simulator', live, os.getpid())
+        with patch.dict(os.environ, {'RICHOS_TEST_DEVICE_RUN_ID': 'other'}):
+            T.register('ios-simulator', other, owner.pid)
+        owner.kill(); owner.wait()
+        errors = T.cleanup_run_simulators('mine')
+        self.assertEqual({d['udid'] for d in self.devices()}, {other, live})
+        self.assertTrue(any(live in e for e in errors))
+
+    def test_run_finalizer_without_records_never_queries_simulators(self):
+        with patch.object(T, 'ios_devices', side_effect=AssertionError('unexpected inventory')):
+            self.assertEqual(T.cleanup_run_simulators('not-a-real-run'), [])
+
+    def test_run_finalizer_records_failed_deletion(self):
+        device = self.device('rios-ui-busy')
+        owner = self.proc()
+        with patch.dict(os.environ, {'RICHOS_TEST_DEVICE_RUN_ID': 'busy'}):
+            T.register('ios-simulator', device, owner.pid)
+        owner.kill(); owner.wait()
+        self.write_state(self.devices(), undeletable=[device])
+        self.assertTrue(T.cleanup_run_simulators('busy'))
+        self.assertTrue(T.read_failures())
+
+
     def test_T01_a_simulator_whose_creator_pid_is_gone_is_shut_down_and_deleted(self):
         u = self.device("rios-ui-%d-iPhone-SE" % self.dead_pid())
         res = T.collect(apply=True)

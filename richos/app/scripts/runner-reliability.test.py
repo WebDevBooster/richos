@@ -79,6 +79,22 @@ class Reliability(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.wait_gone(self.wait_file(record))
 
+    def test_term_trap_can_finish_new_cleanup_children(self):
+        ready = self.path / 'trap-ready'
+        done = self.path / 'trap-done'
+        script = self.path / 'trap.sh'
+        cleanup = self.path / 'cleanup.sh'
+        cleanup.write_text('#!/bin/bash\nsleep 0.7\necho cleaned > "$1"\n')
+        script.write_text('#!/bin/bash\n'
+            + 'trap \"bash \\\"$3\\\" \\\"$2\\\"; exit 0\" TERM\n'
+            + 'echo $$ > "$1"\nwhile :; do sleep 1; done\n')
+        wrapper = subprocess.Popen(proc_tree.command(['bash', str(script), str(ready), str(done), str(cleanup)]))
+        self.children.append(wrapper)
+        self.wait_file(ready)
+        wrapper.terminate()
+        wrapper.wait(timeout=15)
+        self.assertEqual(done.read_text().strip(), 'cleaned')
+
     def test_sigkill_owner_still_cleans_command_and_releases_lease(self):
         budget = self.path / 'budget'
         worker_tokens.init(budget, 1)
@@ -115,6 +131,29 @@ class Reliability(unittest.TestCase):
         finally:
             for token in held:
                 token.release()
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'the iOS suite requires macOS')
+    def test_ios_cache_wrapper_preserves_headless_arguments(self):
+        # Stub only compilation. Losing --headless attempts simctl and fails this fixture.
+        if not str(self.path).startswith('/Volumes/E1TB/'):
+            self.skipTest('the iOS fixture requires SSD-backed TMPDIR')
+        bindir = self.path / 'bin'
+        bindir.mkdir()
+        xcrun = bindir / 'xcrun'
+        xcrun.write_text('#!/bin/bash\n[ "$1" = swiftc ] || exit 99\n'
+            + 'while [ "$#" -gt 0 ]; do\n'
+            + ' if [ "$1" = -o ]; then shift; out="$1"; break; fi\n shift\ndone\n'
+            + "printf '#!/bin/bash\\nexit 0\\n' > \"$out\"\nchmod +x \"$out\"\n")
+        xcrun.chmod(0o755)
+        env = {**os.environ, 'PATH': str(bindir) + os.pathsep + os.environ['PATH'],
+               'RICHOS_NATIVE_IOS_UI_CACHE': str(self.path / 'cache'),
+               'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}
+        for key in ('RICHOS_WORKER_TOKENS', 'RICHOS_WORKER_SLOT_HELD', 'RICHOS_SIMULATOR_CACHE_HELD'):
+            env.pop(key, None)
+        result = subprocess.run(['bash', str(HERE / 'native-ios-ui.test.sh'), '--headless'],
+            env=env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('native-ios-ui: headless', result.stdout)
 
     def test_simulator_resource_does_not_take_another_worker_or_change_borrow_slot(self):
         machine = self.path / 'machine'

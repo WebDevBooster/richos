@@ -186,23 +186,26 @@ class TrackedTree:
         return set(self.known)
 
 
-def finish_scope(child, tracker, grace=3.0):
+def finish_scope(child, tracker, grace=8.0):
     """Re-scan while stopping so a TERM trap cannot fork an uncounted survivor."""
     deadline = time.monotonic() + grace
     killed_at = deadline + 3.0
-    sent = set()
+    initial = True
     while True:
         child.poll()
         alive = set(_alive(tracker.refresh(tags=True)))
         if not alive:
             return []
         hard = time.monotonic() >= deadline
-        for pid in alive if hard else alive - sent:
+        # Signal the original tree once. A shell's EXIT trap may start cleanup
+        # commands during the grace period; terminating those immediately defeats
+        # cooperative cleanup. Track them and kill any survivors at the deadline.
+        for pid in alive if hard or initial else ():
             try:
                 os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            sent.add(pid)
+        initial = False
         if time.monotonic() >= killed_at:
             return sorted(alive)
         time.sleep(0.05)

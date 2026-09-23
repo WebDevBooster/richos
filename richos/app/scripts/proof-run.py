@@ -82,6 +82,7 @@ THE MACHINE BUDGET for separate runners and nightlies is shared through worker_t
 ceiling. All nested workers must acquire both budgets or borrow their caller's held slot.
 """
 import argparse
+import uuid
 import hashlib
 import math
 import tempfile
@@ -442,8 +443,10 @@ def run(items, args, logdir, sampler=None):
     os.makedirs(logdir, exist_ok=True)
     tokens_dir = tempfile.mkdtemp(prefix="worker-tokens-", dir=logdir)
     machine = worker_tokens.machine_directory()
+    run_id = uuid.uuid4().hex
     for item in items:
         item.machine_tokens = machine
+        item.env["RICHOS_TEST_DEVICE_RUN_ID"] = run_id
     worker_tokens.init(tokens_dir, args.capacity)
     budget = worker_tokens.Budget(tokens_dir, runner=True, shared=machine)
     reserved = reserved_tokens(args.capacity)
@@ -495,6 +498,18 @@ def run(items, args, logdir, sampler=None):
         for it in items:
             if it.token:
                 it.token.release()
+        # The simulator daemon outlives command processes. Finalize only this run's
+        # registered devices, after process cleanup and outside the killed trees.
+        import testdevices
+        errors = testdevices.cleanup_run_simulators(run_id)
+        if errors:
+            failed = Item("simulator cleanup", ROOT, [])
+            failed.state, failed.rc = "failed", 125
+            failed.started = failed.ended = time.monotonic()
+            failed.notes.extend(errors)
+            items.append(failed)
+            print("proof-run: simulator cleanup FAILED: " + "; ".join(errors), flush=True)
+        checkpoint(items, logdir)
     monitor.join(timeout=5)
     args.monitor_lines = monitor.report(args.max_cpu)
     return time.monotonic() - t0

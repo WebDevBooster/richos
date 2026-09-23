@@ -297,7 +297,19 @@ def main(argv):
                "RICHOS_WORKER_TOKENS": directory,
                "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(__file__),
                "RICHOS_WORKER_TOKENS_RESERVED": str(max(1, len(Budget(directory).files) // 4))}
-        return run_command(argv[2:], token, env)
+        import uuid
+        env["RICHOS_TEST_DEVICE_RUN_ID"] = uuid.uuid4().hex
+        try:
+            return run_command(argv[2:], token, env)
+        finally:
+            # The complete engine owns test-device cleanup. Minimal test fixtures
+            # copy only the process/budget helpers and never create real devices.
+            if os.path.isfile(os.path.join(os.path.dirname(__file__), "testdevices.py")):
+                import testdevices
+                errors = testdevices.cleanup_run_simulators(env["RICHOS_TEST_DEVICE_RUN_ID"])
+                if errors:
+                    print("worker_tokens: simulator cleanup FAILED: " + "; ".join(errors), file=sys.stderr)
+                    raise SystemExit(125)
     reserved = os.environ.get("RICHOS_WORKER_TOKENS_RESERVED", "0")
     reserved = int(reserved) if reserved.isdigit() else 0
     if len(argv) == 3 and argv[0] == "init":

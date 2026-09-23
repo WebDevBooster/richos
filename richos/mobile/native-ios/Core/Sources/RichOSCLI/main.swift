@@ -5,6 +5,11 @@
 // §3.1 "Grammar"): JSON on stdout `{ok, mode, command, elapsedMs, result}`; on failure JSON on
 // stderr `{ok:false, error, elapsedMs}` and exit 1.
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 import RichOSCore
 import RichOSFixtures
 
@@ -101,18 +106,28 @@ func cacheDirectory() throws -> URL {
     return url
 }
 
-/// One command at a time per cache: two overlapping resets or installs would corrupt each other.
-/// A directory, because `mkdir` is atomic; its `owner.json` names the process holding it.
+/// A persistent kernel lock is released even after SIGKILL. Never unlink its inode.
+/// Legacy directory locks are removed only when their recorded owner is provably gone.
 func withLock<T>(_ cache: URL, _ name: String, _ body: () async throws -> T) async throws -> T {
-    let lock = cache.appendingPathComponent(name)
-    do {
-        try FileManager.default.createDirectory(at: lock, withIntermediateDirectories: false)
-    } catch {
-        throw CoreError("Another rios command owns \(lock.path). If it crashed, verify the PID in its owner.json is gone before removing that directory.")
+    let lock = cache.appendingPathComponent(name + ".flock")
+    let fd = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC, mode_t(0o600))
+    guard fd >= 0 else { throw CoreError("Cannot open command lock \(lock.path): errno \(errno)") }
+    defer { close(fd) }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+        throw CoreError("Another rios command owns \(lock.path)")
     }
-    defer { try? FileManager.default.removeItem(at: lock) }
-    let owner = #"{"pid":\#(ProcessInfo.processInfo.processIdentifier)}"#
-    try Data(owner.utf8).write(to: lock.appendingPathComponent("owner.json"))
+    defer { flock(fd, LOCK_UN) }
+    let legacy = cache.appendingPathComponent(name)
+    if FileManager.default.fileExists(atPath: legacy.path) {
+        guard let data = try? Data(contentsOf: legacy.appendingPathComponent("owner.json")),
+              let owner = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let number = owner["pid"] as? NSNumber,
+              let pid = Int32(exactly: number.int64Value), pid > 0, number.doubleValue == Double(pid),
+              kill(pid, 0) == -1, errno == ESRCH else {
+            throw CoreError("Legacy command lock has a live or unverified owner: \(legacy.path)")
+        }
+        try FileManager.default.removeItem(at: legacy)
+    }
     return try await body()
 }
 
