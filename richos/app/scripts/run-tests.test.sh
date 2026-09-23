@@ -699,6 +699,7 @@ else
       RICHOS_NAMED_PERSONS_FILE) E1ENV+=("RICHOS_NAMED_PERSONS_FILE=$TMP/e1-named-persons") ;;
       RUN_TESTS_SKIP_UNCHANGED) E1ENV+=("RUN_TESTS_SKIP_UNCHANGED=1") ;;
       RUN_TESTS_DECLARED_GAPS) E1ENV+=("RUN_TESTS_DECLARED_GAPS=front-door.test.sh: whatever the build declares") ;;
+      RICHOS_NATIVE_IOS_APP_A8) E1ENV+=("RICHOS_NATIVE_IOS_APP_A8=1") ;;
       *) E1MISSING="$E1MISSING $E1N" ;;
     esac
   done

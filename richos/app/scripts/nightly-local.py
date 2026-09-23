@@ -525,6 +525,9 @@ GATE_SET_BY_BUILD = (
 GATE_SET_PER_STEP = (
     "RUN_TESTS_DECLARED_GAPS",
     "RUN_TESTS_SKIP_UNCHANGED",
+    # native-ios-app.test.sh case A8, the middle iPhone size: off every land, on before every
+    # nightly (CEO, 2026-09-23, "Only before nightlies"). Set at the script-suites call site.
+    "RICHOS_NATIVE_IOS_APP_A8",
 )
 
 
@@ -1055,7 +1058,11 @@ class Runner:
             # Every one of these is written literally at this call site rather than taken
             # from the operator's shell, for the same reason DECLARED_GAPS is: a stray
             # export must not be able to hold back a suite or skip one.
-            extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS}
+            extra = {"RUN_TESTS_DECLARED_GAPS": DECLARED_GAPS,
+                     # The iPhone UI tests on the middle screen size run HERE, before every
+                     # nightly, and nowhere on a land (CEO, 2026-09-23, "Only before
+                     # nightlies"). A failure fails this gate and so stops the nightly.
+                     "RICHOS_NATIVE_IOS_APP_A8": "1"}
             if skip_unchanged:
                 extra["RUN_TESTS_SKIP_UNCHANGED"] = "1"
             args = ["bash", self.source / SCRIPTS / "run-tests.sh",

@@ -1029,6 +1029,9 @@ while True: time.sleep(.02)
         env = [c.kwargs["env_extra"] for c in r.command.call_args_list
                if "env_extra" in c.kwargs][0]
         self.assertEqual(env["RUN_TESTS_SKIP_UNCHANGED"], "1")
+        # The middle iPhone size runs before every nightly (CEO, 2026-09-23, "Only before
+        # nightlies"): stated at this call site, where a failure stops the nightly.
+        self.assertEqual(env["RICHOS_NATIVE_IOS_APP_A8"], "1")
 
     def test_release_never_skips_a_suite_over_unchanged_inputs(self):
         """A proof file on this host may excuse a suite for a CANDIDATE. It may never
