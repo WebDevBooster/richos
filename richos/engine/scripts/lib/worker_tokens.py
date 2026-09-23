@@ -8,7 +8,9 @@
                                              drops, never a file somebody must remember to delete)
     worker_tokens.py held <dir>              how many tokens are held right now
 
-    import: Budget(dir).try_acquire() -> token or None; token.release()
+    import: Budget(dir).try_acquire() -> token or None; .acquire() waits; token.release();
+            Budget(dir).waiting() -> nested workers waiting now (the runner starts no new check
+            while any wait, so a running long pole's workers go before a check not yet started)
 
 WHY (2026-09-23). proof-run.py limited how many CHECKS ran at once, and a check is not one worker:
 an engine shard reaching workspace-spec-fourteen starts a mutation pool of eight suites of its own,
@@ -65,11 +67,42 @@ class Budget:
         return None
 
     def acquire(self):
-        while True:
-            t = self.try_acquire()
-            if t:
-                return t
-            time.sleep(POLL_SECONDS)
+        """Wait for a token. While waiting, a `wait-<pid>` marker says so, and the runner starts
+        no NEW check while one exists: a worker of a check already running (a long pole, started
+        first) goes before a check that has not started yet."""
+        t = self.try_acquire()
+        if t:
+            return t
+        marker = os.path.join(self.dir, "wait-%d" % os.getpid())
+        open(marker, "w").close()
+        try:
+            while True:
+                t = self.try_acquire()
+                if t:
+                    return t
+                time.sleep(POLL_SECONDS)
+        finally:
+            try:
+                os.remove(marker)
+            except OSError:
+                pass
+
+    def waiting(self):
+        """How many nested workers are waiting for a token right now (markers of live pids)."""
+        n = 0
+        for f in os.listdir(self.dir):
+            if f.startswith("wait-") and f[5:].isdigit():
+                try:
+                    os.kill(int(f[5:]), 0)
+                    n += 1
+                except ProcessLookupError:
+                    try:
+                        os.remove(os.path.join(self.dir, f))
+                    except OSError:
+                        pass
+                except PermissionError:
+                    n += 1
+        return n
 
     def held(self):
         n = 0
