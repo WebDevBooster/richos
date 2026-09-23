@@ -251,9 +251,19 @@ mut_pool_submit() {
     # Block until a slot frees. The sleep is 0.05s: short enough that a freed
     # core is not left idle for a human-visible time, long enough that the
     # throttle is not itself a spinning core.
-    while [ "$(_mut_pool_occupied)" -ge "$MUT_POOL_JOBS" ]; do
+    local _busy
+    _busy="$(_mut_pool_occupied)"
+    while [ "$_busy" -ge "$MUT_POOL_JOBS" ]; do
         sleep 0.05
+        _busy="$(_mut_pool_occupied)"
     done
+    # A RUN-WIDE WORKER BUDGET, when the caller gives one (RICHOS_WORKER_TOKENS, from
+    # proof-run.py; scripts/lib/worker_tokens.py). This pool's first concurrent worker runs on
+    # the token its caller already holds; every worker beyond it takes one of the budget's
+    # tokens for its suite runs (mutation-harness.sh `_mut_run`). So eight workers inside one
+    # check count as eight against the run, and a check can always progress one at a time.
+    local _needs_token=0
+    [ "$_busy" -ge 1 ] && _needs_token=1
     MUT_POOL_N=$(( MUT_POOL_N + 1 ))
     MUT_POOL_SUBMITTED=$(( MUT_POOL_SUBMITTED + 1 ))
     local seq
@@ -264,6 +274,8 @@ mut_pool_submit() {
         # nested pool, so the process bound stays JOBS rather than JOBS squared.
         RICHOS_MUTANT_POOL_DEPTH=$(( ${RICHOS_MUTANT_POOL_DEPTH:-0} + 1 ))
         export RICHOS_MUTANT_POOL_DEPTH
+        MUT_WORKER_TOKEN="$_needs_token"
+        export MUT_WORKER_TOKEN
         _t0="$(sw_now_ms)"
         "$@" >"$MUT_POOL_DIR/$seq.out" 2>&1
         _rc=$?

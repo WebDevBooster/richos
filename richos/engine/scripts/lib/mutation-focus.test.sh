@@ -209,6 +209,42 @@ else
     bad "F7  the harness exits non-zero with unproven mutants" "rc=0"
 fi
 
+# --- F9: a run-wide worker budget bounds a pool's workers ---------------------------
+# proof-run.py holds one token per check and exports RICHOS_WORKER_TOKENS; a pool runs its
+# first worker on that token and needs a budget token for every worker beyond it. With a
+# budget of ONE token and four pool slots, at most TWO suites may run at once; without a
+# budget the same pool runs more (the positive control, so a low count means something).
+cat > "$FAKE_ENG/mega-lander/tests/par.test.sh" <<'EOF'
+#!/usr/bin/env bash
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../feature.sh"
+touch "$FOCUS_PROBE/running.$$"
+ls "$FOCUS_PROBE"/running.* 2>/dev/null | wc -l | tr -d ' ' >> "$FOCUS_PROBE/concurrency"
+sleep 1
+rm -f "$FOCUS_PROBE/running.$$"
+[ "${RULE_A:-0}" = 1 ] || { echo "      FAIL  P1.1 rule A"; exit 1; }
+EOF
+chmod +x "$FAKE_ENG/mega-lander/tests/par.test.sh"
+cp "$ENGINE_ROOT/scripts/lib/worker_tokens.py" "$FAKE_ENG/scripts/lib/"
+M4=()
+for n in 1 2 3 4 5 6; do
+    M4+=("mutant par-$n P1.1 mega-lander/feature.sh \"RULE_A=1\" \"RULE_A=0\" \"rule A removed ($n)\"")
+done
+harness h9.sh mega-lander/tests/par.test.sh - "${M4[@]}"
+rm -f "$PROBE"/*
+RICHOS_MUTANT_JOBS=4 run_h h9.sh
+FREE_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
+rm -f "$PROBE"/*
+BUDGET="$SANDBOX/budget"
+python3 "$ENGINE_ROOT/scripts/lib/worker_tokens.py" init "$BUDGET" 1
+RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
+BOUND_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
+if [ "${FREE_MAX:-0}" -ge 3 ] && [ "${BOUND_MAX:-9}" -le 2 ] && [ "$RH_RC" -eq 0 ]; then
+    ok "F9  a budget of one token holds a four-slot pool to two suites at once (${BOUND_MAX}; ${FREE_MAX} without a budget), and every mutant is still proven"
+else
+    bad "F9  the worker budget bounds the pool" "without a budget ${FREE_MAX:-?} at once, with one token ${BOUND_MAX:-?} (want <= 2), rc=$RH_RC"
+fi
+
 # --- F8: an unknown mode is refused, never ignored ----------------------------------
 harness h8.sh mega-lander/tests/named.test.sh no-such-mode "$M_A"
 run_h h8.sh

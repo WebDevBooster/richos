@@ -470,6 +470,18 @@ mutation_sandbox_engine() { # <src-engine-root>
     return 0
 }
 
+# _mut_run <argv...> — run a mutant's suite, on a token of the caller's worker budget when
+# this worker is one beyond its pool's first (mutation-pool.sh sets MUT_WORKER_TOKEN; the
+# budget is RICHOS_WORKER_TOKENS, from proof-run.py; scripts/lib/worker_tokens.py). Without a
+# budget it is the command itself, exactly as before.
+_mut_run() {
+    if [ -n "${RICHOS_WORKER_TOKENS:-}" ] && [ "${MUT_WORKER_TOKEN:-0}" = 1 ]; then
+        python3 "$MUT_ENGINE_ROOT/scripts/lib/worker_tokens.py" run "$RICHOS_WORKER_TOKENS" -- "$@"
+    else
+        "$@"
+    fi
+}
+
 # _mutant_body — everything a single mutant does, as a function that RETURNS its
 # verdict instead of incrementing a counter.
 #
@@ -499,7 +511,7 @@ _mutant_body() { # <name> <want> <rel> <old> <new> <why>
     # not a case that only fails when run alone, and not a name that selected
     # nothing and exited 0.
     if [ "$MUT_FOCUS" = want-as-argument ]; then
-        RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" "$want" >"$dir/control.txt" 2>&1
+        RICHOS_MUTATION_INNER=1 _mut_run bash "$dir/$MUT_SUITE" "$want" >"$dir/control.txt" 2>&1
         crc=$?
         if [ "$crc" -ne 0 ] || ! grep -qF "PASS  $want" "$dir/control.txt"; then
             el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
@@ -522,7 +534,7 @@ _mutant_body() { # <name> <want> <rel> <old> <new> <why>
     local rc
     case "$MUT_FOCUS" in
         stop-at-want)
-            RICHOS_MUTATION_INNER=1 python3 "$MUT_ENGINE_ROOT/scripts/lib/stop-at-line.py" \
+            RICHOS_MUTATION_INNER=1 _mut_run python3 "$MUT_ENGINE_ROOT/scripts/lib/stop-at-line.py" \
                 --out "$dir/out.txt" --line "FAIL  $want" --marker "$dir/stopped" \
                 -- bash "$dir/$MUT_SUITE"
             rc=$?
@@ -532,10 +544,10 @@ _mutant_body() { # <name> <want> <rel> <old> <new> <why>
                 return 0
             fi ;;
         want-as-argument)
-            RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" "$want" >"$dir/out.txt" 2>&1
+            RICHOS_MUTATION_INNER=1 _mut_run bash "$dir/$MUT_SUITE" "$want" >"$dir/out.txt" 2>&1
             rc=$? ;;
         *)
-            RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" >"$dir/out.txt" 2>&1
+            RICHOS_MUTATION_INNER=1 _mut_run bash "$dir/$MUT_SUITE" >"$dir/out.txt" 2>&1
             rc=$? ;;
     esac
     el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
