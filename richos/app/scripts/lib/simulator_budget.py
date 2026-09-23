@@ -52,7 +52,7 @@ def acquire(kind, timeout=1800, sampler=None, cache=None, inventory=None):
             token.release()
             raise
         token.release()
-        print("simulator-budget: boot waits for CPU/memory headroom or an existing booted device", flush=True)
+        print("simulator-budget: boot waits for CPU/memory headroom or an existing booted device", file=sys.stderr, flush=True)
         time.sleep(min(30, max(0, deadline - time.monotonic())))
     raise TimeoutError("simulator %s admission exceeded %gs" % (kind, timeout))
 
