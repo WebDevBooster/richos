@@ -20,7 +20,7 @@ changed code path no suite covers (nothing is run then); 2 usage or an unreadabl
 
 WHY THIS EXISTS (2026-09-23). `proof-for.sh` prints the smallest set of commands that can
 prove a change, and deliberately runs nothing. The land of 184 commits on 2026-09-22/23
-took 2 h 45 min of wall clock, and part of that was the lead running the 35 printed
+took 2 h 45 min of wall clock, and part of that was the lead running the printed
 commands ONE AT A TIME in a hand-written loop. The CEO's end state for landing is "a
 one-line change costs seconds of waiting. Nobody watches a test suite." A committed
 runner is the answer to the loop; hand-rolling it again is the defect.
@@ -67,7 +67,6 @@ the ones left waiting.
 import argparse
 import datetime
 import json
-import math
 import os
 import re
 import shlex
@@ -274,8 +273,11 @@ def plan(lines, args, logdir, hist):
             f = row.split("\t")
             if len(f) >= 4:
                 weight[f[0]] = float(f[3] or 0)
-        total, biggest = sum(weight.values()), max(weight.values() or [0])
-        k = max(1, min(args.engine_shards, len(weight), math.ceil(total / biggest) if biggest else 1))
+        # As many shards as allowed: the packer is longest-first, so a unit heavier than all the
+        # rest together gets a shard of its own and the others spread over the remainder. A shard
+        # count derived from the weights would trust lib/ci-unit-weights.tsv further than it can
+        # be trusted: it is dated data, and a stale heavy row would idle the other shards.
+        k = max(1, min(args.engine_shards, len(weight)))
         packed = subprocess.run(["bash", "scripts/ci-units.sh", "shards", str(k), "--units-file", ufile],
                                 cwd=engine, capture_output=True, text=True)
         per = {}
