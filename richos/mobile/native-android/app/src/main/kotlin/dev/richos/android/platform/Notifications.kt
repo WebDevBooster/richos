@@ -61,6 +61,15 @@ class PreviewKeys(private val file: File, private val wrapper: () -> SecretKey) 
 
     fun existing(): ByteArray? = runCatching { read() }.getOrNull()
 
+    /**
+     * A-4 (security review 2026-09-23): previews off, or notifications off (which Forget does
+     * first), leaves nothing on the phone that opens a preview. Turning previews on again makes a
+     * fresh key, which the registration hands the Mac, so this is also how the key rotates.
+     */
+    fun discard() {
+        runCatching { AtomicFile(file).delete() }
+    }
+
     /** Tests only: store a known key. */
     internal fun adopt(key: ByteArray) = write(key)
 
@@ -165,7 +174,9 @@ class FcmPlatform(
             dispatch(Action.NotificationsResult(NotificationStatus.PLATFORM_UNAVAILABLE))
             return
         }
-        val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.key() }.getOrNull() } else null
+        val key = withContext(Dispatchers.IO) {
+            if (previews) runCatching { previewKeys.key() }.getOrNull() else null.also { previewKeys.discard() }
+        }
         ledger.record(token)
         dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
     }
@@ -204,6 +215,7 @@ class FcmPlatform(
 
     override suspend fun unregisterNotifications() {
         ledger.clear()
+        withContext(Dispatchers.IO) { previewKeys.discard() }
         if (FirebaseApp.getApps(context).isNotEmpty()) runCatching { FirebaseMessaging.getInstance().deleteToken() }
     }
 
