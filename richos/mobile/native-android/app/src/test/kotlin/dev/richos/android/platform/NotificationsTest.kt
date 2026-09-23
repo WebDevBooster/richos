@@ -13,6 +13,7 @@ import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,11 +34,44 @@ class NotificationsTest {
 
     private fun ledger() = TokenLedger(File(app.cacheDir, "push-test/ledger"))
 
+    @Before
+    fun offScreen() {
+        // The test process counts as on screen; the notification rules are about a phone where it is not.
+        Replies.onScreen = { false }
+    }
+
     @After
     fun clean() {
         File(app.cacheDir, "push-test").deleteRecursively()
         RichMessagingService.keysFor = PreviewKeys::forApp
         RichMessagingService.ledgerFor = TokenLedger::forApp
+        Replies.onScreen = { false }
+    }
+
+    @Test
+    fun `while RichConnect is on screen the reply arrives in the conversation, not as a notification`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        Replies.onScreen = { true }
+        Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(data("c".repeat(64)))
+        assertEquals(0, shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications.size)
+    }
+
+    @Test
+    fun `with notifications denied nothing is posted and nothing fails`() {
+        shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(data("c".repeat(64)))
+        assertEquals(0, shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications.size)
+    }
+
+    @Test
+    fun `the replies channel is named for a person, described, and high importance`() {
+        Replies.ensureChannel(app)
+        val channel = app.getSystemService(NotificationManager::class.java).getNotificationChannel(Replies.CHANNEL)
+        assertEquals("Rich's replies", channel.name.toString())
+        assertEquals("Rich's answers while RichConnect is not on screen.", channel.description)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
     }
 
     @Test

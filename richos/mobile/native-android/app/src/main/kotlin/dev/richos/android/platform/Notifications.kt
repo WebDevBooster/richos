@@ -1,6 +1,7 @@
 package dev.richos.android.platform
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -313,8 +314,24 @@ object Replies {
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL) == null) {
-            manager.createNotificationChannel(NotificationChannel(CHANNEL, "Rich's replies", NotificationManager.IMPORTANCE_HIGH))
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL, "Rich's replies", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Rich's answers while RichConnect is not on screen."
+                },
+            )
         }
+    }
+
+    /**
+     * While RichConnect is on screen the reply is already arriving in the conversation, so no
+     * notification covers it (the iPhone app suppresses foreground presentation the same way,
+     * `mobile/service/notifications.md`). Anything less than on screen, including a locked phone
+     * with the app on top, still gets the notification.
+     */
+    internal var onScreen: (Context) -> Boolean = {
+        val me = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(me)
+        me.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 
     fun post(context: Context, text: String, target: NotificationTarget?, collapse: String?) {
@@ -324,6 +341,7 @@ object Replies {
         ) {
             return
         }
+        if (onScreen(context)) return
         // One notification per event, so one pending intent per event: PendingIntent identity ignores
         // extras, and a shared request code made every notification open the newest reply's references.
         val id = collapse?.hashCode() ?: 0
