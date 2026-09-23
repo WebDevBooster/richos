@@ -130,7 +130,7 @@ adb_s() {
 free_port() {
   local port
   for port in $(seq 5580 2 5680); do
-    if ! "$ADB" devices | grep -q "^emulator-$port[[:space:]]" \
+    if ! "$ADB" devices | grep -q "^emulator-${port}[[:space:]]" \
        && ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 \
        && ! lsof -nP -iTCP:"$((port + 1))" -sTCP:LISTEN >/dev/null 2>&1; then
       printf '%s' "$port"; return 0
@@ -139,8 +139,13 @@ free_port() {
   return 1
 }
 
+register_emulator_owner() {
+  python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind android-emulator \
+    --id "$CACHE" --checkout "$HERE/../../.." --script randroid >/dev/null
+}
+
 emu_boot() {
-  if [ -f "$EMU_RECORD" ] && kill -0 "$(record_get pid)" 2>/dev/null; then return 0; fi
+  if [ -f "$EMU_RECORD" ] && kill -0 "$(record_get pid)" 2>/dev/null; then register_emulator_owner; return; fi
   [ -x "$EMULATOR" ] || fail "NOT RUN: no Android emulator at $EMULATOR" 2
   mkdir -p "$ANDROID_AVD_HOME"
   if [ ! -f "$ANDROID_AVD_HOME/$AVD.ini" ]; then
@@ -151,11 +156,11 @@ emu_boot() {
   local t0; t0="$(now_ms)"
   # -no-window: nothing opens on the Mac's screen. The PID is captured here, at spawn, and is
   # the only process `emu stop` will ever signal.
-  nohup "$EMULATOR" -avd "$AVD" -port "$port" -no-window -no-audio -no-boot-anim \
-    -gpu swiftshader_indirect >"$CACHE/emulator.log" 2>&1 &
-  local pid=$!
-  python3 -c 'import json,sys; json.dump({"serial": "emulator-"+sys.argv[1], "port": int(sys.argv[1]), "pid": int(sys.argv[2]), "avd": sys.argv[3]}, open(sys.argv[4], "w"))' \
-    "$port" "$pid" "$AVD" "$EMU_RECORD"
+  local pid
+  pid="$(python3 "$HERE/../../engine/scripts/lib/testdevices.py" launch-android \
+    --cache "$CACHE" --avd "$AVD" --port "$port" --checkout "$HERE/../../.." -- \
+    "$EMULATOR" -avd "$AVD" -port "$port" -no-window -no-audio -no-boot-anim \
+    -gpu swiftshader_indirect)" || fail "emulator launch or ownership registration failed"
   local s="emulator-$port" booted="" i
   for i in $(seq 1 360); do
     kill -0 "$pid" 2>/dev/null || fail "the emulator exited during boot (see $CACHE/emulator.log)"
@@ -222,28 +227,16 @@ emu_restart() {
 
 emu_stop() {
   [ -f "$EMU_RECORD" ] || { say_json '{"ok": true, "mode": "emu", "command": "stop", "result": {"running": false}}'; return 0; }
-  local s pid avd i
-  s="$(record_get serial)"; pid="$(record_get pid)"; avd="$(record_get avd)"
-  if kill -0 "$pid" 2>/dev/null; then
-    "$ADB" -s "$s" emu kill >/dev/null 2>&1 || true
-    for i in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-    if kill -0 "$pid" 2>/dev/null; then
-      # Still alive: signal it only if the recorded PID is still the emulator this CLI started.
-      if ps -o command= -p "$pid" | grep -q -- "-avd $avd "; then kill -TERM "$pid"; fi
-      for i in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-    fi
-  fi
-  kill -0 "$pid" 2>/dev/null && fail "emulator pid $pid did not exit"
-  rm -f "$EMU_RECORD"
+  local s pid
+  s="$(record_get serial)"; pid="$(record_get pid)"
+  python3 "$HERE/../../engine/scripts/lib/testdevices.py" stop-android --cache "$CACHE" \
+    || fail "emulator stop could not verify or end its recorded process"
   say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"stop\", \"result\": {\"serial\": \"$s\", \"pid\": $pid, \"running\": false}}"
 }
 
 emu_delete() {
-  emu_stop >/dev/null
-  if [ -f "$ANDROID_AVD_HOME/$AVD.ini" ]; then
-    "$AVDMANAGER" delete avd -n "$AVD" >/dev/null 2>&1 || fail "could not delete AVD $AVD"
-  fi
-  rm -rf "$ANDROID_AVD_HOME"
+  python3 "$HERE/../../engine/scripts/lib/testdevices.py" stop-android --cache "$CACHE" --delete \
+    || fail "emulator deletion could not verify or end its recorded process"
   say_json "{\"ok\": true, \"mode\": \"emu\", \"command\": \"delete\", \"result\": {\"avd\": \"$AVD\", \"deleted\": true}}"
 }
 
@@ -292,6 +285,10 @@ PY
 
 emu() {
   local command="${1:-}"; shift || true
+  case "$command" in
+    prepare|stop|delete) ;;
+    *) register_emulator_owner ;;
+  esac
   case "$command" in
     prepare) emu_boot; emu_install prepare ;;
     refresh) emu_install refresh ;;

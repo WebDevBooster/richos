@@ -624,7 +624,7 @@ json.dump({"ios:FF09044D-0619-442E-95F6-9CCB6EA6A3E0": {
 PY
 OUT="$(run_wd --alert)"; RC=$?
 if [ "$RC" = "1" ] \
-   && printf '%s' "$OUT" | grep -q 'SIMULATOR OR EMULATOR WAS LEFT RUNNING' \
+   && printf '%s' "$OUT" | grep -q 'TEST DEVICE CLEANUP NEEDS ATTENTION' \
    && printf '%s' "$OUT" | grep -q 'xcrun simctl delete FF09044D-0619-442E-95F6-9CCB6EA6A3E0' \
    && printf '%s' "$OUT" | grep -q 'BY HAND'; then
     ok "W12d a test simulator left running alerts, names it, and carries the command to end it BY HAND"
@@ -639,6 +639,28 @@ if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
 else
     bad "W12e the alert did not clear after the device row was resolved (rc=$RC)"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# Scheduled checks retry cleanup even when no session survives to emit an end.
+world device-timer
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+printf '#!/bin/sh\nexit 1\n' > "$W_BIN/fake-simctl"; chmod +x "$W_BIN/fake-simctl"
+OUT="$(CLAUDE_CONFIG_DIR="$W_DIR/claude" RICHOS_SIMCTL="$W_BIN/fake-simctl" run_wd --check)"; RC=$?
+if [ "$RC" = "1" ] && printf '%s' "$OUT" | grep -q 'TEST DEVICE CLEANUP NEEDS ATTENTION' && [ -f "$W_DIR/test-device-failures.json" ]; then
+    ok "W12f scheduled check persists and displays failed inventory without a session"
+else
+    bad "W12f scheduled device cleanup did not create an alert: $OUT"
+fi
+cat > "$W_BIN/fake-simctl" <<'FAKE'
+#!/bin/sh
+printf '%s\n' '{"devices":{}}'
+FAKE
+OUT="$(CLAUDE_CONFIG_DIR="$W_DIR/claude" RICHOS_SIMCTL="$W_BIN/fake-simctl" run_wd --check)"; RC=$?
+if [ "$RC" = "0" ] && [ ! -f "$W_DIR/test-device-failures.json" ]; then
+    ok "W12g next successful scheduled check clears the collector alert"
+else
+    bad "W12g scheduled recovery did not clear the alert: $OUT"
 fi
 
 # ===========================================================================

@@ -10,7 +10,7 @@ Same hygiene as with any other garbage."
 
 WHY THIS EXISTS. On 2026-09-22 the CEO stopped ten agents from his own screen.
 Three iOS simulators their test runs had booted stayed booted after he exited:
-two `rios-ui-<pid>-...` from richos/app/scripts/native-ios-ui.test.sh and one
+one `rios-ui-<pid>-...` from richos/app/scripts/native-ios-ui.test.sh and two
 `RichOS native-ios <key>-app` from native-ios-app.test.sh. Each script deletes
 its simulator in an EXIT trap, and a killed run never reaches its trap.
 appinstances.py, the engine's one definition of a test instance, looks only for
@@ -21,9 +21,9 @@ THE RULE: OWNERSHIP, NEVER A NAME. A name says which family of tool made a
 device; it never says whether anyone is still using it. A device is collected
 only when its owner is PROVEN gone, by one of:
 
-  registered owner   the creating script registered the device (or the cache
-                     that names it) with its own pid and that pid's start time,
-                     and that process no longer exists or is another process
+  registered owner   the exact simulator UDID or emulator process generation
+                     records every live user; all registered processes or agent
+                     runs have ended. A cache path alone never proves ownership
   creator pid        `rios-ui-<pid>-...` names its creator; the pid no longer
                      exists, or it started AFTER the device was created (the
                      number was reused)
@@ -32,7 +32,7 @@ only when its owner is PROVEN gone, by one of:
                      a hash of the checkout's path; the device is collected when
                      that key belongs to a checkout the engine RECORDED and that
                      checkout no longer exists (or is being deleted by the land
-                     running this), and left alone while it exists
+                     running this). An existing checkout without a live owner is undecided
 
 Anything in those families that none of the three can decide is UNDECIDED: it
 is never deleted, and while it RUNS it is written to the failure record, which
@@ -50,6 +50,12 @@ arguments are read back and still name that AVD.
 
 import argparse
 import calendar
+import contextlib
+import contextvars
+import fcntl
+import importlib.util
+import shlex
+import tempfile
 import hashlib
 import json
 import os
@@ -68,6 +74,112 @@ FAMILY_PLATFORM = re.compile(r"^RichOS native-ios platform-tests ")
 COLLECT = "COLLECT"
 LEAVE = "LEAVE"
 UNDECIDED = "UNDECIDED"
+
+
+_LOCKED = contextvars.ContextVar("device_registry_locked", default=False)
+_DEADLINE = contextvars.ContextVar("device_collection_deadline", default=None)
+
+
+class BudgetExpired(TimeoutError):
+    pass
+
+
+def _timeout(maximum):
+    deadline = _DEADLINE.get()
+    remaining = maximum if deadline is None else min(maximum, deadline - time.time())
+    if remaining <= 0:
+        raise BudgetExpired("test-device collection deadline reached")
+    return remaining
+
+
+@contextlib.contextmanager
+def registry_lock():
+    """Registration and collection cannot replace ownership under a deletion."""
+    if _LOCKED.get():
+        yield
+        return
+    os.makedirs(registry_dir(), exist_ok=True)
+    with open(os.path.join(registry_dir(), ".lock"), "a") as handle:
+        lock_deadline = time.monotonic() + 5
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= lock_deadline:
+                    raise TimeoutError("test-device registry lock stayed busy for five seconds")
+                time.sleep(min(0.05, _timeout(5)))
+        token = _LOCKED.set(True)
+        try:
+            yield
+        finally:
+            _LOCKED.reset(token)
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _workspace_module():
+    path = os.path.join(os.path.dirname(__file__), "../../mega-lander/workspaces.py")
+    spec = importlib.util.spec_from_file_location("device_workspaces", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # Reuse the authoritative lifecycle rules with this collection's budget.
+    def bounded_process_start(pid):
+        value = process_start(pid)
+        return ("unknown", "process identity unreadable") if value is None else (("ok", value) if value else ("gone", ""))
+    mod.process_start = bounded_process_start
+    return mod
+
+
+def choose_owner(owner_pid=None, checkout="", script=""):
+    """An explicit test process, an exact registered agent, or a live session.
+
+    A short CLI process is not the owner of a device used across CLI calls.
+    Unknown ownership is recorded explicitly and alerts instead of guessing.
+    """
+    raw = owner_pid or os.environ.get("RICHOS_TEST_DEVICE_OWNER_PID")
+    if raw:
+        start = process_start(raw)
+        if not start:
+            raise ValueError("the owner pid %s is not a running process" % raw)
+        return {"pid": int(raw), "start": start, "script": script}
+    if checkout:
+        ws = _workspace_module()
+        matches = []
+        for sub in ("agents", "done"):
+            folder = os.path.join(workspaces_dir(), sub)
+            for name in os.listdir(folder) if os.path.isdir(folder) else []:
+                rec = _read_json(os.path.join(folder, name))
+                if not isinstance(rec, dict):
+                    continue
+                if any(os.path.realpath(w.get("path") or "/") == os.path.realpath(checkout)
+                       for w in rec.get("workspaces", []) if isinstance(w, dict)):
+                    if not ws.finished_state(rec)[0]:
+                        matches.append(rec)
+        unique = {r["key"]: r for r in matches if r.get("key")}
+        if len(unique) == 1:
+            rec = next(iter(unique.values()))
+            return {"workspace_key": rec["key"], "session_id": rec.get("session_id"),
+                    "agent_id": rec.get("agent_id"), "script": script}
+        if len(unique) > 1:
+            return {"unknown": "multiple live workspace owners", "script": script}
+    pid = os.getppid()
+    for _ in range(20):
+        r = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+                           capture_output=True, text=True, timeout=_timeout(5), env=_env())
+        parts = r.stdout.strip().split(None, 1)
+        if len(parts) != 2:
+            break
+        name = os.path.basename(parts[1])
+        # A Claude/Codex process or interactive terminal shell outlives a CLI.
+        if name in ("claude", "codex") or (name in ("zsh", "-zsh", "bash", "-bash", "fish")
+                and (process_args(pid) or "").strip() in (name, name + " -l", name + " -il", name + " -i")):
+            start = process_start(pid)
+            if start:
+                return {"pid": pid, "start": start, "script": script}
+        pid = int(parts[0])
+        if pid <= 1:
+            break
+    return {"unknown": "no durable owner could be proven", "script": script}
 
 
 def _env():
@@ -114,6 +226,8 @@ def machine_devices_allowed():
     if os.path.realpath(os.path.expanduser("~")) != real:
         return False
     for var, default in (("CLAUDE_CONFIG_DIR", os.path.join(real, ".claude")),
+                         ("RICHOS_TEST_DEVICES_DIR", os.path.join(real, ".claude/state/test-devices")),
+                         ("TEST_DEVICE_FAILURES_STATE", os.path.join(real, ".claude/state/test-device-failures.json")),
                          ("RICHOS_WORKSPACES_DIR", os.path.join(real, ".claude", "state", "workspaces"))):
         v = (os.environ.get(var) or "").strip()
         if v and os.path.realpath(v) != os.path.realpath(default):
@@ -143,10 +257,16 @@ def _read_json(path):
 
 def _write_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = "%s.%d.tmp" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1, sort_keys=True)
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(prefix=".record-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +284,9 @@ def process_start(pid):
         return None
     try:
         r = subprocess.run(["ps", "-o", "stat=,lstart=", "-p", str(pid)], capture_output=True,
-                           text=True, timeout=10, env=_env())
+                           text=True, timeout=_timeout(10), env=_env())
+    except BudgetExpired:
+        raise
     except (OSError, subprocess.TimeoutExpired):
         return None
     stat, _, text = r.stdout.strip().partition(" ")
@@ -189,15 +311,30 @@ def _epoch(lstart):
 def process_args(pid):
     try:
         r = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(int(pid))], capture_output=True,
-                           text=True, timeout=10, env=_env())
-    except (OSError, subprocess.TimeoutExpired, ValueError):
+                           text=True, timeout=_timeout(10), env=_env())
+    except BudgetExpired:
+        raise
+    except (OSError, subprocess.TimeoutExpired, TypeError, ValueError):
         return None
-    return r.stdout.strip() if r.returncode == 0 else ""
+    return r.stdout.strip() if r.returncode == 0 else ("" if r.returncode == 1 else None)
 
 
 def owner_state(owner):
     """('alive'|'gone'|'unknown', why) for a registered {pid, start}."""
-    pid = (owner or {}).get("pid")
+    owner = owner or {}
+    if owner.get("unknown"):
+        return "unknown", owner["unknown"]
+    if owner.get("workspace_key"):
+        ws = _workspace_module()
+        rec = ws.load_agent(owner["workspace_key"])
+        if not rec or rec.get("session_id") != owner.get("session_id") or rec.get("agent_id") != owner.get("agent_id"):
+            return "unknown", "the registered agent identity changed or is missing"
+        ended, _paused, why = ws.finished_state(rec)
+        if ended:
+            return "gone", why
+        state, detail = ws.session_state(rec.get("session_id"), rec.get("session_identity"))
+        return ("alive" if state == "running" else "unknown"), detail
+    pid = owner.get("pid")
     st = process_start(pid)
     if st is None:
         return "unknown", "the owner's process (%s) could not be read" % pid
@@ -209,17 +346,11 @@ def owner_state(owner):
     return "alive", "its owner, pid %s, still runs" % pid
 
 
-def _by_owner(owner, what):
-    st, why = owner_state(owner)
-    verdict = {"alive": LEAVE, "gone": COLLECT}.get(st, UNDECIDED)
-    return verdict, "%s by %s: %s" % (what, (owner or {}).get("script") or "its test", why)
-
-
 # ---------------------------------------------------------------------------
 # the registry: what a creating script says it made
 # ---------------------------------------------------------------------------
 
-KINDS = ("ios-simulator", "ios-cache", "android-cache")
+KINDS = ("ios-simulator", "android-emulator", "ios-cache", "android-cache")
 
 
 def _record_path(kind, ident):
@@ -228,33 +359,63 @@ def _record_path(kind, ident):
 
 
 def _norm(kind, ident):
-    return os.path.realpath(ident) if kind.endswith("-cache") else ident.strip()
+    return os.path.realpath(ident) if kind.endswith("-cache") or kind == "android-emulator" else ident.strip()
 
 
-def register(kind, ident, owner_pid, script=""):
+def register(kind, ident, owner_pid=None, script="", checkout="", device_set=""):
     if kind not in KINDS:
         raise ValueError("kind must be one of %s" % ", ".join(KINDS))
     ident = _norm(kind, ident)
     if not ident:
         raise ValueError("nothing to register")
-    start = process_start(owner_pid)
-    if not start:
-        raise ValueError("the owner pid %s is not a running process" % owner_pid)
-    rec = {"kind": kind, "id": ident, "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-           "owner": {"pid": int(owner_pid), "start": start, "script": script}}
-    _write_json(_record_path(kind, ident), rec)
+    owner = choose_owner(owner_pid, checkout, script)
+    with registry_lock():
+        generation = None
+        if kind == "ios-simulator":
+            generation = {"udid": ident, "device_set": os.path.realpath(device_set) if device_set else ""}
+        elif kind == "android-emulator":
+            dev = _read_json(os.path.join(ident, "emulator.json"))
+            if not isinstance(dev, dict) or not dev.get("pid") or not dev.get("avd"):
+                raise ValueError("no emulator identity in %s" % ident)
+            start = process_start(dev["pid"])
+            if not start or not _names_avd(dev["pid"], dev["avd"]):
+                raise ValueError("the emulator identity is no longer alive")
+            generation = {"pid": int(dev["pid"]), "start": start, "avd": dev["avd"]}
+        path = _record_path(kind, ident)
+        previous = _read_json(path) or {}
+        owners = [owner]
+        if generation and previous.get("generation") == generation:
+            # A second live caller must not revoke the first caller's lease.
+            for old in previous.get("owners", [previous.get("owner", {})]):
+                if old != owner and owner_state(old)[0] != "gone":
+                    owners.append(old)
+        rec = {"kind": kind, "id": ident, "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+               "owner": owner, "owners": owners, "generation": generation}
+        _write_json(path, rec)
     return rec
+
+
+def _registered_verdict(rec):
+    states = [owner_state(o) for o in rec.get("owners", [rec.get("owner", {})])]
+    if any(st == "alive" for st, _ in states):
+        return LEAVE, "a registered owner still runs"
+    if not states or any(st == "unknown" for st, _ in states):
+        return UNDECIDED, "registered ownership cannot be proven"
+    return COLLECT, "all registered owners ended (%s): %s" % (
+        rec.get("owner", {}).get("script") or "test", "; ".join(why for _, why in states))
 
 
 def records():
     out = []
     try:
         names = sorted(os.listdir(registry_dir()))
-    except OSError:
+    except FileNotFoundError:
         return out
     for n in names:
         if n.endswith(".json"):
             r = _read_json(os.path.join(registry_dir(), n))
+            if not isinstance(r, dict):
+                raise ValueError("unreadable device registration: %s" % n)
             if isinstance(r, dict) and r.get("kind") in KINDS and r.get("id"):
                 r["_path"] = os.path.join(registry_dir(), n)
                 out.append(r)
@@ -291,7 +452,9 @@ def checkout_keys(path):
 def _git_worktrees(repo):
     try:
         r = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True,
-                           text=True, timeout=20, env=_env())
+                           text=True, timeout=_timeout(20), env=_env())
+    except BudgetExpired:
+        raise
     except (OSError, subprocess.TimeoutExpired):
         return []
     if r.returncode != 0:
@@ -361,7 +524,7 @@ class Checkouts(object):
             return UNDECIDED, "no checkout the engine has recorded derives the key %s" % key
         path, exists = hit
         if exists:
-            return LEAVE, "its checkout %s exists" % path
+            return UNDECIDED, "its checkout %s exists, but no live run owns this device" % path
         return COLLECT, "its checkout %s no longer exists" % path
 
 
@@ -373,7 +536,9 @@ def simctl(*args):
     base = (os.environ.get("RICHOS_SIMCTL") or "").strip()
     cmd = [base] if base else ["xcrun", "simctl"]
     try:
-        r = subprocess.run(cmd + list(args), capture_output=True, text=True, timeout=120, env=_env())
+        r = subprocess.run(cmd + list(args), capture_output=True, text=True, timeout=_timeout(120), env=_env())
+    except BudgetExpired:
+        raise
     except FileNotFoundError:
         return 127, "", "simctl is not installed"
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -381,15 +546,15 @@ def simctl(*args):
     return r.returncode, r.stdout, r.stderr
 
 
-def ios_devices():
+def ios_devices(device_set=""):
     """[{udid, name, state}], [] where there is no simulator tooling, None when
     the tooling exists and could not be read."""
     if not (os.environ.get("RICHOS_SIMCTL") or "").strip() and (
             sys.platform != "darwin" or not machine_devices_allowed()):
         return []
-    rc, out, _err = simctl("list", "devices", "--json")
+    rc, out, _err = simctl(*((["--set", device_set] if device_set else []) + ["list", "devices", "--json"]))
     if rc == 127:
-        return []
+        return None
     if rc != 0:
         return None
     try:
@@ -400,7 +565,7 @@ def ios_devices():
     for lst in groups.values():
         for d in lst or []:
             if isinstance(d, dict) and d.get("udid"):
-                devs.append({"udid": d["udid"], "name": d.get("name") or "", "state": d.get("state") or ""})
+                devs.append({"udid": d["udid"], "name": d.get("name") or "", "state": d.get("state") or "", "device_set": device_set})
     return devs
 
 
@@ -424,12 +589,14 @@ def classify_ios(dev, regs, checkouts):
     name, udid = dev["name"], dev["udid"]
     for r in regs:
         if r["kind"] == "ios-simulator" and r["id"] == udid:
-            return _by_owner(r.get("owner"), "registered")
+            if r.get("generation", {}).get("device_set", "") == dev.get("device_set", ""):
+                return _registered_verdict(r)
+            return UNDECIDED, "the registered simulator belongs to a different device set"
     m = FAMILY_NATIVE.match(name)
     if m:
         r = _cache_record_for(regs, m.group(1) + (m.group(2) or ""), "ios-cache")
         if r:
-            return _by_owner(r.get("owner"), "its cache %s was registered" % r["id"])
+            return UNDECIDED, "legacy cache ownership does not identify this simulator; register its UDID"
         return checkouts.decide("suite" if m.group(2) else "rios", m.group(1))
     m = FAMILY_RIOS_UI.match(name)
     if m:
@@ -456,10 +623,11 @@ def classify_ios(dev, regs, checkouts):
 def _ios_remove(dev):
     """(gone, how). Shut down if running, delete, then read the list back."""
     udid = dev["udid"]
+    prefix = ["--set", dev["device_set"]] if dev.get("device_set") else []
     if dev.get("state") and dev["state"] != "Shutdown":
-        simctl("shutdown", udid)
-    rc, _o, err = simctl("delete", udid)
-    after = ios_devices()
+        simctl(*(prefix + ["shutdown", udid]))
+    rc, _o, err = simctl(*(prefix + ["delete", udid]))
+    after = ios_devices(dev.get("device_set", ""))
     if after is not None and not any(d["udid"] == udid for d in after):
         return True, "shut down and deleted"
     return False, "simctl delete exited %d: %s" % (rc, (err or "").strip()[:200] or "it is still listed")
@@ -471,60 +639,99 @@ def _ios_remove(dev):
 
 def _names_avd(pid, avd):
     a = process_args(pid)
-    return bool(a) and ("-avd %s " % avd) in a + " "
+    try:
+        args = shlex.split(a or "")
+        return any(args[i:i+2] == ["-avd", avd] for i in range(len(args)))
+    except ValueError:
+        return False
 
 
 def android_emulators(regs):
     """[{pid, avd, cache, key}] for every emulator.json whose recorded process
     still runs AND still has `-avd <avd>` in its arguments."""
-    caches = set(r["id"] for r in regs if r["kind"] == "android-cache")
+    caches = set(r["id"] for r in regs if r["kind"] in ("android-cache", "android-emulator"))
     root = android_caches_root()
     try:
         for n in os.listdir(root) if root else []:
             caches.add(os.path.join(root, n))
-    except OSError:
+    except FileNotFoundError:
         pass
     out = []
     for c in sorted(caches):
         rec = _read_json(os.path.join(c, "emulator.json"))
-        if not isinstance(rec, dict) or not rec.get("pid") or not rec.get("avd"):
+        if rec is None and os.path.exists(os.path.join(c, "emulator.json")):
+            raise ValueError("unreadable emulator identity: %s" % c)
+        if rec is None:
             continue
+        if not isinstance(rec, dict) or not rec.get("pid") or not rec.get("avd"):
+            raise ValueError("invalid emulator identity: %s" % c)
+        start = process_start(rec["pid"])
+        if start == "":
+            registered = next((r for r in regs if r["kind"] == "android-emulator" and r["id"] == c), {})
+            generation = registered.get("generation") or {}
+            recorded_start = rec.get("start") or (generation.get("start") if generation.get("pid") == rec["pid"] and generation.get("avd") == rec["avd"] else None)
+            out.append({"pid": int(rec["pid"]), "avd": rec["avd"], "cache": c, "key": os.path.basename(c),
+                        "name": rec["avd"], "state": "Shutdown", "start": recorded_start})
+            continue
+        if start is None:
+            raise ValueError("emulator process identity could not be read: %s" % rec["pid"])
+        if process_args(rec["pid"]) is None:
+            raise ValueError("emulator process identity could not be read: %s" % rec["pid"])
         if not _names_avd(rec["pid"], rec["avd"]):
             continue
         out.append({"pid": int(rec["pid"]), "avd": rec["avd"], "cache": c, "key": os.path.basename(c),
-                    "name": rec["avd"], "state": "Running"})
+                    "name": rec["avd"], "state": "Running", "start": process_start(rec["pid"])})
     return out
 
 
 def classify_android(emu, regs, checkouts):
-    r = _cache_record_for(regs, emu["key"], "android-cache")
-    if r:
-        return _by_owner(r.get("owner"), "its cache was registered")
+    for r in regs:
+        if r["kind"] == "android-emulator" and os.path.realpath(r["id"]) == os.path.realpath(emu["cache"]):
+            expected = {"pid": emu["pid"], "start": emu.get("start"), "avd": emu["avd"]}
+            if r.get("generation") != expected:
+                return UNDECIDED, "emulator generation changed; old ownership cannot authorize deletion"
+            return _registered_verdict(r)
+    if _cache_record_for(regs, emu["key"], "android-cache"):
+        return UNDECIDED, "legacy cache ownership does not identify this emulator process"
     return checkouts.decide("randroid", emu["key"])
 
 
-def _android_remove(emu):
+def _android_remove(emu, remove_avd=True):
     pid, avd = emu["pid"], emu["avd"]
+    recorded = _read_json(os.path.join(emu["cache"], "emulator.json"))
+    if not recorded or recorded.get("pid") != pid or recorded.get("avd") != avd:
+        return False, "emulator record changed; no cleanup attempted"
     for sig, wait in ((signal.SIGTERM, 15.0), (signal.SIGKILL, 5.0)):
-        if not _names_avd(pid, avd):
+        current_start = process_start(pid)
+        if current_start is None:
+            return False, "emulator identity unreadable; no cleanup attempted"
+        if current_start == "":
             break
+        if current_start != emu.get("start") or not _names_avd(pid, avd):
+            return False, "emulator process identity changed; no signal sent"
+        recorded = _read_json(os.path.join(emu["cache"], "emulator.json"))
+        if not recorded or recorded.get("pid") != pid or recorded.get("avd") != avd:
+            return False, "emulator record changed; no signal sent"
         try:
             os.kill(pid, sig)
         except OSError:
             pass
-        deadline = time.time() + wait
+        deadline = time.time() + _timeout(wait)
         while time.time() < deadline and process_start(pid):
-            time.sleep(0.2)
+            time.sleep(min(0.2, _timeout(0.2)))
     if process_start(pid):
         return False, "pid %d survived SIGTERM and SIGKILL" % pid
     try:
-        shutil.rmtree(os.path.join(emu["cache"], "avd"), ignore_errors=True)
+        avd_dir = os.path.join(emu["cache"], "avd")
+        if remove_avd and os.path.exists(avd_dir):
+            _timeout(1)
+            shutil.rmtree(avd_dir)
         rec = os.path.join(emu["cache"], "emulator.json")
         if os.path.exists(rec):
             os.unlink(rec)
     except OSError as e:
         return False, "the emulator ended but its AVD could not be removed: %s" % e
-    return True, "ended and its AVD removed"
+    return True, "ended and its AVD removed" if remove_avd else "ended"
 
 
 # ---------------------------------------------------------------------------
@@ -533,11 +740,12 @@ def _android_remove(emu):
 
 def _command(kind, d):
     if kind == "ios":
-        return "xcrun simctl shutdown %s; xcrun simctl delete %s" % (d["udid"], d["udid"])
+        prefix = "xcrun simctl" + (" --set " + shlex.quote(d["device_set"]) if d.get("device_set") else "")
+        return "%s shutdown %s; %s delete %s" % (prefix, shlex.quote(d["udid"]), prefix, shlex.quote(d["udid"]))
     return "kill %d   (after checking that ps -o args= -p %d still names -avd %s)" % (d["pid"], d["pid"], d["avd"])
 
 
-def collect(apply=False, departing=(), deadline=None):
+def _collect(apply=False, departing=(), deadline=None):
     """Classify every device in our families; remove the proven-orphaned ones.
 
     {"collected", "survivors", "left", "undecided", "deferred", "notes"}.
@@ -553,7 +761,20 @@ def collect(apply=False, departing=(), deadline=None):
     else:
         seen["ios"] = set(d["udid"] for d in devs)
         seen["ios_names"] = set(d["name"] for d in devs)
-    work = [("ios", d, classify_ios(d, regs, checkouts)) for d in devs or []]
+    all_devs = list(devs or [])
+    sets = sorted({r.get("generation", {}).get("device_set") for r in regs
+                   if r.get("generation") and r.get("generation", {}).get("device_set")})
+    for device_set in sets:
+        extra = ios_devices(device_set)
+        if extra is None:
+            res["notes"].append("simulator set could not be read: %s" % device_set)
+            seen["ios"] = None
+        else:
+            all_devs.extend(extra)
+            if seen["ios"] is not None:
+                seen["ios"].update(d["udid"] for d in extra)
+            seen["ios_names"].update(d["name"] for d in extra)
+    work = [("ios", d, classify_ios(d, regs, checkouts)) for d in all_devs]
     for e in android_emulators(regs):
         seen["android"].add(e["pid"])
         work.append(("android", e, classify_android(e, regs, checkouts)))
@@ -577,19 +798,46 @@ def collect(apply=False, departing=(), deadline=None):
             row["how"] = how
             (res["collected"] if gone else res["survivors"]).append(row)
             if gone and kind == "ios":
-                seen["ios"].discard(d["udid"])
+                if seen["ios"] is not None:
+                    seen["ios"].discard(d["udid"])
                 seen["ios_names"].discard(d["name"])
     if apply:
         _prune_registry(regs, seen)
-        res["standing"] = record_failures(res["survivors"], res["undecided"], seen)
+        res["standing"] = record_failures(res["survivors"], res["undecided"], seen, notes=res["notes"], deferred=res["deferred"])
     return res
+
+
+def record_collector_failure(message):
+    path = os.path.join(os.path.dirname(__file__), "testdevice_alerts.py")
+    spec = importlib.util.spec_from_file_location("device_alert_writer", path)
+    writer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(writer)
+    return writer.record_failure(message, "python3 %s collect --apply" % shlex.quote(os.path.abspath(__file__)))
+
+
+def collect(apply=False, departing=(), deadline=None):
+    token = _DEADLINE.set(deadline)
+    try:
+        with registry_lock():
+            if apply:
+                # A killed collector leaves an alert instead of a false clean bill.
+                record_collector_failure("cleanup started but has not completed")
+            return _collect(apply, departing, deadline)
+    except Exception as exc:
+        res = {k: [] for k in ("collected", "survivors", "left", "undecided", "deferred")}
+        res["notes"] = ["test-device collector failed: %s" % exc]
+        if apply:
+            res["standing"] = record_collector_failure(res["notes"][0])
+        return res
+    finally:
+        _DEADLINE.reset(token)
 
 
 def _prune_registry(regs, seen):
     """A record whose device is gone and whose owner is gone has nothing left to
     say. One whose owner still runs stays: its test may not have booted yet."""
     for r in regs:
-        if owner_state(r.get("owner"))[0] != "gone":
+        if _registered_verdict(r)[0] != COLLECT:
             continue
         if r["kind"] == "ios-simulator":
             if seen["ios"] is None or r["id"] in seen["ios"]:
@@ -598,7 +846,7 @@ def _prune_registry(regs, seen):
             if seen["ios"] is None or \
                     ("RichOS native-ios " + os.path.basename(r["id"].rstrip("/"))) in seen["ios_names"]:
                 continue
-        elif r["kind"] == "android-cache":
+        elif r["kind"] in ("android-cache", "android-emulator"):
             rec = _read_json(os.path.join(r["id"], "emulator.json"))
             if isinstance(rec, dict) and rec.get("pid") in seen["android"]:
                 continue
@@ -613,7 +861,7 @@ def read_failures(path=None):
     return rows if isinstance(rows, dict) else {}
 
 
-def record_failures(survivors, undecided, seen, path=None):
+def record_failures(survivors, undecided, seen, path=None, notes=(), deferred=()):
     """Carry every device that could not be collected, or whose owner cannot be
     proven; drop every row whose device no longer exists, or that this pass
     decided after all. A listing that could not be read resolves nothing."""
@@ -624,7 +872,7 @@ def record_failures(survivors, undecided, seen, path=None):
     for verdict, lst in (("would not close", survivors), ("owner cannot be proven", undecided)):
         for d in lst or []:
             # AN UNPROVEN OWNER IS ALERTED ONLY WHILE THE DEVICE RUNS. A running
-            # simulator or emulator is what kept the Mac at 100% on 2026-09-22;
+            # simulator or emulator consumes resources after its run ends;
             # a shut-down one whose checkout nothing recorded costs disk, which
             # the disk alert already watches, and nine of them sat on this
             # machine when this was written (`RichOS mobile loop <key>` from
@@ -634,6 +882,11 @@ def record_failures(survivors, undecided, seen, path=None):
             if verdict == "owner cannot be proven" and d.get("state") == "Shutdown":
                 continue
             live["%s:%s" % (d["kind"], d["id"])] = (verdict, d)
+    if notes or deferred:
+        live["collector:incomplete"] = ("collection incomplete", {
+            "kind": "collector", "id": "incomplete", "name": "test-device collector",
+            "why": "; ".join(notes) or "%d device(s) deferred by the cleanup deadline" % len(deferred),
+            "command": "python3 %s collect --apply" % shlex.quote(os.path.abspath(__file__))})
     for key in list(rows):
         if key in live:
             continue
@@ -657,14 +910,87 @@ def record_failures(survivors, undecided, seen, path=None):
     return rows
 
 
+def launch_android(cache, avd, port, command, checkout="", owner_pid=None, script="randroid"):
+    """Publish process identity and ownership in one registry transaction."""
+    cache = os.path.realpath(cache)
+    os.makedirs(cache, exist_ok=True)
+    with registry_lock():
+        path = os.path.join(cache, "emulator.json")
+        old = _read_json(path)
+        if isinstance(old, dict) and old.get("pid") and old.get("avd") and _names_avd(old["pid"], old["avd"]):
+            register("android-emulator", cache, owner_pid, script, checkout)
+            return old["pid"]
+        with open(os.path.join(cache, "emulator.log"), "ab") as log:
+            child = subprocess.Popen(command, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+                                     start_new_session=True)
+        try:
+            until = time.monotonic() + 2
+            while not _names_avd(child.pid, avd) and child.poll() is None and time.monotonic() < until:
+                time.sleep(0.02)
+            if child.poll() is not None or not _names_avd(child.pid, avd):
+                raise ValueError("emulator did not start with the expected AVD")
+            _write_json(path, {"pid": child.pid, "avd": avd, "port": port,
+                               "serial": "emulator-%d" % port, "start": process_start(child.pid)})
+            register("android-emulator", cache, owner_pid, script, checkout)
+            return child.pid
+        except BaseException:
+            child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
+            raise
+
+
+def stop_android(cache, delete=False):
+    """An explicit CLI stop still verifies identity and serializes with launch."""
+    cache = os.path.realpath(cache)
+    with registry_lock():
+        path = os.path.join(cache, "emulator.json")
+        rec = _read_json(path)
+        if rec is None:
+            if os.path.exists(path):
+                raise ValueError("emulator identity is unreadable; no cleanup attempted")
+            if delete and os.path.isdir(os.path.join(cache, "avd")):
+                shutil.rmtree(os.path.join(cache, "avd"))
+            return
+        if not isinstance(rec, dict) or not rec.get("pid") or not rec.get("avd"):
+            raise ValueError("invalid emulator identity; no cleanup attempted")
+        current = process_start(rec["pid"])
+        stored = rec.get("start")
+        if not stored:
+            registered = _read_json(_record_path("android-emulator", cache)) or {}
+            gen = registered.get("generation") or {}
+            if gen.get("pid") == rec["pid"] and gen.get("avd") == rec["avd"]:
+                stored = gen.get("start")
+        if current is None or (current and (not stored or current != stored)):
+            raise ValueError("emulator process generation is unproven; no signal sent")
+        gone, why = _android_remove(dict(rec, cache=cache, start=stored), remove_avd=delete)
+        if not gone:
+            raise ValueError(why)
+
+
 def _main(argv):
     ap = argparse.ArgumentParser(description="Test simulators and emulators: register, find, collect.")
     sub = ap.add_subparsers(dest="cmd")
     r = sub.add_parser("register", help="record that the calling test owns a device, or the cache naming it")
     r.add_argument("--kind", required=True, choices=KINDS)
     r.add_argument("--id", required=True, help="a simulator UDID, or a cache directory")
-    r.add_argument("--owner-pid", type=int, default=os.getppid())
+    r.add_argument("--owner-pid", type=int)
+    r.add_argument("--checkout", default="")
+    r.add_argument("--device-set", default="")
     r.add_argument("--script", default="")
+    launch = sub.add_parser("launch-android", help="launch and register an emulator atomically")
+    launch.add_argument("--cache", required=True)
+    launch.add_argument("--avd", required=True)
+    launch.add_argument("--port", required=True, type=int)
+    launch.add_argument("--checkout", default="")
+    launch.add_argument("--owner-pid", type=int)
+    launch.add_argument("command", nargs=argparse.REMAINDER)
+    stop = sub.add_parser("stop-android", help="stop one recorded emulator after verifying its generation")
+    stop.add_argument("--cache", required=True)
+    stop.add_argument("--delete", action="store_true")
     c = sub.add_parser("collect", help="report (default) or remove (--apply) orphaned test devices")
     c.add_argument("--apply", action="store_true")
     c.add_argument("--json", action="store_true")
@@ -672,9 +998,18 @@ def _main(argv):
                    help="a checkout being deleted right now: treat it as gone")
     c.add_argument("--budget", type=float, default=0.0, help="seconds for removals (0 = unbounded)")
     a = ap.parse_args(argv)
+    if a.cmd == "stop-android":
+        stop_android(a.cache, a.delete)
+        return 0
+    if a.cmd == "launch-android":
+        command = a.command[1:] if a.command[:1] == ["--"] else a.command
+        if not command:
+            ap.error("launch-android requires an emulator command")
+        print(launch_android(a.cache, a.avd, a.port, command, a.checkout, a.owner_pid))
+        return 0
     if a.cmd == "register":
         try:
-            register(a.kind, a.id, a.owner_pid, a.script)
+            register(a.kind, a.id, a.owner_pid, a.script, a.checkout, a.device_set)
         except ValueError as e:
             sys.stderr.write("testdevices: %s\n" % e)
             return 2
@@ -695,7 +1030,7 @@ def _main(argv):
                                                 d.get("how") or d["why"]))
         print("verdict: collected=%d survivors=%d undecided=%d deferred=%d left=%d"
               % tuple(len(res[k]) for k in ("collected", "survivors", "undecided", "deferred", "left")))
-    if res["survivors"] or res["notes"]:
+    if res["survivors"] or res["notes"] or res["deferred"]:
         return 1
     if res["undecided"]:
         return 3

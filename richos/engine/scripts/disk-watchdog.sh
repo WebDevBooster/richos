@@ -51,7 +51,7 @@
 # ===========================================================================
 # USAGE
 # ===========================================================================
-#   disk-watchdog.sh                 take a reading, alert if due, update state
+#   disk-watchdog.sh                 retry device cleanup (8s budget), read disk, alert if due
 #   disk-watchdog.sh --json          the current state, as JSON
 #   disk-watchdog.sh --alert         ONLY the alert block, empty if all clear.
 #                                    This is what the session hooks call.

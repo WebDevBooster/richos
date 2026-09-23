@@ -228,6 +228,10 @@ else
 fi
 
 INPUT="$(cat)"
+# A blocked lead cannot perform the repairs a Stop hook would demand.
+if printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/stop-session-recovery.py"; then
+    exit 0
+fi
 
 # Resolve the governed repository. Three outcomes — but unlike a PreToolUse
 # guard, ALL THREE let the turn end. See "FAIL-OPEN, DELIBERATELY" above.

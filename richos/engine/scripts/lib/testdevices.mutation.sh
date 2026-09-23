@@ -19,8 +19,8 @@ mutation_begin "testdevices (test simulators and emulators)" "scripts/lib/testde
 D="scripts/lib/testdevices.py"
 
 mutant owner-alive-ignored "test_T04" "$D" \
-    '    verdict = {"alive": LEAVE, "gone": COLLECT}.get(st, UNDECIDED)' \
-    '    verdict = {"alive": COLLECT, "gone": COLLECT}.get(st, UNDECIDED)' \
+    '        return LEAVE, "a registered owner still runs"' \
+    '        return COLLECT, "a registered owner still runs"' \
     "a running test's own simulator would be deleted under it."
 
 mutant creator-pid-reuse-ignored "test_T03" "$D" \
@@ -52,5 +52,25 @@ mutant failure-row-never-resolves "test_T08" "$D" \
     '            continue                    # nothing was read, so nothing is resolved{NL}        del rows[key]' \
     '            continue                    # nothing was read, so nothing is resolved{NL}        pass' \
     "the alert would outlive the device Rich deleted by hand, and an alert that never clears is not read."
+
+mutant stale-generation-authorizes-deletion "test_T20" "$D" \
+    '            if r.get("generation") != expected:' \
+    '            if False:' \
+    "a replacement Android process would inherit a dead owner's deletion permission."
+
+mutant deadline-not-propagated "test_T17" "$D" \
+    '    remaining = maximum if deadline is None else min(maximum, deadline - time.time())' \
+    '    remaining = maximum' \
+    "simulator inventory would exceed the whole hook deadline."
+
+mutant shared-owner-discarded "test_T19" "$D" \
+    '                if old != owner and owner_state(old)[0] != "gone":' \
+    '                if False:' \
+    "a second user's completion would delete a simulator still owned by the first."
+
+mutant interrupted-collector-silent "test_T32" "$D" \
+    '                record_collector_failure("cleanup started but has not completed")' \
+    '                pass' \
+    "a killed cleanup pass would leave no alert."
 
 mutation_end

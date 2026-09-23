@@ -4455,10 +4455,17 @@ def collect_test_devices(departing=(), budget=None):
                                   deadline=(now() + budget) if budget else None)
     except Exception as e:
         event("test-devices-uncollected", why=str(e)[:200])
+        try:
+            from testdevice_alerts import record_failure
+            record_failure("collector unavailable: %s" % e)
+        except Exception as alert_error:
+            sys.stderr.write("TEST DEVICE CLEANUP FAILED; alert state could not be written: %s\n" % alert_error)
         return {}
     # A shut-down device nothing proves the owner of is reported by the
     # collector itself; repeating it in the history at every land is noise.
     running = [d["id"] for d in res.get("undecided") or [] if d.get("state") != "Shutdown"]
+    if res.get("notes"):
+        event("test-devices-uncollected", why="; ".join(res["notes"])[:400])
     if res.get("collected") or res.get("survivors") or running or res.get("deferred"):
         event("test-devices-collected",
               collected=[d["id"] for d in res.get("collected") or []] or None,
@@ -4829,8 +4836,8 @@ def _allowance_spent_message(spent):
 def refused_session_text(why):
     return ("THIS SESSION IS NOT ALLOWED: %s. Nobody starts a session in its own workspace in RichOS "
             "(point 3); every tool but reading and stopping agents is refused, and retrying cannot succeed. "
-            "The one thing it can still do is stop its agents: TaskStop <task id>, or "
-            "%s <name> [<name> ...] --ceo-word '<his words>'. Tell the CEO once that the session "
+            "To stop its agents, first prepare the acknowledgement with "
+            "%s <name> [<name> ...] --ceo-word '<his words>', then make the printed TaskStop calls. Tell the CEO once that the session "
             "must be restarted from the repository's main checkout, and end the turn."
             % (why, stop_command()))
 
@@ -4990,11 +4997,13 @@ def lifecycle(payload, entity):
                    + gate_message(items, "start new work"))
     elif ev == "SessionEnd":
         record_session_end(sid, str(payload.get("reason") or "SessionEnd"))
+        collect_test_devices(budget=8.0)
     elif ev == "SubagentStart":
         record_start(sid, str(payload.get("agent_id") or ""), str(payload.get("cwd") or ""),
                      str(payload.get("agent_type") or ""))
     elif ev == "SubagentStop":
         record_end(sid, str(payload.get("agent_id") or ""), "SubagentStop")
+        collect_test_devices(budget=8.0)
     elif ev == "TaskCompleted":
         record_handed_in(sid, str(payload.get("agent_id") or payload.get("agentId") or ""),
                          str(payload.get("teammate_name") or payload.get("teammateName") or ""))
@@ -5013,6 +5022,7 @@ def lifecycle(payload, entity):
             aid = _taskstop_id(payload.get("tool_response"))
             if aid:
                 record_end(sid, aid, "stopped", "TaskStop")
+                collect_test_devices(budget=8.0)
         elif tool == "SendMessage":
             to = str(ti.get("to") or "")
             msg = ti.get("message")

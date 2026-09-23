@@ -293,7 +293,7 @@ case "$KIND" in
       echo "  in RichOS; it is not allowed (docs/plans/worktree-spec-2026-09-11.md, point 3)."
       echo "  DO NOT RETRY THIS CALL: it is refused every time, however it is worded."
       echo "  The one thing this session can still do is STOP ITS AGENTS (and read):"
-      echo "    TaskStop <task id>"
+      echo "    First prepare the acknowledgement, then make the printed TaskStop calls:"
       echo "    $ENGINE_ROOT/scripts/stop.sh <name> [<name> ...] --ceo-word '<his words>'"
       echo "  Then tell the CEO once that the session must be restarted from the"
       echo "  repository's main checkout, and end the turn."

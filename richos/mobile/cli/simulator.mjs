@@ -143,13 +143,20 @@ export function build(configuration = 'Debug', extra = []) {
   run('xcodebuild', args, { log });
   return { app: join(cache, 'derived-data', 'Build/Products', `${configuration}-iphonesimulator/RichOSMobile.app`), log };
 }
+function registerOwner(id) {
+  const deviceSet = devicePolicy();
+  run('python3', [join(mobile, '../engine/scripts/lib/testdevices.py'), 'register',
+    '--kind', 'ios-simulator', '--id', id, '--checkout', resolve(mobile, '../..'),
+    '--script', 'mobile simulator', ...(deviceSet ? ['--device-set', deviceSet] : [])]);
+  return id;
+}
 export function device() {
   const cache = cacheRoot();
   const file = join(cache, 'device.json');
   const all = JSON.parse(simctl('list', 'devices', 'available', '--json')).devices;
   if (existsSync(file)) {
     const { id } = JSON.parse(readFileSync(file, 'utf8'));
-    if (Object.values(all).flat().some((d) => d.udid === id)) return id;
+    if (Object.values(all).flat().some((d) => d.udid === id)) return registerOwner(id);
   }
   const runtimes = JSON.parse(simctl('list', 'runtimes', '--json')).runtimes.filter((r) => r.isAvailable && r.name.startsWith('iOS'));
   if (!runtimes.length) throw new Error('Install an iOS simulator runtime in Xcode');
@@ -157,7 +164,7 @@ export function device() {
   const type = types.find((t) => t.name === 'iPhone 16 Pro') || types.find((t) => t.name.startsWith('iPhone'));
   const id = simctl('create', `RichOS mobile loop ${key}`, type.identifier, runtimes.at(-1).identifier);
   writeFileSync(file, JSON.stringify({ id, deviceSet: devicePolicy() || 'system' }, null, 2));
-  return id;
+  return registerOwner(id);
 }
 export function boot() {
   const id = device();

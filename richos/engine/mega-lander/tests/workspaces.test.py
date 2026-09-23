@@ -594,6 +594,26 @@ class Point03_TheLeadIsNeverLockedOutByASubagent(Base):
         self.assertTrue(ok)
         self.assertNotIn("TaskStop", msg2)                 # said once, not every turn
 
+    def test_point_03_all_stop_guards_release_a_forbidden_lead(self):
+        sid = self.forbidden_session()
+        engine = os.path.dirname(os.path.dirname(os.path.abspath(ws.__file__)))
+        helper = os.path.join(engine, "scripts/lib/stop-session-recovery.py")
+        payload = {"hook_event_name": "Stop", "session_id": sid, "cwd": self.entity,
+                   "last_assistant_message": "I'm dispatching Zach now", "stop_hook_active": False}
+        for data, expected in ((payload, 0), (dict(payload, agent_id="worker"), 1),
+                               (dict(payload, session_id=self.sid), 1), ({}, 1)):
+            result = subprocess.run([sys.executable, helper], input=json.dumps(data),
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, expected, result.stderr)
+        for name in ("guard-ci-turn-gate", "guard-idle-land", "guard-stated-actions",
+                     "guard-unresolved-claims", "guard-agent-state-claims", "guard-workspace-gate"):
+            result = subprocess.run(["bash", os.path.join(engine, "scripts/hooks", name + ".sh")],
+                                    input=json.dumps(payload), capture_output=True, text=True,
+                                    cwd=self.entity, timeout=15)
+            self.assertEqual(result.returncode, 0, (name, result.stdout, result.stderr))
+            if result.stdout.strip():
+                self.assertNotEqual(json.loads(result.stdout).get("decision"), "block", name)
+
 
 class Point54_TestDevicesAreGarbage(Base):
     """§54 for simulators: 2026-09-22 ended with three simulators booted by killed
@@ -662,6 +682,32 @@ class Point54_TestDevicesAreGarbage(Base):
         ws.lifecycle({"hook_event_name": "SessionStart", "source": "startup", "session_id": self.sid,
                       "cwd": self.entity}, self.entity)
         self.assertEqual(self.names_left(), [])
+
+    def test_point_54_agent_end_collects_without_waiting_for_land(self):
+        ws.collect_test_devices(budget=1)  # imports the shared collector
+        import testdevices
+        aid, path = self.spawn("isaac-opus-end")
+        udid = self.sim("RichOS native-ios platform-tests end")
+        testdevices.register("ios-simulator", udid, checkout=path)
+        ws.lifecycle({"hook_event_name": "SubagentStop", "session_id": self.sid, "agent_id": aid}, self.entity)
+        self.assertEqual(self.names_left(), [])
+        self.assertTrue(os.path.isdir(path))
+
+    def test_point_54_session_end_collects_its_registered_device(self):
+        ws.collect_test_devices(budget=1)
+        import testdevices
+        aid, path = self.spawn("isaac-opus-session")
+        udid = self.sim("RichOS native-ios platform-tests session")
+        testdevices.register("ios-simulator", udid, checkout=path)
+        ws.lifecycle({"hook_event_name": "SessionEnd", "session_id": self.sid}, self.entity)
+        self.assertEqual(self.names_left(), [])
+        self.assertTrue(os.path.isdir(path))
+
+    def test_point_54_unloadable_collector_still_creates_an_alert(self):
+        with patch.dict(sys.modules, {"testdevices": None}):
+            ws.collect_test_devices(budget=1)
+        path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "state/test-device-failures.json")
+        self.assertIn("collector unavailable", json.load(open(path))["collector:incomplete"]["why"])
 
 
 class Point04_LandedMeansDeleted(Base):

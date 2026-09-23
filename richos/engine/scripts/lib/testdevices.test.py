@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SANDBOX = os.environ["TESTDEVICES_SANDBOX"]
@@ -165,8 +166,8 @@ class Collector(Base):
         cache = os.path.join(self.root, "caches", "60e53bf487-app")
         os.makedirs(cache)
         owner = self.proc()
-        T.register("ios-cache", cache, owner.pid, "native-ios-app.test.sh")
         u = self.device("RichOS native-ios 60e53bf487-app")
+        T.register("ios-simulator", u, owner.pid, "native-ios-app.test.sh")
         self.assertEqual(self.ids(T.collect(apply=True), "left"), [u])
         owner.kill()
         owner.wait()
@@ -196,7 +197,7 @@ class Collector(Base):
         self.record_checkout(co)
         key = T.checkout_keys(co)["rios"]
         u = self.device("RichOS native-ios %s" % key)
-        self.assertEqual(self.ids(T.collect(apply=True), "left"), [u])
+        self.assertEqual(self.ids(T.collect(apply=True), "undecided"), [u])
         os.rmdir(co)
         res = T.collect(apply=True)
         self.assertEqual(self.ids(res, "collected"), [u])
@@ -215,7 +216,7 @@ class Collector(Base):
         os.makedirs(co)
         self.record_checkout(co)
         u = self.device("RichOS mobile loop %s" % T.checkout_keys(co)["loop"], state="Shutdown")
-        self.assertEqual(self.ids(T.collect(apply=True), "left"), [u])
+        self.assertEqual(self.ids(T.collect(apply=True), "undecided"), [u])
         res = T.collect(apply=True, departing=[co])
         self.assertEqual(self.ids(res, "collected"), [u])
         self.assertTrue(os.path.isdir(co))               # the land deletes it, not this
@@ -249,7 +250,7 @@ class Collector(Base):
         with open(os.path.join(cache, "emulator.json"), "w") as f:
             json.dump({"serial": "emulator-5580", "pid": emu.pid, "avd": "randroid-1a2b3c4d5e"}, f)
         owner = self.proc()
-        T.register("android-cache", cache, owner.pid, "native-android-app.test.sh")
+        T.register("android-emulator", cache, owner.pid, "native-android-app.test.sh")
         self.assertEqual(self.ids(T.collect(apply=True), "left"), [emu.pid])
         owner.kill()
         owner.wait()
@@ -271,7 +272,7 @@ class Collector(Base):
         owner.kill()
         owner.wait()
         res = T.collect(apply=True)
-        self.assertEqual(res["collected"] + res["survivors"], [])
+        self.assertEqual(res["collected"] + res["survivors"] + res["undecided"], [])
         self.assertIsNone(bystander.poll())
         self.assertTrue(os.path.isdir(os.path.join(cache, "avd")))
 
@@ -304,6 +305,240 @@ class Collector(Base):
                             "ios-cache", "--id", cache, "--owner-pid", str(self.dead_pid())],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)                 # a dead owner proves nothing
+
+    def test_T14_existing_checkout_without_live_owner_alerts(self):
+        co = os.path.join(self.root, "checkout")
+        os.makedirs(co)
+        self.record_checkout(co)
+        u = self.device("RichOS native-ios " + T.checkout_keys(co)["rios"])
+        res = T.collect(apply=True)
+        self.assertEqual(self.ids(res, "undecided"), [u])
+        self.assertIn("ios:" + u, self.rows())
+        self.assertEqual(len(self.devices()), 1)
+
+    def test_T15_stale_cache_never_owns_a_new_simulator(self):
+        cache = os.path.join(self.root, "deadbeef01-app")
+        owner = self.proc()
+        T.register("ios-cache", cache, owner.pid)
+        owner.kill(); owner.wait()
+        u = self.device("RichOS native-ios deadbeef01-app")
+        res = T.collect(apply=True)
+        self.assertEqual(self.ids(res, "undecided"), [u])
+        self.assertIn("ios:" + u, self.rows())
+
+    def test_T16_inventory_failure_alerts_and_success_resolves(self):
+        with patch.object(T, "ios_devices", return_value=None):
+            res = T.collect(apply=True)
+        self.assertTrue(res["notes"])
+        self.assertIn("collector:incomplete", self.rows())
+        T.collect(apply=True)
+        self.assertEqual(self.rows(), {})
+
+    def test_T17_inventory_obeys_the_entire_deadline(self):
+        with open(self.simctl, "w") as f:
+            f.write("#!/usr/bin/env python3\nimport time\ntime.sleep(10)\n")
+        start = time.monotonic()
+        res = T.collect(apply=True, deadline=time.time() + 0.2)
+        self.assertLess(time.monotonic() - start, 1.2)
+        self.assertTrue(res["notes"])
+        self.assertIn("collector:incomplete", self.rows())
+
+    def test_T18_collector_exception_is_durable(self):
+        with patch.object(T, "records", side_effect=ValueError("corrupt registry")):
+            res = T.collect(apply=True)
+        self.assertIn("corrupt registry", res["notes"][0])
+        self.assertIn("corrupt registry", self.rows()["collector:incomplete"]["why"])
+
+    def test_T19_all_live_owners_are_preserved(self):
+        u = self.device("RichOS native-ios platform-tests shared")
+        first, second = self.proc(), self.proc()
+        T.register("ios-simulator", u, first.pid)
+        T.register("ios-simulator", u, second.pid)
+        second.kill(); second.wait()
+        self.assertEqual(self.ids(T.collect(apply=True), "left"), [u])
+        first.kill(); first.wait()
+        self.assertEqual(self.ids(T.collect(apply=True), "collected"), [u])
+
+    def test_T20_changed_android_generation_never_inherits_dead_owner(self):
+        cache = os.path.join(self.android, "abcdef1234")
+        os.makedirs(os.path.join(cache, "avd"))
+        avd = "randroid-abcdef1234"
+        first = self.proc(sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd)
+        path = os.path.join(cache, "emulator.json")
+        with open(path, "w") as f:
+            json.dump({"pid": first.pid, "avd": avd}, f)
+        owner = self.proc()
+        T.register("android-emulator", cache, owner.pid)
+        owner.kill(); owner.wait()
+        second = self.proc(sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd)
+        with open(path, "w") as f:
+            json.dump({"pid": second.pid, "avd": avd}, f)
+        res = T.collect(apply=True)
+        self.assertEqual(self.ids(res, "undecided"), [second.pid])
+        self.assertIsNone(second.poll())
+        T.register("android-emulator", cache, self.proc().pid)
+        self.assertEqual(self.ids(T.collect(apply=True), "left"), [second.pid])
+
+    def test_T21_android_avd_delete_failure_is_not_reported_as_success(self):
+        cache = os.path.join(self.android, "remove-failure")
+        os.makedirs(os.path.join(cache, "avd"))
+        T._write_json(os.path.join(cache, "emulator.json"), {"pid": 987654321, "avd": "x"})
+        with patch.object(T, "process_start", return_value=""), \
+             patch.object(T.shutil, "rmtree", side_effect=PermissionError("denied")):
+            gone, why = T._android_remove({"pid": 987654321, "avd": "x", "cache": cache})
+        self.assertFalse(gone)
+        self.assertIn("could not be removed", why)
+
+    def test_T22_slow_removal_preserves_deadline_and_alert(self):
+        u = self.device("rios-ui-%d-test" % self.dead_pid())
+        original = open(self.simctl).read()
+        with open(self.simctl, "w") as f:
+            f.write(original.replace('if a[0] == "shutdown":', 'if a[0] == "shutdown":\n    import time; time.sleep(10)'))
+        start = time.monotonic()
+        T.collect(apply=True, deadline=time.time() + 0.3)
+        self.assertLess(time.monotonic() - start, 1.3)
+        self.assertIn("collector:incomplete", self.rows())
+        self.assertIn(u, [d["udid"] for d in self.devices()])
+
+    def test_T23_private_device_set_is_scanned_and_removed(self):
+        private = os.path.join(self.root, "private-devices")
+        os.makedirs(private)
+        u = "PRIVATE-SIM-ONLY"
+        fake = self.state + ".private"
+        with open(fake, "w") as f:
+            json.dump({"devices": [{"udid": u, "name": "test private", "state": "Booted"}]}, f)
+        original = open(self.simctl).read()
+        original = original.replace("d = json.load(open(state))", "a = sys.argv[1:]\nif a[:1] == ['--set']:\n    state += '.private'\n    sys.argv = [sys.argv[0]] + a[2:]\nd = json.load(open(state))")
+        with open(self.simctl, "w") as f:
+            f.write(original)
+        owner = self.proc()
+        T.register("ios-simulator", u, owner.pid, device_set=private)
+        owner.kill(); owner.wait()
+        res = T.collect(apply=True)
+        self.assertEqual(self.ids(res, "collected"), [u])
+        self.assertEqual(json.load(open(fake))["devices"], [])
+
+    def test_T24_agent_end_collects_even_when_checkout_remains(self):
+        checkout = os.path.join(self.root, "checkout")
+        os.makedirs(checkout)
+        wd = os.environ["RICHOS_WORKSPACES_DIR"]
+        parent = self.proc()
+        T._write_json(os.path.join(wd, "sessions", "parent.json"),
+                      {"pid": parent.pid, "pid_start": T.process_start(parent.pid)})
+        path = os.path.join(wd, "agents", "parent-child.json")
+        rec = {"key": "parent-child", "session_id": "parent", "agent_id": "child",
+               "workspaces": [{"path": checkout}]}
+        T._write_json(path, rec)
+        u = self.device("RichOS native-ios " + T.checkout_keys(checkout)["rios"])
+        T.register("ios-simulator", u, checkout=checkout)
+        self.assertEqual(self.ids(T.collect(apply=True), "left"), [u])
+        rec["end"] = {"signal": "stopped", "at": time.time()}
+        T._write_json(path, rec)
+        self.assertEqual(self.ids(T.collect(apply=True), "collected"), [u])
+        self.assertTrue(os.path.isdir(checkout))
+        self.assertIsNone(parent.poll())
+
+    def test_T25_dead_emulator_still_has_its_avd_collected(self):
+        cache = os.path.join(self.android, "dead-emulator")
+        os.makedirs(os.path.join(cache, "avd"))
+        avd = "randroid-dead"
+        proc = self.proc(sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd)
+        owner = self.proc()
+        T._write_json(os.path.join(cache, "emulator.json"), {"pid": proc.pid, "avd": avd})
+        T.register("android-emulator", cache, owner.pid)
+        proc.kill(); proc.wait(); owner.kill(); owner.wait()
+        self.assertEqual(self.ids(T.collect(apply=True), "collected"), [proc.pid])
+        self.assertFalse(os.path.exists(os.path.join(cache, "avd")))
+
+    def test_T26_launch_publishes_identity_and_retains_existing_owners(self):
+        cache = os.path.join(self.android, "launched")
+        avd = "randroid-launched"
+        owner = self.proc()
+        command = [sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd]
+        pid = T.launch_android(cache, avd, 5556, command, owner_pid=owner.pid)
+        try:
+            self.assertEqual(T.launch_android(cache, avd, 5556, command, owner_pid=os.getpid()), pid)
+            self.assertEqual(len(T.records()[0]["owners"]), 2)
+            self.assertEqual(self.ids(T.collect(apply=True), "left"), [pid])
+        finally:
+            os.kill(pid, 9)
+            os.waitpid(pid, 0)
+
+    def test_T27_failed_registration_terminates_new_emulator(self):
+        cache = os.path.join(self.android, "failed-launch")
+        avd = "randroid-failed"
+        with patch.object(T, "register", side_effect=ValueError("cannot register")):
+            with self.assertRaisesRegex(ValueError, "cannot register"):
+                T.launch_android(cache, avd, 5556,
+                    [sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd])
+        pid = T._read_json(os.path.join(cache, "emulator.json"))["pid"]
+        self.assertEqual(T.process_start(pid), "")
+
+    def test_T28_registry_lock_wait_is_bounded_and_visible(self):
+        os.makedirs(T.registry_dir(), exist_ok=True)
+        command = "import fcntl,sys,time; f=open(sys.argv[1],'a'); fcntl.flock(f,fcntl.LOCK_EX); print('ready',flush=True); time.sleep(600)"
+        proc = subprocess.Popen([sys.executable, "-c", command, os.path.join(T.registry_dir(), ".lock")], stdout=subprocess.PIPE, text=True)
+        self.procs.append(proc)
+        self.assertEqual(proc.stdout.readline().strip(), "ready")
+        start = time.monotonic()
+        res = T.collect(apply=True, deadline=time.time() + .2)
+        self.assertLess(time.monotonic() - start, 1.2)
+        self.assertTrue(res["notes"])
+        self.assertIn("collector:incomplete", self.rows())
+
+    def test_T29_unreadable_emulator_inventory_alerts(self):
+        cache = os.path.join(self.android, "broken")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "emulator.json"), "w") as f:
+            f.write("broken json")
+        res = T.collect(apply=True)
+        self.assertTrue(res["notes"])
+        self.assertIn("collector:incomplete", self.rows())
+
+    def test_T30_pid_reused_during_removal_is_never_signaled(self):
+        cache = os.path.join(self.android, "pid-reused")
+        os.makedirs(cache)
+        T._write_json(os.path.join(cache, "emulator.json"), {"pid": 123, "avd": "x"})
+        with patch.object(T, "process_start", return_value="new start"), patch.object(T.os, "kill") as kill:
+            gone, why = T._android_remove({"pid": 123, "avd": "x", "cache": cache, "start": "old start"})
+        self.assertFalse(gone)
+        kill.assert_not_called()
+
+    def test_T31_explicit_stop_checks_generation_and_can_preserve_avd(self):
+        cache = os.path.join(self.android, "explicit-stop")
+        os.makedirs(os.path.join(cache, "avd"))
+        avd = "randroid-explicit"
+        command = [sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd]
+        pid = T.launch_android(cache, avd, 5556, command, owner_pid=os.getpid())
+        path = os.path.join(cache, "emulator.json")
+        record = T._read_json(path)
+        try:
+            T._write_json(path, dict(record, start="not this generation"))
+            with self.assertRaisesRegex(ValueError, "unproven"):
+                T.stop_android(cache)
+            self.assertTrue(T.process_start(pid))
+            T._write_json(path, record)
+            T.stop_android(cache)
+            self.assertEqual(T.process_start(pid), "")
+            self.assertTrue(os.path.isdir(os.path.join(cache, "avd")))
+            T.stop_android(cache, delete=True)
+            self.assertFalse(os.path.exists(os.path.join(cache, "avd")))
+        finally:
+            if T.process_start(pid):
+                os.kill(pid, 9)
+            try:
+                os.waitpid(pid, 0)
+            except ChildProcessError:
+                pass
+
+    def test_T32_interrupted_collection_leaves_an_alert(self):
+        with patch.object(T, "_collect", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                T.collect(apply=True)
+        self.assertIn("has not completed", self.rows()["collector:incomplete"]["why"])
+        T.collect(apply=True)
+        self.assertEqual(self.rows(), {})
+
 
 
 class _Result(unittest.TextTestResult):

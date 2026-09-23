@@ -76,6 +76,10 @@ final class Simulator {
 
     func run(_ command: String, _ arg: String?) async throws -> SimReport {
         var report: SimReport
+        if !["stop", "doctor", "build", "check-release"].contains(command), let udid = recordedDevice(),
+           try allDevices().contains(where: { $0["udid"] as? String == udid }) {
+            try registerOwner(udid)
+        }
         switch command {
         case "prepare": report = try await prepare(fixture: arg)
         case "launch": report = try await launch(fixture: arg)
@@ -172,8 +176,16 @@ final class Simulator {
         return udid
     }
 
+    private func registerOwner(_ udid: String) throws {
+        let collector = root.appendingPathComponent("../../engine/scripts/lib/testdevices.py").standardizedFileURL
+        let checkout = root.appendingPathComponent("../../..").standardizedFileURL
+        try Tool.run("python3", [collector.path, "register", "--kind", "ios-simulator", "--id", udid,
+                                 "--checkout", checkout.path, "--script", "rios"])
+    }
+
     func boot() throws -> String {
         let udid = try device()
+        try registerOwner(udid)
         let state = try allDevices().first(where: { $0["udid"] as? String == udid })?["state"] as? String
         try timed("boot") {
             if state != "Booted" { try Tool.run("xcrun", ["simctl", "boot", udid]) }

@@ -284,6 +284,23 @@ def log(path, line):
 # the run
 # ---------------------------------------------------------------------------
 
+def collect_devices_for_scheduled_check():
+    """A killed session may emit no end event. The 15-minute timer is its backup.
+
+    Read-only alert/status requests never launch this collector. A sandbox
+    without explicit fake device tools never inspects the account's registry.
+    """
+    try:
+        import testdevices
+        if not testdevices.machine_devices_allowed() and not (
+                env("RICHOS_SIMCTL") or env("RICHOS_ANDROID_CACHES_ROOT")):
+            return
+        testdevices.collect(apply=True, deadline=time.time() + 8)
+    except Exception as exc:
+        from testdevice_alerts import record_failure
+        record_failure("scheduled device cleanup unavailable: %s" % exc)
+
+
 def main():
     mode = env("MODE", "check")
     sbase = state_base()
@@ -550,12 +567,15 @@ def main():
     inst_failures = read_state(inst_path)
     n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
 
+    if mode == "check":
+        collect_devices_for_scheduled_check()
+
     # --- test simulators and emulators left behind (§54, 2026-09-22) ---------
     # Written by scripts/lib/testdevices.py: a device a killed test left
     # running whose removal failed, or whose owner cannot be proven while it
-    # runs. Rows resolve when the DEVICE is gone. Read, never run.
+    # runs. Scheduled checks collect first; all other modes only read alerts.
     dev_path = expand(env("TEST_DEVICE_FAILURES_STATE",
-                          "~/.claude/state/test-device-failures.json"))
+                          os.path.join(state_base(), "test-device-failures.json")))
     dev_failures = read_state(dev_path)
     if not isinstance(dev_failures, dict):
         dev_failures = {}
@@ -643,7 +663,7 @@ def main():
         if n_inst > 0:
             headline.append("A TEST APP WINDOW WOULD NOT CLOSE")
         if n_dev > 0:
-            headline.append("A TEST SIMULATOR OR EMULATOR WAS LEFT RUNNING")
+            headline.append("TEST DEVICE CLEANUP NEEDS ATTENTION")
         lines.append("=" * 72)
         lines.append("  MASSIVE ALERT — %s" % " + ".join(headline))
         lines.append("=" * 72)
@@ -704,10 +724,10 @@ def main():
                                 str(row.get("why", "?"))[:90]))
         if n_dev > 0:
             lines.append("")
-            lines.append("  %d TEST SIMULATOR(S)/EMULATOR(S) LEFT BEHIND. A device a test"
+            lines.append("  %d TEST DEVICE CLEANUP ISSUE(S). A device a test"
                          % n_dev)
             lines.append("  booted is garbage when the test is over (§54). These could not")
-            lines.append("  be removed, or nothing proves whose they are. Rich ends these BY HAND:")
+            lines.append("  be removed, ownership is unknown or collection failed. Check these BY HAND:")
             for key, row in sorted(dev_failures.items())[:5]:
                 if not isinstance(row, dict):
                     continue
@@ -914,7 +934,7 @@ def main():
             sys.stdout.write("ALERT  %d test app instance(s) would not close\n"
                              % n_inst)
         if n_dev:
-            sys.stdout.write("ALERT  %d test simulator(s)/emulator(s) left behind\n"
+            sys.stdout.write("ALERT  %d test device cleanup issue(s)\n"
                              % n_dev)
         # THREE LINES, EACH SAYING WHOSE IT IS, AND NONE OF THEM AN ALERT.
         # It was one: "ALERT  13.9 GB skipped + 11.4 GB undecidable". The 13.9

@@ -120,6 +120,10 @@ else
 fi
 
 INPUT="$(cat)"
+# A blocked lead cannot perform the repairs a Stop hook would demand.
+if printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/../lib/stop-session-recovery.py"; then
+    exit 0
+fi
 HOOK_TAG="(hook: scripts/hooks/guard-ci-turn-gate.sh)"
 if resolve_entity_root "$INPUT"; then
     ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"

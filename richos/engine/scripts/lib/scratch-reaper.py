@@ -2919,7 +2919,7 @@ class Reaper(object):
 
     def collect_test_devices(self, stamp):
         """Log lines for one pass of testdevices.collect(apply=True). Never
-        raises: an unloadable collector is one NOTE and the sweep goes on."""
+        raises: an unloadable collector persists an alert and the sweep goes on."""
         try:
             here = os.path.dirname(os.path.abspath(__file__))
             if here not in sys.path:
@@ -2927,7 +2927,12 @@ class Reaper(object):
             import testdevices
             res = testdevices.collect(apply=True)
         except Exception as exc:
-            return ["%s NOTE test-device collector unavailable: %s" % (stamp, str(exc)[:160])]
+            try:
+                from testdevice_alerts import record_failure
+                record_failure("collector unavailable: %s" % exc)
+            except Exception as alert_error:
+                return ["%s FAILED test-device collector and its alert writer: %s; %s" % (stamp, exc, alert_error)]
+            return ["%s FAILED test-device collector unavailable: %s" % (stamp, str(exc)[:160])]
         out = ["%s NOTE test-devices %s" % (stamp, n) for n in res.get("notes") or []]
         for key, word in (("collected", "REMOVED"), ("survivors", "FAILED"),
                           ("undecided", "KEPT"), ("deferred", "DEFERRED")):

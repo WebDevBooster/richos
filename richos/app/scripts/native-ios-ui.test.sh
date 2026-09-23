@@ -312,6 +312,8 @@ for DEVICE in "${DEVICES[@]}"; do
   CREATED+=("$UDID")
   # Pictures that match the mockup: American English, and times read in UTC (the fixtures' instants).
   PLIST="$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Preferences/.GlobalPreferences.plist"
+  python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
+    --owner-pid $$ --script native-ios-ui.test.sh >/dev/null || exit 1
   xcrun simctl boot "$UDID"
   xcrun simctl bootstatus "$UDID" -b > /dev/null
   xcrun simctl spawn "$UDID" defaults write .GlobalPreferences AppleLocale -string en_US > /dev/null 2>&1 || true

@@ -50,12 +50,8 @@ if [ "${RANDROID_SUITE_EMULATOR:-0}" = "1" ]; then
   export RANDROID_SESSION="$SCRATCH/headless.json"
   # The emulator this suite boots is deleted however the suite ends.
   trap '"$RANDROID" emu delete >/dev/null 2>&1; rm -rf "$SCRATCH"' EXIT HUP INT TERM
-  # The emulator is started with nohup, so a run killed before its trap leaves it running. Its cache
-  # (the one bin/randroid derives) is registered to this shell, and the engine ends the emulator it
-  # recorded once this shell is gone (richos/engine/scripts/lib/testdevices.py, §54).
-  RCACHE="${RANDROID_CACHE:-$VOLUME/caches/richos-native-android/$(printf '%s' "$NA" | shasum | cut -c1-10)}"
-  python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" register --kind android-cache \
-    --id "$RCACHE" --owner-pid $$ --script native-android-app.test.sh >/dev/null 2>&1 || true
+  # randroid binds this run to the actual emulator PID and start time.
+  export RICHOS_TEST_DEVICE_OWNER_PID=$$
   "$RANDROID" emu prepare >/dev/null || bad "emu prepare (boot, build, install, launch) failed"
   if [ "$fails" -eq 0 ]; then
     "$RANDROID" emu parity draft-survives-restart >/dev/null || bad "the emulator's states differ from headless for draft-survives-restart"
