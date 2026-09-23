@@ -179,6 +179,15 @@ try:
     check(sleeper is not None and not alive and runner.returncode == 130 and "interrupted" in out,
           "P8 SIGTERM to the runner stops the check it started (pid %s gone) and exits 130" % sleeper, out[-300:])
 
+    # P10 — --as-printed: the selection unsplit, in printed order, one at a time (the baseline).
+    order = os.path.join(tmp, "order")
+    lines = ["cd richos/app && bash -c 'echo %d >> %s; sleep 0.3'" % (n, order) for n in range(1, 4)]
+    its = pr.as_printed(lines)
+    pr.run(its, Args(jobs=4), tmp, sampler=idle)
+    check(len(its) == 3 and {i.lane for i in its} == {"as-printed"}
+          and open(order).read().split() == ["1", "2", "3"],
+          "P10 --as-printed runs each printed line unsplit, one after another, in printed order")
+
     # P9 — the log directory is bounded: the last three runs of a checkout, nothing more.
     parent = os.path.join(tmp, "rot")
     for n in range(5):

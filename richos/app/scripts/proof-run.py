@@ -5,6 +5,8 @@
     proof-run.py --commands <file>              a saved `proof-for.sh --quiet` output
     options:
       --dry-run            print the plan (items, lanes, expected seconds) and run nothing
+      --as-printed         run the printed commands exactly as printed, one after another (the
+                           hand-written loop's shape, to measure what the runner saves)
       --jobs N             at most N checks at once (default: logical cores)
       --engine-shards N    at most N engine shards (default: logical cores / 2; fewer when the set is small)
       --admission-wait S   how long one check may wait for admission (default 1800 s)
@@ -467,6 +469,7 @@ def main(argv=None):
                                 usage="proof-run.py [options] [proof-for arguments]")
     p.add_argument("--commands")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--as-printed", action="store_true")
     p.add_argument("--jobs", type=int, default=max(2, os.cpu_count() or 4))
     p.add_argument("--engine-shards", type=int, default=max(1, (os.cpu_count() or 4) // 2))
     p.add_argument("--admission-wait", type=float, default=1800)
@@ -483,7 +486,7 @@ def main(argv=None):
     os.makedirs(logdir, exist_ok=True)
     hist_dir = default_logdir()
     lines = selection(args)
-    items = plan(lines, args, logdir, history_weights(hist_dir))
+    items = as_printed(lines) if args.as_printed else plan(lines, args, logdir, history_weights(hist_dir))
     if not items:
         print("proof-run: the selection is empty — nothing to run. (For a documentation-only change that is"
               " the right answer; proof-for.sh says so without --quiet.)")
@@ -500,10 +503,28 @@ def main(argv=None):
     wall = run(items, args, logdir)
     notes_from_logs(items)
     rc = summarize(items, wall, logdir)
-    record_weights(hist_dir, items)
+    if not args.as_printed:
+        record_weights(hist_dir, items)
     if not args.log_dir:
         rotate(parent)
     return rc
+
+
+def as_printed(lines):
+    """The selection exactly as proof-for.sh printed it, one command after another: the shape a
+    hand-written loop runs, kept so the runner's own saving can be measured on any selection."""
+    items = []
+    for n, line in enumerate(lines, 1):
+        m = re.match(r"^cd (\S+) && (.+)$", line.strip())
+        if not m:
+            raise SystemExit("proof-run: cannot read line %d of the selection: %r" % (n, line))
+        argv = shlex.split(m.group(2))
+        it = Item("%02d %s" % (n, slug(" ".join(argv))[:36]), os.path.join(ROOT, m.group(1)), argv,
+                  "as-printed", float(len(lines) - n + 1))
+        if "make-engine-asset.test.sh" in m.group(2):
+            runtime_for(it)
+        items.append(it)
+    return items
 
 
 def record_weights(state, items):
