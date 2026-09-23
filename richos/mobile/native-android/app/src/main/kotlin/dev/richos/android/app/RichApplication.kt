@@ -17,7 +17,6 @@ import java.lang.ref.WeakReference
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.platform.HttpsMac
-import dev.richos.android.core.NotificationStatus
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -51,6 +50,10 @@ class RichApplication : Application() {
     @Volatile
     var owner: ConnectionOwner? = null
         private set
+
+    /** Push on this phone; null in a development world. */
+    @Volatile
+    private var push: FcmPlatform? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -86,17 +89,22 @@ class RichApplication : Application() {
                     scope.launch { connection.run() }
                 }
             }
-            // A push token that changed while nothing was listening is handed to the Mac now.
+            push = platform
+            // A push token that changed while nothing was listening is handed to the Mac now, and
+            // the OS's notification answer is mirrored (platform/Notifications.kt, reconcile).
             scope.launch {
                 val opened = store.states.filterNotNull().first()
-                platform.reconcile(opened.notifications.status == NotificationStatus.ON, opened.notifications.previews)
+                platform.reconcile(opened.notifications.status, opened.notifications.previews)
             }
         }
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {
-                // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js).
+                // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js),
+                // and picks up notifications allowed again in Android Settings meanwhile.
                 override fun onActivityStarted(activity: Activity) {
                     owner?.wake()
+                    val now = store.states.value ?: return
+                    push?.let { p -> scope.launch { p.reconcile(now.notifications.status, now.notifications.previews) } }
                 }
 
                 // The activity on screen, for the one OS question the recorder asks.

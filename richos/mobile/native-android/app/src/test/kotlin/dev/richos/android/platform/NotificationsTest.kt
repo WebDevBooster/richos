@@ -83,21 +83,38 @@ class NotificationsTest {
         val platform = FcmPlatform(app, keys(), { seen += it }, { null }, firebaseReady = { true }, fetchToken = { token }, ledger = book)
         platform.requestNotifications(previews = false)
         seen.clear()
-        platform.reconcile(notificationsOn = true, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false)
         assertEquals(emptyList<Action>(), seen)
         token = "fcm:second-" + "y".repeat(40)
-        platform.reconcile(notificationsOn = false, previews = false)
+        platform.reconcile(NotificationStatus.OFF, previews = false)
         assertEquals(emptyList<Action>(), seen)
-        platform.reconcile(notificationsOn = true, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false)
         assertEquals(token, (seen.single() as Action.PushToken).token)
         seen.clear()
-        platform.reconcile(notificationsOn = true, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false)
         assertEquals(emptyList<Action>(), seen)
         // Revoked in Android Settings: the launch asks nothing, registers nothing, and says it is off.
         token = "fcm:third-" + "z".repeat(40)
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        platform.reconcile(notificationsOn = true, previews = false)
+        platform.reconcile(NotificationStatus.ON, previews = false)
         assertEquals(listOf<Action>(Action.NotificationsResult(NotificationStatus.DENIED)), seen)
+    }
+
+    @Test
+    fun `allowed again in Android Settings after a denial, the phone registers again without asking`() = runBlocking {
+        val seen = mutableListOf<Action>()
+        val token = "fcm:back-" + "x".repeat(40)
+        val platform = FcmPlatform(app, keys(), { seen += it }, { null }, firebaseReady = { true }, fetchToken = { token }, ledger = ledger(), main = Dispatchers.Unconfined)
+        shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        platform.reconcile(NotificationStatus.DENIED, previews = false)
+        assertEquals(emptyList<Action>(), seen)
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        platform.reconcile(NotificationStatus.DENIED, previews = false)
+        assertEquals(token, (seen.single() as Action.PushToken).token)
+        // Off by the person's own choice stays off.
+        seen.clear()
+        platform.reconcile(NotificationStatus.OFF, previews = false)
+        assertEquals(emptyList<Action>(), seen)
     }
 
     @Test

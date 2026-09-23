@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -178,8 +180,16 @@ class FcmPlatform(
      * are mirrored as DENIED, so Settings in the app says so and offers the way back, rather than
      * showing a switch that is on while nothing can be shown.
      */
-    suspend fun reconcile(notificationsOn: Boolean, previews: Boolean) {
-        if (!notificationsOn) return
+    suspend fun reconcile(status: NotificationStatus, previews: Boolean) = reconciling.withLock { reconcileNow(status, previews) }
+
+    /** Launch and each return to the foreground both reconcile; one at a time, so a change registers once. */
+    private val reconciling = Mutex()
+
+    private suspend fun reconcileNow(status: NotificationStatus, previews: Boolean) {
+        // The way back: allowed again in Android Settings after a denial, the phone registers
+        // again (no prompt: the OS already said yes) instead of staying "off" for good.
+        if (status == NotificationStatus.DENIED && granted()) return requestNotifications(previews)
+        if (status != NotificationStatus.ON) return
         if (!granted()) {
             dispatch(Action.NotificationsResult(NotificationStatus.DENIED))
             return
