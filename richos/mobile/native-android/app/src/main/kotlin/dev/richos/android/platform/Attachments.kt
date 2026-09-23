@@ -12,6 +12,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.richos.android.core.Action
 import dev.richos.android.core.Attachment
+import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -49,21 +51,40 @@ object ImageScale {
  * (the folder MacTransport uploads from), the SHA-256 of the exact bytes, the size and the type.
  * Every image becomes a JPEG at no more than 2,576 px on its long edge, the orientation applied.
  */
-class Stager(private val context: Context, private val dir: File) {
+class Stager(
+    private val context: Context,
+    private val dir: File,
+    /** The Mac's per-file limit (core `AttachmentLimits.maxFileBytes`), read when a file is staged. */
+    private val maxFileBytes: () -> Long = { AttachmentLimits().maxFileBytes },
+) {
+    /** Why something was not staged; nothing of it is left on the phone. */
+    class Refused(val reason: Reason, val name: String, val bytes: Long? = null) : java.io.IOException("$name: $reason")
+
+    enum class Reason {
+        /** Over the Mac's per-file limit; [Refused.bytes] is the size when it is known. */
+        TOO_LARGE,
+    }
+
     suspend fun stage(uri: Uri): Attachment = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0) else null
-        } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+        val (shownName, declaredSize) = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (!c.moveToFirst()) null to null
+            else c.getString(0) to (if (c.columnCount > 1 && !c.isNull(1)) c.getLong(1) else null)
+        } ?: (null to null)
+        val name = shownName ?: uri.lastPathSegment?.substringAfterLast('/') ?: "file"
         val type = resolver.getType(uri)
             ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
             ?: "application/octet-stream"
-        val (bytes, finalName, finalType) = if (type.startsWith("image/")) {
-            Triple(jpeg(uri), ImageScale.jpegName(name), "image/jpeg")
+        val limit = maxFileBytes()
+        if (type.startsWith("image/")) {
+            // Decoded straight to at most 2,576 px, so memory is bounded by the target, not the source.
+            val bytes = jpeg(uri)
+            if (bytes.size > limit) throw Refused(Reason.TOO_LARGE, name, bytes.size.toLong())
+            write(bytes, ImageScale.jpegName(name), "image/jpeg")
         } else {
-            Triple(resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw java.io.IOException("could not read $name"), name, type)
+            if (declaredSize != null && declaredSize > limit) throw Refused(Reason.TOO_LARGE, name, declaredSize)
+            copy(uri, name, type, limit)
         }
-        write(bytes, finalName, finalType)
     }
 
     /** Stages bytes already in hand (a shared text becomes a file only if the caller wants it to). */
@@ -72,6 +93,46 @@ class Stager(private val context: Context, private val dir: File) {
         val id = "att-" + UUID.randomUUID()
         File(dir, id).writeBytes(bytes)
         return Attachment(id = id, name = name, mediaType = type, size = bytes.size.toLong(), sha256 = Signing.hex(Signing.sha256(bytes)))
+    }
+
+    /** Deletes staged copies nobody will send (a refused or abandoned share, A-3). */
+    fun discard(files: List<Attachment>) {
+        for (f in files) {
+            if (f.id.isEmpty() || f.id.contains('/') || f.id.contains('\\') || f.id == "." || f.id == "..") continue
+            File(dir, f.id).delete()
+        }
+    }
+
+    /**
+     * A-3. Streams to disk, hashing as it goes, and stops one byte past [limit]: a huge or endless
+     * stream is refused without ever being held in memory, and the partial copy is deleted.
+     */
+    private fun copy(uri: Uri, name: String, type: String, limit: Long): Attachment {
+        dir.mkdirs()
+        val id = "att-" + UUID.randomUUID()
+        val file = File(dir, id)
+        val digest = MessageDigest.getInstance("SHA-256")
+        var total = 0L
+        try {
+            val input = context.contentResolver.openInputStream(uri) ?: throw java.io.IOException("could not read $name")
+            input.use { src ->
+                file.outputStream().use { out ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = src.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        if (total > limit) throw Refused(Reason.TOO_LARGE, name, null)
+                        digest.update(buffer, 0, n)
+                        out.write(buffer, 0, n)
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            file.delete()
+            throw e
+        }
+        return Attachment(id = id, name = name, mediaType = type, size = total, sha256 = Signing.hex(digest.digest()))
     }
 
     private fun jpeg(uri: Uri): ByteArray {

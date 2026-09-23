@@ -5,6 +5,7 @@ import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import dev.richos.android.core.Action
+import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.ConnectionOwner
 import dev.richos.android.core.Microphone
 import dev.richos.android.platform.AttachmentPicker
@@ -43,7 +44,8 @@ class RichApplication : Application() {
      * [AttachmentPicker.pickFiles]; what is picked arrives in the core as `attach`.
      */
     val attachments: AttachmentPicker by lazy {
-        AttachmentPicker(Stager(this, AppPorts.stagedDir(this)), { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope)
+        val stager = Stager(this, AppPorts.stagedDir(this)) { (store.states.value?.attachmentLimits ?: AttachmentLimits()).maxFileBytes }
+        AttachmentPicker(stager, { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope)
     }
 
     /** The live connection's owner; null until the production core has opened, and in a dev world. */

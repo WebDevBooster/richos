@@ -11,6 +11,8 @@ import dev.richos.android.app.AppStore
 import dev.richos.android.app.RichApplication
 import dev.richos.android.core.Action
 import dev.richos.android.core.AppState
+import dev.richos.android.core.Attachment
+import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.CoreError
 import dev.richos.android.core.OutboxState
 import kotlinx.coroutines.Dispatchers
@@ -36,14 +38,48 @@ enum class ShareOutcome(val words: String) {
  * lets it go; anything else is said as it is.
  */
 object ShareToRich {
-    /** Waits for the store's core, sends, and watches the message until it is accepted, refused or [patienceMs] pass. */
-    suspend fun share(store: AppStore, text: String, files: List<dev.richos.android.core.Attachment>, patienceMs: Long = 20_000): ShareOutcome {
+    /** What was staged from a share, and why anything was not. */
+    data class Intake(val files: List<Attachment>, val refused: List<Stager.Refused> = emptyList(), val tooMany: Boolean = false)
+
+    /**
+     * Stages a share's streams within the Mac's limits (A-3): more than [maxFiles] items stages
+     * nothing at all (the Mac would refuse the message), and each file is bounded while it is read.
+     */
+    suspend fun intake(stager: Stager, uris: List<Uri>, maxFiles: Int): Intake {
+        if (uris.size > maxFiles) return Intake(emptyList(), tooMany = true)
+        val files = mutableListOf<Attachment>()
+        val refused = mutableListOf<Stager.Refused>()
+        for (uri in uris) {
+            try {
+                files += stager.stage(uri)
+            } catch (e: Stager.Refused) {
+                refused += e
+            } catch (e: Exception) {
+                // Unreadable: nothing was kept (the stager deletes a partial copy).
+            }
+        }
+        return Intake(files, refused)
+    }
+
+    /**
+     * Waits for the store's core, sends, and watches the message until it is accepted, refused or
+     * [patienceMs] pass. A refused share's staged copies are deleted through [discard]: nothing will
+     * ever send them.
+     */
+    suspend fun share(
+        store: AppStore,
+        text: String,
+        files: List<Attachment>,
+        patienceMs: Long = 20_000,
+        discard: (List<Attachment>) -> Unit = {},
+    ): ShareOutcome {
         store.states.filterNotNull().first()
-        val core = store.current ?: return ShareOutcome.REFUSED
+        val core = store.current ?: return ShareOutcome.REFUSED.also { discard(files) }
         val clientId = "share-" + UUID.randomUUID()
         try {
             core.dispatch(Action.Share(clientId, text, files))
         } catch (e: CoreError) {
+            discard(files)
             return if (!core.state.paired) ShareOutcome.NOT_PAIRED else ShareOutcome.REFUSED
         }
         return withTimeoutOrNull(patienceMs) { core.states.first { settled(it, clientId) != null }.let { settled(it, clientId)!! } }
@@ -88,9 +124,14 @@ class ShareActivity : Activity() {
         val (text, uris) = ShareToRich.read(intent)
         val context: Context = app
         app.appScope.launch {
-            val stager = Stager(context, dev.richos.android.app.AppPorts.stagedDir(context))
-            val files = uris.mapNotNull { runCatching { stager.stage(it) }.getOrNull() }
-            val outcome = if (text.isBlank() && files.isEmpty()) ShareOutcome.REFUSED else ShareToRich.share(app.store, text, files)
+            val limits = app.store.states.value?.attachmentLimits ?: AttachmentLimits()
+            val stager = Stager(context, dev.richos.android.app.AppPorts.stagedDir(context)) { limits.maxFileBytes }
+            val intake = ShareToRich.intake(stager, uris, limits.maxFilesPerMessage)
+            val outcome = when {
+                intake.tooMany || intake.refused.isNotEmpty() -> ShareOutcome.REFUSED.also { stager.discard(intake.files) }
+                text.isBlank() && intake.files.isEmpty() -> ShareOutcome.REFUSED
+                else -> ShareToRich.share(app.store, text, intake.files, discard = stager::discard)
+            }
             withContext(Dispatchers.Main) { Toast.makeText(context, outcome.words, Toast.LENGTH_LONG).show() }
         }
         finish()
