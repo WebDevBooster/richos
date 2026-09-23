@@ -7,16 +7,22 @@
       --dry-run            print the plan (items, lanes, expected seconds) and run nothing
       --as-printed         run the printed commands exactly as printed, one after another (the
                            hand-written loop's shape, to measure what the runner saves)
-      --jobs N             at most N checks at once (default: logical cores)
-      --engine-shards N    at most N engine shards (default: logical cores / 2; fewer when the set is small)
+      --capacity N         the run's budget of concurrent WORKERS, nested ones included
+                           (default: 80% of logical cores — the admission line, in cores)
+      --engine-shards N    at most N engine shards (default: logical cores / 2)
       --admission-wait S   how long one check may wait for admission (default 1800 s)
-      --low-priority       CEO ruling §78's mode: the CPU line is not applied, every check
-                           runs under nice -n 10, the memory rule still is; announced
+      --budget S           a check running past S seconds is named while the run goes (600)
+      --deadline S         a check still running at max(S, 3 x its expected seconds), capped
+                           at an hour, is stopped with its whole tree and fails (1800)
+      --sample-every S     how often the host is sampled for the run's summary (10)
       --log-dir DIR        where the per-check logs go (default: one directory per checkout
                            under ~/.richos-nightly/proof-runs/, the last 3 runs kept)
+    There is no low-priority switch: CEO ruling §78's mode is for the native app build, and a
+    runner of tests never skips the CPU line.
 
-Exit: 0 every check passed; 1 a check failed, was not admitted, or proof-for.sh found a
-changed code path no suite covers (nothing is run then); 2 usage or an unreadable selection.
+Exit: 0 every check passed; 1 a check failed, timed out, was not admitted, or proof-for.sh
+found a changed code path no suite covers (nothing is run then); 2 usage or an unreadable
+selection.
 
 WHY THIS EXISTS (2026-09-23). `proof-for.sh` prints the smallest set of commands that can
 prove a change, and deliberately runs nothing. The land of 184 commits on 2026-09-22/23
@@ -55,14 +61,26 @@ to whatever unit another shard is running at that moment. The run is red either 
 REFERENCE (T3 Code adoption ledger, richos-hq docs/research/t3code-tooling-what-to-adopt-2026-09-19.md):
 §2.3 "shard across runners, not workers" — COPIED as receipted engine shards and one simulator
 per iOS shard, because on one Mac with CI paused the separate "runners" are processes and
-simulators. §2.4 "every CI job capped at 10 minutes" — COPIED as a reported budget (see
-BUDGET_SECONDS), not a kill. Their CI workflow files themselves are NOT APPLICABLE (CI paused).
+simulators. §2.4 "every CI job capped at 10 minutes" — COPIED as a budget enforced while the run
+goes: named live at --budget, stopped with its whole tree at the deadline. Their CI workflow
+files themselves are NOT APPLICABLE (CI paused).
 
-ADMISSION IS CEO RULING §77, THE SAME RULE AND THE SAME CODE AS testvm/reserve.py. Before a
-check starts, one sample of user CPU and memory is taken; below 80% it starts, otherwise
-the check waits (samples at least 30 s apart, at most --admission-wait) and the wait is
-reported beside its time. Checks start longest-expected first, so the long poles are not
-the ones left waiting.
+ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
+  * A FREE WORKER TOKEN (scripts/lib/worker_tokens.py, engine). The run has --capacity tokens;
+    each check holds one while it runs, and the budget's directory is exported to it as
+    RICHOS_WORKER_TOKENS, so a nested pool (the mutation harness's eight workers) takes a token
+    for every worker beyond its first. The count is of workers on the machine from this run,
+    not of commands this runner typed.
+  * CEO RULING §77's LINE, the same rule and the same code as testvm/reserve.py: one sample of
+    user CPU and memory; below 80% it starts, otherwise the check waits (samples at least 30 s
+    apart, at most --admission-wait) and the wait is reported beside its time.
+Checks start longest-expected first, so the long poles are not the ones left waiting. While the
+run goes, a sampler records user CPU and the tokens held; the summary prints both, which is the
+evidence of whether the machine stayed under the line.
+
+A BUDGET SHARED WITH OTHER, SEPARATE RUNS (another agent's, the nightly's) is not this runner's:
+the token directory is per run. Pointing RICHOS_WORKER_TOKENS at one machine-wide directory is
+the natural extension and nothing here stands in its way.
 """
 import argparse
 import datetime
@@ -74,6 +92,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -100,6 +119,7 @@ ROOT = git_root()
 # How a check is stopped: the engine's one tree-kill, not a second copy of it.
 sys.path.insert(0, os.path.join(ROOT, "richos", "engine", "scripts", "lib"))
 import proc_tree  # noqa: E402
+import worker_tokens  # noqa: E402
 
 
 class Item:
@@ -115,6 +135,8 @@ class Item:
         self.log = None
         self.notes = []
         self.env = {}
+        self.token = None
+        self.over_budget = False
 
     @property
     def seconds(self):
@@ -315,36 +337,77 @@ def slug(label):
     return re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")[:60]
 
 
-def launch(item, n, logdir, low_priority):
+def launch(item, n, logdir, tokens_dir):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
-    argv = (["/usr/bin/nice", "-n", str(reserve.LOW_PRIORITY_NICE)] if low_priority else []) + item.argv
     fh = open(item.log, "wb")
     fh.write(("$ cd %s && %s\n" % (os.path.relpath(item.cwd, ROOT), " ".join(shlex.quote(a) for a in item.argv))).encode())
     fh.flush()
-    # Its own session: the group is exactly what this runner started, and the group is
-    # what an interrupt stops. Nothing is chosen by name.
-    item.proc = subprocess.Popen(argv, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
-                                 stdin=subprocess.DEVNULL, start_new_session=True, env={**os.environ, **item.env})
+    # Its own session, so nothing it does can signal this runner; how it is stopped is
+    # proc_tree.kill_tree (its whole tree), never a group or a name.
+    env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir}
+    item.proc = subprocess.Popen(item.argv, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
+                                 stdin=subprocess.DEVNULL, start_new_session=True, env=env)
     fh.close()
     item.state, item.started = "running", time.time()
 
 
-def admitted(args, now, sampler):
-    """One sample; True to start a check now. `sampler` is swappable for the suite."""
+def admitted(args, sampler):
+    """One sample, CEO ruling §77's line and memory rule; (ok, sample). Never skips the CPU line."""
     s = sampler()
-    return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=not args.low_priority), s
+    return not reserve._refusal(s, args.max_cpu, 16, cpu_rule=True), s
+
+
+class Monitor(threading.Thread):
+    """The machine while the run is going: user CPU and the worker tokens held, every few
+    seconds. It is the evidence that the run stayed under the admission line, not a guess."""
+
+    def __init__(self, every, budget, sampler):
+        super().__init__(daemon=True)
+        self.every, self.budget, self.sampler = every, budget, sampler
+        self.samples = []
+        self.halt = threading.Event()
+
+    def run(self):
+        while not self.halt.is_set():
+            try:
+                s = self.sampler()
+                self.samples.append((time.time(), s["cpu_user_percent"], s["cpu_system_percent"], self.budget.held()))
+            except (BlockingIOError, OSError, ValueError):
+                pass
+            self.halt.wait(self.every)
+
+    def report(self, line):
+        if not self.samples:
+            return ["host during the run: no sample was taken"]
+        users = [u for _t, u, _s, _h in self.samples]
+        held = [h for _t, _u, _s, h in self.samples]
+        over = sum(1 for u in users if u >= line)
+        return ["host during the run: %d samples, user CPU mean %.0f%%, max %.0f%%, at or over the %g%% "
+                "admission line in %d of them; worker tokens held: max %d of %d" % (
+                    len(users), sum(users) / len(users), max(users), line, over, max(held), len(self.budget.files))]
+
+
+def deadline_for(item, args):
+    """The kill point: the --deadline floor, or three times what this check is expected to take,
+    whichever is later, never past an hour (ci-shard.sh's own rule for a unit)."""
+    return min(3600.0, max(args.deadline, 3 * item.weight))
 
 
 def run(items, args, logdir, sampler=None):
     sampler = sampler or (lambda: reserve.host_sample())
+    tokens_dir = os.path.join(logdir, "worker-tokens")
+    worker_tokens.init(tokens_dir, args.capacity)
+    budget = worker_tokens.Budget(tokens_dir)
     order = sorted(items, key=lambda it: -it.weight)
     running, n, next_sample, last_launch = [], 0, 0.0, 0.0
     t0 = time.time()
+    monitor = Monitor(args.sample_every, budget, sampler)
+    monitor.start()
 
     def stop_all(signum, _frame):
         # The whole tree of every running check, not its group alone: a check's descendants
-        # start groups and sessions of their own (reserve.py, stop-at-line.py, simulators'
-        # xcodebuild), and a group kill would leave those running (proc_tree.py's header).
+        # start groups and sessions of their own (stop-at-line.py, worker_tokens.py, xcodebuild),
+        # and a group kill would leave those running (proc_tree.py's header).
         left = []
         for it in running:
             left += proc_tree.kill_tree(it.proc.pid, 5.0)
@@ -357,38 +420,60 @@ def run(items, args, logdir, sampler=None):
         signal.signal(sig, stop_all)
 
     while True:
+        now = time.time()
         for it in list(running):
             rc = it.proc.poll()
+            age = now - it.started
+            if rc is None and age >= deadline_for(it, args):
+                # ENFORCED, while the run is going: the check and everything it started are
+                # stopped, and the run is red by name. Never a skip.
+                left = proc_tree.kill_tree(it.proc.pid, 3.0)
+                it.proc.wait()
+                rc = 124
+                it.state = "timed-out"
+                it.notes.append("stopped at its %.0f s deadline%s" % (
+                    deadline_for(it, args), "" if not left else "; pids %s survived SIGKILL" % left))
+            elif rc is None and age >= args.budget and not it.over_budget:
+                it.over_budget = True
+                print("[%s] OVER BUDGET %-34s running %.0f s, past the %.0f s budget; stopped at %.0f s if still "
+                      "running" % (stamp(), it.label, age, args.budget, deadline_for(it, args)), flush=True)
             if rc is not None:
                 it.rc, it.ended = rc, time.time()
-                it.state = "passed" if rc == 0 else "failed"
+                if it.state != "timed-out":
+                    it.state = "passed" if rc == 0 else "failed"
                 running.remove(it)
-                print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), "PASS" if rc == 0 else "FAIL", it.label, it.seconds,
-                                                     "" if rc == 0 else "  (exit %d)" % rc), flush=True)
+                it.token.release()
+                print("[%s] %-6s %-40s %6.0f s%s" % (stamp(), {"passed": "PASS", "failed": "FAIL"}.get(it.state, "KILLED"),
+                                                     it.label, it.seconds, "" if rc == 0 else "  (exit %d)" % rc), flush=True)
         waiting = [it for it in order if it.state == "waiting"]
         if not waiting and not running:
             break
-        now = time.time()
         busy_lanes = {it.lane for it in running if it.lane}
-        done = {it.label for it in items if it.state in ("passed", "failed", "not-admitted")}
+        done = {it.label for it in items if it.state not in ("waiting", "running")}
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
         # A check whose prerequisites failed still runs: the receipts check is what NAMES a
         # shard that did not finish, so it is never skipped.
-        if ready and len(running) < args.jobs and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
+        if ready and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
             it = ready[0]
             if it.first_wait is None:
                 it.first_wait = now
-            ok, s = admitted(args, now, sampler)
+            token = budget.try_acquire()
+            ok, s = (False, None)
+            if token is not None:
+                ok, s = admitted(args, sampler)
+                if not ok:
+                    token.release()
             if ok:
-                it.admission_wait = now - it.first_wait
+                it.admission_wait, it.token = now - it.first_wait, token
                 n += 1
-                launch(it, n, logdir, args.low_priority)
+                launch(it, n, logdir, tokens_dir)
                 running.append(it)
                 last_launch = time.time()
                 print("[%s] start  %-40s %s" % (stamp(), it.label,
                                                 "(waited %.0f s for admission)" % it.admission_wait if it.admission_wait >= 1 else ""),
                       flush=True)
-            else:
+            elif s is not None:
+                # Refused by the CPU line or the memory rule (not merely waiting for a token).
                 waited = now - it.first_wait
                 if waited >= args.admission_wait:
                     it.state, it.admission_wait = "not-admitted", waited
@@ -400,6 +485,9 @@ def run(items, args, logdir, sampler=None):
                     if not running:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
+    monitor.halt.set()
+    monitor.join(timeout=5)
+    args.monitor_lines = monitor.report(args.max_cpu)
     return time.time() - t0
 
 
@@ -416,26 +504,28 @@ def notes_from_logs(items):
                 it.notes.append(line.strip()[:160])
 
 
-def summarize(items, wall, logdir):
+def summarize(items, wall, logdir, budget_seconds=600, monitor_lines=()):
     serial = sum(it.seconds for it in items)
     print("")
     print("proof-run: %d check(s), wall %.0f s (%.1f min); the same checks one after another: %.0f s" %
           (len(items), wall, wall / 60, serial))
+    for line in monitor_lines:
+        print("  " + line)
     print("  %-40s %-12s %8s %10s  %s" % ("check", "result", "seconds", "admission", "log"))
     rows = []
     for it in sorted(items, key=lambda i: -(i.seconds)):
         print("  %-40s %-12s %8.0f %9.0fs  %s" % (it.label, it.state.upper(), it.seconds, it.admission_wait,
                                                  os.path.basename(it.log or "-")))
-        if it.seconds > BUDGET_SECONDS:
-            print("      OVER BUDGET: %.0f s is past the %d-minute budget one check may take" % (
-                it.seconds, BUDGET_SECONDS // 60))
+        if it.seconds > budget_seconds:
+            print("      OVER BUDGET: %.0f s is past the %.0f s budget one check may take" % (it.seconds, budget_seconds))
         for note in it.notes[:6]:
             print("      %s" % note)
         rows.append({"check": it.label, "result": it.state, "seconds": round(it.seconds, 1),
                      "admission_wait": round(it.admission_wait, 1), "exit": it.rc, "log": it.log,
                      "command": "cd %s && %s" % (os.path.relpath(it.cwd, ROOT), " ".join(shlex.quote(a) for a in it.argv))})
     with open(os.path.join(logdir, "summary.json"), "w") as fh:
-        json.dump({"wall_seconds": round(wall, 1), "serial_seconds": round(serial, 1), "checks": rows}, fh, indent=1)
+        json.dump({"wall_seconds": round(wall, 1), "serial_seconds": round(serial, 1), "host": list(monitor_lines),
+                   "checks": rows}, fh, indent=1)
     bad = [it for it in items if it.state != "passed"]
     print("")
     if bad:
@@ -470,16 +560,18 @@ def main(argv=None):
     p.add_argument("--commands")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--as-printed", action="store_true")
-    p.add_argument("--jobs", type=int, default=max(2, os.cpu_count() or 4))
+    p.add_argument("--capacity", type=int, default=max(2, int((os.cpu_count() or 4) * 0.8)))
     p.add_argument("--engine-shards", type=int, default=max(1, (os.cpu_count() or 4) // 2))
     p.add_argument("--admission-wait", type=float, default=1800)
     p.add_argument("--max-cpu", type=float, default=80)
-    p.add_argument("--low-priority", action="store_true")
+    p.add_argument("--budget", type=float, default=BUDGET_SECONDS)
+    p.add_argument("--deadline", type=float, default=3 * BUDGET_SECONDS)
+    p.add_argument("--sample-every", type=float, default=10)
     p.add_argument("--log-dir")
     args, rest = p.parse_known_args(argv)
     args.proof_for_args = rest
-    if args.jobs < 1 or args.engine_shards < 1:
-        p.error("--jobs and --engine-shards must be at least 1")
+    if args.capacity < 1 or args.engine_shards < 1:
+        p.error("--capacity and --engine-shards must be at least 1")
     parent = args.log_dir or default_logdir()
     run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     logdir = os.path.join(parent, run_id if not args.log_dir else "")
@@ -491,9 +583,9 @@ def main(argv=None):
         print("proof-run: the selection is empty — nothing to run. (For a documentation-only change that is"
               " the right answer; proof-for.sh says so without --quiet.)")
         return 0
-    print("proof-run: %d check(s) from %d selected command(s); at most %d at once%s" % (
-        len(items), len(lines), args.jobs, "; LOW PRIORITY (CEO ruling §78): CPU line not applied, nice -n %d"
-        % reserve.LOW_PRIORITY_NICE if args.low_priority else ""))
+    print("proof-run: %d check(s) from %d selected command(s); a budget of %d workers for the whole run, "
+          "nested workers included; %.0f s budget per check, stopped at its deadline" % (
+              len(items), len(lines), args.capacity, args.budget))
     for it in sorted(items, key=lambda i: -i.weight):
         print("  %-40s lane %-7s ~%5.0f s  cd %s && %s" % (it.label, it.lane or "-", it.weight,
                                                          os.path.relpath(it.cwd, ROOT), " ".join(it.argv)))
@@ -502,7 +594,7 @@ def main(argv=None):
     print("  logs: %s" % logdir, flush=True)
     wall = run(items, args, logdir)
     notes_from_logs(items)
-    rc = summarize(items, wall, logdir)
+    rc = summarize(items, wall, logdir, args.budget, getattr(args, "monitor_lines", ()))
     if not args.as_printed:
         record_weights(hist_dir, items)
     if not args.log_dir:

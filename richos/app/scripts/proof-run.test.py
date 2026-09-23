@@ -35,8 +35,8 @@ def check(ok, what, detail=""):
 
 class Args:
     def __init__(self, **kw):
-        self.jobs, self.engine_shards, self.admission_wait = 4, 4, 1800
-        self.max_cpu, self.low_priority = 80, False
+        self.capacity, self.engine_shards, self.admission_wait = 4, 4, 1800
+        self.max_cpu, self.budget, self.deadline, self.sample_every = 80, 600, 1800, 0.5
         self.__dict__.update(kw)
 
 
@@ -100,9 +100,9 @@ try:
     lines = ["cd richos/app && bash -c 'sleep 2'"] * 4
     its = items_from(lines, tmp)
     t0 = time.time()
-    wall = pr.run(its, Args(jobs=4), tmp, sampler=idle)
+    wall = pr.run(its, Args(capacity=4), tmp, sampler=idle)
     check(all(i.state == "passed" for i in its) and wall < 5.5,
-          "P2 four 2 s checks with --jobs 4 take %.1f s of wall clock (one after another: 8 s)" % wall,
+          "P2 four 2 s checks with a capacity of 4 take %.1f s of wall clock (one after another: 8 s)" % wall,
           [(i.label, i.state) for i in its])
 
     # P3 — a lane is one at a time.
@@ -112,7 +112,7 @@ try:
               "touch $d/busy.$$; sleep 1; rm -f $d/busy.$$" % probe)
     its = [pr.Item("g%d" % n, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", script], "gradle", 1.0)
            for n in range(3)]
-    wall = pr.run(its, Args(jobs=4), tmp, sampler=idle)
+    wall = pr.run(its, Args(capacity=4), tmp, sampler=idle)
     check(not os.path.exists(os.path.join(probe, "overlap")) and wall >= 2.8,
           "P3 three checks in one lane never overlap (%.1f s for three 1 s checks)" % wall)
 
@@ -135,10 +135,60 @@ try:
     check(its[0].state == "not-admitted" and its[0].started is None,
           "P5a at 95% user CPU a check is not started, and after its wait it is NOT-ADMITTED (a failure)",
           (its[0].state, its[0].notes))
-    its = items_from(["cd richos/app && bash -c 'exit 0'"], tmp)
-    pr.run(its, Args(admission_wait=0, low_priority=True), tmp, sampler=busy)
-    check(its[0].state == "passed" and open(its[0].log).read().startswith("$ cd richos/app"),
-          "P5b --low-priority (CEO ruling §78) does not apply the CPU line, and the check runs")
+    r = subprocess.run([sys.executable, os.path.join(HERE, "proof-run.py"), "--low-priority", "--dry-run",
+                        "--log-dir", os.path.join(tmp, "p5b"), "--paths", "richos/app/scripts/proof-run.py"],
+                       capture_output=True, text=True)
+    check(r.returncode != 0 and "--low-priority" in r.stderr,
+          "P5b there is no switch that skips the CPU line: --low-priority is refused, not honored",
+          (r.returncode, r.stderr[-200:]))
+
+    # P11 — the deadline is enforced WHILE the run goes: named at the budget, stopped with its
+    # whole tree at the deadline (a TERM-ignoring child and an own-session grandchild included),
+    # and the run is red by name.
+    d11 = os.path.join(tmp, "p11")
+    os.makedirs(d11)
+    script = ("python3 -c 'import subprocess, sys; p = subprocess.Popen([\"sleep\", \"60\"], start_new_session=True); "
+              "open(sys.argv[1], \"w\").write(str(p.pid)); p.wait()' %s/own & "
+              "bash -c 'trap \"\" TERM; echo $$ > %s/deaf; while :; do sleep 1; done' & "
+              "sleep 60" % (d11, d11))
+    it = pr.Item("runs-forever", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", script], None, 0.1)
+    import io
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        wall = pr.run([it], Args(budget=1, deadline=3), os.path.join(tmp, "p11log"), sampler=idle)
+    pids = [int(open(os.path.join(d11, f)).read()) for f in ("own", "deaf") if os.path.exists(os.path.join(d11, f))]
+    alive = []
+    for p in pids + [it.proc.pid]:
+        try:
+            os.kill(p, 0)
+            alive.append(p)
+            os.kill(p, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    check("OVER BUDGET" in buf.getvalue() and it.state == "timed-out" and wall < 20,
+          "P11 a check past its budget is named while running, and at its deadline it is TIMED-OUT (%.0f s)" % wall,
+          (it.state, buf.getvalue()[-300:]))
+    check(len(pids) == 2 and not alive,
+          "P11b nothing of the timed-out check survives: its shell, a TERM-ignoring child, an own-session grandchild",
+          (pids, alive))
+
+    # P12 — the worker budget counts NESTED workers. Three checks, each running one worker on
+    # its own token and two more that each need a token of the run's budget (the mutation
+    # pool's rule). With a capacity of three, no more than three workers ever work at once.
+    d12 = os.path.join(tmp, "p12")
+    os.makedirs(d12)
+    wt = os.path.join(pr.ROOT, "richos/engine/scripts/lib/worker_tokens.py")
+    work = ("touch %s/w.$$; ls %s/w.* | wc -l >> %s/conc; sleep 0.6; rm -f %s/w.$$" % (d12, d12, d12, d12))
+    nested = ("bash -c '%s' & for i in 1 2; do python3 %s run \"$RICHOS_WORKER_TOKENS\" -- bash -c '%s' & done; wait"
+              % (work.replace("'", ""), wt, work.replace("'", "")))
+    its = [pr.Item("nested-%d" % n, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", nested], None, 1.0)
+           for n in range(3)]
+    pr.run(its, Args(capacity=3), os.path.join(tmp, "p12log"), sampler=idle)
+    conc = [int(x) for x in open(os.path.join(d12, "conc")).read().split()] if os.path.exists(os.path.join(d12, "conc")) else []
+    check(all(i.state == "passed" for i in its) and len(conc) == 9 and 2 <= max(conc) <= 3,
+          "P12 capacity 3, three checks with three workers each: all nine ran, at most %s at once" % (max(conc) if conc else "?"),
+          (conc, [(i.label, i.state) for i in its]))
 
     # P6 — the receipts check runs even when a shard failed: it is what names the missing units.
     a = pr.Item("engine 1/2", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 1"], None, 5)
@@ -191,7 +241,7 @@ try:
     order = os.path.join(tmp, "order")
     lines = ["cd richos/app && bash -c 'echo %d >> %s; sleep 0.3'" % (n, order) for n in range(1, 4)]
     its = pr.as_printed(lines)
-    pr.run(its, Args(jobs=4), tmp, sampler=idle)
+    pr.run(its, Args(capacity=4), tmp, sampler=idle)
     check(len(its) == 3 and {i.lane for i in its} == {"as-printed"}
           and open(order).read().split() == ["1", "2", "3"],
           "P10 --as-printed runs each printed line unsplit, one after another, in printed order")
