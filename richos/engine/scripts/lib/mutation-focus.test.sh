@@ -37,7 +37,7 @@ export TMPDIR="$SANDBOX/tmp"
 # (proof-run.py exports it to every check) must not leak in and change what is measured: on
 # 2026-09-23 it did, F3-F6 read a fixture engine with no worker_tokens.py and F9 queued on the
 # outer run's tokens until the unit's deadline.
-unset RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL MUT_WORKER_TOKEN
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL RICHOS_WORKER_BORROW_LOCK MUT_WORKER_TOKEN
 export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
 mkdir -p "$TMPDIR" "$CLAUDE_CONFIG_DIR/state"
 export RICHOS_MUTANT_JOBS=2
@@ -242,7 +242,7 @@ FREE_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
 rm -f "$PROBE"/*
 BUDGET="$SANDBOX/budget"
 python3 "$ENGINE_ROOT/scripts/lib/worker_tokens.py" init "$BUDGET" 1
-RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
+RICHOS_WORKER_SLOT_HELD=1 RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
 BOUND_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
 if [ "${FREE_MAX:-0}" -ge 3 ] && [ "${BOUND_MAX:-9}" -le 2 ] && [ "$RH_RC" -eq 0 ]; then
     ok "F9  a budget of one token holds a four-slot pool to two suites at once (${BOUND_MAX}; ${FREE_MAX} without a budget), and every mutant is still proven"
@@ -261,7 +261,7 @@ fd = os.open(sys.argv[1], os.O_RDWR); fcntl.flock(fd, fcntl.LOCK_EX); open(sys.a
     "$BUDGET/token-000" "$PROBE/holding" &
 HOLDER=$!
 for _ in $(seq 1 50); do [ -f "$PROBE/holding" ] && break; sleep 0.1; done
-RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
+RICHOS_WORKER_SLOT_HELD=1 RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
 kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
 HELD_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
 if [ "$RH_RC" -eq 0 ] && [ "$(grep -c '^  PASS  par-' <<<"$RH_OUT")" -eq 6 ] && [ "${HELD_MAX:-9}" -le 1 ]; then

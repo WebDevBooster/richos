@@ -196,6 +196,12 @@ if ! resolve_entity_root "$INPUT"; then
     exit 0
 fi
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    announce_off "BROKEN INSTALL: seat-jurisdiction.sh is missing; the target repository cannot be checked."
+    exit 0
+fi
+. "$_SJ_LIB"
 
 _UE_LIB="$SCRIPT_DIR/../lib/unevaluated-notice.sh"
 if [ -f "$_UE_LIB" ]; then
@@ -420,6 +426,7 @@ Agent)
             UNRESOLVED="$UNRESOLVED $ws"
             continue
         fi
+        richos_assert_jurisdiction "guard-public-record-repo.sh" "$ENTITY_ROOT" "$repo" "repository" "proceeds" || true
         if is_public "$repo"; then
             PUBLIC_REPO="$repo"
             break
@@ -507,6 +514,7 @@ Bash)
     [ -n "$ANCHOR" ] || ANCHOR="$PWD"
     REPO="$(pb_repo_root "$ANCHOR" 2>/dev/null || true)"
     [ -n "$REPO" ] || exit 0
+    richos_assert_jurisdiction "guard-public-record-repo.sh" "$ENTITY_ROOT" "$REPO" "repository" "proceeds" || true
     is_public "$REPO" || exit 0
 
     # --- WHAT THIS COMMIT ADDS --------------------------------------------

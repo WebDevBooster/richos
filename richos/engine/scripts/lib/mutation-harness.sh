@@ -470,19 +470,10 @@ mutation_sandbox_engine() { # <src-engine-root>
     return 0
 }
 
-# _mut_run <argv...> — run a mutant's suite under the caller's worker budget, when there is one
-# (RICHOS_WORKER_TOKENS, from proof-run.py; scripts/lib/worker_tokens.py): on this pool's one
-# free slot if no other worker of the pool holds it (the caller's own token), otherwise on a
-# token of the budget. Without a budget it is the command itself, exactly as before.
+# _mut_run <argv...> — the shared pool owns this worker's resource lease.
 _mut_run() {
-    if [ -n "${RICHOS_WORKER_TOKENS:-}" ] && [ -n "${MUT_POOL_DIR:-}" ]; then
-        # The tool comes with the budget (RICHOS_WORKER_TOKENS_TOOL, set by proof-run.py) so a
-        # harness running in a fixture engine without it still counts against the same budget.
-        python3 "${RICHOS_WORKER_TOKENS_TOOL:-$MUT_ENGINE_ROOT/scripts/lib/worker_tokens.py}" \
-            run "$RICHOS_WORKER_TOKENS" --free "$MUT_POOL_DIR/free.lock" -- "$@"
-    else
-        "$@"
-    fi
+    # mutation-pool.sh holds the lease for the entire worker, including the sandbox copy.
+    "$@"
 }
 
 # _mutant_body — everything a single mutant does, as a function that RETURNS its

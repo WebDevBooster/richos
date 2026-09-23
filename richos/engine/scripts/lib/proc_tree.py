@@ -1,32 +1,22 @@
 #!/usr/bin/env python3
-"""proc_tree.py — stop a process AND EVERYTHING IT STARTED, including what it started in a group
-or session of its own and what was re-parented to init after its parent exited.
+"""Own test processes through normal completion, timeouts and caller death.
 
-    proc_tree.py kill <pid> [--grace SECONDS]   exit 0 when nothing of the tree is left, 1 if
-                                                something survived SIGKILL (named on stderr)
-    proc_tree.py members <pid>                  the pids the kill would reach, one per line
+`run OWNER -- COMMAND` starts a separate supervisor. It registers the child before
+allowing exec, retains birth identities and process groups and tags descendants with
+an inherited random scope. It cleans on normal exit too. A killed caller leaves the
+supervisor holding any inherited worker leases until cleanup finishes.
 
-    import: kill_tree(pid, grace=3.0) -> list of pids still alive afterwards (empty when clean)
+`kill PID` is the legacy snapshot-based fallback. It cannot recover a process which
+already detached and was reparented before the snapshot. New runners use `run`.
 
-WHY (2026-09-23). ci-shard.sh killed a unit at its deadline with `kill -TERM <pid>` and then
-`kill -KILL <pid>`: the unit's shell died and its children did not. workspace-spec-fourteen.test.sh
-was killed at 3600 s while its mutation harness (pid 97011) kept running under init for about an
-hour and a half, spawning test processes and leaving fourteen `sleep 3600`s; it ignored SIGTERM,
-and only a SIGKILL of the whole tree stopped it. A pid is the wrong unit to kill. The unit is:
-
-  * every DESCENDANT of the pid, found by walking parent links in one `ps` snapshot taken BEFORE
-    any signal is sent (once a parent dies its children are re-parented and the walk loses
-    them), and
-  * every PROCESS GROUP any of those belongs to, because a background child whose parent already
-    exited (`sh -c 'sleep 3600 & echo $!'`) is no longer anyone's descendant but is still in
-    its group — except the caller's own group, which is never sent a signal (it would kill the
-    caller; a caller that needs its child's group killed starts the child in a group of its own).
-
-Selection is by parentage and group of a pid the caller started, never by a name or a path.
-SIGTERM first so EXIT traps run and sandboxes are removed, SIGKILL after the grace for anything
-that ignored it, then a second snapshot of the same groups for anything spawned in between.
+This is cooperative supervision, not an OS container. macOS hides environment tags
+on SIP-protected binaries, so tracked ancestry and groups remain necessary. A program
+that immediately double-forks, creates a new session and strips its inherited scope
+can escape discovery. Deliberate destruction of the supervisor itself also requires
+an external OS boundary. Do not claim isolation against arbitrary untrusted programs.
 """
 import os
+import uuid
 import signal
 import subprocess
 import sys
@@ -120,7 +110,159 @@ def kill_tree(root, grace=3.0):
     return _alive(pids)
 
 
+SCOPE_ENV = "RICHOS_PROCESS_SCOPE"
+
+
+def command(argv, owner=None):
+    """A separate supervisor survives the caller's SIGKILL and owns normal-exit cleanup too."""
+    return [sys.executable, os.path.abspath(__file__), "run", str(owner or os.getpid()), "--", *map(str, argv)]
+
+
+def identity(pid):
+    result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def scoped_members(scope):
+    """Inherited random scope finds detached, reparented descendants. Never print environments."""
+    result = subprocess.run(["ps", "-Eww" if sys.platform == "darwin" else "eww", "-ax", "-o", "uid=,pid=,command="],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode:
+        raise RuntimeError("cannot inspect owned processes: ps failed")
+    found = set()
+    for line in result.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) != 3 or parts[0] != str(os.getuid()):
+            continue
+        for field in parts[2].split():
+            if field.startswith(SCOPE_ENV + "=") and scope in field.split("=", 1)[1].split(":"):
+                found.add(int(parts[1]))
+    found.discard(os.getpid())
+    return found
+
+
+class TrackedTree:
+    """Retain birth identities before any parent exits, including protected macOS binaries.
+
+    macOS hides environments of SIP-protected executables. Parent links and process
+    groups complement inherited scope tags; no process names or executable paths grant ownership.
+    """
+    def __init__(self, root, scope):
+        self.root, self.scope, self.known = root, scope, {}
+        self.groups = {}
+        self.refresh()
+
+    def refresh(self, tags=False):
+        result = subprocess.run(["ps", "-ax", "-o", "pid=,ppid=,pgid=,lstart="],
+                                capture_output=True, text=True, timeout=10, check=True)
+        table = {}
+        for line in result.stdout.splitlines():
+            fields = line.split(None, 3)
+            if len(fields) == 4:
+                table[int(fields[0])] = (int(fields[1]), int(fields[2]), fields[3])
+        owned = {pid for pid, birth in self.known.items() if pid in table and table[pid][2] == birth}
+        if not self.known and self.root in table:
+            owned.add(self.root)
+        # A short-lived shell may exit between samples while its background child
+        # retains the original group. Keep that group until empty, rejecting a reused leader PID.
+        self.groups = {g: birth for g, birth in self.groups.items()
+                       if (g not in table or table[g][2] == birth)
+                       and any(row[1] == g for row in table.values())}
+        owned |= {p for p, row in table.items() if row[1] in self.groups}
+        if tags:
+            owned |= scoped_members(self.scope)
+        while True:
+            groups = {table[p][1] for p in owned if p in table} - {os.getpgrp(), 0, 1}
+            more = {pid for pid, (parent, group, _) in table.items() if parent in owned or group in groups}
+            if more <= owned:
+                break
+            owned |= more
+        for pid in owned:
+            if pid in table:
+                group = table[pid][1]
+                if group in table and group not in (os.getpgrp(), 0, 1):
+                    self.groups[group] = table[group][2]
+        self.known = {pid: table[pid][2] for pid in owned if pid in table and pid != os.getpid()}
+        return set(self.known)
+
+
+def finish_scope(child, tracker, grace=3.0):
+    """Re-scan while stopping so a TERM trap cannot fork an uncounted survivor."""
+    deadline = time.monotonic() + grace
+    killed_at = deadline + 3.0
+    sent = set()
+    while True:
+        child.poll()
+        alive = set(_alive(tracker.refresh(tags=True)))
+        if not alive:
+            return []
+        hard = time.monotonic() >= deadline
+        for pid in alive if hard else alive - sent:
+            try:
+                os.kill(pid, signal.SIGKILL if hard else signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            sent.add(pid)
+        if time.monotonic() >= killed_at:
+            return sorted(alive)
+        time.sleep(0.05)
+
+
+def supervise(owner, argv):
+    owner_id = identity(owner)
+    if owner_id is None:
+        return 125
+    scope = uuid.uuid4().hex
+    inherited = os.environ.get(SCOPE_ENV, "")
+    env = {**os.environ, SCOPE_ENV: (inherited + ":" if inherited else "") + scope}
+    interrupted = []
+    def stop(signum, _frame):
+        interrupted.append(signum)
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, stop)
+    read_fd, write_fd = os.pipe()
+    bootstrap = ("import os,sys,signal; fd=int(sys.argv[1]); ready=os.read(fd,1); os.close(fd); "
+                 "ready == b'1' or sys.exit(125); "
+                 "argv=sys.argv[2:];\n"
+                 "for name in ('SIGPIPE','SIGXFZ','SIGXFSZ'):\n"
+                 " if hasattr(signal,name): signal.signal(getattr(signal,name),signal.SIG_DFL)\n"
+                 "try: os.execvpe(argv[0],argv,os.environ)\n"
+                 "except OSError as e: print('could not start: '+str(e),file=sys.stderr); sys.exit(127)")
+    try:
+        child = subprocess.Popen([sys.executable, "-c", bootstrap, str(read_fd), *argv],
+                                 env=env, start_new_session=True, pass_fds=(read_fd,))
+    except OSError as exc:
+        print("could not start: %s" % exc, file=sys.stderr)
+        return 127
+    os.close(read_fd)
+    tracker = TrackedTree(child.pid, scope)
+    os.write(write_fd, b"1")
+    os.close(write_fd)
+    rc = 125
+    try:
+        while child.poll() is None:
+            tracker.refresh()
+            if interrupted or identity(owner) != owner_id:
+                rc = 128 + interrupted[0] if interrupted else 125
+                break
+            time.sleep(0.2)
+        else:
+            rc = child.returncode
+    finally:
+        left = finish_scope(child, tracker)
+        if left:
+            print("process cleanup failed; owned survivors: %s" % left, file=sys.stderr)
+            rc = 125
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            rc = 125
+    return rc if rc >= 0 else 128 - rc
+
+
 def main(argv):
+    if len(argv) >= 4 and argv[0] == "run" and argv[2] == "--":
+        return supervise(int(argv[1]), argv[3:])
     if len(argv) >= 2 and argv[0] in ("kill", "members") and argv[1].isdigit():
         root = int(argv[1])
         if argv[0] == "members":

@@ -101,9 +101,11 @@ def cmd_split(work, shards, times, select):
 def result_tests(bundle, runner=subprocess.run):
     """(counts, [(identifier, result, seconds, skip-reason)]) from one result bundle."""
     def get(kind):
-        out = runner(["xcrun", "xcresulttool", "get", "test-results", kind, "--path", bundle],
-                     capture_output=True, text=True).stdout
-        return json.loads(out)
+        result = runner(["xcrun", "xcresulttool", "get", "test-results", kind, "--path", bundle],
+                        capture_output=True, text=True)
+        if getattr(result, "returncode", 0):
+            raise ValueError("xcresulttool failed reading " + kind)
+        return json.loads(result.stdout)
     summ = get("summary")
     counts = {k: int(summ.get(key) or 0) for k, key in (("passed", "passedTests"), ("failed", "failedTests"),
                                                           ("skipped", "skippedTests"), ("total", "totalTestCount"))}
@@ -152,6 +154,10 @@ def cmd_verify(work, shards, times, devices, runner=subprocess.run):
             except (ValueError, OSError):
                 bad.append("simulator %d of %d left no readable result bundle" % (s + 1, shards))
                 continue
+            if c["failed"] or any(result not in ("Passed", "Skipped") for _, result, _, _ in rows):
+                bad.append("simulator %d reports a failed or unknown test result" % (s + 1))
+            if c["total"] != len(rows) or c["passed"] + c["failed"] + c["skipped"] != c["total"]:
+                bad.append("simulator %d has inconsistent result counts" % (s + 1))
             for k in counts:
                 counts[k] += c[k]
             for ident, result, dur, reason in rows:
@@ -258,6 +264,16 @@ def selftest():
         bundles[os.path.join(work, "result-5.xcresult")] = [l.split(":", 1)[1] for l in open(os.path.join(work, "shard-3.args")).read().split("\n") if l]
         rc = cmd_verify(work, 3, os.path.join(work, "t.tsv"), ["complete", "complete-too"], runner)
         check(rc == 0, "and with every listed test reported, both devices pass")
+        def failed_summary(argv, **kwargs):
+            result = runner(argv, **kwargs)
+            if argv[4] == "summary":
+                data = json.loads(result.stdout)
+                data["failedTests"] = 1
+                data["passedTests"] -= 1
+                result.stdout = json.dumps(data)
+            return result
+        check(cmd_verify(work, 3, os.path.join(work, "t.tsv"), ["failed-results"], failed_summary) == 1,
+              "a failed result bundle cannot be green even when xcodebuild exits zero")
         open(os.path.join(work, "test-4.rc"), "w").write("65")
         rc = cmd_verify(work, 3, os.path.join(work, "t.tsv"), ["complete", "a-shard-exited-65"], runner)
         check(rc == 1, "a simulator whose xcodebuild exited non-zero fails its device even if its bundle looks whole")

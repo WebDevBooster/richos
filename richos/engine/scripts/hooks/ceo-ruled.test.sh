@@ -26,9 +26,9 @@
 # deterministic on any machine. It is shaped to match the live register's
 # statistics where those matter — "logo" appears in several rulings and is
 # therefore vocabulary, "swoosh" appears repeatedly in one and is therefore a
-# subject — because those statistics are what the predicate decides on. Section
-# 6 runs the same four questions against the LIVE record when it is present on
-# this machine, and says so plainly when it is not rather than passing.
+# subject — because those statistics are what the predicate decides on. Live-record
+# auditing is explicit through CEO_RULED_LIVE_DIR; mutable private prose is not a
+# hidden input to the default suite.
 
 set -uo pipefail
 
@@ -57,7 +57,7 @@ for h in guard-ceo-ruled-ask.sh notice-ceo-ruled-prose.sh; do
 done
 for l in ceo-ruled.sh ceo-ruled.py ceo-asks.sh ceo-asks.py ceo-todos.sh \
          ceo-todos.py resolve-roots.sh resolve-main-checkout.sh \
-         stop-hook-notice.sh; do
+         stop-hook-notice.sh premise-ask.sh premise-ask.py; do
     cp "$SRC_DIR/../lib/$l" "$ENGINE/scripts/lib/$l" 2>/dev/null || true
 done
 cp "$ENGINE_SRC/scripts/ceo-ruled-exempt.sh" "$ENGINE/scripts/"
@@ -181,6 +181,13 @@ REC
 write_decisions
 write_items
 write_claude
+
+# Export the same controlled register for the standalone drift harness.
+if [ "${1:-}" = --export-register ]; then
+    mkdir -p "$2"
+    cp "$HQ/wiki/ceo-decisions.md" "$HQ/wiki/open-items.md" "$2/"
+    exit 0
+fi
 
 # --- payloads ---------------------------------------------------------------
 # The three questions are RECONSTRUCTED FROM THE SESSION TRANSCRIPTS of
@@ -603,46 +610,12 @@ echo "=== 8. THE LIVE RECORD ON THIS MACHINE ==="
 # for the drift demonstration in the mutation harness, which renumbers and
 # retitles the record and requires this section to stay green, so that "this no
 # longer depends on which row answers" is measured rather than asserted.
-LIVE_DIR=""
-if [ -n "${CEO_RULED_LIVE_DIR:-}" ]; then
-    [ -f "$CEO_RULED_LIVE_DIR/ceo-decisions.md" ] && \
-        LIVE_DIR="$(cd "$CEO_RULED_LIVE_DIR" && pwd -P)"
-else
-    for cand in "$ENGINE_SRC/../../richos-hq/wiki" "$HOME/ab/richos-hq/wiki"; do
-        [ -f "$cand/ceo-decisions.md" ] && { LIVE_DIR="$(cd "$cand" && pwd -P)"; break; }
-    done
-fi
-# WHEN THE LIVE RECORD IS ABSENT THIS SECTION FALLS BACK TO THE FIXTURE
-# REGISTER RATHER THAN SKIPPING, and the reason is a measurement rather than
-# tidiness. Until 2026-09-06 the absent case printed a NOTE and ran nothing —
-# honest, and it made this suite STRUCTURALLY RED on every host that is not the
-# one workstation carrying `../richos-hq`. On Linux, from a clean clone at
-# `381907f4f07a`, `ceo-ruled.test.sh` reported 37 passed / 1 FAILED and its
-# mutation harness `0 proven, 6 SURVIVED`: four mutants went red at the RIGHT
-# cases (1a, 1c, 1e) but were anchored on `8a`, and two — `locator-points-
-# nowhere` and `title-and-locator-disagree` — genuinely survived, because the
-# only cases exercising them never ran. Six properties of a blocking gate,
-# provable on exactly one machine on earth.
-#
-# The two checks this section makes — every locator lands on the title it
-# printed, every quoted sentence is in the file it named — are properties of
-# the PREDICATE, not of the founder's private prose. A fixture register can
-# carry them, and sections 1-7 already build one in the shape this code wants:
-# a directory holding ceo-decisions.md and open-items.md.
-#
-# THE LIVE RECORD IS STILL PREFERRED AND STILL STRONGER, so nothing is
-# weakened: on the workstation that has it, these cases run against 1,400 lines
-# of maintained register, and the case labels say WHICH register answered so a
-# reader can never mistake one for the other.
-LIVE_REGISTER_KIND="live"
-if [ -z "$LIVE_DIR" ]; then
-    LIVE_DIR="$HQ/wiki"
-    LIVE_REGISTER_KIND="fixture"
-    echo "  NOTE  the live richos-hq record is not on this machine, so cases 8a-8d run"
-    echo "        against the FIXTURE register instead. That proves the gate's citation"
-    echo "        properties on every host; it does NOT prove them against 1,400 lines of"
-    echo "        maintained record, which only the workstation carrying it can do."
-fi
+# Unit verification is reproducible across hosts and private-record maintenance.
+# Live audits remain explicit through CEO_RULED_LIVE_DIR. The title-based predicate
+# cannot promise to match an old question after the record's matching title is retired.
+LIVE_DIR="${CEO_RULED_LIVE_DIR:-$HQ/wiki}"
+LIVE_REGISTER_KIND="fixture"
+[ -z "${CEO_RULED_LIVE_DIR:-}" ] || LIVE_REGISTER_KIND="explicit register"
 if true; then
     LIVE_DEC="$LIVE_DIR/ceo-decisions.md"
     LIVE_ITEMS="$LIVE_DIR/open-items.md"
@@ -850,7 +823,7 @@ if [ -z "${RICHOS_MUTATION_INNER:-}" ]; then
     echo ""
     echo "=== running the mutation harness: ceo-ruled.mutation.sh ==="
     if [ -x "$SRC_DIR/ceo-ruled.mutation.sh" ]; then
-        "$SRC_DIR/ceo-ruled.mutation.sh" || FAIL=$((FAIL + 1))
+        CEO_RULED_LIVE_DIR="$LIVE_DIR" "$SRC_DIR/ceo-ruled.mutation.sh" || FAIL=$((FAIL + 1))
     else
         echo "  FAIL  MUT. ceo-ruled.mutation.sh is missing or not executable — IT DID NOT RUN"
         FAIL=$((FAIL + 1))

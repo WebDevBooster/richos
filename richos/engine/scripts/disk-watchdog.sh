@@ -57,6 +57,7 @@
 #                                    This is what the session hooks call.
 #   disk-watchdog.sh --status        one human line per volume
 #   disk-watchdog.sh --install       schedule it (launchd, every 15 min)
+#   disk-watchdog.sh --print-plist   render the same service definition without scheduling it
 #   disk-watchdog.sh --uninstall     unschedule it
 #   disk-watchdog.sh --installed     exit 0 if scheduled, 1 if not
 #
@@ -91,6 +92,7 @@ while [ $# -gt 0 ]; do
         --alert)     MODE="alert" ;;
         --status)    MODE="status" ;;
         --install)   MODE="install" ;;
+        --print-plist) MODE="print-plist" ;;
         --uninstall) MODE="uninstall" ;;
         --installed) MODE="installed" ;;
         --check)     MODE="check" ;;
@@ -143,16 +145,18 @@ if [ "$MODE" = "installed" ]; then
     exit 1
 fi
 
-if [ "$MODE" = "install" ]; then
+if [ "$MODE" = "install" ] || [ "$MODE" = "print-plist" ]; then
     # NEVER SCHEDULE FROM A LINKED WORKTREE OR A TEMPORARY DIRECTORY. The plist
     # bakes in this script's absolute path; an agent worktree is deleted at land
     # time, and from that moment the job fires on time, every time, and executes
     # nothing. A watchdog that stopped running looks exactly like a disk that
     # never gets low. Same refusal, same words, as scratch-reaper.sh.
-    _WT_MARKER="$ENGINE_ROOT/../.g""it"
-    if [ -f "$_WT_MARKER" ] || case "$ENGINE_ROOT" in
-            /tmp/*|/private/tmp/*|/private/var/folders/*|*/.claude/worktrees/*) true ;;
-            *) false ;; esac; then
+    _WT_TMP="${TMPDIR:-/tmp}"; _WT_TMP="${_WT_TMP%/}"
+    _WT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    _WT_MARKER="${_WT_ROOT:-$ENGINE_ROOT/..}/.g""it"
+    if [ "$MODE" = install ] && { [ -f "$_WT_MARKER" ] || case "$ENGINE_ROOT" in
+            /tmp/*|/private/tmp/*|/private/var/folders/*|*/.claude/worktrees/*|"$_WT_TMP"/*) true ;;
+            *) false ;; esac; }; then
         {
             echo "REFUSING TO SCHEDULE FROM HERE."
             echo "  engine: $ENGINE_ROOT"
@@ -168,7 +172,7 @@ if [ "$MODE" = "install" ]; then
         echo "disk-watchdog: DISK_WATCHDOG_MINUTES is not declared in $CONFIG." >&2
         exit 2
     fi
-    mkdir -p "$LAUNCHD_DIR" "$HOME/.claude/state"
+    if [ "$MODE" = print-plist ]; then PLIST=/dev/stdout; else mkdir -p "$LAUNCHD_DIR" "$HOME/.claude/state"; fi
     {
         echo '<?xml version="1.0" encoding="UTF-8"?>'
         echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
@@ -197,6 +201,7 @@ if [ "$MODE" = "install" ]; then
         echo '</dict>'
         echo '</plist>'
     } >"$PLIST"
+    [ "$MODE" != print-plist ] || exit 0
     if command -v launchctl >/dev/null 2>&1 && [ -z "${RICHOS_LAUNCH_AGENTS_DIR:-}" ]; then
         launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
         launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || \

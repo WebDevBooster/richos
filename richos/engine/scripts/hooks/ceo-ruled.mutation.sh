@@ -84,7 +84,8 @@ plant() { # <dir>
        "$ENGINE_ROOT/scripts/lib/ceo-todos.sh" "$ENGINE_ROOT/scripts/lib/ceo-todos.py" \
        "$ENGINE_ROOT/scripts/lib/resolve-roots.sh" \
        "$ENGINE_ROOT/scripts/lib/resolve-main-checkout.sh" \
-       "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" "$dir/scripts/lib/"
+       "$ENGINE_ROOT/scripts/lib/stop-hook-notice.sh" \
+       "$ENGINE_ROOT/scripts/lib/premise-ask.sh" "$ENGINE_ROOT/scripts/lib/premise-ask.py" "$dir/scripts/lib/"
     cp "$ENGINE_ROOT/scripts/ceo-ruled-exempt.sh" "$ENGINE_ROOT/scripts/demo.sh" "$dir/scripts/"
     cp "$ENGINE_ROOT/hooks/hooks.json" "$dir/hooks/"
     chmod +x "$dir/scripts/hooks/"*.sh "$dir/scripts/"*.sh
@@ -238,10 +239,10 @@ echo "=== 2. THE DRIFT DEMONSTRATION — a maintained record must not redden §8
 # over a record that did not actually change would be the corpse this whole
 # family of files exists to refuse.
 
-LIVE_DIR=""
-for cand in "$ENGINE_ROOT/../../richos-hq/wiki" "$HOME/ab/richos-hq/wiki"; do
-    [ -f "$cand/ceo-decisions.md" ] && { LIVE_DIR="$(cd "$cand" && pwd -P)"; break; }
-done
+LIVE_DIR="${CEO_RULED_LIVE_DIR:-$SANDBOX/register}"
+if [ -z "${CEO_RULED_LIVE_DIR:-}" ]; then
+    bash "$ENGINE_ROOT/scripts/hooks/ceo-ruled.test.sh" --export-register "$LIVE_DIR" || exit 1
+fi
 
 if [ -z "$LIVE_DIR" ]; then
     echo "  NOTE  the live richos-hq record is not on this machine, so the drift"
@@ -314,7 +315,7 @@ DRIFTPY
                  {prev=$0}' "$1" \
                 | sed 's/^ *//; s/  .*//' | sort -u | tr '\n' ' '
         }
-        bash "$ENGINE_ROOT/scripts/hooks/ceo-ruled.test.sh" --verbose \
+        CEO_RULED_LIVE_DIR="$LIVE_DIR" bash "$ENGINE_ROOT/scripts/hooks/ceo-ruled.test.sh" --verbose \
             >"$SANDBOX/live.log" 2>&1
         LIVE_RC=$?
         CEO_RULED_LIVE_DIR="$DRIFT" bash "$ENGINE_ROOT/scripts/hooks/ceo-ruled.test.sh" --verbose \

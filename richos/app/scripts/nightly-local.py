@@ -47,7 +47,7 @@ GATE_BUDGETS = {
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
 CLEANUP_TIMEOUT = 30
-TERM_GRACE = 2
+TERM_GRACE = 8
 KILL_GRACE = 2
 
 
@@ -98,7 +98,11 @@ def finish_group(process):
 
 def owned_run(args, *, timeout=None, **kwargs):
     """subprocess.run's result shape with bounded, owned-group cleanup on all exits."""
-    process = subprocess.Popen(args, start_new_session=True, **kwargs)
+    library = Path(__file__).resolve().parents[2] / "engine/scripts/lib"
+    worker = library / "worker_tokens.py"
+    # The wrapper holds a machine lease through descendant cleanup, including after our death.
+    process = subprocess.Popen([sys.executable, str(worker), "machine", "--", *map(str, args)],
+                               start_new_session=True, **kwargs)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
         return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)

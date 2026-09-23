@@ -39,10 +39,12 @@ native-ios-ui.test.sh both pass one).
 Tokens are files locked with flock(2): a crashed or killed holder releases its token with its
 last file descriptor. No token is ever handed out by name or reclaimed by guessing.
 
-This is a budget for ONE run. A budget shared by separate simultaneous runs (another agent's, the
-nightly's) is a larger design; a directory of lock files is its natural seed, not an obstacle.
+Each run also acquires from the per-user machine budget. Independent checkouts and nightlies
+share that ceiling. A local --capacity can lower a run's limit without resizing shared lock files.
 """
 import fcntl
+import json
+import signal
 import os
 import subprocess
 import sys
@@ -54,8 +56,15 @@ POLL_SECONDS = 0.2
 class Token:
     def __init__(self, fd, path):
         self.fd, self.path = fd, path
+        self.extra = None
+
+    @property
+    def fds(self):
+        return ([self.fd] if self.fd is not None else []) + (self.extra.fds if self.extra else [])
 
     def release(self):
+        if self.extra:
+            self.extra.release()
         if self.fd is not None:
             try:
                 fcntl.flock(self.fd, fcntl.LOCK_UN)
@@ -65,12 +74,15 @@ class Token:
 
 
 class Budget:
-    def __init__(self, directory, reserved=0, runner=False):
+    def __init__(self, directory, reserved=0, runner=False, shared=None):
         """`reserved` tokens at the end of the budget are the runner's alone. `runner=True` is the
         runner itself: every token is open to it, the shared ones first, so the reserved ones
         are left for the moments nested workers hold all the rest."""
         self.dir = directory
-        self.files = sorted(os.path.join(directory, f) for f in os.listdir(directory) if f.startswith("token-"))
+        shared = shared or os.environ.get("RICHOS_MACHINE_WORKERS")
+        self.shared = (Budget(shared, reserved, runner, shared=shared)
+                       if shared and os.path.realpath(shared) != os.path.realpath(directory) else None)
+        self.files = sorted(os.path.join(directory, f) for f in os.listdir(directory) if f.startswith("token-") and f[6:].isdigit())
         if not self.files:
             raise ValueError("no tokens in %s; make them with `worker_tokens.py init`" % directory)
         reserved = max(0, min(int(reserved), len(self.files) - 1))
@@ -87,19 +99,28 @@ class Budget:
             except BlockingIOError:
                 os.close(fd)
                 continue
-            return Token(fd, path)
+            token = Token(fd, path)
+            if self.shared:
+                token.extra = self.shared.try_acquire()
+                if token.extra is None:
+                    token.release()
+                    continue
+            return token
         return None
 
-    def acquire(self, free=None):
+    def acquire(self, free=None, timeout=1800):
         """Wait for a token. With `free` (a lock file of the caller's own), that lock is tried
         first and taken instead of a budget token when it is free: it is the ONE worker a nested
         pool runs on its caller's token, held by whichever of its workers holds the lock now —
         not by the first worker ever submitted, which starved every later worker of the pool
         in the second full run (2026-09-23: workspaces.test.sh at one worker for 40 minutes).
         While waiting, a `wait-<pid>` marker says so (Budget.waiting, for the run's report)."""
+        if free:
+            free = os.environ.get("RICHOS_WORKER_BORROW_LOCK", free)
         t = self._try_free(free) or self.try_acquire()
         if t:
             return t
+        deadline = time.monotonic() + timeout
         marker = os.path.join(self.dir, "wait-%d" % os.getpid())
         open(marker, "w").close()
         try:
@@ -107,6 +128,8 @@ class Budget:
                 t = self._try_free(free) or self.try_acquire()
                 if t:
                     return t
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("worker admission timed out after %gs: %s" % (timeout, self.dir))
                 time.sleep(POLL_SECONDS)
         finally:
             try:
@@ -158,19 +181,122 @@ class Budget:
 
 
 def init(directory, n):
-    """Exactly n tokens in <directory>: made if missing, extras beyond n removed."""
+    """Create an immutable budget under an initialization lock. Never unlink a live lease."""
     n = int(n)
     if n < 1:
         raise ValueError("a budget needs at least one token")
-    os.makedirs(directory, exist_ok=True)
-    for i in range(n):
-        open(os.path.join(directory, "token-%03d" % i), "a").close()
-    for f in os.listdir(directory):
-        if f.startswith("token-") and f[6:].isdigit() and int(f[6:]) >= n:
-            os.remove(os.path.join(directory, f))
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    with open(os.path.join(directory, "init.lock"), "a") as guard:
+        fcntl.flock(guard, fcntl.LOCK_EX)
+        config = os.path.join(directory, "capacity.json")
+        if os.path.exists(config):
+            with open(config) as existing:
+                old = json.load(existing)
+            if old != n:
+                raise ValueError("budget capacity is immutable (%s, requested %s): %s" % (old, n, directory))
+        for i in range(n):
+            open(os.path.join(directory, "token-%03d" % i), "a").close()
+        with open(config, "w") as out:
+            json.dump(n, out)
+
+
+def machine_directory():
+    """One per-user budget across checkouts, runners and nightlies; never release.lock."""
+    directory = os.environ.get("RICHOS_MACHINE_WORKERS") or os.path.join(
+        os.path.expanduser("~"), ".richos-nightly", "worker-budget-v1")
+    # The machine ceiling is independent of a run's smaller --capacity.
+    init(directory, max(1, int((os.cpu_count() or 4) * 0.8)))
+    return directory
+
+
+def run_command(cmd, token, env=None):
+    # The supervisor inherits the lease. If this wrapper is killed, admission cannot
+    # reuse that slot until the supervisor has stopped the command's descendants.
+    import proc_tree
+    env = {**(env if env is not None else os.environ), "RICHOS_WORKER_SLOT_HELD": "1",
+           "RICHOS_WORKER_BORROW_LOCK": token.path + ".child"}
+    try:
+        child = subprocess.Popen(proc_tree.command(cmd, owner=os.getpid()), env=env,
+                                 pass_fds=tuple(token.fds), start_new_session=True)
+        def stop(signum, _frame):
+            child.send_signal(signum)
+        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+        try:
+            rc = child.wait()
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+        return rc if rc >= 0 else 128 - rc
+    finally:
+        token.release()
+
+
+def lease_worker(directory, owner, ready, release, free):
+    """Keep a bash 3.2 pool worker's lease until it finishes or its descendants are cleaned."""
+    import proc_tree
+    import uuid
+    owner = int(owner)
+    born = proc_tree.identity(owner)
+    if born is None:
+        return 125
+    scope = uuid.uuid4().hex
+    tracker = proc_tree.TrackedTree(owner, scope)
+    budget = Budget(directory, int(os.environ.get("RICHOS_WORKER_TOKENS_RESERVED", "0")))
+    interrupted = []
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, lambda number, _frame: interrupted.append(number))
+    if free != "-":
+        free = os.environ.get("RICHOS_WORKER_BORROW_LOCK", free)
+    token = None
+    deadline = time.monotonic() + 1800
+    while token is None:
+        if interrupted or proc_tree.identity(owner) != born or time.monotonic() >= deadline:
+            return 125
+        token = budget._try_free(free if free != "-" else None) or budget.try_acquire()
+        if token is None:
+            time.sleep(POLL_SECONDS)
+    try:
+        with open(ready + ".borrow", "w") as out:
+            out.write(token.path + ".child")
+        with open(ready + ".new", "w") as out:
+            out.write(scope)
+        os.replace(ready + ".new", ready)
+        while not os.path.exists(release) and not interrupted and proc_tree.identity(owner) == born:
+            tracker.refresh()
+            time.sleep(POLL_SECONDS)
+        # The worker waits for us on normal completion. Exclude it from cleanup while
+        # retaining its children, including children reparented after an abrupt death.
+        class Owner:
+            def poll(self):
+                return None
+        original = tracker.refresh
+        def remaining(tags=False):
+            return original(tags) - {owner}
+        tracker.refresh = remaining
+        left = proc_tree.finish_scope(Owner(), tracker)
+        return 125 if left else 0
+    finally:
+        token.release()
 
 
 def main(argv):
+    if argv == ["directory"]:
+        print(machine_directory())
+        return 0
+    if len(argv) == 6 and argv[0] == "lease":
+        return lease_worker(*argv[1:])
+    if len(argv) >= 3 and argv[:2] == ["machine", "--"]:
+        if os.environ.get("RICHOS_WORKER_TOKENS") and os.environ.get("RICHOS_WORKER_SLOT_HELD") == "1":
+            import proc_tree
+            command = proc_tree.command(argv[2:], owner=os.getppid())
+            os.execv(sys.executable, command)
+        directory = machine_directory()
+        token = Budget(directory, runner=True).acquire()
+        env = {**os.environ, "RICHOS_MACHINE_WORKERS": directory,
+               "RICHOS_WORKER_TOKENS": directory,
+               "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(__file__),
+               "RICHOS_WORKER_TOKENS_RESERVED": str(max(1, len(Budget(directory).files) // 4))}
+        return run_command(argv[2:], token, env)
     reserved = os.environ.get("RICHOS_WORKER_TOKENS_RESERVED", "0")
     reserved = int(reserved) if reserved.isdigit() else 0
     if len(argv) == 3 and argv[0] == "init":
@@ -188,11 +314,8 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     token = Budget(argv[1], reserved).acquire(free=free)
-    # The token's descriptor is not inherited (Python opens it close-on-exec): if the child
-    # outlived this process it must not keep a token held after its counted work had ended.
-    rc = subprocess.run(cmd).returncode
-    token.release()
-    return rc if rc >= 0 else 128 - rc
+    return run_command(cmd, token)
+
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ mutant refused-lead-cannot-stop "G15c" "$G" \
     "a refused lead could not stop its agents: 2026-09-22, ten agents at 100% CPU for 33 minutes."
 
 mutant refusal-names-no-way-out "G15b" "$G" \
-    '      echo "    TaskStop <task id>"' \
+    '      echo "    First prepare the acknowledgement, then make the printed TaskStop calls:"' \
     '      :' \
     "the refusal would not name the one call that can still succeed, so the next call is a retry."
 

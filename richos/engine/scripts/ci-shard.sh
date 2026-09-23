@@ -122,6 +122,10 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Direct invocations share the same machine ceiling as proof-run and nightlies.
+if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
+    exec python3 "$SCRIPT_DIR/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 UNITS_SH="$SCRIPT_DIR/ci-units.sh"
 KNOWN_RED="$ENGINE_ROOT/scripts/lib/ci-known-red.tsv"
 WEIGHTS_TSV="$ENGINE_ROOT/scripts/lib/ci-unit-weights.tsv"
@@ -201,8 +205,8 @@ PY
 # THE KILL TAKES THE WHOLE TREE (2026-09-23). It used to be `kill -TERM <pid>`
 # then `kill -KILL <pid>`: the unit's shell died and everything it had started
 # lived on. workspace-spec-fourteen.test.sh was killed at 3600 s while its
-# mutation harness ran on under init for about an hour and a half, spawning
-# suites and leaving `sleep 3600`s, and ignoring SIGTERM. So the unit is started
+# mutation harness continued under init, spawning suites and leaving `sleep 3600`s
+# while ignoring SIGTERM. Its total elapsed time did not establish how long it was orphaned. So the unit is started
 # in a PROCESS GROUP OF ITS OWN (`set -m` for that one launch), and the kill is
 # scripts/lib/proc_tree.py: every descendant, every group any of them is in
 # (which is how a background child re-parented to init is still reached), TERM,
@@ -216,7 +220,7 @@ run_with_deadline() { # <seconds> <logfile> <argv...>
         return $?
     fi
     set -m
-    "$@" >"$_log" 2>&1 </dev/null &
+    python3 "$SCRIPT_DIR/lib/proc_tree.py" run $$ -- "$@" >"$_log" 2>&1 </dev/null &
     local _pid=$! _waited=0 _rc=0
     set +m
     while kill -0 "$_pid" 2>/dev/null; do
@@ -224,7 +228,10 @@ run_with_deadline() { # <seconds> <logfile> <argv...>
             # A suite that ignores TERM still has to go; three seconds is
             # enough for a bash trap to run its own cleanup first, which is
             # what leaves the sandbox removable.
-            if ! python3 "$SCRIPT_DIR/lib/proc_tree.py" kill "$_pid" --grace 3 2>>"$_log"; then
+            kill -TERM "$_pid" 2>/dev/null || true
+            local _cleanup=0
+            while kill -0 "$_pid" 2>/dev/null && [ "$_cleanup" -lt 12 ]; do sleep 1; _cleanup=$((_cleanup + 1)); done
+            if kill -0 "$_pid" 2>/dev/null && ! python3 "$SCRIPT_DIR/lib/proc_tree.py" kill "$_pid" --grace 3 2>>"$_log"; then
                 printf '        a process of this unit survived SIGKILL; see the end of its log\n' >>"$_log"
             fi
             # In braces so the shell's own "Terminated: 15" job report for the killed unit

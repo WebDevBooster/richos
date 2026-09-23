@@ -81,11 +81,14 @@ def main():
 
 
 def stop(child, marker):
+    # TERM to the whole tree (EXIT traps run), KILL after the grace for whatever ignored it.
+    left = kill_tree(child.pid, GRACE_SECONDS)
+    child.wait(timeout=5)
+    if left:
+        print("stop-at-line: cleanup failed: %s" % left, file=sys.stderr)
+        return 125
     with open(marker, "w") as fh:
         fh.write("stopped at the named line\n")
-    # TERM to the whole tree (EXIT traps run), KILL after the grace for whatever ignored it.
-    kill_tree(child.pid, GRACE_SECONDS)
-    child.wait()
     return 0
 
 

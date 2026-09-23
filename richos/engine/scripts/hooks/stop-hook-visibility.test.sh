@@ -445,11 +445,20 @@ fi
 # NOT APPLICABLE, not broken, and every Stop hook must stay silent there —
 # otherwise "announce when you cannot run" turns into nagging every session
 # opened outside a governed repo, which is the muting trap.
+# Machine disk warnings are independent of adoption. Feed the actual disk hook a healthy
+# fixture rather than the operator's live warning state. Its own D2-D6 cover alert delivery.
+NOISE_DISK="$SANDBOX/healthy-disk"
+mkdir -p "$NOISE_DISK/state" "$NOISE_DISK/launch"
+touch "$NOISE_DISK/launch/com.richos.disk-watchdog.plist"
+printf 'DISK_RICH_ALERT_GB=1\nDISK_WATCHDOG_ENABLE=1\n' > "$NOISE_DISK/config"
+printf '{"volumes":[],"alerts":[]}\n' > "$NOISE_DISK/state/disk-watchdog.json"
 NOISE_FAIL=""
 for h in $STOP_HOOKS; do
     f="$ENGINE_ROOT/scripts/hooks/$h"
     [ -f "$f" ] || continue
     out="$( (cd "$UNADOPTED" && env -u RICHOS_ENTITY_ROOT -u CLAUDE_PROJECT_DIR \
+            DISK_WATCHDOG_CONFIG="$NOISE_DISK/config" CLAUDE_CONFIG_DIR="$NOISE_DISK" \
+            RICHOS_LAUNCH_AGENTS_DIR="$NOISE_DISK/launch" \
             bash "$f" <"$STOP_PAYLOAD" 2>/dev/null) )"
     [ -n "$out" ] && NOISE_FAIL="$NOISE_FAIL $h"
 done

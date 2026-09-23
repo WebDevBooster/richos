@@ -303,6 +303,7 @@ class LocalTests(unittest.TestCase):
     def test_capture_cannot_wait_forever_on_a_descendants_inherited_pipe(self):
         # The leader exits, but its child keeps the stdout pipe open. A timeout
         # must stop that child too, otherwise communicate() cannot finish.
+        # Normal-exit cleanup now closes it before a timeout is necessary.
         script = self.root / "pipe.py"
         script.write_text("""import subprocess, sys
 from pathlib import Path
@@ -312,9 +313,10 @@ Path(sys.argv[1]).write_text(str(p.pid))
         pid_file = self.root / "pipe-child"
         with (self.root / "pipe.log").open("w") as log:
             r = m.Runner(self.root, self.root, dict(os.environ), log)
-            with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
-                r.command(sys.executable, script, pid_file, cwd=self.root,
-                          capture=True, timeout=1)
+            start = time.monotonic()
+            r.command(sys.executable, script, pid_file, cwd=self.root,
+                      capture=True, timeout=5)
+            self.assertLess(time.monotonic() - start, 5)
         self.assert_pid_gone(int(pid_file.read_text()))
 
     def test_every_gate_has_a_named_deadline(self):

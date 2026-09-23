@@ -170,7 +170,8 @@ if [ "$INSTALL" = "1" ]; then
     # and from that moment the job fires on time, every time, and executes
     # nothing. A reaper that stops running looks exactly like a machine with
     # no garbage on it.
-    _WT_MARKER="$ENGINE_ROOT/../.g""it"
+    _WT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    _WT_MARKER="${_WT_ROOT:-$ENGINE_ROOT/..}/.g""it"
     if [ -f "$_WT_MARKER" ] || case "$ENGINE_ROOT" in
             /tmp/*|/private/tmp/*|/private/var/folders/*|*/.claude/worktrees/*) true ;;
             *) false ;; esac; then

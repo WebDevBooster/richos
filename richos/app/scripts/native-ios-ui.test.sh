@@ -31,6 +31,9 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../../.." && pwd)"
+if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
+  exec python3 "$ROOT/richos/engine/scripts/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 NATIVE="$ROOT/richos/mobile/native-ios"
 VOLUME=/Volumes/E1TB
 
@@ -68,12 +71,12 @@ CREATED=()
 udid=""
 # However the run ends: every simulator this run created is shut down and deleted, and the work
 # directory removed. Inline, as in native-ios-app.test.sh, so no trap-only function trips SC2329.
-trap 'for udid in "${CREATED[@]:-}"; do
+trap 'rc=$?; for udid in "${CREATED[@]:-}"; do
   [ -n "$udid" ] || continue
   xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$udid" >/dev/null 2>&1 || true
 done
-rm -rf "$WORK"' EXIT
+if [ "$rc" -eq 0 ]; then rm -rf "$WORK"; else echo "native-ios-ui: failure evidence retained at $WORK"; fi' EXIT
 
 # ------------------------------------------------------------------------------------------------
 # 1. Headless. The core, its fixtures and the app's Foundation-only screen sources compile into one
@@ -348,7 +351,7 @@ SELECT=("-only-testing:RichOSNativeUITests" "-only-testing:RichOSNativeTests")
 # costs rather than by how many there are. Missing on a first run: the split is then by count.
 TIMES="$CACHE/test-seconds.tsv"
 
-# Every simulator is created and booted before any test starts, all boots at once.
+# Create destinations for enumeration; boot only after acquiring a worker lease.
 SIM_DEV=(); SIM_UDID=(); SIM_TYPE=()
 for DEVICE in "${DEVICES[@]}"; do
   TYPE="com.apple.CoreSimulator.SimDeviceType.$(printf '%s' "$DEVICE" | sed 's/[() ]/-/g; s/--*/-/g; s/-$//')"
@@ -364,12 +367,7 @@ for DEVICE in "${DEVICES[@]}"; do
     s=$((s + 1))
   done
 done
-START=$(date +%s)
-for i in "${!SIM_UDID[@]}"; do
-  ( if xcrun simctl boot "${SIM_UDID[$i]}" && xcrun simctl bootstatus "${SIM_UDID[$i]}" -b > /dev/null; then rc=0; else rc=1; fi
-    echo "$rc" > "$WORK/boot-$i.rc" ) > "$WORK/boot-$i.log" 2>&1 &
-done
-# The test list, from xcodebuild itself, while the simulators boot (it needs a destination to
+# The test list, from xcodebuild itself, before simulators boot (it needs a destination to
 # resolve, not a booted one: measured 2026-09-23 on a created, never-booted simulator).
 if [ "$SHARDS" -gt 1 ]; then
   ( if xcodebuild test-without-building -xctestrun "$XCTESTRUN" -destination "id=${SIM_UDID[0]}" \
@@ -378,20 +376,6 @@ if [ "$SHARDS" -gt 1 ]; then
     then echo 0 > "$WORK/enumerate.rc"; else echo 1 > "$WORK/enumerate.rc"; fi ) &
 fi
 wait
-for i in "${!SIM_UDID[@]}"; do
-  if [ "$(cat "$WORK/boot-$i.rc" 2>/dev/null)" != 0 ]; then
-    echo "  FAIL  native-ios-ui: simulator ${SIM_UDID[$i]} (${SIM_DEV[$i]}) did not boot: $(tail -3 "$WORK/boot-$i.log" | tr '\n' ' ')"
-    exit 1
-  fi
-  # Pictures that match the mockup: American English, and times read in UTC (the fixtures' instants).
-  xcrun simctl spawn "${SIM_UDID[$i]}" defaults write .GlobalPreferences AppleLocale -string en_US > /dev/null 2>&1 || true
-  xcrun simctl spawn "${SIM_UDID[$i]}" defaults write .GlobalPreferences AppleLanguages -array en-US > /dev/null 2>&1 || true
-  # The OS grant the voice tests need; the app must still tell the core (InteractionTests skip, with
-  # that reason, until it does).
-  xcrun simctl privacy "${SIM_UDID[$i]}" grant microphone dev.richos.native.ios > /dev/null 2>&1 || true
-done
-echo "native-ios-ui: ${#SIM_UDID[@]} simulator(s) booted in $(( $(date +%s) - START )) s (${#DEVICES[@]} device(s) x $SHARDS)"
-
 # The list, and the split: one file of -only-testing arguments per shard. (Listed while the
 # simulators booted, above.)
 if [ "$SHARDS" -gt 1 ] && [ "$(cat "$WORK/enumerate.rc" 2>/dev/null)" != 0 ]; then
@@ -403,7 +387,23 @@ if ! python3 "$DIR/lib/ios_ui_shards.py" split "$WORK" "$SHARDS" "$TIMES" "${SEL
   echo "  FAIL  native-ios-ui: the test list could not be split"; exit 1
 fi
 
-# Every shard of every device, at once.
+# One lease covers boot, UI execution and deletion. Idle booted simulators are not free.
+cat > "$WORK/run-simulator.sh" <<'SIMULATOR'
+#!/usr/bin/env bash
+set -euo pipefail
+work="$1"; xctestrun="$2"; i="$3"; udid="$4"; shift 4
+trap 'rc=$?; xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+  xcrun simctl delete "$udid" >/dev/null 2>&1 || rc=1
+  exit "$rc"' EXIT
+xcrun simctl boot "$udid"
+xcrun simctl bootstatus "$udid" -b
+xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLocale -string en_US
+xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLanguages -array en-US
+xcrun simctl privacy "$udid" grant microphone dev.richos.native.ios >/dev/null 2>&1 || true
+TZ=UTC xcodebuild test-without-building -xctestrun "$xctestrun" -destination "id=$udid" \
+  -derivedDataPath "$work/dd-$i" -resultBundlePath "$work/result-$i.xcresult" \
+  -parallel-testing-enabled NO "$@"
+SIMULATOR
 START=$(date +%s)
 for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
@@ -418,9 +418,8 @@ for i in "${!SIM_UDID[@]}"; do
            "$RICHOS_WORKER_TOKENS" --free "$WORK/free.lock" --)
   fi
   ( T0=$(date +%s)
-    if TZ=UTC ${TOKEN[@]+"${TOKEN[@]}"} xcodebuild test-without-building -xctestrun "$XCTESTRUN" -destination "id=${SIM_UDID[$i]}" \
-         -derivedDataPath "$WORK/dd-$i" -resultBundlePath "$WORK/result-$i.xcresult" \
-         -parallel-testing-enabled NO "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
+    if ${TOKEN[@]+"${TOKEN[@]}"} bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
+         "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
     echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" ) &
 done
 wait

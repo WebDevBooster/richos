@@ -56,6 +56,7 @@ def items_from(lines, tmp, **kw):
 
 
 tmp = tempfile.mkdtemp(prefix="proof-run-test.")
+os.environ["RICHOS_MACHINE_WORKERS"] = os.path.join(tmp, "machine")
 try:
     print("=== proof-run ===")
 
@@ -247,7 +248,7 @@ try:
                  "bash -c \"trap \\\"\\\" TERM; echo \\$\\$ > %s; while :; do sleep 1; done\" & "
                  "sleep 60 & echo $! > %s; wait'\n" % (own, deaf, pidfile))
     runner = subprocess.Popen([sys.executable, os.path.join(HERE, "proof-run.py"), "--commands", cmds,
-                               "--log-dir", os.path.join(tmp, "p8"), "--low-priority"],
+                               "--log-dir", os.path.join(tmp, "p8")],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     deadline = time.time() + 20
     while not all(os.path.exists(f) and open(f).read().strip() for f in (pidfile, own, deaf)) and time.time() < deadline:
@@ -279,7 +280,9 @@ try:
     # P9 — the log directory is bounded: the last three runs of a checkout, nothing more.
     parent = os.path.join(tmp, "rot")
     for n in range(5):
-        os.makedirs(os.path.join(parent, "20260923T00000%dZ" % n))
+        d = os.path.join(parent, "20260923T00000%dZ" % n)
+        os.makedirs(d)
+        json.dump({"checks": [{"result": "passed"}]}, open(os.path.join(d, "summary.json"), "w"))
     os.makedirs(os.path.join(parent, "not-a-run"))
     pr.rotate(parent)
     left = sorted(os.listdir(parent))

@@ -56,6 +56,7 @@
 # Every exit is 0. A notice that takes the session down with it is worse than no
 # notice.
 
+# UNEVALUATED-PAYLOAD-EXEMPT: payload-independent — reads machine watchdog state, never a tool decision.
 set -uo pipefail
 
 EVENT="SessionStart"

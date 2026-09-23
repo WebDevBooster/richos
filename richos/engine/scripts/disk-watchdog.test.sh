@@ -761,7 +761,7 @@ FAKE_INSTALL="$W_DIR/persistent/scripts"
 mkdir -p "$FAKE_INSTALL" "$W_DIR/home"
 cp "$WD" "$FAKE_INSTALL/disk-watchdog.sh"
 HOME="$W_DIR/home" DISK_WATCHDOG_CONFIG="$W_CFG" RICHOS_LAUNCH_AGENTS_DIR="$W_LA" \
-    bash "$FAKE_INSTALL/disk-watchdog.sh" --install >/dev/null 2>&1
+    bash "$FAKE_INSTALL/disk-watchdog.sh" --print-plist > "$W_LA/com.richos.disk-watchdog.plist" 2>"$W_DIR/render.err"
 if python3 - "$W_LA/com.richos.disk-watchdog.plist" <<'PYTHON'
 import plistlib, sys
 with open(sys.argv[1], 'rb') as f:
@@ -769,9 +769,9 @@ with open(sys.argv[1], 'rb') as f:
 assert config['EnvironmentVariables']['PATH'].split(':')[:2] == ['/opt/homebrew/bin', '/usr/local/bin']
 PYTHON
 then
-    ok "W15b scheduled runtime PATH matches the reaper"
+    ok "W15b the install renderer uses the reaper runtime PATH"
 else
-    bad "W15b scheduled runtime PATH was not installed"
+    bad "W15b service renderer did not emit the runtime PATH"
 fi
 
 # ===========================================================================

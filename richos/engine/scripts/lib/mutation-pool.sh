@@ -103,6 +103,7 @@
 # needs to say comes back as stdout or as an exit code.
 
 MUT_POOL_DIR=""
+_MUT_WORKER_TOOL_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/worker_tokens.py"
 MUT_POOL_N=0
 # Slots include notes; MUT_POOL_SUBMITTED counts only real mutants, which is what
 # the report line and the zero-mutant refusal must be about.
@@ -160,6 +161,15 @@ mut_pool_jobs_default() {
 mut_pool_init() {
     MUT_POOL_DIR="$(cd "$(mktemp -d -t mutation-pool.XXXXXX)" && pwd -P)" || {
         echo "FATAL: mut_pool_init: could not create a pool directory" >&2; exit 2; }
+    MUT_POOL_BORROW="${RICHOS_WORKER_SLOT_HELD:-0}"
+    if [ -z "${RICHOS_WORKER_TOKENS:-}" ] && [ -f "$_MUT_WORKER_TOOL_DEFAULT" ]; then
+        RICHOS_WORKER_TOKENS_TOOL="$_MUT_WORKER_TOOL_DEFAULT"
+        RICHOS_WORKER_TOKENS="$(python3 "$RICHOS_WORKER_TOKENS_TOOL" directory)" || return 1
+        RICHOS_MACHINE_WORKERS="$RICHOS_WORKER_TOKENS"
+        RICHOS_WORKER_TOKENS_RESERVED=1
+        export RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL RICHOS_MACHINE_WORKERS RICHOS_WORKER_TOKENS_RESERVED
+        MUT_POOL_BORROW=0  # standalone pool: no caller holds a token to lend
+    fi
     MUT_POOL_N=0
     MUT_POOL_SUBMITTED=0
     MUT_POOL_PASS=0
@@ -272,9 +282,31 @@ mut_pool_submit() {
         # nested pool, so the process bound stays JOBS rather than JOBS squared.
         RICHOS_MUTANT_POOL_DEPTH=$(( ${RICHOS_MUTANT_POOL_DEPTH:-0} + 1 ))
         export RICHOS_MUTANT_POOL_DEPTH
+        _lease=""
+        if [ -n "${RICHOS_WORKER_TOKENS:-}" ]; then
+            # The parent publishes this subshell's real PID; $$ is the wrong PID on bash 3.2.
+            while [ ! -s "$MUT_POOL_DIR/$seq.pid" ]; do sleep 0.02; done
+            _free="-"
+            [ "$MUT_POOL_BORROW" = 0 ] || _free="$MUT_POOL_DIR/free.lock"
+            python3 "${RICHOS_WORKER_TOKENS_TOOL:-$_MUT_WORKER_TOOL_DEFAULT}" lease "$RICHOS_WORKER_TOKENS" \
+                "$(cat "$MUT_POOL_DIR/$seq.pid")" "$MUT_POOL_DIR/$seq.ready" "$MUT_POOL_DIR/$seq.release" "$_free" &
+            _lease=$!
+            while [ ! -s "$MUT_POOL_DIR/$seq.ready" ]; do
+                if ! kill -0 "$_lease" 2>/dev/null; then exit 125; fi
+                sleep 0.02
+            done
+            RICHOS_PROCESS_SCOPE="${RICHOS_PROCESS_SCOPE:+$RICHOS_PROCESS_SCOPE:}$(cat "$MUT_POOL_DIR/$seq.ready")"
+            RICHOS_WORKER_SLOT_HELD=1
+            RICHOS_WORKER_BORROW_LOCK="$(cat "$MUT_POOL_DIR/$seq.ready.borrow")"
+            export RICHOS_PROCESS_SCOPE RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
+        fi
         _t0="$(sw_now_ms)"
         "$@" >"$MUT_POOL_DIR/$seq.out" 2>&1
         _rc=$?
+        if [ -n "$_lease" ]; then
+            : > "$MUT_POOL_DIR/$seq.release"
+            wait "$_lease" || _rc=125
+        fi
         printf '%s' "$(( $(sw_now_ms) - _t0 ))" >"$MUT_POOL_DIR/$seq.ms"
         printf '%s' "$_rc" >"$MUT_POOL_DIR/$seq.rc"
         # LAST, and deliberately so: the marker means the three files above are

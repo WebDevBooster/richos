@@ -377,6 +377,8 @@ say_hang 9h session-start-ceo-ask.sh
 # It reads the watch's cache files and never stdin; asserted here rather than
 # assumed, because 9j went red in CI the day it was registered without this line.
 say_hang 9k session-start-ci-surface.sh
+say_hang 9o notice-disk-alert.sh --event SessionStart
+say_hang 9p session-start-scratch.sh
 # Match the registered event argument: this hook also handles Stop, whose
 # stdin behavior is different. Both closed and never-closed stdin are checked.
 say_hang 9n left-off-report.sh --event SessionStart

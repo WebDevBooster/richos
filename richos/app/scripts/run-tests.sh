@@ -224,6 +224,11 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Standalone fixture copies have no engine; a complete checkout uses its shared budget.
+WORKER_TOOL="$DIR/../../engine/scripts/lib/worker_tokens.py"
+if [ -z "${RICHOS_WORKER_TOKENS:-}" ] && [ -f "$WORKER_TOOL" ]; then
+  exec python3 "$WORKER_TOOL" machine -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 
 JOBS=""
 ONLY=""
@@ -411,6 +416,11 @@ suite_inputs() {  # $1 = full path to a suite; prints repo-relative paths, or ex
 
 suite_input_digest() {  # $1 = full path to a suite; prints a sha256, or exits 1
   local paths dirty
+  # A land omits A8. The nightly must execute it even if the same source passed a land
+  # or an earlier nightly; a source-only receipt cannot prove that gate ran this time.
+  case "$(basename "$1"):${RICHOS_NATIVE_IOS_APP_A8:-0}" in
+    native-ios-app.test.sh:1) return 1 ;;
+  esac
   paths="$(suite_inputs "$1")" || return 1
   [ -n "$ROOT" ] || return 1
   dirty="$(git -C "$ROOT" status --porcelain --untracked-files=all -- $paths 2>/dev/null)" || return 1
@@ -525,16 +535,21 @@ launch() {
   # command before running it, so `$idx` would still be unset inside the same `local`.
   local idx="$1"
   local t="${SUITES[$idx]}"
+  local lease=()
+  if [ -n "${RICHOS_WORKER_TOKENS:-}" ]; then
+    lease=(python3 "${RICHOS_WORKER_TOKENS_TOOL:-$WORKER_TOOL}" run "$RICHOS_WORKER_TOKENS"
+           --free "$WORK/suite-free.lock" --)
+  fi
   case "${RUNNER[$idx]}" in
     vm:*)
-      ( "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.out" 2>&1
+      ( ${lease[@]+"${lease[@]}"} "$DIR/testvm/run-suite.sh" "${RUNNER[$idx]#vm:}" "$t" > "$WORK/$idx.out" 2>&1
         c=$?; date +%s > "$WORK/$idx.end"; echo $c > "$WORK/$idx.rc" ) &
       ;;
     *)
       # The finish time is stamped by the child, never by the printer: output is drained in
       # discovery order, so a fast suite can sit finished for minutes waiting for a slow one
       # ahead of it, and timing it at print would charge it that wait.
-      ( bash "$t" > "$WORK/$idx.out" 2>&1
+      ( ${lease[@]+"${lease[@]}"} bash "$t" > "$WORK/$idx.out" 2>&1
         c=$?; date +%s > "$WORK/$idx.end"; echo $c > "$WORK/$idx.rc" ) &
       ;;
   esac

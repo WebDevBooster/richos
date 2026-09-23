@@ -493,6 +493,20 @@ else
   ok "K5 a suite that failed leaves no proof, so the next run still runs it and still fails"
 fi
 
+# A land receipt cannot suppress A8 before a nightly, even at identical source.
+cp "$KREPO/scripts/light.test.sh" "$KREPO/scripts/native-ios-app.test.sh"
+printf '# run-tests: inputs inputs\n' >> "$KREPO/scripts/native-ios-app.test.sh"
+kcommit nightly-mode
+for mode in 0 1 1; do
+  harness RUN_TESTS_DECLARED_GAPS= RUN_TESTS_SKIP_UNCHANGED=1 "RUN_TESTS_STATE=$KSTATE" \
+    "RICHOS_NATIVE_IOS_APP_A8=$mode" RICHOS_RUNTIME_DIR= -- "$KREPO/scripts/run-tests.sh" --only native-ios-app.test.sh
+  if [ "$CODE" = 0 ] && ! says "SKIPPED: native-ios-app.test.sh"; then
+    ok "K6 native-ios-app executes with A8=$mode, including consecutive nightlies"
+  else
+    bad "K6 native-ios-app is never skipped before a nightly" "$OUT"
+  fi
+done
+
 # =========================================================================================
 # S. `--no-host-screen` — the promise that nothing reaches the operator's screen
 # =========================================================================================

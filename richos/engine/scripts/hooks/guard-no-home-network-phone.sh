@@ -344,6 +344,12 @@ if ! resolve_entity_root "$INPUT"; then
     exit 0
 fi
 ENTITY_ROOT="$RICHOS_ENTITY_ROOT_RESOLVED"
+_SJ_LIB="$SCRIPT_DIR/../lib/seat-jurisdiction.sh"
+if [ ! -f "$_SJ_LIB" ]; then
+    announce_off "BROKEN INSTALL: seat-jurisdiction.sh is missing; the target repository cannot be checked."
+    exit 0
+fi
+. "$_SJ_LIB"
 
 # --- UNEVALUATED-PAYLOAD NOTICE --------------------------------------------
 # On a payload it cannot read, this guard takes the SAME silent exit 0 that a
@@ -388,6 +394,9 @@ esac
 # Declared in the header. BASENAME only — never a directory, so it cannot be
 # widened by moving a file into a folder.
 FILE_PATH="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); ti=d.get("tool_input",{}) or {}; print(ti.get("file_path") or ti.get("notebook_path") or "")' 2>/dev/null || true)"
+if [ -n "$FILE_PATH" ]; then
+    richos_assert_jurisdiction "guard-no-home-network-phone.sh" "$ENTITY_ROOT" "$FILE_PATH" "file" "proceeds" || true
+fi
 case "$(basename "${FILE_PATH:-}" 2>/dev/null || true)" in
     guard-no-home-network-phone.sh|guard-no-home-network-phone.test.sh|home-network-phone.mutation.sh|home-network-phone.corpus.md)
         exit 0 ;;
