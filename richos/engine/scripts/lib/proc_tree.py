@@ -66,13 +66,20 @@ def members(root, table=None):
     return pids, groups
 
 
-def _send(pids, groups, sig):
+def _send(pids, groups, sig, table=None):
+    """Each process gets the signal ONCE: through its group when its group is one of ours,
+    directly otherwise. A second SIGTERM landing while a shell runs its EXIT trap (the first
+    one's) kills it mid-trap, and the trap's cleanup is lost — measured, 1 run in 11 of
+    mutation-focus.test.sh F1c before this was one signal per process."""
+    table = table if table is not None else snapshot()
     for g in groups:
         try:
             os.killpg(g, sig)
         except (ProcessLookupError, PermissionError):
             pass
     for p in pids:
+        if p in table and table[p][1] in groups:
+            continue
         try:
             os.kill(p, sig)
         except (ProcessLookupError, PermissionError):
@@ -96,10 +103,11 @@ def _alive(pids):
 
 
 def kill_tree(root, grace=3.0):
-    pids, groups = members(root)
+    table = snapshot()
+    pids, groups = members(root, table)
     if not pids:
         return []
-    _send(pids, groups, signal.SIGTERM)
+    _send(pids, groups, signal.SIGTERM, table)
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline and _alive(pids):
         time.sleep(0.1)
@@ -107,7 +115,7 @@ def kill_tree(root, grace=3.0):
     later = snapshot()
     pids |= {pid for pid, (_pp, pg) in later.items() if pg in groups}
     pids.discard(os.getpid())
-    _send(pids, groups, signal.SIGKILL)
+    _send(pids, groups, signal.SIGKILL, later)
     time.sleep(0.2)
     return _alive(pids)
 
