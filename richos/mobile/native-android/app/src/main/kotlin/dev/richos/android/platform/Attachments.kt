@@ -100,6 +100,12 @@ class Stager(
         return Attachment(id = id, name = name, mediaType = type, size = bytes.size.toLong(), sha256 = Signing.hex(Signing.sha256(bytes)))
     }
 
+    /** The staged copy of [a], for a preview; null if it is gone or its id would leave the folder. */
+    fun file(a: Attachment): File? {
+        if (a.id.isEmpty() || a.id.contains('/') || a.id.contains('\\') || a.id == "." || a.id == "..") return null
+        return File(dir, a.id).takeIf { it.isFile }
+    }
+
     /** Deletes staged copies nobody will send (a refused or abandoned share, A-3). */
     fun discard(files: List<Attachment>) {
         for (f in files) {

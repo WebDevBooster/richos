@@ -1,21 +1,47 @@
 package dev.richos.android.platform
 
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import dev.richos.android.app.AppPorts
 import dev.richos.android.app.AppStore
 import dev.richos.android.app.RichApplication
 import dev.richos.android.core.Action
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Attachment
 import dev.richos.android.core.AttachmentLimits
+import dev.richos.android.core.ConnectionReason
 import dev.richos.android.core.CoreError
 import dev.richos.android.core.OutboxState
+import dev.richos.android.core.Theme
+import dev.richos.android.design.RichTheme
+import dev.richos.android.ui.UiEvent
+import dev.richos.android.ui.attach.ShareSheetView
+import dev.richos.android.ui.model.FileInfo
+import dev.richos.android.ui.model.Photo
+import dev.richos.android.ui.model.ShareKind
+import dev.richos.android.ui.model.ShareSheet
+import dev.richos.android.ui.model.ShareStage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -113,27 +139,163 @@ object ShareToRich {
 }
 
 /**
- * The share target. It shows nothing of its own: it stages what was shared, hands it to the core
- * on the app's scope and closes at once, so the other app is back in front; the outcome arrives as
- * one short line when it is known.
+ * The share target (security review 2026-09-23, A-1). It is exported, as a share target must be, so
+ * ANY installed app can start it with an explicit intent and skip the system chooser. So nothing
+ * shared is ever sent on arrival: it is staged for the person to see, shown in round 12's "Send to
+ * Rich" sheet (`share-compose`) over the app they shared from, and handed to the core only by that
+ * sheet's Send press. Cancel, Back, or leaving deletes what was staged. The same design as the iPhone
+ * share extension (the person presses Send), and T3 Code's "the share extension never sends the
+ * draft" (adoption read E3): on RichOS a shared line reaches an agent with tools on the Mac, so the
+ * press IS the consent.
  */
-class ShareActivity : Activity() {
+class ShareActivity : ComponentActivity() {
+    private val sheet = mutableStateOf<ShareSheet?>(null)
+    private val thumbs = mutableStateMapOf<String, ImageBitmap>()
+    private var limitMb by mutableIntStateOf(AttachmentLimits().maxFileBytes.toInt() / MIB)
+    private var text = ""
+    private var staged: List<Attachment> = emptyList()
+    private var stager: Stager? = null
+
+    /** Set once Send hands the staged files to the core; from then on they are the outbox's, never deleted here. */
+    private var handedOver = false
+
+    /** The sheet on screen (null while staging), for tests. */
+    internal val shown: ShareSheet? get() = sheet.value
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // A-7: a press on this sheet sends words to Rich, so no press is taken through another app's overlay.
+        window.decorView.filterTouchesWhenObscured = true
         val app = application as RichApplication
-        val (text, uris) = ShareToRich.read(intent)
-        val context: Context = app
-        app.appScope.launch {
-            val limits = app.store.states.value?.attachmentLimits ?: AttachmentLimits()
-            val stager = Stager(context, dev.richos.android.app.AppPorts.stagedDir(context)) { limits.maxFileBytes }
-            val intake = ShareToRich.intake(stager, uris, limits.maxFilesPerMessage)
-            val outcome = when {
-                intake.tooMany || intake.refused.isNotEmpty() -> ShareOutcome.REFUSED.also { stager.discard(intake.files) }
-                text.isBlank() && intake.files.isEmpty() -> ShareOutcome.REFUSED
-                else -> ShareToRich.share(app.store, text, intake.files, discard = stager::discard)
+        setContent {
+            val state by app.store.states.collectAsStateWithLifecycle()
+            RichTheme(state?.theme ?: Theme.DARK) {
+                sheet.value?.let { s ->
+                    ShareSheetView(
+                        s, limitMb, ::onEvent, overApp = true,
+                        art = { p, m -> thumbs[p.key]?.let { Image(it, contentDescription = null, modifier = m, contentScale = ContentScale.Crop) } ?: Box(m) },
+                    )
+                }
             }
-            withContext(Dispatchers.Main) { Toast.makeText(context, outcome.words, Toast.LENGTH_LONG).show() }
         }
+        if (savedInstanceState == null) {
+            val (words, uris) = ShareToRich.read(intent)
+            text = words
+            lifecycleScope.launch { prepare(app, uris) }
+        } else {
+            // Re-created (rotation) after staging: nothing of the first instance is known here. Close
+            // rather than show an empty sheet; the first instance's copies are deleted by its onDestroy.
+            finish()
+        }
+    }
+
+    /** Stages for the preview only; decides nothing. */
+    private suspend fun prepare(app: RichApplication, uris: List<Uri>) {
+        val state = withTimeoutOrNull(STORE_PATIENCE_MS) { app.store.states.filterNotNull().first() }
+        if (state == null) return close(ShareOutcome.REFUSED.words)
+        if (!state.paired) {
+            sheet.value = ShareSheet(ShareKind.PHOTO, ShareStage.UNPAIRED, macName = MAC)
+            return
+        }
+        val limits = state.attachmentLimits ?: AttachmentLimits()
+        limitMb = (limits.maxFileBytes / MIB).toInt()
+        val s = Stager(this, AppPorts.stagedDir(this)) { limits.maxFileBytes }
+        stager = s
+        val intake = ShareToRich.intake(s, uris, limits.maxFilesPerMessage)
+        staged = intake.files
+        if (intake.tooMany) return close("Rich takes up to ${limits.maxFilesPerMessage} files in one message. Share fewer at a time.")
+        intake.refused.firstOrNull { it.reason == Stager.Reason.TOO_LARGE }?.let { big ->
+            sheet.value = ShareSheet(ShareKind.TOO_LARGE, file = fileInfo(big.name, big.bytes ?: (limits.maxFileBytes + 1)), macName = MAC)
+            return
+        }
+        if (intake.refused.isNotEmpty() || (text.isBlank() && staged.isEmpty())) return close("RichConnect could not read what was shared. Nothing was sent.")
+        val images = staged.filter { it.mediaType.startsWith("image/") }
+        val others = staged - images.toSet()
+        withContext(Dispatchers.IO) { images.take(3).forEach { a -> thumbnail(s, a)?.let { thumbs[a.id] = it } } }
+        sheet.value = when {
+            others.isNotEmpty() -> ShareSheet(
+                ShareKind.FILE, caption = text, macName = MAC,
+                file = fileInfo(if (others.size == 1) others[0].name else "${others[0].name} and ${staged.size - 1} more", others.sumOf { it.size }, others[0].name),
+            )
+            else -> ShareSheet(
+                if (images.size > 1) ShareKind.PHOTOS else ShareKind.PHOTO, caption = text, macName = MAC,
+                photos = images.map { a -> Photo(a.id, thumbs[a.id]?.width ?: 4, thumbs[a.id]?.height ?: 3, a.name, a.size) },
+            )
+        }
+    }
+
+    internal fun onEvent(event: UiEvent) {
+        when (event) {
+            UiEvent.ShareSend -> send()
+            UiEvent.ShareCancel -> finish()
+            UiEvent.ShareOpenToPair -> {
+                packageManager.getLaunchIntentForPackage(packageName)?.let { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                finish()
+            }
+            else -> Unit
+        }
+    }
+
+    /** The only way anything shared reaches the core: the person's Send press on the sheet. */
+    private fun send() {
+        val current = sheet.value ?: return
+        if (current.stage != ShareStage.COMPOSE || current.kind == ShareKind.TOO_LARGE || handedOver) return
+        handedOver = true
+        sheet.value = current.copy(stage = ShareStage.SENDING)
+        val app = application as RichApplication
+        val files = staged
+        val discard: (List<Attachment>) -> Unit = { stager?.discard(it) }
+        val live = app.store.states.value?.connection?.reason == ConnectionReason.CONNECTED
+        // The send outlives this sheet: it runs on the app's scope, so leaving now loses nothing.
+        app.appScope.launch {
+            val outcome = ShareToRich.share(app.store, text, files, patienceMs = if (live) SEND_PATIENCE_MS else OFFLINE_PATIENCE_MS, discard = discard)
+            when (outcome) {
+                ShareOutcome.SENT -> done(ShareStage.SENT)
+                ShareOutcome.WAITING -> done(ShareStage.SAVED)
+                ShareOutcome.NOT_PAIRED -> sheet.value = current.copy(stage = ShareStage.UNPAIRED)
+                ShareOutcome.REFUSED -> close(outcome.words)
+            }
+        }
+    }
+
+    private suspend fun done(stage: ShareStage) {
+        sheet.value = sheet.value?.copy(stage = stage)
+        delay(DONE_SHOWN_MS)
+        if (!isFinishing) finish()
+    }
+
+    private fun close(words: String) {
+        Toast.makeText(applicationContext, words, Toast.LENGTH_LONG).show()
         finish()
+    }
+
+    override fun onDestroy() {
+        // Canceled, backed out of, or left: nothing staged for this sheet will ever be sent.
+        if (isFinishing && !handedOver) stager?.discard(staged)
+        super.onDestroy()
+    }
+
+    private fun fileInfo(name: String, bytes: Long, extensionOf: String = name) =
+        FileInfo(name = name, ext = extensionOf.substringAfterLast('.', "").uppercase().ifEmpty { "FILE" }, bytes = bytes)
+
+    /** A small preview of a staged JPEG, decoded at a fraction of its size. */
+    private fun thumbnail(s: Stager, a: Attachment): ImageBitmap? = runCatching {
+        val file = s.file(a) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= THUMB_EDGE) sample *= 2
+        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+    }.getOrNull()
+
+    companion object {
+        private const val MIB = 1024 * 1024
+        private const val MAC = "your Mac"
+        private const val THUMB_EDGE = 512
+        const val STORE_PATIENCE_MS = 5_000L
+        const val SEND_PATIENCE_MS = 20_000L
+        const val OFFLINE_PATIENCE_MS = 1_500L
+        const val DONE_SHOWN_MS = 1_400L
     }
 }
