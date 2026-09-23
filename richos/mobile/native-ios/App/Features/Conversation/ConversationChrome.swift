@@ -214,7 +214,7 @@ struct AboveComposer: View {
             }
         case .microphoneDenied:
             CardView {
-                CardText(title: "The microphone is off for RichOS",
+                CardText(title: "The microphone is off for RichConnect",
                          detail: "Turn it on in iPhone Settings to send voice messages, or type instead.")
                 FlowButtons {
                     Button { send(.openSystemSettings) } label: { Text("Open Settings") }

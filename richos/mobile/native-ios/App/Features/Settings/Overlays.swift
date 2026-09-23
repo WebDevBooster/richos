@@ -48,11 +48,11 @@ struct DialogView: View {
 
     private var title: String {
         switch dialog {
-        case .cameraDenied: return "The camera is off for RichOS"
+        case .cameraDenied: return "The camera is off for RichConnect"
         case .pairBlocked(let n): return n == 1 ? "One message is still waiting" : "\(Self.count(n)) messages are still waiting"
         case .forget: return "Forget this pairing?"
         case .forgetBlocked: return "Not yet"
-        case .update: return "A new RichOS is ready"
+        case .update: return "A new RichConnect is ready"
         }
     }
 
@@ -326,14 +326,14 @@ struct UpdateBannerView: View {
                 .frame(width: 40, height: 40)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(palette.ground))
             VStack(alignment: .leading, spacing: 0) {
-                Text("RichOS \(banner.version) is ready").type(Typography.body.weight(600)).foregroundStyle(palette.ink)
+                Text("RichConnect \(banner.version) is ready").type(Typography.body.weight(600)).foregroundStyle(palette.ink)
                 Text(banner.message).type(Typography.read.lineHeight(1.3)).foregroundStyle(palette.inkSoft)
             }
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button { send(.openAppStore) } label: { Text("Update") }
                 .buttonStyle(RButtonStyle(kind: .primary, compact: true))
-                .accessibilityLabel("Update RichOS in the App Store")
+                .accessibilityLabel("Update RichConnect in the App Store")
                 .accessibilityIdentifier("update.banner.store")
         }
         .padding(.horizontal, 14).padding(.vertical, 12)

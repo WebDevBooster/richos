@@ -47,10 +47,10 @@ targets:
         # Purpose strings, American English (ceo-decisions §13). Each says what is used, when,
         # and where it goes, and nothing more (App Review 5.1.1(ii)). Drafts from
         # richos-hq docs/research/2026-09-22-app-store-approval-t3-and-first-time.md §4.3.
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "RichOS records only while you hold or lock the microphone button, then sends the voice message to your Mac so Rich can reply."
-        INFOPLIST_KEY_NSCameraUsageDescription: "RichOS uses the camera to scan the pairing code on your Mac, and to take a photo when you choose to send one to Rich. Photos go only to your Mac."
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "RichOS sends Rich only the photos you pick. It does not read the rest of your library."
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "RichOS uses your network only to reach your own Mac. It does not look for other devices."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "RichConnect records only while you hold or lock the microphone button, then sends the voice message to your Mac so Rich can reply."
+        INFOPLIST_KEY_NSCameraUsageDescription: "RichConnect uses the camera to scan the pairing code on your Mac, and to take a photo when you choose to send one to Rich. Photos go only to your Mac."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "RichConnect sends Rich only the photos you pick. It does not read the rest of your library."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "RichConnect uses your network only to reach your own Mac. It does not look for other devices."
         # Export compliance: the app's only cryptography is Apple's own — HTTPS through URLSession,
         # and CryptoKit/Security for P-256 request signing and AES-GCM decryption of reply
         # previews. That is encryption within the Apple operating system, which Apple's
