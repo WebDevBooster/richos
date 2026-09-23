@@ -626,8 +626,10 @@ if [ "${N_UNCOV:-0}" -eq 0 ] && { [ "${N_UI:-0}" -gt 0 ] || [ "${N_SCRIPT:-0}" -
    || [ "${N_WEB:-0}" -gt 0 ] || [ -s "$WORK/engine" ] || [ -s "$WORK/nested" ]; }; then
   # This script prints; `proof-run.py` runs. A hand-written loop over the lines above is how a
   # 184-commit land took 2 h 45 min on 2026-09-23 (see proof-run.py's header).
-  say "TO RUN ALL OF IT AT ONCE — admitted by CPU, one log per check, one summary:"
-  say "  cd $APP_REL && scripts/proof-run.py <the same arguments you gave this script>"
+  # One prose line, deliberately not an indented `cd` line: every such line above is a
+  # command, and proof-for.test.sh I1 parses each of them as one.
+  say "TO RUN ALL OF IT AT ONCE (admitted by CPU, one log per check, one summary): from $APP_REL,"
+  say "scripts/proof-run.py with the same arguments you gave this script."
   say ""
 fi
 
