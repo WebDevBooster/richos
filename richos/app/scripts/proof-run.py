@@ -218,23 +218,24 @@ def cargo_key(argv):
     return (" ".join(rest), flt)
 
 
-def runtime_for(item):
-    """make-engine-asset.test.sh needs RICHOS_RUNTIME_DIR. Unset, the runner supplies the one the
-    nightly uses (<state>/runtime, nightly-local.py `runtime()`), only after verify-runtime.py
-    accepts it against the tracked recipe, exactly as the nightly does, and says so."""
+def supply_runtime(items):
+    """Several suites need RICHOS_RUNTIME_DIR (make-engine-asset.test.sh, and proof-for.test.sh's
+    I1 runs the generated engine command for real). Unset, the runner supplies the one the
+    nightly uses (<state>/runtime, nightly-local.py `runtime()`) to every check, only after
+    verify-runtime.py accepts it against the tracked recipe, exactly as the nightly does. Returns
+    the line that says which, printed with the plan."""
     if os.environ.get("RICHOS_RUNTIME_DIR"):
-        return
+        return "RICHOS_RUNTIME_DIR=%s (from the caller)" % os.environ["RICHOS_RUNTIME_DIR"]
     path = os.path.join(os.path.expanduser("~"), ".richos-nightly", "runtime")
     if not os.path.isdir(path):
-        item.notes.append("RICHOS_RUNTIME_DIR is unset and %s does not exist; the suite will refuse" % path)
-        return
+        return "RICHOS_RUNTIME_DIR is unset and %s does not exist; suites that need it will refuse" % path
     r = subprocess.run([sys.executable, os.path.join(HERE, "verify-runtime.py"), path,
                         os.path.join(HERE, "runtime-sources.json")], capture_output=True, text=True)
-    if r.returncode == 0:
-        item.env["RICHOS_RUNTIME_DIR"] = path
-        item.notes.append("RICHOS_RUNTIME_DIR=%s (the nightly's runtime, verified against runtime-sources.json)" % path)
-    else:
-        item.notes.append("RICHOS_RUNTIME_DIR is unset and %s did not verify; the suite will refuse" % path)
+    if r.returncode != 0:
+        return "RICHOS_RUNTIME_DIR is unset and %s did not verify; suites that need it will refuse" % path
+    for it in items:
+        it.env["RICHOS_RUNTIME_DIR"] = path
+    return "RICHOS_RUNTIME_DIR=%s (the nightly's runtime, verified against runtime-sources.json)" % path
 
 
 def plan(lines, args, logdir, hist):
@@ -272,8 +273,6 @@ def plan(lines, args, logdir, hist):
             elif "testvm/test/run-tests.sh" in m.group(2):
                 label = "testvm"
             items.append(Item(label, cwd, argv, None, default_weight(label, hist)))
-            if label == "make-engine-asset":
-                runtime_for(items[-1])
     # cargo: drop a filter a shorter filter on the same target already matches
     keyed = [(cwd, argv, cargo_key(argv)) for cwd, argv in cargo]
     for cwd, argv, key in keyed:
@@ -594,6 +593,7 @@ def main(argv=None):
     for it in sorted(items, key=lambda i: -i.weight):
         print("  %-40s lane %-7s ~%5.0f s  cd %s && %s" % (it.label, it.lane or "-", it.weight,
                                                          os.path.relpath(it.cwd, ROOT), " ".join(it.argv)))
+    print("  " + supply_runtime(items))
     if args.dry_run:
         return 0
     print("  logs: %s" % logdir, flush=True)
@@ -618,8 +618,6 @@ def as_printed(lines):
         argv = shlex.split(m.group(2))
         it = Item("%02d %s" % (n, slug(" ".join(argv))[:36]), os.path.join(ROOT, m.group(1)), argv,
                   "as-printed", float(len(lines) - n + 1))
-        if "make-engine-asset.test.sh" in m.group(2):
-            runtime_for(it)
         items.append(it)
     return items
 
