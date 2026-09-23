@@ -79,7 +79,7 @@ class Budget:
         runner itself: every token is open to it, the shared ones first, so the reserved ones
         are left for the moments nested workers hold all the rest."""
         self.dir = directory
-        shared = shared or os.environ.get("RICHOS_MACHINE_WORKERS")
+        shared = (shared or os.environ.get("RICHOS_MACHINE_WORKERS")) if shared is not False else None
         self.shared = (Budget(shared, reserved, runner, shared=shared)
                        if shared and os.path.realpath(shared) != os.path.realpath(directory) else None)
         self.files = sorted(os.path.join(directory, f) for f in os.listdir(directory) if f.startswith("token-") and f[6:].isdigit())
@@ -209,12 +209,13 @@ def machine_directory():
     return directory
 
 
-def run_command(cmd, token, env=None):
+def run_command(cmd, token, env=None, worker=True):
     # The supervisor inherits the lease. If this wrapper is killed, admission cannot
     # reuse that slot until the supervisor has stopped the command's descendants.
     import proc_tree
-    env = {**(env if env is not None else os.environ), "RICHOS_WORKER_SLOT_HELD": "1",
-           "RICHOS_WORKER_BORROW_LOCK": token.path + ".child"}
+    env = dict(env if env is not None else os.environ)
+    if worker:
+        env.update(RICHOS_WORKER_SLOT_HELD="1", RICHOS_WORKER_BORROW_LOCK=token.path + ".child")
     try:
         child = subprocess.Popen(proc_tree.command(cmd, owner=os.getpid()), env=env,
                                  pass_fds=tuple(token.fds), start_new_session=True)

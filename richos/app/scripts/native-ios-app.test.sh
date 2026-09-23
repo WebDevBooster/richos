@@ -6,11 +6,18 @@
 # (build plan §3.1 loop L2; stream I1). Missing macOS/Xcode/XcodeGen/an iOS runtime/the external SSD
 # is NOT RUN, exit 2; a build or check failure on a capable host is red.
 # run-tests: no-host-screen: `simctl boot` starts a dedicated simulator without Simulator.app; screenshots come from `simctl io`, never the Mac's screen
-# run-tests: inputs richos/mobile/native-ios richos/app/scripts/native-ios-app.test.sh
+# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios richos/app/scripts/native-ios-app.test.sh
 # run-tests: covers richos/mobile/native-ios/project.yml richos/mobile/native-ios/App/App/AppStore.swift richos/mobile/native-ios/App/App/RichOSNativeApp.swift richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/DevBridge/DevBridge.swift richos/mobile/native-ios/Core/Sources/RichOSCLI/Simulator.swift richos/mobile/native-ios/Core/Sources/RichOSCore/Protocol/URLSessionTransport.swift
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$DIR/../../.." && pwd)"
+if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
+  exec python3 "$ROOT/richos/engine/scripts/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
+fi
+if [ "${RICHOS_NATIVE_APP_SLOT:-}" != "$ROOT" ]; then
+  export RICHOS_NATIVE_APP_SLOT="$ROOT"
+  exec python3 "$DIR/lib/simulator_budget.py" live -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 NATIVE="$ROOT/richos/mobile/native-ios"
 RIOS="$NATIVE/bin/rios"
 VOLUME=/Volumes/E1TB
@@ -43,7 +50,7 @@ json() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(eval(sys.arg
 echo "=== native-ios-app ==="
 
 # A1 — generate, build, create and boot a simulator, install, launch straight into a fixture.
-if "$RIOS" sim prepare conv-empty >"$SCRATCH/prepare.json" 2>"$SCRATCH/err"; then
+if python3 "$DIR/lib/simulator_budget.py" boot -- "$RIOS" sim prepare conv-empty >"$SCRATCH/prepare.json" 2>"$SCRATCH/err"; then
   if [ "$(json 'd["result"]["state"]["screen"]' < "$SCRATCH/prepare.json")" = conv-empty ]; then
     ok "A1 the Debug app builds, installs on a new simulator and answers in fixture conv-empty ($(json 'd["result"]["timingsMs"]' < "$SCRATCH/prepare.json"))"
   else bad "A1 prepare" "state: $(head -c 300 "$SCRATCH/prepare.json")"; fi

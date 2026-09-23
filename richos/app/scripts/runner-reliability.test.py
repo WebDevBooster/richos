@@ -17,6 +17,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / 'engine/scripts/lib'))
 import proc_tree
 import worker_tokens
+sys.path.insert(0, str(HERE / "lib"))
+import simulator_budget
 spec = importlib.util.spec_from_file_location('proof_run', HERE / 'proof-run.py')
 pr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pr)
@@ -113,6 +115,59 @@ class Reliability(unittest.TestCase):
         finally:
             for token in held:
                 token.release()
+
+    def test_simulator_resource_does_not_take_another_worker_or_change_borrow_slot(self):
+        machine = self.path / 'machine'
+        with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(machine),
+                                     'RICHOS_WORKER_BORROW_LOCK': 'existing-borrow'}):
+            worker_tokens.machine_directory()
+            worker = worker_tokens.Budget(machine, runner=True).try_acquire()
+            resource = simulator_budget.acquire('live')
+            try:
+                self.assertEqual(worker_tokens.Budget(machine).held(), 1)
+                result = worker_tokens.run_command([sys.executable, '-c',
+                    'import os;assert os.environ["RICHOS_WORKER_BORROW_LOCK"]=="existing-borrow"'],
+                    resource, worker=False)
+                self.assertEqual(result, 0)
+            finally:
+                resource.release()
+                worker.release()
+
+    def test_independent_simulator_runs_share_two_slots(self):
+        env = {**os.environ, 'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}
+        records = [self.path / ('sim-' + str(i)) for i in range(3)]
+        wrappers = []
+        for i, record in enumerate(records):
+            command = 'import os,sys,time;open(sys.argv[1],"w").write(str(os.getpid()));time.sleep(60)'
+            wrapper = subprocess.Popen([sys.executable, simulator_budget.__file__, 'live', '--',
+                                       sys.executable, '-c', command, str(record)], env=env)
+            self.children.append(wrapper)
+            wrappers.append(wrapper)
+            if i < 2:
+                self.wait_file(record)
+        time.sleep(.5)
+        self.assertFalse(records[2].exists())
+        wrappers[0].terminate()
+        wrappers[0].wait(timeout=10)
+        self.wait_file(records[2])
+        for wrapper in wrappers[1:]:
+            wrapper.terminate()
+            wrapper.wait(timeout=10)
+        self.assertEqual(worker_tokens.Budget(self.path / 'simulator-live-v1', shared=False).held(), 0)
+
+    def test_simulator_boot_serializes_and_refuses_saturated_host(self):
+        quiet = dict(cpu_user_percent=10, cpu_system_percent=5, memory_pressure='normal', swapout_mb_per_s=0)
+        with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}):
+            lease = simulator_budget.acquire('boot', sampler=lambda: quiet)
+            try:
+                with self.assertRaises(TimeoutError):
+                    simulator_budget.acquire('boot', timeout=.1, sampler=lambda: quiet)
+            finally:
+                lease.release()
+        self.assertTrue(simulator_budget.boot_admitted(quiet))
+        self.assertFalse(simulator_budget.boot_admitted({**quiet, 'cpu_user_percent': 80}))
+        self.assertFalse(simulator_budget.boot_admitted({**quiet, 'cpu_user_percent': 60, 'cpu_system_percent': 35}))
+        self.assertFalse(simulator_budget.boot_admitted({**quiet, 'memory_pressure': 'critical'}))
 
     def test_borrow_files_do_not_create_extra_capacity(self):
         budget = self.path / 'budget'

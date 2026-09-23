@@ -463,6 +463,11 @@ def run(items, args, logdir, sampler=None):
 
     def stop_all(signum, _frame):
         left = stop_running()
+        for it in items:
+            if it.state in ("waiting", "running"):
+                it.state, it.rc, it.ended = "cancelled", 130, time.monotonic()
+        checkpoint(items, logdir)
+        running.clear()
         print("proof-run: interrupted; every check this run started was stopped%s. Logs: %s" % (
             "" if not left else " EXCEPT pids %s, which survived SIGKILL" % left, logdir), flush=True)
         sys.exit(130)

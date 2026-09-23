@@ -11,7 +11,7 @@
 #   2. SIMULATOR (minutes): builds the app and its UI tests from `native-ios/project.yml`, then runs
 #      them on an iPhone SE (3rd generation) and an iPhone 16 Pro Max — each device's tests split
 #      across RICHOS_IOS_UI_SHARDS simulators of that device (default 2), every simulator created by
-#      this script, booted headless (never Simulator.app), all running at once, shut down and deleted
+#      this script, booted headless (never Simulator.app), admitted by the shared simulator limit, shut down and deleted
 #      by UDID after the run — in UTC and en_US so every picture matches the mockup's 8:02 AM.
 #      Screenshots are exported per device.
 #
@@ -25,7 +25,7 @@
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
-# run-tests: inputs richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml
+# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml
 # run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift
 set -euo pipefail
 
@@ -317,7 +317,7 @@ echo "native-ios-ui: built for testing in $(( $(date +%s) - START )) s"
 STATUS=0
 # ------------------------------------------------------------------------------------------------
 # The simulators: every device's tests are split across RICHOS_IOS_UI_SHARDS simulators of that
-# device (default 2), and every simulator runs at the same time.
+# device (default 2). At most two test simulators run across all checkouts, with one boot at a time.
 #
 # MEASURED, 2026-09-23, this Mac, standalone: the build is 23 s cold and 5 s warm, a boot about
 # 30 s, and the tests the rest — 661 s for one device's 42 tests on one simulator, 686 s for the
@@ -333,7 +333,9 @@ STATUS=0
 #   2, all four at once           535 s   (the default)
 #   3, all six at once            970 s   (six first boots took 255 s together, and another
 #                                          agent's simulators were running at the time)
-# Past two, first boots and the host's simulator services are the bottleneck, not the tests.
+# These are historical standalone measurements, not a speed guarantee. Combined-load testing
+# saturated the host with four boots, so the shared limit now admits two live devices and
+# serializes boots. CPU/memory admission applies immediately before each boot.
 #
 # NOTHING IS DROPPED BY SPLITTING. The test list comes from xcodebuild itself (-enumerate-tests),
 # never from the Swift sources, and after the run the tests the result bundles report for a device
@@ -395,8 +397,9 @@ work="$1"; xctestrun="$2"; i="$3"; udid="$4"; shift 4
 trap 'rc=$?; xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$udid" >/dev/null 2>&1 || rc=1
   exit "$rc"' EXIT
-xcrun simctl boot "$udid"
-xcrun simctl bootstatus "$udid" -b
+python3 "$RICHOS_SIMULATOR_BUDGET" boot -- bash -c '
+  xcrun simctl boot "$1" && xcrun simctl bootstatus "$1" -b
+' simulator-boot "$udid"
 xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLocale -string en_US
 xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLanguages -array en-US
 xcrun simctl privacy "$udid" grant microphone dev.richos.native.ios >/dev/null 2>&1 || true
@@ -404,6 +407,7 @@ TZ=UTC xcodebuild test-without-building -xctestrun "$xctestrun" -destination "id
   -derivedDataPath "$work/dd-$i" -resultBundlePath "$work/result-$i.xcresult" \
   -parallel-testing-enabled NO "$@"
 SIMULATOR
+export RICHOS_SIMULATOR_BUDGET="$DIR/lib/simulator_budget.py"
 START=$(date +%s)
 for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
@@ -418,7 +422,7 @@ for i in "${!SIM_UDID[@]}"; do
            "$RICHOS_WORKER_TOKENS" --free "$WORK/free.lock" --)
   fi
   ( T0=$(date +%s)
-    if ${TOKEN[@]+"${TOKEN[@]}"} bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
+    if ${TOKEN[@]+"${TOKEN[@]}"} python3 "$DIR/lib/simulator_budget.py" live -- bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
          "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
     echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" ) &
 done
