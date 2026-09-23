@@ -112,6 +112,21 @@ class ShareConsentTest {
     }
 
     @Test
+    fun `an item that cannot be read is never silently left out - nothing is shown or sent`() {
+        offline()
+        val photo = Uri.parse("content://com.example.gallery/photo.jpg")
+        shadowOf(app.contentResolver).registerInputStream(photo, object : java.io.InputStream() {
+            override fun read(): Int = throw SecurityException("no access to $photo")
+        })
+        val intent = Intent(Intent.ACTION_SEND).setClassName(app.packageName, ShareActivity::class.java.name)
+            .setType("image/jpeg").putExtra(Intent.EXTRA_STREAM, photo).putExtra(Intent.EXTRA_TEXT, "Photo check")
+        val activity = Robolectric.buildActivity(ShareActivity::class.java, intent).create().get()
+        turnUntil { activity.isFinishing }
+        assertEquals("the words went without the photo they came with", null, activity.shown)
+        assertEquals(0, app.store.current!!.state.outbox.size)
+    }
+
+    @Test
     fun `an unpaired phone is asked to pair, and nothing is staged`() {
         val (ok, body) = kotlinx.coroutines.runBlocking { DevBridge.execute(app, "fixture", "unpaired") }
         check(ok) { "fixture failed: $body" }

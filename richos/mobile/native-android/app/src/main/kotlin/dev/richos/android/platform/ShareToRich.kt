@@ -65,7 +65,13 @@ enum class ShareOutcome(val words: String) {
  */
 object ShareToRich {
     /** What was staged from a share, and why anything was not. */
-    data class Intake(val files: List<Attachment>, val refused: List<Stager.Refused> = emptyList(), val tooMany: Boolean = false)
+    data class Intake(
+        val files: List<Attachment>,
+        val refused: List<Stager.Refused> = emptyList(),
+        val tooMany: Boolean = false,
+        /** Items that could not be read at all (no access, gone): never silently left out of what is sent. */
+        val unreadable: Int = 0,
+    )
 
     /**
      * Stages a share's streams within the Mac's limits (A-3): more than [maxFiles] items stages
@@ -75,16 +81,18 @@ object ShareToRich {
         if (uris.size > maxFiles) return Intake(emptyList(), tooMany = true)
         val files = mutableListOf<Attachment>()
         val refused = mutableListOf<Stager.Refused>()
+        var unreadable = 0
         for (uri in uris) {
             try {
                 files += stager.stage(uri)
             } catch (e: Stager.Refused) {
                 refused += e
             } catch (e: Exception) {
-                // Unreadable: nothing was kept (the stager deletes a partial copy).
+                // No access, or gone: nothing was kept (the stager deletes a partial copy).
+                unreadable++
             }
         }
-        return Intake(files, refused)
+        return Intake(files, refused, unreadable = unreadable)
     }
 
     /**
@@ -209,7 +217,11 @@ class ShareActivity : ComponentActivity() {
             sheet.value = ShareSheet(ShareKind.TOO_LARGE, file = fileInfo(big.name, big.bytes ?: (limits.maxFileBytes + 1)), macName = MAC)
             return
         }
-        if (intake.refused.isNotEmpty() || (text.isBlank() && staged.isEmpty())) return close("RichConnect could not read what was shared. Nothing was sent.")
+        // Something shared could not be read: say so and send nothing, rather than show a sheet
+        // that quietly leaves it out (seen on the emulator: a photo without access became words only).
+        if (intake.refused.isNotEmpty() || intake.unreadable > 0 || (text.isBlank() && staged.isEmpty())) {
+            return close("RichConnect could not read what was shared. Nothing was sent.")
+        }
         val images = staged.filter { it.mediaType.startsWith("image/") }
         val others = staged - images.toSet()
         withContext(Dispatchers.IO) { images.take(3).forEach { a -> thumbnail(s, a)?.let { thumbs[a.id] = it } } }
