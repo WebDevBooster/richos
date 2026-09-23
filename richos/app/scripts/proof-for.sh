@@ -622,6 +622,15 @@ if [ "${N_UI:-0}" -eq 0 ] && [ "${N_SCRIPT:-0}" -eq 0 ] && [ "${N_RUST:-0}" -eq 
   say ""
 fi
 
+if [ "${N_UNCOV:-0}" -eq 0 ] && { [ "${N_UI:-0}" -gt 0 ] || [ "${N_SCRIPT:-0}" -gt 0 ] || [ "${N_RUST:-0}" -gt 0 ] \
+   || [ "${N_WEB:-0}" -gt 0 ] || [ -s "$WORK/engine" ] || [ -s "$WORK/nested" ]; }; then
+  # This script prints; `proof-run.py` runs. A hand-written loop over the lines above is how a
+  # 184-commit land took 2 h 45 min on 2026-09-23 (see proof-run.py's header).
+  say "TO RUN ALL OF IT AT ONCE — admitted by CPU, one log per check, one summary:"
+  say "  cd $APP_REL && scripts/proof-run.py <the same arguments you gave this script>"
+  say ""
+fi
+
 if [ "${N_PROSE:-0}" -gt 0 ]; then
   say "NOT PROVEN BY A SUITE — $N_PROSE (prose, documentation, fixture data, images)"
   [ "$QUIET" -eq 1 ] || sed 's/^/  /' "$PROSE"
