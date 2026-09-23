@@ -316,16 +316,27 @@ emu() {
 # --- the release check ------------------------------------------------------------------------
 # Scans one APK for the development bridge: its classes (the debug package and core/dev) and
 # its manifest entries (DevBridgeReceiver, DevBridgeInit, the devbridge authority).
-bridge_scan() {  # $1 = apk; prints JSON {classes, bridgeClasses, manifestMarkers}
-  local bt="$ANDROID_HOME/build-tools/36.0.0" manifest classes
+#
+# The dump is read as BYTES. It carries the APK's string constants verbatim, and they are not
+# always UTF-8: a `sed` under a UTF-8 locale stopped at the first such byte ("RE error: illegal
+# byte sequence") and the scan went on with the classes read so far (measured 2026-09-23: 11,139
+# of the debug APK's 17,711). A class is counted only from a complete dump: `complete` is false
+# unless dexdump exited 0 and the classes read equal the class_defs_size every dex header declares.
+bridge_scan() {  # $1 = apk; prints JSON {classes, classHeaders, declaredClasses, complete, bridgeClasses, manifestMarkers}
+  local bt="$ANDROID_HOME/build-tools/36.0.0" manifest
   manifest="$("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$1")"
-  classes="$("$bt/dexdump" "$1" 2>/dev/null | sed -n "s/.*Class descriptor *: *'\(.*\)'.*/\1/p")"
-  python3 - "$manifest" "$classes" <<'PY'
-import json, sys
-manifest, classes = sys.argv[1], sys.argv[2].splitlines()
+  python3 - "$bt/dexdump" "$1" "$manifest" <<'PY'
+import json, re, subprocess, sys
+dexdump, apk, manifest = sys.argv[1:4]
+run = subprocess.run([dexdump, "-f", apk], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+declared = sum(int(n) for n in re.findall(rb"^class_defs_size\s*:\s*(\d+)", run.stdout, re.M))
+headers = len(re.findall(rb"^Class #\d+", run.stdout, re.M))
+classes = [c.decode("utf-8", "backslashreplace") for c in re.findall(rb"^\s*Class descriptor\s*:\s*'([^'\n]*)'", run.stdout, re.M)]
 leaks = [c for c in classes if c.startswith("Ldev/richos/android/app/debug/") or c.startswith("Ldev/richos/android/core/dev/")]
 markers = [m for m in ("dev.richos.android.app.debug", "DevBridge", "devbridge") if m in manifest]
-print(json.dumps({"classes": len(classes), "bridgeClasses": leaks[:20], "bridgeClassCount": len(leaks), "manifestMarkers": markers}))
+print(json.dumps({"classes": len(classes), "classHeaders": headers, "declaredClasses": declared, "dexdumpExit": run.returncode,
+                  "complete": run.returncode == 0 and declared > 0 and declared == headers == len(classes),
+                  "bridgeClasses": leaks[:20], "bridgeClassCount": len(leaks), "manifestMarkers": markers}))
 PY
 }
 
@@ -340,8 +351,9 @@ check_release() {
   python3 - "$r" "$d" "$release" <<'PY'
 import json, sys
 r, d, apk = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3]
-clean = r["classes"] > 0 and r["bridgeClassCount"] == 0 and not r["manifestMarkers"]
-probe = d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
+# A partial dump proves nothing either way: the release is clean only when all of it was read.
+clean = r["complete"] and r["classes"] > 0 and r["bridgeClassCount"] == 0 and not r["manifestMarkers"]
+probe = d["complete"] and d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
 ok = clean and probe
 print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
                   "result": {"apk": apk, "release": r, "debugProbe": d, "releaseClean": clean, "scannerSeesDebugBridge": probe}}, indent=2))
