@@ -90,7 +90,7 @@ class LocalTests(unittest.TestCase):
 
         with patch.object(m, "owned_run", side_effect=record), contextlib.redirect_stdout(io.StringIO()):
             r.gates()
-        self.assertEqual(len(seen), 8)
+        self.assertEqual(len(seen), 9)
         for env in seen:
             self.assertEqual([name for name in env if m.is_credential(name)], [])
             self.assertEqual(env["RICHOS_NAMED_PERSONS_FILE"], "/fixture/list")
@@ -623,7 +623,7 @@ while True: time.sleep(.02)
 
     def test_default_runs_every_gate_and_names_each_one_in_the_timings(self):
         r, seen = self.gate_commands()
-        self.assertEqual(len(seen), 8)
+        self.assertEqual(len(seen), 9)
         self.assertEqual(r.skipped, {})
         # ORDER IS PART OF THE ASSERTION, not incidental. The release smoke is first
         # because it is the cheapest refusal in the build (0.2 s against ~950 s), and the
@@ -631,7 +631,14 @@ while True: time.sleep(.02)
         # release -- is otherwise found by the release that needed it.
         self.assertEqual([name for name, _, _ in r.timings],
                          ["gates/release-smoke", "gates/core-tests", "gates/updater-tests",
-                          "gates/script-suites", "gates/lint-tauri", m.UI_SUITE_GATE, "gates/privacy-sweep"])
+                          "gates/script-suites", "gates/lint-tauri", m.WORKSPACE_MUTANTS_GATE,
+                          m.UI_SUITE_GATE, "gates/privacy-sweep"])
+        # The workspace-spec mutation pass runs HERE, before every nightly, and on no land
+        # (CEO, 2026-09-23, "Only before nightlies"): the unit through ci-shard.sh, with the
+        # opt-in stated at this call site.
+        mut = [argv for argv in seen if "workspace-spec-fourteen.test.sh" in " ".join(argv)]
+        self.assertEqual(mut, [["bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
+                                "mega-lander/tests/workspace-spec-fourteen.test.sh"]])
         lint = [argv for argv in seen if any(a.endswith('/lint.sh') for a in argv)]
         self.assertEqual(lint, [["bash", str(r.source / m.SCRIPTS / "lint.sh"), "--all",
                                  "--suite-results", str(r.state / m.SUITE_RESULTS)]])
@@ -679,7 +686,10 @@ while True: time.sleep(.02)
         # its input is the release path itself rather than a tree whose sha was proved.
         self.assertTrue([c for c in joined if "release-smoke" in c], joined)
         # NO PROOF ON THIS MACHINE: the UI suite runs, and is NOT recorded as skipped.
-        self.assertEqual(len(seen), 7)
+        self.assertEqual(len(seen), 8)
+        # The workspace-spec mutation pass is never dropped by this flag: a land does not run it
+        # (CEO, 2026-09-23, "Only before nightlies"), so there is nothing a land proved.
+        self.assertTrue([c for c in joined if "workspace-spec-fourteen" in c], joined)
         self.assertTrue([c for c in joined if "run.js" in c], joined)
         self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
 
@@ -1032,6 +1042,12 @@ while True: time.sleep(.02)
         # The middle iPhone size runs before every nightly (CEO, 2026-09-23, "Only before
         # nightlies"): stated at this call site, where a failure stops the nightly.
         self.assertEqual(env["RICHOS_NATIVE_IOS_APP_A8"], "1")
+        # ...and so does the workspace-spec mutation pass, at its own gate.
+        mut = [c for c in r.command.call_args_list
+               if "workspace-spec-fourteen.test.sh" in " ".join(str(a) for a in c.args)]
+        self.assertEqual(len(mut), 1, argvs)
+        self.assertEqual(mut[0].kwargs.get("env_extra"), {"RICHOS_FOURTEEN_MUTANTS": "1"})
+        self.assertEqual(mut[0].kwargs.get("timeout"), m.GATE_BUDGETS[m.WORKSPACE_MUTANTS_GATE])
 
     def test_release_never_skips_a_suite_over_unchanged_inputs(self):
         """A proof file on this host may excuse a suite for a CANDIDATE. It may never

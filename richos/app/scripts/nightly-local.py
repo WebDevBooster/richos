@@ -42,6 +42,7 @@ GATE_BUDGETS = {
     "gates/updater-tests": 360, # At least 5x its separate workspace's cold/warm sample.
     "gates/script-suites": 1800, # At least 2x the full-execution envelope, without reuse.
     "gates/lint-tauri": 300,    # At least 10x the full-lint sample; headroom beyond the 180s inner cap.
+    "gates/workspace-mutants": 1800,  # About 2x its 792 s measured on this Mac, 2026-09-23.
     "gates/ui-suite": 1200,    # At least 2x the fresh-browser four-shard reference.
     "gates/privacy-sweep": 120, # At least 4x a full scan; no receipt-reuse assumption.
 }
@@ -207,6 +208,7 @@ SUITE_RESULTS = "script-suites.json"
 # 150 s.
 UI_TESTS = Path("richos/app/ui/tests")
 UI_SUITE_GATE = "gates/ui-suite"
+WORKSPACE_MUTANTS_GATE = "gates/workspace-mutants"
 UI_SHARDS = 4
 
 # ── Quarantine: the list that keeps test rot from stopping a build ───────────────────────
@@ -528,6 +530,8 @@ GATE_SET_PER_STEP = (
     # native-ios-app.test.sh case A8, the middle iPhone size: off every land, on before every
     # nightly (CEO, 2026-09-23, "Only before nightlies"). Set at the script-suites call site.
     "RICHOS_NATIVE_IOS_APP_A8",
+    # The workspace-spec mutation pass, the same ruling; set at the workspace-mutants gate.
+    "RICHOS_FOURTEEN_MUTANTS",
 )
 
 
@@ -1073,6 +1077,17 @@ class Runner:
         with self.phase("gates/lint-tauri"):
             self.command("bash", self.source / SCRIPTS / "lint.sh", "--all",
                          "--suite-results", results, timeout=GATE_BUDGETS["gates/lint-tauri"])
+        # The workspace-spec mutation pass: 86 deliberately broken copies of the workspace code,
+        # each of which one of the suite's checks must catch. OFF every land and ON before
+        # every nightly (CEO, 2026-09-23, "Only before nightlies", esc-20260923T123440Z-b5371531);
+        # the suite's fourteen checks still run on every land that touches that code. Through
+        # ci-shard.sh, so the unit keeps its leak canary and its deadline; a failed or unproven
+        # mutant fails this gate and stops the nightly.
+        with self.phase(WORKSPACE_MUTANTS_GATE):
+            self.command("bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
+                         "mega-lander/tests/workspace-spec-fourteen.test.sh",
+                         env_extra={"RICHOS_FOURTEEN_MUTANTS": "1"},
+                         timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
         # AFTER the script suites and BEFORE the privacy sweep. It is the longest gate, so
         # the cheap refusals get to refuse first: there is no sense spending 378 s of WebKit
         # to learn that `cargo test` was going to fail anyway.
