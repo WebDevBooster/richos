@@ -96,8 +96,16 @@ if "$RIOS" sim check-release >"$SCRATCH/release.json" 2>"$SCRATCH/err"; then
   ok "A7 Release excludes the bridge and fixtures: $(json '", ".join(d["result"]["markersAbsentFromRelease"])' < "$SCRATCH/release.json")"
 else bad "A7 check-release" "$(tail -c 600 "$SCRATCH/err")"; fi
 
-# A8 — visible-control UI tests and app unit tests, once the screens stream has written them.
-if find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
+# A8 — visible-control UI tests and app unit tests, once the screens stream has written them, on
+# the MIDDLE screen size (iPhone 16 Pro). ONLY BEFORE NIGHTLIES (CEO, 2026-09-23, "Only before
+# nightlies", esc-20260923T113632Z-746305fb): native-ios-ui.test.sh runs the same 42 tests on the
+# smallest and largest sizes on every land, and this third size costs about ten minutes, so it
+# runs when the nightly build's script-suites gate sets RICHOS_NATIVE_IOS_APP_A8=1
+# (nightly-local.py, `gates`), where a failure stops that nightly. Anywhere else it says NOT RUN
+# and why; set the variable to run it by hand.
+if [ "${RICHOS_NATIVE_IOS_APP_A8:-}" != 1 ]; then
+  echo "  NOT RUN  A8 UI tests on the middle iPhone size: they run before each nightly (CEO 2026-09-23, \"Only before nightlies\"); RICHOS_NATIVE_IOS_APP_A8=1 runs them here"
+elif find "$NATIVE/UITests" "$NATIVE/UnitTests" -name '*.swift' 2>/dev/null | grep -q .; then
   if "$RIOS" sim ui-test >"$SCRATCH/ui.json" 2>"$SCRATCH/err"; then
     ok "A8 UI tests: $(json 'd["result"]["tests"]' < "$SCRATCH/ui.json")"
   else bad "A8 UI tests" "$(tail -c 600 "$SCRATCH/err")"; fi
