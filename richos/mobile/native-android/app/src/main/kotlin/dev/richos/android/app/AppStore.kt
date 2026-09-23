@@ -44,16 +44,48 @@ class AppStore(private val scope: CoroutineScope) {
     init {
         // THE APP'S ONE TIMER (queue.js rule 5; the core sets none): while a recording runs, a tick
         // every 100 ms drives the press delay, the timer and the ceiling; otherwise one tick when
-        // the reconnecting notice falls due. Every new state restarts the wait.
+        // the reconnecting notice falls due. And the outbox: when a waiting message's back-off
+        // runs out, a drain (`sync`) sends what is owed, so a failed send is retried with nobody
+        // pressing Try now (the PWA's `scheduleOutboxDrain`, app.js). Every new state restarts the
+        // wait, so there is only ever one.
         scope.launch {
             states.collectLatest { s ->
-                val due = when {
-                    s == null -> null
-                    s.voice != null -> VOICE_TICK_MS
-                    else -> s.connection.noticeDueInMs
-                } ?: return@collectLatest
+                if (s == null) return@collectLatest
+                val tick = if (s.voice != null) VOICE_TICK_MS else s.connection.noticeDueInMs
+                val owed = outboxOwedInMs(s)
+                val due = listOfNotNull(tick, owed).minOrNull() ?: return@collectLatest
                 delay(due)
-                dispatch(Action.Tick)
+                if (tick != null && tick <= due) dispatch(Action.Tick)
+                if (owed != null && owed <= due) drain()
+            }
+        }
+    }
+
+    /**
+     * When the outbox is owed a try: only while paired and the link to the Mac is open. Offline, no
+     * attempt is spent on unchanged conditions; the wakeup is the link opening, whose own drain
+     * sends what is owed then (T3's connection runtime, via the PWA's `online` handler).
+     */
+    private fun outboxOwedInMs(s: AppState): Long? = if (s.paired && s.online) s.dueInMs else null
+
+    /** True while a timer drain is running: one at a time, however many states arrive meanwhile. */
+    private var draining = false
+
+    /**
+     * The outbox drain: `sync`, which sends every message owed a try, oldest first, WITHOUT Try
+     * now's reset of the back-off. Also the action for a platform wakeup (the network came back).
+     */
+    private fun drain() {
+        if (draining) return
+        val target = core.value ?: return
+        draining = true
+        scope.launch {
+            try {
+                target.dispatch(Action.Sync)
+            } catch (e: CoreError) {
+                refusal.value = e.message
+            } finally {
+                draining = false
             }
         }
     }
@@ -91,6 +123,18 @@ class AppStore(private val scope: CoroutineScope) {
             }
             done?.invoke(refused)
         }
+    }
+
+    /** Core's draft as last committed, read from the core itself (not from [states], which follows it). */
+    val committedDraft: String get() = core.value?.state?.draft ?: ""
+
+    /**
+     * The composer's write of its draft: `compose`, in order with every other action, then [done] on
+     * the main thread once core has committed or refused it (at once when no core is open yet).
+     */
+    fun composeDraft(text: String, done: () -> Unit) {
+        if (core.value == null) return done()
+        dispatchThen(Action.Compose(text)) { done() }
     }
 
     companion object {

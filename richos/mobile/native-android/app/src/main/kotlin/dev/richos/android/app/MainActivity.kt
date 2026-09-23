@@ -6,7 +6,10 @@ import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import dev.richos.android.ui.composer.DraftLink
+import dev.richos.android.ui.composer.LocalDraftLink
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.richos.android.ui.model.ScannerCamera
@@ -80,20 +83,29 @@ class MainActivity : ComponentActivity() {
             if (current != null) {
                 val model = ScreenModel(app = current, refusal = refusal, pairingSurface = pairing.surface, scannerCamera = pairing.camera)
                 BackHandler(enabled = entry.ownsBack(current)) { entry.back(current) }
-                RichApp(
-                    model,
-                    onEvent = { e ->
-                        val handled = entry.handle(
-                            e,
-                            hasCamera = { packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) },
-                            cameraGranted = ::cameraGranted,
-                            requestCamera = { askCamera.launch(Manifest.permission.CAMERA) },
-                        )
-                        if (!handled) e.toAction()?.let(store::dispatch)
-                    },
-                    // No camera to open (none on the phone, or it failed): nothing is left holding it.
-                    camera = if (pairing.camera == ScannerCamera.UNAVAILABLE) null else ({ CameraFeed(onStatus = entry::cameraStatus, onCode = entry::scanned) }),
-                )
+                // The message field's own line to core's draft, so typing never waits on core.
+                val drafts = remember(store) {
+                    object : DraftLink {
+                        override fun latest() = store.committedDraft
+                        override fun write(text: String, done: () -> Unit) = store.composeDraft(text, done)
+                    }
+                }
+                CompositionLocalProvider(LocalDraftLink provides drafts) {
+                    RichApp(
+                        model,
+                        onEvent = { e ->
+                            val handled = entry.handle(
+                                e,
+                                hasCamera = { packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) },
+                                cameraGranted = ::cameraGranted,
+                                requestCamera = { askCamera.launch(Manifest.permission.CAMERA) },
+                            )
+                            if (!handled) e.toAction()?.let(store::dispatch)
+                        },
+                        // No camera to open (none on the phone, or it failed): nothing is left holding it.
+                        camera = if (pairing.camera == ScannerCamera.UNAVAILABLE) null else ({ CameraFeed(onStatus = entry::cameraStatus, onCode = entry::scanned) }),
+                    )
+                }
             } else {
                 // Until the saved state is read (a few milliseconds): the ground, nothing else.
                 AppRoot(null)
