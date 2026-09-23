@@ -20,11 +20,17 @@ def record_failure(message, command="Restore the test-device collector and rerun
         message = "%s; previous failure state unreadable: %s" % (message, exc)
     key = "collector:incomplete"
     previous = rows.get(key) or {}
+    if not isinstance(previous, dict):
+        previous = {}
+    try:
+        attempts = int(previous.get("attempts", 0)) + 1
+    except (TypeError, ValueError):
+        attempts = 1
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     rows[key] = {"kind": "collector", "id": "incomplete", "name": "test-device collector",
                  "verdict": "collection incomplete", "why": str(message), "command": command,
                  "first": previous.get("first", stamp), "last": stamp,
-                 "attempts": int(previous.get("attempts", 0)) + 1}
+                 "attempts": attempts}
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".device-alert-", dir=os.path.dirname(path))
     try:

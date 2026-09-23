@@ -60,7 +60,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -378,6 +377,8 @@ def register(kind, ident, owner_pid=None, script="", checkout="", device_set="")
             if not isinstance(dev, dict) or not dev.get("pid") or not dev.get("avd"):
                 raise ValueError("no emulator identity in %s" % ident)
             start = process_start(dev["pid"])
+            if dev.get("start") and dev["start"] != start:
+                raise ValueError("the recorded emulator process generation changed")
             if not start or not _names_avd(dev["pid"], dev["avd"]):
                 raise ValueError("the emulator identity is no longer alive")
             generation = {"pid": int(dev["pid"]), "start": start, "avd": dev["avd"]}
@@ -696,6 +697,15 @@ def classify_android(emu, regs, checkouts):
     return checkouts.decide("randroid", emu["key"])
 
 
+def _remove_avd(path):
+    # A large tree can take longer than the hook budget even after its process
+    # has ended. A separate, waited-for process makes deletion interruptible.
+    result = subprocess.run([sys.executable, "-c", "import shutil,sys; shutil.rmtree(sys.argv[1])", path],
+                            capture_output=True, text=True, timeout=_timeout(120), env=_env())
+    if result.returncode:
+        raise OSError(result.stderr.strip()[:300] or "AVD deletion failed")
+
+
 def _android_remove(emu, remove_avd=True):
     pid, avd = emu["pid"], emu["avd"]
     recorded = _read_json(os.path.join(emu["cache"], "emulator.json"))
@@ -717,19 +727,28 @@ def _android_remove(emu, remove_avd=True):
         except OSError:
             pass
         deadline = time.time() + _timeout(wait)
-        while time.time() < deadline and process_start(pid):
+        while time.time() < deadline:
+            state = process_start(pid)
+            if state is None:
+                return False, "emulator identity unreadable after signal; AVD preserved"
+            if state == "":
+                break
+            if state != emu.get("start"):
+                return False, "emulator PID was reused after signal; AVD preserved"
             time.sleep(min(0.2, _timeout(0.2)))
-    if process_start(pid):
+    state = process_start(pid)
+    if state is None:
+        return False, "emulator identity unreadable; AVD preserved"
+    if state:
         return False, "pid %d survived SIGTERM and SIGKILL" % pid
     try:
         avd_dir = os.path.join(emu["cache"], "avd")
         if remove_avd and os.path.exists(avd_dir):
-            _timeout(1)
-            shutil.rmtree(avd_dir)
+            _remove_avd(avd_dir)
         rec = os.path.join(emu["cache"], "emulator.json")
         if os.path.exists(rec):
             os.unlink(rec)
-    except OSError as e:
+    except (OSError, subprocess.TimeoutExpired) as e:
         return False, "the emulator ended but its AVD could not be removed: %s" % e
     return True, "ended and its AVD removed" if remove_avd else "ended"
 
@@ -953,7 +972,7 @@ def stop_android(cache, delete=False):
             if os.path.exists(path):
                 raise ValueError("emulator identity is unreadable; no cleanup attempted")
             if delete and os.path.isdir(os.path.join(cache, "avd")):
-                shutil.rmtree(os.path.join(cache, "avd"))
+                _remove_avd(os.path.join(cache, "avd"))
             return
         if not isinstance(rec, dict) or not rec.get("pid") or not rec.get("avd"):
             raise ValueError("invalid emulator identity; no cleanup attempted")

@@ -303,6 +303,8 @@ def collect_devices_for_scheduled_check():
 
 def main():
     mode = env("MODE", "check")
+    if mode == "check":
+        collect_devices_for_scheduled_check()
     sbase = state_base()
     state_path = expand(env("STATE", os.path.join(sbase, "disk-watchdog.json")))
     log_path = expand(env("LOG", os.path.join(sbase, "disk-watchdog.log")))
@@ -566,9 +568,6 @@ def main():
                            "~/.claude/state/app-instance-failures.json"))
     inst_failures = read_state(inst_path)
     n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
-
-    if mode == "check":
-        collect_devices_for_scheduled_check()
 
     # --- test simulators and emulators left behind (§54, 2026-09-22) ---------
     # Written by scripts/lib/testdevices.py: a device a killed test left

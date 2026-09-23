@@ -384,7 +384,7 @@ class Collector(Base):
         os.makedirs(os.path.join(cache, "avd"))
         T._write_json(os.path.join(cache, "emulator.json"), {"pid": 987654321, "avd": "x"})
         with patch.object(T, "process_start", return_value=""), \
-             patch.object(T.shutil, "rmtree", side_effect=PermissionError("denied")):
+             patch.object(T, "_remove_avd", side_effect=PermissionError("denied")):
             gone, why = T._android_remove({"pid": 987654321, "avd": "x", "cache": cache})
         self.assertFalse(gone)
         self.assertIn("could not be removed", why)
@@ -538,6 +538,46 @@ class Collector(Base):
         self.assertIn("has not completed", self.rows()["collector:incomplete"]["why"])
         T.collect(apply=True)
         self.assertEqual(self.rows(), {})
+
+    def test_T33_identity_read_failure_after_signal_preserves_avd(self):
+        cache = os.path.join(self.android, "unreadable-after-signal")
+        os.makedirs(os.path.join(cache, "avd"))
+        T._write_json(os.path.join(cache, "emulator.json"), {"pid": 123, "avd": "x"})
+        with patch.object(T, "process_start", side_effect=["same", None]), \
+             patch.object(T, "_names_avd", return_value=True), patch.object(T.os, "kill"):
+            gone, why = T._android_remove({"pid": 123, "avd": "x", "cache": cache, "start": "same"})
+        self.assertFalse(gone)
+        self.assertIn("unreadable", why)
+        self.assertTrue(os.path.isdir(os.path.join(cache, "avd")))
+        self.assertTrue(os.path.isfile(os.path.join(cache, "emulator.json")))
+
+    def test_T34_avd_removal_receives_the_remaining_budget(self):
+        token = T._DEADLINE.set(time.time() + .2)
+        try:
+            with patch.object(T.subprocess, "run", side_effect=subprocess.TimeoutExpired("remove", .2)) as run:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    T._remove_avd(os.path.join(self.android, "avd"))
+            self.assertGreater(run.call_args.kwargs["timeout"], 0)
+            self.assertLessEqual(run.call_args.kwargs["timeout"], .2)
+        finally:
+            T._DEADLINE.reset(token)
+
+    def test_T35_corrupt_previous_alert_cannot_hide_a_new_failure(self):
+        T._write_json(T.failures_path(), {"collector:incomplete": "corrupt row"})
+        with patch.object(T, "records", side_effect=ValueError("bad registry")):
+            T.collect(apply=True)
+        self.assertIn("bad registry", self.rows()["collector:incomplete"]["why"])
+
+    def test_T36_registration_refuses_a_changed_recorded_generation(self):
+        cache = os.path.join(self.android, "wrong-generation")
+        os.makedirs(cache)
+        avd = "randroid-wrong"
+        proc = self.proc(sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd)
+        T._write_json(os.path.join(cache, "emulator.json"), {"pid": proc.pid, "avd": avd, "start": "old"})
+        with self.assertRaisesRegex(ValueError, "generation changed"):
+            T.register("android-emulator", cache, os.getpid())
+        self.assertEqual(T.records(), [])
+        self.assertIsNone(proc.poll())
 
 
 
