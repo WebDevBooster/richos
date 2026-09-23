@@ -190,6 +190,24 @@ try:
           "P12 capacity 3, three checks with three workers each: all nine ran, at most %s at once" % (max(conc) if conc else "?"),
           (conc, [(i.label, i.state) for i in its]))
 
+    # P13 — a waiting nested worker of a RUNNING check goes before a check not yet started.
+    # Capacity 2: A (first, longest) and B take both tokens; A's nested worker then waits; when B
+    # ends, the freed token must go to A's worker, not to C.
+    d13 = os.path.join(tmp, "p13")
+    os.makedirs(d13)
+    stamp = "python3 -c 'import time,sys; open(sys.argv[1],\"w\").write(repr(time.time()))'"
+    a = pr.Item("A", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c",
+                "sleep 0.5; python3 %s run \"$RICHOS_WORKER_TOKENS\" -- %s %s/a-worker" % (wt, stamp, d13)], None, 30)
+    b = pr.Item("B", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 1.5"], None, 20)
+    c = pr.Item("C", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "%s %s/c-start" % (stamp, d13)], None, 10)
+    pr.run([a, b, c], Args(capacity=2), os.path.join(tmp, "p13log"), sampler=idle)
+    try:
+        aw, cs = float(open(os.path.join(d13, "a-worker")).read()), float(open(os.path.join(d13, "c-start")).read())
+    except (OSError, ValueError):
+        aw = cs = None
+    check(aw is not None and aw <= cs and all(i.state == "passed" for i in (a, b, c)),
+          "P13 a freed token goes to a running check's waiting worker before a new check starts", (aw, cs))
+
     # P6 — the receipts check runs even when a shard failed: it is what names the missing units.
     a = pr.Item("engine 1/2", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 1"], None, 5)
     b = pr.Item("engine receipts", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 0"], None, 1,

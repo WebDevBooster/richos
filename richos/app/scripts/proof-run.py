@@ -453,7 +453,11 @@ def run(items, args, logdir, sampler=None):
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
         # A check whose prerequisites failed still runs: the receipts check is what NAMES a
         # shard that did not finish, so it is never skipped.
-        if ready and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
+        # A nested worker of a RUNNING check waiting for a token goes first: no new check starts
+        # while one waits (worker_tokens.py `waiting`), or the long poles, started first, would
+        # be starved of the parallelism that makes them short.
+        if ready and budget.waiting() == 0 and now >= next_sample \
+                and now - last_launch >= (SETTLE_SECONDS if running else 0):
             it = ready[0]
             if it.first_wait is None:
                 it.first_wait = now
