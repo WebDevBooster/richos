@@ -12,6 +12,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=mutation-harness.sh
 . "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
 mutation_begin "workspaces.py (the CEO's workspace spec)" "mega-lander/tests/workspaces.test.sh"
+# Each want names a test method of workspaces.test.py, which runs only the tests
+# named on its command line; so a mutant runs its own test, on the unmutated copy
+# (must pass) and then mutated (must fail), rather than all 103. Measured
+# 2026-09-23: 103 tests take 60 s, one takes about a second. See mutation_focus.
+mutation_focus want-as-argument
 
 W="mega-lander/workspaces.py"
 
