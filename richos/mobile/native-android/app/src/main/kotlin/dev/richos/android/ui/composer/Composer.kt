@@ -24,6 +24,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,8 +74,10 @@ import dev.richos.android.ui.voice.VoiceFrames
  * to six lines, with the gold circle inside its right end. While recording, the field gives way
  * to the dot, the timer and `‹ Slide to cancel` (or Cancel, once locked).
  *
- * The draft is core's ([draft], sent back as [UiEvent.Draft]); the recording is core's ([voice]).
- * Nothing here decides a threshold.
+ * The draft is core's ([draft]), but the field's text is the [DraftEditor]'s: every keystroke
+ * changes it at once and then reaches core (through [LocalDraftLink] in the app, as
+ * [UiEvent.Draft] elsewhere), so fast typing never waits on core and never loses a character.
+ * The recording is core's ([voice]). Nothing here decides a threshold.
  */
 @Composable
 fun Composer(
@@ -91,6 +95,10 @@ fun Composer(
     val t = Rich.type
     val shape = RoundedCornerShape(26.dp)
     var pressed by remember { mutableStateOf(false) }
+    val editor = rememberDraftEditor(draft, onEvent)
+    // Core's draft changed (a send cleared it, the bridge set it): the editor decides whether it is news.
+    LaunchedEffect(draft) { editor.reconcile() }
+    val text = editor.value.text
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val widthDp = maxWidth.value
         val frame: VoiceFrame? = voice?.let { VoiceFrames.of(it, widthDp) }
@@ -100,7 +108,7 @@ fun Composer(
             disabledReason != null -> OrbMode.DISABLED
             voice?.phase == VoicePhase.LOCKED -> OrbMode.SEND_RECORDING
             // Something waiting in the tray turns the microphone into the send arrow, as a draft does.
-            draft.isNotBlank() || attaching -> OrbMode.SEND_TEXT
+            text.isNotBlank() || attaching -> OrbMode.SEND_TEXT
             !voiceAvailable -> OrbMode.DISABLED
             else -> OrbMode.RECORD
         }
@@ -140,8 +148,8 @@ fun Composer(
                     )
                 } else {
                     BasicTextField(
-                        value = draft,
-                        onValueChange = { onEvent(UiEvent.Draft(it)) },
+                        value = editor.value,
+                        onValueChange = editor::edit,
                         textStyle = t.body.copy(color = c.ink),
                         cursorBrush = SolidColor(c.signal),
                         maxLines = 6,
@@ -155,7 +163,7 @@ fun Composer(
                         decorationBox = { inner ->
                             // The text starts at 54 dp, right of the + (attachments NOTES).
                             Box(Modifier.padding(start = 54.dp, end = 62.dp, top = 13.dp, bottom = 13.dp), contentAlignment = Alignment.CenterStart) {
-                                if (draft.isEmpty()) BasicText(if (attaching) "Add a message" else "Message Rich", style = t.body.copy(color = c.inkSoft))
+                                if (text.isEmpty()) BasicText(if (attaching) "Add a message" else "Message Rich", style = t.body.copy(color = c.inkSoft))
                                 inner()
                             }
                         },
@@ -192,6 +200,28 @@ fun Composer(
             // With a tray, the circle stays with the text line: its center 26 dp above the capsule's foot.
             modifier = Modifier.align(if (attaching) Alignment.BottomEnd else Alignment.CenterEnd)
                 .offset(x = (-2).dp, y = if (attaching) (-2).dp else 0.dp).semantics { testTag = "orb" },
+        )
+    }
+}
+
+/**
+ * The field's [DraftEditor]: over the app's [LocalDraftLink] when there is one; otherwise (the screen
+ * catalog, screen tests) over [draft] as given, each change reported as a [UiEvent.Draft].
+ */
+@Composable
+private fun rememberDraftEditor(draft: String, onEvent: (UiEvent) -> Unit): DraftEditor {
+    val app = LocalDraftLink.current
+    val given by rememberUpdatedState(draft)
+    val report by rememberUpdatedState(onEvent)
+    return remember(app) {
+        DraftEditor(
+            app ?: object : DraftLink {
+                override fun latest() = given
+                override fun write(text: String, done: () -> Unit) {
+                    report(UiEvent.Draft(text))
+                    done()
+                }
+            },
         )
     }
 }

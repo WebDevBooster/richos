@@ -93,6 +93,18 @@ class AppStore(private val scope: CoroutineScope) {
         }
     }
 
+    /** Core's draft as last committed, read from the core itself (not from [states], which follows it). */
+    val committedDraft: String get() = core.value?.state?.draft ?: ""
+
+    /**
+     * The composer's write of its draft: `compose`, in order with every other action, then [done] on
+     * the main thread once core has committed or refused it (at once when no core is open yet).
+     */
+    fun composeDraft(text: String, done: () -> Unit) {
+        if (core.value == null) return done()
+        dispatchThen(Action.Compose(text)) { done() }
+    }
+
     companion object {
         const val VOICE_TICK_MS = 100L
     }
