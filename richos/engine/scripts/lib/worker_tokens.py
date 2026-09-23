@@ -6,6 +6,9 @@
                                              cmd's status; the token is released when this
                                              process ends, however it ends (an flock the kernel
                                              drops, never a file somebody must remember to delete)
+    worker_tokens.py run <dir> --free <lock> -- <cmd...>
+                                             the same, but <lock> (the caller's own free slot) is
+                                             tried first and taken instead of a budget token
     worker_tokens.py held <dir>              how many tokens are held right now
 
     import: Budget(dir).try_acquire() -> token or None; .acquire() waits; token.release();
@@ -66,18 +69,22 @@ class Budget:
             return Token(fd, path)
         return None
 
-    def acquire(self):
-        """Wait for a token. While waiting, a `wait-<pid>` marker says so, and the runner starts
-        no NEW check while one exists: a worker of a check already running (a long pole, started
-        first) goes before a check that has not started yet."""
-        t = self.try_acquire()
+    def acquire(self, free=None):
+        """Wait for a token. With `free` (a lock file of the caller's own), that lock is tried
+        first and taken instead of a budget token when it is free: it is the ONE worker a nested
+        pool runs on its caller's token, held by whichever of its workers holds the lock now —
+        not by the first worker ever submitted, which starved every later worker of the pool
+        in the first full run (2026-09-23: workspaces.test.sh at one worker for 40 minutes).
+        While waiting, a `wait-<pid>` marker says so, and the runner starts no NEW check while
+        one exists: a worker of a check already running goes before a check not yet started."""
+        t = self._try_free(free) or self.try_acquire()
         if t:
             return t
         marker = os.path.join(self.dir, "wait-%d" % os.getpid())
         open(marker, "w").close()
         try:
             while True:
-                t = self.try_acquire()
+                t = self._try_free(free) or self.try_acquire()
                 if t:
                     return t
                 time.sleep(POLL_SECONDS)
@@ -86,6 +93,18 @@ class Budget:
                 os.remove(marker)
             except OSError:
                 pass
+
+    @staticmethod
+    def _try_free(path):
+        if not path:
+            return None
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return None
+        return Token(fd, path)
 
     def waiting(self):
         """How many nested workers are waiting for a token right now (markers of live pids)."""
@@ -138,6 +157,11 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "held":
         print(Budget(argv[1]).held())
         return 0
+    if len(argv) >= 6 and argv[0] == "run" and argv[2] == "--free" and argv[4] == "--":
+        token = Budget(argv[1]).acquire(free=argv[3])
+        rc = subprocess.run(argv[5:]).returncode
+        token.release()
+        return rc if rc >= 0 else 128 - rc
     if len(argv) >= 4 and argv[0] == "run" and argv[2] == "--":
         token = Budget(argv[1]).acquire()
         # The child must not inherit the token's descriptor: if it outlived this process it would

@@ -250,6 +250,26 @@ else
     bad "F9  the worker budget bounds the pool" "without a budget ${FREE_MAX:-?} at once, with one token ${BOUND_MAX:-?} (want <= 2), rc=$RH_RC"
 fi
 
+# --- F10: with every budget token taken elsewhere, the pool still finishes on its free slot --
+# The first version gave the free slot to the first worker ever submitted; every later worker
+# of the pool then needed a budget token, and with the budget busy the pool ran one worker for
+# 40 minutes in the first full run (2026-09-23). Here another holder keeps the budget's only
+# token for the whole run: all six mutants must still be proven, one at a time.
+rm -f "$PROBE"/*
+python3 -c 'import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_RDWR); fcntl.flock(fd, fcntl.LOCK_EX); open(sys.argv[2], "w").close(); time.sleep(120)' \
+    "$BUDGET/token-000" "$PROBE/holding" &
+HOLDER=$!
+for _ in $(seq 1 50); do [ -f "$PROBE/holding" ] && break; sleep 0.1; done
+RICHOS_WORKER_TOKENS="$BUDGET" RICHOS_MUTANT_JOBS=4 run_h h9.sh
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+HELD_MAX="$(sort -n "$PROBE/concurrency" 2>/dev/null | tail -1)"
+if [ "$RH_RC" -eq 0 ] && [ "$(grep -c '^  PASS  par-' <<<"$RH_OUT")" -eq 6 ] && [ "${HELD_MAX:-9}" -le 1 ]; then
+    ok "F10 with the budget's only token held elsewhere, the pool still proves all six mutants on its one free slot (${RH_SECS} s, at most ${HELD_MAX} at once)"
+else
+    bad "F10 the pool never starves on a busy budget" "rc=$RH_RC, proven $(grep -c '^  PASS  par-' <<<"$RH_OUT") of 6, at most ${HELD_MAX:-?} at once"
+fi
+
 # --- F8: an unknown mode is refused, never ignored ----------------------------------
 harness h8.sh mega-lander/tests/named.test.sh no-such-mode "$M_A"
 run_h h8.sh
