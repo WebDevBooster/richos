@@ -455,7 +455,11 @@ while True: time.sleep(.02)
                 start = time.monotonic()
                 with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
                     r.command(*self.process_fixture(), cwd=self.root, timeout=1)
-                self.assertLess(time.monotonic() - start, 8)
+                # The supervisor gives EXIT traps eight seconds to clean up.
+                # Bound this by the caller's complete cleanup allowance rather
+                # than the former, shorter grace period.
+                self.assertLess(time.monotonic() - start,
+                                1 + m.TERM_GRACE + 2 * m.KILL_GRACE + 2)
             for i in range(3):
                 self.assert_pid_gone(int((self.root / f"pid{i}").read_text()))
             self.assertIsNone(sentinel.poll())
