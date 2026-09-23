@@ -91,8 +91,9 @@ else
          "ORG_GRADLE_PROJECT_richos.firebase.apiKey=release-smoke" \
          "ORG_GRADLE_PROJECT_richos.firebase.senderId=release-smoke" \
          "$RANDROID" bundle --allow-dirty >"$SCRATCH/bundle.json" 2>"$SCRATCH/bundle.err"; then
-      SMOKE_AAB="$(ls "$SCRATCH"/release/RichConnect-*.aab 2>/dev/null | head -1)"
-      if [ -z "$SMOKE_AAB" ]; then bad "bundle reported success but wrote no .aab"
+      SMOKE_AABS=("$SCRATCH"/release/RichConnect-*.aab)
+      SMOKE_AAB="${SMOKE_AABS[0]}"
+      if [ ! -f "$SMOKE_AAB" ]; then bad "bundle reported success but wrote no .aab"
       elif "$RANDROID" verify-bundle "$SMOKE_AAB" >/dev/null 2>&1; then
         bad "verify-bundle accepted a bundle signed by a key that is not the committed upload certificate"
       fi
