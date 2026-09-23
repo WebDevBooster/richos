@@ -77,9 +77,9 @@ struct TakeoverView: View {
             SixWords(words: words, small: smallDevice).padding(.top, 26)
         case .pairStale:
             BigMark()
-            Eyebrow("A newer RichOS is needed")
+            Eyebrow("Newer app version needed")
             Heading("This saved session needs a newer app", small: smallDevice)
-            Lede("Your data has been kept. Update RichOS and everything picks up where it left off.")
+            Lede("Your data has been kept. Update this RichConnect app and everything picks up where it left off.")
         case .consent:
             Eyebrow("Before your first message")
             Heading("Where your words go", small: smallDevice)
@@ -316,8 +316,8 @@ struct ConsentRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             row(.mac, "What you type or say goes to your Mac.", "Your conversation lives there, not on our servers.")
-            row(.spark, "Rich on your Mac sends it to its AI provider to write the reply.", "The provider set up on your Mac. You can change it there.")
-            row(.cloud, "Our connection service carries it to your Mac and keeps nothing.", "Encrypted on the way, stored nowhere.")
+            row(.spark, "Rich (powered by your AI provider) writes the reply there.", "So, all the AI work happens on your Mac.")
+            row(.cloud, "Our connection service just moves the messages between your Mac and your phone.", "Encrypted on the way, stored nowhere.")
         }
     }
 

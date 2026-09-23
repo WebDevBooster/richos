@@ -141,6 +141,10 @@ struct EmptyConversation: View {
             Text("Your conversation will appear here.")
                 .type(Typography.read)
                 .foregroundStyle(palette.inkSoft)
+            Text("Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don't need to hold and can scroll.")
+                .type(Typography.read)
+                .foregroundStyle(palette.inkSoft)
+                .padding(.top, 12)
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 24)
