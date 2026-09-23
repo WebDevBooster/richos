@@ -65,6 +65,10 @@ fi
 KEY="$(printf '%s' "$NATIVE" | shasum -a 256 | cut -c1-10)"
 CACHE="${RICHOS_NATIVE_IOS_UI_CACHE:-$VOLUME/caches/richos-native-ios-ui/$KEY}"
 case "$CACHE" in "$VOLUME"/*) ;; *) not_run "RICHOS_NATIVE_IOS_UI_CACHE must be on $VOLUME" ;; esac
+CACHE="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$CACHE")"
+if [ "${RICHOS_SIMULATOR_CACHE_HELD:-}" != "$CACHE" ]; then
+  exec python3 "$DIR/lib/simulator_budget.py" cache "$CACHE" -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 mkdir -p "$CACHE"
 WORK="$(mktemp -d "$CACHE/run.XXXXXX")"
 CREATED=()
@@ -422,7 +426,7 @@ for i in "${!SIM_UDID[@]}"; do
            "$RICHOS_WORKER_TOKENS" --free "$WORK/free.lock" --)
   fi
   ( T0=$(date +%s)
-    if ${TOKEN[@]+"${TOKEN[@]}"} python3 "$DIR/lib/simulator_budget.py" live -- bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
+    if python3 "$DIR/lib/simulator_budget.py" live -- ${TOKEN[@]+"${TOKEN[@]}"} bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
          "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
     echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" ) &
 done

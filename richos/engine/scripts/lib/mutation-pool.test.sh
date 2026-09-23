@@ -52,6 +52,16 @@ bad() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '          %s\n' "
 SANDBOX="$(cd "$(mktemp -d -t mutation-pool-test.XXXXXX)" && pwd -P)"
 trap 'rm -rf "$SANDBOX"; mut_pool_cleanup' EXIT
 
+# This suite measures the pool with sleeping fixture workers, not host capacity.
+# An outer proof run may legitimately lend only one slot. Give this concurrency
+# fixture its own known capacity; cross-run admission is tested separately.
+export RICHOS_WORKER_TOKENS="$SANDBOX/fixture-workers"
+export RICHOS_MACHINE_WORKERS="$RICHOS_WORKER_TOKENS"
+export RICHOS_WORKER_TOKENS_TOOL="$SCRIPT_DIR/worker_tokens.py"
+export RICHOS_WORKER_TOKENS_RESERVED=0
+unset RICHOS_WORKER_SLOT_HELD RICHOS_WORKER_BORROW_LOCK
+python3 "$RICHOS_WORKER_TOKENS_TOOL" init "$RICHOS_WORKER_TOKENS" 4 || exit 1
+
 echo "=== mutation-pool: order, tally, bound, and the killed worker ==="
 
 # ---------------------------------------------------------------------------
@@ -199,6 +209,13 @@ OCC="$SANDBOX/occupancy.log"
 : >"$OCC"
 body_occupy() { # <n>
     printf 'START\n' >>"$OCC"
+    # First-wave rendezvous measures actual overlap without a machine-speed assertion.
+    if [ "$1" -le 3 ]; then
+        local tries=0
+        while [ "$(grep -c START "$OCC")" -lt 3 ] && [ "$tries" -lt 200 ]; do
+            sleep 0.05; tries=$((tries + 1))
+        done
+    fi
     sleep 0.6
     printf 'STOP\n' >>"$OCC"
     printf '  PASS  worker-%s\n' "$1"
@@ -215,23 +232,18 @@ done
 mut_pool_drain >"$SANDBOX/p4.out" 2>&1
 P4_WALL=$(( $(sw_now_ms) - P4_T0 ))
 
-# Nine workers of 0.6s each is 5.4s of work. Serial would be >= 5.4s; at three
-# at a time the floor is about 1.8s. The threshold is deliberately loose (< 4s)
-# so a loaded machine does not make this flaky, while still being impossible for
-# a serial implementation to reach.
-if [ "$P4_WALL" -lt 4000 ]; then
-    ok "P4. concurrency-actually-happens (9x0.6s=5.4s of work in $(sw_fmt "$P4_WALL"))"
-else
-    bad "P4. concurrency-actually-happens" \
-        "wall $(sw_fmt "$P4_WALL") for 5.4s of work at degree 3 — that is serial or worse"
-fi
-
+# Check the overlap itself. Wall time includes admission and supervision and is
+# reported, but a busy host must not turn correct throttling into a false failure.
 PEAK="$(awk '/START/{c++; if (c>m) m=c} /STOP/{c--} END{print m+0}' "$OCC")"
-if [ "$PEAK" -ge 2 ] && [ "$PEAK" -le 3 ]; then
+if [ "$PEAK" -ge 2 ]; then
+    ok "P4. concurrency-actually-happens (peak=$PEAK, wall $(sw_fmt "$P4_WALL"))"
+else
+    bad "P4. concurrency-actually-happens" "the fixture workers never overlapped (peak=$PEAK)"
+fi
+if [ "$PEAK" -ge 1 ] && [ "$PEAK" -le 3 ]; then
     ok "P5. observed-peak-occupancy-respects-the-degree (peak=$PEAK, limit=3)"
 else
-    bad "P5. observed-peak-occupancy-respects-the-degree" \
-        "peak concurrent workers was $PEAK against a declared limit of 3"
+    bad "P5. observed-peak-occupancy-respects-the-degree" "peak $PEAK exceeded the declared limit of 3"
 fi
 if [ "$MUT_POOL_PASS" -eq 9 ]; then
     ok "P5b. every-submitted-worker-ran (9/9)"

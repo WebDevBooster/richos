@@ -13,6 +13,18 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:?usage: simulator-tests.sh <output directory>}"
 case "$OUT" in /Volumes/E1TB/*) ;; *) echo "simulator-tests: the output directory must be on /Volumes/E1TB" >&2; exit 2 ;; esac
+BUDGET="$HERE/../../app/scripts/lib/simulator_budget.py"
+if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
+  exec python3 "$HERE/../../engine/scripts/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
+fi
+OUT="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$OUT")"
+if [ "${RICHOS_SIMULATOR_CACHE_HELD:-}" != "$OUT" ]; then
+  exec python3 "$BUDGET" cache "$OUT" -- bash "${BASH_SOURCE[0]}" "$@"
+fi
+if [ "${RICHOS_PLATFORM_SIM_SLOT:-}" != "$OUT" ]; then
+  export RICHOS_PLATFORM_SIM_SLOT="$OUT"
+  exec python3 "$BUDGET" live -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 mkdir -p "$OUT/logs"
 rm -rf "$OUT/snapshots" "$OUT/result.xcresult"
 
@@ -30,7 +42,7 @@ trap cleanup EXIT HUP INT TERM
 python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
   --owner-pid $$ --script simulator-tests.sh >/dev/null || { echo "FAIL device ownership registration" >&2; exit 1; }
 
-xcrun simctl boot "$UDID" && xcrun simctl bootstatus "$UDID" -b >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
+python3 "$BUDGET" boot -- bash -c 'xcrun simctl boot "$1" && xcrun simctl bootstatus "$1" -b' simulator-boot "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
 xcrun simctl privacy "$UDID" grant microphone dev.richos.native.ios >/dev/null 2>&1 || true
 
 TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \

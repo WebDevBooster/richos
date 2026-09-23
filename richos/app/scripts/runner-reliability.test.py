@@ -155,13 +155,42 @@ class Reliability(unittest.TestCase):
             wrapper.wait(timeout=10)
         self.assertEqual(worker_tokens.Budget(self.path / 'simulator-live-v1', shared=False).held(), 0)
 
+    def test_simulator_cache_lock_is_shared_by_path_and_separate_from_live_slots(self):
+        with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}):
+            cache = self.path / 'checkout-cache'
+            first = simulator_budget.acquire('cache', cache=str(cache))
+            other = simulator_budget.acquire('cache', cache=str(self.path / 'another-checkout'))
+            live = simulator_budget.acquire('live')
+            try:
+                with self.assertRaises(TimeoutError):
+                    simulator_budget.acquire('cache', timeout=.1, cache=str(cache / '..' / cache.name))
+            finally:
+                first.release()
+                other.release()
+                live.release()
+            simulator_budget.acquire('cache', cache=str(cache)).release()
+
+    def test_existing_simulators_block_admission_and_unreadable_inventory_fails_closed(self):
+        quiet = dict(cpu_user_percent=10, cpu_system_percent=5, memory_pressure='normal', swapout_mb_per_s=0)
+        with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}):
+            with self.assertRaises(TimeoutError):
+                simulator_budget.acquire('boot', timeout=.05, sampler=lambda: quiet, inventory=lambda: 2)
+            def broken():
+                raise ValueError('unreadable inventory')
+            with self.assertRaises(ValueError):
+                simulator_budget.acquire('boot', sampler=lambda: quiet, inventory=broken)
+            simulator_budget.acquire('boot', sampler=lambda: quiet, inventory=lambda: 1).release()
+        data = SimpleNamespace(stdout=json.dumps({'devices': {'runtime': [
+            {'state': 'Booted'}, {'state': 'Shutdown'}, {'state': 'Booted'}]}}))
+        self.assertEqual(simulator_budget.booted_devices(runner=lambda *a, **kw: data), 2)
+
     def test_simulator_boot_serializes_and_refuses_saturated_host(self):
         quiet = dict(cpu_user_percent=10, cpu_system_percent=5, memory_pressure='normal', swapout_mb_per_s=0)
         with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}):
-            lease = simulator_budget.acquire('boot', sampler=lambda: quiet)
+            lease = simulator_budget.acquire('boot', sampler=lambda: quiet, inventory=lambda: 0)
             try:
                 with self.assertRaises(TimeoutError):
-                    simulator_budget.acquire('boot', timeout=.1, sampler=lambda: quiet)
+                    simulator_budget.acquire('boot', timeout=.1, sampler=lambda: quiet, inventory=lambda: 0)
             finally:
                 lease.release()
         self.assertTrue(simulator_budget.boot_admitted(quiet))
@@ -199,6 +228,31 @@ class Reliability(unittest.TestCase):
             finally:
                 for token in held:
                     token.release()
+
+    def test_interrupt_records_cancelled_checks_and_stops_owned_work(self):
+        record = self.path / 'started'
+        logdir = self.path / 'interrupted'
+        script = self.path / 'run.py'
+        child_code = 'import os,sys,time;open(sys.argv[1],"w").write(str(os.getpid()));time.sleep(60)'
+        script.write_text(
+            'import sys,importlib.util\nfrom types import SimpleNamespace\n'
+            + 's=importlib.util.spec_from_file_location("proof_run",' + repr(pr.__file__) + ')\n'
+            + 'pr=importlib.util.module_from_spec(s);s.loader.exec_module(pr)\n'
+            + 'args=SimpleNamespace(capacity=1,sample_every=.1,max_cpu=80,keep_going=False,admission_wait=10,deadline=60,budget=60)\n'
+            + 'items=[pr.Item("running",' + repr(str(self.path)) + ',[sys.executable,"-c",'
+            + repr(child_code) + ',' + repr(str(record)) + '],weight=2),'
+            + 'pr.Item("pending",' + repr(str(self.path)) + ',[sys.executable,"-c","raise SystemExit(0)"],weight=1)]\n'
+            + 'pr.run(items,args,' + repr(str(logdir)) + ',sampler=lambda:dict(cpu_user_percent=1,cpu_system_percent=1,memory_pressure="normal",swapout_mb_per_s=0))\n')
+        wrapper = subprocess.Popen([sys.executable, str(script)],
+            env={**os.environ, 'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')},
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.children.append(wrapper)
+        child = self.wait_file(record)
+        wrapper.terminate()
+        self.assertEqual(wrapper.wait(timeout=15), 130)
+        self.wait_gone(child)
+        rows = json.loads((logdir / 'progress.json').read_text())
+        self.assertEqual([row['state'] for row in rows], ['cancelled', 'cancelled'])
 
     def test_first_failure_cancels_pending_checks(self):
         args = SimpleNamespace(capacity=1, sample_every=.1, max_cpu=80, keep_going=False,

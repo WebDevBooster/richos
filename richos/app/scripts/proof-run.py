@@ -48,7 +48,8 @@ WHAT MUST NOT RUN AT THE SAME TIME, and how that is decided (derived, never type
   * lane `gradle`  every app suite that drives bin/randroid (one Gradle project);
   * lane `guest`   every host-screen suite when RICHOS_GUI_HOST names the test VM (one
                    guest, which run-suite.sh locks);
-  * simulators need no lane: every iOS suite creates, boots and deletes its own.
+  * iOS suites own their devices. Shared simulator limits serialize boots and cap live devices;
+    per-cache locks prevent independent runs from replacing one another's build or device state.
 
 ENGINE SHARDS SHARE THIS CHECKOUT. In CI each shard had a machine of its own; here they run side
 by side in one tree. Every unit still has ci-shard.sh's leak canary, so a write outside a sandbox
@@ -321,7 +322,8 @@ def plan(lines, args, logdir, hist):
             shard_labels.append(label)
             items.append(Item(label, engine,
                               ["bash", "scripts/ci-shard.sh", "--units-file", ufile, "--shard", "%s/%d" % (i, k),
-                               "--receipt", os.path.join(receipts, "shard-%s.jsonl" % i)],
+                               "--receipt", os.path.join(receipts, "shard-%s.jsonl" % i)] +
+                              ([] if getattr(args, "keep_going", False) else ["--fail-fast"]),
                               None, sum(weight.get(u, 60.0) for u in per[i])))
             items[-1].notes.append("%d unit(s): %s" % (len(per[i]), ", ".join(per[i])))
         items.append(Item("engine receipts", engine,

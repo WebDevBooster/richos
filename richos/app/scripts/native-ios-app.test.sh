@@ -14,10 +14,6 @@ ROOT="$(cd "$DIR/../../.." && pwd)"
 if [ -z "${RICHOS_WORKER_TOKENS:-}" ]; then
   exec python3 "$ROOT/richos/engine/scripts/lib/worker_tokens.py" machine -- bash "${BASH_SOURCE[0]}" "$@"
 fi
-if [ "${RICHOS_NATIVE_APP_SLOT:-}" != "$ROOT" ]; then
-  export RICHOS_NATIVE_APP_SLOT="$ROOT"
-  exec python3 "$DIR/lib/simulator_budget.py" live -- bash "${BASH_SOURCE[0]}" "$@"
-fi
 NATIVE="$ROOT/richos/mobile/native-ios"
 RIOS="$NATIVE/bin/rios"
 VOLUME=/Volumes/E1TB
@@ -34,6 +30,13 @@ xcrun simctl list runtimes 2>/dev/null | grep -q '^iOS .*com.apple.CoreSimulator
 # every run and deleted at the end, however the run ends.
 KEY="$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-10)"
 export RICHOS_NATIVE_IOS_CACHE="$VOLUME/caches/richos-native-ios-proof/$KEY-app"
+if [ "${RICHOS_SIMULATOR_CACHE_HELD:-}" != "$RICHOS_NATIVE_IOS_CACHE" ]; then
+  exec python3 "$DIR/lib/simulator_budget.py" cache "$RICHOS_NATIVE_IOS_CACHE" -- bash "${BASH_SOURCE[0]}" "$@"
+fi
+if [ "${RICHOS_NATIVE_APP_SLOT:-}" != "$ROOT" ]; then
+  export RICHOS_NATIVE_APP_SLOT="$ROOT"
+  exec python3 "$DIR/lib/simulator_budget.py" live -- bash "${BASH_SOURCE[0]}" "$@"
+fi
 SCRATCH="$(mktemp -d "$VOLUME/tmp/native-ios-app.XXXXXX")" || { echo '  FAIL  scratch directory'; exit 1; }
 # However the run ends: the simulator is shut down and deleted, and the scratch removed.
 trap '"$RIOS" sim stop >"$SCRATCH/stop.json" 2>&1 || true; rm -rf "$SCRATCH"' EXIT HUP INT TERM

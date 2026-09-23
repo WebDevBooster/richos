@@ -319,6 +319,7 @@ EMIT_WEIGHTS=""
 LIST_ONLY=0
 VERBOSE=0
 ALLOW_EMPTY=0
+FAIL_FAST=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -338,6 +339,7 @@ while [ "$#" -gt 0 ]; do
         --list) LIST_ONLY=1; shift ;;
         --verbose|-v) VERBOSE=1; shift ;;
         --allow-empty) ALLOW_EMPTY=1; shift ;;
+        --fail-fast) FAIL_FAST=1; shift ;;
         -h|--help) sed -n '/^# Usage:/,/^# =\{10,\}$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unrecognized argument '$1' — see --help" ;;
     esac
@@ -678,6 +680,10 @@ while IFS= read -r id; do
         UNIT_ID="$id" UNIT_RC="$RC" UNIT_EXP="${EXPECT_RC:-0}" UNIT_VERDICT="$VERDICT" \
         UNIT_SECS="$SECS" UNIT_SHARD="${SHARD:-0}" UNIT_SHARDS="$SHARDS" UNIT_SHA="$SHA" \
         python3 "$SCRIPT_DIR/lib/ci-receipts.py" emit >> "$RECEIPT"
+    fi
+    if [ "$FAIL_FAST" -eq 1 ] && [ "$FAILED" -gt 0 ]; then
+        printf 'ci-shard: stopping after the first failed unit; unfinished units have no passing receipt.\n'
+        break
     fi
 done < "$SELECTED"
 

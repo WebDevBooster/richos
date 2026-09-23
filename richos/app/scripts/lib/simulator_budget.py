@@ -5,6 +5,9 @@ A simulator is an OS service tree, not one worker. Keep resource leases through
 shutdown, across checkouts and independent proof/nightly runs. Boot admission
 also measures the host; worker availability alone cannot admit a boot storm.
 """
+import hashlib
+import json
+import subprocess
 import os
 from pathlib import Path
 import sys
@@ -21,8 +24,18 @@ def boot_admitted(sample):
     return not reserve._refusal(sample, 80, 16) and sample["cpu_user_percent"] + sample["cpu_system_percent"] < 90
 
 
-def acquire(kind, timeout=1800, sampler=None):
-    directory = Path(worker_tokens.machine_directory()).parent / ("simulator-" + kind + "-v1")
+def booted_devices(runner=subprocess.run):
+    result = runner(["xcrun", "simctl", "list", "devices", "--json"],
+                    capture_output=True, text=True, check=True, timeout=15)
+    devices = json.loads(result.stdout)["devices"]
+    if not isinstance(devices, dict):
+        raise ValueError("simulator inventory is unreadable")
+    return sum(device["state"] == "Booted" for group in devices.values() for device in group)
+
+
+def acquire(kind, timeout=1800, sampler=None, cache=None, inventory=None):
+    name = kind if kind != "cache" else "cache-" + hashlib.sha256(os.path.realpath(cache).encode()).hexdigest()
+    directory = Path(worker_tokens.machine_directory()).parent / ("simulator-" + name + "-v1")
     worker_tokens.init(directory, 2 if kind == "live" else 1)
     budget = worker_tokens.Budget(directory, runner=True, shared=False)
     deadline = time.monotonic() + timeout
@@ -33,20 +46,23 @@ def acquire(kind, timeout=1800, sampler=None):
             time.sleep(.2)
             continue
         try:
-            if kind == "live" or boot_admitted(sample()):
+            if kind != "boot" or (boot_admitted(sample()) and (inventory or booted_devices)() < 2):
                 return token
         except BaseException:
             token.release()
             raise
         token.release()
-        print("simulator-budget: boot waits for CPU/memory headroom", flush=True)
+        print("simulator-budget: boot waits for CPU/memory headroom or an existing booted device", flush=True)
         time.sleep(min(30, max(0, deadline - time.monotonic())))
     raise TimeoutError("simulator %s admission exceeded %gs" % (kind, timeout))
 
 
 def main(argv):
+    if len(argv) >= 4 and argv[0] == "cache" and argv[2] == "--":
+        env = {**os.environ, "RICHOS_SIMULATOR_CACHE_HELD": os.path.realpath(argv[1])}
+        return worker_tokens.run_command(argv[3:], acquire("cache", cache=argv[1]), env=env, worker=False)
     if len(argv) < 3 or argv[0] not in ("live", "boot") or argv[1] != "--":
-        print("usage: simulator_budget.py live|boot -- COMMAND ...", file=sys.stderr)
+        print("usage: simulator_budget.py live|boot -- COMMAND ... OR cache DIRECTORY -- COMMAND ...", file=sys.stderr)
         return 64
     return worker_tokens.run_command(argv[2:], acquire(argv[0]), worker=False)
 

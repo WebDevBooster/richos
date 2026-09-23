@@ -612,6 +612,23 @@ else
     sed 's/^/          /' "$SANDBOX/out"
 fi
 
+# A failure must reach the outer runner without running the remainder of this shard.
+mk_suite "$E/scripts/lib/00-stop-red.test.sh" 1
+mk_suite "$E/scripts/lib/01-stop-green.test.sh" 0
+FAST_UNITS='scripts/lib/00-stop-red.test.sh,scripts/lib/01-stop-green.test.sh'
+RC="$(run_shard --fail-fast --only-units "$FAST_UNITS" --receipt "$SANDBOX/fast.jsonl")"
+if [ "$RC" = 1 ] && [ "$(wc -l < "$SANDBOX/fast.jsonl" | tr -d ' ')" = 1 ] && ! grep -q '01-stop-green' "$SANDBOX/fast.jsonl"; then
+    ok "S22 fail-fast stops after the failed unit and cannot receipt an unfinished unit"
+else
+    bad "S22 fail-fast continued or wrote an unearned receipt"
+fi
+RC="$(run_shard --only-units "$FAST_UNITS" --receipt "$SANDBOX/continue.jsonl")"
+if [ "$RC" = 1 ] && [ "$(wc -l < "$SANDBOX/continue.jsonl" | tr -d ' ')" = 2 ]; then
+    ok "S22b the explicit full-inventory mode still runs both units"
+else
+    bad "S22b full-inventory mode lost a unit"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "=== ci-shard tests: all $PASS passed ==="
