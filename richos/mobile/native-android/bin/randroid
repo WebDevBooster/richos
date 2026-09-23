@@ -3,8 +3,17 @@
 #
 #   randroid headless <command> [arg]   L1′: the real core, headless, one JVM start, no Gradle
 #   randroid test [core|app|all] [gradle args]   L1: JVM tests (core, CLI; app via Robolectric)
-#   randroid build [debug|release]      assemble an APK
-#   randroid check-release              prove the development bridge is absent from release
+#   randroid build [debug|release]      assemble an APK (release is signed when the upload key is in
+#                                       the environment, see bundle)
+#   randroid bundle [--allow-dirty]     the signed Android App Bundle (.aab) for Google Play, verified
+#                                       as below; needs the upload key and the Firebase values in the
+#                                       environment (richos-hq with-android-signing.py and
+#                                       with-android-firebase.py) and a committed source tree
+#   randroid verify-bundle <file.aab>   check a bundle: signed by the upload key only, permanent ID,
+#                                       base module only, development bridge absent (full dex dump),
+#                                       release security policy (richos/mobile/security)
+#   randroid check-release              the same on the release APK and bundle (bridge, permanent
+#                                       ID, release security policy); signatures when keyed
 #   randroid emu prepare                L2: create + boot this checkout's emulator (-no-window),
 #                                       build, install and launch the debug app
 #   randroid emu refresh                incremental build + reinstall + relaunch
@@ -319,7 +328,9 @@ emu() {
 # byte sequence") and the scan went on with the classes read so far (measured 2026-09-23: 11,139
 # of the debug APK's 17,711). A class is counted only from a complete dump: `complete` is false
 # unless dexdump exited 0 and the classes read equal the class_defs_size every dex header declares.
-bridge_scan() {  # $1 = apk; prints JSON {classes, classHeaders, declaredClasses, complete, bridgeClasses, manifestMarkers}
+# `appEntry` is the positive control: the scan read the app's own MainActivity, so an empty or
+# wrong archive cannot pass for a clean one.
+bridge_scan() {  # $1 = apk; prints JSON {classes, classHeaders, declaredClasses, complete, appEntry, bridgeClasses, manifestMarkers}
   local bt="$ANDROID_HOME/build-tools/36.0.0" manifest
   manifest="$("$bt/aapt2" dump xmltree --file AndroidManifest.xml "$1")"
   python3 - "$bt/dexdump" "$1" "$manifest" <<'PY'
@@ -331,30 +342,241 @@ headers = len(re.findall(rb"^Class #\d+", run.stdout, re.M))
 classes = [c.decode("utf-8", "backslashreplace") for c in re.findall(rb"^\s*Class descriptor\s*:\s*'([^'\n]*)'", run.stdout, re.M)]
 leaks = [c for c in classes if c.startswith("Ldev/richos/android/app/debug/") or c.startswith("Ldev/richos/android/core/dev/")]
 markers = [m for m in ("dev.richos.android.app.debug", "DevBridge", "devbridge") if m in manifest]
+package = re.search(r'A: package="([^"]*)"', manifest)
+code = re.search(r'versionCode\(0x0101021b\)=(\d+)', manifest)
+name = re.search(r'versionName\(0x0101021c\)="([^"]*)"', manifest)
 print(json.dumps({"classes": len(classes), "classHeaders": headers, "declaredClasses": declared, "dexdumpExit": run.returncode,
                   "complete": run.returncode == 0 and declared > 0 and declared == headers == len(classes),
-                  "bridgeClasses": leaks[:20], "bridgeClassCount": len(leaks), "manifestMarkers": markers}))
+                  "appEntry": "Ldev/richos/android/app/MainActivity;" in classes,
+                  "bridgeClasses": leaks[:20], "bridgeClassCount": len(leaks), "manifestMarkers": markers,
+                  "package": package.group(1) if package else None,
+                  "versionCode": int(code.group(1)) if code else None,
+                  "versionName": name.group(1) if name else None}))
 PY
 }
 
-# The release APK must carry none of the bridge. The same scan over the debug APK must FIND it,
-# so a scanner that sees nothing cannot pass for a clean release.
-check_release() {
-  gradle -q :app:assembleRelease :app:assembleDebug >&2 || fail "the release or debug app did not build"
-  local release="$OUT/app/outputs/apk/release/app-release-unsigned.apk" debug="$OUT/app/outputs/apk/debug/app-debug.apk"
-  [ -f "$release" ] && [ -f "$debug" ] || fail "missing APK: $release or $debug"
-  local r d
-  r="$(bridge_scan "$release")"; d="$(bridge_scan "$debug")"
-  python3 - "$r" "$d" "$release" <<'PY'
+# The release security policy (security review 2026-09-23, finding R-1): debuggable, test-only,
+# backup, cleartext and network config, exported components, deep links, bridge markers, read from
+# the merged manifest by richos/mobile/security/release_policy.py. A bundle's manifest is in
+# aapt2's proto format, whose dump writes a typed value as `=false (Raw: "false")` where the binary
+# APK dump writes `=false`; the policy reads the binary form, so the suffix on a typed (unquoted)
+# value is removed first. Measured 2026-09-23: without that, the release bundle "failed" A4 and A6
+# on attributes that were in fact false.
+release_policy() {  # $1 = apk (binary, or a bundle's base as a proto APK); prints the policy's lines, exits with its code
+  "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$1" \
+    | sed -E 's/^( *A: [^"]*=[^" ]+) \(Raw: "[^"]*"\)$/\1/' \
+    | python3 "$HERE/../security/release_policy.py" android-manifest -
+}
+
+# The APK a release or debug build just wrote, named by AGP's own output-metadata.json (the name
+# changes with signing: app-release.apk signed, app-release-unsigned.apk not).
+built_apk() {  # $1 = debug | release
+  python3 - "$OUT/app/outputs/apk/$1" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+meta = json.load(open(os.path.join(d, "output-metadata.json")))
+files = [e["outputFile"] for e in meta["elements"]]
+if len(files) != 1: sys.exit(f"expected one APK in {d}, found {files}")
+print(os.path.join(d, files[0]))
+PY
+}
+
+# The upload key and the Firebase values reach Gradle only as ORG_GRADLE_PROJECT_* variables from
+# the richos-hq wrappers; checked by name, the values are never read or printed here.
+env_has() {  # $1 = prefix, $2... = keys
+  python3 - "$@" <<'PY'
+import os, sys
+prefix, keys = sys.argv[1], sys.argv[2:]
+sys.exit(0 if all(os.environ.get(prefix + k, "").strip() for k in keys) else 1)
+PY
+}
+upload_key_present() { env_has ORG_GRADLE_PROJECT_richos.upload. storeFile storePassword keyAlias keyPassword; }
+firebase_present() { env_has ORG_GRADLE_PROJECT_richos.firebase. projectId appId apiKey senderId; }
+
+# The upload certificate's SHA-256, committed (it is public: Play Console shows it). A test may
+# name another with RANDROID_UPLOAD_CERT_SHA256; the result says which was used.
+expected_upload_sha256() {
+  if [ -n "${RANDROID_UPLOAD_CERT_SHA256:-}" ]; then printf '%s' "$RANDROID_UPLOAD_CERT_SHA256"
+  else tr -d ' \n' < "$HERE/release/upload-certificate.sha256"; fi
+}
+
+JBR_BIN() { printf '%s/bin/%s' "$JAVA_HOME" "$1"; }
+
+# A bundle's base module as a proto-format APK (manifest, resources.pb, dex at the root), which
+# aapt2 and dexdump read as they read any APK, so the bundle gets the same full scan.
+bundle_as_apk() {  # $1 = aab, $2 = output apk; fails on any module besides base
+  python3 - "$1" "$2" <<'PY'
+import sys, zipfile
+aab, out = sys.argv[1:3]
+with zipfile.ZipFile(aab) as z:
+    names = z.namelist()
+    tops = sorted({n.split("/", 1)[0] for n in names})
+    allowed = {"base", "BUNDLE-METADATA", "META-INF", "BundleConfig.pb"}
+    if set(tops) - allowed:
+        sys.exit(f"the bundle has modules or entries the scan does not cover: {sorted(set(tops) - allowed)}")
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as o:
+        o.writestr("AndroidManifest.xml", z.read("base/manifest/AndroidManifest.xml"))
+        o.writestr("resources.pb", z.read("base/resources.pb"))
+        dex = sorted(n for n in names if n.startswith("base/dex/") and n.endswith(".dex"))
+        if not dex: sys.exit("the bundle has no dex")
+        for n in dex: o.writestr(n.rsplit("/", 1)[1], z.read(n))
+PY
+}
+
+# jarsigner verification of a bundle (Play accepts bundles signed this way): every entry signed,
+# one signer, and that signer is the upload certificate. Not `-strict`: an upload certificate is
+# self-signed by design, which -strict reports as an error.
+bundle_signature() {  # $1 = aab; prints JSON {verified, unsignedEntries, signers, sha256}
+  local out certs
+  out="$("$(JBR_BIN jarsigner)" -verify "$1" 2>&1)" || true
+  certs="$("$(JBR_BIN keytool)" -printcert -jarfile "$1" 2>&1)" || true
+  python3 - "$out" "$certs" <<'PY'
+import json, re, sys
+out, certs = sys.argv[1:3]
+sha = re.findall(r"SHA256:\s*([0-9A-F:]+)", certs)
+print(json.dumps({"verified": bool(re.search(r"^jar verified\.", out, re.M)),
+                  "unsignedEntries": "unsigned entries" in out or "jar is unsigned" in out,
+                  "signers": len(re.findall(r"^Signer #\d+:", certs, re.M)), "sha256": sha}))
+PY
+}
+
+apk_signature() {  # $1 = apk; prints JSON {verified, signers, sha256}
+  local out
+  out="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$1" 2>&1)" || true
+  python3 - "$out" <<'PY'
+import json, re, sys
+out = sys.argv[1]
+sha = [":".join(h[i:i+2] for i in range(0, 64, 2)).upper() for h in re.findall(r"certificate SHA-256 digest: ([0-9a-f]{64})", out)]
+print(json.dumps({"verified": "DOES NOT VERIFY" not in out and bool(sha), "signers": len(sha), "sha256": sha}))
+PY
+}
+
+# Verify one bundle file as it will be uploaded. $2 = required versionCode, or empty.
+verify_bundle() {  # $1 = aab, $2 = expected versionCode (optional); JSON on stdout, exit 1 on failure
+  local aab="$1" want="${2:-}" tmp scan sig expected from="committed"
+  need_java
+  [ -f "$aab" ] || fail "no bundle at $aab"
+  [ -n "${RANDROID_UPLOAD_CERT_SHA256:-}" ] && from="RANDROID_UPLOAD_CERT_SHA256"
+  expected="$(expected_upload_sha256)"
+  tmp="$(mktemp -d "$CACHE/verify.XXXXXX")"
+  if ! bundle_as_apk "$aab" "$tmp/base.apk" 2>"$tmp/err"; then
+    local why; why="$(cat "$tmp/err")"; rm -rf "$tmp"; fail "bundle unreadable: $why"
+  fi
+  scan="$(bridge_scan "$tmp/base.apk")"
+  local policy policy_code=0
+  policy="$(release_policy "$tmp/base.apk")" || policy_code=$?
+  rm -rf "$tmp"
+  sig="$(bundle_signature "$aab")"
+  python3 - "$aab" "$scan" "$sig" "$expected" "$from" "$PACKAGE" "$want" "$policy" "$policy_code" <<'PY'
 import json, sys
-r, d, apk = json.loads(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3]
-# A partial dump proves nothing either way: the release is clean only when all of it was read.
-clean = r["complete"] and r["classes"] > 0 and r["bridgeClassCount"] == 0 and not r["manifestMarkers"]
-probe = d["complete"] and d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
-ok = clean and probe
-print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
-                  "result": {"apk": apk, "release": r, "debugProbe": d, "releaseClean": clean, "scannerSeesDebugBridge": probe}}, indent=2))
+aab, scan, sig, expected, source, package, want, policy, policy_code = sys.argv[1:10]
+scan, sig = json.loads(scan), json.loads(sig)
+checks = {
+    "releasePolicy": policy_code == "0",
+    "signedByUploadKeyOnly": sig["verified"] and not sig["unsignedEntries"] and sig["signers"] == 1 and sig["sha256"] == [expected.upper()],
+    "permanentId": scan["package"] == package,
+    "bridgeAbsent": scan["complete"] and scan["appEntry"] and scan["bridgeClassCount"] == 0 and not scan["manifestMarkers"],
+    "versionCode": (scan["versionCode"] or 0) > 1 and (not want or scan["versionCode"] == int(want)),
+}
+ok = all(checks.values())
+print(json.dumps({"ok": ok, "mode": "verify-bundle", "command": "verify-bundle",
+                  "result": {"bundle": aab, "checks": checks, "package": scan["package"],
+                             "versionCode": scan["versionCode"], "versionName": scan["versionName"],
+                             "signer": {**sig, "expected": expected.upper(), "expectedFrom": source},
+                             "releasePolicy": [l.strip() for l in policy.splitlines() if l.strip()],
+                             "scan": {k: scan[k] for k in ("classes", "declaredClasses", "complete", "appEntry", "bridgeClassCount", "bridgeClasses", "manifestMarkers")}}}, indent=2))
 sys.exit(0 if ok else 1)
+PY
+}
+
+# The release APK and the release bundle must carry none of the bridge, must be the permanent ID
+# and must pass the release security policy (release_policy above). The same scan over the debug APK must FIND the bridge, so a scanner that sees nothing cannot
+# pass for a clean release. With the upload key in the environment both are signed and both
+# signatures must be the upload certificate; without it they are unsigned and the result says so.
+check_release() {
+  local keyed=0 flags=()
+  if upload_key_present; then keyed=1; flags=(--no-configuration-cache); fi
+  gradle -q ${flags[@]+"${flags[@]}"} :app:assembleRelease :app:assembleDebug :app:bundleRelease >&2 \
+    || fail "the release APK, the debug APK or the release bundle did not build"
+  local release debug aab tmp
+  release="$(built_apk release)" || fail "no release APK recorded in output-metadata.json"
+  debug="$(built_apk debug)" || fail "no debug APK recorded in output-metadata.json"
+  aab="$OUT/app/outputs/bundle/release/app-release.aab"
+  [ -f "$release" ] && [ -f "$debug" ] && [ -f "$aab" ] || fail "missing: $release, $debug or $aab"
+  tmp="$(mktemp -d "$CACHE/check.XXXXXX")"
+  bundle_as_apk "$aab" "$tmp/base.apk" >&2 || { rm -rf "$tmp"; fail "the release bundle could not be read"; }
+  local r d b rs bs rp bp rpc=0 bpc=0
+  r="$(bridge_scan "$release")"; d="$(bridge_scan "$debug")"; b="$(bridge_scan "$tmp/base.apk")"
+  rp="$(release_policy "$release")" || rpc=$?
+  bp="$(release_policy "$tmp/base.apk")" || bpc=$?
+  rm -rf "$tmp"
+  rs='null'; bs='null'
+  if [ "$keyed" -eq 1 ]; then rs="$(apk_signature "$release")"; bs="$(bundle_signature "$aab")"; fi
+  python3 - "$r" "$d" "$b" "$rs" "$bs" "$release" "$aab" "$PACKAGE" "$(expected_upload_sha256)" "$keyed" "$rp" "$rpc" "$bp" "$bpc" <<'PY'
+import json, sys
+r, d, b, rs, bs = (json.loads(x) for x in sys.argv[1:6])
+apk, aab, package, expected, keyed = sys.argv[6], sys.argv[7], sys.argv[8], sys.argv[9].upper(), sys.argv[10] == "1"
+policy = {"apk": {"ok": sys.argv[12] == "0", "lines": [l.strip() for l in sys.argv[11].splitlines() if l.strip()]},
+          "bundle": {"ok": sys.argv[14] == "0", "lines": [l.strip() for l in sys.argv[13].splitlines() if l.strip()]}}
+def clean(s):  # a partial dump proves nothing either way: clean only when all of it was read
+    return s["complete"] and s["classes"] > 0 and s["appEntry"] and s["bridgeClassCount"] == 0 and not s["manifestMarkers"]
+probe = d["complete"] and d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
+ids = r["package"] == package and b["package"] == package
+if keyed:
+    signed = (rs["verified"] and rs["sha256"] == [expected]
+              and bs["verified"] and not bs["unsignedEntries"] and bs["signers"] == 1 and bs["sha256"] == [expected])
+    signature = {"checked": True, "ok": signed, "expected": expected, "apk": rs, "bundle": bs}
+else:
+    signed = True
+    signature = {"checked": False, "why": "no upload key in this environment; the release outputs are unsigned (richos-hq scripts/with-android-signing.py supplies it)"}
+ok = clean(r) and clean(b) and probe and ids and signed and policy["apk"]["ok"] and policy["bundle"]["ok"]
+print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
+                  "result": {"apk": apk, "bundle": aab, "release": r, "bundleScan": b, "debugProbe": d,
+                             "releaseClean": clean(r), "bundleClean": clean(b), "scannerSeesDebugBridge": probe,
+                             "permanentId": ids, "signature": signature, "releasePolicy": policy}}, indent=2))
+sys.exit(0 if ok else 1)
+PY
+}
+
+# The signed bundle for Google Play. Refuses rather than produce a bundle that would upload and
+# be wrong: unsigned (no upload key), unable to receive notifications (no Firebase values), built
+# from uncommitted source (no commit identifies it), or carrying a stale icon.
+bundle() {
+  local allow_dirty=0
+  [ "${1:-}" = "--allow-dirty" ] && allow_dirty=1
+  upload_key_present || fail "REFUSED: no upload key in the environment; run through richos-hq scripts/with-android-signing.py"
+  firebase_present || fail "REFUSED: no Firebase values in the environment (the app could not receive notifications); run through richos-hq scripts/with-android-firebase.py"
+  local sha dirty=false
+  sha="$(git -C "$HERE" rev-parse HEAD)" || fail "not a git checkout: $HERE"
+  if [ -n "$(git -C "$HERE" status --porcelain -- "$HERE")" ]; then
+    [ "$allow_dirty" -eq 1 ] || fail "REFUSED: uncommitted changes under $HERE; commit first (or --allow-dirty for a test bundle, which the receipt records)"
+    dirty=true
+  fi
+  node "$HERE/release/make-app-icon.cjs" --check >&2 || fail "the launcher icon is stale; run node release/make-app-icon.cjs"
+  # Whole minutes from 2026-01-01T00:00Z to now (UTC): every later bundle has a higher code.
+  local code
+  code="$(python3 -c 'import time,calendar; print((int(time.time()) - calendar.timegm((2026,1,1,0,0,0))) // 60)')"
+  # No configuration cache: its entry would hold the signing values (encrypted, key on the same disk).
+  gradle -q --no-configuration-cache -Prichos.versionCode="$code" :app:bundleRelease >&2 || fail "the release bundle did not build"
+  # RANDROID_RELEASE_DIR: where the bundle and its receipt go (a test sends its throwaway-key bundle
+  # to scratch, so one can never sit beside the real ones).
+  local built="$OUT/app/outputs/bundle/release/app-release.aab" dir="${RANDROID_RELEASE_DIR:-$CACHE/release}" file result
+  [ -f "$built" ] || fail "no bundle at $built"
+  mkdir -p "$dir"
+  file="$dir/RichConnect-$code.aab"
+  cp "$built" "$file"
+  if ! result="$(verify_bundle "$file" "$code")"; then printf '%s\n' "$result" >&2; fail "the bundle failed verification: $file"; fi
+  python3 - "$result" "$sha" "$dirty" "$file" <<'PY'
+import json, sys
+result, sha, dirty, file = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3] == "true", sys.argv[4]
+r = result["result"]
+receipt = {"bundle": file, "commit": sha, "dirty": dirty, "package": r["package"],
+           "versionCode": r["versionCode"], "versionName": r["versionName"],
+           "signerSha256": r["signer"]["sha256"], "signerExpectedFrom": r["signer"]["expectedFrom"],
+           "checks": r["checks"]}
+with open(file[:-4] + ".json", "w") as out:
+    json.dump(receipt, out, indent=2); out.write("\n")
+print(json.dumps({"ok": True, "mode": "bundle", "command": "bundle", "result": receipt}, indent=2))
 PY
 }
 
@@ -381,12 +603,21 @@ case "$mode" in
   build)
     case "${1:-debug}" in
       debug) gradle -q :app:assembleDebug; echo "$OUT/app/outputs/apk/debug/app-debug.apk" ;;
-      release) gradle -q :app:assembleRelease; echo "$OUT/app/outputs/apk/release/app-release-unsigned.apk" ;;
+      release)
+        # Signed with the upload key when it is in the environment; then no configuration cache,
+        # whose entry would hold the signing values.
+        if upload_key_present; then gradle -q --no-configuration-cache :app:assembleRelease
+        else gradle -q :app:assembleRelease; fi
+        built_apk release ;;
       *) fail "build takes debug or release" ;;
     esac ;;
+  bundle) bundle "$@" ;;
+  verify-bundle)
+    [ "$#" -ge 1 ] || fail "verify-bundle takes the path of an .aab"
+    verify_bundle "$1" ;;
   check-release) check_release ;;
   emu) emu "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac
