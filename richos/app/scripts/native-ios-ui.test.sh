@@ -63,16 +63,15 @@ case "$CACHE" in "$VOLUME"/*) ;; *) not_run "RICHOS_NATIVE_IOS_UI_CACHE must be 
 mkdir -p "$CACHE"
 WORK="$(mktemp -d "$CACHE/run.XXXXXX")"
 CREATED=()
-cleanup() {
-  local udid
-  for udid in "${CREATED[@]:-}"; do
-    [ -n "$udid" ] || continue
-    xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-    xcrun simctl delete "$udid" >/dev/null 2>&1 || true
-  done
-  rm -rf "$WORK"
-}
-trap cleanup EXIT
+udid=""
+# However the run ends: every simulator this run created is shut down and deleted, and the work
+# directory removed. Inline, as in native-ios-app.test.sh, so no trap-only function trips SC2329.
+trap 'for udid in "${CREATED[@]:-}"; do
+  [ -n "$udid" ] || continue
+  xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+  xcrun simctl delete "$udid" >/dev/null 2>&1 || true
+done
+rm -rf "$WORK"' EXIT
 
 # ------------------------------------------------------------------------------------------------
 # 1. Headless. The core, its fixtures and the app's Foundation-only screen sources compile into one

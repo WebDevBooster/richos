@@ -66,12 +66,18 @@ BASE_ID="$(awk '/RICHOS_BUNDLE_ID:/{print $2; exit}' "$NATIVE/Release/platform.y
 if [ -n "$APP_ID" ] && [ "$APP_ID" = "$BASE_ID" ]; then ok "S4 the app and its extensions share one identity ($APP_ID)"
 else bad "S4 RICHOS_BUNDLE_ID matches the app's identifier" "project.yml '$APP_ID', platform.yml '$BASE_ID'"; fi
 
-# S5 — the preserved iPhone app, its UI and the PWA are byte-unchanged (ceo-decisions §76).
+# S5 — the preserved iPhone app, its UI and the PWA are byte-unchanged (ceo-decisions §76: "preserved
+# as is for now"). What is protected is the PRODUCT: every file of the three trees except their test
+# suites. The suites are excluded on purpose: §76 keeps them running, and a suite may record a defect
+# in the preserved product (tom-opus-pwa1's KNOWN DEFECT tests) without that product changing. The
+# PWA's `test/` is also what build.rs PHONE_NOT_SHIPPED leaves out of the shipped phone app.
 TAG="preserved/mobile-ios-and-pwa-2026-09-22"
+PRESERVED=(richos/mobile/ios richos/mobile/ui richos/web/web-app)
+NOT_PRODUCT=(richos/mobile/ios/Tests richos/mobile/ios/UITests richos/web/web-app/test)
 if git -C "$ROOT" rev-parse -q --verify "$TAG^{commit}" >/dev/null 2>&1; then
-  CHANGED="$(git -C "$ROOT" diff --name-only "$TAG^{commit}" -- richos/mobile/ios richos/mobile/ui richos/web/web-app)"
-  if [ -z "$CHANGED" ]; then ok "S5 the preserved app, its UI and the PWA are unchanged since $TAG"
-  else bad "S5 the preserved app and PWA are unchanged" "$(echo "$CHANGED" | head -5 | tr '\n' ' ')"; fi
+  CHANGED="$(git -C "$ROOT" diff --name-only "$TAG^{commit}" -- "${PRESERVED[@]}" "${NOT_PRODUCT[@]/#/:(exclude)}")"
+  if [ -z "$CHANGED" ]; then ok "S5 the preserved app, its UI and the PWA are unchanged since $TAG (their test suites excepted: ${NOT_PRODUCT[*]})"
+  else bad "S5 the preserved app, its UI and the PWA are unchanged (test suites excepted)" "$(echo "$CHANGED" | head -5 | tr '\n' ' ')"; fi
 else
   echo "  NOT RUN  S5 the tag $TAG is not in this clone"
 fi
