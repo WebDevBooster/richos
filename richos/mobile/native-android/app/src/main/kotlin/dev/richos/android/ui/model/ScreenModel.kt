@@ -63,6 +63,11 @@ data class ScreenModel(
      */
     val pairingSurface: PairingSurface? = null,
     /**
+     * PLATFORM (the camera behind the scanner): still opening, showing, or not there at all. Review
+     * frames default to [ScannerCamera.READY] and draw round 12's pretend Mac in place of the feed.
+     */
+    val scannerCamera: ScannerCamera = ScannerCamera.READY,
+    /**
      * REVIEW POSE, not state: how far into a transition (the bin, the lock, the send) a frame is
      * drawn, in ms. Null at run time: the screen then animates it from 0 when core's recording
      * ends, and tells core when the transition has played (`voice-settled`).
@@ -393,6 +398,9 @@ enum class PairingSurface(val step: PairingStep) {
     CONSENT(PairingStep.CONSENT),
     NEEDS_NEWER_APP(PairingStep.NEEDS_NEWER_APP),
 }
+
+/** The camera behind the scanner (T3's four scanner states; "denied" is [PairingSurface.CAMERA_DENIED]). */
+enum class ScannerCamera { CHECKING, READY, UNAVAILABLE }
 
 /** Core's retryable send reasons (`TransportFailure.reason` with `retryable = true`). */
 val RETRYABLE: Set<String> = setOf("unreachable", "fault", "rate-limited")

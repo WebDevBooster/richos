@@ -7,7 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.AtomicFile
+import android.graphics.BitmapFactory
 import android.util.Base64
+import dev.richos.android.ui.pairing.QrDecoder
+import dev.richos.android.ui.pairing.pairingEntry
 import dev.richos.android.app.DevHook
 import dev.richos.android.app.richStore
 import dev.richos.android.core.CoreError
@@ -99,6 +102,9 @@ object DevBridge {
             if (command == "identity-check") {
                 return@withLock true to envelope(command, elapsed(), identityCheck())
             }
+            if (command == "scan-image") {
+                return@withLock true to envelope(command, elapsed(), scanImage(context, arg))
+            }
             val request = DevRequest.parse(command, arg)
             val result = runtime(context).execute(request)
             true to JsonObject(
@@ -154,6 +160,31 @@ object DevBridge {
             }
         } finally {
             keys.delete(origin)
+        }
+    }
+
+    /**
+     * An INJECTED picture in place of one camera frame: [base64Png] is decoded to pixels and read
+     * by the scanner's own [QrDecoder], and the text goes to the pairing entry exactly where a
+     * camera frame's goes. The live app's scanner must be open and looking. The link itself is
+     * never echoed (it carries a single-use pairing code); only whether it was read and taken.
+     */
+    private fun scanImage(context: Context, base64Png: String?): JsonElement {
+        val bytes = base64Png?.let { runCatching { Base64.decode(it.trim(), Base64.DEFAULT) }.getOrNull() }
+            ?: throw CoreError("scan-image needs a base64 PNG or JPEG")
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw CoreError("scan-image could not decode the picture")
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val text = QrDecoder.decodeArgb(pixels, bitmap.width, bitmap.height)
+        val entry = context.pairingEntry
+        val surface = entry.states.value.surface
+        val taken = text != null && entry.scanned(text)
+        return buildJsonObject {
+            put("decoded", text != null)
+            put("characters", text?.length ?: 0)
+            put("scannerWas", surface?.name ?: "CLOSED")
+            put("taken", taken)
+            put("scannerNow", entry.states.value.surface?.name ?: "CLOSED")
         }
     }
 

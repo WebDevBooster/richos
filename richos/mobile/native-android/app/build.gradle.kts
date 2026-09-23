@@ -115,6 +115,13 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // The pairing scanner (ui/pairing): CameraX for the preview and frames, ZXing to read the QR on
+    // the phone. Both open source, no network, no Google account and no Play services. Written as
+    // coordinates, not catalog entries, so this stream touches only these lines of the shared files.
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
+    implementation("com.google.zxing:core:3.5.4")
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

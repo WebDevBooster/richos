@@ -12,6 +12,11 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Rich's replies as notifications (Android 13+ asks; FCM data messages). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Scanning the Mac's pairing code; asked only when Scan is tapped. A phone without a camera
+         still installs and pairs with a link, so the features the permission implies are optional. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:name=".app.RichApplication"

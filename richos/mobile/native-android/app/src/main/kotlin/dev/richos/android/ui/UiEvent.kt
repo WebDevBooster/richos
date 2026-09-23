@@ -50,6 +50,9 @@ sealed interface UiEvent {
     data object NearOldest : UiEvent
 
     // --- pairing ------------------------------------------------------------------------------
+    // Scan, Pair again, Close the scanner and Discard and pair are the PLATFORM's (the camera, the
+    // scanner on screen): `ui/pairing/PairingEntry` handles them before [toAction] is asked, and a
+    // code it reads reaches core as `pair`, the action a pasted link reaches.
     data object ScanCode : UiEvent
     data object UsePairingLink : UiEvent
     /** A pairing link, scanned or pasted: core pairs with it. */
@@ -107,6 +110,10 @@ fun UiEvent.toAction(): Action? = when (this) {
     is UiEvent.ChooseTheme -> Action.SetTheme(theme)
     is UiEvent.PairWithLink -> Action.Pair(link)
     UiEvent.WordsMatch -> Action.ConfirmWords(true)
+    // The dialog about unsent work in the way of pairing: send what waits (core's retry), or keep
+    // things as they are (closing clears core's refusal, and the dialog with it).
+    UiEvent.SendWaitingFirst -> Action.Retry
+    UiEvent.KeepThisPairing -> Action.CloseSheet
     UiEvent.WordsDoNotMatch -> Action.ConfirmWords(false)
     // Voice (core `Voice.kt`, the round-12 thresholds).
     is UiEvent.VoiceDown -> Action.VoicePress(id, widthDp.toDouble(), at)
@@ -143,8 +150,8 @@ val NOT_YET_IN_CORE: List<String> = listOf(
     "play a kept recording, a voice message, a reply (platform audio)",
     "play a voice message; hear / stop a reply",
     "load older history on reaching the oldest message",
-    "pairing surfaces core does not model: the camera scan result, consent, pair again, the blocked-by-unsent choices",
-    "(built: pair with a link, words match / do not match, forget — core c2a1a20a)",
+    "pairing surfaces core does not model: consent",
+    "(built: pair with a link, words match / do not match, forget — core c2a1a20a; the scanner, the camera, the link sheet, pair again and the blocked-by-unsent choices — ui/pairing)",
     "check for updates (the Settings row)",
     "show the waiting messages (from the forget refusal)",
     "photos and files: pick, tray, send, stop, retry, the Mac's limits and types; Share to Rich",

@@ -31,6 +31,7 @@ import dev.richos.android.ui.model.Overlay
 import dev.richos.android.ui.model.PairingSurface
 import dev.richos.android.ui.model.ReplyAudio
 import dev.richos.android.ui.model.ScreenModel
+import dev.richos.android.ui.model.ScannerCamera
 import dev.richos.android.ui.model.ScrollPose
 import dev.richos.android.ui.model.ShadeNotification
 import java.time.Instant
@@ -384,8 +385,37 @@ object ScreenCatalog {
         ScreenSpec("launch-cached", 11, "67", "Launch with cached history") { fullModel() },
     )
 
-    /** Round 12's 67, then the attachments append's 39 (`attach/screens.js`), every id unique. */
-    val all: List<ScreenSpec> = round12 + AttachCatalog.specs({ edit -> convoModel(edit) }, { edit -> fullModel(edit) })
+    /**
+     * The way in to pairing's states that round 12 does not draw, each derived from what it does:
+     * the pairing link sheet (the iPhone's `PairingLinkSheet`, round-12 `.linkfield`), the scanner
+     * while its camera opens and with no camera (T3's scanner states, adoption ledger P1), and the
+     * unsent-work dialog over "removed from your Mac", where "Pair again" leads.
+     */
+    val pairingEntry: List<ScreenSpec> = listOf(
+        ScreenSpec("pair-link", 1, "2+", "Use a pairing link", Applies.Adapted("the iPhone's sheet; round 12 draws only the link button")) {
+            unpaired { it.copy(sheet = Sheet.PAIRING_LINK) }
+        },
+        ScreenSpec("pair-link-refused", 1, "2+", "Pairing link refused", Applies.Adapted("core's sentence under the field, as the iPhone shows it")) {
+            unpaired { it.copy(sheet = Sheet.PAIRING_LINK) }.copy(refusal = "Pairing requires an HTTPS origin")
+        },
+        ScreenSpec("pair-scanner-opening", 1, "2+", "Scanner: the camera opening", Applies.Adapted("T3's “checking” state")) {
+            unpaired().copy(pairingSurface = PairingSurface.SCANNING, scannerCamera = ScannerCamera.CHECKING)
+        },
+        ScreenSpec("pair-scanner-unavailable", 1, "2+", "Scanner: no camera", Applies.Adapted("T3's “unavailable” state; the iPhone's words")) {
+            unpaired().copy(pairingSurface = PairingSurface.SCANNING, scannerCamera = ScannerCamera.UNAVAILABLE)
+        },
+        ScreenSpec("pair-removed-blocked", 1, "7+", "Pair again, blocked by unsent work", Applies.Adapted("round 12's `pair-blocked` over `conn-revoked`")) {
+            unpaired {
+                it.copy(
+                    pairing = it.pairing.copy(problem = "revoked"),
+                    outbox = listOf(pending("mobile-1", "Move the Friday review to 3 PM.", OutboxState.WAITING)),
+                )
+            }.copy(refusal = RichCore.UNSENT_BEFORE_PAIRING)
+        },
+    )
+
+    /** Round 12's 67, the attachments append's 39 (`attach/screens.js`), then the pairing entry's; every id unique. */
+    val all: List<ScreenSpec> = round12 + AttachCatalog.specs({ edit -> convoModel(edit) }, { edit -> fullModel(edit) }) + pairingEntry
 
     fun byId(id: String): ScreenSpec = all.firstOrNull { it.id == id } ?: throw IllegalArgumentException("Unknown screen: $id. Known: ${all.joinToString(" ") { it.id }}")
 

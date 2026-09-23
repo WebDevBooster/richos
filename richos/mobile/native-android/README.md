@@ -58,6 +58,23 @@ separate launches of the app would.
 physical phone may be attached. `emu stop` signals only the PID captured when the emulator was
 spawned. At most one emulator per checkout, `-no-window`, stopped as soon as a run ends.
 
+## Pairing the emulator with an isolated test Mac
+
+The app is unchanged: it pairs over real HTTPS on the default trust store. Two helpers in `bin/`:
+
+```sh
+RICHOS_MOBILE_CACHE=<scratch>/lab RICHOS_MOBILE_MAC_ORIGIN=https://localhost:8443 \
+  node richos/mobile/cli/mobile.mjs lab mac          # the production Rust listener, own identity
+bin/emu-pair-front.mjs serve --upstream <lab port> --dir <scratch>/front   # TLS front, throwaway CA
+bin/emu-pair-front.mjs trust --serial emulator-NNNN --ca <scratch>/front/ca.pem --reverse 8443:<front port>
+bin/emu-pair-front.mjs qr --text-file <link file> --out qr.png            # the link as a QR picture
+bin/emu-ui.py --serial emulator-NNNN tap "Use a pairing link instead"     # drive by the words on screen
+```
+
+`trust` touches only an emulator (a google_apis image, `adb root`) and lasts until it reboots. A
+QR picture goes through the scanner's own reader with the debug bridge's `scan-image` (base64 of
+the picture as its argument; the scanner must be open). Stop the lab and the front with SIGTERM.
+
 ## Where things go
 
 Nothing is built into the source tree. `bin/randroid` puts build output, the Gradle project

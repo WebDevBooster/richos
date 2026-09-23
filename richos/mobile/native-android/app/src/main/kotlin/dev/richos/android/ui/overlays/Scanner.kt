@@ -38,7 +38,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -60,23 +62,36 @@ import dev.richos.android.design.RichIcons
 import dev.richos.android.design.RichMotion
 import dev.richos.android.design.RoundButton
 import dev.richos.android.design.touchTarget
+import androidx.compose.ui.text.font.FontWeight
+import dev.richos.android.design.Spinner
 import dev.richos.android.ui.UiEvent
+import dev.richos.android.ui.model.ScannerCamera
 
 /**
  * 2 · The QR scanner: a full-screen camera with a gold viewfinder whose beam says it is looking.
- * Dark in both themes (it is a camera view). [camera] is the live preview, supplied by the
- * platform stream; without one (review frames, headless) a drawing of a Mac showing its code
- * stands in, as in round 12.
+ * Dark in both themes (it is a camera view). [camera] is the live preview (`ui/pairing/CameraFeed`);
+ * without one (review frames, headless) a drawing of a Mac showing its code stands in, as in
+ * round 12. [status] is the camera's: the viewfinder and its words show once it is showing; while
+ * it opens, a spinner; with no camera at all, the words that say so and the link beneath (the
+ * iPhone's `unavailable`, T3's design).
  */
 @Composable
-fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () -> Unit)? = null) {
+fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () -> Unit)? = null, status: ScannerCamera = ScannerCamera.READY) {
     val f = RichColors.Fixed
     val t = Rich.type
     BoxWithConstraints(Modifier.fillMaxSize().background(f.scannerScene).semantics { testTag = "scanner" }) {
-        if (camera != null) camera() else PretendMacScene()
+        if (camera != null) camera() else if (status == ScannerCamera.READY) PretendMacScene()
         val finder = 250.dp
         val centerY = maxHeight * 0.45f
-        Viewfinder(found, Modifier.align(Alignment.TopCenter).offset(y = centerY - finder / 2).size(finder))
+        // A live camera can show anything, a white wall included: outside the viewfinder it is
+        // dimmed so every word on it clears its floor over a WHITE frame (ContrastTest, "scanner
+        // over a live camera"). Round 12's drawn scene is dark already, so review frames stay as drawn.
+        if (camera != null && status == ScannerCamera.READY) CameraDim(centerY - finder / 2, finder)
+        if (status == ScannerCamera.READY) {
+            Viewfinder(found, Modifier.align(Alignment.TopCenter).offset(y = centerY - finder / 2).size(finder))
+        } else {
+            CameraNotShowing(status, Modifier.align(Alignment.Center).padding(horizontal = 36.dp))
+        }
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp),
@@ -91,7 +106,7 @@ fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () 
                 Box(Modifier.size(52.dp))
             }
         }
-        Column(
+        if (status == ScannerCamera.READY) Column(
             Modifier.align(Alignment.TopCenter).padding(top = centerY + 150.dp, start = 24.dp, end = 24.dp).fillMaxWidth()
                 .semantics { liveRegion = LiveRegionMode.Polite },
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -123,6 +138,43 @@ fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () 
                 RichIcon(RichIcons.Link, f.scannerInk, 18.dp)
                 BasicText("Use a pairing link instead", style = t.readStrong.copy(color = f.scannerInk))
             }
+        }
+    }
+}
+
+/** The live camera dimmed by [RichColors.Fixed.cameraDim], except inside the viewfinder at [top], [size] square. */
+@Composable
+private fun CameraDim(top: androidx.compose.ui.unit.Dp, size: androidx.compose.ui.unit.Dp) {
+    val dim = RichColors.Fixed.cameraDim
+    Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.clearAndSetSemantics { }) {
+        drawRect(dim)
+        val s = size.toPx()
+        drawRoundRect(
+            Color.Black,
+            topLeft = Offset((this.size.width - s) / 2, top.toPx()),
+            size = Size(s, s),
+            cornerRadius = CornerRadius(22.dp.toPx()),
+            blendMode = BlendMode.Clear,
+        )
+    }
+}
+
+/** The camera is opening (a spinner), or there is none to open (what to do instead). */
+@Composable
+private fun CameraNotShowing(status: ScannerCamera, modifier: Modifier) {
+    val f = RichColors.Fixed
+    val t = Rich.type
+    Column(
+        modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (status == ScannerCamera.CHECKING) {
+            Spinner(28.dp, Modifier.semantics { contentDescription = "Opening the camera" })
+        } else {
+            RichIcon(RichIcons.Camera, f.scannerInk, 34.dp)
+            BasicText("The camera is not available", style = t.answer.copy(color = f.scannerInk, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center))
+            BasicText("Use a pairing link instead.", style = t.read.copy(color = f.scannerInkSoft, textAlign = TextAlign.Center))
         }
     }
 }
