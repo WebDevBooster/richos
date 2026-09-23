@@ -127,6 +127,11 @@ object ContrastPairings {
                 "GAP 1, as the trim line: the field is identified by its placeholder or text (4.5:1 or better) and opens focused with the signal edge"),
             Pairing("pairing link refusal sentence (ink on ground)", c.ink, c.ground, Floor.TEXT),
             Pairing("pairing link refusal glyph (danger on ground, non-text)", c.danger, c.ground, Floor.LARGE_OR_INDICATOR),
+            // A live camera may show white: every word on the scanner, over the dim over a white frame.
+            Pairing("scanner over a live camera: caption and title (over the dim over white)", RichColors.Fixed.scannerInk, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White), Floor.TEXT),
+            Pairing("scanner over a live camera: secondary caption (over the dim over white)", RichColors.Fixed.scannerInkSoft, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White), Floor.TEXT),
+            Pairing("scanner over a live camera: link and close chrome (over the dim over white)", RichColors.Fixed.scannerInk,
+                Contrast.over(RichColors.Fixed.scannerChrome, Contrast.over(RichColors.Fixed.cameraDim, androidx.compose.ui.graphics.Color.White)), Floor.TEXT),
             Pairing("scanner: camera not available (scanner ink on the scene)", RichColors.Fixed.scannerInk, RichColors.Fixed.scannerScene, Floor.TEXT),
             Pairing("scanner: the camera opening, spinner arc (signal on the scene, non-text)", c.signal, RichColors.Fixed.scannerScene, Floor.LARGE_OR_INDICATOR),
         )

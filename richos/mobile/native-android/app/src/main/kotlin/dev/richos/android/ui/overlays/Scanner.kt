@@ -38,7 +38,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -81,6 +83,10 @@ fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () 
         if (camera != null) camera() else if (status == ScannerCamera.READY) PretendMacScene()
         val finder = 250.dp
         val centerY = maxHeight * 0.45f
+        // A live camera can show anything, a white wall included: outside the viewfinder it is
+        // dimmed so every word on it clears its floor over a WHITE frame (ContrastTest, "scanner
+        // over a live camera"). Round 12's drawn scene is dark already, so review frames stay as drawn.
+        if (camera != null && status == ScannerCamera.READY) CameraDim(centerY - finder / 2, finder)
         if (status == ScannerCamera.READY) {
             Viewfinder(found, Modifier.align(Alignment.TopCenter).offset(y = centerY - finder / 2).size(finder))
         } else {
@@ -133,6 +139,23 @@ fun Scanner(found: Boolean, onEvent: (UiEvent) -> Unit, camera: (@Composable () 
                 BasicText("Use a pairing link instead", style = t.readStrong.copy(color = f.scannerInk))
             }
         }
+    }
+}
+
+/** The live camera dimmed by [RichColors.Fixed.cameraDim], except inside the viewfinder at [top], [size] square. */
+@Composable
+private fun CameraDim(top: androidx.compose.ui.unit.Dp, size: androidx.compose.ui.unit.Dp) {
+    val dim = RichColors.Fixed.cameraDim
+    Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.clearAndSetSemantics { }) {
+        drawRect(dim)
+        val s = size.toPx()
+        drawRoundRect(
+            Color.Black,
+            topLeft = Offset((this.size.width - s) / 2, top.toPx()),
+            size = Size(s, s),
+            cornerRadius = CornerRadius(22.dp.toPx()),
+            blendMode = BlendMode.Clear,
+        )
     }
 }
 

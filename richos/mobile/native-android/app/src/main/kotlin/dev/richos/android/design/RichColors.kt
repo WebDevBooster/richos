@@ -61,6 +61,11 @@ data class RichColors(
         val scannerInkSoft = Color(0xFFDFE4EE).copy(alpha = 0.78f)
         val scannerChrome = Color(0xFF141E34).copy(alpha = 0.85f)
         val scannerEdge = Color(0xFFDFE4EE).copy(alpha = 0.28f)
+        /**
+         * Over a LIVE camera, outside the viewfinder: the scene at 75%. Over a white frame (the worst
+         * case) the scanner's ink measures 7.6:1 and its soft ink 5.1:1 (ContrastTest).
+         */
+        val cameraDim = Color(0xFF060A12).copy(alpha = 0.75f)
         /** The gold viewfinder: the dark signal, 7.36:1 on the scene (non-text, 3:1 floor). */
         val viewfinder = Color(0xFFC2A35C)
         /** The app icon's mark: the icon does not follow the theme. */
