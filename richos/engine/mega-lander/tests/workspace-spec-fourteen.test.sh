@@ -1312,11 +1312,23 @@ verdict
 # the engine and demands the named SUB-ASSERTION go red. Its verdict is printed
 # here and never folded into the headline below: the headline counts the CEO's
 # checks, and the harness counts the checks' own honesty.
+#
+# ONLY BEFORE NIGHTLIES (CEO, 2026-09-23, "Only before nightlies", esc-20260923T123440Z-b5371531).
+# The pass costs about twelve minutes of the whole Mac (792 s for this unit, measured that day)
+# and it ran on every land that touched the workspace code; the fourteen checks above still do.
+# The nightly's gates/workspace-mutants gate (richos/app/scripts/nightly-local.py) runs this unit
+# with RICHOS_FOURTEEN_MUTANTS=1, where a failed or unproven mutant stops the nightly. Anywhere
+# else the pass says NOT RUN and why; set the variable to run it by hand.
 MUT_RC=""
-if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$HERE/workspace-spec-fourteen.mutation.sh" ] && [ "${RICHOS_FOURTEEN_SKIP_MUTANTS:-0}" != 1 ]; then
-    echo "=== running the mutation harness ==="
-    bash "$HERE/workspace-spec-fourteen.mutation.sh"; MUT_RC=$?
-    echo ""
+if [ -z "${RICHOS_MUTATION_INNER:-}" ] && [ -f "$HERE/workspace-spec-fourteen.mutation.sh" ]; then
+    if [ "${RICHOS_FOURTEEN_MUTANTS:-}" = 1 ]; then
+        echo "=== running the mutation harness ==="
+        bash "$HERE/workspace-spec-fourteen.mutation.sh"; MUT_RC=$?
+        echo ""
+    else
+        echo "  NOT RUN  the mutation harness (86 mutants): it runs before each nightly (CEO 2026-09-23, \"Only before nightlies\"); RICHOS_FOURTEEN_MUTANTS=1 runs it here"
+        echo ""
+    fi
 fi
 
 echo "CHECKS RUN: $CHECKS_RUN  RED: $CHECKS_RED"
