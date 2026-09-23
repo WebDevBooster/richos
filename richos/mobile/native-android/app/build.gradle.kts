@@ -8,8 +8,7 @@ plugins {
 }
 
 android {
-    // The Kotlin package root. `native` is a Java keyword, so the development application ID
-    // below cannot double as the namespace.
+    // Keep the Kotlin package root independent of the permanent application ID.
     namespace = "dev.richos.android"
     // Compile against 37: the current Compose (BOM 2026.09.00, Compose 1.12) and lifecycle 2.11
     // refuse anything lower (checkAarMetadata). The TARGET stays 36, which is what the plan and
@@ -17,8 +16,8 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        // Development ID (Rich, 2026-09-22). The production IDs are the CEO's, later.
-        applicationId = "dev.richos.native.android"
+        // Permanent RichConnect application ID.
+        applicationId = "dev.richos.connect"
         // minSdk 29 / targetSdk 36: build plan §3.3 (system dark theme from 29; Google Play
         // requires target 36 for new apps and updates since 2026-08-31).
         minSdk = 29

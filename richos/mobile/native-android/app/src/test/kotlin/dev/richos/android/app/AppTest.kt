@@ -39,6 +39,13 @@ class AppTest {
     }
 
     @Test
+    fun `push registration uses the installed application ID`() {
+        val context = ApplicationProvider.getApplicationContext<RichApplication>()
+        assertEquals("dev.richos.connect", context.packageName)
+        assertEquals(context.packageName, AppPorts.create(context).applicationId)
+    }
+
+    @Test
     fun `staged files are read by id and never outside their folder`() {
         val dir = File(ApplicationProvider.getApplicationContext<RichApplication>().cacheDir, "staged-test").apply { deleteRecursively(); mkdirs() }
         File(dir, "rec-1").writeBytes(byteArrayOf(7, 8))
