@@ -6,6 +6,8 @@
 
     <!-- The Mac is reached over HTTPS. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Knowing the network came back, to reconnect at once (platform/NetworkWake.kt). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Voice notes (round-12 groups 4-6); asked once, on the first deliberate press. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- The tick when a recording locks. -->

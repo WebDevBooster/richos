@@ -10,6 +10,7 @@ import dev.richos.android.core.ConnectionOwner
 import dev.richos.android.core.Microphone
 import dev.richos.android.platform.AttachmentPicker
 import dev.richos.android.platform.FcmPlatform
+import dev.richos.android.platform.NetworkWake
 import dev.richos.android.platform.Stager
 import dev.richos.android.platform.MicRecorder
 import dev.richos.android.platform.PreviewKeys
@@ -92,6 +93,8 @@ class RichApplication : Application() {
                     val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire)
                     owner = connection
                     scope.launch { connection.run() }
+                    // The network came back: reconnect now, not at the end of a back-off.
+                    NetworkWake.register(this) { connection.wake() }
                 }
             }
             push = platform
