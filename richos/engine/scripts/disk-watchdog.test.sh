@@ -174,6 +174,9 @@ SCRATCH_FAILURES_STATE="$W_FAILS"
 # the other side. Cases that want their own figures append this key AFTER, and a
 # later declaration wins.
 SCRATCH_REAPER_STATE="$W_DIR/reaper-state.json"
+# The same hermeticity for the test-device record: without it W2 would read the
+# operator's own ~/.claude/state/test-device-failures.json.
+TEST_DEVICE_FAILURES_STATE="$W_DIR/test-device-failures.json"
 CFG
 }
 
@@ -597,6 +600,44 @@ if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
     ok "W12c CONTROL: with the failure resolved the alert clears completely"
 else
     bad "W12c the alert did not clear after the failure was resolved (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
+fi
+
+# ===========================================================================
+# W12d — a test simulator left running is Rich's business too (§54, 2026-09-22)
+# ===========================================================================
+# Three simulators booted by killed test runs outlived the session that
+# 2026-09-22 ended with. What scripts/lib/testdevices.py cannot remove, or cannot
+# prove the owner of while it runs, is a row here, and the alert carries the
+# exact command.
+world devices
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+python3 - "$W_DIR/test-device-failures.json" <<'PY'
+import json, sys
+json.dump({"ios:FF09044D-0619-442E-95F6-9CCB6EA6A3E0": {
+    "kind": "ios", "id": "FF09044D-0619-442E-95F6-9CCB6EA6A3E0", "name": "RichOS native-ios 60e53bf487-app",
+    "verdict": "owner cannot be proven", "why": "no checkout the engine has recorded derives the key",
+    "command": "xcrun simctl shutdown FF09044D-0619-442E-95F6-9CCB6EA6A3E0; xcrun simctl delete FF09044D-0619-442E-95F6-9CCB6EA6A3E0",
+    "first": "2026-09-23T00:40:00Z", "last": "2026-09-23T00:40:00Z", "attempts": 1}},
+    open(sys.argv[1], "w"), indent=1)
+PY
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "1" ] \
+   && printf '%s' "$OUT" | grep -q 'SIMULATOR OR EMULATOR WAS LEFT RUNNING' \
+   && printf '%s' "$OUT" | grep -q 'xcrun simctl delete FF09044D-0619-442E-95F6-9CCB6EA6A3E0' \
+   && printf '%s' "$OUT" | grep -q 'BY HAND'; then
+    ok "W12d a test simulator left running alerts, names it, and carries the command to end it BY HAND"
+else
+    bad "W12d a test-device failure did not reach the alert (rc=$RC)"
+    printf '%s\n' "$OUT" | sed 's/^/        /' | head -12
+fi
+rm -f "$W_DIR/test-device-failures.json"
+OUT="$(run_wd --alert)"; RC=$?
+if [ "$RC" = "0" ] && [ -z "$OUT" ]; then
+    ok "W12e CONTROL: with the device gone the alert clears completely"
+else
+    bad "W12e the alert did not clear after the device row was resolved (rc=$RC)"
     printf '%s\n' "$OUT" | sed 's/^/        /' | head -8
 fi
 

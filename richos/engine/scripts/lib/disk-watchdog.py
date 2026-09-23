@@ -550,13 +550,24 @@ def main():
     inst_failures = read_state(inst_path)
     n_inst = len(inst_failures) if isinstance(inst_failures, dict) else 0
 
+    # --- test simulators and emulators left behind (§54, 2026-09-22) ---------
+    # Written by scripts/lib/testdevices.py: a device a killed test left
+    # running whose removal failed, or whose owner cannot be proven while it
+    # runs. Rows resolve when the DEVICE is gone. Read, never run.
+    dev_path = expand(env("TEST_DEVICE_FAILURES_STATE",
+                          "~/.claude/state/test-device-failures.json"))
+    dev_failures = read_state(dev_path)
+    if not isinstance(dev_failures, dict):
+        dev_failures = {}
+    n_dev = len(dev_failures)
+
     alerting = [v for v in volumes if v["below_rich"] or v["drop_alert"]]
     # `condition` IS THE MASSIVE ALERT AND NOTHING ELSE NOW. Three things can
     # raise it and every one of them means a person must act on something
     # broken: the disk is low or falling, our own clean-up failed, or a test app
     # window would not close. The garbage report below is printed alongside it
     # and never raises it — see the three-piles note above.
-    condition = bool(alerting) or n_fail > 0 or n_inst > 0
+    condition = bool(alerting) or n_fail > 0 or n_inst > 0 or n_dev > 0
     # Anything at all worth printing, alarm or not. `--alert` prints when this
     # is true so the quiet lines still reach a reader; the EXIT CODE follows
     # `condition`.
@@ -631,6 +642,8 @@ def main():
             headline.append("CLEAN-UP FAILED")
         if n_inst > 0:
             headline.append("A TEST APP WINDOW WOULD NOT CLOSE")
+        if n_dev > 0:
+            headline.append("A TEST SIMULATOR OR EMULATOR WAS LEFT RUNNING")
         lines.append("=" * 72)
         lines.append("  MASSIVE ALERT — %s" % " + ".join(headline))
         lines.append("=" * 72)
@@ -689,6 +702,20 @@ def main():
                 lines.append("      first seen %s, %s attempt(s), %s"
                              % (row.get("first", "?"), row.get("attempts", "?"),
                                 str(row.get("why", "?"))[:90]))
+        if n_dev > 0:
+            lines.append("")
+            lines.append("  %d TEST SIMULATOR(S)/EMULATOR(S) LEFT BEHIND. A device a test"
+                         % n_dev)
+            lines.append("  booted is garbage when the test is over (§54). These could not")
+            lines.append("  be removed, or nothing proves whose they are. Rich ends these BY HAND:")
+            for key, row in sorted(dev_failures.items())[:5]:
+                if not isinstance(row, dict):
+                    continue
+                lines.append("    %s" % row.get("command", key))
+                lines.append("      %s (%s): %s" % (row.get("name", "?"), row.get("verdict", "?"),
+                                                    str(row.get("why", "?"))[:90]))
+                lines.append("      first seen %s, %s attempt(s)"
+                             % (row.get("first", "?"), row.get("attempts", "?")))
         if consumers:
             lines.append("")
             lines.append("  BIGGEST MEASURED CONSUMERS:")
@@ -814,6 +841,7 @@ def main():
         "top_consumers": consumers,
         "sweep_failures": n_fail,
         "test_instance_failures": n_inst,
+        "test_device_failures": n_dev,
         "garbage_alarm": garbage_alarm,
         "garbage_report": garbage_report,
         "skipped": skipped_n,
@@ -885,6 +913,9 @@ def main():
         if n_inst:
             sys.stdout.write("ALERT  %d test app instance(s) would not close\n"
                              % n_inst)
+        if n_dev:
+            sys.stdout.write("ALERT  %d test simulator(s)/emulator(s) left behind\n"
+                             % n_dev)
         # THREE LINES, EACH SAYING WHOSE IT IS, AND NONE OF THEM AN ALERT.
         # It was one: "ALERT  13.9 GB skipped + 11.4 GB undecidable". The 13.9
         # was mostly our own campaign roots with a printed command, the rest was

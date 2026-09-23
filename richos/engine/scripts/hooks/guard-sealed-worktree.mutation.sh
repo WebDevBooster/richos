@@ -62,6 +62,16 @@ mutant worktree-session-allowed "G15" "$G" \
     '  FORBIDDEN){NL}    exit 0{NL}    is_readonly_tool' \
     "a claude --worktree session could work (point 3)."
 
+mutant refused-lead-cannot-stop "G15c" "$G" \
+    '    # Never refused: a lead that cannot stop its agents is how 2026-09-22 went.{NL}    exit 0 ;;' \
+    '    # Never refused: a lead that cannot stop its agents is how 2026-09-22 went.{NL}    exit 2 ;;' \
+    "a refused lead could not stop its agents: 2026-09-22, ten agents at 100% CPU for 33 minutes."
+
+mutant refusal-names-no-way-out "G15b" "$G" \
+    '      echo "    TaskStop <task id>"' \
+    '      :' \
+    "the refusal would not name the one call that can still succeed, so the next call is a retry."
+
 mutant fail-open-without-registry "G16" "$G" \
     '    deny_cannot_evaluate "mega-lander/workspaces.py is missing at $WS_PY" "$TOOL_NAME" "$AGENT_ID"' \
     '    exit 0' \

@@ -32,7 +32,13 @@
 #   READ-ONLY AGENT TYPES      -> own no workspace; pass unless finished
 #   the lead of a claude --worktree session
 #                              -> "no one is allowed to do that" (point 3):
-#                                 every tool but reading is refused
+#                                 every tool but reading and STOPPING ITS
+#                                 AGENTS (TaskStop, the engine's stop.sh) is
+#                                 refused. Which directory the session was
+#                                 launched in is the platform's own record,
+#                                 never a later SessionStart: a SUBAGENT's
+#                                 compaction fires one with the lead's
+#                                 session_id (2026-09-22, 33 minutes locked out)
 #   the lead, otherwise        -> passes
 #
 # How it tells the lead from a worker: the hooks reference documents that tool
@@ -253,6 +259,11 @@ fi
 case "$KIND" in
   LEAD|REGISTERED)
     exit 0 ;;
+  RECOVERY)
+    # A refused lead stopping its agents: TaskStop, or the engine's own stop.sh /
+    # stop-work-ack.sh as one plain command (workspaces.py lead_recovery_call).
+    # Never refused: a lead that cannot stop its agents is how 2026-09-22 went.
+    exit 0 ;;
   FINISHED)
     {
       echo "=== Lock-out: REFUSED (finished agent) ==="
@@ -280,7 +291,12 @@ case "$KIND" in
       echo "  $DETAIL."
       echo "  Nobody starts a session in its own workspace (claude --worktree / claude -w)"
       echo "  in RichOS; it is not allowed (docs/plans/worktree-spec-2026-09-11.md, point 3)."
-      echo "  Start the session in the repository's main checkout instead."
+      echo "  DO NOT RETRY THIS CALL: it is refused every time, however it is worded."
+      echo "  The one thing this session can still do is STOP ITS AGENTS (and read):"
+      echo "    TaskStop <task id>"
+      echo "    $ENGINE_ROOT/scripts/stop.sh <name> [<name> ...] --ceo-word '<his words>'"
+      echo "  Then tell the CEO once that the session must be restarted from the"
+      echo "  repository's main checkout, and end the turn."
       echo "$HOOK_TAG"
     } >&2
     exit 2 ;;

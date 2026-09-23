@@ -40,6 +40,57 @@ mutant p03-worktree-session-allowed "test_point_03_claude_worktree_sessions_are_
     '        if False:' \
     "a claude --worktree session would be allowed to work (point 3)."
 
+# 2026-09-22: a SUBAGENT's compaction fired SessionStart with the lead's
+# session_id and the subagent's worktree, and locked the lead out for 33 minutes.
+# The lock-out itself is refused by three independent rules (the platform's
+# launch record, the first record, and no refusal from a compact's cwd), so no
+# single removal turns "never locks out the lead" red; each rule is proven by
+# the case it alone decides.
+mutant p03-subagent-compaction-is-the-lead "test_point_03_a_subagent_compaction_gets_none_of_the_leads_context" "$W" \
+    '    foreign = bool(payload_cwd and lead_cwd and payload_cwd != lead_cwd and source not in LAUNCH_SOURCES)' \
+    '    foreign = False' \
+    "a subagent's compaction would be taken for the lead's own start (point 3, 2026-09-22)."
+
+mutant p03-first-record-overwritten "test_point_03_without_the_platform_record_the_first_record_decides" "$W" \
+    '    elif prev.get("cwd"):' \
+    '    elif False:' \
+    "with no platform record, a later SessionStart would move the lead's recorded directory (point 3)."
+
+mutant p03-platform-record-not-asked "test_point_03_a_session_launched_in_a_workspace_is_still_forbidden" "$W" \
+    '    if plat and plat.get("cwd"):{NL}        lead_cwd, basis = realpath(str(plat["cwd"])), "platform"' \
+    '    if False:{NL}        lead_cwd, basis = realpath(str(plat["cwd"])), "platform"' \
+    "the directory a session was LAUNCHED in would be taken from a hook payload instead of the platform's own record (point 3)."
+
+mutant p03-stored-flag-trusted "test_point_03_a_wrong_stored_flag_is_re_derived_at_the_verdict" "$W" \
+    '    plat = platform_session(session_id, rec.get("pid"))' \
+    '    plat = None' \
+    "a wrong FORBIDDEN on the lead's record would stand for the rest of the session, as it did on 2026-09-22 (point 3)."
+
+mutant p03-subagent-gets-lead-context "test_point_03_a_subagent_compaction_gets_none_of_the_leads_context" "$W" \
+    '        if foreign:{NL}            # A subagent'"'"'s compaction' \
+    '        if False:{NL}            # A subagent'"'"'s compaction' \
+    "a subagent's compaction would be handed the lead's land-or-discard gate, which it can do nothing about."
+
+mutant p03-refused-lead-cannot-stop "test_point_03_a_forbidden_lead_can_always_stop_its_agents" "$W" \
+    '                stop = lead_recovery_call(payload)' \
+    '                stop = ""' \
+    "a refused lead could not stop its agents: ten agents at 100% CPU for 33 minutes on 2026-09-22."
+
+mutant p03-anything-rides-along-with-a-stop "test_point_03_a_forbidden_lead_can_always_stop_its_agents" "$W" \
+    '    if not cmd or not _one_plain_command(cmd):' \
+    '    if not cmd:' \
+    "any command chained after stop.sh would run in a session point 3 refuses."
+
+mutant p05-refused-session-held "test_point_05_a_forbidden_session_is_told_once_and_never_held" "$W" \
+    '            return True, _refused_session_notice(sid, why)' \
+    '            pass' \
+    "a session that can do nothing but stop agents would be held at every turn end, which is the spin of 2026-09-22 (42 refusals in 12 minutes)."
+
+mutant p05-refused-notice-every-turn "test_point_05_a_forbidden_session_is_told_once_and_never_held" "$W" \
+    '        if rec.get("refused_notice") == why:' \
+    '        if False:' \
+    "the refused session would be told the same thing at every turn end instead of once."
+
 mutant p04-no-automatic-land "test_point_04_landed_means_workspace_and_branch_deleted_automatically" "$W" \
     '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(' \
     '        if False:{NL}            try:{NL}                res = land(' \

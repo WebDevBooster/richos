@@ -2793,6 +2793,13 @@ class Reaper(object):
             lines.append(line)
             if " FAILED test-instance " in line:
                 failures.append(line.split("error=", 1)[-1])
+        # §54 FOR SIMULATORS AND EMULATORS. A device a killed test booted is
+        # removed once its owner is proven gone (scripts/lib/testdevices.py);
+        # one that will not close, or whose owner cannot be proven while it
+        # runs, is recorded in its own failure file for the MASSIVE ALERT. It
+        # is not added to `failures` here: that record is keyed by path and
+        # would resolve a device row on its next read.
+        lines.extend(self.collect_test_devices(stamp))
         for e in order:
             try:
                 # A DIRECTORY IS THE ONLY THING rmtree CAN TAKE. THE TEST USED TO
@@ -2909,6 +2916,25 @@ class Reaper(object):
         write_log(log_path, lines)
         self._record_failures(failures, stamp)
         return deleted, freed, failures
+
+    def collect_test_devices(self, stamp):
+        """Log lines for one pass of testdevices.collect(apply=True). Never
+        raises: an unloadable collector is one NOTE and the sweep goes on."""
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import testdevices
+            res = testdevices.collect(apply=True)
+        except Exception as exc:
+            return ["%s NOTE test-device collector unavailable: %s" % (stamp, str(exc)[:160])]
+        out = ["%s NOTE test-devices %s" % (stamp, n) for n in res.get("notes") or []]
+        for key, word in (("collected", "REMOVED"), ("survivors", "FAILED"),
+                          ("undecided", "KEPT"), ("deferred", "DEFERRED")):
+            for d in res.get(key) or []:
+                out.append("%s %s test-device %s %s name=%r why=%s"
+                           % (stamp, word, d["kind"], d["id"], d["name"], d.get("how") or d.get("why")))
+        return out
 
     def collect_test_instances(self, paths, stamp):
         """Quit every test instance rooted in `paths`. Returns log lines.

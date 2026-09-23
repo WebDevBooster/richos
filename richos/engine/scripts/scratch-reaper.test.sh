@@ -177,6 +177,14 @@ REAPER="$SCRIPT_DIR/scratch-reaper.sh"
 
 PASS=0; FAIL=0
 SANDBOX="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/scratch-reaper-test.XXXXXX")" && pwd -P)"
+# --apply also collects test simulators and emulators (scripts/lib/testdevices.py),
+# and most worlds here keep the real HOME. So every run is handed a simulator
+# list with nothing in it and an empty Android cache root: this suite must never
+# read, let alone delete, a simulator on the machine it runs on.
+NO_DEVICES="$SANDBOX/no-devices"
+mkdir -p "$NO_DEVICES/android"
+printf '#!/bin/sh\necho %s\n' "'{\"devices\": {}}'" >"$NO_DEVICES/simctl"
+chmod +x "$NO_DEVICES/simctl"
 KILL_LIST=""
 cleanup() {
     # Reaped as well as killed: an unreaped job prints "Terminated: 15" AFTER
@@ -324,6 +332,8 @@ run() {                    # run the reaper in the current world
     CLAUDE_CONFIG_DIR="$W_HOME" \
     TMPDIR="$W_TMP" \
     HOME="${W_FAKE_HOME:-$HOME}" \
+    RICHOS_SIMCTL="$NO_DEVICES/simctl" \
+    RICHOS_ANDROID_CACHES_ROOT="$NO_DEVICES/android" \
     bash "$REAPER" "$@" 2>&1
 }
 # W_FAKE_HOME IS EMPTY IN EVERY WORLD BUT S31's, and it has to be RESET by
