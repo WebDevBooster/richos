@@ -82,7 +82,7 @@ targets:
         PRODUCT_NAME: RichOSNotificationService
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/NotificationService/Info.plist
-        INFOPLIST_KEY_CFBundleDisplayName: RichOS
+        INFOPLIST_KEY_CFBundleDisplayName: RichConnect
         CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/NotificationService/NotificationService.entitlements
         SKIP_INSTALL: "YES"
         APPLICATION_EXTENSION_API_ONLY: "YES"
@@ -106,7 +106,7 @@ targets:
         PRODUCT_NAME: RichOSShare
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_FILE: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/Info.plist
-        INFOPLIST_KEY_CFBundleDisplayName: RichOS
+        INFOPLIST_KEY_CFBundleDisplayName: RichConnect
         CODE_SIGN_ENTITLEMENTS: ${RICHOS_NATIVE_IOS_ROOT}/ShareExtension/ShareExtension.entitlements
         SKIP_INSTALL: "YES"
         APPLICATION_EXTENSION_API_ONLY: "YES"

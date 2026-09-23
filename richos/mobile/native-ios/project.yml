@@ -57,7 +57,7 @@ targets:
         # which would replace the preserved app on a phone. The production identifier is the CEO's.
         PRODUCT_BUNDLE_IDENTIFIER: dev.richos.native.ios
         PRODUCT_NAME: RichOSNative
-        INFOPLIST_KEY_CFBundleDisplayName: RichOS
+        INFOPLIST_KEY_CFBundleDisplayName: RichConnect
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
