@@ -227,7 +227,9 @@ run_with_deadline() { # <seconds> <logfile> <argv...>
             if ! python3 "$SCRIPT_DIR/lib/proc_tree.py" kill "$_pid" --grace 3 2>>"$_log"; then
                 printf '        a process of this unit survived SIGKILL; see the end of its log\n' >>"$_log"
             fi
-            wait "$_pid" 2>/dev/null
+            # In braces so the shell's own "Terminated: 15" job report for the killed unit
+            # goes nowhere; the verdict line below says what happened.
+            { wait "$_pid"; } 2>/dev/null
             return 124
         fi
         sleep 1
