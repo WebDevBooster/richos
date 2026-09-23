@@ -1,0 +1,26 @@
+Proof tests run against richos 4edbfce1 (worktree cc/tom-opus-sec1), 2026-09-23 21:52-21:54 UTC.
+The two files in proof-tests/ were copied into the app's test source sets for this run only and
+removed afterwards; they are not part of the build.
+
+Command (from the worktree root, CPU-admitted, Firebase values from protected storage):
+  python3 richos/app/scripts/testvm/reserve.py --wait 300 -- \
+    python3 /Users/alex/ab/richos-hq/scripts/with-android-firebase.py \
+    richos/mobile/native-android/bin/randroid test app \
+      --tests 'dev.richos.android.platform.PlatformSecurityTest' \
+      --tests 'dev.richos.android.app.debug.ShareConsentTest'
+
+Result: 4 tests completed, 4 failed (BUILD FAILED in 1m 55s). Every failure is the defect, not the harness:
+
+ShareConsentTest > an explicit share intent from another app queues nothing until the person presses Send FAILED
+  AssertionError: a share intent became a queued message with no press expected:<0> but was:<1>
+PlatformSecurityTest > a file URI into the app's private storage is refused, never staged FAILED
+  AssertionError: staged 21 bytes of .../dev.richos.connect-dataDir/files/core/session.json as session.json; a file:// URI must be refused
+PlatformSecurityTest > turning previews off discards the preview key FAILED
+  AssertionError: the preview key survived previews being turned off expected null, but was:<[B@...>
+PlatformSecurityTest > unregistering discards the preview key FAILED
+  AssertionError: the preview key survived unregistering expected null, but was:<[B@...>
+
+Release check on the same SHA (randroid check-release, same wrapper): ok=true.
+  release APK: 3,669 classes read completely, 0 bridge classes, no bridge manifest markers
+  debug APK (positive probe): 17,711 classes, 77 bridge classes, 3 bridge manifest markers
+Merged manifests of both APKs: ../../../richos/mobile/security/fixtures/{release,debug}-manifest-4edbfce1.txt
