@@ -63,17 +63,55 @@ import Testing
         #expect(PairingWire.replyReceiptBody(threadID: "thr_5c1e", messageID: "turn_9:text:0") == (try body("reply receipt")))
     }
 
+    /// `conformance/vectors/attachments.json` (generated from Echo's Mac routes, `22e59ed8` and
+    /// `194fcb75`): every upload target the corpus records is the one this phone builds, byte for byte,
+    /// and every commit body is the recorded one.
     @Test func theAttachmentShapesFollowTheMacsRoute() throws {
-        // Echo's 22e59ed8 commit message; the corpus's attachments.json is still a placeholder.
-        #expect(PairingWire.attachmentUploadTarget(clientID: "c 1", attachmentID: "a1", name: "Q4 deck.pdf")
-                == "/api/messages?kind=attachment&client_id=c+1&attachment_id=a1&name=Q4+deck.pdf")
-        let commit = PairingWire.attachmentCommitBody(clientID: "c1", threadID: "thr_5c1e", text: "see attached",
-                                                      files: [("a1", String(repeating: "0", count: 64))], sentAtISO: "2026-09-22T13:00:00.000Z")
-        let object = try #require(try JSONSerialization.jsonObject(with: commit) as? [String: Any])
-        #expect(object["kind"] as? String == "attachments" && (object["attachments"] as? [[String: String]])?.first?["id"] == "a1")
-        let placeholder = try Corpus.load("attachments")
-        if placeholder["status"] as? String != "placeholder" {
-            Issue.record("attachments.json now has cases: replace this check with the corpus's")
+        let file = try Corpus.load("attachments")
+        let uploads = try Corpus.cases(file, "upload_cases") + (try Corpus.cases(file, "limit_sequence"))
+        #expect(uploads.count == 26, "the corpus's upload cases are all read")
+        for c in uploads {
+            let name = c["name"] as? String ?? "?"
+            let target = try #require((c["request"] as? [String: Any])?["target"] as? String)
+            let query = try #require(target.components(separatedBy: "?").last)
+            var fields: [String: String] = [:]
+            for pair in query.components(separatedBy: "&") {
+                let kv = pair.components(separatedBy: "=")
+                // The Mac's reading of a query value (routes.rs percent_decode_component): `+` is a space.
+                fields[kv[0]] = try #require(kv[1].replacingOccurrences(of: "+", with: " ").removingPercentEncoding)
+            }
+            #expect(fields["kind"] == "attachment", "\(name): kind")
+            let clientID = try #require(fields["client_id"])
+            let attachmentID = try #require(fields["attachment_id"])
+            let ours = PairingWire.attachmentUploadTarget(clientID: clientID, attachmentID: attachmentID, name: fields["name"])
+            #expect(ours == target, "\(name): the upload target")
         }
+        // The commit. The phone leaves out `text` when there is none; the corpus records it as null.
+        // The Mac reads the two the same way (routes.rs attachments_message: `None | Some(Value::Null)`),
+        // so the recorded bytes without `"text":null` are the bytes this phone signs.
+        let commits = try Corpus.cases(file, "commit_cases")
+        #expect(commits.count == 3, "the corpus's commit cases are all read")
+        for c in commits {
+            let name = c["name"] as? String ?? "?"
+            let request = try #require(c["request"] as? [String: Any])
+            let recorded = try #require(Corpus.body(request))
+            let object = try #require(try JSONSerialization.jsonObject(with: recorded) as? [String: Any])
+            let list = try #require(object["attachments"] as? [[String: String]])
+            let files = list.compactMap { item in item["id"].flatMap { id in item["sha256"].map { (id: id, sha256Hex: $0) } } }
+            #expect(files.count == list.count, "\(name): every file names an id and a SHA-256")
+            let clientID = try #require(object["client_id"] as? String)
+            let sentAt = try #require(object["sent_at"] as? String)
+            let ours = PairingWire.attachmentCommitBody(clientID: clientID, threadID: object["thread_id"] as? String,
+                                                        text: object["text"] as? String, files: files, sentAtISO: sentAt)
+            let expected = String(decoding: recorded, as: UTF8.self).replacingOccurrences(of: ",\"text\":null", with: "")
+            #expect(String(decoding: ours, as: UTF8.self) == expected, "\(name): the commit body")
+        }
+        // The limits the Mac advertises decode into the phone's type, field for field.
+        let advertised = try #require(file["limits"] as? [String: Any])
+        let limitsJSON = try JSONSerialization.data(withJSONObject: advertised)
+        let decoded = try JSONDecoder().decode(AttachmentLimits.self, from: limitsJSON)
+        #expect(decoded.maxFileBytes == advertised["max_file_bytes"] as? Int && decoded.maxFilesPerMessage == advertised["max_files_per_message"] as? Int
+                && decoded.maxMessageBytes == advertised["max_message_bytes"] as? Int && decoded.uploadSeconds == advertised["upload_seconds"] as? Int
+                && decoded.mediaTypes == advertised["media_types"] as? [String], "the advertised limits")
     }
 }
