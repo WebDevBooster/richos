@@ -476,7 +476,10 @@ mutation_sandbox_engine() { # <src-engine-root>
 # budget it is the command itself, exactly as before.
 _mut_run() {
     if [ -n "${RICHOS_WORKER_TOKENS:-}" ] && [ "${MUT_WORKER_TOKEN:-0}" = 1 ]; then
-        python3 "$MUT_ENGINE_ROOT/scripts/lib/worker_tokens.py" run "$RICHOS_WORKER_TOKENS" -- "$@"
+        # The tool comes with the budget (RICHOS_WORKER_TOKENS_TOOL, set by proof-run.py) so a
+        # harness running in a fixture engine without it still counts against the same budget.
+        python3 "${RICHOS_WORKER_TOKENS_TOOL:-$MUT_ENGINE_ROOT/scripts/lib/worker_tokens.py}" \
+            run "$RICHOS_WORKER_TOKENS" -- "$@"
     else
         "$@"
     fi

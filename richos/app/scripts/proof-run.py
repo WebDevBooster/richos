@@ -344,7 +344,8 @@ def launch(item, n, logdir, tokens_dir):
     fh.flush()
     # Its own session, so nothing it does can signal this runner; how it is stopped is
     # proc_tree.kill_tree (its whole tree), never a group or a name.
-    env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir}
+    env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir,
+           "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__)}
     item.proc = subprocess.Popen(item.argv, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
                                  stdin=subprocess.DEVNULL, start_new_session=True, env=env)
     fh.close()

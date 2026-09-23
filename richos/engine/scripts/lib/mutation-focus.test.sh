@@ -33,6 +33,11 @@ trap 'rm -rf "$SANDBOX"' EXIT
 # Scratch and the scratch ledger inside the sandbox: test data never touches live data,
 # and a fixture engine under the real $TMPDIR would be refused as a copy source.
 export TMPDIR="$SANDBOX/tmp"
+# This suite measures pools against budgets it makes itself. An outer run's worker budget
+# (proof-run.py exports it to every check) must not leak in and change what is measured: on
+# 2026-09-23 it did, F3-F6 read a fixture engine with no worker_tokens.py and F9 queued on the
+# outer run's tokens until the unit's deadline.
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL MUT_WORKER_TOKEN
 export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
 mkdir -p "$TMPDIR" "$CLAUDE_CONFIG_DIR/state"
 export RICHOS_MUTANT_JOBS=2

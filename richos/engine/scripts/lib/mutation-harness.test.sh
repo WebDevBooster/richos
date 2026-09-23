@@ -83,6 +83,9 @@ trap 'rm -rf "$SANDBOX"' EXIT
 #      ledger. Here both land under $SANDBOX, and the EXIT trap above takes
 #      them: test data never touches live data.
 export TMPDIR="$SANDBOX/tmp"
+# Fixture harnesses are timed against kills here; an outer run's worker budget (proof-run.py)
+# must not make them queue for tokens, so it does not reach this suite.
+unset RICHOS_WORKER_TOKENS RICHOS_WORKER_TOKENS_TOOL MUT_WORKER_TOKEN
 export CLAUDE_CONFIG_DIR="$SANDBOX/claude"
 mkdir -p "$TMPDIR" "$CLAUDE_CONFIG_DIR/state"
 
