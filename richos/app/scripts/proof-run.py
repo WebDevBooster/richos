@@ -68,9 +68,11 @@ files themselves are NOT APPLICABLE (CI paused).
 ADMISSION, TWO CONDITIONS, BOTH CHECKED BEFORE EVERY START:
   * A FREE WORKER TOKEN (scripts/lib/worker_tokens.py, engine). The run has --capacity tokens;
     each check holds one while it runs, and the budget's directory is exported to it as
-    RICHOS_WORKER_TOKENS, so a nested pool (the mutation harness's eight workers) takes a token
-    for every worker beyond its first. The count is of workers on the machine from this run,
-    not of commands this runner typed.
+    RICHOS_WORKER_TOKENS, so a nested pool (the mutation harness's eight workers, native-ios-ui's
+    extra simulators) runs one worker on its caller's token and takes a token for every other.
+    The count is of workers on the machine from this run, not of commands this runner typed.
+    A quarter of the tokens are reserved: nested workers never take them, so a check not yet
+    started always can.
   * CEO RULING §77's LINE, the same rule and the same code as testvm/reserve.py: one sample of
     user CPU and memory; below 80% it starts, otherwise the check waits (samples at least 30 s
     apart, at most --admission-wait) and the wait is reported beside its time.
@@ -393,7 +395,8 @@ class Monitor(threading.Thread):
         while not self.halt.is_set():
             try:
                 s = self.sampler()
-                self.samples.append((time.time(), s["cpu_user_percent"], s["cpu_system_percent"], self.budget.held()))
+                self.samples.append((time.time(), s["cpu_user_percent"], s["cpu_system_percent"], self.budget.held(),
+                                     self.budget.waiting()))
             except (BlockingIOError, OSError, ValueError):
                 pass
             self.halt.wait(self.every)
@@ -401,12 +404,16 @@ class Monitor(threading.Thread):
     def report(self, line):
         if not self.samples:
             return ["host during the run: no sample was taken"]
-        users = [u for _t, u, _s, _h in self.samples]
-        held = [h for _t, _u, _s, h in self.samples]
+        users = [row[1] for row in self.samples]
+        systems = [row[2] for row in self.samples]
+        held = [row[3] for row in self.samples]
+        waiting = [row[4] for row in self.samples]
         over = sum(1 for u in users if u >= line)
         return ["host during the run: %d samples, user CPU mean %.0f%%, max %.0f%%, at or over the %g%% "
-                "admission line in %d of them; worker tokens held: max %d of %d" % (
-                    len(users), sum(users) / len(users), max(users), line, over, max(held), len(self.budget.files))]
+                "admission line in %d of them (system CPU mean %.0f%%, max %.0f%%); worker tokens held: max %d "
+                "of %d, nested workers waiting for one: max %d" % (
+                    len(users), sum(users) / len(users), max(users), line, over, sum(systems) / len(systems),
+                    max(systems), max(held), len(self.budget.files), max(waiting))]
 
 
 def deadline_for(item, args):
