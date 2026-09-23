@@ -22,8 +22,14 @@ android {
         // requires target 36 for new apps and updates since 2026-08-31).
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        // versionCode: 1 for every development build, so the fast loop's caches never churn.
+        // `randroid bundle` passes -Prichos.versionCode = whole minutes from 2026-01-01T00:00Z to
+        // the moment the bundle is built (UTC), so every bundle this Mac makes is numbered above
+        // every earlier one, whatever branch or commit it came from (README "Version numbers").
+        versionCode = providers.gradleProperty("richos.versionCode").orNull?.toInt() ?: 1
+        // The version a person reads in Google Play and in Settings > Apps. Raised by hand for a
+        // release; the debug build type adds "-dev".
+        versionName = "0.1.0"
 
         // Firebase, initialized in code with no google-services plugin (build plan §3.3). The four
         // public identifiers come from Gradle properties (richos.firebase.projectId, .appId,
@@ -35,10 +41,32 @@ android {
         }
     }
 
+    // Release signing with the Google Play UPLOAD key (Play App Signing holds the app signing key).
+    // The four values arrive only as Gradle properties from the process environment
+    // (ORG_GRADLE_PROJECT_richos.upload.*), set by richos-hq/scripts/with-android-signing.py from
+    // protected storage outside every repository. Nothing here, in gradle.properties or in Git
+    // names a password or a keystore path. Without them the release build stays unsigned, as it
+    // always was, and `randroid bundle` refuses to produce a bundle.
+    val upload = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .associateWith { providers.gradleProperty("richos.upload.$it").orNull?.takeIf(String::isNotBlank) }
+    if (upload.values.all { it != null }) {
+        signingConfigs.create("upload") {
+            storeFile = file(upload.getValue("storeFile")!!)
+            storePassword = upload.getValue("storePassword")
+            keyAlias = upload.getValue("keyAlias")
+            keyPassword = upload.getValue("keyPassword")
+            storeType = "PKCS12"
+        }
+    }
+
     buildTypes {
+        debug {
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("upload")
         }
     }
 
