@@ -173,15 +173,18 @@ try:
           "P11b nothing of the timed-out check survives: its shell, a TERM-ignoring child, an own-session grandchild",
           (pids, alive))
 
-    # P12 — the worker budget counts NESTED workers. Three checks, each running one worker on
-    # its own token and two more that each need a token of the run's budget (the mutation
-    # pool's rule). With a capacity of three, no more than three workers ever work at once.
+    # P12 — the worker budget counts NESTED workers. Three checks, each with three workers that
+    # follow the mutation pool's contract: a worker runs on the check's own free slot when no
+    # other worker of that check holds it, otherwise on a token of the run's budget. With a
+    # capacity of three, no more than three workers ever work at once, and none is stuck: the
+    # first version of this case had no free slot and deadlocked once the checks held every
+    # token (found by the branch's own proof run, 2026-09-23).
     d12 = os.path.join(tmp, "p12")
     os.makedirs(d12)
     wt = os.path.join(pr.ROOT, "richos/engine/scripts/lib/worker_tokens.py")
     work = ("touch %s/w.$$; ls %s/w.* | wc -l >> %s/conc; sleep 0.6; rm -f %s/w.$$" % (d12, d12, d12, d12))
-    nested = ("bash -c '%s' & for i in 1 2; do python3 %s run \"$RICHOS_WORKER_TOKENS\" -- bash -c '%s' & done; wait"
-              % (work.replace("'", ""), wt, work.replace("'", "")))
+    nested = ("for i in 1 2 3; do python3 %s run \"$RICHOS_WORKER_TOKENS\" --free %s/free.$$ -- bash -c '%s' & done; wait"
+              % (wt, d12, work.replace("'", "")))
     its = [pr.Item("nested-%d" % n, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", nested], None, 1.0)
            for n in range(3)]
     pr.run(its, Args(capacity=3), os.path.join(tmp, "p12log"), sampler=idle)
@@ -197,7 +200,8 @@ try:
     # native-ios-share waited 2519 s to start behind four mutation pools.
     d13 = os.path.join(tmp, "p13")
     os.makedirs(d13)
-    nested13 = ("for i in $(seq 1 12); do python3 %s run \"$RICHOS_WORKER_TOKENS\" -- sleep 1 & done; wait" % wt)
+    nested13 = ("for i in $(seq 1 12); do python3 %s run \"$RICHOS_WORKER_TOKENS\" --free %s/free.$$ -- sleep 1 & done; wait"
+                % (wt, d13))
     a = pr.Item("A", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", nested13], None, 30)
     light = [pr.Item("light-%d" % k, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 0.3"], None, 1)
              for k in range(4)]

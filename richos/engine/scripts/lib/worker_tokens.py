@@ -30,6 +30,12 @@ native-ios-share waited 2519 s to start. So the last RICHOS_WORKER_TOKENS_RESERV
 the runner) are never taken by a nested worker; only the runner starts checks on them, and only
 once the shared ones are all held, so a light check can always start and finish beside the pools.
 
+THE CONTRACT FOR A NESTED WORKER: it passes `--free <a lock of its caller's own>`. A check holds
+its token for as long as it runs, so once running checks hold every shared token, a worker that
+can only wait for a budget token waits for a check that is waiting for it. The free slot is what
+keeps every check moving (proof-run.test.py P12 deadlocked without it; mutation-harness.sh and
+native-ios-ui.test.sh both pass one).
+
 Tokens are files locked with flock(2): a crashed or killed holder releases its token with its
 last file descriptor. No token is ever handed out by name or reclaimed by guessing.
 

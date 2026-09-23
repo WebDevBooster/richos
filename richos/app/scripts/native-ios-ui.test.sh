@@ -409,12 +409,13 @@ for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
   ARGS=()
   while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/shard-$s.args"
-  # Under proof-run.py (RICHOS_WORKER_TOKENS set), every simulator beyond the first runs its tests
-  # on a token of the run's worker budget, so this suite's extra simulators count against the run
-  # the way a mutation pool's extra workers do (richos/engine/scripts/lib/worker_tokens.py).
+  # Under proof-run.py (RICHOS_WORKER_TOKENS set), the simulators count against the run the way a
+  # mutation pool's workers do (richos/engine/scripts/lib/worker_tokens.py): one runs on this
+  # suite's own free slot, whichever simulator holds it, and every other on a token of the budget.
   TOKEN=()
-  if [ -n "${RICHOS_WORKER_TOKENS:-}" ] && [ "$i" -gt 0 ]; then
-    TOKEN=(python3 "$ROOT/richos/engine/scripts/lib/worker_tokens.py" run "$RICHOS_WORKER_TOKENS" --)
+  if [ -n "${RICHOS_WORKER_TOKENS:-}" ]; then
+    TOKEN=(python3 "${RICHOS_WORKER_TOKENS_TOOL:-$ROOT/richos/engine/scripts/lib/worker_tokens.py}" run
+           "$RICHOS_WORKER_TOKENS" --free "$WORK/free.lock" --)
   fi
   ( T0=$(date +%s)
     if TZ=UTC ${TOKEN[@]+"${TOKEN[@]}"} xcodebuild test-without-building -xctestrun "$XCTESTRUN" -destination "id=${SIM_UDID[$i]}" \
