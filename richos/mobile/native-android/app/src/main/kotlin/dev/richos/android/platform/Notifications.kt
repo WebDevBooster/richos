@@ -25,15 +25,20 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dev.richos.android.BuildConfig
-import dev.richos.android.app.richStore
+import dev.richos.android.app.AppStore
+import dev.richos.android.app.RichApplication
 import dev.richos.android.core.Action
 import dev.richos.android.core.NotificationStatus
 import dev.richos.android.core.Platform
 import dev.richos.android.core.protocol.NotificationPreview
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -141,6 +146,7 @@ class FcmPlatform(
     private val fetchToken: suspend () -> String? = ::defaultToken,
     /** Where the OS prompts run; a test substitutes one that does not need a running looper. */
     private val main: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main,
+    private val ledger: TokenLedger = TokenLedger.forApp(context),
 ) : Platform {
     override suspend fun requestNotifications(previews: Boolean) {
         if (!firebaseReady()) {
@@ -157,12 +163,32 @@ class FcmPlatform(
             return
         }
         val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.key() }.getOrNull() } else null
+        ledger.record(token)
+        dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
+    }
+
+    /**
+     * At launch, with notifications on: if Firebase's token is not the one this phone last handed
+     * the Mac, hand it over now. A refresh can happen while nothing is listening (the process was
+     * killed before [RichMessagingService.onNewToken] finished), and an old token fails only at
+     * Google, silently, when the next reply is sent. Asks the OS nothing.
+     */
+    suspend fun reconcile(notificationsOn: Boolean, previews: Boolean) {
+        if (!notificationsOn || !granted() || !firebaseReady()) return
+        val token = runCatching { fetchToken() }.getOrNull()
+        if (token.isNullOrBlank() || ledger.matches(token)) return
+        val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.existing() }.getOrNull() } else null
+        ledger.record(token)
         dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
     }
 
     override suspend fun unregisterNotifications() {
+        ledger.clear()
         if (FirebaseApp.getApps(context).isNotEmpty()) runCatching { FirebaseMessaging.getInstance().deleteToken() }
     }
+
+    private fun granted() = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     override suspend fun openSystemSettings() = start(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
@@ -208,14 +234,16 @@ class FcmPlatform(
  * open, "Rich has replied." otherwise (Android deprioritizes high-priority messages that show nothing).
  */
 class RichMessagingService : FirebaseMessagingService() {
+    /**
+     * A new token goes to the Mac while notifications are on. This service can be the first thing
+     * to run in a fresh process, before the store has read its saved state, so the hand-over waits
+     * for that (bounded) instead of reading "no state yet" as "notifications off" and dropping it.
+     */
     override fun onNewToken(token: String) {
-        // Registered with the Mac only while notifications are on; the core decides.
-        val store = applicationContext.richStore
-        if (store.states.value?.notifications?.status == NotificationStatus.ON) {
-            val previews = store.states.value?.notifications?.previews == true
-            val key = if (previews) keysFor(this).existing() else null
-            store.dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
-        }
+        val app = applicationContext as? RichApplication ?: return
+        val keys = keysFor(this)
+        val ledger = ledgerFor(this)
+        app.appScope.launch { TokenRefresh.handOver(app.store, token, keys, ledger) }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -228,6 +256,53 @@ class RichMessagingService : FirebaseMessagingService() {
     companion object {
         /** Where the service finds the preview key; a test substitutes a JVM-wrapped one. */
         internal var keysFor: (Context) -> PreviewKeys = PreviewKeys::forApp
+        internal var ledgerFor: (Context) -> TokenLedger = TokenLedger::forApp
+    }
+}
+
+/** The service's half of a token refresh, kept apart from the service so it is tested directly. */
+object TokenRefresh {
+    const val PATIENCE_MS = 10_000L
+
+    suspend fun handOver(store: AppStore, token: String, keys: PreviewKeys, ledger: TokenLedger, patienceMs: Long = PATIENCE_MS) {
+        val state = withTimeoutOrNull(patienceMs) { store.states.filterNotNull().first() } ?: return
+        if (state.notifications.status != NotificationStatus.ON) return
+        val key = if (state.notifications.previews) withContext(Dispatchers.IO) { keys.existing() } else null
+        ledger.record(token)
+        store.dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
+    }
+}
+
+/**
+ * The SHA-256 of the last FCM token this phone handed the Mac, so a launch can tell a token that
+ * changed while nothing was listening. Only the hash is kept; the token itself stays Firebase's.
+ */
+class TokenLedger(private val file: File) {
+    fun matches(token: String): Boolean = runCatching { file.isFile && String(AtomicFile(file).readFully(), Charsets.UTF_8) == hash(token) }.getOrDefault(false)
+
+    fun record(token: String) {
+        runCatching {
+            file.parentFile?.mkdirs()
+            val atomic = AtomicFile(file)
+            val out = atomic.startWrite()
+            try {
+                out.write(hash(token).toByteArray(Charsets.UTF_8))
+                atomic.finishWrite(out)
+            } catch (e: Exception) {
+                atomic.failWrite(out)
+                throw e
+            }
+        }
+    }
+
+    fun clear() {
+        runCatching { AtomicFile(file).delete() }
+    }
+
+    private fun hash(token: String) = NotificationTarget.reference(token)
+
+    companion object {
+        fun forApp(context: Context) = TokenLedger(File(context.filesDir, "push/registered-token.sha256"))
     }
 }
 

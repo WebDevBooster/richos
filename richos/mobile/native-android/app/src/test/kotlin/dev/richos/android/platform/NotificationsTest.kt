@@ -31,10 +31,49 @@ class NotificationsTest {
     private val wrap = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
     private fun keys(name: String = "preview.key") = PreviewKeys(File(app.cacheDir, "push-test/$name"), { wrap })
 
+    private fun ledger() = TokenLedger(File(app.cacheDir, "push-test/ledger"))
+
     @After
     fun clean() {
         File(app.cacheDir, "push-test").deleteRecursively()
         RichMessagingService.keysFor = PreviewKeys::forApp
+        RichMessagingService.ledgerFor = TokenLedger::forApp
+    }
+
+    @Test
+    fun `a launch hands the Mac a token that changed while nothing listened, and only then`() = runBlocking {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val seen = mutableListOf<Action>()
+        var token = "fcm:first-" + "x".repeat(40)
+        val book = ledger()
+        val platform = FcmPlatform(app, keys(), { seen += it }, { null }, firebaseReady = { true }, fetchToken = { token }, ledger = book)
+        platform.requestNotifications(previews = false)
+        seen.clear()
+        platform.reconcile(notificationsOn = true, previews = false)
+        assertEquals(emptyList<Action>(), seen)
+        token = "fcm:second-" + "y".repeat(40)
+        platform.reconcile(notificationsOn = false, previews = false)
+        assertEquals(emptyList<Action>(), seen)
+        platform.reconcile(notificationsOn = true, previews = false)
+        assertEquals(token, (seen.single() as Action.PushToken).token)
+        seen.clear()
+        platform.reconcile(notificationsOn = true, previews = false)
+        assertEquals(emptyList<Action>(), seen)
+        // Revoked in Android Settings: the launch asks the OS nothing and registers nothing.
+        token = "fcm:third-" + "z".repeat(40)
+        shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        platform.reconcile(notificationsOn = true, previews = false)
+        assertTrue(seen.none { it is Action.PushToken })
+    }
+
+    @Test
+    fun `turning notifications off forgets which token the Mac had`() = runBlocking {
+        val book = ledger()
+        book.record("fcm:t-" + "x".repeat(40))
+        assertTrue(book.matches("fcm:t-" + "x".repeat(40)))
+        FcmPlatform(app, keys(), { }, { null }, firebaseReady = { false }, ledger = book).unregisterNotifications()
+        assertFalse(book.matches("fcm:t-" + "x".repeat(40)))
+        assertFalse(File(app.cacheDir, "push-test/ledger").exists())
     }
 
     private fun data(event: String, thread: String = "b".repeat(64)) =

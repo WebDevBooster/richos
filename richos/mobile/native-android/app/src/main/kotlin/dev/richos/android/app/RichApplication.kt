@@ -17,7 +17,10 @@ import java.lang.ref.WeakReference
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.platform.HttpsMac
+import dev.richos.android.core.NotificationStatus
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -82,6 +85,11 @@ class RichApplication : Application() {
                     owner = connection
                     scope.launch { connection.run() }
                 }
+            }
+            // A push token that changed while nothing was listening is handed to the Mac now.
+            scope.launch {
+                val opened = store.states.filterNotNull().first()
+                platform.reconcile(opened.notifications.status == NotificationStatus.ON, opened.notifications.previews)
             }
         }
         registerActivityLifecycleCallbacks(
