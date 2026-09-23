@@ -168,17 +168,23 @@ GUARD_PRISTINE="$(cat "$FAKE_GUARD")"
 
 # run_and_kill <harness-path> — start it in its own process group, wait until a
 # mutation is observably live SOMEWHERE, kill -9 the group, confirm death.
-# Sets: RK_SAW_SHIPPED, RK_SAW_SANDBOX, RK_DEAD.
+# Sets: RK_SAW_SHIPPED, RK_SAW_SANDBOX, RK_DEAD, RK_EXITED_EARLY.
+#
+# RK_EXITED_EARLY: the harness ended ON ITS OWN before any mutation was seen, so
+# no kill landed on anything. On 2026-09-18 section 2's harness died FATAL in
+# mutation_sandbox_engine on every run, and 2a reported "killed mid-mutation"
+# with no word of the FATAL; the cause took a bisect to find. rk_why prints
+# what the harness said, so the next red names its cause.
 run_and_kill() {
     local harness="$1" deadline pid
-    RK_SAW_SHIPPED=0; RK_SAW_SANDBOX=0; RK_DEAD=0
+    RK_SAW_SHIPPED=0; RK_SAW_SANDBOX=0; RK_DEAD=0; RK_EXITED_EARLY=0
     set -m
     bash "$harness" >"$SANDBOX/harness.out" 2>&1 &
     pid=$!
     set +m
     deadline=$(( $(date +%s) + 60 ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
-        kill -0 "$pid" 2>/dev/null || break
+        kill -0 "$pid" 2>/dev/null || { RK_EXITED_EARLY=1; break; }
         if ! grep -q THE_LOAD_BEARING_LINE "$FAKE_GUARD" 2>/dev/null; then RK_SAW_SHIPPED=1; break; fi
         if [ -f "$SANDBOX/mutation-was-applied" ]; then RK_SAW_SANDBOX=1; break; fi
         sleep 0.05
@@ -186,6 +192,16 @@ run_and_kill() {
     kill -9 -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
     kill -0 "$pid" 2>/dev/null || RK_DEAD=1
+}
+
+# rk_why — the failure detail for a case that saw no live mutation.
+rk_why() {
+    if [ "$RK_EXITED_EARLY" -eq 1 ]; then
+        printf 'the harness EXITED ON ITS OWN before any mutation was observed (no kill landed on anything); its last output: %s' \
+            "$(tail -5 "$SANDBOX/harness.out" 2>/dev/null | tr '\n' '|')"
+    else
+        printf 'no mutation was observed within 60s, and the harness was still running when it was killed'
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -208,7 +224,7 @@ run_and_kill "$OLD"
 if [ "$RK_SAW_SHIPPED" -eq 1 ]; then
     ok "1a  the control had a LIVE mutation in the shipped file when the kill was sent — it was not killed before it did anything"
 else
-    bad "1a  the control was killed mid-mutation" "no mutation was observed before the kill, so 1b cannot be attributed to the kill"
+    bad "1a  the control was killed mid-mutation" "$(rk_why) — so 1b cannot be attributed to the kill"
 fi
 if [ "$RK_DEAD" -eq 1 ]; then
     ok "1b  and kill -9 really killed it — this is a crash, not an early return dressed as one"
@@ -244,7 +260,7 @@ run_and_kill "$NEW"
 if [ "$RK_SAW_SANDBOX" -eq 1 ]; then
     ok "2a  the new shape had a LIVE mutation in its SANDBOX when the kill was sent — so 2c is not the free pass you get by killing early"
 else
-    bad "2a  the new shape was killed mid-mutation" "no sandbox mutation was observed before the kill, so 'untouched' below proves nothing: it is what killing it before it started would also give"
+    bad "2a  the new shape was killed mid-mutation" "$(rk_why) — so 'untouched' below proves nothing: it is what killing it before it started would also give"
 fi
 if [ "$RK_DEAD" -eq 1 ]; then
     ok "2b  and kill -9 really killed it — no EXIT trap ran"
