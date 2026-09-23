@@ -4,7 +4,7 @@ import XCTest
 
 /// The iPhone's effect handler, the notification platform and the recorder's file side, on a
 /// simulator. The suite grants the microphone to the host app first
-/// (`simctl privacy <device> grant microphone dev.richos.native.ios`), as I2's UI tests do.
+/// (`simctl privacy <device> grant microphone dev.richos.connect`), as I2's UI tests do.
 ///
 /// Deliberately NOT exercised here: starting a recording (a simulator records from the Mac's own
 /// microphone) and playing audio aloud (the Mac's speakers; ceo-decisions §53). Those are proven by

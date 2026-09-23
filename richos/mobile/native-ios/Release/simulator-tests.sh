@@ -43,7 +43,7 @@ python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simu
   --owner-pid $$ --script simulator-tests.sh >/dev/null || { echo "FAIL device ownership registration" >&2; exit 1; }
 
 python3 "$BUDGET" boot -- bash -c 'xcrun simctl boot "$1" && xcrun simctl bootstatus "$1" -b' simulator-boot "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
-xcrun simctl privacy "$UDID" grant microphone dev.richos.native.ios >/dev/null 2>&1 || true
+xcrun simctl privacy "$UDID" grant microphone dev.richos.connect >/dev/null 2>&1 || true
 
 TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/DerivedData" \

@@ -407,7 +407,7 @@ python3 "$RICHOS_SIMULATOR_BUDGET" boot -- bash -c '
 ' simulator-boot "$udid"
 xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLocale -string en_US
 xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLanguages -array en-US
-xcrun simctl privacy "$udid" grant microphone dev.richos.native.ios >/dev/null 2>&1 || true
+xcrun simctl privacy "$udid" grant microphone dev.richos.connect >/dev/null 2>&1 || true
 TZ=UTC xcodebuild test-without-building -xctestrun "$xctestrun" -destination "id=$udid" \
   -derivedDataPath "$work/dd-$i" -resultBundlePath "$work/result-$i.xcresult" \
   -parallel-testing-enabled NO "$@"

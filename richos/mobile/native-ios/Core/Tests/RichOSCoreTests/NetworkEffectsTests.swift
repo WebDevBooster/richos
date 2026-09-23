@@ -93,7 +93,7 @@ actor RoutedMac: HTTPTransport {
         }
         #expect(s.notifications.status == .on && s.notifications.hostID == "0123456789abcdef0123456789abcdef")
         let body = try #require(await mac.bodies.last)
-        #expect(body.contains(#""topic":"dev.richos.native.ios""#) && body.contains(#""environment":"sandbox""#))
+        #expect(body.contains(#""topic":"dev.richos.connect""#) && body.contains(#""environment":"sandbox""#))
         #expect(try AppState(restoring: s.persisted).notifications.hostID == s.notifications.hostID, "the host id survives a relaunch")
     }
 

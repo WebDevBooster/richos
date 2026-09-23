@@ -26,7 +26,7 @@ import {
   withTemporaryPrivateKey,
 } from "./testflight.ts";
 
-const BUNDLE = "dev.richos.native.ios";
+const BUNDLE = "dev.richos.connect";
 const keys = NodeCrypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const encodedKey = Buffer.from(keys.privateKey.export({ type: "pkcs8", format: "pem" })).toString("base64");
 const envSource = `# Synthetic test credentials, never used with Apple.

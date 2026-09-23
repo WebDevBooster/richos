@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Failure-injection checks for the proof runner's ownership and admission boundaries."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
+from contextlib import redirect_stdout, redirect_stderr
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / 'engine/scripts/lib'))
@@ -302,8 +304,12 @@ class Reliability(unittest.TestCase):
     def test_existing_simulators_block_admission_and_unreadable_inventory_fails_closed(self):
         quiet = dict(cpu_user_percent=10, cpu_system_percent=5, memory_pressure='normal', swapout_mb_per_s=0)
         with patch.dict(os.environ, {'RICHOS_MACHINE_WORKERS': str(self.path / 'machine')}):
-            with self.assertRaises(TimeoutError):
-                simulator_budget.acquire('boot', timeout=.05, sampler=lambda: quiet, inventory=lambda: 2)
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                with self.assertRaises(TimeoutError):
+                    simulator_budget.acquire('boot', timeout=.05, sampler=lambda: quiet, inventory=lambda: 2)
+            self.assertEqual(stdout.getvalue(), '', 'admission diagnostics must not corrupt child JSON output')
+            self.assertIn('boot waits for CPU/memory headroom', stderr.getvalue())
             def broken():
                 raise ValueError('unreadable inventory')
             with self.assertRaises(ValueError):

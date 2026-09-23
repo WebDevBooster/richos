@@ -6,8 +6,8 @@ import Foundation
 public enum PairingWire {
     /// The platform the Mac records for this phone (contract §2.3: native clients send it).
     public static let platform = "ios"
-    /// The APNs topic of this app's development build (accepted by the Mac since `65952d16`).
-    public static let apnsTopic = "dev.richos.native.ios"
+    /// The permanent RichConnect APNs topic, also allowed by the Mac and Connect Worker.
+    public static let apnsTopic = "dev.richos.connect"
 
     static func json(_ value: String) -> String {
         let encoder = JSONEncoder()
