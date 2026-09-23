@@ -44,8 +44,10 @@ bin/randroid emu verify                           # the screen shows what the co
 bin/randroid emu screenshot [file.png]
 bin/randroid emu stop | delete                    # quit it (by the PID recorded at boot) / delete its AVD
 
-bin/randroid build debug | release
-bin/randroid check-release                        # the bridge is absent from the release APK
+bin/randroid build debug | release               # release is signed when the upload key is present
+bin/randroid bundle                               # the signed .aab for Google Play (see Release)
+bin/randroid verify-bundle <file.aab>             # upload signature, permanent ID, no bridge
+bin/randroid check-release                        # the bridge is absent from the release APK and bundle
 bin/randroid doctor
 ```
 
@@ -74,7 +76,57 @@ through `adb -s <serial> shell am broadcast`; the receiver requires `android.per
 which the adb shell holds and no ordinary app can obtain. It runs the command against the same
 `DevRuntime` the headless CLI runs and answers in the broadcast's result data, so one adb call is
 one round trip. The development world is saved in the app's private files, so it survives a
-real process restart. `bin/randroid check-release` proves none of this is in a release APK.
+real process restart. `bin/randroid check-release` proves none of this is in a release APK or
+bundle.
+
+## Release: the signed bundle for Google Play
+
+One command, run from the repository root, makes the bundle Google Play takes. The two private
+wrappers (richos-hq, never this repository) supply the Firebase client values and the upload key
+through the process environment; nothing secret is on a command line, in Gradle's configuration
+or in Git:
+
+```sh
+python3 /Users/alex/ab/richos-hq/scripts/with-android-firebase.py \
+  python3 /Users/alex/ab/richos-hq/scripts/with-android-signing.py \
+  richos/mobile/native-android/bin/randroid bundle
+```
+
+It writes `RichConnect-<versionCode>.aab` and a receipt `RichConnect-<versionCode>.json` (commit,
+version, signer) under `$RANDROID_CACHE/release/`, after verifying that exact file. It refuses
+rather than produce a bundle that would upload and be wrong: without the upload key (unsigned),
+without the Firebase values (no notifications), from uncommitted source under this folder (no
+commit identifies it; `--allow-dirty` makes a test bundle and the receipt says so), or with a stale
+launcher icon.
+
+**What verification means** (`bundle` runs it; `bin/randroid verify-bundle <file.aab>` runs it on
+any file): every entry is signed, by exactly one signer, and that signer's SHA-256 is
+`release/upload-certificate.sha256` (the upload certificate's public fingerprint); the package is
+`dev.richos.connect`; the bundle holds only the `base` module; and the development bridge is
+absent, read from the complete dex dump of the bundle's `base` module (the same scan as the APK,
+which must also find the app's own `MainActivity`).
+
+**Signing.** The release build is signed with the Google Play **upload key**; Play App Signing
+holds the key that signs what users install. `app/build.gradle.kts` signs only when the four
+`richos.upload.*` Gradle properties arrive from the environment; without them the release build
+is unsigned exactly as before, and `check-release` says the signature was not checked. The key
+was made once by `richos-hq/scripts/make-android-upload-key.py`, which refuses to replace it; the
+setup note is `richos-hq/docs/operations/2026-09-23-richconnect-android-upload-key.md`.
+
+**Version numbers.** `versionName` (what a person reads in Play and in Settings) is set by hand in
+`app/build.gradle.kts` for a release; debug builds add `-dev`. `versionCode` (what Play compares) is
+**1 for every development build** and, for a bundle, **the number of whole minutes from
+2026-01-01T00:00Z (UTC) to the moment `bundle` ran**. So every bundle made later has a higher code,
+whatever commit or branch it came from, which is the only rule Play enforces (a new upload's code
+must exceed every earlier one). It stays below Play's limit of 2,100,000,000 for about 4,000
+years. Two bundles in the same minute share a code; Play refuses the second, which is the right
+outcome. The receipt names the commit each code was built from.
+
+**The icon.** `node release/make-app-icon.cjs` writes the adaptive launcher icon (background, foreground
+and the Android 13 themed-icon monochrome layer) and `release/play-store-icon-512.png`, the Play
+listing icon, from `richos/app/icon-source/richos-icon-1024.png`, the source the iPhone, the PWA
+and the desktop app use. `--check` fails on any drift; the suite runs it. Its header says how each
+layer is composed and why.
 
 ## Versions
 
@@ -86,6 +138,8 @@ checksum pinned), AGP 9.4.1, Kotlin 2.4.20, Compose BOM 2026.09.00, Robolectric 
 ## Registered proof
 
 `richos/app/scripts/native-android-core.test.sh` (core, CLI, headless processes) and
-`richos/app/scripts/native-android-app.test.sh` (Robolectric app tests, `check-release`, and with
+`richos/app/scripts/native-android-app.test.sh` (Robolectric app tests, `check-release`, the icon's
+`--check`, a signed `bundle` made with a throwaway key that `verify-bundle` must then refuse
+against the committed upload certificate, and with
 `RANDROID_SUITE_EMULATOR=1` the emulator parity, on-screen and restart checks). Both print
 `NOT RUN` and exit 2 on a host without the toolchain.
