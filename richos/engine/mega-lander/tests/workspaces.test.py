@@ -595,6 +595,75 @@ class Point03_TheLeadIsNeverLockedOutByASubagent(Base):
         self.assertNotIn("TaskStop", msg2)                 # said once, not every turn
 
 
+class Point54_TestDevicesAreGarbage(Base):
+    """§54 for simulators: 2026-09-22 ended with three simulators booted by killed
+    test runs still booted after the session. The collector is
+    scripts/lib/testdevices.py (its own suite proves the rules); these prove it
+    is WIRED: the land takes the devices keyed to the workspaces it deletes, and
+    a session that starts takes the ones whose creator is gone."""
+
+    FAKE = ("#!/usr/bin/env python3\nimport json, os, sys\n"
+            "s = os.environ['FAKE_SIMCTL_STATE']; d = json.load(open(s)); a = sys.argv[1:]\n"
+            "if a[:2] == ['list', 'devices']:\n"
+            "    print(json.dumps({'devices': {'rt': d}})); sys.exit(0)\n"
+            "if a[0] == 'delete':\n"
+            "    d = [x for x in d if x['udid'] != a[1]]\n"
+            "if a[0] == 'shutdown':\n"
+            "    [x.update(state='Shutdown') for x in d if x['udid'] == a[1]]\n"
+            "json.dump(d, open(s, 'w'))\n")
+
+    def setUp(self):
+        super().setUp()
+        self.simctl = os.path.join(self.env.root, "simctl")
+        with open(self.simctl, "w") as f:
+            f.write(self.FAKE)
+        os.chmod(self.simctl, 0o755)
+        self.sims = os.path.join(self.env.root, "sims.json")
+        with open(self.sims, "w") as f:
+            json.dump([], f)
+        os.environ.update({"RICHOS_SIMCTL": self.simctl, "FAKE_SIMCTL_STATE": self.sims,
+                           "RICHOS_ANDROID_CACHES_ROOT": os.path.join(self.env.root, "no-android")})
+
+    def tearDown(self):
+        for k in ("RICHOS_SIMCTL", "FAKE_SIMCTL_STATE", "RICHOS_ANDROID_CACHES_ROOT"):
+            os.environ.pop(k, None)
+        super().tearDown()
+
+    def sim(self, name):
+        d = json.load(open(self.sims))
+        udid = "SIM-%d" % (len(d) + 1)
+        d.append({"udid": udid, "name": name, "state": "Booted"})
+        json.dump(d, open(self.sims, "w"))
+        return udid
+
+    def names_left(self):
+        return sorted(x["name"] for x in json.load(open(self.sims)))
+
+    def test_point_54_the_land_takes_the_simulators_its_workspaces_made(self):
+        import hashlib
+        aid, npath = self.spawn("isaac-opus-sim")
+        key = hashlib.sha256((os.path.realpath(npath) + "/richos/mobile/native-ios").encode()).hexdigest()[:10]
+        self.sim("RichOS native-ios %s" % key)
+        self.sim("iPhone 16 Pro")                                   # not ours: never touched
+        self.commit(npath)
+        self.finish(aid)
+        self.merge(self.entity, "worktree-agent-" + aid)
+        self.assertEqual(self.names(), [])                          # landed
+        self.assertEqual(self.names_left(), ["iPhone 16 Pro"])
+
+    def test_point_54_a_session_start_takes_a_killed_runs_simulator(self):
+        pr = subprocess.Popen(["sleep", "600"])
+        pr.kill()
+        pr.wait()
+        self.sim("rios-ui-%d-iPhone-SE" % pr.pid)
+        ws.lifecycle({"hook_event_name": "SessionStart", "source": "compact", "session_id": self.sid,
+                      "cwd": self.entity}, self.entity)
+        self.assertEqual(len(self.names_left()), 1)                 # a compact is not a start
+        ws.lifecycle({"hook_event_name": "SessionStart", "source": "startup", "session_id": self.sid,
+                      "cwd": self.entity}, self.entity)
+        self.assertEqual(self.names_left(), [])
+
+
 class Point04_LandedMeansDeleted(Base):
     """4. Landed means the workspace AND the branch are deleted — automatically."""
 

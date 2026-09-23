@@ -4434,6 +4434,37 @@ def stop_test_instances(paths):
               collected=[d["pid"] for d in res.get("collected") or []] or None,
               survivors=[d["pid"] for d in res.get("survivors") or []] or None,
               undecided=[d["pid"] for d in res.get("undecided") or []] or None)
+    collect_test_devices(departing=paths)
+    return res
+
+
+def collect_test_devices(departing=(), budget=None):
+    """§54 FOR SIMULATORS AND EMULATORS (scripts/lib/testdevices.py). On
+    2026-09-22 three iOS simulators booted by killed test runs outlived their
+    agents and the session. Collected here machine-wide, because each device is
+    removed only when its owner is PROVEN gone (a registered pid, the pid its
+    name carries, or a recorded checkout that no longer exists), so a live
+    peer's device is never touched. `departing` are the workspaces this land is
+    deleting: a device keyed to one of them goes with it. Never raises."""
+    try:
+        here = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "lib")
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import testdevices
+        res = testdevices.collect(apply=True, departing=[p for p in departing or () if p],
+                                  deadline=(now() + budget) if budget else None)
+    except Exception as e:
+        event("test-devices-uncollected", why=str(e)[:200])
+        return {}
+    # A shut-down device nothing proves the owner of is reported by the
+    # collector itself; repeating it in the history at every land is noise.
+    running = [d["id"] for d in res.get("undecided") or [] if d.get("state") != "Shutdown"]
+    if res.get("collected") or res.get("survivors") or running or res.get("deferred"):
+        event("test-devices-collected",
+              collected=[d["id"] for d in res.get("collected") or []] or None,
+              survivors=[d["id"] for d in res.get("survivors") or []] or None,
+              undecided=running or None,
+              deferred=[d["id"] for d in res.get("deferred") or []] or None)
     return res
 
 
@@ -4945,6 +4976,13 @@ def lifecycle(payload, entity):
             return "", []
         if rec.get("forbidden"):
             notices.append(refused_session_text(rec["forbidden"]))
+        if str(payload.get("source") or "") in LAUNCH_SOURCES:
+            # A session that STARTS is the first moment after a killed run
+            # that anything is listening: 2026-09-22's three simulators were
+            # still booted when the next session began. Bounded, because this
+            # runs inside the hook's timeout; what is not reached is collected
+            # by the next land or sweep.
+            collect_test_devices(budget=8.0)
         retry_due()
         items = pending(sid, entity, scan=True)
         if items:

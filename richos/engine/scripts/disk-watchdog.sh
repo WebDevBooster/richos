@@ -261,7 +261,7 @@ fi
 # the sweeper, only look at what it left behind.
 while read -r _k; do
     case "$_k" in
-        DISK_*|SCRATCH_*|APP_TEST_INSTANCE_*|APP_INSTANCE_*) export "$_k" ;;
+        DISK_*|SCRATCH_*|APP_TEST_INSTANCE_*|APP_INSTANCE_*|TEST_DEVICE_*) export "$_k" ;;
     esac
 done < <(compgen -v)
 unset _k
