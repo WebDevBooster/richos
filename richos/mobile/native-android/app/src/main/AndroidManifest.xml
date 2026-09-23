@@ -16,7 +16,7 @@
     <application
         android:name=".app.RichApplication"
         android:allowBackup="false"
-        android:label="RichOS"
+        android:label="RichConnect"
         android:supportsRtl="true"
         android:theme="@style/Theme.RichOS">
         <activity
