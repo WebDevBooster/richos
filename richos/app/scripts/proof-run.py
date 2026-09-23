@@ -102,10 +102,10 @@ import reserve  # noqa: E402  (the admission rule, not a copy of it)
 
 SETTLE_SECONDS = 3        # a check just started has not shown its load yet
 KEEP_RUNS = 3
-# T3 Code caps every CI job at 10 minutes (adoption ledger §2.4, COPY). With no CI here it is
-# re-expressed as a REPORTED budget, never a kill: killing a check at a deadline would be
-# running less of it, which the land-cost plan rules out. A check past it is named in the
-# summary as the next long pole to cut.
+# T3 Code caps every CI job at 10 minutes (adoption ledger §2.4, COPY). Here: a check past the
+# budget is named while the run goes, and one still running at its deadline (deadline_for) is
+# stopped with its whole tree and fails the run by name. The deadline sits above the budget
+# because a kill at exactly ten minutes under a contended Mac would fail healthy checks.
 BUDGET_SECONDS = 600
 DEFAULT_WEIGHTS = (("native-ios", 900), ("native-android", 600), ("cargo", 300), ("engine", 300))
 
@@ -336,7 +336,7 @@ def slug(label):
     return re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")[:60]
 
 
-def launch(item, n, logdir, tokens_dir):
+def launch(item, n, logdir, tokens_dir, reserved):
     item.log = os.path.join(logdir, "%02d-%s.log" % (n, slug(item.label)))
     fh = open(item.log, "wb")
     fh.write(("$ cd %s && %s\n" % (os.path.relpath(item.cwd, ROOT), " ".join(shlex.quote(a) for a in item.argv))).encode())
@@ -344,11 +344,33 @@ def launch(item, n, logdir, tokens_dir):
     # Its own session, so nothing it does can signal this runner; how it is stopped is
     # proc_tree.kill_tree (its whole tree), never a group or a name.
     env = {**os.environ, **item.env, "RICHOS_WORKER_TOKENS": tokens_dir,
-           "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__)}
-    item.proc = subprocess.Popen(item.argv, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
-                                 stdin=subprocess.DEVNULL, start_new_session=True, env=env)
-    fh.close()
+           "RICHOS_WORKER_TOKENS_TOOL": os.path.abspath(worker_tokens.__file__),
+           "RICHOS_WORKER_TOKENS_RESERVED": str(reserved)}
+    # The toolchains a check calls by name (cargo, the Homebrew tools), found the way the nightly
+    # finds them (nightly-local.py `local_environment`), appended so the caller's own come first.
+    # The third full run died on `cargo` not being on the caller's PATH.
+    path = env.get("PATH", "").split(os.pathsep)
+    for extra in (os.path.join(os.path.expanduser("~"), ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"):
+        if extra not in path:
+            path.append(extra)
+    env["PATH"] = os.pathsep.join(p for p in path if p)
     item.state, item.started = "running", time.time()
+    try:
+        item.proc = subprocess.Popen(item.argv, cwd=item.cwd, stdout=fh, stderr=subprocess.STDOUT,
+                                     stdin=subprocess.DEVNULL, start_new_session=True, env=env)
+    except OSError as exc:
+        # A check that cannot even start is a FAILED check, named, never a crash of the run
+        # that leaves every other check running with nobody to stop it.
+        fh.write(("proof-run: could not start: %s\n" % exc).encode())
+        item.proc = None
+        item.notes.append("could not start: %s" % exc)
+    fh.close()
+
+
+def reserved_tokens(capacity):
+    """Tokens only the runner may take, so checks not yet started are never starved by nested
+    workers (worker_tokens.py header): a quarter of the budget, at least one."""
+    return max(1, capacity // 4)
 
 
 def admitted(args, sampler):
@@ -389,7 +411,12 @@ class Monitor(threading.Thread):
 
 def deadline_for(item, args):
     """The kill point: the --deadline floor, or three times what this check is expected to take,
-    whichever is later, never past an hour (ci-shard.sh's own rule for a unit)."""
+    whichever is later, never past an hour (ci-shard.sh's own rule for a unit). None for an engine
+    shard: a shard is a list of units run one after another, and ci-shard.sh already stops EACH
+    unit at its own deadline, with its whole tree. A deadline on the list as well killed two
+    healthy shards in the third full run, at 3 x the shard's stale planned weight."""
+    if item.label.startswith("engine ") and "--shard" in item.argv:
+        return None
     return min(3600.0, max(args.deadline, 3 * item.weight))
 
 
@@ -397,21 +424,27 @@ def run(items, args, logdir, sampler=None):
     sampler = sampler or (lambda: reserve.host_sample())
     tokens_dir = os.path.join(logdir, "worker-tokens")
     worker_tokens.init(tokens_dir, args.capacity)
-    budget = worker_tokens.Budget(tokens_dir)
+    budget = worker_tokens.Budget(tokens_dir, runner=True)
+    reserved = reserved_tokens(args.capacity)
     order = sorted(items, key=lambda it: -it.weight)
-    running, n, next_sample, last_launch = [], 0, 0.0, 0.0
+    running = []
     t0 = time.time()
     monitor = Monitor(args.sample_every, budget, sampler)
     monitor.start()
 
-    def stop_all(signum, _frame):
+    def stop_running():
         # The whole tree of every running check, not its group alone: a check's descendants
         # start groups and sessions of their own (stop-at-line.py, worker_tokens.py, xcodebuild),
         # and a group kill would leave those running (proc_tree.py's header).
         left = []
         for it in running:
-            left += proc_tree.kill_tree(it.proc.pid, 5.0)
-            it.proc.wait()
+            if it.proc is not None:
+                left += proc_tree.kill_tree(it.proc.pid, 5.0)
+                it.proc.wait()
+        return left
+
+    def stop_all(signum, _frame):
+        left = stop_running()
         print("proof-run: interrupted; every check this run started was stopped%s. Logs: %s" % (
             "" if not left else " EXCEPT pids %s, which survived SIGKILL" % left, logdir), flush=True)
         sys.exit(130)
@@ -419,12 +452,33 @@ def run(items, args, logdir, sampler=None):
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, stop_all)
 
+    try:
+        schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler)
+    except BaseException:
+        # Whatever ends this run early (a bug here, an exception nobody foresaw), nothing it
+        # started is left running with nobody to stop it: the third full run died on a
+        # FileNotFoundError and left two checks' trees under init.
+        if not isinstance(sys.exc_info()[1], SystemExit):
+            left = stop_running()
+            print("proof-run: stopped every running check after an error%s" % (
+                "" if not left else "; pids %s survived SIGKILL" % left), flush=True)
+        raise
+    finally:
+        monitor.halt.set()
+    monitor.join(timeout=5)
+    args.monitor_lines = monitor.report(args.max_cpu)
+    return time.time() - t0
+
+
+def schedule(items, order, running, args, logdir, tokens_dir, budget, reserved, sampler):
+    n, next_sample, last_launch = 0, 0.0, 0.0
     while True:
         now = time.time()
         for it in list(running):
-            rc = it.proc.poll()
+            rc = it.proc.poll() if it.proc is not None else 127
             age = now - it.started
-            if rc is None and age >= deadline_for(it, args):
+            deadline = deadline_for(it, args)
+            if rc is None and deadline is not None and age >= deadline:
                 # ENFORCED, while the run is going: the check and everything it started are
                 # stopped, and the run is red by name. Never a skip.
                 left = proc_tree.kill_tree(it.proc.pid, 3.0)
@@ -432,11 +486,13 @@ def run(items, args, logdir, sampler=None):
                 rc = 124
                 it.state = "timed-out"
                 it.notes.append("stopped at its %.0f s deadline%s" % (
-                    deadline_for(it, args), "" if not left else "; pids %s survived SIGKILL" % left))
+                    deadline, "" if not left else "; pids %s survived SIGKILL" % left))
             elif rc is None and age >= args.budget and not it.over_budget:
                 it.over_budget = True
-                print("[%s] OVER BUDGET %-34s running %.0f s, past the %.0f s budget; stopped at %.0f s if still "
-                      "running" % (stamp(), it.label, age, args.budget, deadline_for(it, args)), flush=True)
+                print("[%s] OVER BUDGET %-34s running %.0f s, past the %.0f s budget; %s" % (
+                    stamp(), it.label, age, args.budget,
+                    "stopped at %.0f s if still running" % deadline if deadline is not None
+                    else "each of its units is stopped at its own deadline by ci-shard.sh"), flush=True)
             if rc is not None:
                 it.rc, it.ended = rc, time.time()
                 if it.state != "timed-out":
@@ -452,12 +508,9 @@ def run(items, args, logdir, sampler=None):
         done = {it.label for it in items if it.state not in ("waiting", "running")}
         ready = [it for it in waiting if (not it.lane or it.lane not in busy_lanes) and it.after <= done]
         # A check whose prerequisites failed still runs: the receipts check is what NAMES a
-        # shard that did not finish, so it is never skipped.
-        # A nested worker of a RUNNING check waiting for a token goes first: no new check starts
-        # while one waits (worker_tokens.py `waiting`), or the long poles, started first, would
-        # be starved of the parallelism that makes them short.
-        if ready and budget.waiting() == 0 and now >= next_sample \
-                and now - last_launch >= (SETTLE_SECONDS if running else 0):
+        # shard that did not finish, so it is never skipped. Nested workers never take the
+        # reserved tokens (worker_tokens.py), so a check not yet started always gets one.
+        if ready and now >= next_sample and now - last_launch >= (SETTLE_SECONDS if running else 0):
             it = ready[0]
             if it.first_wait is None:
                 it.first_wait = now
@@ -470,7 +523,7 @@ def run(items, args, logdir, sampler=None):
             if ok:
                 it.admission_wait, it.token = now - it.first_wait, token
                 n += 1
-                launch(it, n, logdir, tokens_dir)
+                launch(it, n, logdir, tokens_dir, reserved)
                 running.append(it)
                 last_launch = time.time()
                 print("[%s] start  %-40s %s" % (stamp(), it.label,
@@ -489,10 +542,6 @@ def run(items, args, logdir, sampler=None):
                     if not running:
                         print("[%s] wait   %-40s admission: %s" % (stamp(), it.label, reserve.describe(s)), flush=True)
         time.sleep(0.2)
-    monitor.halt.set()
-    monitor.join(timeout=5)
-    args.monitor_lines = monitor.report(args.max_cpu)
-    return time.time() - t0
 
 
 def notes_from_logs(items):

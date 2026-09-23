@@ -190,23 +190,31 @@ try:
           "P12 capacity 3, three checks with three workers each: all nine ran, at most %s at once" % (max(conc) if conc else "?"),
           (conc, [(i.label, i.state) for i in its]))
 
-    # P13 — a waiting nested worker of a RUNNING check goes before a check not yet started.
-    # Capacity 2: A (first, longest) and B take both tokens; A's nested worker then waits; when B
-    # ends, the freed token must go to A's worker, not to C.
+    # P13 — checks not yet started are never starved by nested workers. A runs twelve nested
+    # workers, as many at a time as the budget lets it, for several seconds; four light checks
+    # queued behind it must all run to the end while A's workers are still going, on the token
+    # nested workers may never take (worker_tokens.py's reserve). In the third full run
+    # native-ios-share waited 2519 s to start behind four mutation pools.
     d13 = os.path.join(tmp, "p13")
     os.makedirs(d13)
-    stamp = "python3 -c 'import time,sys; open(sys.argv[1],\"w\").write(repr(time.time()))'"
-    a = pr.Item("A", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c",
-                "sleep 0.5; python3 %s run \"$RICHOS_WORKER_TOKENS\" -- %s %s/a-worker" % (wt, stamp, d13)], None, 30)
-    b = pr.Item("B", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 1.5"], None, 20)
-    c = pr.Item("C", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "%s %s/c-start" % (stamp, d13)], None, 10)
-    pr.run([a, b, c], Args(capacity=2), os.path.join(tmp, "p13log"), sampler=idle)
-    try:
-        aw, cs = float(open(os.path.join(d13, "a-worker")).read()), float(open(os.path.join(d13, "c-start")).read())
-    except (OSError, ValueError):
-        aw = cs = None
-    check(aw is not None and aw <= cs and all(i.state == "passed" for i in (a, b, c)),
-          "P13 a freed token goes to a running check's waiting worker before a new check starts", (aw, cs))
+    nested13 = ("for i in $(seq 1 12); do python3 %s run \"$RICHOS_WORKER_TOKENS\" -- sleep 1 & done; wait" % wt)
+    a = pr.Item("A", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", nested13], None, 30)
+    light = [pr.Item("light-%d" % k, os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 0.3"], None, 1)
+             for k in range(4)]
+    pr.run([a] + light, Args(capacity=4), os.path.join(tmp, "p13log"), sampler=idle)
+    check(all(i.state == "passed" for i in [a] + light) and max(i.ended for i in light) < a.ended,
+          "P13 four light checks all ran while a nested pool kept the rest of the budget busy "
+          "(last one ended %.1f s before the pool's check)" % (a.ended - max(i.ended for i in light)),
+          [(i.label, i.state) for i in [a] + light])
+
+    # P14 — a check whose command cannot even start fails by name, and the run goes on. The third
+    # full run crashed on `cargo` not being found and left two other checks running under init.
+    gone = pr.Item("no-such-tool", os.path.join(pr.ROOT, "richos/app"), ["no-such-tool-7c1f", "--x"], None, 5)
+    fine = pr.Item("fine", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "sleep 0.5"], None, 1)
+    pr.run([gone, fine], Args(), os.path.join(tmp, "p14log"), sampler=idle)
+    check(gone.state == "failed" and fine.state == "passed" and any("could not start" in n for n in gone.notes),
+          "P14 a command that cannot start is a FAILED check, named, and the run carries on",
+          (gone.state, gone.notes, fine.state))
 
     # P6 — the receipts check runs even when a shard failed: it is what names the missing units.
     a = pr.Item("engine 1/2", os.path.join(pr.ROOT, "richos/app"), ["bash", "-c", "exit 1"], None, 5)
