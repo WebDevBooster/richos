@@ -51,7 +51,7 @@ struct TestCounts: Codable {
 }
 
 final class Simulator {
-    static let bundleID = "dev.richos.native.ios"
+    static let bundleID = "dev.richos.connect"
     static let scheme = "RichOSNative"
     /// iPhone 16 Pro is 402 × 874 points — round 12's "current" device, so a screenshot is directly
     /// comparable with the mockup at the same size.

@@ -25,9 +25,8 @@ settings:
   base:
     # One place for the identity the extensions derive from. It MUST equal the app's
     # PRODUCT_BUNDLE_IDENTIFIER in project.yml (the suite checks it): an extension's identifier
-    # has to start with its app's. The production identifier is the CEO's decision (build plan
-    # §6 item 3); changing it here and in project.yml is the whole switch.
-    RICHOS_BUNDLE_ID: dev.richos.native.ios
+    # has to start with its app's. RichConnect uses the permanent identifier approved by the CEO.
+    RICHOS_BUNDLE_ID: dev.richos.connect
     RICHOS_APP_GROUP: group.$(RICHOS_BUNDLE_ID)
     RICHOS_KEYCHAIN_GROUP: $(RICHOS_BUNDLE_ID).shared
 

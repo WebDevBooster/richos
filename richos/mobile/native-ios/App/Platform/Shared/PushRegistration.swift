@@ -6,9 +6,8 @@ import RichOSCore
 /// The platform facts of the signed `POST /api/pair` that registers this phone for reply
 /// notifications (phone protocol contract §7.2) — the token's form and this build's APNs environment —
 /// and the reading of its answer. The BODY is the core's (`RichOSCore.PairingWire.pushRegistrationBody`,
-/// stream I1), so its bytes have one author; the topic `dev.richos.native.ios` is on the Mac's list
-/// since Echo's 65952d16 (a production identifier is one more entry there and in the Worker's
-/// `APNS_TOPICS`).
+/// stream I1), so its bytes have one author. The permanent topic `dev.richos.connect` must
+/// also be enabled in the Worker's private `APNS_TOPICS` configuration.
 enum PushRegistration {
     enum Environment: String, Sendable {
         case sandbox, production

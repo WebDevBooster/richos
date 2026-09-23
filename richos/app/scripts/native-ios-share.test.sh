@@ -69,8 +69,10 @@ else bad "S3 app icon" "$(cat "$SCRATCH/icon.log")"; fi
 # S4 — the extensions' identifiers derive from RICHOS_BUNDLE_ID, which must be the app's own.
 APP_ID="$(awk '/^  RichOSNative:/{t=1} t && /PRODUCT_BUNDLE_IDENTIFIER:/{print $2; exit}' "$NATIVE/project.yml")"
 BASE_ID="$(awk '/RICHOS_BUNDLE_ID:/{print $2; exit}' "$NATIVE/Release/platform.yml")"
-if [ -n "$APP_ID" ] && [ "$APP_ID" = "$BASE_ID" ]; then ok "S4 the app and its extensions share one identity ($APP_ID)"
-else bad "S4 RICHOS_BUNDLE_ID matches the app's identifier" "project.yml '$APP_ID', platform.yml '$BASE_ID'"; fi
+WIRE_ID="$(sed -n 's/.*static let apnsTopic = "\([^"]*\)".*/\1/p' "$NATIVE/Core/Sources/RichOSCore/Protocol/PairingAPI.swift")"
+CLI_ID="$(sed -n 's/.*static let bundleID = "\([^"]*\)".*/\1/p' "$NATIVE/Core/Sources/RichOSCLI/Simulator.swift")"
+if [ "$APP_ID" = "dev.richos.connect" ] && [ "$APP_ID" = "$BASE_ID" ] && [ "$APP_ID" = "$WIRE_ID" ] && [ "$APP_ID" = "$CLI_ID" ]; then ok "S4 the app, extensions, CLI and push registration share the permanent identity ($APP_ID)"
+else bad "S4 permanent application identity agrees across packaging and push" "app '$APP_ID', extensions '$BASE_ID', push '$WIRE_ID', CLI '$CLI_ID'"; fi
 
 # S5 — the preserved iPhone app, its UI and the PWA are byte-unchanged (ceo-decisions §76: "preserved
 # as is for now"). What is protected is the PRODUCT: every file of the three trees except their test
