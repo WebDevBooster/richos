@@ -222,7 +222,7 @@ class RichMessagingService : FirebaseMessagingService() {
         val data = message.data
         if (data["v"] != "1") return
         val text = NotificationPreview.textOrGeneric(keysFor(this).existing(), data["thread"], data["event"], data["preview"])
-        Replies.post(this, text, collapse = data["event"])
+        Replies.post(this, text, NotificationTarget.fromData(data), collapse = data["event"])
     }
 
     companion object {
@@ -242,24 +242,30 @@ object Replies {
         }
     }
 
-    fun post(context: Context, text: String, collapse: String?) {
+    fun post(context: Context, text: String, target: NotificationTarget?, collapse: String?) {
         ensureChannel(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
-        val open = context.packageManager.getLaunchIntentForPackage(context.packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val tap = open?.let { PendingIntent.getActivity(context, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
+        // One notification per event, so one pending intent per event: PendingIntent identity ignores
+        // extras, and a shared request code made every notification open the newest reply's references.
+        val id = collapse?.hashCode() ?: 0
+        val open = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            ?.let { target?.into(it) ?: it }
+        val tap = open?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle("Rich")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setContentIntent(tap)
             .build()
-        // One notification per event: a repeat delivery of the same event replaces, never stacks.
-        NotificationManagerCompat.from(context).notify(collapse?.hashCode() ?: 0, notification)
+        // A repeat delivery of the same event replaces, never stacks.
+        NotificationManagerCompat.from(context).notify(id, notification)
     }
 }

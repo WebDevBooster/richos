@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import com.google.firebase.messaging.RemoteMessage
 import dev.richos.android.core.Action
@@ -34,6 +35,34 @@ class NotificationsTest {
     fun clean() {
         File(app.cacheDir, "push-test").deleteRecursively()
         RichMessagingService.keysFor = PreviewKeys::forApp
+    }
+
+    private fun data(event: String, thread: String = "b".repeat(64)) =
+        RemoteMessage.Builder("x@fcm.googleapis.com").setData(mapOf("v" to "1", "host" to "a".repeat(32), "thread" to thread, "event" to event)).build()
+
+    @Test
+    fun `each notification opens its own reply - the tap intents are distinct and carry that reply's references`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        val service = Robolectric.buildService(RichMessagingService::class.java).create().get()
+        service.onMessageReceived(data("c".repeat(64)))
+        service.onMessageReceived(data("d".repeat(64)))
+        val opened = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+            .map { shadowOf(it.contentIntent).savedIntent }
+        assertEquals(2, opened.size)
+        assertEquals(setOf("c".repeat(64), "d".repeat(64)), opened.map { NotificationTarget.fromIntent(it)!!.event }.toSet())
+        assertTrue(opened.all { it.component?.className == "dev.richos.android.app.MainActivity" })
+        assertTrue(opened.all { it.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0 })
+    }
+
+    @Test
+    fun `a malformed reference still shows the reply, and the tap opens the app without a target`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(data("not-hex"))
+        val posted = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications.single()
+        assertEquals("Rich has replied.", posted.extras.getCharSequence("android.text").toString())
+        assertEquals(null, NotificationTarget.fromIntent(shadowOf(posted.contentIntent).savedIntent))
     }
 
     @Test

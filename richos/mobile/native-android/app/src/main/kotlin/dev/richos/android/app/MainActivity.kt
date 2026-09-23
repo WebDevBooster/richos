@@ -1,6 +1,7 @@
 package dev.richos.android.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
@@ -42,6 +43,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Theme
+import dev.richos.android.platform.NotificationTaps
 import dev.richos.android.ui.RichApp
 import dev.richos.android.ui.model.ScreenModel
 import dev.richos.android.ui.toAction
@@ -111,6 +113,14 @@ class MainActivity : ComponentActivity() {
                 AppRoot(null)
             }
         }
+        // A tapped reply notification opens that reply (platform/NotificationTaps.kt).
+        if (savedInstanceState == null) NotificationTaps.handle(intent, store, (application as RichApplication).appScope)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        NotificationTaps.handle(intent, richStore, (application as RichApplication).appScope)
     }
 }
 
