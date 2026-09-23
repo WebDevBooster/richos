@@ -209,6 +209,22 @@ G15_BASH="$RC"
 run "$(payload Read "" dev "$SID4")"
 [ "$G15_BASH" -eq 2 ] && [ "$RC" -eq 0 ] && ok "G15  the lead of a claude --worktree session is refused Bash, allowed Read (point 3)" || bad "G15  worktree session bash=$G15_BASH read=$RC"
 
+# G15b-G15e — 2026-09-22: a refused lead could not stop ten agents for 33 minutes.
+# Under a (correct) refusal the lead may still STOP ITS AGENTS, and the refusal
+# names that one thing so the next call is a stop, not a retry.
+run "$(payload TaskStop "" dev "$SID4")"
+[ "$RC" -eq 0 ] && ok "G15c ...and that session's TaskStop passes (a refused lead can always stop its agents)" || bad "G15c TaskStop rc=$RC: $OUT"
+STOP_SH="$(cd "$SCRIPT_DIR/.." && pwd)/stop.sh"
+payload_cmd() { # <command> <session>
+    python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[2], "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": sys.argv[1]}, "tool_use_id": "toolu_c"}))' "$1" "$2"
+}
+run "$(payload_cmd "$STOP_SH dev-opus-x --ceo-word 'stop it'" "$SID4")"
+G15D_STOP="$RC"
+run "$(payload_cmd "$STOP_SH dev-opus-x --ceo-word 'stop it'; touch $SANDBOX/rode-along" "$SID4")"
+[ "$G15D_STOP" -eq 0 ] && [ "$RC" -eq 2 ] && ok "G15d the engine's stop.sh passes as one plain command; nothing may ride along with it" || bad "G15d stop.sh=$G15D_STOP chained=$RC"
+run "$(payload SendMessage "" dev "$SID4")"
+[ "$RC" -eq 2 ] && ok "G15e CONTROL: that session's SendMessage is still refused (point 3 stands)" || bad "G15e SendMessage rc=$RC"
+
 # G16-G19 fail closed on its own error
 NOLIB="$SANDBOX/nolib"
 mkdir -p "$NOLIB/scripts/hooks" "$NOLIB/scripts/lib"

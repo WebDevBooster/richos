@@ -71,6 +71,16 @@ mutant p03-subagent-gets-lead-context "test_point_03_a_subagent_compaction_gets_
     '        if False:{NL}            # A subagent'"'"'s compaction' \
     "a subagent's compaction would be handed the lead's land-or-discard gate, which it can do nothing about."
 
+mutant p03-refused-lead-cannot-stop "test_point_03_a_forbidden_lead_can_always_stop_its_agents" "$W" \
+    '                stop = lead_recovery_call(payload)' \
+    '                stop = ""' \
+    "a refused lead could not stop its agents: ten agents at 100% CPU for 33 minutes on 2026-09-22."
+
+mutant p03-anything-rides-along-with-a-stop "test_point_03_a_forbidden_lead_can_always_stop_its_agents" "$W" \
+    '    if not cmd or not _one_plain_command(cmd):' \
+    '    if not cmd:' \
+    "any command chained after stop.sh would run in a session point 3 refuses."
+
 mutant p04-no-automatic-land "test_point_04_landed_means_workspace_and_branch_deleted_automatically" "$W" \
     '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(' \
     '        if False:{NL}            try:{NL}                res = land(' \

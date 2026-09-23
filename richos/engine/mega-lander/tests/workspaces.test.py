@@ -543,6 +543,37 @@ class Point03_TheLeadIsNeverLockedOutByASubagent(Base):
         ctx, _n = self.compact(self.entity)
         self.assertIn("zach-opus-cx", ctx)
 
+    def forbidden_session(self):
+        wt = self.session_workspace()
+        sid2 = "sess-worktree-7777"
+        pr = self.env.session(sid2, wt)
+        self.platform(sid2, wt, pr.pid)
+        self.assertEqual(self.lead(sid=sid2)[0], "FORBIDDEN")
+        return sid2
+
+    def test_point_03_a_forbidden_lead_can_always_stop_its_agents(self):
+        sid2 = self.forbidden_session()
+        engine = os.path.dirname(os.path.dirname(os.path.abspath(ws.__file__)))
+        stop_sh = os.path.join(engine, "scripts", "stop.sh")
+        ack_sh = os.path.join(engine, "scripts", "stop-work-ack.sh")
+        self.assertEqual(self.lead("TaskStop", sid=sid2, task_id="a275ae996204b25b3")[0], "RECOVERY")
+        for cmd in ("%s isaac-opus-n1 andy-opus-n1 --ceo-word 'Stop them now'" % stop_sh,
+                    "bash %s isaac-opus-n1 --ceo-word \"Stop them\"" % stop_sh,
+                    "%s --task isaac-opus-n1 --destroying 'nothing uncommitted' --why 'his word'" % ack_sh):
+            self.assertEqual(self.lead("Bash", sid=sid2, command=cmd)[0], "RECOVERY", cmd)
+        # Nothing else rides along with a stop.
+        other = os.path.join(self.env.root, "scripts", "stop.sh")
+        for cmd in ("%s x --ceo-word 'w'; rm -rf %s" % (stop_sh, self.entity),
+                    "%s x --ceo-word \"$(touch %s/p)\"" % (stop_sh, self.env.root),
+                    "%s x --ceo-word `id`" % stop_sh,
+                    "%s x > %s/out" % (stop_sh, self.env.root),
+                    "%s x --ceo-word 'w'" % other,
+                    "git -C %s merge cc/x" % self.entity,
+                    "ls"):
+            self.assertEqual(self.lead("Bash", sid=sid2, command=cmd)[0], "FORBIDDEN", cmd)
+        self.assertEqual(self.lead("SendMessage", sid=sid2, to="x", message="m")[0], "FORBIDDEN")
+
+
 class Point04_LandedMeansDeleted(Base):
     """4. Landed means the workspace AND the branch are deleted — automatically."""
 

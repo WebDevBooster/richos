@@ -61,6 +61,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -4490,10 +4491,91 @@ def _alive(pid):
 # point 9 — the lock-out, and point 3 — no worktree sessions
 # ---------------------------------------------------------------------------
 
+RECOVERY_SCRIPTS = ("stop.sh", "stop-work-ack.sh")
+
+
+def engine_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def stop_command():
+    return os.path.join(engine_root(), "scripts", "stop.sh")
+
+
+def _one_plain_command(cmd):
+    """True when `cmd` is ONE simple command: no operator, redirection,
+    substitution or expansion anywhere a shell would act on it. Single quotes
+    make everything literal; inside double quotes `$` and a backquote still
+    act, so they are refused there too."""
+    q = None
+    i = 0
+    while i < len(cmd):
+        c = cmd[i]
+        if q == "'":
+            if c == "'":
+                q = None
+        elif q == '"':
+            if c == '"':
+                q = None
+            elif c == "\\":
+                i += 1
+            elif c in "$`":
+                return False
+        elif c in "'\"":
+            q = c
+        elif c == "\\":
+            i += 1
+        elif c in ";&|<>()$`\n\r":
+            return False
+        i += 1
+    return q is None
+
+
+def lead_recovery_call(payload):
+    """The name of the stop this lead call is, or "".
+
+    POINT 3 NEVER TAKES AWAY THE STOP. A refused lead that cannot stop its
+    agents is how 2026-09-22 went: ten agents at 100% CPU for 33 minutes, the
+    lead refused TaskStop, SendMessage and every command, and the CEO stopping
+    them from his own screen. So a refused lead may still stop agents: TaskStop,
+    and the engine's own stop.sh / stop-work-ack.sh (which write only the ack
+    TaskStop's guard asks for), called as ONE plain command resolving to THIS
+    engine's copy. Nothing may ride along with it."""
+    tool = str(payload.get("tool_name") or "")
+    if tool == "TaskStop":
+        return "TaskStop"
+    if tool != "Bash":
+        return ""
+    ti = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+    cmd = str(ti.get("command") or "").strip()
+    if not cmd or not _one_plain_command(cmd):
+        return ""
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        return ""
+    if toks and toks[0] in ("bash", "/bin/bash"):
+        toks = toks[1:]
+    if not toks:
+        return ""
+    p = os.path.expanduser(toks[0])
+    if not os.path.isabs(p):
+        base = str(payload.get("cwd") or "")
+        if not base:
+            return ""
+        p = os.path.join(base, p)
+    rp = realpath(p)
+    for name in RECOVERY_SCRIPTS:
+        if rp == realpath(os.path.join(engine_root(), "scripts", name)):
+            return name
+    return ""
+
+
 def barrier(payload):
     """Verdict for guard-sealed-worktree.sh: (kind, detail).
     FINISHED        a finished agent: refused every tool (point 9)
     FORBIDDEN       the lead of a claude --worktree session (point 3)
+    RECOVERY        that lead stopping its agents: never refused
     REGISTERED      a registered, unfinished worker (paused included)
     UNREGISTERED    a worker with no registration (point 3)
     LEAD            the lead's own call"""
@@ -4504,6 +4586,9 @@ def barrier(payload):
         if s and s.get("forbidden"):
             why = forbidden_now(sid, s)
             if why:
+                stop = lead_recovery_call(payload)
+                if stop:
+                    return "RECOVERY", "%s stops agents, which a refused lead may always do (%s)" % (stop, why)
                 return "FORBIDDEN", why
         return "LEAD", ""
     key = key_for_id(aid)
