@@ -9,22 +9,24 @@
 #      * the adopted T3 viewport geometry, with round 12's 80-point threshold;
 #      * WCAG contrast of every text and indicator pairing, from the app's own Palette values.
 #   2. SIMULATOR (minutes): builds the app and its UI tests from `native-ios/project.yml`, then runs
-#      them on an iPhone SE (3rd generation) and an iPhone 16 Pro Max that this script creates — one
-#      booted at a time, headless (never Simulator.app), shut down and deleted by UDID after its run —
-#      in UTC and en_US so every picture matches the mockup's 8:02 AM. Screenshots are exported per
-#      device.
+#      them on an iPhone SE (3rd generation) and an iPhone 16 Pro Max — each device's tests split
+#      across RICHOS_IOS_UI_SHARDS simulators of that device (default 2), every simulator created by
+#      this script, booted headless (never Simulator.app), all running at once, shut down and deleted
+#      by UDID after the run — in UTC and en_US so every picture matches the mockup's 8:02 AM.
+#      Screenshots are exported per device.
 #
 #   native-ios-ui.test.sh                        both parts
 #   native-ios-ui.test.sh --headless             part 1 only
 #   native-ios-ui.test.sh --only <Class/test>    part 2 scoped (xcodebuild -only-testing), repeatable,
 #                                                e.g. --only ScreenshotTests/testComposerDark
 #   native-ios-ui.test.sh --device se|pm         part 2 on one device
+#   RICHOS_IOS_UI_SHARDS=N native-ios-ui.test.sh  N simulators per device (default 2; 1 = unsplit)
 #
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
-# run-tests: inputs richos/app/scripts/native-ios-ui.test.sh richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml
-# run-tests: covers richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift
+# run-tests: inputs richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml
+# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -274,6 +276,10 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
 fi
 echo "native-ios-ui: headless (compiled in $(( $(date +%s) - START )) s)"
 "$HEADLESS_BIN"
+# The split and the by-name proof the simulator part relies on, against fixtures (no simulator).
+if ! python3 "$DIR/lib/ios_ui_shards.py" selftest; then
+  echo "  FAIL  native-ios-ui: the shard split or its proof"; exit 1
+fi
 
 [ "$MODE" = headless ] && exit 0
 
@@ -306,81 +312,133 @@ nice -n 10 xcodebuild -project "$PROJECT_DIR/RichOSNative.xcodeproj" -scheme Ric
 echo "native-ios-ui: built for testing in $(( $(date +%s) - START )) s"
 
 STATUS=0
+# ------------------------------------------------------------------------------------------------
+# The simulators: every device's tests are split across RICHOS_IOS_UI_SHARDS simulators of that
+# device (default 2), and every simulator runs at the same time.
+#
+# MEASURED, 2026-09-23, this Mac, standalone: the build is 23 s cold and 5 s warm, a boot about
+# 30 s, and the tests the rest — 661 s for one device's 42 tests on one simulator, 686 s for the
+# other, one after the other: 1428 s for the suite (1438 s in the 184-commit land). A running UI
+# test waits on the app and on XCUITest rather than computing (user CPU 10-15% of the Mac with a
+# simulator mid-run), so the time is bought back with more simulators, not more cores — the
+# shape T3 Code uses for its own suite (adoption ledger §2.3: "sharding spreads them over separate
+# runners instead of separate workers"), so no two shards ever share a device. Each shard is its
+# own simulator, created, booted headless, shut down and deleted by this run, as before.
+#
+#   simulators per device   wall (whole suite)
+#   1, one device at a time      1428 s   (the old shape)
+#   2, all four at once           535 s   (the default)
+#   3, all six at once            970 s   (six first boots took 255 s together, and another
+#                                          agent's simulators were running at the time)
+# Past two, first boots and the host's simulator services are the bottleneck, not the tests.
+#
+# NOTHING IS DROPPED BY SPLITTING. The test list comes from xcodebuild itself (-enumerate-tests),
+# never from the Swift sources, and after the run the tests the result bundles report for a device
+# must equal that list, name for name. A shard that ran fewer tests than it was given is a failure.
+# `--only` runs unsplit, as before; so does RICHOS_IOS_UI_SHARDS=1.
+# ------------------------------------------------------------------------------------------------
+SHARDS="${RICHOS_IOS_UI_SHARDS:-2}"
+case "$SHARDS" in ''|*[!0-9]*|0) echo "native-ios-ui: RICHOS_IOS_UI_SHARDS must be a positive integer" >&2; exit 64 ;; esac
+[ "${#ONLY[@]}" -gt 0 ] && SHARDS=1
+XCTESTRUN="$(find "$DERIVED/Build/Products" -maxdepth 1 -name '*.xctestrun' | head -1)"
+[ -n "$XCTESTRUN" ] || { echo "  FAIL  native-ios-ui: build-for-testing left no .xctestrun in $DERIVED/Build/Products"; exit 1; }
+SELECT=("-only-testing:RichOSNativeUITests" "-only-testing:RichOSNativeTests")
+[ "${#ONLY[@]}" -gt 0 ] && SELECT=("${ONLY[@]}")
+# Per-test seconds from the last run of this checkout, so the split is balanced by what each test
+# costs rather than by how many there are. Missing on a first run: the split is then by count.
+TIMES="$CACHE/test-seconds.tsv"
+
+# Every simulator is created and booted before any test starts, all boots at once.
+SIM_DEV=(); SIM_UDID=(); SIM_TYPE=()
 for DEVICE in "${DEVICES[@]}"; do
   TYPE="com.apple.CoreSimulator.SimDeviceType.$(printf '%s' "$DEVICE" | sed 's/[() ]/-/g; s/--*/-/g; s/-$//')"
-  UDID="$(xcrun simctl create "rios-ui-$$-${TYPE##*.}" "$TYPE" "$RUNTIME")"
-  CREATED+=("$UDID")
+  s=1
+  while [ "$s" -le "$SHARDS" ]; do
+    UDID="$(xcrun simctl create "rios-ui-$$-${TYPE##*.}-$s" "$TYPE" "$RUNTIME")"
+    CREATED+=("$UDID")
+    # Registered to this shell before it boots, so the engine removes it if this run is killed
+    # before its trap (§54; richos/engine/scripts/lib/testdevices.py).
+    python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
+      --owner-pid $$ --script native-ios-ui.test.sh >/dev/null || exit 1
+    SIM_DEV+=("$DEVICE"); SIM_UDID+=("$UDID"); SIM_TYPE+=("${TYPE##*.}")
+    s=$((s + 1))
+  done
+done
+START=$(date +%s)
+for i in "${!SIM_UDID[@]}"; do
+  ( if xcrun simctl boot "${SIM_UDID[$i]}" && xcrun simctl bootstatus "${SIM_UDID[$i]}" -b > /dev/null; then rc=0; else rc=1; fi
+    echo "$rc" > "$WORK/boot-$i.rc" ) > "$WORK/boot-$i.log" 2>&1 &
+done
+# The test list, from xcodebuild itself, while the simulators boot (it needs a destination to
+# resolve, not a booted one: measured 2026-09-23 on a created, never-booted simulator).
+if [ "$SHARDS" -gt 1 ]; then
+  ( if xcodebuild test-without-building -xctestrun "$XCTESTRUN" -destination "id=${SIM_UDID[0]}" \
+         -derivedDataPath "$WORK/dd-enumerate" "${SELECT[@]}" -enumerate-tests -test-enumeration-style flat \
+         -test-enumeration-format json -test-enumeration-output-path "$WORK/tests.json" > "$WORK/enumerate.log" 2>&1
+    then echo 0 > "$WORK/enumerate.rc"; else echo 1 > "$WORK/enumerate.rc"; fi ) &
+fi
+wait
+for i in "${!SIM_UDID[@]}"; do
+  if [ "$(cat "$WORK/boot-$i.rc" 2>/dev/null)" != 0 ]; then
+    echo "  FAIL  native-ios-ui: simulator ${SIM_UDID[$i]} (${SIM_DEV[$i]}) did not boot: $(tail -3 "$WORK/boot-$i.log" | tr '\n' ' ')"
+    exit 1
+  fi
   # Pictures that match the mockup: American English, and times read in UTC (the fixtures' instants).
-  PLIST="$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/Preferences/.GlobalPreferences.plist"
-  python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
-    --owner-pid $$ --script native-ios-ui.test.sh >/dev/null || exit 1
-  xcrun simctl boot "$UDID"
-  xcrun simctl bootstatus "$UDID" -b > /dev/null
-  xcrun simctl spawn "$UDID" defaults write .GlobalPreferences AppleLocale -string en_US > /dev/null 2>&1 || true
-  xcrun simctl spawn "$UDID" defaults write .GlobalPreferences AppleLanguages -array en-US > /dev/null 2>&1 || true
-  : "$PLIST"
-  RESULT="$WORK/${TYPE##*.}.xcresult"
-  START=$(date +%s)
-  ARGS=(-project "$PROJECT_DIR/RichOSNative.xcodeproj" -scheme RichOSNative -destination "id=$UDID"
-        -derivedDataPath "$DERIVED" -clonedSourcePackagesDirPath "$CACHE/SourcePackages"
-        -resultBundlePath "$RESULT" -parallel-testing-enabled NO)
-  [ "${#ONLY[@]}" -gt 0 ] && ARGS+=("${ONLY[@]}")
-  [ "${#ONLY[@]}" -eq 0 ] && ARGS+=("-only-testing:RichOSNativeUITests" "-only-testing:RichOSNativeTests")
+  xcrun simctl spawn "${SIM_UDID[$i]}" defaults write .GlobalPreferences AppleLocale -string en_US > /dev/null 2>&1 || true
+  xcrun simctl spawn "${SIM_UDID[$i]}" defaults write .GlobalPreferences AppleLanguages -array en-US > /dev/null 2>&1 || true
   # The OS grant the voice tests need; the app must still tell the core (InteractionTests skip, with
   # that reason, until it does).
-  xcrun simctl privacy "$UDID" grant microphone dev.richos.native.ios > /dev/null 2>&1 || true
-  if TZ=UTC xcodebuild "${ARGS[@]}" test-without-building > "$WORK/test-${TYPE##*.}.log" 2>&1; then
-    echo "  ok    $DEVICE: UI tests passed in $(( $(date +%s) - START )) s"
-  else
-    STATUS=1
-    grep -E "error:|Test Case .* failed" "$WORK/test-${TYPE##*.}.log" | head -40
-    echo "  FAIL  $DEVICE: UI tests ($(( $(date +%s) - START )) s)"
+  xcrun simctl privacy "${SIM_UDID[$i]}" grant microphone dev.richos.native.ios > /dev/null 2>&1 || true
+done
+echo "native-ios-ui: ${#SIM_UDID[@]} simulator(s) booted in $(( $(date +%s) - START )) s (${#DEVICES[@]} device(s) x $SHARDS)"
+
+# The list, and the split: one file of -only-testing arguments per shard. (Listed while the
+# simulators booted, above.)
+if [ "$SHARDS" -gt 1 ] && [ "$(cat "$WORK/enumerate.rc" 2>/dev/null)" != 0 ]; then
+  tail -20 "$WORK/enumerate.log"
+  echo "  FAIL  native-ios-ui: xcodebuild could not list the tests, so they cannot be split without risking one"
+  exit 1
+fi
+if ! python3 "$DIR/lib/ios_ui_shards.py" split "$WORK" "$SHARDS" "$TIMES" "${SELECT[@]}"; then
+  echo "  FAIL  native-ios-ui: the test list could not be split"; exit 1
+fi
+
+# Every shard of every device, at once.
+START=$(date +%s)
+for i in "${!SIM_UDID[@]}"; do
+  s=$(( i % SHARDS + 1 ))
+  ARGS=()
+  while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/shard-$s.args"
+  ( T0=$(date +%s)
+    if TZ=UTC xcodebuild test-without-building -xctestrun "$XCTESTRUN" -destination "id=${SIM_UDID[$i]}" \
+         -derivedDataPath "$WORK/dd-$i" -resultBundlePath "$WORK/result-$i.xcresult" \
+         -parallel-testing-enabled NO "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
+    echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" ) &
+done
+wait
+
+# Per device: every shard green, and the tests its bundles report are exactly the tests listed.
+if python3 "$DIR/lib/ios_ui_shards.py" verify "$WORK" "$SHARDS" "$TIMES" "${DEVICES[@]}"; then STATUS=0; else STATUS=1; fi
+for i in "${!SIM_UDID[@]}"; do
+  if [ "$(cat "$WORK/test-$i.rc" 2>/dev/null)" != 0 ]; then
+    { grep -E "error:|Test Case .* failed" "$WORK/test-$i.log" || true; } | head -40
   fi
-  # Counts, including skips, so a skipped test is never read as a passed one.
-  xcrun xcresulttool get test-results summary --path "$RESULT" 2>/dev/null | python3 -c '
-import json, sys
-try:
-    s = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-print("        %s passed, %s failed, %s skipped of %s" % (s.get("passedTests"), s.get("failedTests"), s.get("skippedTests"), s.get("totalTestCount")))
-' || true
-  xcrun xcresulttool get test-results tests --path "$RESULT" 2>/dev/null | python3 -c '
-import json, sys
-try:
-    t = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-def walk(n):
-    if n.get("nodeType") == "Test Case" and n.get("result") == "Skipped":
-        reason = next((c.get("name", "") for c in n.get("children", []) if c.get("nodeType") == "Failure Message" or "Skip" in c.get("nodeType", "")), "")
-        print("        skipped: %s  %s" % (n.get("name"), reason))
-    for c in n.get("children", []):
-        walk(c)
-for n in t.get("testNodes", []):
-    walk(n)
-' || true
-  mkdir -p "$SHOTS/${TYPE##*.}"
-  xcrun xcresulttool export attachments --path "$RESULT" --output-path "$SHOTS/${TYPE##*.}" > /dev/null 2>&1 || true
-  # Name each picture after its screen (`se-dark-conv-populated.png`) so it sits beside the mockup of
-  # the same name; the failure evidence keeps its test's name.
-  python3 - "$SHOTS/${TYPE##*.}" <<'PY' || true
-import json, os, re, sys
-d = sys.argv[1]
-m = os.path.join(d, "manifest.json")
-if os.path.exists(m):
-    for test in json.load(open(m)):
-        for a in test.get("attachments", []):
-            src = os.path.join(d, a["exportedFileName"])
-            name = re.sub(r"_\d+_[0-9A-F-]+(\.\w+)$", r"\1", a["suggestedHumanReadableName"])
-            if a.get("isAssociatedWithFailure"):
-                name = "FAILED-" + test["testIdentifier"].replace("/", "-").replace("()", "") + "-" + name
-            if os.path.exists(src):
-                os.replace(src, os.path.join(d, name))
-PY
-  xcrun simctl shutdown "$UDID" > /dev/null 2>&1 || true
-  xcrun simctl delete "$UDID" > /dev/null 2>&1 || true
-  CREATED=("${CREATED[@]/$UDID}")
+done
+echo "native-ios-ui: every simulator finished in $(( $(date +%s) - START )) s"
+
+# Screenshots, per device, named after their screen (`se-dark-conv-populated.png`) so each sits
+# beside the mockup of the same name; the failure evidence keeps its test's name.
+for i in "${!SIM_UDID[@]}"; do
+  OUT="$SHOTS/${SIM_TYPE[$i]}"
+  mkdir -p "$OUT/shard-$i"
+  xcrun xcresulttool export attachments --path "$WORK/result-$i.xcresult" --output-path "$OUT/shard-$i" > /dev/null 2>&1 || true
+  python3 "$DIR/lib/ios_ui_shards.py" name-shots "$OUT/shard-$i" "$OUT" || true
+  rm -rf "$OUT/shard-$i"
+done
+for i in "${!SIM_UDID[@]}"; do
+  xcrun simctl shutdown "${SIM_UDID[$i]}" > /dev/null 2>&1 || true
+  xcrun simctl delete "${SIM_UDID[$i]}" > /dev/null 2>&1 || true
+  CREATED=("${CREATED[@]/${SIM_UDID[$i]}}")
 done
 echo "native-ios-ui: screenshots in $SHOTS"
 exit "$STATUS"
