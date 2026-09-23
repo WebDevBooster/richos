@@ -3,7 +3,7 @@
 # where safe, one lane at a time where not, admitted by CPU, and the run is red by name when a
 # check is. Fixture commands only; nothing builds, boots or opens a window.
 # run-tests: no-host-screen: fixture shell commands only; nothing is launched on any screen
-# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/proof-run.test.sh richos/app/scripts/proof-run.test.py richos/app/scripts/proof-run.py richos/app/scripts/proof-for.sh richos/app/scripts/testvm/reserve.py richos/app/scripts/runner-reliability.test.py richos/engine/scripts/lib/worker_tokens.py richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py
+# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/proof-run.test.sh richos/app/scripts/proof-run.test.py richos/app/scripts/proof-run.py richos/app/scripts/proof-for.sh richos/app/scripts/testvm/reserve.py richos/app/scripts/runner-reliability.test.py richos/app/scripts/nightly-local.py richos/engine/scripts/lib/worker_tokens.py richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py
 # run-tests: covers richos/app/scripts/lib/simulator_budget.py richos/app/scripts/proof-run.py richos/app/scripts/runner-reliability.test.py richos/engine/scripts/lib/worker_tokens.py richos/engine/scripts/lib/proc_tree.py
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

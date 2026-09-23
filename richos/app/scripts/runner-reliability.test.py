@@ -132,6 +132,88 @@ class Reliability(unittest.TestCase):
             for token in held:
                 token.release()
 
+    def test_nightly_coordinator_sigkill_cleans_work_and_releases_capacity(self):
+        record = self.path / 'nightly-child'
+        machine = self.path / 'nightly-machine'
+        env = {**os.environ, 'RICHOS_MACHINE_WORKERS': str(machine)}
+        for key in ('RICHOS_WORKER_TOKENS', 'RICHOS_WORKER_SLOT_HELD'):
+            env.pop(key, None)
+        command = ('import os,signal,sys,time;'
+                   'signal.signal(signal.SIGTERM,signal.SIG_IGN);'
+                   'open(sys.argv[1],"w").write(str(os.getpid()));time.sleep(60)')
+        launcher = ('import importlib.util,sys;'
+                    's=importlib.util.spec_from_file_location("nightly",sys.argv[1]);'
+                    'm=importlib.util.module_from_spec(s);s.loader.exec_module(m);'
+                    'm.owned_run([sys.executable,"-c",sys.argv[2],sys.argv[3]])')
+        coordinator = subprocess.Popen([sys.executable, '-c', launcher,
+            str(HERE / 'nightly-local.py'), command, str(record)], env=env, start_new_session=True)
+        self.children.append(coordinator)
+        sentinel = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(60)'])
+        self.children.append(sentinel)
+        owned = set()
+        try:
+            child = self.wait_file(record)
+            owned, _ = proc_tree.members(coordinator.pid)
+            coordinator.kill()
+            coordinator.wait(timeout=5)
+            self.wait_gone(child)
+            until = time.monotonic() + 5
+            while worker_tokens.Budget(machine).held() and time.monotonic() < until:
+                time.sleep(.05)
+            self.assertEqual(worker_tokens.Budget(machine).held(), 0)
+            self.assertIsNone(sentinel.poll())
+        finally:
+            # A failing negative control must not itself orphan test processes.
+            for pid in proc_tree._alive(owned):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_dead_nightly_cannot_start_work_when_capacity_later_frees(self):
+        machine = self.path / 'nightly-queued-machine'
+        env = {**os.environ, 'RICHOS_MACHINE_WORKERS': str(machine)}
+        for key in ('RICHOS_WORKER_TOKENS', 'RICHOS_WORKER_SLOT_HELD'):
+            env.pop(key, None)
+        worker_tokens.init(machine, max(1, int((os.cpu_count() or 4) * .8)))
+        budget = worker_tokens.Budget(machine, runner=True, shared=False)
+        tokens = [budget.try_acquire() for _ in budget.files]
+        record = self.path / 'queued-command'
+        launcher = ('import importlib.util,sys;'
+                    's=importlib.util.spec_from_file_location("nightly",sys.argv[1]);'
+                    'm=importlib.util.module_from_spec(s);s.loader.exec_module(m);'
+                    'm.owned_run([sys.executable,"-c",'
+                    '"from pathlib import Path;import sys;Path(sys.argv[1]).touch()",sys.argv[2]])')
+        coordinator = subprocess.Popen([sys.executable, '-c', launcher,
+            str(HERE / 'nightly-local.py'), str(record)], env=env, start_new_session=True)
+        self.children.append(coordinator)
+        owned = set()
+        try:
+            until = time.monotonic() + 5
+            while time.monotonic() < until:
+                owned, _ = proc_tree.members(coordinator.pid)
+                if len(owned) >= 3:
+                    break
+                time.sleep(.05)
+            self.assertGreaterEqual(len(owned), 3, 'nightly admission did not start')
+            self.assertFalse(record.exists())
+            coordinator.kill()
+            coordinator.wait(timeout=5)
+            for pid in owned:
+                self.wait_gone(pid)
+            for token in tokens:
+                token.release()
+            time.sleep(.3)
+            self.assertFalse(record.exists(), 'work started after its coordinator died')
+        finally:
+            for pid in proc_tree._alive(owned):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            for token in tokens:
+                token.release()
+
     @unittest.skipUnless(sys.platform == 'darwin', 'the iOS suite requires macOS')
     def test_ios_cache_wrapper_preserves_headless_arguments(self):
         # Stub only compilation. Losing --headless attempts simctl and fails this fixture.

@@ -100,8 +100,12 @@ def owned_run(args, *, timeout=None, **kwargs):
     """subprocess.run's result shape with bounded, owned-group cleanup on all exits."""
     library = Path(__file__).resolve().parents[2] / "engine/scripts/lib"
     worker = library / "worker_tokens.py"
-    # The wrapper holds a machine lease through descendant cleanup, including after our death.
-    process = subprocess.Popen([sys.executable, str(worker), "machine", "--", *map(str, args)],
+    # The worker wrapper owns its command, but does not watch this coordinator.
+    # Keep an independent supervisor tied to our identity around the entire
+    # admission/worker lifetime, so even SIGKILL here cancels waiting or active work.
+    supervisor = library / "proc_tree.py"
+    process = subprocess.Popen([sys.executable, str(supervisor), "run", str(os.getpid()), "--",
+                                sys.executable, str(worker), "machine", "--", *map(str, args)],
                                start_new_session=True, **kwargs)
     try:
         stdout, stderr = process.communicate(timeout=timeout)
