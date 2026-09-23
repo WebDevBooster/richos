@@ -157,27 +157,35 @@ try:
     # P8 — an interrupt stops what the runner started, by its process group, and nothing else.
     cmds = os.path.join(tmp, "p8.txt")
     pidfile = os.path.join(tmp, "p8.pid")
+    own = os.path.join(tmp, "p8.own")
+    deaf = os.path.join(tmp, "p8.deaf")
+    # Three ways a process escaped a group kill: a plain child, a grandchild in a session of its
+    # own (reserve.py's shape), and a child that ignores SIGTERM.
     with open(cmds, "w") as fh:
-        fh.write("cd richos/app && bash -c 'sleep 60 & echo $! > %s; wait'\n" % pidfile)
+        fh.write("cd richos/app && bash -c 'python3 -c \"import subprocess, sys; p = subprocess.Popen([\\\"sleep\\\", \\\"60\\\"], "
+                 "start_new_session=True); open(sys.argv[1], \\\"w\\\").write(str(p.pid)); p.wait()\" %s & "
+                 "bash -c \"trap \\\"\\\" TERM; echo \\$\\$ > %s; while :; do sleep 1; done\" & "
+                 "sleep 60 & echo $! > %s; wait'\n" % (own, deaf, pidfile))
     runner = subprocess.Popen([sys.executable, os.path.join(HERE, "proof-run.py"), "--commands", cmds,
                                "--log-dir", os.path.join(tmp, "p8"), "--low-priority"],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     deadline = time.time() + 20
-    while not os.path.exists(pidfile) and time.time() < deadline:
+    while not all(os.path.exists(f) and open(f).read().strip() for f in (pidfile, own, deaf)) and time.time() < deadline:
         time.sleep(0.1)
-    sleeper = int(open(pidfile).read().strip()) if os.path.exists(pidfile) else None
+    pids = [int(open(f).read().strip()) for f in (pidfile, own, deaf) if os.path.exists(f) and open(f).read().strip()]
     runner.send_signal(signal.SIGTERM)
-    out, _ = runner.communicate(timeout=30)
-    alive = False
-    if sleeper:
+    out, _ = runner.communicate(timeout=60)
+    alive = []
+    for p in pids:
         try:
-            os.kill(sleeper, 0)
-            alive = True
-            os.kill(sleeper, signal.SIGKILL)
+            os.kill(p, 0)
+            alive.append(p)
+            os.kill(p, signal.SIGKILL)
         except ProcessLookupError:
             pass
-    check(sleeper is not None and not alive and runner.returncode == 130 and "interrupted" in out,
-          "P8 SIGTERM to the runner stops the check it started (pid %s gone) and exits 130" % sleeper, out[-300:])
+    check(len(pids) == 3 and not alive and runner.returncode == 130 and "interrupted" in out,
+          "P8 SIGTERM to the runner stops the whole tree of the check it started (child, own-session "
+          "grandchild, TERM-ignoring child: %s all gone) and exits 130" % pids, (alive, out[-300:]))
 
     # P10 — --as-printed: the selection unsplit, in printed order, one at a time (the baseline).
     order = os.path.join(tmp, "order")

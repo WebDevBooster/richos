@@ -97,6 +97,9 @@ def git_root():
 
 
 ROOT = git_root()
+# How a check is stopped: the engine's one tree-kill, not a second copy of it.
+sys.path.insert(0, os.path.join(ROOT, "richos", "engine", "scripts", "lib"))
+import proc_tree  # noqa: E402
 
 
 class Item:
@@ -339,20 +342,15 @@ def run(items, args, logdir, sampler=None):
     t0 = time.time()
 
     def stop_all(signum, _frame):
+        # The whole tree of every running check, not its group alone: a check's descendants
+        # start groups and sessions of their own (reserve.py, stop-at-line.py, simulators'
+        # xcodebuild), and a group kill would leave those running (proc_tree.py's header).
+        left = []
         for it in running:
-            try:
-                os.killpg(it.proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-        deadline = time.time() + 10
-        for it in running:
-            while it.proc.poll() is None and time.time() < deadline:
-                time.sleep(0.1)
-            try:
-                os.killpg(it.proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-        print("proof-run: interrupted; every check this run started was stopped. Logs: %s" % logdir, flush=True)
+            left += proc_tree.kill_tree(it.proc.pid, 5.0)
+            it.proc.wait()
+        print("proof-run: interrupted; every check this run started was stopped%s. Logs: %s" % (
+            "" if not left else " EXCEPT pids %s, which survived SIGKILL" % left, logdir), flush=True)
         sys.exit(130)
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
