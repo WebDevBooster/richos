@@ -794,7 +794,13 @@ def _collect(apply=False, departing=(), deadline=None):
                 seen["ios"].update(d["udid"] for d in extra)
             seen["ios_names"].update(d["name"] for d in extra)
     work = [("ios", d, classify_ios(d, regs, checkouts)) for d in all_devs]
-    for e in android_emulators(regs):
+    try:
+        emulators = android_emulators(regs)
+    except (OSError, ValueError) as exc:
+        res["notes"].append("Android inventory could not be read: %s" % exc)
+        seen["android"] = None
+        emulators = []
+    for e in emulators:
         seen["android"].add(e["pid"])
         work.append(("android", e, classify_android(e, regs, checkouts)))
     for kind, d, (verdict, why) in work:
@@ -866,6 +872,8 @@ def _prune_registry(regs, seen):
                     ("RichOS native-ios " + os.path.basename(r["id"].rstrip("/"))) in seen["ios_names"]:
                 continue
         elif r["kind"] in ("android-cache", "android-emulator"):
+            if seen["android"] is None:
+                continue
             rec = _read_json(os.path.join(r["id"], "emulator.json"))
             if isinstance(rec, dict) and rec.get("pid") in seen["android"]:
                 continue
@@ -910,7 +918,7 @@ def record_failures(survivors, undecided, seen, path=None, notes=(), deferred=()
         if key in live:
             continue
         kind, _, ident = key.partition(":")
-        if kind == "ios" and seen["ios"] is None:
+        if kind in ("ios", "android") and seen[kind] is None:
             continue                    # nothing was read, so nothing is resolved
         del rows[key]
     for key, (verdict, d) in live.items():

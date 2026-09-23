@@ -180,6 +180,12 @@ if [ "$MODE" = "install" ]; then
         echo '        <string>/bin/bash</string>'
         echo "        <string>$SCRIPT_DIR/disk-watchdog.sh</string>"
         echo '    </array>'
+        # Use the same installed runtime/tool PATH as the scratch reaper.
+        # launchd's system PATH otherwise chooses Apple's bundled Python,
+        # which can have different permissions for external cache storage.
+        echo '    <key>EnvironmentVariables</key><dict>'
+        echo '        <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>'
+        echo '    </dict>'
         # StartInterval, not StartCalendarInterval: this is a RATE alarm, and a
         # rate alarm needs an even gap between readings. A calendar schedule
         # would make the drop threshold mean different things at different times

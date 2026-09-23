@@ -579,6 +579,17 @@ class Collector(Base):
         self.assertEqual(T.records(), [])
         self.assertIsNone(proc.poll())
 
+    def test_T37_android_inventory_failure_does_not_block_ios_cleanup(self):
+        u = self.device("rios-ui-%d-independent" % self.dead_pid())
+        previous = {"android:42": {"kind": "android", "id": 42, "name": "prior emulator", "why": "prior failure"}}
+        T._write_json(T.failures_path(), previous)
+        with patch.object(T, "android_emulators", side_effect=PermissionError("external volume denied")):
+            result = T.collect(apply=True)
+        self.assertEqual(self.ids(result, "collected"), [u])
+        self.assertIn("external volume denied", self.rows()["collector:incomplete"]["why"])
+        self.assertIn("android:42", self.rows())
+        self.assertEqual(self.devices(), [])
+
 
 
 class _Result(unittest.TextTestResult):

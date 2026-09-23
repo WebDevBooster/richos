@@ -753,6 +753,27 @@ else
     tail -3 "$W_LOG" 2>/dev/null | sed 's/^/        /'
 fi
 
+# A scheduled service has no interactive shell PATH. Bake in the same runtime
+# search path as the reaper instead of selecting Apple's bundled Python.
+world runtime-path
+write_cfg 1 999999 1 1
+FAKE_INSTALL="$W_DIR/persistent/scripts"
+mkdir -p "$FAKE_INSTALL" "$W_DIR/home"
+cp "$WD" "$FAKE_INSTALL/disk-watchdog.sh"
+HOME="$W_DIR/home" DISK_WATCHDOG_CONFIG="$W_CFG" RICHOS_LAUNCH_AGENTS_DIR="$W_LA" \
+    bash "$FAKE_INSTALL/disk-watchdog.sh" --install >/dev/null 2>&1
+if python3 - "$W_LA/com.richos.disk-watchdog.plist" <<'PYTHON'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as f:
+    config = plistlib.load(f)
+assert config['EnvironmentVariables']['PATH'].split(':')[:2] == ['/opt/homebrew/bin', '/usr/local/bin']
+PYTHON
+then
+    ok "W15b scheduled runtime PATH matches the reaper"
+else
+    bad "W15b scheduled runtime PATH was not installed"
+fi
+
 # ===========================================================================
 # W16 — --install refuses from a place whose path will stop existing
 # ===========================================================================
