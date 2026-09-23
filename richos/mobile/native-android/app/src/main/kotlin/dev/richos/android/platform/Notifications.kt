@@ -1,7 +1,6 @@
 package dev.richos.android.platform
 
 import android.Manifest
-import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -354,16 +353,17 @@ object Replies {
     }
 
     /**
-     * While RichConnect is on screen the reply is already arriving in the conversation, so no
-     * notification covers it (the iPhone app suppresses foreground presentation the same way,
-     * `mobile/service/notifications.md`). Anything less than on screen, including a locked phone
-     * with the app on top, still gets the notification.
+     * While the conversation is on screen the reply is already arriving in it, so no notification
+     * covers it (the iPhone app suppresses foreground presentation the same way,
+     * `mobile/service/notifications.md`). Anything less, including a locked phone with the app on
+     * top, the share sheet over another app, or the moment after leaving, still notifies. Read from
+     * the app's own resumed activity: the process importance it replaced lagged the Home press, and
+     * on emulator-5580 two replies arriving after the person had left were swallowed by it.
      */
-    internal var onScreen: (Context) -> Boolean = {
-        val me = ActivityManager.RunningAppProcessInfo()
-        ActivityManager.getMyMemoryState(me)
-        me.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-    }
+    internal val conversationVisible: (Context) -> Boolean = { (it.applicationContext as? RichApplication)?.conversationOnScreen == true }
+
+    /** [conversationVisible]; a test substitutes a fixed answer. */
+    internal var onScreen: (Context) -> Boolean = conversationVisible
 
     fun post(context: Context, text: String, target: NotificationTarget?, collapse: String?) {
         ensureChannel(context)

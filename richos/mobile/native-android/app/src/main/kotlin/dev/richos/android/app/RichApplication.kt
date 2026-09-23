@@ -39,6 +39,9 @@ class RichApplication : Application() {
     @Volatile
     private var foreground: WeakReference<Activity>? = null
 
+    /** The conversation is on screen right now (resumed), so a reply needs no notification. */
+    val conversationOnScreen: Boolean get() = foreground?.get() is MainActivity
+
     /**
      * Photos and files: the composer's attach control calls [AttachmentPicker.pickPhotos] or
      * [AttachmentPicker.pickFiles]; what is picked arrives in the core as `attach`.
