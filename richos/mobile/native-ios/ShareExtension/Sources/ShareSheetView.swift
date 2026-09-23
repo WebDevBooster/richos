@@ -135,7 +135,7 @@ struct ShareSheetView: View {
         HStack(alignment: .center, spacing: 10) {
             IconView(.mac, size: 20).foregroundStyle(palette.ink)
             (Text("Goes to ") + Text("Rich on \(model.context.macName ?? "your Mac")").fontWeight(.semibold).foregroundColor(palette.ink)
-                + Text(". The reply comes in RichOS."))
+                + Text(". The reply comes in RichConnect."))
                 .type(Typography.read)
                 .foregroundStyle(palette.inkSoft)
                 .fixedSize(horizontal: false, vertical: true)
@@ -177,7 +177,7 @@ struct ShareSheetView: View {
     private var unpaired: some View {
         VStack(spacing: 0) {
             MarkView().frame(width: 56, height: 56).padding(.bottom, 14)
-            Text("Pair RichOS with your Mac first")
+            Text("Pair RichConnect with your Mac first")
                 .type(Typography.Role(.serif, 28, style: .title1, lineHeight: 1.15))
                 .foregroundStyle(palette.ink)
                 .multilineTextAlignment(.center)
@@ -185,7 +185,7 @@ struct ShareSheetView: View {
             // round 12 offers "Open RichOS to pair" here. A Share extension cannot open its own app
             // (no public API; UIApplication is unavailable to extensions), so the sheet says where
             // to go instead of offering a button that would do nothing (declared in the handoff).
-            Text("Then anything you share here goes straight to Rich. Open RichOS on this iPhone and scan the code on your Mac.")
+            Text("Then anything you share here goes straight to Rich. Open RichConnect on this iPhone and scan the code on your Mac.")
                 .type(Typography.read.lineHeight(1.45))
                 .foregroundStyle(palette.inkSoft)
                 .multilineTextAlignment(.center)
@@ -274,11 +274,11 @@ struct ShareConfirmation: View {
     /// that instead (declared in the handoff; they change when background sending exists).
     private var line: String {
         switch outcome {
-        case .sent: return "Rich will reply in RichOS."
-        case .saved(.offline): return "No connection right now. It goes to your Mac the next time RichOS is open and online."
-        case .saved(.notConfirmed), .saved(.cannotSendHere): return "It goes to your Mac the next time you open RichOS."
+        case .sent: return "Rich will reply in RichConnect."
+        case .saved(.offline): return "No connection right now. It goes to your Mac the next time RichConnect is open and online."
+        case .saved(.notConfirmed), .saved(.cannotSendHere): return "It goes to your Mac the next time you open RichConnect."
         case .saved(.refused(let reason)):
-            return (reason.map { "\($0) " } ?? "Your Mac did not take it. ") + "It is kept in RichOS."
+            return (reason.map { "\($0) " } ?? "Your Mac did not take it. ") + "It is kept in RichConnect."
         }
     }
 }

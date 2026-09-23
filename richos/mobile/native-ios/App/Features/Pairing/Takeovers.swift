@@ -93,7 +93,7 @@ struct TakeoverView: View {
         case .updateRequired(_, let message):
             BigMark()
             Eyebrow("Update required")
-            Text("This version of RichOS can no longer send")
+            Text("This version of RichConnect can no longer send")
                 .type(Typography.displayBlocking)
                 .foregroundStyle(palette.ink)
                 .fixedSize(horizontal: false, vertical: true)

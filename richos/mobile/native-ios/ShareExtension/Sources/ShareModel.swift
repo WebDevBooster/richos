@@ -65,7 +65,7 @@ final class ShareModel {
 
     func load(_ providers: [NSItemProvider]) async {
         guard inbox != nil else {
-            phase = .failed("RichOS could not open its shared storage on this iPhone. Open RichOS once, then share again.")
+            phase = .failed("RichConnect could not open its shared storage on this iPhone. Open RichConnect once, then share again.")
             return
         }
         guard context.paired, context.threadID != nil else {
@@ -86,7 +86,7 @@ final class ShareModel {
             previews.append(Preview(name: first.name, mediaType: "application/octet-stream", bytes: first.bytes))
         }
         if staged.isEmpty && tooLarge == nil {
-            phase = .failed("RichOS can send photos, PDFs, Word, Excel and PowerPoint files, and text files. Nothing shared here is one of those.")
+            phase = .failed("RichConnect can send photos, PDFs, Word, Excel and PowerPoint files, and text files. Nothing shared here is one of those.")
             return
         }
         phase = .compose
@@ -109,7 +109,7 @@ final class ShareModel {
             do {
                 envelope = try inbox.write(caption: caption, files: files, threadID: threadID, nowMs: now, limits: context.limits)
             } catch {
-                phase = .failed("RichOS could not keep this on your iPhone, so nothing was sent. Try sharing it again.")
+                phase = .failed("RichConnect could not keep this on your iPhone, so nothing was sent. Try sharing it again.")
                 return
             }
             let online = await Self.isOnline()

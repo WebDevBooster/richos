@@ -517,7 +517,7 @@ struct AttachCards {
             AttachRefusedCard(name: name, detail: detail, tooLarge: tooLarge, send: send)
         case .attachCameraDenied:
             CardView {
-                CardText(title: "The camera is off for RichOS",
+                CardText(title: "The camera is off for RichConnect",
                          detail: "Turn it on in iPhone Settings to take a photo for Rich, or choose one you already have.")
                 FlowButtons {
                     Button { send(.openSystemSettings) } label: { Text("Open Settings") }
@@ -529,7 +529,7 @@ struct AttachCards {
             }
         case .attachPhotosDenied:
             CardView {
-                CardText(title: "RichOS can’t see your photos",
+                CardText(title: "RichConnect can’t see your photos",
                          detail: "Allow access in iPhone Settings, or send a file from Files instead.")
                 FlowButtons {
                     Button { send(.openSystemSettings) } label: { Text("Open Settings") }
