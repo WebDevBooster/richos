@@ -10,9 +10,10 @@
 #                                       environment (richos-hq with-android-signing.py and
 #                                       with-android-firebase.py) and a committed source tree
 #   randroid verify-bundle <file.aab>   check a bundle: signed by the upload key only, permanent ID,
-#                                       base module only, development bridge absent (full dex dump)
-#   randroid check-release              prove the development bridge is absent from the release APK
-#                                       and bundle, and the permanent ID; signatures when keyed
+#                                       base module only, development bridge absent (full dex dump),
+#                                       release security policy (richos/mobile/security)
+#   randroid check-release              the same on the release APK and bundle (bridge, permanent
+#                                       ID, release security policy); signatures when keyed
 #   randroid emu prepare                L2: create + boot this checkout's emulator (-no-window),
 #                                       build, install and launch the debug app
 #   randroid emu refresh                incremental build + reinstall + relaunch
@@ -354,6 +355,19 @@ print(json.dumps({"classes": len(classes), "classHeaders": headers, "declaredCla
 PY
 }
 
+# The release security policy (security review 2026-09-23, finding R-1): debuggable, test-only,
+# backup, cleartext and network config, exported components, deep links, bridge markers, read from
+# the merged manifest by richos/mobile/security/release_policy.py. A bundle's manifest is in
+# aapt2's proto format, whose dump writes a typed value as `=false (Raw: "false")` where the binary
+# APK dump writes `=false`; the policy reads the binary form, so the suffix on a typed (unquoted)
+# value is removed first. Measured 2026-09-23: without that, the release bundle "failed" A4 and A6
+# on attributes that were in fact false.
+release_policy() {  # $1 = apk (binary, or a bundle's base as a proto APK); prints the policy's lines, exits with its code
+  "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$1" \
+    | sed -E 's/^( *A: [^"]*=[^" ]+) \(Raw: "[^"]*"\)$/\1/' \
+    | python3 "$HERE/../security/release_policy.py" android-manifest -
+}
+
 # The APK a release or debug build just wrote, named by AGP's own output-metadata.json (the name
 # changes with signing: app-release.apk signed, app-release-unsigned.apk not).
 built_apk() {  # $1 = debug | release
@@ -448,13 +462,17 @@ verify_bundle() {  # $1 = aab, $2 = expected versionCode (optional); JSON on std
   if ! bundle_as_apk "$aab" "$tmp/base.apk" 2>"$tmp/err"; then
     local why; why="$(cat "$tmp/err")"; rm -rf "$tmp"; fail "bundle unreadable: $why"
   fi
-  scan="$(bridge_scan "$tmp/base.apk")"; rm -rf "$tmp"
+  scan="$(bridge_scan "$tmp/base.apk")"
+  local policy policy_code=0
+  policy="$(release_policy "$tmp/base.apk")" || policy_code=$?
+  rm -rf "$tmp"
   sig="$(bundle_signature "$aab")"
-  python3 - "$aab" "$scan" "$sig" "$expected" "$from" "$PACKAGE" "$want" <<'PY'
+  python3 - "$aab" "$scan" "$sig" "$expected" "$from" "$PACKAGE" "$want" "$policy" "$policy_code" <<'PY'
 import json, sys
-aab, scan, sig, expected, source, package, want = sys.argv[1:8]
+aab, scan, sig, expected, source, package, want, policy, policy_code = sys.argv[1:10]
 scan, sig = json.loads(scan), json.loads(sig)
 checks = {
+    "releasePolicy": policy_code == "0",
     "signedByUploadKeyOnly": sig["verified"] and not sig["unsignedEntries"] and sig["signers"] == 1 and sig["sha256"] == [expected.upper()],
     "permanentId": scan["package"] == package,
     "bridgeAbsent": scan["complete"] and scan["appEntry"] and scan["bridgeClassCount"] == 0 and not scan["manifestMarkers"],
@@ -465,13 +483,14 @@ print(json.dumps({"ok": ok, "mode": "verify-bundle", "command": "verify-bundle",
                   "result": {"bundle": aab, "checks": checks, "package": scan["package"],
                              "versionCode": scan["versionCode"], "versionName": scan["versionName"],
                              "signer": {**sig, "expected": expected.upper(), "expectedFrom": source},
+                             "releasePolicy": [l.strip() for l in policy.splitlines() if l.strip()],
                              "scan": {k: scan[k] for k in ("classes", "declaredClasses", "complete", "appEntry", "bridgeClassCount", "bridgeClasses", "manifestMarkers")}}}, indent=2))
 sys.exit(0 if ok else 1)
 PY
 }
 
-# The release APK and the release bundle must carry none of the bridge and must be the permanent
-# ID. The same scan over the debug APK must FIND the bridge, so a scanner that sees nothing cannot
+# The release APK and the release bundle must carry none of the bridge, must be the permanent ID
+# and must pass the release security policy (release_policy above). The same scan over the debug APK must FIND the bridge, so a scanner that sees nothing cannot
 # pass for a clean release. With the upload key in the environment both are signed and both
 # signatures must be the upload certificate; without it they are unsigned and the result says so.
 check_release() {
@@ -486,14 +505,19 @@ check_release() {
   [ -f "$release" ] && [ -f "$debug" ] && [ -f "$aab" ] || fail "missing: $release, $debug or $aab"
   tmp="$(mktemp -d "$CACHE/check.XXXXXX")"
   bundle_as_apk "$aab" "$tmp/base.apk" >&2 || { rm -rf "$tmp"; fail "the release bundle could not be read"; }
-  local r d b rs bs
-  r="$(bridge_scan "$release")"; d="$(bridge_scan "$debug")"; b="$(bridge_scan "$tmp/base.apk")"; rm -rf "$tmp"
+  local r d b rs bs rp bp rpc=0 bpc=0
+  r="$(bridge_scan "$release")"; d="$(bridge_scan "$debug")"; b="$(bridge_scan "$tmp/base.apk")"
+  rp="$(release_policy "$release")" || rpc=$?
+  bp="$(release_policy "$tmp/base.apk")" || bpc=$?
+  rm -rf "$tmp"
   rs='null'; bs='null'
   if [ "$keyed" -eq 1 ]; then rs="$(apk_signature "$release")"; bs="$(bundle_signature "$aab")"; fi
-  python3 - "$r" "$d" "$b" "$rs" "$bs" "$release" "$aab" "$PACKAGE" "$(expected_upload_sha256)" "$keyed" <<'PY'
+  python3 - "$r" "$d" "$b" "$rs" "$bs" "$release" "$aab" "$PACKAGE" "$(expected_upload_sha256)" "$keyed" "$rp" "$rpc" "$bp" "$bpc" <<'PY'
 import json, sys
 r, d, b, rs, bs = (json.loads(x) for x in sys.argv[1:6])
 apk, aab, package, expected, keyed = sys.argv[6], sys.argv[7], sys.argv[8], sys.argv[9].upper(), sys.argv[10] == "1"
+policy = {"apk": {"ok": sys.argv[12] == "0", "lines": [l.strip() for l in sys.argv[11].splitlines() if l.strip()]},
+          "bundle": {"ok": sys.argv[14] == "0", "lines": [l.strip() for l in sys.argv[13].splitlines() if l.strip()]}}
 def clean(s):  # a partial dump proves nothing either way: clean only when all of it was read
     return s["complete"] and s["classes"] > 0 and s["appEntry"] and s["bridgeClassCount"] == 0 and not s["manifestMarkers"]
 probe = d["complete"] and d["bridgeClassCount"] > 0 and len(d["manifestMarkers"]) > 0
@@ -505,11 +529,11 @@ if keyed:
 else:
     signed = True
     signature = {"checked": False, "why": "no upload key in this environment; the release outputs are unsigned (richos-hq scripts/with-android-signing.py supplies it)"}
-ok = clean(r) and clean(b) and probe and ids and signed
+ok = clean(r) and clean(b) and probe and ids and signed and policy["apk"]["ok"] and policy["bundle"]["ok"]
 print(json.dumps({"ok": ok, "mode": "check-release", "command": "check-release",
                   "result": {"apk": apk, "bundle": aab, "release": r, "bundleScan": b, "debugProbe": d,
                              "releaseClean": clean(r), "bundleClean": clean(b), "scannerSeesDebugBridge": probe,
-                             "permanentId": ids, "signature": signature}}, indent=2))
+                             "permanentId": ids, "signature": signature, "releasePolicy": policy}}, indent=2))
 sys.exit(0 if ok else 1)
 PY
 }
@@ -594,6 +618,6 @@ case "$mode" in
   check-release) check_release ;;
   emu) emu "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac

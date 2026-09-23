@@ -104,7 +104,10 @@ any file): every entry is signed, by exactly one signer, and that signer's SHA-2
 `release/upload-certificate.sha256` (the upload certificate's public fingerprint); the package is
 `dev.richos.connect`; the bundle holds only the `base` module; and the development bridge is
 absent, read from the complete dex dump of the bundle's `base` module (the same scan as the APK,
-which must also find the app's own `MainActivity`).
+which must also find the app's own `MainActivity`); and the merged manifest passes the release
+security policy, `richos/mobile/security/release_policy.py` (not debuggable or test-only, backup
+and cleartext off, only the expected components exported, no deep link; security review
+2026-09-23, finding R-1). `check-release` applies the same policy to the release APK and bundle.
 
 **Signing.** The release build is signed with the Google Play **upload key**; Play App Signing
 holds the key that signs what users install. `app/build.gradle.kts` signs only when the four
