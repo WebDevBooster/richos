@@ -73,7 +73,7 @@ import dev.richos.android.ui.model.PairingStep
 import dev.richos.android.ui.model.ScreenModel
 import dev.richos.android.ui.model.ScrollPose
 import dev.richos.android.ui.model.UpdateNotice
-import dev.richos.android.ui.overlays.CameraOffDialog
+import dev.richos.android.ui.pairing.PairingEntryOverlays
 import dev.richos.android.ui.overlays.Consent
 import dev.richos.android.ui.overlays.ForgetBlockedDialog
 import dev.richos.android.ui.overlays.ForgetDialog
@@ -130,18 +130,29 @@ fun RichApp(model: ScreenModel, onEvent: (UiEvent) -> Unit, camera: (@Composable
         val c = Rich.colors
         Box(Modifier.fillMaxSize().background(c.ground).lamp().semantics { testTag = "app" }) {
             val step = model.pairingStep
+            val scanning = step == PairingStep.SCANNING || step == PairingStep.FOUND
             when {
-                model.removedFromMac -> RemovedFromMac(handle)
-                model.update is UpdateNotice.Required -> UpdateRequired((model.update as UpdateNotice.Required).version, handle)
-                step == PairingStep.INTRO -> PairingIntro(problem = null, onEvent = handle)
-                step == PairingStep.REFUSED || step == PairingStep.PROBLEM -> PairingIntro(problem = model.app.pairing.problem, onEvent = handle)
-                step == PairingStep.CAMERA_DENIED -> {
-                    PairingIntro(problem = null, onEvent = handle)
-                    Scrim(null)
-                    CameraOffDialog(handle)
+                // The scanner is full screen over whatever pairing screen opened it, "removed from
+                // your Mac" included ("Pair again" opens it).
+                scanning && model.update !is UpdateNotice.Required ->
+                    Scanner(found = step == PairingStep.FOUND, onEvent = handle, camera = camera, status = model.scannerCamera)
+                model.removedFromMac -> {
+                    RemovedFromMac(handle)
+                    PairingEntryOverlays(model, handle)
                 }
-                step == PairingStep.SCANNING -> Scanner(found = false, onEvent = handle, camera = camera)
-                step == PairingStep.FOUND -> Scanner(found = true, onEvent = handle, camera = camera)
+                model.update is UpdateNotice.Required -> UpdateRequired((model.update as UpdateNotice.Required).version, handle)
+                step == PairingStep.INTRO -> {
+                    PairingIntro(problem = null, onEvent = handle)
+                    PairingEntryOverlays(model, handle)
+                }
+                step == PairingStep.REFUSED || step == PairingStep.PROBLEM -> {
+                    PairingIntro(problem = model.app.pairing.problem, onEvent = handle)
+                    PairingEntryOverlays(model, handle)
+                }
+                step == PairingStep.CAMERA_DENIED -> {
+                    PairingIntro(problem = model.app.pairing.problem, onEvent = handle)
+                    PairingEntryOverlays(model, handle)
+                }
                 step == PairingStep.IN_PROGRESS -> PairingProgress()
                 step == PairingStep.WORDS -> SixWords(model.app.pairing.words, handle)
                 step == PairingStep.NEEDS_NEWER_APP -> NeedsNewerApp(handle)

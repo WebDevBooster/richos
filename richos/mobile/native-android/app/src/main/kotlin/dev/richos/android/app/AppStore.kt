@@ -71,15 +71,25 @@ class AppStore(private val scope: CoroutineScope) {
         core.value = replacement
     }
 
-    fun dispatch(action: Action) {
+    fun dispatch(action: Action) = dispatchThen(action, null)
+
+    /**
+     * [dispatch], then [done] with core's refusal sentence, or null when core took the action. For a
+     * screen whose next step depends on the answer (the pairing link sheet closes only once core
+     * has taken the link). Before the core has opened nothing is dispatched and nothing is reported.
+     */
+    fun dispatchThen(action: Action, done: ((refusal: String?) -> Unit)?) {
         val target = core.value ?: return
         scope.launch {
-            try {
+            val refused = try {
                 target.dispatch(action)
                 refusal.value = null
+                null
             } catch (e: CoreError) {
                 refusal.value = e.message
+                e.message ?: "refused"
             }
+            done?.invoke(refused)
         }
     }
 

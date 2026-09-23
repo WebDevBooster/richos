@@ -1,6 +1,17 @@
 package dev.richos.android.app
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.remember
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import dev.richos.android.ui.model.ScannerCamera
+import dev.richos.android.ui.pairing.CameraFeed
+import dev.richos.android.ui.pairing.pairingEntry
 import android.graphics.Color as AndroidColor
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -56,9 +67,33 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val refusal by store.lastRefusal.collectAsStateWithLifecycle()
+            // Pairing's platform half: the camera question, the scanner, the link sheet's answer.
+            val entry = remember { pairingEntry }
+            val pairing by entry.states.collectAsStateWithLifecycle()
+            val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { entry.cameraAnswer(it) }
+            // Back from Settings with the camera now allowed: straight to the scanner.
+            LifecycleResumeEffect(entry) {
+                entry.resumed(cameraGranted())
+                onPauseOrDispose { }
+            }
             val current = state
             if (current != null) {
-                RichApp(ScreenModel(app = current, refusal = refusal), onEvent = { e -> e.toAction()?.let(store::dispatch) })
+                val model = ScreenModel(app = current, refusal = refusal, pairingSurface = pairing.surface, scannerCamera = pairing.camera)
+                BackHandler(enabled = entry.ownsBack(current)) { entry.back(current) }
+                RichApp(
+                    model,
+                    onEvent = { e ->
+                        val handled = entry.handle(
+                            e,
+                            hasCamera = { packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) },
+                            cameraGranted = ::cameraGranted,
+                            requestCamera = { askCamera.launch(Manifest.permission.CAMERA) },
+                        )
+                        if (!handled) e.toAction()?.let(store::dispatch)
+                    },
+                    // No camera to open (none on the phone, or it failed): nothing is left holding it.
+                    camera = if (pairing.camera == ScannerCamera.UNAVAILABLE) null else ({ CameraFeed(onStatus = entry::cameraStatus, onCode = entry::scanned) }),
+                )
             } else {
                 // Until the saved state is read (a few milliseconds): the ground, nothing else.
                 AppRoot(null)
@@ -66,6 +101,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+private fun ComponentActivity.cameraGranted(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
 /**
  * PLACEHOLDER ROOT, owned by A1 until the screens stream (A2, the `ui/` and `design/` packages)

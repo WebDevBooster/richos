@@ -104,6 +104,54 @@ class InteractionTest {
     }
 
     @Test
+    fun `the way in to pairing - Scan, the link, the camera dialog, the scanner and the link sheet`() {
+        val set = show(screen("pair-intro"))
+        compose.onNodeWithText("Scan your Mac’s code").performClick()
+        assertEquals(UiEvent.ScanCode, events.last())
+        compose.onNodeWithText("Use a pairing link instead").performClick()
+        assertEquals(Action.OpenSheet(Sheet.PAIRING_LINK), actions.last())
+
+        set(screen("pair-camera-denied"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Open Settings").performClick()
+        assertEquals(Action.OpenSystemSettings, actions.last())
+        compose.onNodeWithText("Use a pairing link").performClick()
+        assertEquals(UiEvent.UsePairingLink, events.last())
+
+        set(screen("pair-scanner"))
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Close the scanner").performClick()
+        assertEquals(UiEvent.CloseScanner, events.last())
+        compose.onNodeWithText("Use a pairing link instead").performClick()
+        assertEquals(UiEvent.UsePairingLink, events.last())
+
+        // Core opened the sheet: what is pasted reaches core as pair, exactly as typed.
+        set(screen("pair-link"))
+        compose.waitForIdle()
+        compose.onNodeWithTag("pairing-link-sheet").assertIsDisplayed()
+        val pasted = "https://mac-7f3a.example.ts.net/#pair=Zm9yLXRlc3Q"
+        compose.onNodeWithTag("pairlink-field").performTextInput(pasted)
+        compose.onNodeWithText("Pair with this link").performClick()
+        assertEquals(UiEvent.PairWithLink(pasted), events.last())
+        assertEquals(Action.Pair(pasted), actions.last())
+
+        // Refused: core's sentence shows under the field.
+        set(screen("pair-link-refused"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Pairing requires an HTTPS origin").assertIsDisplayed()
+
+        // Unsent work in the way, after "Pair again": keep it, or send it first.
+        set(screen("pair-removed-blocked"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Keep this pairing").performClick()
+        assertEquals(Action.CloseSheet, actions.last())
+        compose.onNodeWithText("Send it first").performClick()
+        assertEquals(Action.Retry, actions.last())
+        compose.onNodeWithText("Discard and pair").performClick()
+        assertEquals(UiEvent.DiscardAndPair, events.last())
+    }
+
+    @Test
     fun `the voice gesture reaches core as press, move and release with the round-12 width`() {
         show(screen("comp-idle"))
         compose.onNodeWithTag("orb").performTouchInput {
