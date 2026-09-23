@@ -15,8 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -275,14 +277,26 @@ private fun HistoryTop(edge: HistoryEdge) {
     }
 }
 
-/** The first minute: the mark, one line, the composer ready (`conv-empty`). */
+/**
+ * The first minute: the mark, one line, the composer ready (`conv-empty`). Scrolls rather than
+ * clipping: the smallest phone at the largest text setting cannot fit the voice-message paragraph
+ * in the fixed band above the composer (ScreensTest `conv-empty--*-small-font200`).
+ */
 @Composable
 fun EmptyConversation(modifier: Modifier = Modifier) {
     val c = Rich.colors
     val t = Rich.type
-    Column(modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Mark(56.dp, Modifier.padding(bottom = 12.dp))
         BasicText("Say something to Rich", style = t.welcome.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.padding(bottom = 6.dp))
         BasicText("Your conversation will appear here.", style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center))
+        BasicText(
+            "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don’t need to hold and can scroll.",
+            style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center),
+            modifier = Modifier.padding(top = 12.dp),
+        )
     }
 }

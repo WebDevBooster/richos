@@ -243,7 +243,13 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         val headerDp = with(density) { headerPx.toDp() }
         val zoneDp = with(density) { zonePx.toDp() }
         if (thread.isEmpty() && model.history == HistoryEdge.MORE_AVAILABLE) {
-            EmptyConversation(Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.38f))
+            // Bottom-padded by the composer zone's own measured height (as Thread's scroll is,
+            // line below): at the smallest phone and the largest text the added voice-message
+            // paragraph is tall enough to reach the composer, and must scroll clear of it rather
+            // than sit behind it (ScreensTest conv-empty--*-small-font200).
+            EmptyConversation(
+                Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.38f).padding(bottom = zoneDp + 20.dp),
+            )
         } else {
             Thread(
                 messages = thread,

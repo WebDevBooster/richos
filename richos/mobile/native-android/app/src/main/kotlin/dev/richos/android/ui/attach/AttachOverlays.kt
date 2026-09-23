@@ -487,7 +487,7 @@ fun SystemPickerDrawing(picker: SystemPicker) {
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(Modifier.size(56.dp).background(RichColors.Fixed.iconGround, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Mark(32.dp, fixed = true) }
-                            BasicText("RichOS", style = t.stamp.copy(color = ink), modifier = Modifier.padding(top = 6.dp))
+                            BasicText("RichConnect", style = t.stamp.copy(color = ink), modifier = Modifier.padding(top = 6.dp))
                         }
                         repeat(3) { Box(Modifier.size(56.dp).background(row, RoundedCornerShape(14.dp))) }
                     }
