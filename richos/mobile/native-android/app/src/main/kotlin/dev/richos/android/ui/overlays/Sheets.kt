@@ -319,7 +319,7 @@ fun PairingBlockedDialog(waiting: Int, onEvent: (UiEvent) -> Unit) = Dialog(
 
 /** 3 · The camera is off — explain in one line, give the way out, keep the link alternative. */
 @Composable
-fun CameraOffDialog(onEvent: (UiEvent) -> Unit) = Dialog("The camera is off for RichOS", "camera-off-dialog") {
+fun CameraOffDialog(onEvent: (UiEvent) -> Unit) = Dialog("The camera is off for RichConnect", "camera-off-dialog") {
     DialogText("Turn it on in Settings to scan the code, or paste a pairing link instead.")
     DialogActions {
         RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) }, wide = true)
@@ -329,7 +329,7 @@ fun CameraOffDialog(onEvent: (UiEvent) -> Unit) = Dialog("The camera is off for 
 
 /** 62 · Update dialog — the reassurance line is the heart of it. */
 @Composable
-fun UpdateDialog(line: String, onEvent: (UiEvent) -> Unit) = Dialog("A new RichOS is ready", "update-dialog") {
+fun UpdateDialog(line: String, onEvent: (UiEvent) -> Unit) = Dialog("A new RichConnect is ready", "update-dialog") {
     DialogText(line)
     DialogText("Your drafts, queued messages and recordings stay on this phone.", soft = true)
     DialogActions {
@@ -366,7 +366,7 @@ fun UpdateBanner(version: String, line: String, onEvent: (UiEvent) -> Unit, modi
                 RichIcon(RichIcons.Download, if (c.isDark) c.signal else c.ink, 22.dp)
             }
             Column(Modifier.weight(1f)) {
-                BasicText("RichOS $version is ready", style = t.bodyStrong.copy(color = c.ink))
+                BasicText("RichConnect $version is ready", style = t.bodyStrong.copy(color = c.ink))
                 BasicText(line, style = t.read.copy(color = c.inkSoft, fontWeight = FontWeight.Normal))
             }
         }

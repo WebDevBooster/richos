@@ -241,12 +241,12 @@ fun RejectionCard(r: Rejection, limitMb: Int, onEvent: (UiEvent) -> Unit) {
 @Composable
 fun DeniedCard(what: Denied, onEvent: (UiEvent) -> Unit) {
     if (what == Denied.CAMERA) {
-        ComposerCardFrame("The camera is off for RichOS", "Turn it on in Settings to take a photo for Rich, or choose one you already have.") {
+        ComposerCardFrame("The camera is off for RichConnect", "Turn it on in Settings to take a photo for Rich, or choose one you already have.") {
             RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) })
             RichButton("Choose from Photos", { onEvent(UiEvent.AttachPick("photos")) }, kind = ButtonKind.GHOST, icon = RichIcons.Image)
         }
     } else {
-        ComposerCardFrame("RichOS can’t see your photos", "Allow access in Settings, or send a file from Files instead.") {
+        ComposerCardFrame("RichConnect can’t see your photos", "Allow access in Settings, or send a file from Files instead.") {
             RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) })
             RichButton("Use Files", { onEvent(UiEvent.AttachPick("files")) }, kind = ButtonKind.GHOST, icon = RichIcons.Folder)
         }

@@ -285,7 +285,7 @@ private fun ShareCompose(sheet: ShareSheet, limitMb: Int, small: Boolean, onEven
                 buildAnnotatedString {
                     append("Goes to ")
                     withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) { append("Rich on ${sheet.macName}") }
-                    append(". The reply comes in RichOS.")
+                    append(". The reply comes in RichConnect.")
                 },
                 style = t.read.copy(color = c.inkSoft),
             )
@@ -369,7 +369,7 @@ private fun ShareDone(saved: Boolean) {
                     withStyle(SpanStyle(color = c.ink, fontWeight = FontWeight.SemiBold)) { append("as soon as this phone is back online.") }
                 }
             } else {
-                buildAnnotatedString { append("Rich will reply in RichOS.") }
+                buildAnnotatedString { append("Rich will reply in RichConnect.") }
             },
             style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center),
             modifier = Modifier.padding(top = 8.dp),
@@ -383,14 +383,14 @@ private fun ShareUnpaired(onEvent: (UiEvent) -> Unit) {
     val t = Rich.type
     Column(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 18.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Mark(56.dp, Modifier.padding(bottom = 14.dp))
-        BasicText("Pair RichOS with your Mac first", style = t.sheetTitle.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.semantics { heading() })
+        BasicText("Pair RichConnect with your Mac first", style = t.sheetTitle.copy(color = c.ink, textAlign = TextAlign.Center), modifier = Modifier.semantics { heading() })
         BasicText(
             "Then anything you share here goes straight to Rich. It takes one scan of the code on your Mac.",
             style = t.read.copy(color = c.inkSoft, textAlign = TextAlign.Center),
             modifier = Modifier.padding(top = 10.dp, bottom = 18.dp),
         )
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            RichButton("Open RichOS to pair", { onEvent(UiEvent.ShareOpenToPair) }, icon = RichIcons.Qr, tall = true, wide = true)
+            RichButton("Open RichConnect to pair", { onEvent(UiEvent.ShareOpenToPair) }, icon = RichIcons.Qr, tall = true, wide = true)
             RichButton("Cancel", { onEvent(UiEvent.ShareCancel) }, kind = ButtonKind.QUIET, wide = true)
         }
     }

@@ -95,7 +95,7 @@ fun WaitingToSendCard(count: Int, onEvent: (UiEvent) -> Unit) = ComposerCardFram
 fun ComposerCardView(card: ComposerCard, onEvent: (UiEvent) -> Unit) {
     when (card) {
         ComposerCard.MicrophoneOff -> ComposerCardFrame(
-            "The microphone is off for RichOS",
+            "The microphone is off for RichConnect",
             "Turn it on in Settings to send voice messages, or type instead.",
         ) {
             RichButton("Open Settings", { onEvent(UiEvent.OpenSystemSettings) })
