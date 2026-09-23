@@ -43,6 +43,10 @@ const previewKey = b64url(Buffer.alloc(32, 9));
 
 // [name, the native_push value, accepted by the Mac, transport it records]
 const REGISTRATIONS = [
+	['FCM for RichConnect production', { platform: 'fcm', token: fcmToken(), topic: 'dev.richos.connect' }, true, 'fcm'],
+	['APNs for RichConnect production', { token: apnsToken, environment: 'production', topic: 'dev.richos.connect' }, true, 'apns'],
+	['FCM production refuses APNs environment', { platform: 'fcm', token: fcmToken(), environment: 'production', topic: 'dev.richos.connect' }, false, null],
+	['APNs production refuses an FCM token', { token: fcmToken(), environment: 'production', topic: 'dev.richos.connect' }, false, null],
 	['FCM, minimal', { platform: 'fcm', token: fcmToken(), topic: 'dev.richos.native.android' }, true, 'fcm'],
 	['FCM with a preview key', { platform: 'fcm', token: fcmToken(), topic: 'dev.richos.native.android', preview_key: previewKey, previews: true }, true, 'fcm'],
 	['FCM with previews off', { platform: 'fcm', token: fcmToken(), topic: 'dev.richos.native.android', previews: false }, true, 'fcm'],
@@ -81,7 +85,7 @@ export async function fcm() {
 			fcm: '{"platform":"fcm","token":"<32..4096 of A-Z a-z 0-9 _ - :>","topic":"<Android application ID>","preview_key":"<base64url of 32 bytes>"?,"previews":bool?}',
 			apns: '{"token":"<lowercase hex 32..512>","environment":"sandbox"|"production","topic":"<bundle ID>","preview_key"?,"previews"?}  (platform absent or "apns")'
 		},
-		allowed_ids: { fcm: ['dev.richos.native.android'], apns: ['dev.richos.mobile.loop', 'dev.richos.mobile.integration', 'dev.richos.native.ios'] },
+		allowed_ids: { fcm: ['dev.richos.native.android', 'dev.richos.connect'], apns: ['dev.richos.mobile.loop', 'dev.richos.mobile.integration', 'dev.richos.native.ios', 'dev.richos.connect'] },
 		answers: [
 			{ status: 200, body: '{"host_id":"<32 lowercase hex>|null","registered":bool}', client_action: 'check host_id and that registered matches what was asked; keep host_id to validate incoming notifications' },
 			{ status: 404, body: '', client_action: 'the Mac refused the registration (a shape or ID it does not take, or no native-push-fcm on this Mac): do not retry the same body' },

@@ -71,7 +71,7 @@
     },
     {
       "file": "push-registration-fcm.json",
-      "cases": 23,
+      "cases": 27,
       "expectations": "Mac-defined: declared in the generator, proven by verifier/ against the Mac code"
     }
   ]

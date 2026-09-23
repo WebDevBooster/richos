@@ -79,7 +79,7 @@ real process restart. `bin/randroid check-release` proves none of this is in a r
 ## Versions
 
 minSdk 29, targetSdk 36 (build plan §3.3), compileSdk 37 (the current Compose and lifecycle
-libraries refuse to compile against less). Development application ID `dev.richos.native.android`;
+libraries refuse to compile against less). Permanent application ID `dev.richos.connect`;
 Kotlin package root `dev.richos.android` (`native` is a Java keyword). Gradle 9.7.1 (wrapper,
 checksum pinned), AGP 9.4.1, Kotlin 2.4.20, Compose BOM 2026.09.00, Robolectric 4.17.
 

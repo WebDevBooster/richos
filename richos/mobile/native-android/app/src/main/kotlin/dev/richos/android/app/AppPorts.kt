@@ -55,6 +55,7 @@ object AppPorts {
             http = wire,
             keys = KeystoreKeys(),
             deviceName = "Android phone",
+            applicationId = context.packageName,
             files = StagedFiles(stagedDir(context)),
             recorder = recorder,
             platform = platform,

@@ -7,13 +7,12 @@ use std::path::{Path, PathBuf};
 
 /// **THE iOS APPS WHOSE APNs TOKENS THIS MAC FORWARDS.** The first two are the preserved app's;
 /// `dev.richos.native.ios` is the new native app's development ID (Rich's decision, 2026-09-22).
-/// A production bundle ID, when the CEO picks one, is one more string here — and one more in the
-/// Worker's `APNS_TOPICS`, which is outside this repository's Mac code.
-pub const APNS_TOPICS: &[&str] = &["dev.richos.mobile.loop", "dev.richos.mobile.integration", "dev.richos.native.ios"];
+/// `dev.richos.connect` is RichConnect's permanent identifier, also required in the
+/// Worker's private `APNS_TOPICS` configuration.
+pub const APNS_TOPICS: &[&str] = &["dev.richos.mobile.loop", "dev.richos.mobile.integration", "dev.richos.native.ios", "dev.richos.connect"];
 /// **THE ANDROID APPS WHOSE FCM TOKENS THIS MAC FORWARDS.** `dev.richos.native.android` is the
-/// new native app's development application ID (Rich's decision, 2026-09-22); a production ID is
-/// one more string here.
-pub const FCM_APPS: &[&str] = &["dev.richos.native.android"];
+/// native app's development application ID; `dev.richos.connect` is its permanent ID.
+pub const FCM_APPS: &[&str] = &["dev.richos.native.android", "dev.richos.connect"];
 
 /// A native push registration, as the phone sends it inside `{"native_push": …}`.
 ///

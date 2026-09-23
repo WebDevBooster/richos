@@ -10,12 +10,14 @@
   },
   "allowed_ids": {
     "fcm": [
-      "dev.richos.native.android"
+      "dev.richos.native.android",
+      "dev.richos.connect"
     ],
     "apns": [
       "dev.richos.mobile.loop",
       "dev.richos.mobile.integration",
-      "dev.richos.native.ios"
+      "dev.richos.native.ios",
+      "dev.richos.connect"
     ]
   },
   "answers": [
@@ -41,6 +43,53 @@
     }
   ],
   "registration_cases": [
+    {
+      "name": "FCM for RichConnect production",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "topic": "dev.richos.connect"
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "fcm"
+      }
+    },
+    {
+      "name": "APNs for RichConnect production",
+      "native_push": {
+        "token": "abababababababababababababababababababababababababababababababab",
+        "environment": "production",
+        "topic": "dev.richos.connect"
+      },
+      "mac_outcome": {
+        "accepted": true,
+        "transport": "apns"
+      }
+    },
+    {
+      "name": "FCM production refuses APNs environment",
+      "native_push": {
+        "platform": "fcm",
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "environment": "production",
+        "topic": "dev.richos.connect"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "APNs production refuses an FCM token",
+      "native_push": {
+        "token": "ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z",
+        "environment": "production",
+        "topic": "dev.richos.connect"
+      },
+      "mac_outcome": {
+        "accepted": false
+      }
+    },
     {
       "name": "FCM, minimal",
       "native_push": {
@@ -284,25 +333,25 @@
         "method": "POST",
         "target": "/api/pair",
         "headers": {
-          "Authorization": "RichOS-Device dev_8d4c57b7ff82.f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8.T33CxcgdfekUzZJQX13nuXaCb4WvA_x6HB3w8NJy5MwcDcH3OoH_Ku2XEuylQpB3GdHL3xDxRO0R6X0JSUu63g",
+          "Authorization": "RichOS-Device dev_8d4c57b7ff82.f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8.C0TspoHF1nPAuL-YhKKb0OanCStvMp2DeqVZcj5NVKovQcFGBYaUwpnGZnKSONWJpASkqeWM_hNFCu4mJZfERQ",
           "Content-Type": "application/json"
         },
         "body": {
-          "utf8": "{\"native_push\":{\"platform\":\"fcm\",\"token\":\"ddddddddddd:APA91bx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_zx-y_z\",\"topic\":\"dev.richos.native.android\",\"preview_key\":\"CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk\",\"previews\":true}}",
-          "sha256_hex": "4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
-          "length": 315
+          "utf8": "{\"native_push\":{\"token\":\"abababababababababababababababababababababababababababababababab\",\"environment\":\"production\",\"topic\":\"dev.richos.connect\"}}",
+          "sha256_hex": "81c01b7d6cff1a55ce74006c1394a2edfcdb8f303a5490800efb2fbb31f81cf5",
+          "length": 148
         },
         "signed": {
           "credential": "header",
           "challenge": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8",
           "path_with_query": "/api/pair",
-          "body_sha256_hex": "4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
-          "signing_string": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8\nPOST\n/api/pair\n4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
-          "signature_b64url": "T33CxcgdfekUzZJQX13nuXaCb4WvA_x6HB3w8NJy5MwcDcH3OoH_Ku2XEuylQpB3GdHL3xDxRO0R6X0JSUu63g",
-          "authorization": "RichOS-Device dev_8d4c57b7ff82.f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8.T33CxcgdfekUzZJQX13nuXaCb4WvA_x6HB3w8NJy5MwcDcH3OoH_Ku2XEuylQpB3GdHL3xDxRO0R6X0JSUu63g"
+          "body_sha256_hex": "81c01b7d6cff1a55ce74006c1394a2edfcdb8f303a5490800efb2fbb31f81cf5",
+          "signing_string": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8\nPOST\n/api/pair\n81c01b7d6cff1a55ce74006c1394a2edfcdb8f303a5490800efb2fbb31f81cf5",
+          "signature_b64url": "C0TspoHF1nPAuL-YhKKb0OanCStvMp2DeqVZcj5NVKovQcFGBYaUwpnGZnKSONWJpASkqeWM_hNFCu4mJZfERQ",
+          "authorization": "RichOS-Device dev_8d4c57b7ff82.f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8.C0TspoHF1nPAuL-YhKKb0OanCStvMp2DeqVZcj5NVKovQcFGBYaUwpnGZnKSONWJpASkqeWM_hNFCu4mJZfERQ"
         },
         "mac": {
-          "signing_string": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8\nPOST\n/api/pair\n4a8be48d86a9d401daa7998ddaa8814bf8334f5a728f2c9d7b72070ffa087925",
+          "signing_string": "f7Fd5kLJ-bDemUqTowa0VJ5BUbmBM2J8\nPOST\n/api/pair\n81c01b7d6cff1a55ce74006c1394a2edfcdb8f303a5490800efb2fbb31f81cf5",
           "verdict": "accepted"
         }
       }

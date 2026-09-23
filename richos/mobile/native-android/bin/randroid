@@ -30,7 +30,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VOLUME="/Volumes/E1TB"
-PACKAGE="dev.richos.native.android"
+PACKAGE="dev.richos.connect"
 ACTIVITY="$PACKAGE/dev.richos.android.app.MainActivity"
 RECEIVER="$PACKAGE/dev.richos.android.app.debug.DevBridgeReceiver"
 SYSTEM_IMAGE="${RANDROID_SYSTEM_IMAGE:-system-images;android-34;google_apis;arm64-v8a}"
