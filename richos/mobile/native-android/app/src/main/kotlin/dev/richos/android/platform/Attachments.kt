@@ -1,5 +1,6 @@
 package dev.richos.android.platform
 
+import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
@@ -61,11 +62,15 @@ class Stager(
     class Refused(val reason: Reason, val name: String, val bytes: Long? = null) : java.io.IOException("$name: $reason")
 
     enum class Reason {
+        /** Not another app's `content://` item: a `file://` path or this app's own provider (A-2). */
+        NOT_ALLOWED,
+
         /** Over the Mac's per-file limit; [Refused.bytes] is the size when it is known. */
         TOO_LARGE,
     }
 
     suspend fun stage(uri: Uri): Attachment = withContext(Dispatchers.IO) {
+        refuseUnlessShared(uri)
         val resolver = context.contentResolver
         val (shownName, declaredSize) = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
             if (!c.moveToFirst()) null to null
@@ -101,6 +106,20 @@ class Stager(
             if (f.id.isEmpty() || f.id.contains('/') || f.id.contains('\\') || f.id == "." || f.id == "..") continue
             File(dir, f.id).delete()
         }
+    }
+
+    /**
+     * A-2. Only another app's `content://` item is read. The app opens a URI with ITS OWN rights, so a
+     * `file://` path, or a content URI of one of this app's own providers, would be a read of its
+     * private storage on behalf of whichever app named it.
+     */
+    private fun refuseUnlessShared(uri: Uri) {
+        val name = uri.lastPathSegment ?: "file"
+        if (uri.scheme != ContentResolver.SCHEME_CONTENT) throw Refused(Reason.NOT_ALLOWED, name)
+        val authority = uri.authority ?: throw Refused(Reason.NOT_ALLOWED, name)
+        val own = context.packageName
+        val owner = runCatching { context.packageManager.resolveContentProvider(authority, 0)?.packageName }.getOrNull()
+        if (authority == own || authority.startsWith("$own.") || owner == own) throw Refused(Reason.NOT_ALLOWED, name)
     }
 
     /**
