@@ -154,6 +154,14 @@ class Reliability(unittest.TestCase):
             env=env, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('native-ios-ui: headless', result.stdout)
+        # With no arguments the wrapper must retain the default full mode. The
+        # stub deliberately refuses simctl, proving it reached that stage without
+        # a nounset error from an empty array on the system's bash 3.2.
+        result = subprocess.run(['bash', str(HERE / 'native-ios-ui.test.sh')],
+            env=env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 99, result.stdout + result.stderr)
+        self.assertIn('native-ios-ui: headless', result.stdout)
+        self.assertNotIn('unbound variable', result.stderr)
 
     def test_simulator_resource_does_not_take_another_worker_or_change_borrow_slot(self):
         machine = self.path / 'machine'
