@@ -718,27 +718,141 @@ def worktree_session_reason(cwd, pid):
     return ""
 
 
-def record_session_start(session_id, cwd):
+def platform_session(session_id, pid=None):
+    """The platform's OWN record of the claude process running `session_id`
+    (<config>/sessions/<pid>.json), or None. Read, never written.
+
+    It is written once, when the process starts, and its `cwd` is the directory
+    the session was LAUNCHED in (Claude Code 2.1.280 writes `cwd: originalCwd`).
+    That is the one fact point 3 asks about, and no hook payload carries it
+    reliably: see session_start."""
+    if not session_id:
+        return None
+    pids = []
+    for p in (pid, None):
+        if p is None:
+            p = session_pid(session_id)
+        try:
+            p = int(p)
+        except (TypeError, ValueError):
+            continue
+        if p > 0 and p not in pids:
+            pids.append(p)
+    for p in pids:
+        rec = read_json(os.path.join(_platform_sessions_dir(), "%d.json" % p))
+        if rec and str(rec.get("sessionId") or "") == session_id:
+            return rec
+    return None
+
+
+# The SessionStart sources that mean a PROCESS was launched. The others
+# (compact, clear) happen inside a running session, and one of them, compact,
+# also fires for a SUBAGENT's compaction carrying the lead's session_id.
+LAUNCH_SOURCES = ("", "startup", "resume", "fork")
+
+
+def session_start(session_id, cwd, source="", agent_id=""):
+    """Record a SessionStart. Returns (record, foreign).
+
+    `foreign` is True when this SessionStart is NOT the lead's own: it must
+    change nothing about the lead and give it no context.
+
+    WHY THE PAYLOAD'S cwd IS NOT THE LEAD'S DIRECTORY. On 2026-09-22 at 23:10Z a
+    subagent (isaac-opus-n1) compacted its context. Claude Code fires
+    SessionStart(source=compact) for a subagent's compaction too, and 2.1.280
+    builds that input WITHOUT the agent context: the LEAD's session_id, the
+    SUBAGENT's worktree as cwd, no agent_id. This function used to take every
+    SessionStart as the lead's, so it wrote the subagent's worktree onto the
+    lead's record, point 3 flagged it FORBIDDEN, and every lead call was refused
+    for the 33 minutes until the CEO exited, with ten agents at 100% CPU and
+    nothing able to stop them.
+
+    So the lead's directory is, in order: the platform's own record of the
+    process (platform_session), else the first record, else a launch event's
+    cwd. A later in-session SessionStart never moves it, and a SessionStart
+    carrying an agent_id (a later platform version may send one) is never the
+    lead's at all."""
     if not session_id:
         raise SpecError("no session id in the payload")
+    source = (source or "").strip()
+    payload_cwd = realpath(cwd)
+    prev = load_session(session_id) or {}
+    if agent_id:
+        event("session-start-not-the-lead", session_id=session_id, agent_id=agent_id, source=source or None,
+              cwd=payload_cwd or None)
+        return prev, True
     ident = identity_for(session_id)
-    rec = load_session(session_id) or {}
-    rec.update({"session_id": session_id, "cwd": realpath(cwd), "started_at": rec.get("started_at") or iso(),
-                "repo": main_checkout(cwd) if cwd else ""})
+    pid = ident["pid"] if ident else prev.get("pid")
+    plat = platform_session(session_id, pid)
+    if plat and plat.get("cwd"):
+        lead_cwd, basis = realpath(str(plat["cwd"])), "platform"
+    elif prev.get("cwd"):
+        lead_cwd, basis = prev["cwd"], prev.get("cwd_basis") or "recorded"
+    else:
+        lead_cwd, basis = payload_cwd, "first-record"
+    foreign = bool(payload_cwd and lead_cwd and payload_cwd != lead_cwd and source not in LAUNCH_SOURCES)
+    if foreign:
+        event("session-start-not-the-lead", session_id=session_id, source=source or None,
+              cwd=payload_cwd, lead_cwd=lead_cwd)
+        return prev, True
+    # A compact or clear with nothing before it cannot say whose directory it
+    # carries, so it is recorded and never made the reason for a refusal.
+    may_forbid = basis != "first-record" or source in LAUNCH_SOURCES
+    rec = dict(prev)
+    rec.update({"session_id": session_id, "cwd": lead_cwd, "cwd_basis": basis,
+                "started_at": rec.get("started_at") or iso(),
+                "repo": main_checkout(lead_cwd) if lead_cwd else ""})
     if ident:
         rec.update(ident)
     rec.pop("ended_at", None)
     rec.pop("end_reason", None)
-    forbidden = worktree_session_reason(cwd, ident["pid"] if ident else None)
+    forbidden = worktree_session_reason(lead_cwd, pid) if may_forbid else ""
     if forbidden:
         rec["forbidden"] = forbidden
+    else:
+        rec.pop("forbidden", None)
     with Lock():
         write_json(session_path(session_id), rec)
         if rec.get("repo"):
             _remember_repo(rec["repo"])
     event("session-start", session_id=session_id, pid=rec.get("pid"), pid_start=rec.get("pid_start"),
-          forbidden=forbidden or None)
-    return rec
+          source=source or None, basis=basis, forbidden=forbidden or None)
+    return rec, False
+
+
+def record_session_start(session_id, cwd, source="", agent_id=""):
+    return session_start(session_id, cwd, source, agent_id)[0]
+
+
+def forbidden_now(session_id, rec):
+    """Point 3's verdict for the lead, RE-DERIVED rather than trusted.
+
+    A stored flag is a claim with a date on it. The record 9cfd9fc9 was left
+    with carried the wrong directory and FORBIDDEN, and nothing could ever
+    correct it. So when a flag is stored, the platform's own launch record is
+    asked again; where the two disagree the platform wins and the record is
+    healed. Only a stored flag costs a lookup: the lead's ordinary call stays one
+    file read."""
+    stored = (rec or {}).get("forbidden") or ""
+    if not stored:
+        return ""
+    plat = platform_session(session_id, rec.get("pid"))
+    if not plat or not plat.get("cwd"):
+        return stored
+    lead_cwd = realpath(str(plat["cwd"]))
+    reason = worktree_session_reason(lead_cwd, rec.get("pid"))
+    if reason != stored:
+        with Lock():
+            cur = load_session(session_id) or dict(rec)
+            cur["cwd"] = lead_cwd
+            cur["cwd_basis"] = "platform"
+            if reason:
+                cur["forbidden"] = reason
+            else:
+                cur.pop("forbidden", None)
+            write_json(session_path(session_id), cur)
+        event("session-forbidden-rederived", session_id=session_id, was=stored, now=reason or None)
+    return reason
 
 
 def record_session_end(session_id, reason=""):
@@ -4388,7 +4502,9 @@ def barrier(payload):
     if not aid:
         s = load_session(sid) if sid else None
         if s and s.get("forbidden"):
-            return "FORBIDDEN", s["forbidden"]
+            why = forbidden_now(sid, s)
+            if why:
+                return "FORBIDDEN", why
         return "LEAD", ""
     key = key_for_id(aid)
     rec = load_agent(key) if key else None
@@ -4703,7 +4819,12 @@ def lifecycle(payload, entity):
     notices = []
     ctx = ""
     if ev == "SessionStart":
-        rec = record_session_start(sid, str(payload.get("cwd") or entity or ""))
+        rec, foreign = session_start(sid, str(payload.get("cwd") or entity or ""),
+                                     str(payload.get("source") or ""), str(payload.get("agent_id") or ""))
+        if foreign:
+            # A subagent's compaction: nothing about the lead changes, and the
+            # lead's gate is no business of an agent that cannot land anything.
+            return "", []
         if rec.get("forbidden"):
             notices.append("THIS SESSION IS NOT ALLOWED: %s. Nobody starts a session in its own workspace in "
                            "RichOS (point 3). Every tool but reading is refused." % rec["forbidden"])

@@ -419,6 +419,130 @@ class Point03_TwoEvents(Base):
         self.assertEqual(ws.barrier({"session_id": self.sid, "tool_name": "Bash"})[0], "LEAD")
 
 
+class Point03_TheLeadIsNeverLockedOutByASubagent(Base):
+    """Point 3 forbids ONE thing: a session LAUNCHED inside a workspace. It never
+    forbids the lead because one of its agents compacted.
+
+    2026-09-22, 23:10:17Z. Subagent isaac-opus-n1 compacted its context. Claude
+    Code 2.1.280 fires SessionStart(source=compact) for that, and builds the
+    input WITHOUT the agent context: the lead's session_id, the subagent's
+    worktree as cwd, and no agent_id (read from the binary: the SessionStart
+    input is `{...jl(session, cwd), hook_event_name, source, agent_type, model}`
+    with jl called without the agent argument). The engine took it for the lead
+    starting in that worktree, stored FORBIDDEN on the lead's record, and every
+    lead call after it was refused for the 33 minutes until the CEO exited, while
+    ten agents kept the Mac at 100%.
+
+    The lead's directory is the platform's own record of the process
+    (~/.claude/sessions/<pid>.json, written once at launch), or the first
+    record, and never a later SessionStart. Both payload shapes are covered: no
+    agent_id (what 2.1.280 sends) and agent_id (what a later version may)."""
+
+    def platform(self, sid, cwd, pid=None):
+        """The platform's own session record, as Claude Code writes it."""
+        d = ws._platform_sessions_dir()
+        os.makedirs(d, exist_ok=True)
+        pid = int(pid or os.environ["RICHOS_SESSION_PID"])
+        with open(os.path.join(d, "%d.json" % pid), "w") as f:
+            json.dump({"pid": pid, "sessionId": sid, "cwd": cwd, "kind": "interactive"}, f)
+        return pid
+
+    def subagent_workspace(self, aid="a275ae996204b25b3"):
+        wt = os.path.join(self.entity, ".claude", "worktrees", "agent-" + aid)
+        run("git", "-C", self.entity, "worktree", "add", "-q", wt, "-b", "worktree-agent-" + aid)
+        return wt
+
+    def session_workspace(self, name="my-session"):
+        """What `claude --worktree <name>` makes: .claude/worktrees/<name>, not an
+        agent-<id> workspace (which point 3 would count as unregistered work)."""
+        wt = os.path.join(self.entity, ".claude", "worktrees", name)
+        run("git", "-C", self.entity, "worktree", "add", "-q", wt, "-b", "worktree-" + name)
+        return wt
+
+    def compact(self, cwd, agent_id="", sid=None):
+        p = {"hook_event_name": "SessionStart", "source": "compact",
+             "session_id": sid or self.sid, "cwd": cwd}
+        if agent_id:
+            p["agent_id"] = agent_id
+            p["agent_type"] = "isaac"
+        return ws.lifecycle(p, self.entity)
+
+    def lead(self, tool="Bash", sid=None, **ti):
+        p = {"session_id": sid or self.sid, "tool_name": tool, "hook_event_name": "PreToolUse"}
+        if ti:
+            p["tool_input"] = ti
+        return ws.barrier(p)
+
+    def assert_lead_record_untouched(self):
+        rec = ws.load_session(self.sid)
+        self.assertEqual(rec["cwd"], os.path.realpath(self.entity))
+        self.assertFalse(rec.get("forbidden"), rec.get("forbidden"))
+
+    def test_point_03_a_subagent_compaction_never_locks_out_the_lead(self):
+        self.platform(self.sid, self.entity)
+        wt = self.subagent_workspace()
+        self.compact(wt)                                   # 2.1.280's shape: no agent_id
+        self.assertEqual(self.lead()[0], "LEAD")
+        self.assert_lead_record_untouched()
+
+    def test_point_03_a_subagent_compaction_carrying_its_agent_id_never_locks_out_the_lead(self):
+        self.platform(self.sid, self.entity)
+        wt = self.subagent_workspace()
+        self.compact(wt, agent_id="a275ae996204b25b3")
+        self.assertEqual(self.lead()[0], "LEAD")
+        self.assert_lead_record_untouched()
+
+    def test_point_03_without_the_platform_record_the_first_record_decides(self):
+        wt = self.subagent_workspace()                     # no ~/.claude/sessions/<pid>.json
+        self.compact(wt)
+        self.assertEqual(self.lead()[0], "LEAD")
+        self.assert_lead_record_untouched()
+
+    def test_point_03_a_wrong_stored_flag_is_re_derived_at_the_verdict(self):
+        """The record 9cfd9fc9 was left with: a subagent's directory and FORBIDDEN.
+        The platform says the lead was launched in the main checkout, so the
+        verdict is LEAD and the stored flag is healed, not trusted."""
+        self.platform(self.sid, self.entity)
+        wt = self.subagent_workspace()
+        path = ws.session_path(self.sid)
+        rec = json.load(open(path))
+        rec["cwd"] = wt
+        rec["forbidden"] = "the session's directory %s is a Claude Code workspace (claude --worktree)" % wt
+        ws.write_json(path, rec)
+        self.assertEqual(self.lead()[0], "LEAD")
+        self.assertFalse(ws.load_session(self.sid).get("forbidden"))
+
+    def test_point_03_a_session_launched_in_a_workspace_is_still_forbidden(self):
+        wt = self.session_workspace()
+        sid2 = "sess-worktree-5555"
+        pr = self.env.session(sid2, wt)
+        self.platform(sid2, wt, pr.pid)
+        self.assertEqual(self.lead(sid=sid2)[0], "FORBIDDEN")
+        # its own later compaction, from anywhere, does not clear it
+        self.compact(self.entity, sid=sid2)
+        self.assertEqual(self.lead(sid=sid2)[0], "FORBIDDEN")
+        # and the platform's record alone is enough, whatever the payload said
+        sid3 = "sess-worktree-6666"
+        pr3 = self.env.session(sid3, self.entity)
+        self.platform(sid3, wt, pr3.pid)
+        ws.lifecycle({"hook_event_name": "SessionStart", "source": "startup", "session_id": sid3,
+                      "cwd": self.entity}, self.entity)
+        self.assertEqual(self.lead(sid=sid3)[0], "FORBIDDEN")
+
+    def test_point_03_a_subagent_compaction_gets_none_of_the_leads_context(self):
+        """The gate message is for the lead; a subagent cannot land anything."""
+        self.platform(self.sid, self.entity)
+        aid, npath = self.spawn("zach-opus-cx")
+        self.commit(npath)
+        self.finish(aid)
+        wt = self.subagent_workspace()
+        ctx, notices = self.compact(wt)
+        self.assertEqual(ctx, "")
+        self.assertEqual(notices, [])
+        # CONTROL: the lead's own compaction still carries it
+        ctx, _n = self.compact(self.entity)
+        self.assertIn("zach-opus-cx", ctx)
+
 class Point04_LandedMeansDeleted(Base):
     """4. Landed means the workspace AND the branch are deleted — automatically."""
 
