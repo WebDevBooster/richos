@@ -238,9 +238,9 @@ fun NeedsNewerApp(onEvent: (UiEvent) -> Unit) {
         },
     ) {
         BigMark()
-        Eyebrow("A newer RichOS is needed")
+        Eyebrow("Newer app version needed")
         DisplayHeading("This saved session needs a newer app")
-        Lede("Your data has been kept. Update RichOS and everything picks up where it left off.")
+        Lede("Your data has been kept. Update this RichConnect app and everything picks up where it left off.")
     }
 }
 
@@ -259,8 +259,8 @@ fun Consent(onEvent: (UiEvent) -> Unit) {
         Lede("One thing to know before you talk to Rich from this phone.")
         Column(Modifier.padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             ConsentRow(RichIcons.Mac, "What you type or say goes to your Mac.", "Your conversation lives there, not on our servers.")
-            ConsentRow(RichIcons.Spark, "Rich on your Mac sends it to its AI provider to write the reply.", "The provider set up on your Mac. You can change it there.")
-            ConsentRow(RichIcons.Cloud, "Our connection service carries it to your Mac and keeps nothing.", "Encrypted on the way, stored nowhere.")
+            ConsentRow(RichIcons.Spark, "Rich (powered by your AI provider) writes the reply there.", "So, all the AI work happens on your Mac.")
+            ConsentRow(RichIcons.Cloud, "Our connection service just moves the messages between your Mac and your phone.", "Encrypted on the way, stored nowhere.")
         }
     }
 }
