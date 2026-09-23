@@ -25,6 +25,10 @@ cleanup() {
   xcrun simctl delete "$UDID" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT HUP INT TERM
+# A run killed before its trap leaves this simulator behind; registering it with this shell's pid lets
+# the engine remove it once this shell is gone (richos/engine/scripts/lib/testdevices.py, §54).
+python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
+  --owner-pid $$ --script simulator-tests.sh >/dev/null 2>&1 || true
 
 xcrun simctl boot "$UDID" && xcrun simctl bootstatus "$UDID" -b >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
 xcrun simctl privacy "$UDID" grant microphone dev.richos.native.ios >/dev/null 2>&1 || true

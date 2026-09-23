@@ -32,6 +32,11 @@ SCRATCH="$(mktemp -d "$VOLUME/tmp/native-ios-app.XXXXXX")" || { echo '  FAIL  sc
 trap '"$RIOS" sim stop >"$SCRATCH/stop.json" 2>&1 || true; rm -rf "$SCRATCH"' EXIT HUP INT TERM
 # A simulator left recorded by a run that was killed before its trap is stopped first.
 "$RIOS" sim stop >/dev/null 2>&1 || true
+# And one left by a run killed while nothing reruns this suite: the simulator this cache names is
+# registered to this shell, so the engine removes it once this shell is gone
+# (richos/engine/scripts/lib/testdevices.py, §54; 2026-09-22 left one booted after its run was killed).
+python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" register --kind ios-cache \
+  --id "$RICHOS_NATIVE_IOS_CACHE" --owner-pid $$ --script native-ios-app.test.sh >/dev/null 2>&1 || true
 
 PASS=0; FAILED=0
 ok()  { PASS=$((PASS + 1)); echo "  ok  $1"; }
