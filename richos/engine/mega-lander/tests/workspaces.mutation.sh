@@ -81,6 +81,16 @@ mutant p03-anything-rides-along-with-a-stop "test_point_03_a_forbidden_lead_can_
     '    if not cmd:' \
     "any command chained after stop.sh would run in a session point 3 refuses."
 
+mutant p05-refused-session-held "test_point_05_a_forbidden_session_is_told_once_and_never_held" "$W" \
+    '            return True, _refused_session_notice(sid, why)' \
+    '            pass' \
+    "a session that can do nothing but stop agents would be held at every turn end, which is the spin of 2026-09-22 (42 refusals in 12 minutes)."
+
+mutant p05-refused-notice-every-turn "test_point_05_a_forbidden_session_is_told_once_and_never_held" "$W" \
+    '        if rec.get("refused_notice") == why:' \
+    '        if False:' \
+    "the refused session would be told the same thing at every turn end instead of once."
+
 mutant p04-no-automatic-land "test_point_04_landed_means_workspace_and_branch_deleted_automatically" "$W" \
     '        if auto and not _past(deadline):{NL}            try:{NL}                res = land(' \
     '        if False:{NL}            try:{NL}                res = land(' \

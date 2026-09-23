@@ -212,6 +212,10 @@ run "$(payload Read "" dev "$SID4")"
 # G15b-G15e — 2026-09-22: a refused lead could not stop ten agents for 33 minutes.
 # Under a (correct) refusal the lead may still STOP ITS AGENTS, and the refusal
 # names that one thing so the next call is a stop, not a retry.
+run "$(payload Bash "" dev "$SID4")"
+printf '%s' "$OUT" | grep -q "TaskStop" && printf '%s' "$OUT" | grep -q "scripts/stop.sh" \
+    && printf '%s' "$OUT" | grep -q "DO NOT RETRY" \
+    && ok "G15b the refusal names the one thing left: TaskStop / stop.sh, and says not to retry" || bad "G15b refusal text: $OUT"
 run "$(payload TaskStop "" dev "$SID4")"
 [ "$RC" -eq 0 ] && ok "G15c ...and that session's TaskStop passes (a refused lead can always stop its agents)" || bad "G15c TaskStop rc=$RC: $OUT"
 STOP_SH="$(cd "$SCRIPT_DIR/.." && pwd)/stop.sh"

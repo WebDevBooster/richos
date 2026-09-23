@@ -4795,12 +4795,45 @@ def _allowance_spent_message(spent):
     return "\n".join(lines)
 
 
+def refused_session_text(why):
+    return ("THIS SESSION IS NOT ALLOWED: %s. Nobody starts a session in its own workspace in RichOS "
+            "(point 3); every tool but reading and stopping agents is refused, and retrying cannot succeed. "
+            "The one thing it can still do is stop its agents: TaskStop <task id>, or "
+            "%s <name> [<name> ...] --ceo-word '<his words>'. Tell the CEO once that the session "
+            "must be restarted from the repository's main checkout, and end the turn."
+            % (why, stop_command()))
+
+
+def _refused_session_notice(sid, why):
+    """The Stop gate's answer for a refused session: said ONCE, never a hold.
+
+    2026-09-22, 23:31-23:43Z: this gate refused the lead's turn end 42 times,
+    each time demanding a `workspaces.sh wait` that the lock-out refused, and
+    each refusal produced one more "still blocked" reply. A session that can do
+    nothing but stop agents cannot land anything, so holding its turn only
+    makes it spin; the finished work waits for the next session, whose start
+    names it first (point 5)."""
+    with Lock():
+        rec = load_session(sid) or {}
+        if rec.get("refused_notice") == why:
+            return ""
+        rec["refused_notice"] = why
+        write_json(session_path(sid), rec)
+    event("refused-session-told", session_id=sid)
+    return refused_session_text(why)
+
+
 def gate_stop(payload, entity):
     """(allowed, message). Point 5: Rich cannot end his turn while finished
     work is neither landed nor discarded, except as the page allows."""
     sid = str(payload.get("session_id") or "")
     if not sid:
         return True, ""
+    s = load_session(sid)
+    if s and s.get("forbidden"):
+        why = forbidden_now(sid, s)
+        if why:
+            return True, _refused_session_notice(sid, why)
     retry_due()
     report = {}
     items = pending(sid, entity, scan=True, deadline=_gate_deadline(GATE_STOP_BUDGET), report=report)
@@ -4911,8 +4944,7 @@ def lifecycle(payload, entity):
             # lead's gate is no business of an agent that cannot land anything.
             return "", []
         if rec.get("forbidden"):
-            notices.append("THIS SESSION IS NOT ALLOWED: %s. Nobody starts a session in its own workspace in "
-                           "RichOS (point 3). Every tool but reading is refused." % rec["forbidden"])
+            notices.append(refused_session_text(rec["forbidden"]))
         retry_due()
         items = pending(sid, entity, scan=True)
         if items:

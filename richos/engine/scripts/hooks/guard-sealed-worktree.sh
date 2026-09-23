@@ -291,7 +291,12 @@ case "$KIND" in
       echo "  $DETAIL."
       echo "  Nobody starts a session in its own workspace (claude --worktree / claude -w)"
       echo "  in RichOS; it is not allowed (docs/plans/worktree-spec-2026-09-11.md, point 3)."
-      echo "  Start the session in the repository's main checkout instead."
+      echo "  DO NOT RETRY THIS CALL: it is refused every time, however it is worded."
+      echo "  The one thing this session can still do is STOP ITS AGENTS (and read):"
+      echo "    TaskStop <task id>"
+      echo "    $ENGINE_ROOT/scripts/stop.sh <name> [<name> ...] --ceo-word '<his words>'"
+      echo "  Then tell the CEO once that the session must be restarted from the"
+      echo "  repository's main checkout, and end the turn."
       echo "$HOOK_TAG"
     } >&2
     exit 2 ;;

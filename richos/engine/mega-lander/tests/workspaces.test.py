@@ -573,6 +573,27 @@ class Point03_TheLeadIsNeverLockedOutByASubagent(Base):
             self.assertEqual(self.lead("Bash", sid=sid2, command=cmd)[0], "FORBIDDEN", cmd)
         self.assertEqual(self.lead("SendMessage", sid=sid2, to="x", message="m")[0], "FORBIDDEN")
 
+    def test_point_05_a_forbidden_session_is_told_once_and_never_held(self):
+        """The spin: 42 Stop-hook refusals in 12 minutes, each demanding a
+        `workspaces.sh wait` that the lock-out refused. A session that can do
+        nothing but stop agents is TOLD, once, and its turn ends."""
+        aid, npath = self.spawn("zach-opus-sp")
+        self.commit(npath)
+        self.finish(aid)
+        self.assertFalse(ws.gate_stop({"session_id": self.sid}, self.entity)[0])   # CONTROL: held
+        wt = self.session_workspace()
+        self.platform(self.sid, wt)                         # this lead WAS launched in a workspace
+        ws.lifecycle({"hook_event_name": "SessionStart", "source": "startup", "session_id": self.sid,
+                      "cwd": wt}, self.entity)
+        self.assertEqual(self.lead()[0], "FORBIDDEN")
+        ok, msg = ws.gate_stop({"session_id": self.sid}, self.entity)
+        self.assertTrue(ok)
+        self.assertIn("TaskStop", msg)
+        self.assertIn("stop.sh", msg)
+        ok, msg2 = ws.gate_stop({"session_id": self.sid}, self.entity)
+        self.assertTrue(ok)
+        self.assertNotIn("TaskStop", msg2)                 # said once, not every turn
+
 
 class Point04_LandedMeansDeleted(Base):
     """4. Landed means the workspace AND the branch are deleted — automatically."""
