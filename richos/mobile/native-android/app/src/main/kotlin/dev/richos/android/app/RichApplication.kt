@@ -5,10 +5,12 @@ import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import dev.richos.android.core.Action
+import dev.richos.android.core.AttachmentLimits
 import dev.richos.android.core.ConnectionOwner
 import dev.richos.android.core.Microphone
 import dev.richos.android.platform.AttachmentPicker
 import dev.richos.android.platform.FcmPlatform
+import dev.richos.android.platform.NetworkWake
 import dev.richos.android.platform.Stager
 import dev.richos.android.platform.MicRecorder
 import dev.richos.android.platform.PreviewKeys
@@ -18,6 +20,8 @@ import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.platform.HttpsMac
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -36,18 +40,26 @@ class RichApplication : Application() {
     @Volatile
     private var foreground: WeakReference<Activity>? = null
 
+    /** The conversation is on screen right now (resumed), so a reply needs no notification. */
+    val conversationOnScreen: Boolean get() = foreground?.get() is MainActivity
+
     /**
      * Photos and files: the composer's attach control calls [AttachmentPicker.pickPhotos] or
      * [AttachmentPicker.pickFiles]; what is picked arrives in the core as `attach`.
      */
     val attachments: AttachmentPicker by lazy {
-        AttachmentPicker(Stager(this, AppPorts.stagedDir(this)), { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope)
+        val stager = Stager(this, AppPorts.stagedDir(this)) { (store.states.value?.attachmentLimits ?: AttachmentLimits()).maxFileBytes }
+        AttachmentPicker(stager, { store.dispatch(it) }, { foreground?.get() as? ComponentActivity }, scope)
     }
 
     /** The live connection's owner; null until the production core has opened, and in a dev world. */
     @Volatile
     var owner: ConnectionOwner? = null
         private set
+
+    /** Push on this phone; null in a development world. */
+    @Volatile
+    private var push: FcmPlatform? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -81,14 +93,26 @@ class RichApplication : Application() {
                     val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire)
                     owner = connection
                     scope.launch { connection.run() }
+                    // The network came back: reconnect now, not at the end of a back-off.
+                    NetworkWake.register(this) { connection.wake() }
                 }
+            }
+            push = platform
+            // A push token that changed while nothing was listening is handed to the Mac now, and
+            // the OS's notification answer is mirrored (platform/Notifications.kt, reconcile).
+            scope.launch {
+                val opened = store.states.filterNotNull().first()
+                platform.reconcile(opened.notifications.status, opened.notifications.previews)
             }
         }
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {
-                // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js).
+                // Coming back to the foreground fires a pending reconnect at once (web/lib/link.js),
+                // and picks up notifications allowed again in Android Settings meanwhile.
                 override fun onActivityStarted(activity: Activity) {
                     owner?.wake()
+                    val now = store.states.value ?: return
+                    push?.let { p -> scope.launch { p.reconcile(now.notifications.status, now.notifications.previews) } }
                 }
 
                 // The activity on screen, for the one OS question the recorder asks.

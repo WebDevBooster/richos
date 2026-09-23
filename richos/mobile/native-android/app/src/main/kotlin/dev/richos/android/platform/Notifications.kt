@@ -25,15 +25,22 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dev.richos.android.BuildConfig
-import dev.richos.android.app.richStore
+import dev.richos.android.app.AppStore
+import dev.richos.android.app.RichApplication
 import dev.richos.android.core.Action
 import dev.richos.android.core.NotificationStatus
 import dev.richos.android.core.Platform
 import dev.richos.android.core.protocol.NotificationPreview
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -52,6 +59,15 @@ class PreviewKeys(private val file: File, private val wrapper: () -> SecretKey) 
     fun key(): ByteArray = read() ?: ByteArray(32).also { SecureRandom().nextBytes(it); write(it) }
 
     fun existing(): ByteArray? = runCatching { read() }.getOrNull()
+
+    /**
+     * A-4 (security review 2026-09-23): previews off, or notifications off (which Forget does
+     * first), leaves nothing on the phone that opens a preview. Turning previews on again makes a
+     * fresh key, which the registration hands the Mac, so this is also how the key rotates.
+     */
+    fun discard() {
+        runCatching { AtomicFile(file).delete() }
+    }
 
     /** Tests only: store a known key. */
     internal fun adopt(key: ByteArray) = write(key)
@@ -141,6 +157,7 @@ class FcmPlatform(
     private val fetchToken: suspend () -> String? = ::defaultToken,
     /** Where the OS prompts run; a test substitutes one that does not need a running looper. */
     private val main: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main,
+    private val ledger: TokenLedger = TokenLedger.forApp(context),
 ) : Platform {
     override suspend fun requestNotifications(previews: Boolean) {
         if (!firebaseReady()) {
@@ -156,13 +173,53 @@ class FcmPlatform(
             dispatch(Action.NotificationsResult(NotificationStatus.PLATFORM_UNAVAILABLE))
             return
         }
-        val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.key() }.getOrNull() } else null
+        val key = withContext(Dispatchers.IO) {
+            if (previews) runCatching { previewKeys.key() }.getOrNull() else null.also { previewKeys.discard() }
+        }
+        ledger.record(token)
+        dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
+    }
+
+    /**
+     * At launch, with notifications on: if Firebase's token is not the one this phone last handed
+     * the Mac, hand it over now. A refresh can happen while nothing is listening (the process was
+     * killed before [RichMessagingService.onNewToken] finished), and an old token fails only at
+     * Google, silently, when the next reply is sent. Asks the OS nothing.
+     *
+     * Notifications switched off for RichConnect in Android Settings (which also ends the process)
+     * are mirrored as DENIED, so Settings in the app says so and offers the way back, rather than
+     * showing a switch that is on while nothing can be shown.
+     */
+    suspend fun reconcile(status: NotificationStatus, previews: Boolean) = reconciling.withLock { reconcileNow(status, previews) }
+
+    /** Launch and each return to the foreground both reconcile; one at a time, so a change registers once. */
+    private val reconciling = Mutex()
+
+    private suspend fun reconcileNow(status: NotificationStatus, previews: Boolean) {
+        // The way back: allowed again in Android Settings after a denial, the phone registers
+        // again (no prompt: the OS already said yes) instead of staying "off" for good.
+        if (status == NotificationStatus.DENIED && granted()) return requestNotifications(previews)
+        if (status != NotificationStatus.ON) return
+        if (!granted()) {
+            dispatch(Action.NotificationsResult(NotificationStatus.DENIED))
+            return
+        }
+        if (!firebaseReady()) return
+        val token = runCatching { fetchToken() }.getOrNull()
+        if (token.isNullOrBlank() || ledger.matches(token)) return
+        val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.existing() }.getOrNull() } else null
+        ledger.record(token)
         dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
     }
 
     override suspend fun unregisterNotifications() {
+        ledger.clear()
+        withContext(Dispatchers.IO) { previewKeys.discard() }
         if (FirebaseApp.getApps(context).isNotEmpty()) runCatching { FirebaseMessaging.getInstance().deleteToken() }
     }
+
+    private fun granted() = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     override suspend fun openSystemSettings() = start(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
@@ -208,26 +265,75 @@ class FcmPlatform(
  * open, "Rich has replied." otherwise (Android deprioritizes high-priority messages that show nothing).
  */
 class RichMessagingService : FirebaseMessagingService() {
+    /**
+     * A new token goes to the Mac while notifications are on. This service can be the first thing
+     * to run in a fresh process, before the store has read its saved state, so the hand-over waits
+     * for that (bounded) instead of reading "no state yet" as "notifications off" and dropping it.
+     */
     override fun onNewToken(token: String) {
-        // Registered with the Mac only while notifications are on; the core decides.
-        val store = applicationContext.richStore
-        if (store.states.value?.notifications?.status == NotificationStatus.ON) {
-            val previews = store.states.value?.notifications?.previews == true
-            val key = if (previews) keysFor(this).existing() else null
-            store.dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
-        }
+        val app = applicationContext as? RichApplication ?: return
+        val keys = keysFor(this)
+        val ledger = ledgerFor(this)
+        app.appScope.launch { TokenRefresh.handOver(app.store, token, keys, ledger) }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
         if (data["v"] != "1") return
         val text = NotificationPreview.textOrGeneric(keysFor(this).existing(), data["thread"], data["event"], data["preview"])
-        Replies.post(this, text, collapse = data["event"])
+        Replies.post(this, text, NotificationTarget.fromData(data), collapse = data["event"])
     }
 
     companion object {
         /** Where the service finds the preview key; a test substitutes a JVM-wrapped one. */
         internal var keysFor: (Context) -> PreviewKeys = PreviewKeys::forApp
+        internal var ledgerFor: (Context) -> TokenLedger = TokenLedger::forApp
+    }
+}
+
+/** The service's half of a token refresh, kept apart from the service so it is tested directly. */
+object TokenRefresh {
+    const val PATIENCE_MS = 10_000L
+
+    suspend fun handOver(store: AppStore, token: String, keys: PreviewKeys, ledger: TokenLedger, patienceMs: Long = PATIENCE_MS) {
+        val state = withTimeoutOrNull(patienceMs) { store.states.filterNotNull().first() } ?: return
+        if (state.notifications.status != NotificationStatus.ON) return
+        val key = if (state.notifications.previews) withContext(Dispatchers.IO) { keys.existing() } else null
+        ledger.record(token)
+        store.dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
+    }
+}
+
+/**
+ * The SHA-256 of the last FCM token this phone handed the Mac, so a launch can tell a token that
+ * changed while nothing was listening. Only the hash is kept; the token itself stays Firebase's.
+ */
+class TokenLedger(private val file: File) {
+    fun matches(token: String): Boolean = runCatching { file.isFile && String(AtomicFile(file).readFully(), Charsets.UTF_8) == hash(token) }.getOrDefault(false)
+
+    fun record(token: String) {
+        runCatching {
+            file.parentFile?.mkdirs()
+            val atomic = AtomicFile(file)
+            val out = atomic.startWrite()
+            try {
+                out.write(hash(token).toByteArray(Charsets.UTF_8))
+                atomic.finishWrite(out)
+            } catch (e: Exception) {
+                atomic.failWrite(out)
+                throw e
+            }
+        }
+    }
+
+    fun clear() {
+        runCatching { AtomicFile(file).delete() }
+    }
+
+    private fun hash(token: String) = NotificationTarget.reference(token)
+
+    companion object {
+        fun forApp(context: Context) = TokenLedger(File(context.filesDir, "push/registered-token.sha256"))
     }
 }
 
@@ -238,28 +344,52 @@ object Replies {
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL) == null) {
-            manager.createNotificationChannel(NotificationChannel(CHANNEL, "Rich's replies", NotificationManager.IMPORTANCE_HIGH))
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL, "Rich's replies", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Rich's answers while RichConnect is not on screen."
+                },
+            )
         }
     }
 
-    fun post(context: Context, text: String, collapse: String?) {
+    /**
+     * While the conversation is on screen the reply is already arriving in it, so no notification
+     * covers it (the iPhone app suppresses foreground presentation the same way,
+     * `mobile/service/notifications.md`). Anything less, including a locked phone with the app on
+     * top, the share sheet over another app, or the moment after leaving, still notifies. Read from
+     * the app's own resumed activity: the process importance it replaced lagged the Home press, and
+     * on emulator-5580 two replies arriving after the person had left were swallowed by it.
+     */
+    internal val conversationVisible: (Context) -> Boolean = { (it.applicationContext as? RichApplication)?.conversationOnScreen == true }
+
+    /** [conversationVisible]; a test substitutes a fixed answer. */
+    internal var onScreen: (Context) -> Boolean = conversationVisible
+
+    fun post(context: Context, text: String, target: NotificationTarget?, collapse: String?) {
         ensureChannel(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
-        val open = context.packageManager.getLaunchIntentForPackage(context.packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val tap = open?.let { PendingIntent.getActivity(context, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
+        if (onScreen(context)) return
+        // One notification per event, so one pending intent per event: PendingIntent identity ignores
+        // extras, and a shared request code made every notification open the newest reply's references.
+        val id = collapse?.hashCode() ?: 0
+        val open = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            ?.let { target?.into(it) ?: it }
+        val tap = open?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle("Rich")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setContentIntent(tap)
             .build()
-        // One notification per event: a repeat delivery of the same event replaces, never stacks.
-        NotificationManagerCompat.from(context).notify(collapse?.hashCode() ?: 0, notification)
+        // A repeat delivery of the same event replaces, never stacks.
+        NotificationManagerCompat.from(context).notify(id, notification)
     }
 }

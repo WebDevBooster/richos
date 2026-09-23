@@ -199,16 +199,26 @@ fun PhotoViewer(message: Message, startIndex: Int, onEvent: (UiEvent) -> Unit) {
  * hand of cards (−8°, +7°, −1°; one photo −2°), or the file's card; one line for a message; where
  * it goes; Send. "Sent to Rich" only once the Mac has it; otherwise "Saved for Rich" and when it
  * will go (the Mac's word decides; attachments NOTES "Share Extension honesty").
+ *
+ * [overApp]: the live share target (platform `ShareActivity`) is translucent over the real app, so
+ * the drawn stand-in for that app (review frames only) is left out. [art] draws a photo; review
+ * frames use the drawn stand-in, the live sheet the shared photo itself.
  */
 @Composable
-fun ShareSheetView(sheet: ShareSheet, limitMb: Int, onEvent: (UiEvent) -> Unit) {
+fun ShareSheetView(
+    sheet: ShareSheet,
+    limitMb: Int,
+    onEvent: (UiEvent) -> Unit,
+    overApp: Boolean = false,
+    art: @Composable (dev.richos.android.ui.model.Photo, Modifier) -> Unit = { p, m -> PhotoArt(p, m) },
+) {
     val c = Rich.colors
     val t = Rich.type
     val small = LocalConfiguration.current.screenHeightDp < 700
     val rise = remember { Animatable(1f) }
     LaunchedEffect(Unit) { rise.animateTo(0f, tween(380, easing = RichMotion.OutQuint)) }
     Box(Modifier.fillMaxSize()) {
-        ShareHost(sheet)
+        if (!overApp) ShareHost(sheet)
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.46f)))
         val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         Column(
@@ -226,14 +236,20 @@ fun ShareSheetView(sheet: ShareSheet, limitMb: Int, onEvent: (UiEvent) -> Unit) 
             when (sheet.stage) {
                 ShareStage.UNPAIRED -> ShareUnpaired(onEvent)
                 ShareStage.SENT, ShareStage.SAVED -> ShareDone(sheet.stage == ShareStage.SAVED)
-                else -> ShareCompose(sheet, limitMb, small, onEvent)
+                else -> ShareCompose(sheet, limitMb, small, onEvent, art)
             }
         }
     }
 }
 
 @Composable
-private fun ShareCompose(sheet: ShareSheet, limitMb: Int, small: Boolean, onEvent: (UiEvent) -> Unit) {
+private fun ShareCompose(
+    sheet: ShareSheet,
+    limitMb: Int,
+    small: Boolean,
+    onEvent: (UiEvent) -> Unit,
+    art: @Composable (dev.richos.android.ui.model.Photo, Modifier) -> Unit,
+) {
     val c = Rich.colors
     val t = Rich.type
     val tooLarge = sheet.kind == ShareKind.TOO_LARGE
@@ -258,7 +274,8 @@ private fun ShareCompose(sheet: ShareSheet, limitMb: Int, small: Boolean, onEven
     if (sheet.file != null) {
         FileCard(sheet.file, bad = tooLarge)
     } else {
-        Fan(sheet.photos, small)
+        // Words alone (no photo, no file): the message box below shows them; no empty fan above.
+        if (sheet.photos.isNotEmpty()) Fan(sheet.photos, small, art)
     }
     if (tooLarge && sheet.file != null) {
         Row(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -294,7 +311,11 @@ private fun ShareCompose(sheet: ShareSheet, limitMb: Int, small: Boolean, onEven
 }
 
 @Composable
-private fun Fan(photos: List<dev.richos.android.ui.model.Photo>, small: Boolean) {
+private fun Fan(
+    photos: List<dev.richos.android.ui.model.Photo>,
+    small: Boolean,
+    art: @Composable (dev.richos.android.ui.model.Photo, Modifier) -> Unit = { p, m -> PhotoArt(p, m) },
+) {
     val c = Rich.colors
     val t = Rich.type
     val fan = remember { Animatable(0f) }
@@ -311,7 +332,7 @@ private fun Fan(photos: List<dev.richos.android.ui.model.Photo>, small: Boolean)
                     .floating(RoundedCornerShape(18.dp))
                     .clip(RoundedCornerShape(18.dp))
                     .semantics { contentDescription = p.label },
-            ) { PhotoArt(p, Modifier.fillMaxSize()) }
+            ) { art(p, Modifier.fillMaxSize()) }
         }
         if (photos.size > 1) {
             BasicText(

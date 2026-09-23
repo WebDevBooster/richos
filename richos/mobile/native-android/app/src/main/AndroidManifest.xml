@@ -6,6 +6,8 @@
 
     <!-- The Mac is reached over HTTPS. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Knowing the network came back, to reconnect at once (platform/NetworkWake.kt). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Voice notes (round-12 groups 4-6); asked once, on the first deliberate press. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- The tick when a recording locks. -->
@@ -37,12 +39,16 @@
         </activity>
 
         <!-- Share to Rich (CEO §75): photos, documents and words from any app. The types are the
-             ones the Mac takes (Echo 22e59ed8); images are sent as JPEG. No window of its own. -->
+             ones the Mac takes (Echo 22e59ed8); images are sent as JPEG. Exported, as a share target
+             must be, so any app can start it: it shows the "Send to Rich" sheet over the app shared
+             from, translucent, and sends nothing until the person presses Send (security review
+             2026-09-23, A-1). Handles its own configuration changes so a rotation keeps the sheet. -->
         <activity
             android:name=".platform.ShareActivity"
             android:exported="true"
             android:label="Rich"
-            android:theme="@android:style/Theme.NoDisplay"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density"
             android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
