@@ -46,6 +46,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/mutation-harness.sh
 . "$SCRIPT_DIR/../../scripts/lib/mutation-harness.sh"
 mutation_begin "the fourteen checks of the workspace spec" "mega-lander/tests/workspace-spec-fourteen.test.sh"
+# The checks share one sandbox in sequence, so a check cannot run alone; a mutant
+# stops at its named sub-assertion instead. The claim this rests on is true of
+# workspace-spec-fourteen.test.sh by construction: `sub` counts every FAIL line
+# into its check, `verdict` counts a red check, and the last line exits non-zero
+# on any red check. Measured 2026-09-23: a full run is 84 s; the named lines of
+# these mutants arrive at 34 s on average. See mutation_focus.
+mutation_focus stop-at-want
 
 W="mega-lander/workspaces.py"
 G="scripts/hooks/guard-worktree-removal.sh"
