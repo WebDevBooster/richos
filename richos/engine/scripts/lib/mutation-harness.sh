@@ -142,6 +142,7 @@
 
 MUT_PASS=0
 MUT_FAIL=0
+MUT_FOCUS=""
 MUT_SANDBOX=""
 MUT_SUITE=""
 MUT_ENGINE_ROOT=""
@@ -368,6 +369,47 @@ PYEOF
     echo "=== $1: every property, proven load-bearing by removing it ==="
 }
 
+# mutation_focus <mode> — a harness may declare, once, after mutation_begin, that
+# its mutants need not run the WHOLE suite to reach their verdict.
+#
+# MEASURED, 2026-09-23, on this Mac, standalone: workspace-spec-fourteen.test.sh
+# runs its checks in 84 s and its 86 mutants each ran all of them; workspaces.test.sh
+# runs 103 tests in 60 s and its 77 mutants each ran all 103. Together they were the
+# two longest units of every land that touched the workspace code (2811.7 s and
+# 579.6 s in the 2026-09-15 inventory). Every mutant's verdict is ONE named case going
+# red; the rest of each run bought nothing the verdict reads.
+#
+# The proof a mutant gives does not change: the mutation applied, and the named case
+# went red because of it. What changes is how much of the suite runs after (or
+# around) that case. Two modes, each a claim about the harness's own suite:
+#
+#   stop-at-want       the suite's cases run in sequence and share state, so they cannot
+#                      be run alone. The mutant's run is stopped the moment its
+#                      `FAIL  <want>` line is written (scripts/lib/stop-at-line.py). The
+#                      CLAIM: in this suite a printed `FAIL  <case>` line always ends the
+#                      run red. If the line never appears, the run finishes and is judged
+#                      exactly as before.
+#   want-as-argument   the suite takes case names as arguments and runs only those
+#                      (workspaces.test.py, unittest). The mutant runs the suite with its
+#                      want as the argument, TWICE: first on the unmutated copy, which must
+#                      be green and must print `PASS  <want>` (a case that fails alone, or
+#                      a name that selects nothing, is refused there), then mutated, which
+#                      must be red at `FAIL  <want>`.
+#
+# A harness that declares nothing runs every mutant against the whole suite, as before.
+# RICHOS_MUTATION_FOCUS=off makes a declaring harness do the same, for a before/after
+# measurement on one tree; it is announced, never silent.
+mutation_focus() { # <mode>
+    case "${1:-}" in
+        stop-at-want|want-as-argument) MUT_FOCUS="$1" ;;
+        *) echo "FATAL: mutation_focus: unknown mode '${1:-}' (stop-at-want | want-as-argument)" >&2; exit 2 ;;
+    esac
+    if [ "${RICHOS_MUTATION_FOCUS:-}" = off ]; then
+        echo "  (RICHOS_MUTATION_FOCUS=off: '$MUT_FOCUS' ignored, every mutant runs the whole suite)"
+        MUT_FOCUS=""
+    fi
+}
+
 # mutation_copy_engine <dest> <src-engine-root> — build a throwaway copy of
 # the engine's mechanical layer at <dest>. PUBLIC, because a harness that keeps
 # its own mutant loop still needs the sandbox; the kill-proof property belongs
@@ -444,13 +486,28 @@ mutation_sandbox_engine() { # <src-engine-root>
 _mutant_body() { # <name> <want> <rel> <old> <new> <why>
     local name="$1" want="$2" rel="$3" old="$4" new="$5" why="$6"
     local dir="$MUT_SANDBOX/$name"
-    local t0 el
+    local t0 el crc
     t0="$(sw_now_ms)"
     mkdir -p "$dir"
     # EACH MUTANT ALREADY HAD ITS OWN DIRECTORY, and that is why this loop is
     # safe to run concurrently at all: the sandbox is per-name, built from the
     # read-only shipped tree, and no two workers share a path.
     _mut_copy_engine "$dir"
+    # THE FOCUSED CONTROL, BEFORE ANYTHING IS MUTATED (want-as-argument only; see
+    # mutation_focus). The focused run must be GREEN on the unmutated copy and
+    # must show the named case PASSING, so a red below is the mutation's doing:
+    # not a case that only fails when run alone, and not a name that selected
+    # nothing and exited 0.
+    if [ "$MUT_FOCUS" = want-as-argument ]; then
+        RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" "$want" >"$dir/control.txt" 2>&1
+        crc=$?
+        if [ "$crc" -ne 0 ] || ! grep -qF "PASS  $want" "$dir/control.txt"; then
+            el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
+            printf '  FAIL  %s — the focused control is not green on the UNMUTATED copy (rc=%s), so a red run could not be credited to the mutation  [%s]\n' "$name" "$crc" "$el"
+            tail -15 "$dir/control.txt" | sed 's/^/          /'
+            return 1
+        fi
+    fi
     if ! python3 "$MUT_SANDBOX/mutate.py" "$dir/$rel" "$old" "$new" 2>"$dir/mutate.err"; then
         el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
         printf '  FAIL  %s — the mutation did not apply  [%s]\n' "$name" "$el"
@@ -462,8 +519,25 @@ _mutant_body() { # <name> <want> <rel> <old> <new> <why>
     # green tick at the bottom. RICHOS_MUTATION_INNER also forces any pool in
     # the inner suite to degree 1, so the process count stays bounded by JOBS
     # rather than by JOBS squared.
-    RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" >"$dir/out.txt" 2>&1
-    local rc=$?
+    local rc
+    case "$MUT_FOCUS" in
+        stop-at-want)
+            RICHOS_MUTATION_INNER=1 python3 "$MUT_ENGINE_ROOT/scripts/lib/stop-at-line.py" \
+                --out "$dir/out.txt" --line "FAIL  $want" --marker "$dir/stopped" \
+                -- bash "$dir/$MUT_SUITE"
+            rc=$?
+            if [ "$rc" -eq 0 ] && [ -f "$dir/stopped" ]; then
+                el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
+                printf '  PASS  %s — removing it turns "%s" red (stopped at that line)  [%s]\n' "$name" "$want" "$el"
+                return 0
+            fi ;;
+        want-as-argument)
+            RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" "$want" >"$dir/out.txt" 2>&1
+            rc=$? ;;
+        *)
+            RICHOS_MUTATION_INNER=1 bash "$dir/$MUT_SUITE" >"$dir/out.txt" 2>&1
+            rc=$? ;;
+    esac
     el="$(sw_fmt "$(( $(sw_now_ms) - t0 ))")"
     if [ "$rc" -eq 0 ]; then
         printf '  FAIL  %s — the suite still PASSED without this property.  [%s]\n' "$name" "$el"
