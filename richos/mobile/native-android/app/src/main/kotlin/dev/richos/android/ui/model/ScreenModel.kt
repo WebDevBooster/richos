@@ -501,6 +501,7 @@ enum class ScrollPose { FOLLOWING, READING_OLDER, TOP }
 
 enum class ConnectionNotice {
     NONE, RECONNECTING, OFFLINE, SERVICE_UNAVAILABLE, MAC_UNREACHABLE, MAC_NEEDS_UPDATE, VOICE_UNSUPPORTED, VOICE_PAUSED, ATTACHMENTS_UNSUPPORTED,
+    TAILSCALE_OFF,
 }
 
 /** Every pairing screen. Most derive from core; see [PairingSurface] for the ones that do not. */

@@ -437,7 +437,17 @@ object ScreenCatalog {
     )
 
     /** Round 12's 67, the attachments append's 39 (`attach/screens.js`), then the pairing entry's; every id unique. */
-    val all: List<ScreenSpec> = round12 + AttachCatalog.specs({ edit -> convoModel(edit) }, { edit -> fullModel(edit) }) + pairingEntry
+    /**
+     * Connection states round 12 does not draw. D05 (2026-09-24): on the Tailscale route with the
+     * phone's own Tailscale off, the persistent trouble names the fix instead of "Reconnecting…".
+     */
+    val connectionEntry: List<ScreenSpec> = listOf(
+        ScreenSpec("conn-tailscale-off", 7, "47+", "Tailscale is off on this phone", Applies.Adapted("D05: round 12's nameplate line")) {
+            with(convo) { trouble(ConnectionReason.TAILSCALE_OFF)(it.copy(outbox = listOf(pending("mobile-1", "Move the Friday review to 3 PM.", OutboxState.WAITING)))) }
+        },
+    )
+
+    val all: List<ScreenSpec> = round12 + AttachCatalog.specs({ edit -> convoModel(edit) }, { edit -> fullModel(edit) }) + pairingEntry + connectionEntry
 
     fun byId(id: String): ScreenSpec = all.firstOrNull { it.id == id } ?: throw IllegalArgumentException("Unknown screen: $id. Known: ${all.joinToString(" ") { it.id }}")
 

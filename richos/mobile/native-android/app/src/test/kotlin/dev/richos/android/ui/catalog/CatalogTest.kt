@@ -44,7 +44,7 @@ class CatalogTest {
     @Test
     fun `every attachment screen follows, by its stable id, then the pairing entry's, and no id repeats`() {
         assertEquals(39, attachments.size)
-        assertEquals(round12 + attachments + pairingEntry, ScreenCatalog.all.map { it.id })
+        assertEquals(round12 + attachments + pairingEntry + "conn-tailscale-off", ScreenCatalog.all.map { it.id })
         assertEquals(ScreenCatalog.all.size, ScreenCatalog.all.map { it.id }.toSet().size)
     }
 

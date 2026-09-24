@@ -23,6 +23,7 @@ enum class ConnectionReason {
     @SerialName("mac-unreachable") MAC_UNREACHABLE,
     @SerialName("revoked") REVOKED,
     @SerialName("incompatible") INCOMPATIBLE,
+    @SerialName("tailscale-off") TAILSCALE_OFF,
 }
 
 /**
@@ -72,6 +73,8 @@ object Connections {
         service == ServiceState.UNAVAILABLE -> ConnectionReason.SERVICE_UNAVAILABLE
         else -> ConnectionReason.MAC_UNREACHABLE
     }
+
+    fun cause(reason: ConnectionReason, route: Route?, paired: Boolean, vpn: Boolean?): ConnectionReason = reason
 
     /** The published view at [now]: the notice rule applied to the raw [state]. */
     fun view(state: ConnectionState, now: Long): ConnectionState {

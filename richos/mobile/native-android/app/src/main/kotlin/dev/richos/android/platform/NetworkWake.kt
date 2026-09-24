@@ -19,7 +19,7 @@ class NetworkWake(private val changed: (Boolean) -> Unit) : ConnectivityManager.
     }
 
     companion object {
-        fun register(context: Context, changed: (Boolean) -> Unit): Boolean = runCatching {
+        fun register(context: Context, changed: (Boolean) -> Unit, tunnel: (Boolean) -> Unit = {}): Boolean = runCatching {
             val manager = context.getSystemService(ConnectivityManager::class.java) ?: return false
             changed(manager.activeNetwork != null)
             manager.registerDefaultNetworkCallback(NetworkWake(changed))

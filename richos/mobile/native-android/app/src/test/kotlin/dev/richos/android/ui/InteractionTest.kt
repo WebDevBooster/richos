@@ -175,6 +175,22 @@ class InteractionTest {
         }
     }
 
+    /**
+     * D05: on the Tailscale route with the phone's own Tailscale off, the one nameplate line names
+     * the fix, calmly (no pulsing dot: nothing here is reconnecting by itself), and the queued
+     * message stays on screen. One line, never a dialog or a card that asks for a tap.
+     */
+    @Test
+    fun `with Tailscale off, the one connection line names the fix, still, and the queued message stays`() {
+        show(screen("conn-tailscale-off"))
+        val line = compose.onNodeWithTag("connection-line").assertIsDisplayed().fetchSemanticsNode()
+        val text = line.config[androidx.compose.ui.semantics.SemanticsProperties.Text].single().text
+        assertEquals("This phone is not on Tailscale. Turn Tailscale on to reach your Mac. Messages stay on this phone.", text)
+        compose.onNodeWithText("Reconnecting…", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Move the Friday review to 3 PM.").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithTag("connection-line").fetchSemanticsNodes().let { assertEquals(1, it.size) }
+    }
+
     @Test
     fun `the six words never tell the answer, and the waiting screen names both places and the control`() {
         val set = show(screen("pair-words"))

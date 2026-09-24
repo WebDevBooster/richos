@@ -56,6 +56,8 @@ class ConnectionOwner(
     /** OS connectivity evidence, not a periodic reachability probe. */
     fun networkChanged(online: Boolean) { available.value = online }
 
+    fun tunnelChanged(up: Boolean) = Unit
+
     /** The network returned, or the app came back to the foreground: retry now if waiting. */
     fun wake() {
         wakeups.trySend(Unit)

@@ -116,7 +116,7 @@ class RichApplication : Application() {
                     scope.launch { connection.run() }
                     scope.launch { platform.reconcileOnConnection(core.states) { started > 0 } }
                     // The network came back: reconnect now, not at the end of a back-off.
-                    NetworkWake.register(this) { connection.networkChanged(it) }
+                    NetworkWake.register(this, changed = { connection.networkChanged(it) })
                 }
             }
             push = platform
