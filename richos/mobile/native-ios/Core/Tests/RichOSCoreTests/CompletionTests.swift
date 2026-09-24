@@ -33,6 +33,27 @@ private actor CompletionGate: EffectHandler {
 }
 
 @MainActor struct CompletionTests {
+    @Test func messagesSubmittedWhileTheFirstRequestWaitsShareItsBoundedCompletion() async throws {
+        let gate = CompletionGate()
+        var state = try Fixture.named("conv-empty").state
+        state.outbox = [OutboxItem(clientID: "message-1", kind: .text, body: "{}", queuedAt: 1)]
+        let store = AppStore(state: state, runner: EffectRunner(storage: CompletionStorage(), handler: gate))
+        let delivery = store.apply(.foregrounded(at: 100))
+        await gate.started()
+        for number in 2...4 {
+            await store.apply(.compose(text: "Submitted while the first request waits: \(number)")).value
+            await store.apply(.sendDraft(clientID: "message-\(number)", at: Int64(number + 100))).value
+        }
+        store.wentToBackground(at: 110)
+        await gate.release()
+        await delivery.value
+        for _ in 0..<100 { await Task.yield(); await store.settle() }
+        #expect(await gate.delivered == ["message-1", "message-2", "message-3"])
+        #expect(store.state.outbox.map(\.clientID) == ["message-4"])
+        #expect(store.state.outbox.first?.state == .waiting)
+        #expect(store.state.outbox.first?.attempts == 0)
+    }
+
     @Test func alreadySubmittedMessagesCanCompleteAfterBackgrounding() async throws {
         let storage = CompletionStorage()
         let gate = CompletionGate()
