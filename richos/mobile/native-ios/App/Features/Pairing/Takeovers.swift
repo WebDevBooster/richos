@@ -56,8 +56,13 @@ struct TakeoverView: View {
                 ErrorCard(title: "That is not a pairing code", detail: why)
                     .padding(.top, 18)
             case .macNeedsUpdate?:
+                // Sage's pair-v2 hypotheses review §3: the older Mac shows its own "Your phone said the
+                // six words did not match", because this phone's one signed "They do not match" is the
+                // only way to make it forget the key. The middle sentence accounts for that and must
+                // NOT reassure: a relay that strips `pair-v2` from a current Mac makes the same two
+                // screens. Worded as the PWA (`web/web-app/app.js`), which says "open it on this phone".
                 ErrorCard(title: "Your Mac needs an update",
-                          detail: "This phone cannot pair with the version of RichOS on it. Update RichOS on your Mac, then show a fresh code there and scan it again.")
+                          detail: "This phone cannot pair with the version of RichOS on it. Your Mac may say the six words did not match: it stopped because this phone did. Update RichOS on your Mac, then show a fresh code there and scan it again.")
                     .padding(.top, 18)
             case .notAcceptedByMac?:
                 ErrorCard(title: "Your Mac did not accept this phone",
