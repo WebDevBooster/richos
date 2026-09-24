@@ -760,6 +760,24 @@ fn phone_stop_pairing(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> ph
     runtime.stop_pairing()
 }
 
+/// **"They match", pressed on this Mac** — Sage's pairing review F1. The only act that lets a
+/// phone which redeemed the code reach Rich; until it happens the phone's key can answer the six
+/// words and do nothing else.
+#[tauri::command(async)]
+fn phone_confirm_on_mac(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> Result<phone::PhoneStatus, String> {
+    runtime.confirm_on_mac().map_err(|e| {
+        eprintln!("[richos] the press on this Mac could not be recorded: {e}");
+        e.ceo_sentence()
+    })
+}
+
+/// **"They do not match", pressed on this Mac** — the same teardown the phone's own answer runs:
+/// the phone is forgotten, the socket closes and the sheet says who stopped it.
+#[tauri::command(async)]
+fn phone_reject_on_mac(runtime: State<std::sync::Arc<phone::PhoneRuntime>>) -> phone::PhoneStatus {
+    runtime.reject_on_mac()
+}
+
 /// **Open one of the addresses the how-to screens print** (CEO §61.1).
 ///
 /// `target` is the address exactly as the screen prints it, and it is a KEY rather than a URL:
@@ -3129,6 +3147,8 @@ fn main() {
             phone_connect_enable,
             phone_connect_disable,
             phone_stop_pairing,
+            phone_confirm_on_mac,
+            phone_reject_on_mac,
             phone_forget,
             list_threads,
             active_thread,

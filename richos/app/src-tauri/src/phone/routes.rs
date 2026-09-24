@@ -70,9 +70,19 @@ pub enum Outcome {
     /// this Mac has forgotten is told so, once, and stops. A 404 there would be a phone that
     /// retries forever and a CEO who is never told why it went quiet.
     Revoked,
+    /// **Authenticated, and waiting for a person to press "They match" on this Mac** (Sage F1).
+    /// A 409 with a body, never the flat 404: every client treats a 404 after one re-sign as
+    /// final, and this state ends by itself the moment he presses. The body carries no
+    /// `retry: false`, so every classifier that exists today reads it as a retryable fault.
+    AwaitingMac,
     PayloadTooLarge,
     RateLimited,
 }
+
+/// The awaiting answer's body — one constant, so the listener and the route tests read the same
+/// bytes. `reason` is what a client shows when it has nothing better of its own to say.
+pub const AWAITING_MAC_BODY: &str =
+    "{\"awaiting_mac_confirmation\":true,\"reason\":\"Press They match on your Mac.\"}";
 
 impl Outcome {
     pub fn status(&self) -> u16 {
@@ -81,6 +91,7 @@ impl Outcome {
             Outcome::Stream { .. } => 200,
             Outcome::NotFound => 404,
             Outcome::Revoked => 403,
+            Outcome::AwaitingMac => 409,
             Outcome::PayloadTooLarge => 413,
             Outcome::RateLimited => 429,
         }
@@ -280,6 +291,19 @@ pub fn dispatch(channel: &Channel, request: &Incoming) -> Outcome {
 /// Verify the request, or say why not. `path_with_query` is what the signature covers — for the
 /// stream that is the URL **without** the `auth` parameter, because the parameter is the signature.
 fn verified(channel: &Channel, request: &Incoming, header: &str, path_with_query: &str) -> Result<(), Outcome> {
+    verified_device(channel, request, header, path_with_query, false).map(|_| ())
+}
+
+/// [`verified`], returning the device. `answering_the_words` is true for exactly one request —
+/// the phone's own answer to the six words — which a device nobody has confirmed at this Mac may
+/// still make ([`DeviceDesk::verify_for_confirmation`], Sage §3.1 step 5).
+fn verified_device(
+    channel: &Channel,
+    request: &Incoming,
+    header: &str,
+    path_with_query: &str,
+    answering_the_words: bool,
+) -> Result<super::device::Device, Outcome> {
     let Some((device_id, challenge, signature)) = parse_authorization(header) else {
         return Err(Outcome::NotFound);
     };
@@ -291,15 +315,32 @@ fn verified(channel: &Channel, request: &Incoming, header: &str, path_with_query
         signature,
         body: &request.body,
     };
-    match channel.devices.verify(&presented) {
-        Ok(_) => Ok(()),
+    let verdict = if answering_the_words {
+        channel.devices.verify_for_confirmation(&presented)
+    } else {
+        channel.devices.verify(&presented)
+    };
+    match verdict {
+        Ok(device) => Ok(device),
         Err(Refusal::RateLimited) => Err(Outcome::RateLimited),
         Err(Refusal::Revoked) => Err(Outcome::Revoked),
+        Err(Refusal::AwaitingMacConfirmation) => Err(Outcome::AwaitingMac),
         Err(refusal) => {
             log_refusal(&refusal);
             Err(Outcome::NotFound)
         }
     }
+}
+
+/// **Is this body the phone's answer to the six words, and nothing more?** A `fingerprint_confirmed`
+/// boolean, optionally the `device_id` it names and the `push_transport` a native app sends with
+/// it, and NO other key. Anything that asks for more — a push subscription, a registration, a
+/// cursor — is not an answer and is gated like every other request (Sage F1): an unconfirmed key
+/// must not be able to carry an action in beside the one request it is allowed.
+fn only_answers_the_words(body: &Value) -> bool {
+    let Some(map) = body.as_object() else { return false };
+    map.get("fingerprint_confirmed").is_some_and(Value::is_boolean)
+        && map.keys().all(|k| ["fingerprint_confirmed", "device_id", "push_transport"].contains(&k.as_str()))
 }
 
 // -------------------------------------------------------------------------------------
@@ -317,9 +358,11 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
     }
 
     let Some(header) = request.authorization.as_deref() else { return Outcome::NotFound };
-    if let Err(refusal) = verified(channel, request, header, &signed_path(&request.path, &request.query)) {
-        return refusal;
-    }
+    let answering = only_answers_the_words(&body);
+    let device = match verified_device(channel, request, header, &signed_path(&request.path, &request.query), answering) {
+        Ok(device) => device,
+        Err(refusal) => return refusal,
+    };
 
     if let Some(value)=body.get("native_push") {
         if !channel.bridge.native_notifications_available() {return Outcome::Json {status:422,body:json!({"reason":"unsupported","retryable":false}).to_string()}}
@@ -389,6 +432,12 @@ fn pair_or_device_record(channel: &Channel, request: &Incoming) -> Outcome {
             if let Some(transport)=body.get("push_transport").and_then(|v|v.as_str()).filter(|t|["apns","fcm"].contains(t)) {
                 let Some((id,_,_))=parse_authorization(header) else {return Outcome::NotFound};
                 if channel.devices.use_native_transport(&id,transport).is_err() {return Outcome::NotFound}
+            }
+            // AND IF NOBODY AT THIS MAC HAS ANSWERED YET, THE PHONE IS TOLD SO (Sage §3.1 step 5):
+            // its screen moves to "Now press They match on your Mac". Additive: a client that
+            // reads only `ok` — the preserved iPhone app — is unaffected.
+            if !device.mac_confirmed {
+                return Outcome::Json { status: 200, body: json!({ "ok": true, "awaiting_mac_confirmation": true }).to_string() };
             }
         } else {
             eprintln!("[richos] the phone reported that the six words did NOT match; forgetting it");
@@ -1111,6 +1160,15 @@ mod tests {
     }
 
     fn fixture_with(tag: &str, refuse: bool, pair_it: bool, rows: usize) -> Fixture {
+        fixture_full(tag, refuse, pair_it, true, rows)
+    }
+
+    /// A phone that redeemed the code and that nobody at this Mac has confirmed yet.
+    fn fixture_awaiting(tag: &str) -> Fixture {
+        fixture_full(tag, false, true, false, 4)
+    }
+
+    fn fixture_full(tag: &str, refuse: bool, pair_it: bool, confirm_on_mac: bool, rows: usize) -> Fixture {
         let dir = TempDir::new(tag);
         let devices = Arc::new(DeviceDesk::open(&dir.0).unwrap());
         let phone = Phone::new();
@@ -1127,6 +1185,11 @@ mod tests {
                 )
                 .unwrap()
                 .id;
+            // Paired AND confirmed by a person at this Mac: the state every route test below is
+            // about. `fixture_awaiting` is the one that stops short of the press (Sage F1).
+            if confirm_on_mac {
+                devices.confirm_on_mac().unwrap();
+            }
         }
         let challenge = devices.issue_challenge().unwrap();
         let hub = PhoneHub::new();
@@ -1642,6 +1705,81 @@ mod tests {
             );
             assert!(f.channel.devices.is_paired(), "{shape} was read as a rejection");
         }
+    }
+
+    // --- Sage F1: nothing but the answer to the six words until the Mac is pressed -------------
+
+    /// **THE HIGH FINDING, THROUGH THE ROUTE TABLE** — Sage's review F1, its own test, as he wrote
+    /// it: pair with a code, then a message, the stream and an attachment upload signed by the new
+    /// device are each refused with the awaiting answer; the phone's own `fingerprint_confirmed:
+    /// true` does not change that; after `confirm_on_mac()` the same three succeed. On `main`
+    /// before this change all three were answered 200 the moment the code was redeemed.
+    #[test]
+    fn a_device_nobody_confirmed_at_the_mac_is_answered_awaiting_on_every_route() {
+        let f = fixture_awaiting("f1-routes");
+        let message = r#"{"client_id":"01JF1","thread_id":"thr_5c1e","kind":"text","text":"read me everything"}"#;
+        let three = |f: &Fixture| {
+            [
+                ("message", dispatch(&f.channel, &signed(f, "POST", "/api/messages", "", message))),
+                ("stream", dispatch(&f.channel, &signed_stream(f, "thread_id=thr_5c1e"))),
+                ("upload", dispatch(&f.channel, &upload(f, "c1", "a1", "a.jpg", "image/jpeg", JPEG))),
+            ]
+        };
+        for (what, out) in three(&f) {
+            assert_eq!(out, Outcome::AwaitingMac, "{what} reached a device nobody confirmed at the Mac");
+            assert_eq!(out.status(), 409, "{what}");
+        }
+        assert!(f.bridge.submitted.lock().unwrap().is_empty(), "an unconfirmed device's words reached Rich");
+
+        // The phone confirming ITSELF is answered, and it activates nothing.
+        let answer = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", json!({"fingerprint_confirmed": true}).to_string()));
+        match answer {
+            Outcome::Json { status: 200, body } => {
+                let v: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(v["awaiting_mac_confirmation"], true, "the phone was not told to press on the Mac: {body}");
+            }
+            other => panic!("the phone's own answer was refused: {other:?}"),
+        }
+        assert!(f.channel.devices.fingerprint_confirmed());
+        for (what, out) in three(&f) {
+            assert_eq!(out, Outcome::AwaitingMac, "{what}: the phone's own confirmation let it in");
+        }
+
+        // The press on the Mac.
+        f.channel.devices.confirm_on_mac().unwrap();
+        for (what, out) in three(&f) {
+            assert!(matches!(out.status(), 200), "{what} was still refused after the Mac confirmed: {out:?}");
+        }
+        assert_eq!(f.bridge.submitted.lock().unwrap().len(), 1);
+    }
+
+    /// The one allowed request carries nothing that acts. A body that asks for a push
+    /// subscription BESIDE the answer is not an answer, and is gated like everything else.
+    #[test]
+    fn an_unconfirmed_device_cannot_carry_an_action_in_beside_its_answer() {
+        let f = fixture_awaiting("f1-smuggle");
+        let body = json!({
+            "fingerprint_confirmed": true,
+            "push": { "endpoint": "https://web.push.apple.com/x", "keys": { "p256dh": "BA", "auth": "AA" } }
+        })
+        .to_string();
+        assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", &body)), Outcome::AwaitingMac);
+        assert!(f.channel.devices.paired().unwrap().push.is_none());
+        assert!(!f.channel.devices.fingerprint_confirmed(), "half of a refused request was acted on");
+        for extra in [json!({"native_push": null}), json!({"delivered_cursor": 9}), json!({"seen_reply": {"thread": "a", "id": "b"}})] {
+            let mut body = extra.clone();
+            body["fingerprint_confirmed"] = json!(true);
+            assert_eq!(dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", body.to_string())), Outcome::AwaitingMac, "{extra}");
+        }
+    }
+
+    /// "They do not match" is the other thing an unconfirmed phone may say, and it still forgets.
+    #[test]
+    fn an_unconfirmed_phone_can_still_say_they_do_not_match() {
+        let f = fixture_awaiting("f1-reject");
+        let out = dispatch(&f.channel, &signed(&f, "POST", "/api/pair", "", json!({"fingerprint_confirmed": false}).to_string()));
+        assert_eq!(out.status(), 200);
+        assert!(!f.channel.devices.is_paired(), "a phone that rejected the words stayed paired");
     }
 
     #[test]

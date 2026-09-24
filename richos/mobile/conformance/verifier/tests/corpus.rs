@@ -153,6 +153,10 @@ fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
         .complete_pairing(&window.code, &PublicKeyForm::Jwk(keys["public_key_jwk"].clone()), "Conformance phone", "tailnet", "android")
         .unwrap_or_else(|r| panic!("pairing with the corpus key was refused: {r:?}"));
     assert_eq!(device.id, keys["device_id"].as_str().unwrap(), "the Mac derives the corpus device_id from the corpus key");
+    // Every signed request in the corpus is one a paired phone sends AFTER the person pressed
+    // "They match" on the Mac (Sage F1). The unconfirmed state is proven by the Mac's own tests.
+    desk.confirm_on_mac().unwrap_or_else(|e| panic!("the press on the Mac was not recorded: {e}"));
+    let device = desk.paired().expect("the paired device");
 
     // ---- every signed request ---------------------------------------------------------------
     let mut files: Vec<String> = std::fs::read_dir(vectors())

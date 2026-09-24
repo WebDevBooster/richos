@@ -133,7 +133,7 @@ impl Desk {
         self.state.jobs.push(Event {event,thread:hex(&sha256(thread.as_bytes())),expires:super::now_millis()+3600000,preview:None});self.save()
     }
     pub fn reconcile(&mut self,control:&dyn Control,current:Option<&Device>)->Result<(),String> {
-        if self.state.target.as_ref().is_some_and(|t|!current.is_some_and(|d|d.id==t.device && d.fingerprint_confirmed)) {self.clear()?;}
+        if self.state.target.as_ref().is_some_and(|t|!current.is_some_and(|d|d.id==t.device && d.trusted())) {self.clear()?;}
         self.state.jobs.retain(|j|j.expires>super::now_millis());
         if !self.state.dirty && self.state.jobs.is_empty() {return Ok(())}
         let enrollment=control.call("POST","/v1/push/hosts","{}")?;
@@ -164,7 +164,7 @@ impl Desk {
         Ok(())
     }
     pub fn needs_reconcile(&self,current:Option<&Device>)->bool {
-        self.state.dirty || !self.state.jobs.is_empty() || self.state.target.as_ref().is_some_and(|t|!current.is_some_and(|d|d.id==t.device && d.fingerprint_confirmed))
+        self.state.dirty || !self.state.jobs.is_empty() || self.state.target.as_ref().is_some_and(|t|!current.is_some_and(|d|d.id==t.device && d.trusted()))
     }
     pub fn response(&self)->Value {json!({"host_id":self.state.host,"registered":self.state.target.is_some() && !self.state.dirty})}
 }

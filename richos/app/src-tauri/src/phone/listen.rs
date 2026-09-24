@@ -541,6 +541,12 @@ fn render_with(outcome: Outcome, challenge: Option<String>) -> Response<BoxBody>
             builder = builder.header("retry-after", "60");
             Bytes::new()
         }
+        // Sage F1: the key's holder is told the pairing is waiting for the press on this Mac, and
+        // told it in a body every client reads as "try again" rather than as a final refusal.
+        Outcome::AwaitingMac => {
+            builder = builder.header("content-type", "application/json; charset=utf-8");
+            Bytes::from_static(super::routes::AWAITING_MAC_BODY.as_bytes())
+        }
         Outcome::Stream { .. } => Bytes::new(),
     };
     builder
@@ -1573,6 +1579,17 @@ mod tests {
         assert_eq!(paired["ca_fingerprint_sha256"], ca.fingerprint_hex());
         assert_eq!(paired["api_base"], TEST_API_BASE);
 
+        // 1b. SAGE F1, OVER THE WIRE: the key just registered reaches nothing until a person at
+        //     this Mac presses "They match" — a 409 carrying the awaiting body and a challenge,
+        //     never a 200 and never the flat 404 the phone would read as final.
+        let sig = super::super::b64url(&phone.sign(&signing_string(&challenge, "GET", "/api/events?before=0&limit=1", b"")));
+        let auth = format!("RichOS-Device {device_id}.{challenge}.{sig}").replace(' ', "%20");
+        let (status, headers, body) = client.request("GET", &format!("/api/events?before=0&limit=1&auth={auth}"), &[], b"");
+        assert_eq!(status, 409, "an unconfirmed device was answered: {}", String::from_utf8_lossy(&body));
+        assert_eq!(body, super::super::routes::AWAITING_MAC_BODY.as_bytes());
+        assert!(header_of(&headers, "x-richos-challenge").is_some(), "the awaiting answer carried no challenge");
+        devices.confirm_on_mac().unwrap();
+
         // Real URL encoding must survive TLS/HTTP parsing before signature verification.
         let audio_file=dir.join("signed-audio.wav");std::fs::write(&audio_file,b"RIFF....WAVE").unwrap();
         devices.mint_audio("turn_audio:text:0",audio_file);
@@ -1850,6 +1867,8 @@ mod tests {
         let paired: Value = serde_json::from_slice(&body).unwrap();
         let device_id = paired["device_id"].as_str().unwrap().to_string();
         let challenge = paired["challenge"].as_str().unwrap().to_string();
+        // The person at this Mac presses "They match" (Sage F1); this test measures what follows.
+        devices.confirm_on_mac().unwrap();
 
         // --- and OPENS ITS STREAM BEFORE ANYTHING HAPPENS -----------------------------------
         //
@@ -2265,6 +2284,8 @@ mod tests {
             .unwrap_or_else(|e| panic!("pairing answered {stdout:?}: {e}"));
         let device_id = paired["device_id"].as_str().unwrap().to_string();
         let challenge = paired["challenge"].as_str().unwrap().to_string();
+        // The person at this Mac presses "They match" (Sage F1).
+        devices.confirm_on_mac().unwrap();
 
         // 2. POST HIS WORDS, signed.
         let words = "curl asking after the proposal";

@@ -211,10 +211,39 @@ pub struct Device {
     /// outright, `false` at pairing, so the default is only ever reached by a record from before.
     #[serde(default = "confirmed_by_default")]
     pub fingerprint_confirmed: bool,
+
+    /// **HAS THE PERSON PRESSED "They match" ON THIS MAC?** — Sage's pairing review F1 (High),
+    /// `richos-hq/docs/research/2026-09-24-richconnect-pairing-protocol-review.md` §1 and §3.1.
+    ///
+    /// [`Device::fingerprint_confirmed`] above is the PHONE's answer, and it is sent by the phone
+    /// itself. A device that paired first with a code it saw on a screen share holds the only key
+    /// this Mac trusts, so it can send that answer on its own behalf: the device being judged
+    /// would be performing the judgment. This flag can only be set by a person at this Mac
+    /// ([`DeviceDesk::confirm_on_mac`]), and until it is set [`DeviceDesk::verify`] answers every
+    /// signed request [`Refusal::AwaitingMacConfirmation`] except the phone's own confirmation.
+    ///
+    /// **`true` for a record written before this field existed**, for the reason
+    /// `fingerprint_confirmed` gives: that phone is already working, and demoting it on the first
+    /// launch of this build would lock out every paired phone at once. That includes a record some
+    /// earlier build wrote for an intruder's phone. This build cannot tell the two apart, and the
+    /// residual is stated in the handoff rather than guessed at here. A record written by this build
+    /// always carries the value outright, `false` at pairing.
+    #[serde(default = "confirmed_by_default")]
+    pub mac_confirmed: bool,
 }
 
 fn confirmed_by_default() -> bool {
     true
+}
+
+impl Device {
+    /// **Both people-answers are in**: the person said the words matched on the phone AND on this
+    /// Mac. What anything that reaches the phone unprompted — a push, a notification
+    /// registration — asks before it acts, so an unconfirmed key can never be the one that is
+    /// pushed to.
+    pub fn trusted(&self) -> bool {
+        self.fingerprint_confirmed && self.mac_confirmed
+    }
 }
 
 fn web_push() -> String {
@@ -311,6 +340,11 @@ pub enum Refusal {
     StaleChallenge,
     UnknownChallenge,
     BadSignature,
+    /// **Authenticated, and nobody has pressed "They match" on this Mac yet** (Sage F1). Told
+    /// apart from the flat 404 on purpose: every client treats a 404 after one re-sign as final
+    /// (`web/web-app/lib/api.js`), and this state is the opposite of final. It is only ever
+    /// returned AFTER the signature verified, so a caller without the key learns nothing from it.
+    AwaitingMacConfirmation,
     MalformedCredential(String),
     RateLimited,
     TooManyStreams,
@@ -427,23 +461,52 @@ fn rejection_path(dir: &Path) -> PathBuf {
     dir.join("phone").join("rejected.json")
 }
 
-/// Write down that the phone answered `They do not match`. `at` is `now_millis()`.
+/// **WHO STOPPED THE PAIRING**, as the token written beside the refusal and handed to the sheet,
+/// which says a different sentence for each. Stable strings, never translated, like
+/// [`PairedVia`].
+pub struct StoppedBy;
+impl StoppedBy {
+    /// The phone answered `They do not match`.
+    pub const PHONE: &'static str = "phone";
+    /// The person pressed `They do not match` on this Mac (Sage F1, §3.1 step 6).
+    pub const MAC: &'static str = "mac";
+    /// A record this build cannot read, or one written before the reason was recorded. The sheet
+    /// says the sentence that was the only one before; the refusal itself still stands.
+    pub const UNKNOWN: &'static str = "";
+}
+
+/// Write down that the pairing was refused, and by whom ([`StoppedBy`]). `at` is `now_millis()`.
 ///
 /// It runs on the teardown path, after the credential is already gone, so the caller treats a
 /// failure as something to SAY and never as something to stop for: a disk that will not take
 /// one small file must not be able to keep a channel up.
-pub fn record_rejection(dir: &Path, at: u64) -> Result<(), PhoneError> {
+pub fn record_rejection(dir: &Path, at: u64, by: &str) -> Result<(), PhoneError> {
     let path = rejection_path(dir);
     if let Some(home) = path.parent() {
         std::fs::create_dir_all(home)?;
     }
-    std::fs::write(&path, format!("{{\"rejected_at\":{at}}}\n"))?;
+    std::fs::write(&path, format!("{}\n", serde_json::json!({ "rejected_at": at, "by": by })))?;
     Ok(())
 }
 
-/// Did a phone refuse this Mac's six words, with nobody having asked to pair since?
+/// Did somebody refuse this Mac's six words, with nobody having asked to pair since?
 pub fn rejection_recorded(dir: &Path) -> bool {
     rejection_path(dir).exists()
+}
+
+/// Who refused ([`StoppedBy`]), read back for the sheet. [`StoppedBy::UNKNOWN`] for a record
+/// that is damaged or older than the field — the refusal is [`rejection_recorded`]'s to decide,
+/// and this only chooses a sentence.
+pub fn rejection_by(dir: &Path) -> &'static str {
+    let by = std::fs::read_to_string(rejection_path(dir))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("by").and_then(|v| v.as_str()).map(str::to_owned));
+    match by.as_deref() {
+        Some(StoppedBy::PHONE) => StoppedBy::PHONE,
+        Some(StoppedBy::MAC) => StoppedBy::MAC,
+        _ => StoppedBy::UNKNOWN,
+    }
 }
 
 /// Asking to pair a phone is how the rejection screen is left, and this is the durable half of
@@ -657,6 +720,9 @@ impl DeviceDesk {
             // the fingerprint in the answer to THIS request. So the Mac does not know, and it
             // says so until the phone comes back (Ray's defect 2).
             fingerprint_confirmed: false,
+            // AND NOBODY AT THIS MAC HAS ANSWERED EITHER (Sage F1). Until somebody does, this
+            // key can confirm itself and nothing else.
+            mac_confirmed: false,
         };
         // Pairing is explicit authorization to use this key again. Device IDs are key-derived.
         if state.revoked.contains(&device.id) {
@@ -718,8 +784,26 @@ impl DeviceDesk {
     // --- verification -------------------------------------------------------------------
 
     /// **The whole of the credential check, in order.** Any failure is a [`Refusal`], and every
-    /// `Refusal` but `Revoked` is a flat 404 to the caller.
+    /// `Refusal` but `Revoked` and `AwaitingMacConfirmation` is a flat 404 to the caller.
+    ///
+    /// **A DEVICE NOBODY HAS CONFIRMED AT THIS MAC IS REFUSED HERE, AFTER ITS SIGNATURE VERIFIED**
+    /// (Sage F1). The check lives in `verify` itself rather than in the routes so that every route
+    /// that authenticates — messages, voice, attachments, the stream, backfill, audio, the device
+    /// record — is gated by default, and a route added later cannot forget it. The one exception
+    /// is [`DeviceDesk::verify_for_confirmation`], which exists for exactly one request.
     pub fn verify(&self, presented: &Presented<'_>) -> Result<Device, Refusal> {
+        self.verify_credential(presented, false)
+    }
+
+    /// [`DeviceDesk::verify`] for the phone's own answer to the six words, and for nothing else:
+    /// the one request an unconfirmed device may make (Sage §3.1 step 5). `routes.rs` calls it only
+    /// for a body that carries a `fingerprint_confirmed` boolean and nothing that acts. That answer
+    /// never activates anything — it protects the phone, and a `false` forgets this device.
+    pub fn verify_for_confirmation(&self, presented: &Presented<'_>) -> Result<Device, Refusal> {
+        self.verify_credential(presented, true)
+    }
+
+    fn verify_credential(&self, presented: &Presented<'_>, unconfirmed_may_answer: bool) -> Result<Device, Refusal> {
         let mut state = self.state.lock().unwrap();
         let now = super::now_millis();
 
@@ -769,6 +853,12 @@ impl DeviceDesk {
         verifier
             .verify(message.as_bytes(), &presented.signature)
             .map_err(|_| Refusal::BadSignature)?;
+
+        // 4. somebody at THIS MAC said the words matched (Sage F1). Last, so only the holder of
+        //    the key ever learns that a pairing is waiting.
+        if !device.mac_confirmed && !unconfirmed_may_answer {
+            return Err(Refusal::AwaitingMacConfirmation);
+        }
         Ok(device)
     }
 
@@ -794,6 +884,28 @@ impl DeviceDesk {
     /// `false` when nothing is paired at all — there is no phone to have confirmed anything.
     pub fn fingerprint_confirmed(&self) -> bool {
         self.state.lock().unwrap().device.as_ref().map(|d| d.fingerprint_confirmed).unwrap_or(false)
+    }
+
+    /// **THE PERSON PRESSED "They match" ON THIS MAC** (Sage F1, §3.1 step 6). The only way a
+    /// device becomes active, and it is reached from the Mac's own sheet (`phone_confirm_on_mac`)
+    /// and from nothing on the network.
+    ///
+    /// Idempotent. Refused when nothing is paired: a press on a sheet that is one poll behind a
+    /// teardown must not be able to activate whatever pairs next.
+    pub fn confirm_on_mac(&self) -> Result<(), PhoneError> {
+        let mut state = self.state.lock().unwrap();
+        let Some(device) = state.device.as_mut() else { return Err(PhoneError::NotPaired) };
+        if device.mac_confirmed {
+            return Ok(());
+        }
+        device.mac_confirmed = true;
+        if let Err(error) = self.write(&state) {
+            // A press this Mac cannot write down is not a press: after a relaunch the record
+            // would say unconfirmed and the phone would stop working with nothing said.
+            if let Some(device) = state.device.as_mut() { device.mac_confirmed = false; }
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn set_push(&self, sub: Option<Subscription>) -> Result<(), PhoneError> {
@@ -834,6 +946,10 @@ impl DeviceDesk {
             return Err(PhoneError::Malformed(format!("unknown native push transport {transport:?}")));
         }
         let mut state = self.state.lock().unwrap();
+        // The PHONE's answer, not `trusted()`: this only writes which push service reaches the
+        // phone, and a native app sends it WITH its own confirmation, which may arrive before the
+        // press on this Mac. Nothing is pushed on the strength of it — `PhoneRuntime`'s push and
+        // registration paths ask `trusted()`.
         let device = state.device.as_mut().filter(|d| d.id == device_id && d.fingerprint_confirmed)
             .ok_or(PhoneError::NotPaired)?;
         device.push = None;
@@ -1087,7 +1203,17 @@ pub(crate) mod tests {
         }
     }
 
+    /// A phone paired AND confirmed by a person at this Mac — the state every credential test
+    /// below is about. The unconfirmed state has tests of its own (`unpaired_but_redeemed`).
     fn paired(tag: &str) -> (TempDir, Arc<DeviceDesk>, Phone, Device, String) {
+        let (dir, desk, phone, _redeemed, challenge) = unpaired_but_redeemed(tag);
+        desk.confirm_on_mac().unwrap();
+        let device = desk.paired().unwrap();
+        (dir, desk, phone, device, challenge)
+    }
+
+    /// A phone that has redeemed a code and that NOBODY AT THIS MAC has confirmed (Sage F1).
+    fn unpaired_but_redeemed(tag: &str) -> (TempDir, Arc<DeviceDesk>, Phone, Device, String) {
         let dir = TempDir::new(tag);
         let desk = Arc::new(DeviceDesk::open(&dir.0).unwrap());
         let phone = Phone::new();
@@ -1097,6 +1223,75 @@ pub(crate) mod tests {
             .unwrap();
         let challenge = desk.issue_challenge().unwrap();
         (dir, desk, phone, device, challenge)
+    }
+
+    // --- Sage F1: the Mac confirms, and nothing else does -------------------------------------
+
+    /// **THE HIGH FINDING, AT THE DESK.** A device that redeemed the code holds a key this Mac
+    /// verifies — and until a person at this Mac presses "They match", that key reaches nothing
+    /// but its own answer to the six words. On `main` before this change `verify` returned `Ok`
+    /// for it, which is how a code seen on a screen share became a paired intruder.
+    #[test]
+    fn a_redeemed_code_reaches_nothing_until_a_person_confirms_on_the_mac() {
+        let (dir, desk, phone, device, challenge) = unpaired_but_redeemed("f1-desk");
+        assert!(!device.mac_confirmed, "a redeemed code was born confirmed");
+        for (method, path, body) in [
+            ("POST", "/api/messages", &b"{}"[..]),
+            ("GET", "/api/events", &b""[..]),
+            ("POST", "/api/messages?kind=attachment", &b"file"[..]),
+        ] {
+            let p = present(&phone, &device.id, &challenge, method, path, body);
+            assert_eq!(desk.verify(&p), Err(Refusal::AwaitingMacConfirmation), "{method} {path}");
+        }
+
+        // The phone's OWN answer is the one request it may make — and making it activates nothing.
+        let confirm = present(&phone, &device.id, &challenge, "POST", "/api/pair", b"{\"fingerprint_confirmed\":true}");
+        assert!(desk.verify_for_confirmation(&confirm).is_ok());
+        desk.confirm_fingerprint().unwrap();
+        let p = present(&phone, &device.id, &challenge, "POST", "/api/messages", b"{}");
+        assert_eq!(
+            desk.verify(&p),
+            Err(Refusal::AwaitingMacConfirmation),
+            "the phone confirmed itself and was let in: the device being judged performed the judgment"
+        );
+
+        // The press on this Mac, and it survives a relaunch.
+        desk.confirm_on_mac().unwrap();
+        assert!(desk.verify(&p).is_ok(), "a confirmed device was still refused");
+        let again = DeviceDesk::open(&dir.0).unwrap();
+        assert!(again.paired().unwrap().mac_confirmed, "the press on the Mac did not survive a relaunch");
+    }
+
+    /// The awaiting answer is a statement about a pairing, so only the key's holder may learn it:
+    /// a caller with the right device id and the wrong key still gets the flat refusal.
+    #[test]
+    fn only_the_key_holder_learns_that_a_pairing_is_waiting() {
+        let (_dir, desk, _phone, device, challenge) = unpaired_but_redeemed("f1-leak");
+        let impostor = Phone::new();
+        let p = present(&impostor, &device.id, &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Err(Refusal::BadSignature));
+        assert_eq!(desk.verify_for_confirmation(&p), Err(Refusal::BadSignature));
+    }
+
+    #[test]
+    fn a_press_on_the_mac_with_nothing_paired_activates_nothing() {
+        let dir = TempDir::new("f1-nothing");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        assert!(matches!(desk.confirm_on_mac(), Err(PhoneError::NotPaired)));
+        assert!(desk.paired().is_none());
+    }
+
+    /// A record written before the field existed is a phone that is already working; this build
+    /// must not lock every paired phone out on its first launch.
+    #[test]
+    fn a_record_from_before_the_mac_press_existed_stays_active() {
+        let legacy = serde_json::json!({
+            "id": "dev_abc123", "name": "iPhone", "public_key": "BA", "paired_at": 1,
+            "push": null, "delivered_cursor": null, "fingerprint_confirmed": true
+        });
+        let device: Device = serde_json::from_value(legacy).unwrap();
+        assert!(device.mac_confirmed);
+        assert!(device.trusted());
     }
 
     /// Build a signed request the way the phone will.
@@ -1442,6 +1637,7 @@ pub(crate) mod tests {
         desk.forget().unwrap();
         let window = desk.open_pairing().unwrap();
         let device = desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(phone.jwk()), "phone", PairedVia::TAILNET, Platform::IOS).unwrap();
+        desk.confirm_on_mac().unwrap();
         drop(desk);
         let desk = DeviceDesk::open(&dir.0).unwrap();
         let challenge = desk.issue_challenge().unwrap();
@@ -1670,7 +1866,9 @@ pub(crate) mod tests {
         let pair = |phone: &Phone| {
             let w = desk.open_pairing().unwrap();
             desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS)
-                .unwrap()
+                .unwrap();
+            desk.confirm_on_mac().unwrap();
+            desk.paired().unwrap()
         };
         let forgotten = Phone::new();
         let forgotten_id = pair(&forgotten).id;
@@ -1829,7 +2027,7 @@ pub(crate) mod tests {
 
         // The rejection, in the order the product does it.
         desk.forget().unwrap();
-        record_rejection(&dir.0, 1_758_000_000_000).unwrap();
+        record_rejection(&dir.0, 1_758_000_000_000, StoppedBy::PHONE).unwrap();
 
         // --- THE RELAUNCH. Nothing of the first process survives but the directory. ---------
         let after = DeviceDesk::open(&dir.0).unwrap();
@@ -1870,6 +2068,24 @@ pub(crate) mod tests {
         std::fs::create_dir_all(dir.0.join("phone")).unwrap();
         std::fs::write(dir.0.join("phone/rejected.json"), "{ this is not json").unwrap();
         assert!(rejection_recorded(&dir.0));
+        assert_eq!(rejection_by(&dir.0), StoppedBy::UNKNOWN);
+    }
+
+    /// The sheet says who stopped it, and the answer survives a relaunch like the refusal does.
+    #[test]
+    fn who_refused_the_words_is_written_down_with_the_refusal() {
+        for by in [StoppedBy::PHONE, StoppedBy::MAC] {
+            let dir = TempDir::new(&format!("rejected-by-{by}"));
+            record_rejection(&dir.0, 1, by).unwrap();
+            assert!(rejection_recorded(&dir.0));
+            assert_eq!(rejection_by(&dir.0), by);
+        }
+        // A record from the build before the reason existed still refuses, and reads as unknown.
+        let dir = TempDir::new("rejected-by-old");
+        std::fs::create_dir_all(dir.0.join("phone")).unwrap();
+        std::fs::write(dir.0.join("phone/rejected.json"), "{\"rejected_at\":1}\n").unwrap();
+        assert!(rejection_recorded(&dir.0));
+        assert_eq!(rejection_by(&dir.0), StoppedBy::UNKNOWN);
     }
 
     #[test]
