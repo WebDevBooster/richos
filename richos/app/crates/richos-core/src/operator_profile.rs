@@ -292,8 +292,15 @@ pub fn mcp_config(executable: &Path, scope: &Path) -> Value {
 /// The server name the report tool is qualified under (`mcp__<server>__report`).
 pub const REPORT_SERVER: &str = "richos_operator";
 
-/// The engine's own `SessionStart` banner, as his terminal shows it:
-/// `RichOS engine <v> ACTIVE. Engine: <root>. Governing: <entity> (resolved via <how>). <n>/<m> guards present …`
+/// The engine's own `SessionStart` banner.
+///
+/// **The person-facing form is the short one**, and it is the one on the wire as a
+/// `systemMessage`: `RichOS engine <v>: ENFORCEMENT ACTIVE for <entity> (<n>/<m> guards, engine
+/// at <root>, root via <how>).` (`engine-status.sh`'s `emit_context <model-summary>
+/// <operator-line>`; measured in the operator probes, P1 and P10, 2.1.282). The long form r2
+/// and r3 quote, `RichOS engine <v> ACTIVE. Engine: <root>. Governing: …`, is the MODEL's
+/// `additionalContext`; a transcript carries both, which is how a grep of one found the long
+/// one. Both are read here, so the check does not depend on which channel carried it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineBanner {
     pub version: String,
@@ -306,6 +313,26 @@ pub struct EngineBanner {
 /// Read the banner out of one alarm's text, or `None` when this text is not the ACTIVE banner.
 pub fn parse_banner(text: &str) -> Option<EngineBanner> {
     let rest = text.trim_start().strip_prefix("RichOS engine ")?;
+    // The person's line: `<v>: ENFORCEMENT ACTIVE for <entity> (<n>/<m> guards, engine at
+    // <root>, root via <how>).`
+    if let Some((version, rest)) = rest.split_once(": ENFORCEMENT ACTIVE for ") {
+        if version.contains(char::is_whitespace) {
+            return None;
+        }
+        let (governing, rest) = rest.split_once(" (")?;
+        let (counts, rest) = rest.split_once(" guards, engine at ")?;
+        let (engine_root, _) = rest.split_once(", root via ")?;
+        let (count, expected) = counts.split_once('/')?;
+        return Some(EngineBanner {
+            version: version.to_string(),
+            engine_root: PathBuf::from(engine_root),
+            governing: PathBuf::from(governing),
+            guard_count: count.parse().ok()?,
+            guard_expected: expected.parse().ok()?,
+        });
+    }
+    // The model's summary: `<v> ACTIVE. Engine: <root>. Governing: <entity> (resolved via
+    // <how>). <n>/<m> guards present …`
     let (version, rest) = rest.split_once(' ')?;
     let rest = rest.strip_prefix("ACTIVE. Engine: ")?;
     let (engine_root, rest) = rest.split_once(". Governing: ")?;
@@ -705,8 +732,21 @@ mod tests {
         assert_eq!(b.governing, PathBuf::from("/Users/alex/ab/femcboost"));
         assert_eq!((b.guard_count, b.guard_expected), (26, 26));
         assert_eq!(parse_banner("RichOS engine 1.2.0 loaded but STOOD DOWN — this repository has NOT adopted it. Engine: /e."), None);
-        assert_eq!(parse_banner("RichOS engine 1.2.0: ENFORCEMENT ACTIVE for /x (26/26 guards, engine at /e, root via y)."), None,
-            "the model-facing variant is not the person-facing banner");
+        assert_eq!(parse_banner("RichOS engine 1.2.0: STOOD DOWN — this repository has not adopted the engine, so NONE of its 77/77 guards will enforce anything in this session."), None);
+        assert_eq!(parse_banner("RichOS engine 1.2.0: ROOT RESOLUTION FAILURE — ENFORCEMENT IS NOT ACTIVE. why"), None);
         assert_eq!(parse_banner("Stop says: hello"), None);
+    }
+
+    /// **The line that actually arrives as a `systemMessage`**, verbatim from the operator
+    /// probes (P1, 2.1.282, guest fixture paths). It is the SHORT form: `engine-status.sh`'s
+    /// `emit_context <model-summary> <operator-line>` sends the long form to the model only.
+    #[test]
+    fn the_person_facing_banner_measured_on_the_wire_is_read() {
+        let measured = "RichOS engine 1.2.0: ENFORCEMENT ACTIVE for /Users/admin/testvm/probes-412d7918db8e/home/ab/femcboost (77/77 guards, engine at /Users/admin/testvm/probes-412d7918db8e/home/ab/richos/richos/engine, root via project-dir). Engine HEAD not-a-git-checkout (this is the path that RUNS; an installation record naming another path is not evidence until something is shown to read it).";
+        let b = parse_banner(measured).expect("the operator line is the banner");
+        assert_eq!(b.version, "1.2.0");
+        assert_eq!(b.engine_root, PathBuf::from("/Users/admin/testvm/probes-412d7918db8e/home/ab/richos/richos/engine"));
+        assert_eq!(b.governing, PathBuf::from("/Users/admin/testvm/probes-412d7918db8e/home/ab/femcboost"));
+        assert_eq!((b.guard_count, b.guard_expected), (77, 77));
     }
 }
