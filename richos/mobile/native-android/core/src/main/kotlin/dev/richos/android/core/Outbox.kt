@@ -167,7 +167,12 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
     private suspend fun drain(send: suspend (OutboxItem) -> Receipt): SendReport {
         var report = SendReport()
         val at = clock.now()
-        for (queued in all()) {
+        val visited = HashSet<String>()
+        while (true) {
+            // A person can submit more messages while the first request is awaiting the Mac.
+            // Include those intents in this same batch, subject to its existing background budget.
+            val queued = all().firstOrNull { it.clientId !in visited } ?: break
+            visited += queued.clientId
             if (queued.state == OutboxState.BLOCKED) {
                 report = report.copy(blocked = report.blocked + 1)
                 continue

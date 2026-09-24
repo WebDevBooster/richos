@@ -15,6 +15,29 @@ import kotlin.test.assertTrue
 
 /** The durable outbox: the `queue.js` rules, and the three `runtime.js` scenarios. */
 class OutboxTest {
+    @Test fun messagesSubmittedDuringAnActiveRequestShareItsBoundedCompletionOpportunity() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        box.enqueue(item("a"))
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val delivered = mutableListOf<String>()
+        val batch = async {
+            box.flush(lease = { Outbox.CompletionLease(true) }) {
+                delivered += it.clientId
+                if (it.clientId == "a") { started.complete(Unit); release.await() }
+                Receipt("accepted", false, 1)
+            }
+        }
+        started.await()
+        for (id in listOf("b", "c", "d")) box.enqueue(item(id))
+        box.backgrounded()
+        yield()
+        release.complete(Unit)
+        batch.await()
+        assertEquals(listOf("a", "b", "c"), delivered)
+        assertEquals(listOf("d"), box.all().map { it.clientId })
+    }
+
     @Test fun slowSendingWriteCannotStartTransportAfterTheBackgroundDeadline() = runTest {
         val saved = Store()
         lateinit var box: Outbox
