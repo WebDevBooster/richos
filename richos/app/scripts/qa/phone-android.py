@@ -11,6 +11,9 @@
     phone-android.py --serial SERIAL keys FILE --keymap MAP.json   type FILE's text by TAPPING the on-screen
                                                                    keyboard's keys, as a thumb does (MAP: {"char": [x, y]})
     phone-android.py --serial SERIAL field                         the text of every editable field on screen
+    phone-android.py --serial SERIAL unlabeled --package PKG       PKG's clickable nodes that carry neither text nor a
+                                                                   content description: what a screen reader would
+                                                                   announce as an unnamed button (exit 1 if any)
     phone-android.py --serial SERIAL shot FILE.png                 the screen, as a PNG on this Mac
     phone-android.py --serial SERIAL burst DIR --seconds S [--tap-desc TEXT]
                                                                    frames for S seconds into DIR, each named by
@@ -315,7 +318,7 @@ def main(argv):
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--serial")
     p.add_argument("--adb", default="adb", help="adb executable (tests substitute a scripted one)")
-    p.add_argument("command", choices=["texts", "wait", "gone", "tap", "node", "swipe", "type-file", "keys", "field", "shot", "burst", "idle-frames", "observe", "state", "compare"])
+    p.add_argument("command", choices=["texts", "wait", "gone", "tap", "node", "swipe", "type-file", "keys", "field", "unlabeled", "shot", "burst", "idle-frames", "observe", "state", "compare"])
     p.add_argument("value", nargs="?")
     p.add_argument("value2", nargs="?")
     p.add_argument("--timeout", type=float, default=15)
@@ -422,6 +425,21 @@ def main(argv):
                 frames.append({"file": name.name, "requestedMs": round(asked * 1000), "receivedMs": round(got * 1000)})
             (out / "frames.json").write_text(json.dumps({"tapped": tap, "frames": frames}, indent=2))
             return emit({"ok": True, "dir": str(out), "frames": len(frames), "tapped": tap})
+        if a.command == "unlabeled":
+            if not a.package:
+                raise CannotAnswer("unlabeled needs --package")
+            nodes = [n for n in phone.nodes() if n["package"] == a.package]
+            clickable = [n for n in nodes if n["clickable"]]
+            # A clickable wrapper often has no label of its own but holds the labeled text inside
+            # it; a screen reader reads that text, so only a control with no label anywhere inside
+            # its bounds counts as unnamed.
+            def inside(outer, inner):
+                return (outer["bounds"] and inner["bounds"] and outer["bounds"][0] <= inner["bounds"][0]
+                        and outer["bounds"][1] <= inner["bounds"][1] and inner["bounds"][2] <= outer["bounds"][2]
+                        and inner["bounds"][3] <= outer["bounds"][3])
+            unnamed = [n for n in clickable if not (n["text"] or n["desc"])
+                       and not any((m["text"] or m["desc"]) and inside(n, m) for m in nodes)]
+            return emit({"ok": not unnamed, "clickable": len(clickable), "unnamed": unnamed}, 0 if not unnamed else 1)
         if a.command == "field":
             fields = [{"text": n["text"], "bounds": n["bounds"], "focused": n["focused"]}
                       for n in phone.nodes() if n["class"] == "android.widget.EditText"]
