@@ -365,6 +365,17 @@ do {
     check(ScreenModel(state: Reducer.reduce(noMac, .pickAttachments(.files)).state).cards.contains(.attachMacUnsupported), "attach: a Mac without attachments says so")
 }
 
+// G7 (Urban's audit): the CEO's how-to paragraph on conv-empty is full ink under a hairline, at a
+// 300 pt measure with 22 + 20 pt around the rule, and reads at AA in both themes.
+for p in [Palette.sovereign, Palette.daybreak] {
+    let theme = p.appearance == .dark ? "dark" : "light"
+    check(RoundSpec.howToInk(p) == p.ink, "G7 \(theme): the how-to paragraph is full ink, not ink-soft")
+    check(RoundSpec.howToRule(p) == p.lineFaint, "G7 \(theme): the hairline is line-faint")
+    check(ratio(RoundSpec.howToInk(p), p.ground) >= 4.5, String(format: "G7 \(theme): how-to paragraph on ground %5.2f:1", ratio(RoundSpec.howToInk(p), p.ground)))
+}
+check(RoundSpec.howToMeasure == 300 && RoundSpec.howToRuleGap == 22 && RoundSpec.howToTextGap == 20 && RoundSpec.howToLineHeight == 1.55,
+      "G7 measure 300, 22 above the rule, 20 below it, line height 1.55 (app.css .mic-how)")
+
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
 print("  headless: all checks passed")
 SWIFT
@@ -377,6 +388,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     -module-cache-path "$CACHE/module-cache" -suppress-warnings \
     "${CORE_SOURCES[@]}" \
     "$NATIVE/App/Design/Palette.swift" \
+    "$NATIVE/App/Design/RoundSpec.swift" \
     "$NATIVE/App/Features/Root/ScreenModel.swift" \
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \

@@ -161,10 +161,18 @@ struct EmptyConversation: View {
             Text("Your conversation will appear here.")
                 .type(Typography.read)
                 .foregroundStyle(palette.inkSoft)
+            // The CEO's paragraph, below a hairline, in full ink, at a 300 pt measure (Urban's G7).
             Text("Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don't need to hold and can scroll.")
-                .type(Typography.read)
-                .foregroundStyle(palette.inkSoft)
-                .padding(.top, 12)
+                .type(Typography.read.lineHeight(RoundSpec.howToLineHeight))
+                .foregroundStyle(RoundSpec.howToInk(palette))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: RoundSpec.howToMeasure)
+                .padding(.top, RoundSpec.howToTextGap)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(RoundSpec.howToRule(palette)).frame(height: 1)
+                        .accessibilityHidden(true)
+                }
+                .padding(.top, RoundSpec.howToRuleGap)
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 24)
