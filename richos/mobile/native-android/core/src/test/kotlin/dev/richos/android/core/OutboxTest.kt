@@ -29,6 +29,14 @@ class OutboxTest {
         assertTrue(box.all().all { it.state == OutboxState.WAITING && it.attempts == 0 })
     }
 
+    @Test fun anEmptyOrNotYetDueQueueDoesNotWriteACompletionReservation() = runTest {
+        val box = Outbox(Store(), Clock { 0 })
+        val reserve: suspend () -> Outbox.CompletionLease = { error("no network work needs a reservation") }
+        box.flush(lease = reserve) { error("nothing to send") }
+        box.enqueue(item("later").copy(notBefore = 1000))
+        box.flush(lease = reserve) { error("not due yet") }
+    }
+
     @Test fun aReservedBatchFinishesAlreadySubmittedMessagesAfterBackgrounding() = runTest {
         val box = Outbox(Store(), Clock { testScheduler.currentTime })
         for (id in listOf("a", "b", "c", "d", "e")) box.enqueue(item(id))

@@ -100,7 +100,8 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
         var reserved: CompletionLease? = null
         var used = false
         try {
-            reserved = lease()
+            reserved = if (all().any { it.state == OutboxState.WAITING && (it.notBefore ?: 0L) <= clock.now() }) lease()
+                else CompletionLease(false)
             val report = supervisorScope {
                 var backgroundRequests = 0
                 var backgroundBytes = 0
