@@ -2,6 +2,7 @@ package dev.richos.android.platform
 
 import com.sun.net.httpserver.HttpServer
 import dev.richos.android.core.protocol.HttpRequest
+import dev.richos.android.core.protocol.MissingIdentity
 import dev.richos.android.core.protocol.Signing
 import dev.richos.android.core.protocol.SseItem
 import dev.richos.android.core.protocol.SseParser
@@ -68,7 +69,8 @@ class IdentityTest {
         try {
             keys.sign(origin, byteArrayOf(1))
             fail("a deleted identity cannot sign")
-        } catch (e: IOException) {
+        } catch (e: MissingIdentity) {
+            // The core's word for it: MacApi turns it into `revoked`, the pair-again path, never a crash.
             assertTrue(e.message!!.contains("pair again"))
         }
     }

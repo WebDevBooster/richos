@@ -148,6 +148,30 @@ class OutboxDrainTest {
         assertEquals(0, core.state.outbox.size)
     }
 
+    /**
+     * In the background nothing is retried on a timer (the CEO's battery rule, 2026-09-24): the
+     * connection owner closes the stream and the core goes quiet; the message waits, kept, for the
+     * app's return, when the reopened link sends it.
+     */
+    @Test
+    fun `in the background an owed message waits, kept, and goes when the app returns`() {
+        val mac = Mac()
+        val (store, core) = store(mac)
+        share(store, "Before the phone was put away")
+        assertEquals(1, mac.attempts.size)
+        runBlocking { core.backgrounded() }
+        idleFor(0)
+        mac.reachable = true
+        idleFor(600_000)
+        assertEquals("no timed retry in ten minutes in the background", 1, mac.attempts.size)
+        assertEquals(1, core.state.outbox.size)
+        // Back on screen: the owner's reopened link drains what is owed.
+        store.dispatch(Action.Link(LinkStatus.OPEN))
+        idleFor(0)
+        assertEquals(listOf("Before the phone was put away"), mac.delivered)
+        assertEquals(0, core.state.outbox.size)
+    }
+
     @Test
     fun `offline, no attempt is spent - the link opening sends it`() {
         val mac = Mac()
