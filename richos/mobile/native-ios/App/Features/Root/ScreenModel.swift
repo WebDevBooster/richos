@@ -204,7 +204,7 @@ extension ScreenModel {
     /// The one derivation from the core's state. Total: every `AppState` draws. `attachments` is the
     /// directory the staged photos live in (`ShareIntake.attachmentsDirectory()`), so the tray and your
     /// unsent albums can show them; without it they draw as tiles.
-    init(state s: AppState, attachments: URL? = nil) {
+    init(state s: AppState, attachments: URL? = nil, cachedTranscript: Transcript? = nil) {
         self.init()
         appearance = s.appearance
 
@@ -231,6 +231,9 @@ extension ScreenModel {
         }
 
         // The conversation.
+        if let cachedTranscript {
+            thread = cachedTranscript
+        } else {
         let staged = Dictionary(s.outbox.flatMap { $0.files ?? [] }.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
         thread.rows = s.messages.map { Row(message: $0, stagedPath: { staged[$0] }, directory: attachments) }
         if let playback = s.playback, let i = thread.rows.firstIndex(where: { $0.id == playback.messageID }) {
@@ -244,6 +247,7 @@ extension ScreenModel {
             thread.rows.append(Row(id: "~reply", author: .rich, body: .streaming(text), sentAt: replyAt, isRecent: true))
         case nil:
             break
+        }
         }
         thread.loadingOlder = s.history.loadingOlder
         thread.reachedBeginning = s.history.reachedBeginning
@@ -416,5 +420,24 @@ extension ScreenModel.Row {
         }
         self.init(id: m.id, author: author, body: body, sentAt: m.sentAt, delivery: delivery,
                   isRecent: delivery == .sending || delivery == .waiting)
+    }
+}
+
+/// A composition or microphone level does not reparse every historical row. Invalidate only the
+/// inputs to transcript projection; the small surrounding UI still reflects every current action.
+final class ScreenProjectionCache {
+    private var previous: AppState?
+    private var directory: URL?
+    private var transcript: ScreenModel.Transcript?
+    func model(_ state: AppState, attachments: URL?) -> ScreenModel {
+        let same = directory == attachments && previous.map {
+            $0.messages == state.messages && $0.outbox == state.outbox &&
+            $0.reply == state.reply && $0.playback == state.playback
+        } == true
+        let result = ScreenModel(state: state, attachments: attachments, cachedTranscript: same ? transcript : nil)
+        previous = state
+        directory = attachments
+        transcript = result.thread
+        return result
     }
 }

@@ -259,8 +259,11 @@ private fun withTooShortLine(model: ScreenModel): ScreenModel {
 @Composable
 private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEvent) -> Unit) {
     val density = LocalDensity.current
+    val projected = remember(model.app.messages, model.app.outbox, model.app.selectedThreadId,
+        model.voiceMs, model.replyAudio, model.playing, model.zone, (model.nowMs ?: System.currentTimeMillis()) / 60_000,
+        model.extra, model.extraAfter, model.focusedId) { model.thread }
     val savedReading = model.app.readingAnchor
-    val savedIndex = savedReading?.let { a -> model.thread.asReversed().indexOfFirst { it.id == a.messageId } } ?: -1
+    val savedIndex = savedReading?.let { a -> projected.asReversed().indexOfFirst { it.id == a.messageId } } ?: -1
     val controller = rememberThreadController(startFollowing = savedReading == null && model.scroll == ScrollPose.FOLLOWING,
         initialIndex = savedIndex.coerceAtLeast(0), initialOffset = if (savedIndex >= 0) savedReading?.offset ?: 0 else 0)
     val scope = rememberCoroutineScope()
@@ -268,7 +271,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
     var zonePx by remember { mutableIntStateOf(0) }
     // A reference chip jumps back to what was sent, which glows once (attachments NOTES).
     var glowId by remember { mutableStateOf<String?>(null) }
-    val thread = model.thread.map { if (it.id == glowId) it.copy(focused = true) else it }
+    val thread = remember(projected, glowId) { if (glowId == null) projected else projected.map { if (it.id == glowId) it.copy(focused = true) else it } }
     val sent = {
         controller.follow.sent()
         onEvent(UiEvent.Reading(null))

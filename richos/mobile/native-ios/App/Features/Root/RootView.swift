@@ -12,9 +12,10 @@ struct RootView: View {
     let send: (Action) -> Void
     /// The recording whose "Hold the button while you speak." is still up (`TooShortLine`).
     @State private var tooShortLine: String?
+    @State private var projection = ScreenProjectionCache()
 
     var body: some View {
-        let model = TooShortLine.apply(tooShortLine, to: ScreenModel(state: state, attachments: Self.attachments))
+        let model = TooShortLine.apply(tooShortLine, to: projection.model(state, attachments: Self.attachments))
         ScreenView(model: model) { intent in
             // An intent the core has no action for yet changes nothing: a screen never pretends.
             if let action = intent.action() { send(action) }
