@@ -24,6 +24,8 @@ import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.core.protocol.MacNeedsPairV2
 import dev.richos.android.core.protocol.MacWait
 import dev.richos.android.core.protocol.MissingIdentity
+import dev.richos.android.core.protocol.PAIR_V2
+import dev.richos.android.core.protocol.PAIR_WAIT
 import dev.richos.android.core.protocol.PairLink
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.test.runTest
@@ -328,59 +330,6 @@ class PairV2ConformanceTest(@Suppress("unused") private val name: String, privat
                 assertEquals(bound.getValue("from_answer_9999_seconds").jsonPrimitive.long, MacWait.boundMs(9999.0))
                 assertEquals(bound.getValue("when_the_mac_says_nothing").jsonPrimitive.long, MacWait.boundMs(null))
             }
-            for ((label, seconds) in listOf("300 s (the corpus answer)" to null, "240 s" to 240, "9999 s" to 9999, "nothing" to -1)) {
-                add("mac_confirmation (core): the phone asks at asked_at_ms and stops at the bound, confirm_within_seconds $label") {
-                    val schedule = confirmation.arr("wait_schedule_ms").map { it.jsonObject.getValue("asked_at_ms").jsonPrimitive.long }
-                    val waiting = confirmation.arr("probes").map { it.jsonObject }.first { it.obj("mac_answer").getValue("status").jsonPrimitive.int == 409 }
-                    val pairAnswer = v2Answer { body ->
-                        when (seconds) {
-                            null -> body
-                            -1 -> JsonObject(body - "confirm_within_seconds")
-                            else -> JsonObject(body + ("confirm_within_seconds" to JsonPrimitive(seconds)))
-                        }
-                    }
-                    val phone = Phone { r ->
-                        when {
-                            r.headers["Authorization"] == null && r.method == "POST" -> pairAnswer
-                            r.url.contains("/api/events?") -> answer(waiting.obj("mac_answer"))
-                            else -> ok(confirmation.obj("phone_answer_while_waiting").obj("outcome").obj("value").toString())
-                        }
-                    }
-                    val core = phone.core()
-                    core.dispatch(Action.Pair("$ORIGIN/#pair=K7M2QX9H"))
-                    var s = core.dispatch(Action.ConfirmWords(true))
-                    assertEquals(PairingPhase.AWAITING_MAC, s.pairing.phase)
-                    val t0 = phone.now
-                    // The app's timer, exactly: sleep until the published due time, then `mac-wait`.
-                    while (s.pairing.phase == PairingPhase.AWAITING_MAC) {
-                        val due = s.macWaitDueInMs ?: fail("a visible wait always has a due time")
-                        phone.now += due
-                        s = core.dispatch(Action.MacWait)
-                        if (phone.now - t0 > 400_000) fail("the wait did not end")
-                    }
-                    val bound = MacWait.boundMs(when (seconds) { null -> 300.0; -1 -> null; else -> seconds.toDouble() })
-                    val asked = phone.probes().map { it.first - t0 }
-                    assertEquals(schedule.filter { it < bound }, asked, "asked exactly at asked_at_ms, inside the bound")
-                    assertTrue(asked.size <= confirmation.getValue("max_requests_in_the_window").jsonPrimitive.int)
-                    assertEquals(bound, phone.now - t0, "the wait ends at the bound")
-                    assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
-                    assertEquals(RichCore.PROBLEM_EXPIRED, s.pairing.problem)
-                    assertFalse(ORIGIN in phone.held, "past the bound the key is forgotten")
-                    // Every ask is the recorded probe: one backfill row, the credential last, re-signed with the newest challenge.
-                    val recorded = waiting.arr("requests")[0].jsonObject.obj("signed")
-                    for ((_, r) in phone.probes()) {
-                        val (signedPath, auth) = r.url.removePrefix(ORIGIN).split("&auth=")
-                        assertEquals(recorded.str("path_with_query"), signedPath)
-                        assertEquals("GET", r.method)
-                        assertNull(r.body)
-                        val challenge = URLDecoder.decode(auth, Charsets.UTF_8).split('.')[1]
-                        assertSigned(URLDecoder.decode(auth, Charsets.UTF_8), keys.str("device_id"), challenge, Signing.signingString(challenge, "GET", signedPath, null))
-                    }
-                    // The 409 carried a fresh challenge; every later ask used it.
-                    val fresh = waiting.obj("mac_answer").obj("headers").str("X-RichOS-Challenge")
-                    assertTrue(phone.probes().drop(1).all { URLDecoder.decode(it.second.url.substringAfter("&auth="), Charsets.UTF_8).split('.')[1] == fresh })
-                }
-            }
             add("mac_confirmation: phone_answer_while_waiting, as the Android app sends it (push_transport fcm)") {
                 val android = fcm.arr("requests").map { it.jsonObject }.first { "Android" in it.str("name") }.obj("request")
                 val signed = android.obj("signed")
@@ -427,41 +376,6 @@ class PairV2ConformanceTest(@Suppress("unused") private val name: String, privat
                         assertEquals(error.getValue("retryable").jsonPrimitive.boolean, e.retryable)
                     }
                 }
-                add("mac_confirmation probe (core): ${probe.str("name")}") {
-                    val phone = Phone { r ->
-                        when {
-                            r.headers["Authorization"] == null && r.method == "POST" -> v2Answer()
-                            r.url.contains("/api/events?") -> answer(probe.obj("mac_answer"))
-                            else -> ok(confirmation.obj("phone_answer_while_waiting").obj("outcome").obj("value").toString())
-                        }
-                    }
-                    val core = phone.core()
-                    core.dispatch(Action.Pair("$ORIGIN/#pair=K7M2QX9H"))
-                    var s = core.dispatch(Action.ConfirmWords(true))
-                    phone.now += s.macWaitDueInMs!!
-                    s = core.dispatch(Action.MacWait)
-                    assertEquals(1, phone.probes().size)
-                    val outcome = probe.obj("outcome")
-                    when {
-                        !outcome.getValue("ok").jsonPrimitive.boolean -> {
-                            // A refusal is final: the Mac forgot the device. Not "removed from your Mac".
-                            assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
-                            assertEquals(RichCore.PROBLEM_MAC_DECLINED, s.pairing.problem)
-                            assertNull(s.macWaitDueInMs, "nothing more is asked")
-                            assertFalse(ORIGIN in phone.held)
-                        }
-                        outcome.getValue("value").jsonPrimitive.boolean -> {
-                            assertEquals(PairingPhase.PAIRED, s.pairing.phase)
-                            assertTrue(s.paired)
-                            assertNull(s.macWaitDueInMs)
-                            assertEquals(probe.obj("mac_answer").obj("headers").str("X-RichOS-Challenge"), s.pairing.challenge)
-                        }
-                        else -> {
-                            assertEquals(PairingPhase.AWAITING_MAC, s.pairing.phase, "waiting is never refused")
-                            assertEquals(MacWait.delayMs(1), s.macWaitDueInMs, "the next ask is on the schedule")
-                        }
-                    }
-                }
             }
             val classification = confirmation.obj("awaiting_answer_classification")
             add("mac_confirmation: ${classification.str("name")}") {
@@ -495,6 +409,241 @@ class PairV2ConformanceTest(@Suppress("unused") private val name: String, privat
                 assertEquals(required.getValue("retry_after_ms").jsonPrimitive.long, item.notBefore!! - now)
                 assertEquals(wire, item.wire, "the same bytes")
                 assertEquals(reference.getValue("next_message_attempted").jsonPrimitive.boolean, "b" in attempted)
+            }
+
+            // ---- pairing.json: pair_wait (Echo's handoff, 2026-09-24; Sage's hypotheses review §1, §2) --
+            val pw = pairing.obj("pair_wait")
+            val androidAnswer = fcm.arr("requests").map { it.jsonObject }.first { "Android" in it.str("name") }.obj("request").obj("body").str("utf8")
+            add("pair_wait: the capability and its limits are the file's") {
+                assertEquals(pw.str("capability"), PAIR_WAIT)
+                assertEquals(pw.str("offered_beside"), PAIR_V2)
+                assertEquals("Prefer: wait=<seconds>", pw.str("prefer_header"))
+                assertEquals(pw.getValue("hold_seconds_max").jsonPrimitive.int, MacWait.HOLD_SECONDS_MAX)
+                assertEquals(pw.getValue("min_ask_spacing_ms").jsonPrimitive.long, MacWait.MIN_SPACING_MS)
+                val floor = pw.getValue("request_timeout_must_exceed_ms").jsonPrimitive.long
+                assertTrue(RichCore.MAC_WAIT_REQUEST_MS > floor, "one ask's timeout (${RichCore.MAC_WAIT_REQUEST_MS} ms) must exceed $floor ms, or a full hold is cut off")
+                // Every corpus pairing answer names pair-wait beside pair-v2, additively.
+                assertTrue(v2Exchanges.all { x -> PAIR_WAIT in x.arr("mac_answers")[0].jsonObject.obj("body").arr("capabilities").map { it.str() } })
+            }
+            for (ask in pw.arr("asks").map { it.jsonObject }) {
+                add("pair_wait ask (MacApi): ${ask.str("name")}") {
+                    val recorded = ask.arr("requests")[0].jsonObject
+                    val signed = recorded.obj("signed")
+                    val sent = mutableListOf<HttpRequest>()
+                    val mac = answer(ask.obj("mac_answer"))
+                    val api = MacApi(Http { r -> sent += r; mac }, corpusKey())
+                    val wait = ask.getValue("wait_seconds").jsonPrimitive.int
+                    val result = runCatching { api.macAnswer(ORIGIN, keys.str("device_id"), signed.str("challenge"), fcm = true, waitSeconds = wait) }
+                    // Exactly requests[0]: the method, the target, Prefer if and only if the Mac holds, the body, the signature.
+                    val r = sent.single()
+                    assertEquals(recorded.str("method"), r.method)
+                    assertEquals(ORIGIN + recorded.str("target"), r.url)
+                    assertEquals(recorded.obj("headers").str("Content-Type"), r.headers["Content-Type"])
+                    assertEquals(recorded.obj("headers")["Prefer"]?.str(), r.headers["Prefer"], "Prefer is sent exactly when wait_seconds > 0")
+                    assertEquals(wait > 0, r.headers.containsKey("Prefer"))
+                    // The body is THIS phone's own "They match", byte for byte as it sent it at the press.
+                    assertEquals(androidAnswer, String(r.body!!, Charsets.UTF_8), "the Android confirmation body, byte for byte")
+                    val reference = recorded.obj("body").str("utf8")
+                    assertEquals(fields(reference.toByteArray()) - "push_transport", fields(r.body) - "push_transport")
+                    // The canonical string follows the recorded one's rule; Prefer stays outside it.
+                    assertEquals(signed.str("signing_string"), Signing.signingString(signed.str("challenge"), "POST", "/api/pair", reference.toByteArray()))
+                    assertSigned(r.headers.getValue("Authorization"), keys.str("device_id"), signed.str("challenge"),
+                        Signing.signingString(signed.str("challenge"), "POST", "/api/pair", r.body))
+                    val outcome = ask.obj("outcome")
+                    if (outcome.getValue("ok").jsonPrimitive.boolean) {
+                        val c = result.getOrThrow()
+                        assertEquals(outcome.getValue("value").jsonPrimitive.boolean, !c.awaitingMac, "pressed on the Mac")
+                        assertEquals(ask.obj("mac_answer").obj("headers").str("X-RichOS-Challenge"), c.challenge)
+                    } else {
+                        val e = result.exceptionOrNull() as? TransportFailure ?: fail("expected a classified refusal, got ${result.exceptionOrNull()}")
+                        val error = outcome.obj("error")
+                        assertEquals(error.str("reason"), e.reason)
+                        assertEquals(error.getValue("retryable").jsonPrimitive.boolean, e.retryable)
+                    }
+                }
+            }
+            for (c in pw.arr("next_delay_cases").map { it.jsonObject }) {
+                val attempt = c.getValue("attempt").jsonPrimitive.int
+                val took = c.getValue("previous_ask_took_ms").jsonPrimitive.long
+                val holds = c.getValue("mac_offers_pair_wait").jsonPrimitive.boolean
+                add("pair_wait next_delay: attempt $attempt, took $took ms, holds $holds") {
+                    assertEquals(c.getValue("next_ask_after_ms").jsonPrimitive.long, MacWait.nextDelayMs(attempt, took, holds))
+                }
+            }
+            for (c in pw.arr("last_ask_cases").map { it.jsonObject }) {
+                add("pair_wait last_ask: ${c.str("name")}") {
+                    assertEquals(
+                        c.getValue("next_ask_at_ms").jsonPrimitive.long,
+                        MacWait.nextAskAt(
+                            c.getValue("attempt").jsonPrimitive.int, c.getValue("previous_ask_at_ms").jsonPrimitive.long,
+                            c.getValue("previous_answer_at_ms").jsonPrimitive.long, c.getValue("deadline_ms").jsonPrimitive.long,
+                            c.getValue("mac_offers_pair_wait").jsonPrimitive.boolean,
+                        ),
+                    )
+                }
+            }
+            add("pair_wait: no plan can exceed the phone's own ceiling on asks") {
+                assertTrue(pw.arr("wait_plans").all { it.jsonObject.getValue("total_asks").jsonPrimitive.int <= MacWait.MAX_ASKS })
+                // While the Mac holds, at most one ask per spacing inside the window, then the last ask.
+                assertEquals((MacWait.WINDOW_MS / MacWait.MIN_SPACING_MS + 1 + 1).toInt(), MacWait.MAX_ASKS)
+            }
+
+            /** A pairing answer from a Mac that does ([holds]) or does not offer pair-wait. */
+            fun pairAnswer(holds: Boolean) = v2Answer { body ->
+                val caps = body.arr("capabilities").map { it.str() }.filter { it != PAIR_WAIT } + listOfNotNull(PAIR_WAIT.takeIf { holds })
+                JsonObject(body + ("capabilities" to JsonArray(caps.map(::JsonPrimitive))))
+            }
+            val stillWaiting = pw.obj("answers").obj("still_waiting")
+
+            /** The asks this phone made after the press, the press included: (when, the request). */
+            fun Phone.asks() = signedPairPosts().filter { fields(it.second.body)["fingerprint_confirmed"] == JsonPrimitive(true) }
+            fun preferOf(r: HttpRequest): Int? = r.headers["Prefer"]?.let { v -> assertTrue(v.startsWith("wait=")); v.removePrefix("wait=").toInt() }
+
+            for (plan in pw.arr("wait_plans").map { it.jsonObject }) {
+                add("pair_wait plan (core): ${plan.str("name")}") {
+                    val holds = plan.getValue("mac_offers_pair_wait").jsonPrimitive.boolean
+                    // The plan's Mac: one that holds every ask for as long as it was asked, or one that answers at once.
+                    val holdsForAsLongAsAsked = holds && "holds every ask" in plan.str("name")
+                    lateinit var phone: Phone
+                    phone = Phone { r ->
+                        if (r.headers["Authorization"] == null && r.method == "POST") pairAnswer(holds) else {
+                            if (holdsForAsLongAsAsked) preferOf(r)?.let { phone.now += it * 1000L }
+                            answer(stillWaiting)
+                        }
+                    }
+                    val core = phone.core()
+                    core.dispatch(Action.Pair("$ORIGIN/#pair=K7M2QX9H"))
+                    val t0 = phone.now
+                    val until = t0 + MacWait.WINDOW_MS
+                    var s = core.dispatch(Action.ConfirmWords(true))
+                    // The app's timer, exactly: sleep until the published due time, then `mac-wait`.
+                    while (s.pairing.phase == PairingPhase.AWAITING_MAC) {
+                        val due = s.macWaitDueInMs ?: fail("a visible wait always has a due time")
+                        phone.now += due
+                        s = core.dispatch(Action.MacWait)
+                        if (phone.now - t0 > 400_000) fail("the wait did not end")
+                    }
+                    val made = phone.asks().map { (at, r) -> Triple(at - t0, preferOf(r), at >= until) }
+                    val expected = plan.arr("asks").map { it.jsonObject }.map { a ->
+                        val prefer = a.getValue("prefer_wait_seconds").let { if (it is JsonNull) null else it.jsonPrimitive.int }
+                        Triple(a.getValue("at_ms").jsonPrimitive.long, prefer, a.getValue("final").jsonPrimitive.boolean)
+                    }
+                    assertEquals(expected, made)
+                    assertEquals(plan.getValue("total_asks").jsonPrimitive.int, made.size)
+                    assertEquals(plan.getValue("smallest_gap_between_asks_ms").jsonPrimitive.long, made.zipWithNext { a, b -> b.first - a.first }.min())
+                    // Never pressed: after the last ask the phone says it did not hear back, and forgets the key.
+                    assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+                    assertEquals(RichCore.PROBLEM_EXPIRED, s.pairing.problem)
+                    assertNull(s.macWaitDueInMs)
+                    assertFalse(ORIGIN in phone.held)
+                    // Every ask is the phone's own answer, byte for byte.
+                    for ((_, r) in phone.asks()) assertEquals(androidAnswer, String(r.body!!, Charsets.UTF_8))
+                    assertTrue(phone.probes().isEmpty(), "the backfill probe is no longer the wait")
+                }
+            }
+
+            for ((label, seconds) in listOf("240 s" to 240, "nothing" to -1)) {
+                add("pair_wait (core): a Mac without pair-wait is asked on wait_schedule_ms, then once at the bound, confirm_within_seconds $label") {
+                    val schedule = confirmation.arr("wait_schedule_ms").map { it.jsonObject.getValue("asked_at_ms").jsonPrimitive.long }
+                    val phone = Phone { r ->
+                        if (r.headers["Authorization"] == null && r.method == "POST") {
+                            val a = pairAnswer(holds = false)
+                            val body = Json.parseToJsonElement(a.text).jsonObject
+                            val edited = if (seconds < 0) body - "confirm_within_seconds" else body + ("confirm_within_seconds" to JsonPrimitive(seconds))
+                            HttpResponse(a.status, a.headers, JsonObject(edited).toString().toByteArray())
+                        } else {
+                            answer(stillWaiting)
+                        }
+                    }
+                    val core = phone.core()
+                    core.dispatch(Action.Pair("$ORIGIN/#pair=K7M2QX9H"))
+                    val t0 = phone.now
+                    var s = core.dispatch(Action.ConfirmWords(true))
+                    while (s.pairing.phase == PairingPhase.AWAITING_MAC) {
+                        phone.now += s.macWaitDueInMs ?: fail("a visible wait always has a due time")
+                        s = core.dispatch(Action.MacWait)
+                        if (phone.now - t0 > 400_000) fail("the wait did not end")
+                    }
+                    val bound = MacWait.boundMs(if (seconds < 0) null else seconds.toDouble())
+                    val asked = phone.asks().map { it.first - t0 }
+                    assertEquals(listOf(0L) + schedule.filter { it < bound } + bound, asked, "the press, the schedule inside the bound, then the last ask at the bound")
+                    assertTrue(phone.asks().none { it.second.headers.containsKey("Prefer") }, "no Prefer to a Mac that does not offer pair-wait")
+                    assertEquals(RichCore.PROBLEM_EXPIRED, s.pairing.problem)
+                }
+            }
+
+            // The core's action for each of the Mac's answer shapes (`pair_wait.answers`), on the ask after the press.
+            for ((shape, a) in pw.obj("answers")) {
+                add("pair_wait answer (core): $shape") {
+                    val o = a.jsonObject
+                    var released = false
+                    val phone = Phone { r ->
+                        when {
+                            r.headers["Authorization"] == null && r.method == "POST" -> pairAnswer(holds = true)
+                            !released -> { released = true; answer(stillWaiting) }
+                            o["status"] is JsonNull -> throw java.io.IOException("no route to the Mac")
+                            else -> answer(o)
+                        }
+                    }
+                    val core = phone.core()
+                    core.dispatch(Action.Pair("$ORIGIN/#pair=K7M2QX9H"))
+                    var s = core.dispatch(Action.ConfirmWords(true))
+                    assertEquals(PairingPhase.AWAITING_MAC, s.pairing.phase)
+                    phone.now += s.macWaitDueInMs!!
+                    s = core.dispatch(Action.MacWait)
+                    assertEquals(2, phone.asks().size)
+                    when (shape) {
+                        "pressed" -> {
+                            assertEquals(PairingPhase.PAIRED, s.pairing.phase)
+                            assertTrue(s.paired)
+                            assertNull(s.macWaitDueInMs)
+                        }
+                        "still_waiting", "still_waiting_as_409", "unreachable" -> {
+                            assertEquals(PairingPhase.AWAITING_MAC, s.pairing.phase, "waiting is never refused")
+                            assertNull(s.pairing.problem)
+                            assertTrue(ORIGIN in phone.held)
+                        }
+                        "refused_on_the_mac", "window_closed" -> {
+                            assertEquals(PairingPhase.UNPAIRED, s.pairing.phase)
+                            assertEquals(RichCore.PROBLEM_MAC_DECLINED, s.pairing.problem, "declined, never removed-from-Mac")
+                            assertNull(s.macWaitDueInMs, "nothing more is asked")
+                            assertFalse(ORIGIN in phone.held)
+                        }
+                        else -> fail("an answer shape this phone does not know: $shape")
+                    }
+                }
+            }
+            add("pair_wait (core): at the last ask, pressed means paired, a refusal declined, anything else expired") {
+                val answers = pw.obj("answers")
+                for ((last, expect) in listOf<Pair<HttpResponse?, Any>>(
+                    answer(answers.obj("pressed")) to PairingPhase.PAIRED,
+                    answer(answers.obj("refused_on_the_mac")) to RichCore.PROBLEM_MAC_DECLINED,
+                    answer(answers.obj("still_waiting")) to RichCore.PROBLEM_EXPIRED,
+                    null to RichCore.PROBLEM_EXPIRED,
+                )) {
+                    var until = Long.MAX_VALUE
+                    lateinit var phone: Phone
+                    phone = Phone { r ->
+                        when {
+                            r.headers["Authorization"] == null && r.method == "POST" -> pairAnswer(holds = false)
+                            phone.now < until -> answer(stillWaiting)
+                            last == null -> throw java.io.IOException("no route to the Mac")
+                            else -> last
+                        }
+                    }
+                    val core = phone.core()
+                    core.dispatch(Action.Pair("$ORIGIN/#pair=K7M2QX9H"))
+                    until = phone.now + MacWait.WINDOW_MS
+                    var s = core.dispatch(Action.ConfirmWords(true))
+                    while (s.pairing.phase == PairingPhase.AWAITING_MAC) {
+                        phone.now += s.macWaitDueInMs!!
+                        s = core.dispatch(Action.MacWait)
+                    }
+                    val final = phone.asks().last()
+                    assertEquals(until, final.first, "the last ask goes at the deadline")
+                    assertNull(final.second.headers["Prefer"], "the last ask carries no Prefer")
+                    if (expect == PairingPhase.PAIRED) assertEquals(PairingPhase.PAIRED, s.pairing.phase) else assertEquals<Any?>(expect, s.pairing.problem)
+                }
             }
         }
     }

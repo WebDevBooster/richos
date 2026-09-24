@@ -136,7 +136,7 @@ internal object DevMacRoutes {
         }
         return when ((body["fingerprint_confirmed"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull) {
             // The phone's own answer is admitted before the press on the Mac, and says it waits.
-            true -> doc.copy(mac = mac.copy(confirmed = true)).let {
+            true -> doc.copy(mac = mac.copy(confirmed = true, answers = mac.answers + 1)).let {
                 it to ok(it.mac, buildJsonObject {
                     put("ok", true)
                     if (awaiting(mac)) put("awaiting_mac_confirmation", true)

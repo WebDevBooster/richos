@@ -94,7 +94,7 @@ class PairingTest {
         assertEquals(null, runtime.export().mac.devicePoint, "the Mac forgot the phone")
         assertFalse(Fixtures.ORIGIN in runtime.export().keys)
         runtime.execute(DevRequest.parse("advance", "60000"))
-        assertEquals(0, runtime.export().mac.eventReads, "nothing is asked after the wait stopped")
+        assertEquals(1, runtime.export().mac.answers, "the press was the only They match, and nothing is asked after the wait stopped")
     }
 
     @Test

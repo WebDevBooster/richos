@@ -37,10 +37,11 @@ import java.time.Duration
  * Pairing v2's wait for the press on the Mac, through the app's ONE timer: the real [AppStore]
  * and a real core on the main looper with the looper's clock, against a Mac that never presses.
  *
- * On screen, the app asks exactly on the corpus's schedule (2, 5, 10, 18, 31 s, then every 15 s),
- * 22 times in the five minutes, and says "expired" at the bound. Hidden (the connection owner's
- * `backgrounded`), it asks nothing and publishes nothing, however long; back on screen it asks at
- * once for the ask that fell due, then keeps the schedule (CEO ruling §81).
+ * On screen, against a Mac that does not offer `pair-wait`, the press is the first ask, then the
+ * corpus's schedule (2, 5, 10, 18, 31 s, then every 15 s), 22 times in the five minutes, then one
+ * last ask at the bound, and "expired". Hidden (the connection owner's `backgrounded`), it asks
+ * nothing and publishes nothing, however long; back on screen it asks once, at once, then keeps the
+ * schedule (CEO ruling §81; the corpus's `pair_wait`).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
@@ -73,12 +74,13 @@ class AppStoreMacWaitTest {
             ids = { "c-1" },
             http = Http { r ->
                 when {
-                    r.url.contains("/api/events?") -> {
-                        asks += SystemClock.uptimeMillis()
-                        HttpResponse(409, mapOf("x-richos-challenge" to "c-wait"), """{"awaiting_mac_confirmation":true,"reason":"Press They match on your Mac."}""".toByteArray())
-                    }
                     r.headers["Authorization"] == null -> HttpResponse(200, mapOf("x-richos-challenge" to "c0"), pair.toByteArray())
-                    else -> HttpResponse(200, mapOf("x-richos-challenge" to "c1"), """{"ok":true,"awaiting_mac_confirmation":true}""".toByteArray())
+                    // Every ask is the phone's own signed "They match", the press included.
+                    "\"fingerprint_confirmed\":true" in String(r.body ?: ByteArray(0)) -> {
+                        asks += SystemClock.uptimeMillis()
+                        HttpResponse(200, mapOf("x-richos-challenge" to "c-wait"), """{"ok":true,"awaiting_mac_confirmation":true}""".toByteArray())
+                    }
+                    else -> HttpResponse(200, mapOf("x-richos-challenge" to "c1"), """{"ok":true}""".toByteArray())
                 }
             },
             keys = object : DeviceKeys {
@@ -108,48 +110,48 @@ class AppStoreMacWaitTest {
     }
 
     @Test
-    fun `on screen, the app asks on the schedule, 22 times, and says expired at the bound`() {
+    fun `on screen, the app asks at the press, on the schedule 22 times, once at the bound, and says expired`() {
         val (_, _, seen) = store()
-        val t0 = SystemClock.uptimeMillis()
+        val t0 = asks.single()
         // Step through the five minutes in small slices so every ask lands on its own time.
         var waited = 0L
         while (waited < MacWait.WINDOW_MS + 5_000) { idleFor(500); waited += 500 }
-        val expected = generateSequence(0 to MacWait.delayMs(0)) { (n, at) -> (n + 1) to at + MacWait.delayMs(n + 1) }
+        val scheduled = generateSequence(0 to MacWait.delayMs(0)) { (n, at) -> (n + 1) to at + MacWait.delayMs(n + 1) }
             .take(MacWait.MAX_REQUESTS).map { it.second }.toList()
-        assertEquals(expected, asks.map { it - t0 })
-        assertEquals(MacWait.MAX_REQUESTS, asks.size)
+        assertEquals(listOf(0L) + scheduled + MacWait.WINDOW_MS, asks.map { it - t0 })
+        assertEquals(MacWait.MAX_REQUESTS + 2, asks.size)
         assertEquals(PairingPhase.UNPAIRED, seen.last().pairing.phase)
         assertEquals(RichCore.PROBLEM_EXPIRED, seen.last().pairing.problem)
         // And after it, nothing: no timer, no state, no request.
         val before = seen.size
         idleFor(600_000)
-        assertEquals(MacWait.MAX_REQUESTS, asks.size)
+        assertEquals(MacWait.MAX_REQUESTS + 2, asks.size)
         assertEquals(before, seen.size)
     }
 
     @Test
     fun `hidden, the app asks nothing and publishes nothing, and back on screen it asks at once, then on the schedule`() {
         val (store, core, seen) = store()
-        // The first ask, on screen.
+        // The press, then the first scheduled ask, on screen.
         idleFor(2_000)
-        assertEquals(1, asks.size)
+        assertEquals(2, asks.size)
         // The last activity stops: the connection owner calls backgrounded.
         scope.launch { core.backgrounded() }
         idleFor(0)
         assertNull(seen.last().macWaitDueInMs)
         val published = seen.size
         idleFor(120_000)
-        assertEquals("no request while hidden", 1, asks.size)
+        assertEquals("no request while hidden", 2, asks.size)
         assertEquals("no state while hidden: nothing wakes the app", published, seen.size)
         // Back on screen (the owner's foreground, then its first dispatch).
         core.foregrounded()
         store.dispatch(Action.Health(phoneOnline = true))
         idleFor(0)
-        assertEquals("the ask that fell due while hidden goes at once, and only it", 2, asks.size)
+        assertEquals("coming back asks once, at once", 3, asks.size)
         assertEquals(PairingPhase.AWAITING_MAC, seen.last().pairing.phase)
         idleFor(MacWait.delayMs(2) - 1)
-        assertEquals(2, asks.size)
+        assertEquals(3, asks.size)
         idleFor(1)
-        assertEquals("then the schedule carries on", 3, asks.size)
+        assertEquals("then the schedule carries on", 4, asks.size)
     }
 }

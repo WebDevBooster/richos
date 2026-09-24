@@ -1216,6 +1216,8 @@ class RichCore private constructor(
         /** One ask of the wait gets this long; no answer in time is waited through like a fault. */
         const val MAC_WAIT_REQUEST_MS = 10_000L
 
+        const val SHOW_WAITING_AFTER_MS = 500L
+
         suspend fun open(ports: Ports): RichCore {
             val outbox = Outbox(ports.storage, ports.clock)
             outbox.load()

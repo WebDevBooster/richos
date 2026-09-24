@@ -99,7 +99,24 @@ object MacWait {
         val s = confirmWithinSeconds ?: return WINDOW_MS
         return if (s.isFinite() && s > 0) minOf((s * 1000).toLong(), WINDOW_MS) else WINDOW_MS
     }
+
+    /** The longest a Mac offering [PAIR_WAIT] is asked to hold one ask (`pair_wait.hold_seconds_max`). */
+    const val HOLD_SECONDS_MAX = 14
+
+    /** While the Mac holds, two asks never start closer than this (`pair_wait.min_ask_spacing_ms`). */
+    const val MIN_SPACING_MS = 7_000L
+
+    const val MAX_ASKS = 44
+
+    fun nextDelayMs(attempt: Int, tookMs: Long, holds: Boolean): Long = TODO("pair-wait")
+
+    fun nextAskAt(attempt: Int, askedAt: Long, answeredAt: Long, until: Long, holds: Boolean): Long = TODO("pair-wait")
+
+    fun preferWaitSeconds(now: Long, until: Long): Int = TODO("pair-wait")
 }
+
+/** The capability a Mac names when it can hold the phone's "They match" until the press (`pair_wait.capability`). */
+const val PAIR_WAIT = "pair-wait"
 
 /** The Mac's answer to "They match": whether it is still waiting for its own press, and the newest challenge. */
 class Confirmation(val awaitingMac: Boolean, val challenge: String)
@@ -194,6 +211,8 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
         val awaiting = (json?.get("awaiting_mac_confirmation") as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
         return Confirmation(awaiting, signed.challenge)
     }
+
+    suspend fun macAnswer(apiBase: String, deviceId: String, challenge: String, fcm: Boolean, waitSeconds: Int): Confirmation = TODO("pair-wait")
 
     /**
      * **HAS THE PERSON PRESSED "They match" ON THE MAC YET?** (`api.js` `macConfirmed`). One signed

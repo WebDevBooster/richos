@@ -67,8 +67,10 @@ data class DevMac(
     val forgot: Boolean = false,
     /** How long the Mac keeps its press open, as its pair answer says. */
     val confirmWithinSeconds: Int = 300,
-    /** Signed reads of `/api/events` the Mac answered (the wait's asks among them). */
+    /** Signed reads of `/api/events` the Mac answered. */
     val eventReads: Int = 0,
+    /** The phone's signed "They match" answers the Mac took: the press, then every ask of the wait. */
+    val answers: Int = 0,
     val threads: List<ConversationThread> = Fixtures.THREADS,
     /** The Mac's whole conversation, per thread, for backfill (`GET /api/events?before=`). */
     val history: Map<String, List<dev.richos.android.core.protocol.Row>> = emptyMap(),

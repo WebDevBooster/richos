@@ -514,8 +514,9 @@ class DevRuntime private constructor(
             }
             // Pairing v2 (contract §2; Sage's review F1, F2): the link goes out, the six words come
             // back computed on the phone over the origin it dialed, the Mac's value and its own key;
-            // "They match" on the phone waits for "They match" on the Mac, asking on the schedule
-            // (2 s, then 3 s, ...), and the press on the Mac makes the pairing, which survives.
+            // "They match" on the phone waits for "They match" on the Mac, asking again with its own
+            // signed answer on the schedule of a Mac that does not hold (2 s, then 3 s, ...), and the
+            // press on the Mac makes the pairing, which survives.
             "pair-and-confirm" -> {
                 step(DevRequest.Fixture("unpaired"))
                 var s = step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
@@ -524,14 +525,14 @@ class DevRuntime private constructor(
                 check(s.threads.isNotEmpty() && s.selectedThreadId == s.threads.first().id, "the Mac's conversations arrive with the answer")
                 s = step(DevRequest.Dispatch(Action.ConfirmWords(true)))
                 check(s.pairing.phase == PairingPhase.AWAITING_MAC && !s.paired && doc.mac.confirmed, "They match on the phone reaches the Mac, which waits for its own press")
-                check(s.macWaitDueInMs == 2_000L && doc.mac.eventReads == 0, "the first ask is 2 s away, and nothing was asked yet")
+                check(s.macWaitDueInMs == 2_000L && doc.mac.answers == 1, "the press was the first ask, and the next is 2 s away")
                 s = step(DevRequest.Advance(1_999))
-                check(doc.mac.eventReads == 0 && s.macWaitDueInMs == 1L, "nothing is asked before the schedule")
+                check(doc.mac.answers == 1 && s.macWaitDueInMs == 1L, "nothing is asked before the schedule")
                 s = step(DevRequest.Advance(1))
-                check(doc.mac.eventReads == 1 && s.pairing.phase == PairingPhase.AWAITING_MAC && s.macWaitDueInMs == 3_000L, "the Mac still waits: ask again in 3 s")
+                check(doc.mac.answers == 2 && s.pairing.phase == PairingPhase.AWAITING_MAC && s.macWaitDueInMs == 3_000L, "the Mac still waits: ask again in 3 s")
                 step(DevRequest.Mac("press"))
                 s = step(DevRequest.Advance(3_000))
-                check(doc.mac.eventReads == 2 && s.pairing.phase == PairingPhase.PAIRED && s.paired && s.macWaitDueInMs == null, "the press on the Mac makes the pairing")
+                check(doc.mac.answers == 3 && doc.mac.eventReads == 0 && s.pairing.phase == PairingPhase.PAIRED && s.paired && s.macWaitDueInMs == null, "the press on the Mac makes the pairing")
                 s = step(DevRequest.Restart)
                 check(s.pairing.phase == PairingPhase.PAIRED && s.pairing.deviceId == DevKeys.DEVICE_ID, "a pairing survives a restart")
             }
@@ -544,8 +545,8 @@ class DevRuntime private constructor(
                 check(s.pairing.phase == PairingPhase.UNPAIRED && s.pairing.problem == RichCore.PROBLEM_MAC_NEEDS_UPDATE && s.pairing.words.isEmpty(), "a Mac without pair-v2 is refused, and no words are shown")
                 check(doc.mac.devicePoint == null && Fixtures.ORIGIN !in doc.keys, "the Mac forgot the key it registered, and so did the phone")
             }
-            // The press on the Mac never comes: at most 22 asks, then the bound ends it, and the
-            // phone forgets the key the Mac has already forgotten.
+            // The press on the Mac never comes: the press, 22 asks on the schedule, one last ask at
+            // the bound, and then the phone forgets the key the Mac has already forgotten.
             "pair-wait-expires" -> {
                 step(DevRequest.Fixture("unpaired"))
                 step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
@@ -556,7 +557,7 @@ class DevRuntime private constructor(
                     s = step(DevRequest.Advance(due))
                     waited += due
                 }
-                check(doc.mac.eventReads == 22, "at most 22 asks in the window (got ${doc.mac.eventReads})")
+                check(doc.mac.answers == 24, "the press, 22 asks and the last one (got ${doc.mac.answers})")
                 check(waited == 300_000L, "the wait ends at the Mac's bound (after $waited ms)")
                 check(s.pairing.phase == PairingPhase.UNPAIRED && s.pairing.problem == RichCore.PROBLEM_EXPIRED && Fixtures.ORIGIN !in doc.keys, "expired: nothing paired, the key forgotten")
             }
