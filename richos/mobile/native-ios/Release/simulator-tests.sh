@@ -43,7 +43,11 @@ python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simu
 python3 "$HERE/../../engine/scripts/lib/testdevices.py" boot-ios --id "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
 xcrun simctl privacy "$UDID" grant microphone dev.richos.connect >/dev/null 2>&1 || true
 
-TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
+# run-active renews the lease's inactivity clock while this build-and-test run lives; without it a
+# run longer than five minutes lost its simulator to the collector (esc-20260924T220236Z-52fae3ec).
+TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scripts/lib/testdevices.py" run-active \
+  --kind ios-simulator --id "$UDID" --owner-pid $$ -- \
+  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/DerivedData" \
   -clonedSourcePackagesDirPath "$OUT/SourcePackages" -resultBundlePath "$OUT/result.xcresult" \
   CODE_SIGN_IDENTITY=- >"$OUT/logs/test.log" 2>&1

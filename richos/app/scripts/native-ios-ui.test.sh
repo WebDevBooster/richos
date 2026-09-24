@@ -559,7 +559,10 @@ for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
   ARGS=()
   while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/shard-$s.args"
-  SIM_UDID[i]="$(python3 "$RICHOS_TESTDEVICES" acquire-ios --type "${SIM_TYPE[$i]}" --runtime "$RUNTIME" --owner-pid $$)"
+  # A declared UI-suite lease: its whole selection runs on one device, 787-884 s under load on
+  # 2026-09-24, so its lifetime is the engine's declared ui-suite ceiling rather than the default.
+  SIM_UDID[i]="$(python3 "$RICHOS_TESTDEVICES" acquire-ios --type "${SIM_TYPE[$i]}" --runtime "$RUNTIME" \
+    --owner-pid $$ --purpose ui-suite)"
   CREATED+=("${SIM_UDID[$i]}")
   # Under proof-run.py (RICHOS_WORKER_TOKENS set), the simulators count against the run the way a
   # mutation pool's workers do (richos/engine/scripts/lib/worker_tokens.py): one runs on this
@@ -570,8 +573,12 @@ for i in "${!SIM_UDID[@]}"; do
            "$RICHOS_WORKER_TOKENS" --free "$WORK/free.lock" --)
   fi
   ( T0=$(date +%s)
-    if ${TOKEN[@]+"${TOKEN[@]}"} bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
-         "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
+    # run-active renews the lease's inactivity clock for exactly as long as this device's boot and
+    # xcodebuild run live (esc-20260924T220236Z-52fae3ec: nothing renewed it, so the collector shut
+    # the simulator down five minutes into the suite). It never extends the lease's lifetime.
+    if ${TOKEN[@]+"${TOKEN[@]}"} python3 "$RICHOS_TESTDEVICES" run-active --kind ios-simulator \
+         --id "${SIM_UDID[$i]}" --owner-pid $$ -- bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" \
+         "${SIM_UDID[$i]}" "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
     echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" )
 done
 wait
