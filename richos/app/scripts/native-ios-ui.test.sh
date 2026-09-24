@@ -455,7 +455,6 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
     "$NATIVE/App/Features/Voice/TooShortLine.swift" \
     "$NATIVE/App/Design/SpinSchedule.swift" \
-    "$NATIVE/App/App/AppStore.swift" \
     "$NATIVE/App/Platform/Shared/PlatformIdentity.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then
   tail -30 "$WORK/headless-build.log"
