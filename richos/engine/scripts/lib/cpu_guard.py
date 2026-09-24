@@ -293,7 +293,22 @@ def install(engine):
         plistlib.dump(config, out)
     domain = 'gui/%s' % os.getuid()
     subprocess.run(['launchctl', 'bootout', domain + '/' + LABEL], capture_output=True)
-    subprocess.run(['launchctl', 'bootstrap', domain, str(agent)], check=True)
+    started = time.time()
+    # bootout can return before launchd has released the old registration.
+    for attempt in range(20):
+        boot = subprocess.run(['launchctl', 'bootstrap', domain, str(agent)], capture_output=True, text=True)
+        if boot.returncode == 0:
+            break
+        time.sleep(.25)
+    else:
+        raise RuntimeError('launchd bootstrap failed: ' + boot.stderr.strip())
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if healthy() and read_json(STATE/'heartbeat.json', {}).get('at', 0) >= started:
+            break
+        time.sleep(.25)
+    else:
+        raise RuntimeError('watchdog installed but did not produce a healthy heartbeat; inspect launchctl print')
     # A standalone user hook also covers cached/older engine plugins. The
     # canonical engine dispatcher is deliberately not a second registration.
     settings = Path.home() / '.claude/settings.json'

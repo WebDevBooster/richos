@@ -4,7 +4,7 @@ The September 23 incident had two independent causes: a software-rendered Androi
 
 ## Installed mechanism
 
-`python3 scripts/lib/cpu_guard.py install /absolute/path/to/richos/engine` installs `com.richos.cpu-guard` as a user LaunchAgent, copies its runtime to `/Volumes/E1TB/state/richos/cpu-guard/runtime` and adds one standalone Bash guard plus SessionStart/Stop notices to the user's Claude settings. Existing settings are preserved and backed up with private permissions. This registration also works with older cached engine plugins. Launchd restarts the watchdog after a crash and starts it at login.
+`python3 scripts/lib/cpu_guard.py install /absolute/path/to/richos/engine` installs `com.richos.cpu-guard` as a user LaunchAgent, copies its runtime to `/Volumes/E1TB/state/richos/cpu-guard/runtime` and adds one standalone Bash guard plus SessionStart/Stop notices to the user's Claude settings. Launchd output goes to `/dev/null` because macOS refused to open the external-volume log during spawn; runtime failures are recorded in the state directory. Existing settings are preserved and backed up with private permissions. This registration also works with older cached engine plugins. Launchd restarts the watchdog after a crash and starts it at login.
 
 The service samples CPU-time deltas every two seconds. It terminates an owned process and its observed descendants after ten seconds above three cores, or sheds the largest owned consumer when aggregate owned work exceeds 60% of the machine. Sustained host load above 85% also sheds owned work consuming at least half a core. Survivors receive SIGKILL after a three-second grace period. These are sampling targets, not real-time OS guarantees.
 
@@ -21,7 +21,7 @@ python3 scripts/lib/cpu_guard.py status
 launchctl print gui/$(id -u)/com.richos.cpu-guard
 ```
 
-The state directory contains the heartbeat, ownership records, intervention history, latest alert, service log and original Claude settings backups. The Bash guard refuses direct Gradle, Swift build/test, Xcode build, emulator and simulator-boot commands. It allows inspection and shutdown commands. Its parser distinguishes heredoc data from commands; it is not a shell sandbox.
+The state directory contains the heartbeat, ownership records, intervention history, latest alert and original Claude settings backups. The Bash guard refuses direct Gradle, Swift build/test, Xcode build, emulator and simulator-boot commands. It allows inspection and shutdown commands. Its parser distinguishes heredoc data from commands; it is not a shell sandbox.
 
 ## Boundaries
 
