@@ -1887,6 +1887,23 @@ fn main() {
         }
         return;
     }
+    // HIS LEAD'S REPORT TOOL (`richos-core`'s `operator_report.rs`; operator back-end spec r2
+    // (c)), the same shape as the three servers around it. Only an operator lead is ever given
+    // it (`operator_profile::mcp_config`), and only on an install whose `operator.json` passed
+    // the gate; nothing in the product path names this argument.
+    if first.as_deref() == Some(std::ffi::OsStr::new("--operator-mcp")) {
+        let result = args.next().ok_or_else(|| "Missing report scope".to_string())
+            .and_then(|scope| richos_core::operator_report::run_stdio(Path::new(&scope))
+                .map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            startup_alert::cannot_start(
+                &format!("operator report server: {error}"),
+                "RichOS could not start the helper your team reports to you through.",
+            );
+            std::process::exit(1);
+        }
+        return;
+    }
     if first.as_deref() == Some(std::ffi::OsStr::new("--onboarding-mcp")) {
         let result = args.next().ok_or_else(|| "Missing onboarding scope".to_string())
             .and_then(|scope| richos_core::onboarding_tools::run_stdio(Path::new(&scope))

@@ -218,3 +218,6 @@ pub mod operator_profile;
 ///   - `operator_frames` — his engine's alarms read off the lead's hook frames, verbatim and
 ///                    delivered once across every lead ((r)).
 pub mod operator_frames;
+///   - `operator_report` — `richos_operator.report`, the tool his lead tells him things with;
+///                    every "landed" is checked in Git before it is said ((c)).
+pub mod operator_report;
