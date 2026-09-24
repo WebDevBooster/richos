@@ -28,6 +28,7 @@ import dev.richos.android.BuildConfig
 import dev.richos.android.app.AppStore
 import dev.richos.android.app.RichApplication
 import dev.richos.android.core.Action
+import dev.richos.android.core.AppLinks
 import dev.richos.android.core.NotificationStatus
 import dev.richos.android.core.Platform
 import dev.richos.android.core.protocol.NotificationPreview
@@ -225,7 +226,20 @@ class FcmPlatform(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
     )
 
-    override suspend fun openAppStore() = start(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}")))
+    /** This app's Google Play listing: in the Play Store app, or on the web on a phone without it. */
+    override suspend fun openAppStore() = view(AppLinks.playStore(context.packageName), AppLinks.playStoreWeb(context.packageName))
+
+    override suspend fun openSupport() = view(AppLinks.support)
+
+    override suspend fun openPrivacyPolicy() = view(AppLinks.privacyPolicy)
+
+    /** Opens the first of [urls] something on this phone can open. With none, nothing happens and nothing fails. */
+    private suspend fun view(vararg urls: String) = withContext(main) {
+        for (url in urls) {
+            val opened = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            if (opened.isSuccess) break
+        }
+    }
 
     private suspend fun start(intent: Intent) = withContext(main) {
         runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }

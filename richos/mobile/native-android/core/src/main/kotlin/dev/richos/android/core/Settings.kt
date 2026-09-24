@@ -78,6 +78,8 @@ interface Platform {
 
     suspend fun openSupport() {}
 
+    suspend fun openPrivacyPolicy() {}
+
     companion object {
         val NONE: Platform = object : Platform {}
     }

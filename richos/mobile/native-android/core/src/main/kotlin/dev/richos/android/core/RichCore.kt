@@ -67,7 +67,7 @@ class RichCore private constructor(
         Action.TurnOnNotifications, is Action.NotificationsResult, Action.TurnOffNotifications, Action.DismissNotificationOffer,
         is Action.SetPreviews, is Action.OpenSheet, Action.CloseSheet, Action.ForgetPairing, Action.ConfirmForget,
         Action.OpenSystemSettings, is Action.OpenedFromNotification, Action.ClearFocus, is Action.UpdatePolicy,
-        Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport -> settings(action)
+        Action.DismissUpdate, Action.OpenAppStore, Action.OpenSupport, Action.CheckForUpdates, Action.OpenPrivacyPolicy -> settings(action)
         is Action.PushToken -> pushToken(action)
         Action.LoadOlder -> loadOlder()
         is Action.SendAttachments -> sendAttachments(action)
@@ -576,6 +576,9 @@ class RichCore private constructor(
             }
             Action.OpenAppStore -> { ports.platform.openAppStore(); emit() }
             Action.OpenSupport -> { ports.platform.openSupport(); emit() }
+            // Updates on Android come only from Google Play: checking is opening the listing.
+            Action.CheckForUpdates -> { ports.platform.openAppStore(); emit() }
+            Action.OpenPrivacyPolicy -> { ports.platform.openPrivacyPolicy(); emit() }
             else -> emit()
         }
     }

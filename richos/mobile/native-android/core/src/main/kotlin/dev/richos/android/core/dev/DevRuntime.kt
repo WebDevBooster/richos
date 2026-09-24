@@ -171,6 +171,7 @@ class DevRuntime private constructor(
                 override suspend fun openSystemSettings() = log("open:system-settings")
                 override suspend fun openAppStore() = log("open:app-store")
                 override suspend fun openSupport() = log("open:support")
+                override suspend fun openPrivacyPolicy() = log("open:privacy-policy")
             },
             clock = Clock { doc.now },
             ids = IdSource {

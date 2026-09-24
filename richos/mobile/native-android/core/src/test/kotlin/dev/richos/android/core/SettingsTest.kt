@@ -84,4 +84,24 @@ class SettingsTest {
         runtime.core.dispatch(Action.OpenSupport)
         assertEquals(listOf("open:system-settings", "open:app-store", "open:support"), runtime.export().platform)
     }
+
+    @Test
+    fun `check for updates opens the Play listing, and the privacy policy is one tap from Settings`() = runTest {
+        val runtime = online()
+        runtime.core.dispatch(Action.CheckForUpdates)
+        runtime.core.dispatch(Action.OpenPrivacyPolicy)
+        assertEquals(listOf("open:app-store", "open:privacy-policy"), runtime.export().platform)
+        // Unpaired too: the policy must be reachable before anyone pairs (store review starts there).
+        val unpaired = DevRuntime.create().also { it.execute(DevRequest.Fixture("unpaired")) }
+        unpaired.core.dispatch(Action.OpenPrivacyPolicy)
+        assertEquals(listOf("open:privacy-policy"), unpaired.export().platform)
+    }
+
+    @Test
+    fun `every outside address lives in AppLinks, and the placeholders are named for the CEO`() {
+        assertEquals(listOf("privacyPolicy", "support"), AppLinks.placeholders)
+        for (url in listOf(AppLinks.privacyPolicy, AppLinks.support)) assertTrue(url.startsWith("https://"), url)
+        assertEquals("market://details?id=dev.richos.connect", AppLinks.playStore("dev.richos.connect"))
+        assertEquals("https://play.google.com/store/apps/details?id=dev.richos.connect", AppLinks.playStoreWeb("dev.richos.connect"))
+    }
 }

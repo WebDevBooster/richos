@@ -94,6 +94,7 @@ sealed interface UiEvent {
     data object UpdateInStore : UiEvent
     data object UpdateLater : UiEvent
     data object Support : UiEvent
+    data object PrivacyPolicy : UiEvent
     data object WhereMessagesGo : UiEvent
     data object ForgetPairing : UiEvent
     data object ForgetConfirmed : UiEvent
@@ -141,6 +142,11 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.UpdateInStore -> Action.OpenAppStore
     UiEvent.UpdateLater -> Action.DismissUpdate
     UiEvent.Support -> Action.OpenSupport
+    UiEvent.PrivacyPolicy -> Action.OpenPrivacyPolicy
+    // On Android updates come from Google Play: the Settings row and the dialog's "Check again" open the listing.
+    UiEvent.CheckForUpdates -> Action.CheckForUpdates
+    // The consent screen's "Learn more" is the whole policy (privacy evidence E1).
+    UiEvent.ConsentLearnMore -> Action.OpenPrivacyPolicy
     else -> null
 }
 
@@ -152,7 +158,6 @@ val NOT_YET_IN_CORE: List<String> = listOf(
     "load older history on reaching the oldest message",
     "pairing surfaces core does not model: consent",
     "(built: pair with a link, words match / do not match, forget — core c2a1a20a; the scanner, the camera, the link sheet, pair again and the blocked-by-unsent choices — ui/pairing)",
-    "check for updates (the Settings row)",
     "show the waiting messages (from the forget refusal)",
     "photos and files: pick, tray, send, stop, retry, the Mac's limits and types; Share to Rich",
 )

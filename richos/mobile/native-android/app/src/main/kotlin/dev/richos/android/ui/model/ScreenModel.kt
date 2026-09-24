@@ -79,8 +79,8 @@ data class ScreenModel(
     val localNotice: InlineNotice? = null,
     /** STAND-IN (core: microphone card). The microphone-off card, shown after a press while denied. */
     val cards: List<ComposerCard> = emptyList(),
-    /** STAND-IN (core: updates check, pairing name). What the Settings sheet reports beyond core's notifications. */
-    val settings: SettingsInfo = SettingsInfo(),
+    /** What the Settings sheet reports beyond core's notifications, read from core unless a frame poses it. */
+    val settings: SettingsInfo = SettingsInfo(availableVersion = app.update?.version),
     /** Review frames only: Android's microphone prompt drawn over the press. */
     val overlay: Overlay? = null,
     /** STAND-IN (core: notifications). A reply notification as the system shade shows it (review frame). */
@@ -461,12 +461,10 @@ sealed interface UpdateNotice {
 
 enum class NotificationStatus { ON, OFF, TURNING_ON, DENIED, UNSUPPORTED, PROVIDER_UNAVAILABLE, SERVICE_UNAVAILABLE }
 
-enum class UpdateCheck { UP_TO_DATE, AVAILABLE, COULD_NOT_CHECK }
-
 @Immutable
 data class SettingsInfo(
-    val updateCheck: UpdateCheck = UpdateCheck.UP_TO_DATE,
-    val availableVersion: String = "1.1",
+    /** The version the hosted update policy announced (core `update`), or null: nothing has said so. */
+    val availableVersion: String? = null,
     val macName: String = "Alex’s Mac",
 )
 

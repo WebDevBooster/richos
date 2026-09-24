@@ -182,6 +182,14 @@ sealed interface Action {
     @Serializable @SerialName("open-support")
     data object OpenSupport : Action
 
+    /** Settings, "Check for updates": on Android updates come from Google Play, so it opens the listing. */
+    @Serializable @SerialName("check-for-updates")
+    data object CheckForUpdates : Action
+
+    /** Settings, "Privacy policy", and the consent screen's "Learn more" (Google Play: a link inside the app). */
+    @Serializable @SerialName("open-privacy-policy")
+    data object OpenPrivacyPolicy : Action
+
     /** The platform's push token arrived (after `turn-on-notifications`): register it with the Mac. */
     @Serializable @SerialName("push-token")
     data class PushToken(val token: String, val previewKey: String? = null) : Action
