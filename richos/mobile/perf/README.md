@@ -109,3 +109,42 @@ shapes, not captured output; the record says `"ranOnHardware": false` until the 
 `richos/app/scripts/mobile-perf.test.sh`: the parsers against output captured from the API 34
 emulator (`fixtures/android/`), the whole Android run against a scripted adb (including every
 refusal), and the iOS parsers. No emulator, simulator, build or window.
+
+## Production journeys and markers (24 September follow-up)
+
+`--production` never invokes the development bridge or seeds fixture state. Pair the installed,
+profileable Release build with an isolated test conversation first, then name its route and actual
+network condition. The operator must set and record that condition; the tool does not disable Wi-Fi
+or alter Tailscale. Use short runs on a daily phone and the PRD's separately scheduled overnight test.
+
+```sh
+python3 richos/mobile/perf/perf.py android --production --route managed --network-condition mac-unreachable \
+  --adb /opt/homebrew/bin/adb --serial SERIAL --kind physical --stamp BUILD.stamp.json \
+  --expect-commit COMMIT --only cold,warm,scroll --cold 100 --warm 100 --out PRIVATE_RECORD.json
+```
+
+`--exercise-sends` explicitly enables synthetic send and typing probes through the actual composer
+for a prepared test conversation. An occupied composer is refused. Without that flag production
+runs do not enter or send text. Real streamed replies are recorded with platform tracing; no fixture
+injection pretends to test production networking. Route labels are operator declarations, not
+independent proof that traffic took that route.
+
+Both release apps now emit static performance events without content, identifiers or uploads:
+
+| Event | Boundary |
+|---|---|
+| Android `richconnect:send-tapped` | Send reaches the application dispatcher, including queue wait. |
+| `send-requested` | Android begins the journal transaction; iOS receives a send action. |
+| `durable-queued` | Durable user-work save succeeds, before delivery. Failed saves emit no success event. |
+| `text-received` | Android receives a parsed delta frame; iOS receives a reply-delta action. |
+| `transcript-drawn` | Android's transcript root draws changed message state; iOS's useful root draws a changed transcript revision. |
+| `foreground-useful` | The loaded root draws after returning to the foreground. |
+| iOS `useful-content` | The loaded root first draws, rather than its blank loading branch. Android retains `reportFullyDrawn`. |
+
+Android trace event names have the `richconnect:` prefix. iOS uses the `dev.richos.connect`
+points-of-interest log. Capture these with Perfetto or Instruments and join draw markers to actual
+frame presentation. A draw marker does not by itself establish that a particular offscreen message
+was visible, that collection-view layout had settled or that every control was usable. Review the
+visible viewport and a frame trace. This follow-up supplies production measurement hooks and
+controls, not physical-device timing or energy certification. Earlier tables describe the original
+pilot; statements there that markers were absent are superseded by this section.

@@ -388,6 +388,22 @@ def _():
         assert any("sendToQueued" in g["what"] for g in record["notMeasured"])
 
 
+@case("R8 production launch and resume never invoke the Debug bridge")
+def _():
+    class ProductionAdb(FakeAdb):
+        def bridge(self, cmd):
+            raise AssertionError("production run invoked the development bridge")
+    with tempfile.TemporaryDirectory() as tmp:
+        record, failures_ = perf.run_android(
+            android_args(tmp, production=True, route="tailnet", only="cold,warm"),
+            runner=ProductionAdb(), sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert failures_ == 0, record["phases"]
+        assert record["route"]["name"] == "tailnet"
+        assert record["route"]["persistence"] == "production"
+        assert record["conditions"]["productionControls"] is True
+        assert "seed" not in record["phases"]
+
+
 @case("R2 an installed APK that is not the stamped one is REFUSED before any measurement")
 def _():
     with tempfile.TemporaryDirectory() as tmp:

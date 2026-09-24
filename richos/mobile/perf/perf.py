@@ -309,6 +309,8 @@ def android_identity(dev, stamp, kind):
 def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     """The Android run. `runner`, `sleep`, `host` and `touch` are replaceable for the suite."""
     import android
+    if args.production and not args.route:
+        raise Refused("--production requires --route managed or tailnet")
     if args.kind == "emulator" and args.owned_by != "randroid":
         raise Refused("an emulator is measured only through `randroid emu perf` (its recorded serial), never by a raw serial")
     stamp = load_stamp(args.stamp, args.expect_commit)
@@ -368,20 +370,21 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
         dev.sh(f"cmd uimode night {'yes' if args.theme == 'dark' else 'no'}", check=False)
         dev.sleep(args.settle)
     try:
-        bridge = True
+        bridge = not args.production
         try:
-            m.bridge.state()
+            if bridge: m.bridge.state()
         except Unmeasurable as e:
             bridge = False
             record["notMeasured"].append({"what": "seeded state, tap, typing and streaming",
                                           "why": f"no development bridge in this build ({e}); a release build needs a real pairing"})
-        conditions = {"theme": args.theme, "systemNightModeBefore": night}
+        conditions = {"theme": args.theme, "systemNightModeBefore": night,
+                      "productionControls": args.production, "networkCondition": "scripted-unreachable" if bridge else args.network_condition}
         if bridge:
             seeded = phase("seed", lambda: m.seed(args.history, "unreachable"))
             if seeded:
                 conditions.update(seeded)
         record["conditions"] = conditions
-        record["route"] = {"name": "development fixture" if bridge else "as installed",
+        record["route"] = {"name": "development fixture" if bridge else (args.route or "as installed"),
                            "detail": ("the debug build's scripted Mac inside the app: no network. Launch series run with the "
                                       "scripted Mac UNREACHABLE (Sage T6: launch must not depend on the network); the live "
                                       "spot check with it accepting") if bridge else "whatever state the installed app holds",
@@ -394,7 +397,7 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
         if cold:
             record["metrics"]["coldLaunch"] = metric(
                 "am force-stop; am start -W (LaunchState COLD); useful content = ActivityTaskManager 'Fully drawn' "
-                "(MainActivity ReportDrawnWhen: first frame after the saved state is read); scripted Mac unreachable",
+                "(MainActivity ReportDrawnWhen: first frame after the saved state is read); see conditions.networkCondition",
                 cold["useful"], "coldLaunch", firstFrameMs=cold["first"], firstFrameStats=perfcore.stats(cold["first"]),
                 rejected=cold["rejected"], screenCheck=cold["screenCheck"])
         if bridge and args.live_spot_check:
@@ -442,28 +445,29 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                 hotStats=perfcore.stats(hot), recreatedStats=perfcore.stats(recreated),
                 firstRecreation=warm["firstRecreation"], rejected=warm["rejected"])
 
-        if bridge:
+        if bridge or args.production:
             scroll = phase("scroll", lambda: m.scroll(args.swipes))
             if scroll:
                 record["metrics"]["activeFrames"] = metric(
                     "input swipe on the transcript (older and back), gfxinfo framestats over the swipes: frames whose "
                     "FrameCompleted <= FrameDeadline, and frames of 100 ms or more", None, None, **scroll)
-            tap = phase("tap", lambda: m.tap(args.taps))
+            tap = phase("tap", lambda: m.tap(args.taps, production=args.production)) if bridge or args.exercise_sends else None
             if tap:
                 record["metrics"]["tapToFeedback"] = metric(
                     "input tap on 'Send message': the app's deliverInputEvent eventTimeNano (atrace input) to the "
                     "FrameCompleted of the frame carrying that InputEventId (gfxinfo framestats); both CLOCK_MONOTONIC. "
-                    "The draft is set through the debug bridge; the sent text is checked on screen after each tap",
+                    ("Draft entered through real controls; " if args.production else "Draft set through the debug bridge; ") +
+                    "sent text checked on screen after each tap",
                     tap["samples"], "tapToFeedback", settledMs=tap["settled"], settledStats=perfcore.stats(tap["settled"]),
                     burstFrames=tap["burstFrames"], rejected=tap["rejected"])
-            typing = phase("typing", lambda: m.typing(args.type_text))
+            typing = phase("typing", lambda: m.typing(args.type_text, production=args.production)) if bridge or args.exercise_sends else None
             if typing:
                 record["metrics"]["typingCost"] = metric(
                     "one character per `input text` into the focused composer; /proc/<pid>/io write syscalls and bytes, "
                     "ftrace ext4/f2fs_sync_file_enter for the app's thread group (root), gfxinfo frames; per keystroke",
                     None, None, **typing)
             cursor = (args.history or 0) + args.taps + 10
-            stream = phase("streaming", lambda: m.streaming(args.stream_deltas, cursor))
+            stream = phase("streaming", lambda: m.streaming(args.stream_deltas, cursor)) if bridge else None
             if stream:
                 record["metrics"]["streamCost"] = metric(
                     "a streamed reply fed as `receive` delta frames through the debug bridge; the same write, fsync and "
@@ -525,13 +529,11 @@ def android_gaps(record, args):
     """PRD §7 rows this run could not measure, each with what would settle it."""
     gaps = [
         {"what": "sendToQueued (small text send to durable local queued state, p95 <= 150 ms)",
-         "why": "the tap metric ends at the first frame after the tap; nothing marks the moment the outbox item is "
-                "durable. Settle: a Trace section (android.os.Trace) around the outbox commit in AppStore/RichCore's "
-                "send path, read from the same atrace capture as the tap"},
+         "why": "use release trace events richconnect:send-tapped and richconnect:durable-queued; "
+                "the general tap metric is frame feedback and does not claim durability"},
         {"what": "receiveToVisible (received text to visible text, p95 <= 100 ms)",
-         "why": "no trace mark at the moment stream bytes reach the app (the debug bridge's broadcast has none). "
-                "Settle: a Trace section where ConnectionOwner hands a stream chunk to the store, then the first "
-                "frame after it from framestats, as the tap metric does"},
+         "why": "join release trace events richconnect:text-received and richconnect:transcript-drawn "
+                "to frame presentation. Offscreen rows must not be reported as visible"},
         {"what": "energy (mAh, OS battery attribution, OEM power-intensive warnings)",
          "why": "an emulator has no battery or power model; its batterystats power estimates are not energy. Settle: "
                 "the same background phase on a physical phone (PRD §8 names the mandatory OEM phone family), "
@@ -548,6 +550,14 @@ def android_gaps(record, args):
          "why": "in a development world the core persists through the bridge's document, not AppPorts' JsonFile. "
                 "RichCore.commit changes show here; JsonFile changes need a paired production core"},
     ]
+    if args.production:
+        gaps = [g for g in gaps if g["what"] not in ("managed Connect and Tailscale routes",
+                                                     "typing and streaming cost on the production persistence port")]
+        if not record["build"]["debuggable"]:
+            gaps = [g for g in gaps if g["what"] != "release-configuration timing"]
+        gaps.append({"what": "route attribution and physical qualification",
+                     "why": "the selected route and network condition are operator declarations; pair them with network and energy traces. "
+                            "This tool does not certify absence of OEM warnings or benchmark streamed text without a real reply"})
     if args.kind == "emulator":
         gaps.append({"what": "physical-device timing",
                      "why": "an emulator on a shared Mac (software GPU, host CPU recorded per phase) is a pilot, never "
@@ -561,6 +571,10 @@ def parse_args(argv):
     p = argparse.ArgumentParser(prog="perf.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("android", help="measure the installed Android build")
+    a.add_argument("--production", action="store_true", help="use the paired app through real controls, never the Debug bridge")
+    a.add_argument("--route", choices=("managed", "tailnet"), help="route under test, recorded rather than inferred")
+    a.add_argument("--network-condition", choices=("live", "phone-offline", "mac-unreachable"), default="live")
+    a.add_argument("--exercise-sends", action="store_true", help="enter and send synthetic probes on an explicitly prepared test conversation")
     a.add_argument("--adb", required=True)
     a.add_argument("--serial", required=True)
     a.add_argument("--kind", choices=("emulator", "physical"), required=True)

@@ -6,7 +6,7 @@ arrives 2026-09-25). Every parser below is exercised by richos/app/scripts/mobil
 against output SHAPED like the tools' documented output, not against captured output; the record
 says `"ranOnHardware": false` until a first run replaces that with evidence.
 
-THE LAUNCH MARKER THE APP MUST EMIT (Sage review 2026-09-24 T5). The iPhone app draws `Color.clear`
+THE LAUNCH MARKERS IMPLEMENTED IN THE APP (Sage review 2026-09-24 T5). The iPhone app draws `Color.clear`
 until the saved state has loaded (native-ios/App/App/RichOSNativeApp.swift, the `else` branch of
 `if let store`), so a first-frame launch metric would pass a blank screen. The end mark is a
 signpost the app emits once the saved transcript is on screen and the composer accepts input:
@@ -20,7 +20,7 @@ Where: `useful-content` in RootView's conversation (or pairing, when unpaired) s
 first appearance of the composer AFTER `store` is set (RichOSNativeApp.swift, the `RootView(...)`
 branch), never at `store = loaded` in the `.task`; `foreground-useful` in the `.active` case of
 `.onChange(of: scenePhase)` once the retained screen has drawn. Both are release-safe, add no
-polling and no network. Until the app emits them this module reports both metrics NOT MEASURED.
+polling and no network. The app now emits these from UsefulFrameMarker after loading. Physical capture and frame-presentation correlation remain unverified.
 
 What it measures today, given a simulator UDID (never `booted`) or an iPhone's UDID:
   identity      the installed bundle's files hashed (simulator), compared with the stamp

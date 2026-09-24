@@ -626,13 +626,16 @@ class Measure:
                 "firstRecreation": destroyed}
 
     # -- tap to feedback -------------------------------------------------------------------------
-    def tap(self, trials):
+    def tap(self, trials, production=False):
         samples, settled, rejected, frames = [], [], [], []
         pid = self.d.pid()
         for i in range(trials):
             self.pace()
             probe = f"perf probe {i + 1}"
-            self.bridge.action({"type": "compose", "text": probe})
+            if production:
+                self.enter_empty_composer(probe)
+            else:
+                self.bridge.action({"type": "compose", "text": probe})
             self.d.sleep(1.0)
             send = find_node(self.dump_ui(), desc="Send message")
             if send is None:
@@ -735,10 +738,24 @@ class Measure:
                               "frames": round((window["totalFrames"] or 0) / units, 2)}
         return out
 
-    def typing(self, text):
+    def enter_empty_composer(self, text):
+        field = find_node(self.dump_ui(), desc="Message Rich")
+        if field is None or field.get("text", "") not in ("", "Message Rich"):
+            raise Unmeasurable("production probes require an empty composer; existing work was left untouched")
+        if not re.fullmatch(r"[A-Za-z0-9 ]+", text):
+            raise Unmeasurable("probe text must contain only letters, digits and spaces")
+        x, y = center(field)
+        self.d.sh(f"input tap {x} {y}")
+        self.d.sh("input text " + text.replace(" ", "%s"))
+
+    def typing(self, text, production=False):
         pid = self.d.pid()
         with_io = self.ensure_root()
-        self.bridge.action({"type": "compose", "text": ""})
+        if production:
+            self.enter_empty_composer("a")
+            self.d.sh("input keyevent KEYCODE_DEL")
+        else:
+            self.bridge.action({"type": "compose", "text": ""})
         self.d.sleep(0.5)
         field = find_node(self.dump_ui(), desc="Message Rich")
         if field is None:
@@ -752,10 +769,15 @@ class Measure:
                 self.pace()
                 self.d.sh(f"input text {ch}")
         out = self._cost(pid, type_all, len(text), with_io)
-        draft = self.bridge.state()["draft"]
+        draft = (find_node(self.dump_ui(), desc="Message Rich") or {}).get("text") if production else self.bridge.state()["draft"]
         out["draftMatches"] = draft == text
         self.d.sh("input keyevent KEYCODE_BACK", check=False)
-        self.bridge.action({"type": "compose", "text": ""})
+        if production:
+            # This command inserted this exact draft into a verified empty test composer.
+            if draft != text: raise Unmeasurable("typed draft differs; leave it for review")
+            for _ in text: self.d.sh("input keyevent KEYCODE_DEL")
+        else:
+            self.bridge.action({"type": "compose", "text": ""})
         if not with_io:
             out["ioWhy"] = "no root: /proc/<pid>/io and the fsync trace need root (an emulator's google_apis image grants it)"
         return out
