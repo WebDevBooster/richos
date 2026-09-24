@@ -319,7 +319,12 @@ class RichCore private constructor(
         } ?: s
         "message" -> decode(Row.serializer(), frame.data)?.let { row ->
             val held = s.cache[row.threadId].orEmpty()
-            val merged = held.filter { it.id != row.id } + row
+            // A message typed at the Mac arrives first as the Mac's stand-in (`intake_<n>`,
+            // `phone/stream.rs` `announce_his_words`) and then as the turn's own row: the
+            // stand-in retires when that row arrives, matched by its words (the iPhone's
+            // `ThreadModel.merge`). Only on arrival, so an older row never retires a newer one.
+            val retired = if (row.role == "ceo" && !Echoes.isStandIn(row)) held.filter { Echoes.isStandIn(it) && it.text == row.text } else emptyList()
+            val merged = held.filter { it.id != row.id && it !in retired } + row
             val keepReading = row.threadId == s.selectedThreadId && held.any { it.id == s.readingAnchor?.messageId }
             s.copy(cache = s.cache + (row.threadId to bounded(merged, if (keepReading) merged.size else held.size)))
         } ?: s

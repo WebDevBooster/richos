@@ -254,6 +254,24 @@ class EchoReconciliationTest {
         assertEquals(4, phone.core.state.transcript.size)
     }
 
+    @Test fun `the Mac's stand-in for a desk message retires when its projected row arrives`() = runTest {
+        val phone = Phone(hello(*earlier)).start()
+        // Typed at the Mac: announced at once under the intake id (`phone/stream.rs`
+        // `announce_his_words`), then projected as the turn's own row.
+        phone.receive(frame(5, "message", row("intake_7", 3, "ceo", "from the desk")))
+        assertEquals(listOf("intake_7"), shown(phone.core.state, "from the desk"))
+        phone.receive(frame(6, "message", row("t2:user", 4, "ceo", "from the desk")))
+        assertEquals(listOf("t2:user"), shown(phone.core.state, "from the desk"), "one row, never two")
+        // An older row with the same words never retires a newer stand-in.
+        phone.receive(frame(7, "message", row("intake_8", 5, "ceo", "from the desk")))
+        assertEquals(listOf("t2:user", "intake_8"), shown(phone.core.state, "from the desk"))
+        // And a stand-in is never taken for the echo of the phone's own message.
+        phone.gate.complete(Unit)
+        phone.type("same words"); phone.core.dispatch(Action.Send)
+        phone.receive(frame(8, "message", row("intake_9", 6, "ceo", "same words")))
+        assertTrue(phone.core.state.transcript.last() is Line.Accepted, "the desk's stand-in is not the phone's echo")
+    }
+
     @Test fun `forgetting the pairing drops what was held for that Mac`() = runTest {
         val phone = Phone(hello(*earlier)).start()
         phone.gate.complete(Unit)
