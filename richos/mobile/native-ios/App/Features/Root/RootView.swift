@@ -223,7 +223,7 @@ struct ScreenView: View {
         Group {
             switch model.sheet {
             case .settings(let settings)?:
-                SettingsSheet(settings: settings, appearance: model.appearance, send: send)
+                SettingsSheet(settings: settings, send: send)
             case .whereMessagesGo?:
                 WhereMessagesGoSheet(send: send)
             case .pairingLink(let problem)?:

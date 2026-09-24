@@ -152,7 +152,6 @@ struct DialogView: View {
 /// row at the bottom. Every status is a sentence in the row, never a code (`notif-settings`).
 struct SettingsSheet: View {
     let settings: ScreenModel.Settings
-    let appearance: Appearance
     let send: (Intent) -> Void
     @Environment(\.palette) private var palette
 
@@ -176,13 +175,6 @@ struct SettingsSheet: View {
                 row(icon: .phone, title: "iPhone permissions", detail: "Microphone and camera", chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSystemSettings) }
                     .accessibilityAddTraits(.isButton)
-                row(icon: nil, title: "Light appearance", detail: nil, control: true) {
-                    Toggle("Light appearance", isOn: Binding(get: { appearance == .light },
-                                                             set: { send(.setAppearance($0 ? .light : .dark)) }))
-                        .labelsHidden()
-                        .toggleStyle(RToggleStyle())
-                        .accessibilityIdentifier("settings.appearance")
-                }
                 row(icon: .refresh, title: "Check for updates", detail: nil) {
                     Text(updateValue)
                         .type(Typography.read)

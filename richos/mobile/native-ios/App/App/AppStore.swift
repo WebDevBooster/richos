@@ -93,6 +93,16 @@ final class AppStore {
         receive(.foregrounded(at: at))
     }
 
+    /// The phone's own light or dark setting (the CEO, 2026-09-24, Urban's audit G9: "Follow the
+    /// phone"; round 12.1 has no appearance control). A mirror, never a choice: the core's
+    /// `appearance` is what the phone says, sent at launch, on every return to the front and when
+    /// the phone changes it. In a Debug fixture it is dropped, so a fixture keeps the theme it was
+    /// photographed in (`-rios-appearance`).
+    func followPhone(_ appearance: Appearance) {
+        guard state.appearance != appearance else { return }
+        receive(.setAppearance(appearance))
+    }
+
     /// The app left the screen: no stream in the background.
     func wentToBackground(at: Int64) {
         receive(.backgrounded(at: at))

@@ -311,6 +311,27 @@ do {
     check(ScreenModel(state: paired).dialog == .pairBlocked(waiting: 1, removed: false), "G2 still paired: pair-blocked unchanged")
 }
 
+// G9 (the CEO, 2026-09-24: "Follow the phone"): the app's appearance mirrors the phone's, and a
+// Debug fixture keeps the theme it is photographed in.
+MainActor.assumeIsolated {
+    let live = AppStore(state: try! Fixture.named("conv-populated").state, runner: EffectRunner(storage: MemoryStorage()))
+    live.followPhone(.light)
+    check(live.state.appearance == .light && ScreenModel(state: live.state).appearance == .light, "G9 a phone in light draws the app in light")
+    live.followPhone(.dark)
+    check(live.state.appearance == .dark, "G9 a phone back in dark draws the app in dark")
+    var photographed = try! Fixture.named("conv-populated").state
+    photographed.appearance = .light
+    let frozen = AppStore(state: photographed, runner: EffectRunner(storage: MemoryStorage()))
+    frozen.effectsSuspended = true
+    frozen.followPhone(.dark)
+    check(frozen.state.appearance == .light, "G9 a fixture keeps its -rios-appearance theme")
+}
+// G9: the Settings sheet has no appearance control (round 12.1 has none).
+do {
+    let source = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? "unreadable"
+    check(!source.contains("Light appearance") && !source.contains(".setAppearance("), "G9 Settings draws no appearance row")
+}
+
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
 print("  headless: all checks passed")
 SWIFT
@@ -334,7 +355,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
   exit 1
 fi
 echo "native-ios-ui: headless (compiled in $(( $(date +%s) - START )) s)"
-"$HEADLESS_BIN"
+"$HEADLESS_BIN" "$NATIVE"
 # The split and the by-name proof the simulator part relies on, against fixtures (no simulator).
 if ! python3 "$DIR/lib/ios_ui_shards.py" selftest; then
   echo "  FAIL  native-ios-ui: the shard split or its proof"; exit 1
