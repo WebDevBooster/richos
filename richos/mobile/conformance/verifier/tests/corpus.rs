@@ -211,6 +211,12 @@ fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
     mac::advance(mac::device::CHALLENGE_LIFETIME_MS + 1);
     assert_eq!(verify(&desk, &control), Err(Refusal::StaleChallenge), "control: a challenge past its lifetime (the reason for the 404 re-sign rule)");
 
+    // ---- the v2 six words: the Mac's own derivation over the corpus's inputs -------------------
+    let v2 = v2_words();
+    // ---- the press on the Mac: an unconfirmed device, through the production verifier --------
+    let waiting = awaiting_the_press(&dir.join("unconfirmed"), &keys);
+    println!("conformance verifier: {v2} v2 six-word expectations and {waiting} press-on-the-Mac verdicts proven against phone/words.rs and DeviceDesk::verify");
+
     // ---- the Mac-defined areas (attachments, FCM registration, the advertised surface) --------
     #[cfg(mac_native_v1)]
     {
@@ -230,6 +236,55 @@ fn every_signed_request_in_the_corpus_gets_the_verdict_the_corpus_records() {
         mac::INCLUDED_MODULES,
         mac::PHONE_DIR
     );
+}
+
+/// Every v2 case in fingerprint.json and the relay scenario in pairing.json, through the Mac's
+/// production `phone/words.rs`: the same input text and the same six words, or the build is red.
+fn v2_words() -> usize {
+    let f = load("fingerprint.json");
+    let mut proven = 0;
+    for case in f["v2"]["cases"].as_array().expect("fingerprint.json has no v2 cases") {
+        let name = case["name"].as_str().unwrap();
+        let (origin, ca, point) = (case["origin"].as_str().unwrap(), case["ca_fingerprint_sha256"].as_str().unwrap(), case["device_point_b64url"].as_str().unwrap());
+        assert_eq!(mac::words::v2_input(origin, ca, point), case["input_utf8"].as_str().unwrap(), "fingerprint.json v2: {name}: the Mac hashes different text");
+        assert_eq!(mac::words::v2(origin, ca, point), strings(&case["words"]), "fingerprint.json v2: {name}: the Mac shows different words");
+        proven += 1;
+    }
+    assert_eq!(f["v2"]["label"].as_str(), Some(mac::words::PAIR_V2_LABEL));
+    let relay = &load("pairing.json")["pair_v2"]["relay_scenario"];
+    let (ca, point) = (relay["ca_fingerprint_sha256"].as_str().unwrap(), relay["device_point_b64url"].as_str().unwrap());
+    let at_the_mac = mac::words::v2(relay["mac_origin"].as_str().unwrap(), ca, point);
+    let on_the_phone = mac::words::v2(relay["phone_dialed"].as_str().unwrap(), ca, point);
+    assert_eq!(at_the_mac, strings(&relay["mac_words"]), "relay scenario: the Mac's words");
+    assert_eq!(on_the_phone, strings(&relay["phone_words"]), "relay scenario: the phone's words, derived by the Mac's code");
+    assert_ne!(at_the_mac, on_the_phone, "relay scenario: a relayed pairing shows the same words on both screens");
+    proven + 3
+}
+
+/// **SAGE F1 AT THE PRODUCTION VERIFIER.** A second desk pairs the corpus key and is NOT pressed on
+/// the Mac: the corpus's waiting probe is refused `AwaitingMacConfirmation`, the phone's own answer
+/// is admitted by `verify_for_confirmation`, and after `confirm_on_mac` the same probe is accepted.
+fn awaiting_the_press(dir: &Path, keys: &Value) -> usize {
+    std::fs::create_dir_all(dir).unwrap();
+    let desk = DeviceDesk::open(dir).unwrap();
+    mac::queue_random(vec![7, 6, 5, 4, 3, 2, 1, 0]);
+    let window = desk.open_pairing().unwrap();
+    desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(keys["public_key_jwk"].clone()), "Conformance phone", "connect", "android")
+        .unwrap_or_else(|r| panic!("pairing the unconfirmed desk was refused: {r:?}"));
+    let m = &load("pairing.json")["mac_confirmation"];
+    let probe = &m["probes"][0]["requests"][0];
+    let r = read("pairing.json: mac_confirmation probe", probe);
+    issue(&desk, &r.challenge);
+    assert_eq!(verify(&desk, &r), Err(Refusal::AwaitingMacConfirmation), "an unconfirmed device's signed read was not answered awaiting");
+    let answer = &m["phone_answer_while_waiting"]["requests"][0];
+    let a = read("pairing.json: the phone's answer while waiting", answer);
+    issue(&desk, &a.challenge);
+    let presented = Presented { method: &a.method, path_with_query: &a.path_with_query, device_id: &a.device_id, challenge: &a.challenge, signature: a.signature.clone(), body: &a.body };
+    assert!(desk.verify_for_confirmation(&presented).is_ok(), "the phone's own answer to the six words was refused while waiting");
+    desk.confirm_on_mac().unwrap();
+    issue(&desk, &r.challenge);
+    assert!(verify(&desk, &r).is_ok(), "the press on the Mac did not let the corpus key in");
+    3
 }
 
 fn strings(value: &Value) -> Vec<String> {
@@ -265,6 +320,13 @@ fn native_additions(desk: &DeviceDesk, device_id: &str) -> usize {
     assert_eq!(strings(&answer["capabilities"]), mac::routes::capabilities(true, true), "pairing answer capabilities");
     assert_eq!(answer["protocol_version"].as_u64(), Some(mac::routes::PROTOCOL_VERSION), "pairing answer protocol_version");
     proven += 4;
+
+    // The awaiting answer (Sage F1), byte for byte what `phone/routes.rs` sends.
+    let m = &pairing["mac_confirmation"];
+    assert_eq!(m["awaiting_body"].as_str(), Some(mac::routes::AWAITING_MAC_BODY), "pairing.json awaiting body");
+    assert_eq!(m["awaiting_answer_classification"]["mac_answer"]["body"].as_str(), Some(mac::routes::AWAITING_MAC_BODY), "pairing.json awaiting classification body");
+    assert_eq!(m["awaiting_answer_classification"]["mac_answer"]["status"].as_u64(), Some(409), "the awaiting answer is a 409");
+    proven += 3;
 
     // Limits, identical in the corpus's attachments.json, hello and pairing answer.
     let a = load("attachments.json");

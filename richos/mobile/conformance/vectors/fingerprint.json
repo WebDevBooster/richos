@@ -3,6 +3,7 @@
   "file": "fingerprint.json",
   "source": "web/web-app/lib/fingerprint.js wordsFromHex/phraseFromHex; web/web-app/lib/wordlist.js WORDS",
   "rule": "strip an optional \"SHA-256\" label, then spaces, colons and dashes; parse hex; word[i] = WORDS[byte[i]] for the first 6 bytes; join with single spaces",
+  "cases_are": "v1: the words of a Mac-stated hash alone. A v2 phone must NOT show these; see v2.",
   "word_count": 6,
   "wordlist_sha256_of_newline_joined": "42be3dbc35f8bfe999e7cfb0839b72744cc1d2c93733e453c45d0e273128196e",
   "cases": [
@@ -151,6 +152,109 @@
       "error": "that is not a hexadecimal fingerprint"
     }
   ],
+  "v2": {
+    "source": "web/web-app/lib/fingerprint.js wordsV2/v2Input/normalizeOrigin/pointFromJwk; the Mac: app/src-tauri/src/phone/words.rs v2",
+    "rule": "input = \"RICHCONNECT-PAIR-V2\\n\" + origin + \"\\n\" + ca_fingerprint_sha256 + \"\\n\" + device_point_b64url; origin is the one the PHONE DIALED (the Mac: its own serving origin), written https://host[:port], lowercase, default port omitted, no trailing slash; ca_fingerprint_sha256 is the pair answer field byte for byte; device_point_b64url is the 65-byte uncompressed P-256 point, base64url without padding (the Mac: the key it registered). word[i] = WORDS[SHA-256(input)[i]] for i < 6.",
+    "label": "RICHCONNECT-PAIR-V2",
+    "cases": [
+      {
+        "name": "tailnet origin, the corpus key",
+        "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+        "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+        "device_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "input_utf8": "RICHCONNECT-PAIR-V2\nhttps://mm1.tail1a2b3c.ts.net:8443\n55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87\nBHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "words": [
+          "gazelle",
+          "coral",
+          "lettuce",
+          "grape",
+          "kayak",
+          "camera"
+        ],
+        "phrase": "gazelle coral lettuce grape kayak camera"
+      },
+      {
+        "name": "connect origin, the corpus key",
+        "origin": "https://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo",
+        "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+        "device_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "input_utf8": "RICHCONNECT-PAIR-V2\nhttps://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo\n55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87\nBHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "words": [
+          "castle",
+          "lemon",
+          "copper",
+          "collar",
+          "drawer",
+          "margin"
+        ],
+        "phrase": "castle lemon copper collar drawer margin"
+      },
+      {
+        "name": "the same key and Mac value through a relay origin: different words",
+        "origin": "https://relay.example",
+        "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+        "device_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "input_utf8": "RICHCONNECT-PAIR-V2\nhttps://relay.example\n55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87\nBHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "words": [
+          "pocket",
+          "pebble",
+          "carbon",
+          "candle",
+          "compass",
+          "lumber"
+        ],
+        "phrase": "pocket pebble carbon candle compass lumber"
+      },
+      {
+        "name": "the same origin and Mac value with another key (a device that paired first): different words",
+        "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+        "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+        "device_point_b64url": "BASKbzkK1H7E0_L-b4hHw0GfhJiwnPehC0eYbgHRmCPyeUsDC4B2M1l2gjPdtI7-pu7sr3jqk4vgMfmLG5lvmuk",
+        "input_utf8": "RICHCONNECT-PAIR-V2\nhttps://mm1.tail1a2b3c.ts.net:8443\n55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87\nBASKbzkK1H7E0_L-b4hHw0GfhJiwnPehC0eYbgHRmCPyeUsDC4B2M1l2gjPdtI7-pu7sr3jqk4vgMfmLG5lvmuk",
+        "words": [
+          "music",
+          "denim",
+          "locker",
+          "marble",
+          "lotus",
+          "otter"
+        ],
+        "phrase": "music denim locker marble lotus otter"
+      },
+      {
+        "name": "an origin written with capitals, the default port and a slash is normalized first",
+        "origin": "https://C-5DE0DBE0862DD461AE305AF5CEF35202-G2.RICHOS.CEO:443/",
+        "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+        "device_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "input_utf8": "RICHCONNECT-PAIR-V2\nhttps://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo\n55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87\nBHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "words": [
+          "castle",
+          "lemon",
+          "copper",
+          "collar",
+          "drawer",
+          "margin"
+        ],
+        "phrase": "castle lemon copper collar drawer margin"
+      },
+      {
+        "name": "the Mac value is used byte for byte: lowercase bare hex is a different input",
+        "origin": "https://mm1.tail1a2b3c.ts.net:8443",
+        "ca_fingerprint_sha256": "55a7f7362c07cdf4ee175b6a47d10a0d629be7af5f990c15b65a88d1332d6387",
+        "device_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "input_utf8": "RICHCONNECT-PAIR-V2\nhttps://mm1.tail1a2b3c.ts.net:8443\n55a7f7362c07cdf4ee175b6a47d10a0d629be7af5f990c15b65a88d1332d6387\nBHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+        "words": [
+          "ocean",
+          "glacier",
+          "needle",
+          "phantom",
+          "garden",
+          "mural"
+        ],
+        "phrase": "ocean glacier needle phantom garden mural"
+      }
+    ]
+  },
   "wordlist": [
     "anchor",
     "apple",

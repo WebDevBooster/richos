@@ -616,6 +616,287 @@
       "platform"
     ]
   },
+  "pair_v2": {
+    "rule": "A v2 phone adds \"pairing_version\": 2 to the pairing body, shows the v2 words (fingerprint.json v2), and refuses a Mac whose answer does not list \"pair-v2\" in capabilities: it signs one fingerprint_confirmed:false so that Mac forgets the key, and tells the person to update RichOS on the Mac. It never falls back to v1 (Sage review section 3.5: a relay can strip a capability). Native v2 bodies are [\"code\",\"public_key_jwk\",\"device_name\",\"platform\",\"pairing_version\"].",
+    "native_v2_body_fields": [
+      "code",
+      "public_key_jwk",
+      "device_name",
+      "platform",
+      "pairing_version"
+    ],
+    "exchanges": [
+      {
+        "name": "v2 phone pairs with a pair-v2 Mac",
+        "pairing_version": 2,
+        "mac_answers": [
+          {
+            "status": 200,
+            "body": {
+              "device_id": "dev_8d4c57b7ff82",
+              "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+              "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+              "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+              "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+              "thread_id": "thr_5c1e",
+              "thread_title": "the proposal",
+              "threads": [
+                {
+                  "id": "thr_5c1e",
+                  "title": "the proposal"
+                },
+                {
+                  "id": "thr_77aa",
+                  "title": "hiring"
+                }
+              ],
+              "protocol_version": 1,
+              "capabilities": [
+                "text",
+                "voice",
+                "audio",
+                "native-push",
+                "attachments",
+                "native-push-fcm",
+                "pair-v2"
+              ],
+              "pairing_version": 2,
+              "attachment_limits": {
+                "max_file_bytes": 26214400,
+                "max_files_per_message": 10,
+                "max_message_bytes": 104857600,
+                "upload_seconds": 300,
+                "media_types": [
+                  "image/jpeg",
+                  "image/png",
+                  "image/heic",
+                  "image/heif",
+                  "image/gif",
+                  "image/webp",
+                  "application/pdf",
+                  "text/plain",
+                  "text/markdown",
+                  "text/csv",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                ]
+              },
+              "build": "1.2.0"
+            },
+            "headers": {
+              "Content-Type": "application/json; charset=utf-8",
+              "X-RichOS-Challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv"
+            }
+          }
+        ],
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\",\"pairing_version\":2}",
+              "sha256_hex": "149c943d80bc54e37f85cbb489294948b7264a9222be6af256aa9c01b7b172ff",
+              "length": 213
+            },
+            "signed": null
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": {
+            "device_id": "dev_8d4c57b7ff82",
+            "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+            "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+            "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+            "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+            "thread_id": "thr_5c1e",
+            "thread_title": "the proposal",
+            "threads": [
+              {
+                "id": "thr_5c1e",
+                "title": "the proposal"
+              },
+              {
+                "id": "thr_77aa",
+                "title": "hiring"
+              }
+            ],
+            "protocol_version": 1,
+            "capabilities": [
+              "text",
+              "voice",
+              "audio",
+              "native-push",
+              "attachments",
+              "native-push-fcm",
+              "pair-v2"
+            ],
+            "pairing_version": 2,
+            "attachment_limits": {
+              "max_file_bytes": 26214400,
+              "max_files_per_message": 10,
+              "max_message_bytes": 104857600,
+              "upload_seconds": 300,
+              "media_types": [
+                "image/jpeg",
+                "image/png",
+                "image/heic",
+                "image/heif",
+                "image/gif",
+                "image/webp",
+                "application/pdf",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              ]
+            },
+            "build": "1.2.0"
+          }
+        },
+        "refused_for_missing_pair_v2": false,
+        "state_after": {
+          "device_id": "dev_8d4c57b7ff82",
+          "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+          "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+          "api_base_refusal": null
+        }
+      },
+      {
+        "name": "v2 phone refuses a Mac without pair-v2 and never falls back",
+        "pairing_version": 2,
+        "mac_answers": [
+          {
+            "status": 200,
+            "body": {
+              "device_id": "dev_8d4c57b7ff82",
+              "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+              "vapid_public_key": "BExampleVapidKeyOnlyTheWebPushClientUsesIt",
+              "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+              "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+              "thread_id": "thr_5c1e",
+              "thread_title": "the proposal",
+              "threads": [
+                {
+                  "id": "thr_5c1e",
+                  "title": "the proposal"
+                },
+                {
+                  "id": "thr_77aa",
+                  "title": "hiring"
+                }
+              ],
+              "protocol_version": 1,
+              "capabilities": [
+                "text",
+                "voice",
+                "audio",
+                "native-push",
+                "attachments",
+                "native-push-fcm"
+              ],
+              "attachment_limits": {
+                "max_file_bytes": 26214400,
+                "max_files_per_message": 10,
+                "max_message_bytes": 104857600,
+                "upload_seconds": 300,
+                "media_types": [
+                  "image/jpeg",
+                  "image/png",
+                  "image/heic",
+                  "image/heif",
+                  "image/gif",
+                  "image/webp",
+                  "application/pdf",
+                  "text/plain",
+                  "text/markdown",
+                  "text/csv",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                ]
+              },
+              "build": "1.2.0"
+            },
+            "headers": {}
+          }
+        ],
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\",\"pairing_version\":2}",
+              "sha256_hex": "149c943d80bc54e37f85cbb489294948b7264a9222be6af256aa9c01b7b172ff",
+              "length": 213
+            },
+            "signed": null
+          }
+        ],
+        "outcome": {
+          "ok": false,
+          "error": {
+            "reason": "refused",
+            "status": 200,
+            "retryable": false,
+            "about_this_message": false
+          }
+        },
+        "refused_for_missing_pair_v2": true,
+        "state_after": {
+          "device_id": "dev_8d4c57b7ff82",
+          "challenge": "Xqra0YQOgVJ9WLmQy9eYs1LSoxDt1Ggv",
+          "api_base": "https://mm1.tail1a2b3c.ts.net:8443",
+          "api_base_refusal": null
+        }
+      }
+    ],
+    "relay_scenario": {
+      "name": "the phone dials a relay; the relay forwards to the Mac; the two screens show different words",
+      "phone_dialed": "https://relay.example",
+      "mac_origin": "https://mm1.tail1a2b3c.ts.net:8443",
+      "ca_fingerprint_sha256": "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+      "device_point_b64url": "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+      "request": {
+        "method": "POST",
+        "target": "/api/pair",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "utf8": "{\"code\":\"K7M2QX9H\",\"public_key_jwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"d4Pk4yEvJm2aj-Mi3M8jLX05AdFPP4bNKR6VyfUJywE\",\"y\":\"LXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw\"},\"device_name\":\"Android phone\",\"pairing_version\":2}",
+          "sha256_hex": "149c943d80bc54e37f85cbb489294948b7264a9222be6af256aa9c01b7b172ff",
+          "length": 213
+        },
+        "signed": null
+      },
+      "phone_words": [
+        "pocket",
+        "pebble",
+        "carbon",
+        "candle",
+        "compass",
+        "lumber"
+      ],
+      "mac_words": [
+        "gazelle",
+        "coral",
+        "lettuce",
+        "grape",
+        "kayak",
+        "camera"
+      ]
+    }
+  },
   "fingerprint_confirmations": [
     {
       "name": "they match",
@@ -691,5 +972,322 @@
         }
       }
     }
-  ]
+  ],
+  "mac_confirmation": {
+    "source": "web/web-app/lib/api.js macConfirmed, confirmFingerprint, macWaitDelayMs and macWaitBoundMs; the Mac side is phone/device.rs verify (AwaitingMacConfirmation) and phone/routes.rs AWAITING_MAC_BODY",
+    "rule": "Until the person presses They match ON THE MAC, the Mac answers every signed request from the paired device 409 with awaiting_mac_confirmation (retryable, never final), except the phone's own fingerprint_confirmed answer, which is answered 200 with awaiting_mac_confirmation: true. The phone waits for the press on wait_schedule and on no other: only while the app is in the foreground, never past the bound, and it stops on the answer, on a refusal (final: the Mac forgot the device), or at the bound.",
+    "awaiting_body": "{\"awaiting_mac_confirmation\":true,\"reason\":\"Press They match on your Mac.\"}",
+    "wait_schedule_ms": [
+      {
+        "attempt": 0,
+        "delay_ms": 2000,
+        "asked_at_ms": 2000
+      },
+      {
+        "attempt": 1,
+        "delay_ms": 3000,
+        "asked_at_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "delay_ms": 5000,
+        "asked_at_ms": 10000
+      },
+      {
+        "attempt": 3,
+        "delay_ms": 8000,
+        "asked_at_ms": 18000
+      },
+      {
+        "attempt": 4,
+        "delay_ms": 13000,
+        "asked_at_ms": 31000
+      },
+      {
+        "attempt": 5,
+        "delay_ms": 15000,
+        "asked_at_ms": 46000
+      },
+      {
+        "attempt": 6,
+        "delay_ms": 15000,
+        "asked_at_ms": 61000
+      },
+      {
+        "attempt": 7,
+        "delay_ms": 15000,
+        "asked_at_ms": 76000
+      },
+      {
+        "attempt": 8,
+        "delay_ms": 15000,
+        "asked_at_ms": 91000
+      },
+      {
+        "attempt": 9,
+        "delay_ms": 15000,
+        "asked_at_ms": 106000
+      },
+      {
+        "attempt": 10,
+        "delay_ms": 15000,
+        "asked_at_ms": 121000
+      },
+      {
+        "attempt": 11,
+        "delay_ms": 15000,
+        "asked_at_ms": 136000
+      },
+      {
+        "attempt": 12,
+        "delay_ms": 15000,
+        "asked_at_ms": 151000
+      },
+      {
+        "attempt": 13,
+        "delay_ms": 15000,
+        "asked_at_ms": 166000
+      },
+      {
+        "attempt": 14,
+        "delay_ms": 15000,
+        "asked_at_ms": 181000
+      },
+      {
+        "attempt": 15,
+        "delay_ms": 15000,
+        "asked_at_ms": 196000
+      },
+      {
+        "attempt": 16,
+        "delay_ms": 15000,
+        "asked_at_ms": 211000
+      },
+      {
+        "attempt": 17,
+        "delay_ms": 15000,
+        "asked_at_ms": 226000
+      },
+      {
+        "attempt": 18,
+        "delay_ms": 15000,
+        "asked_at_ms": 241000
+      },
+      {
+        "attempt": 19,
+        "delay_ms": 15000,
+        "asked_at_ms": 256000
+      },
+      {
+        "attempt": 20,
+        "delay_ms": 15000,
+        "asked_at_ms": 271000
+      },
+      {
+        "attempt": 21,
+        "delay_ms": 15000,
+        "asked_at_ms": 286000
+      }
+    ],
+    "wait_bound_ms": {
+      "from_answer_240_seconds": 240000,
+      "from_answer_9999_seconds": 300000,
+      "when_the_mac_says_nothing": 300000
+    },
+    "max_requests_in_the_window": 22,
+    "phone_answer_while_waiting": {
+      "name": "they match on the phone, the Mac not yet pressed",
+      "requests": [
+        {
+          "method": "POST",
+          "target": "/api/pair",
+          "headers": {
+            "Authorization": "RichOS-Device dev_8d4c57b7ff82.F9CJ9NySJ_mf_EWL820jsCiQ6et7N7q3.beSeusqjDGlFUdF6TmnRV6LFJZgcOijGsGOiTiIrGFqViaXbZsz5ZjQzmP7-xMctL4mdgR6zu_3jv5kq1ZKKQw",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+            "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "length": 85
+          },
+          "signed": {
+            "credential": "header",
+            "challenge": "F9CJ9NySJ_mf_EWL820jsCiQ6et7N7q3",
+            "path_with_query": "/api/pair",
+            "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "signing_string": "F9CJ9NySJ_mf_EWL820jsCiQ6et7N7q3\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "signature_b64url": "beSeusqjDGlFUdF6TmnRV6LFJZgcOijGsGOiTiIrGFqViaXbZsz5ZjQzmP7-xMctL4mdgR6zu_3jv5kq1ZKKQw",
+            "authorization": "RichOS-Device dev_8d4c57b7ff82.F9CJ9NySJ_mf_EWL820jsCiQ6et7N7q3.beSeusqjDGlFUdF6TmnRV6LFJZgcOijGsGOiTiIrGFqViaXbZsz5ZjQzmP7-xMctL4mdgR6zu_3jv5kq1ZKKQw"
+          },
+          "mac": {
+            "signing_string": "F9CJ9NySJ_mf_EWL820jsCiQ6et7N7q3\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+            "verdict": "accepted"
+          }
+        }
+      ],
+      "outcome": {
+        "ok": true,
+        "value": {
+          "ok": true,
+          "awaiting_mac_confirmation": true
+        }
+      }
+    },
+    "awaiting_answer_classification": {
+      "name": "409 {\"awaiting_mac_confirmation\":true} (the Mac waits for its own press)",
+      "mac_answer": {
+        "status": 409,
+        "body": "{\"awaiting_mac_confirmation\":true,\"reason\":\"Press They match on your Mac.\"}",
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        }
+      },
+      "required": {
+        "client_action": "retry_same_bytes_after_backoff",
+        "retry_after_ms": 1000
+      },
+      "required_source": "reference",
+      "note": "Authenticated, and the person has not pressed They match on the Mac yet. Retryable and never final (no retry:false); a message stays in the outbox. The pairing screen names the missing press and waits on wait_schedule_ms.",
+      "reference": {
+        "classification": {
+          "reason": "fault",
+          "status": 409,
+          "retryable": true,
+          "about_this_message": false
+        },
+        "message_state_after": "waiting",
+        "retry_after_ms": 1000,
+        "next_message_attempted": false,
+        "queue_reason": "fault",
+        "client_action": "retry_same_bytes_after_backoff",
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/messages",
+            "client_id": "01J8CONFORMANCERETRY0000001"
+          }
+        ]
+      }
+    },
+    "probes": [
+      {
+        "name": "the Mac still waits for its press",
+        "mac_answer": {
+          "status": 409,
+          "body": "{\"awaiting_mac_confirmation\":true,\"reason\":\"Press They match on your Mac.\"}",
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "Su5zcGBDas764Oq3CMDzX6Qdt_yGHTs_"
+          }
+        },
+        "requests": [
+          {
+            "method": "GET",
+            "target": "/api/events?thread_id=thr_5c1e&before=0&limit=1&auth=RichOS-Device%20dev_8d4c57b7ff82.Su5zcGBDas764Oq3CMDzX6Qdt_yGHTs_.bCDUhPw7a6du8LP6D_irVvzF4reXd_CKij7CGRDcm0YUCDwgXa7ANG1tnpAgL5FMDOVCL6GNlCun2pPaQpcDCQ",
+            "headers": {},
+            "body": null,
+            "signed": {
+              "credential": "query",
+              "challenge": "Su5zcGBDas764Oq3CMDzX6Qdt_yGHTs_",
+              "path_with_query": "/api/events?thread_id=thr_5c1e&before=0&limit=1",
+              "body_sha256_hex": "",
+              "signing_string": "Su5zcGBDas764Oq3CMDzX6Qdt_yGHTs_\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+              "signature_b64url": "bCDUhPw7a6du8LP6D_irVvzF4reXd_CKij7CGRDcm0YUCDwgXa7ANG1tnpAgL5FMDOVCL6GNlCun2pPaQpcDCQ",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.Su5zcGBDas764Oq3CMDzX6Qdt_yGHTs_.bCDUhPw7a6du8LP6D_irVvzF4reXd_CKij7CGRDcm0YUCDwgXa7ANG1tnpAgL5FMDOVCL6GNlCun2pPaQpcDCQ"
+            },
+            "mac": {
+              "signing_string": "Su5zcGBDas764Oq3CMDzX6Qdt_yGHTs_\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": false
+        }
+      },
+      {
+        "name": "the person pressed They match on the Mac",
+        "mac_answer": {
+          "status": 200,
+          "body": {
+            "messages": [],
+            "more": false
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "TTNTiTd-t2g_GvxP6U_ybiaryEKVbtYH"
+          }
+        },
+        "requests": [
+          {
+            "method": "GET",
+            "target": "/api/events?thread_id=thr_5c1e&before=0&limit=1&auth=RichOS-Device%20dev_8d4c57b7ff82.TTNTiTd-t2g_GvxP6U_ybiaryEKVbtYH.964FBBAnVj5qaoSuhZT1O4GQE8IJ3KBLZtDHX7jXjXx_EygV8NadN-pHHrvRxkhwnF_mGjTeGhjNZV1GjGdX0A",
+            "headers": {},
+            "body": null,
+            "signed": {
+              "credential": "query",
+              "challenge": "TTNTiTd-t2g_GvxP6U_ybiaryEKVbtYH",
+              "path_with_query": "/api/events?thread_id=thr_5c1e&before=0&limit=1",
+              "body_sha256_hex": "",
+              "signing_string": "TTNTiTd-t2g_GvxP6U_ybiaryEKVbtYH\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+              "signature_b64url": "964FBBAnVj5qaoSuhZT1O4GQE8IJ3KBLZtDHX7jXjXx_EygV8NadN-pHHrvRxkhwnF_mGjTeGhjNZV1GjGdX0A",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.TTNTiTd-t2g_GvxP6U_ybiaryEKVbtYH.964FBBAnVj5qaoSuhZT1O4GQE8IJ3KBLZtDHX7jXjXx_EygV8NadN-pHHrvRxkhwnF_mGjTeGhjNZV1GjGdX0A"
+            },
+            "mac": {
+              "signing_string": "TTNTiTd-t2g_GvxP6U_ybiaryEKVbtYH\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": true
+        }
+      },
+      {
+        "name": "the person pressed They do not match on the Mac, or the window closed",
+        "mac_answer": {
+          "status": 403,
+          "body": {
+            "revoked": true
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "a7y_g4fSxDy7w91sYUqALCp6CkHyS64g"
+          }
+        },
+        "requests": [
+          {
+            "method": "GET",
+            "target": "/api/events?thread_id=thr_5c1e&before=0&limit=1&auth=RichOS-Device%20dev_8d4c57b7ff82.a7y_g4fSxDy7w91sYUqALCp6CkHyS64g.pDHjMXpyBwvu1XQK9qtnCaAy-VSZjRM2AzYmRXkSmLssTp7nlqUEyC4YwYZPMjFhDw7kE4dPDlu8b11FijGUug",
+            "headers": {},
+            "body": null,
+            "signed": {
+              "credential": "query",
+              "challenge": "a7y_g4fSxDy7w91sYUqALCp6CkHyS64g",
+              "path_with_query": "/api/events?thread_id=thr_5c1e&before=0&limit=1",
+              "body_sha256_hex": "",
+              "signing_string": "a7y_g4fSxDy7w91sYUqALCp6CkHyS64g\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+              "signature_b64url": "pDHjMXpyBwvu1XQK9qtnCaAy-VSZjRM2AzYmRXkSmLssTp7nlqUEyC4YwYZPMjFhDw7kE4dPDlu8b11FijGUug",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.a7y_g4fSxDy7w91sYUqALCp6CkHyS64g.pDHjMXpyBwvu1XQK9qtnCaAy-VSZjRM2AzYmRXkSmLssTp7nlqUEyC4YwYZPMjFhDw7kE4dPDlu8b11FijGUug"
+            },
+            "mac": {
+              "signing_string": "a7y_g4fSxDy7w91sYUqALCp6CkHyS64g\nGET\n/api/events?thread_id=thr_5c1e&before=0&limit=1\n",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": false,
+          "error": {
+            "reason": "revoked",
+            "status": 0,
+            "retryable": false,
+            "about_this_message": false
+          }
+        }
+      }
+    ]
+  }
 }
