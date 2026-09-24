@@ -470,6 +470,36 @@ def _():
     assert ios.parse_xctrace_signposts(xml, "useful-content") == [812000000, 900000000]
 
 
+# ---------------------------------------------------------------------------------------------
+# the mobile CLIs hand the tool what makes a measurement trustworthy
+# ---------------------------------------------------------------------------------------------
+
+MOBILE = os.path.abspath(os.path.join(PERF, ".."))
+
+
+@case("W1 randroid stamps the APK it installs and hands emu perf its recorded serial, lease and that stamp")
+def _():
+    with open(os.path.join(MOBILE, "native-android", "bin", "randroid")) as f:
+        script = f.read()
+    install = script[script.index("emu_install() {"):script.index("emu_command() {")]
+    assert install.index("perf.py\" stamp") < install.index("install -r -t"), "the stamp must be written before the install"
+    assert '> "$apk.stamp.json"' in install
+    perf_verb = script[script.index("    perf)"):script.index(";;", script.index("    perf)"))]
+    for needle in ('s="$(serial)"', '--serial "$s"', "--kind emulator", "--owned-by randroid", '--lease "$CACHE"',
+                   '--stamp "$OUT/app/outputs/apk/debug/app-debug.apk.stamp.json"'):
+        assert needle in perf_verb, needle
+    adb_verb = script[script.index("    adb)"):script.index(";;", script.index("    adb)"))]
+    assert 'adb_s "$@"' in adb_verb, adb_verb  # the recorded serial only, never a bare adb
+
+
+@case("W2 rios perf goes to perf.py ios before any Swift build")
+def _():
+    with open(os.path.join(MOBILE, "native-ios", "bin", "rios")) as f:
+        script = f.read()
+    assert script.index('= "perf" ]') < script.index("swift build"), "perf must not wait on the core's build"
+    assert 'perf.py" ios "$@"' in script
+
+
 if __name__ == "__main__":
     total = sum(1 for line in open(__file__) if line.startswith("@case("))
     if failures:

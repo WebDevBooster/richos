@@ -23,6 +23,10 @@
 #   randroid emu identity-check         the real Android Keystore: sign, convert to raw, verify, delete
 #   randroid emu verify                 the screen shows the core's draft (UI automation dump)
 #   randroid emu screenshot [file]      PNG of the emulator screen
+#   randroid emu adb <args>             one adb command against this CLI's emulator (its recorded
+#                                       serial only); for QA reads the grammar above has no verb for
+#   randroid emu perf [perf args]       launch, resume, input, idle-frame and background measurement
+#                                       of the installed build (richos/mobile/perf/perf.py android)
 #   randroid emu stop | delete          quit the emulator this CLI started (by its recorded PID) /
 #                                       also delete its AVD
 #   randroid doctor                     the tools this command found
@@ -200,6 +204,10 @@ emu_install() {
   gradle -q :app:assembleDebug >&2 || fail "the debug app did not build"
   t1="$(now_ms)"
   apk="$OUT/app/outputs/apk/debug/app-debug.apk"
+  # The build's identity (commit, uncommitted changes, bytes) beside it; `emu perf` refuses to
+  # measure an installed app whose bytes are not these.
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/../perf/perf.py" stamp --artifact "$apk" --checkout "$HERE/../../.." \
+    --paths richos/mobile/native-android > "$apk.stamp.json" || fail "could not stamp $apk"
   adb_s install -r -t "$apk" >/dev/null || fail "install failed on $(serial)"
   adb_s shell am start -W -n "$ACTIVITY" >/dev/null || fail "launch failed on $(serial)"
   local t2; t2="$(now_ms)"
@@ -309,6 +317,14 @@ emu() {
       emu_command "$command" "$1" ;;
     parity) emu_parity "${1:-}" ;;
     verify) emu_verify ;;
+    adb)
+      [ "$#" -ge 1 ] || fail "emu adb needs adb arguments"
+      adb_s "$@" ;;
+    perf)
+      local s; s="$(serial)"
+      PYTHONDONTWRITEBYTECODE=1 exec python3 "$HERE/../perf/perf.py" android --adb "$ADB" --serial "$s" \
+        --kind emulator --owned-by randroid --lease "$CACHE" --checkout "$HERE/../../.." \
+        --stamp "$OUT/app/outputs/apk/debug/app-debug.apk.stamp.json" "$@" ;;
     screenshot)
       local file="${1:-$CACHE/screens/$(date +%Y%m%d-%H%M%S).png}"
       mkdir -p "$(dirname "$file")"
@@ -619,6 +635,6 @@ case "$mode" in
   check-release) check_release ;;
   emu) emu "$@" ;;
   doctor) doctor ;;
-  ""|-h|--help|help) sed -n '2,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,41p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) fail "unknown mode '$mode'; see randroid --help" ;;
 esac
