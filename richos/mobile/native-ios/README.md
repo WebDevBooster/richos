@@ -38,7 +38,8 @@ simulator (`sim verify` requires byte-identical results).
 ## Physical iPhone checks
 
 `bin/rios device build` builds the `RichOSPhysical` Release scheme with development
-signing and sandbox APNs. Set `RICHOS_IOS_DEVICE` to the physical UDID and
+signing and sandbox APNs. The runner rejects a mismatch between the packaged APNs
+registration setting and the signed entitlement before installing or testing. Set `RICHOS_IOS_DEVICE` to the physical UDID and
 `RICHOS_APPLE_TEAM` to the signing team. Build output stays in the external cache.
 
 For `bin/rios device verify pairing`, `device verify text`, `device verify recording`,

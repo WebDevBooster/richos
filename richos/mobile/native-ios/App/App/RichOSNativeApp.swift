@@ -105,8 +105,12 @@ struct RichOSNativeApp: App {
                     await MainActor.run { try? NotificationPlatform.shared.configurePreviews(origin: origin, previews: previews).key }
                 }
                 NotificationPlatform.shared.onToken = { token in
+                    guard let environment = PushRegistration.buildEnvironment else {
+                        loaded.receive(.notificationsResult(.appleUnavailable))
+                        return
+                    }
                     Task {
-                        let actions = await network.setPushToken(token, sandbox: PushRegistration.buildEnvironment == .sandbox, state: loaded.state)
+                        let actions = await network.setPushToken(token, sandbox: environment == .sandbox, state: loaded.state)
                         for action in actions { loaded.receive(action) }
                     }
                 }

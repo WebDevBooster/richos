@@ -118,6 +118,9 @@ check("R3 the topic is RichConnect's permanent bundle id", push["topic"] as? Str
 check("R4 an unregistration's answer is read as not registered",
       PushRegistration.answer(status: 200, body: Data(#"{"host_id":null,"registered":false}"#.utf8)) == .registered(hostID: nil, registered: false))
 check("R5 the device token becomes lowercase hex", PushRegistration.token(Data([0xAB, 0x01, 0xFF])) == "ab01ff")
+check("R5a development signing chooses sandbox independently of optimization", PushRegistration.environment(apsValue: "development") == .sandbox)
+check("R5b distribution signing chooses production", PushRegistration.environment(apsValue: "production") == .production)
+check("R5c missing or malformed signing metadata never guesses production", PushRegistration.environment(apsValue: nil) == nil && PushRegistration.environment(apsValue: "$(RICHOS_APS_ENVIRONMENT)") == nil)
 check("R6 unregister is native_push null", String(decoding: PairingWire.pushUnregistrationBody, as: UTF8.self) == #"{"native_push":null}"#)
 check("R7 200 keeps the host id",
       PushRegistration.answer(status: 200, body: Data(#"{"host_id":"\#(host)","registered":true}"#.utf8)) == .registered(hostID: host, registered: true))

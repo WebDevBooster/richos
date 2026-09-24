@@ -5,6 +5,8 @@
      the app and its two extensions agree on (Release/platform.yml). -->
 <plist version="1.0">
 <dict>
+	<key>RichOSAPNsEnvironment</key>
+	<string>$(RICHOS_APS_ENVIRONMENT)</string>
 	<key>RichOSAppGroup</key>
 	<string>$(RICHOS_APP_GROUP)</string>
 	<key>RichOSKeychainGroup</key>

@@ -13,14 +13,18 @@ enum PushRegistration {
         case sandbox, production
     }
 
-    /// This build's APNs environment: Debug builds are signed for development push, Release for
-    /// production (the entitlement's `aps-environment`, `Release/platform.yml`).
-    static var buildEnvironment: Environment {
-        #if DEBUG
-        return .sandbox
-        #else
-        return .production
-        #endif
+    /// Optimization does not determine signing: a physical Release test can use development APNs.
+    /// Packaging writes the same setting to this key and the signing entitlement, then checks both.
+    static var buildEnvironment: Environment? {
+        environment(apsValue: Bundle.main.object(forInfoDictionaryKey: "RichOSAPNsEnvironment") as? String)
+    }
+
+    static func environment(apsValue: String?) -> Environment? {
+        switch apsValue {
+        case "development": return .sandbox
+        case "production": return .production
+        default: return nil
+        }
     }
 
     /// Lowercase hex, the only form the Mac accepts (32 to 512 characters).

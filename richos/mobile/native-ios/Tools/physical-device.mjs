@@ -24,6 +24,12 @@ export function configuration(env, command, selection) {
   return { device: env.RICHOS_IOS_DEVICE, team: env.RICHOS_APPLE_TEAM, test: checks[selection] };
 }
 
+export function verifyPushEnvironment(configured, signed) {
+  if (!['development', 'production'].includes(configured) || configured !== signed) {
+    throw Error('APNs registration environment must match the signed aps-environment entitlement');
+  }
+}
+
 function usb() {
   return execFileSync('ioreg', ['-p', 'IOUSB', '-w0'], { encoding: 'utf8', timeout: 5000 })
     .split('\n').filter(line => line.includes('<class IOUSBHostDevice,'))
@@ -65,7 +71,13 @@ export async function main(args, env = process.env) {
   const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
     { log, env, health, timeoutMs: 600000 });
   if (built.status !== 0) throw Error(`Device build failed: ${log}`);
-  if (command === 'build') return { log, app: join(derived, 'Build/Products/Release-iphoneos/RichOSNative.app') };
+  const app = join(derived, 'Build/Products/Release-iphoneos/RichOSNative.app');
+  const push = JSON.parse(execFileSync('python3', ['-c', `import json,plistlib,pathlib,subprocess,sys
+p=pathlib.Path(sys.argv[1]);info=plistlib.loads((p/'Info.plist').read_bytes())
+signed=plistlib.loads(subprocess.check_output(['codesign','-d','--entitlements',':-',str(p)],stderr=subprocess.DEVNULL))
+print(json.dumps([info.get('RichOSAPNsEnvironment'),signed.get('aps-environment')]))`, app], { encoding: 'utf8', env }));
+  verifyPushEnvironment(...push);
+  if (command === 'build') return { log, app };
   const spec = join(cache, `physical-${stamp}.xctestrun`);
   // Rewrite only the runner's environment and paths. Private config is fed via stdin,
   // never process arguments, app launch arguments or a committed test resource.

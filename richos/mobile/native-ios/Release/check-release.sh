@@ -66,6 +66,16 @@ info = plist(os.path.join(release, "Info.plist"))
 bundle = info.get("CFBundleIdentifier", "")
 extensions = {"RichOSShare.appex": "com.apple.share-services", "RichOSNotificationService.appex": "com.apple.usernotifications.service"}
 
+# Simulator signatures omit APNs. Check expanded metadata here; the physical runner
+# separately requires an actual matching aps-environment signing entitlement.
+for config, expected in [("Debug", "development"), ("Release", "production")]:
+    app = os.path.join(products, config + "-iphonesimulator", "RichOSNative.app")
+    entitlements = plistlib.loads(subprocess.check_output(["codesign", "-d", "--entitlements", ":-", app], stderr=subprocess.DEVNULL))
+    configured = plist(os.path.join(app, "Info.plist")).get("RichOSAPNsEnvironment")
+    signed = entitlements.get("aps-environment")
+    (ok if configured == expected and signed in (None, expected) else bad)(
+        f"APNs {config} metadata expands correctly (simulator)", str((configured, signed)))
+
 # R1
 problems = []
 for name, point in extensions.items():
