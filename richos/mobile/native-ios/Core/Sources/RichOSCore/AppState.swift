@@ -223,6 +223,8 @@ extension AppState {
         public var notifiedReply: String?
         /// Optional so a state saved before the tray existed still loads (same schema).
         public var pendingAttachments: [OutboxFile]?
+        /// New writers keep reconstructable transcript history outside the durable user-work file.
+        public var separateHistory: Bool? = nil
     }
 
     public var persisted: Persisted {

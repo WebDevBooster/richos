@@ -91,12 +91,25 @@ extension EffectHandler {
 /// or the CLI supplies the answer instead (for example `pairing-answered`).
 public actor EffectRunner {
     public static let stateKey = "state.json"
+    public static let historyKey = "history.json"
+    public static let cachedMessages = 100
+    private var lastUserWork: AppState.Persisted?
+    private var lastHistory: CachedHistory?
+    private var lastHistoryAt: Int64?
+    private var historyFailed = false
+
+    private struct CachedHistory: Codable, Equatable {
+        var mac: MacLink?
+        var messages: [Message]
+    }
 
     private let storage: any Storage
+    private let clock: any Clock
     private let handler: (any EffectHandler)?
     public private(set) var skipped: [Effect] = []
 
-    public init(storage: any Storage, handler: (any EffectHandler)? = nil) {
+    public init(storage: any Storage, handler: (any EffectHandler)? = nil, clock: any Clock = SystemClock()) {
+        self.clock = clock
         self.storage = storage
         self.handler = handler
     }
@@ -107,7 +120,7 @@ public actor EffectRunner {
         var followUps: [Action] = []
         for effect in effects {
             if effect == .persist {
-                try await storage.write(Self.stateKey, try CoreJSON.encode(state.persisted))
+                try await persist(state)
             } else if let handler {
                 followUps += await handler.handle(effect, state: state)
             } else {
@@ -115,6 +128,35 @@ public actor EffectRunner {
             }
         }
         return followUps
+    }
+
+    /// Never rewrite the transcript on a keystroke. Outbox-related bubbles stay with user work,
+    /// so a missing/stale disposable cache cannot lose the visible representation of an unsent send.
+    private func persist(_ state: AppState) async throws {
+        var user = state.persisted
+        let pending = Set(state.outbox.map(\.clientID))
+        user.messages = pending.isEmpty ? [] : state.messages.filter { pending.contains($0.clientID ?? $0.id) }
+        user.separateHistory = true
+        let intentChanged = user.outbox != lastUserWork?.outbox
+        if user != lastUserWork {
+            try await storage.write(Self.stateKey, try CoreJSON.encode(user))
+            lastUserWork = user
+        }
+        let history = CachedHistory(mac: state.mac, messages: Array(state.messages.suffix(Self.cachedMessages)))
+        let now = clock.nowMs()
+        if !historyFailed, history != lastHistory,
+           intentChanged || history.mac != lastHistory?.mac || history.messages.last?.id != lastHistory?.messages.last?.id ||
+           lastHistoryAt == nil || now - lastHistoryAt! >= 250 {
+            do {
+                try await storage.write(Self.historyKey, try CoreJSON.encode(history))
+                lastHistory = history
+                lastHistoryAt = now
+            } catch {
+                // The durable transaction already succeeded. Cache failure cannot turn it into a
+                // failed Send and invite a duplicate. Stop retries; history can be fetched again.
+                historyFailed = true
+            }
+        }
     }
 
     /// The stored state, or `nil` for a new install. A stored file that cannot be read THROWS — it
@@ -127,6 +169,15 @@ public actor EffectRunner {
         struct Probe: Decodable { var schema: Int }
         let schema = try CoreJSON.decode(Probe.self, from: data).schema
         guard schema == AppState.schemaVersion else { throw StoredSchemaError(found: schema) }
-        return try AppState(restoring: CoreJSON.decode(AppState.Persisted.self, from: data))
+        var saved = try CoreJSON.decode(AppState.Persisted.self, from: data)
+        lastUserWork = saved
+        if saved.separateHistory == true,
+           let bytes = try? await storage.read(Self.historyKey),
+           let cached = try? CoreJSON.decode(CachedHistory.self, from: bytes), cached.mac == saved.mac {
+            lastHistory = cached
+            let protected = Set(saved.messages.map(\.id))
+            saved.messages = (cached.messages.filter { !protected.contains($0.id) } + saved.messages).sorted { $0.sentAt < $1.sentAt }
+        }
+        return try AppState(restoring: saved)
     }
 }
