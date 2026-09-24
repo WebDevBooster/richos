@@ -53,8 +53,40 @@
 use super::push::Subscription;
 use super::{constant_time_eq, hex, sha256, PhoneError, PAIRING_WINDOW_MS};
 use std::collections::VecDeque;
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
+
+/// **THE CAPABILITY A PHONE ASKS BEFORE IT ASKS THIS MAC TO HOLD ITS ANSWER** — Sage's pair-v2
+/// hypotheses review §1 "The fix" point 2, and the capability negotiation pattern of ledger row
+/// S3 (COPY THE DESIGN): named beside `pair-v2` in every `capabilities` list, so a phone sends
+/// `Prefer: wait=…` only to a Mac that will honor it and older Macs and phones keep working
+/// unchanged.
+pub const PAIR_WAIT_CAPABILITY: &str = "pair-wait";
+
+/// **THE LONGEST THIS MAC HOLDS A PHONE'S "They match" BEFORE ANSWERING "still waiting".**
+///
+/// Fourteen seconds, and the number is the event stream's rather than a choice made here: the
+/// stream already crosses the phone's routes with at most [`super::KEEPALIVE_MS`] = 15,000 ms
+/// between bytes, so a hold that sends nothing for 14,000 ms stays inside a silence those routes
+/// already carry. The count, recomputed: the window is [`PAIRING_WINDOW_MS`] = 300,000 ms, and
+/// 300,000 ÷ 14,000 = 21.4, so a phone that is held every time asks at most 22 times in the
+/// window — the same ceiling today's backed-off schedule reaches.
+pub const PAIR_WAIT_MAX_SECONDS: u64 = 14;
+
+/// **HOW LONG A PAIRING THIS MAC ACCEPTED MAY STAY UNFINISHED BY THE PHONE** — Sage's review §2
+/// "The fix" point 2, measured from [`Device::confirm_by`].
+///
+/// One more pairing window, five minutes, and it has to exceed the phone's own deadline: the
+/// phone waits until the moment of its own "They match" plus `confirm_within_seconds`, which is
+/// at most `confirm_by` plus however long the person spent reading the words. **The cost of
+/// this number, stated as Sage stated it:** a person who presses They match on this Mac first
+/// and then leaves the phone's word screen unanswered for more than five minutes past the window
+/// comes back to a phone this Mac has forgotten, and scans again. `unverified:` it is a judgment,
+/// not a measurement.
+pub const UNFINISHED_GRACE_MS: u64 = PAIRING_WINDOW_MS;
 
 /// How long a challenge stays presentable. Ten minutes: long enough that an `EventSource` which
 /// reconnects for half an hour is only asked for a fresh one occasionally, short enough that a
@@ -252,6 +284,23 @@ pub struct Device {
     /// middle of a pairing still knows when the unconfirmed key has to go.
     #[serde(default)]
     pub confirm_by: u64,
+
+    /// **HAS THE PHONE ACTUALLY USED THE PAIRING?** — Sage's pair-v2 hypotheses review §2, the
+    /// Mac that listed a phone which could never connect.
+    ///
+    /// The press on this Mac ([`Device::mac_confirmed`]) is this Mac's yes; it is not evidence
+    /// that the phone HEARD it. A phone that lost this Mac after its own "They match" asks until
+    /// its deadline, hears nothing, and throws its key away, while this Mac went on saying "It is
+    /// paired" for a key whose private half no longer exists. So "paired" now waits for the one
+    /// thing only a phone that heard the yes does: a request through [`DeviceDesk::verify`] —
+    /// every ask before that goes through [`DeviceDesk::verify_for_confirmation`] instead.
+    ///
+    /// **`true` for a record written before this field existed**, the precedent
+    /// [`Device::mac_confirmed`] set: those phones are already working, and demoting them on the
+    /// first launch of this build would have the Mac forget every paired phone at the next sweep.
+    /// A record written by this build always carries the value outright, `false` at pairing.
+    #[serde(default = "confirmed_by_default")]
+    pub completed: bool,
 }
 
 fn pairing_version_one() -> u8 {
@@ -276,6 +325,14 @@ impl Device {
     /// ([`DeviceDesk::expire_unconfirmed`]).
     pub fn confirmation_lapsed(&self, now: u64) -> bool {
         !self.mac_confirmed && now > self.confirm_by
+    }
+
+    /// **This Mac said yes, and the phone never used the pairing within the grace** (Sage's
+    /// review §2). Such a device is forgotten at the next sweep with its own sentence
+    /// ([`StoppedBy::UNFINISHED`]), so a key whose phone gave up does not hold the one pairing
+    /// slot until somebody finds `Forget this phone`.
+    pub fn finish_lapsed(&self, now: u64) -> bool {
+        self.mac_confirmed && !self.completed && now > self.confirm_by + UNFINISHED_GRACE_MS
     }
 
     /// **The six words this Mac shows beside "They match"** — the ones this phone will show.
@@ -489,6 +546,78 @@ struct State {
     /// was kept and the sheet warns (Sage: *"If it is already confirmed, keep it and warn"*).
     /// In memory: it is about this pairing, and forgetting the phone clears it.
     code_reused: bool,
+    /// **THE ONE HELD ASK, AND WHAT RELEASES IT** — see [`DeviceDesk::hold_answer`].
+    hold: Hold,
+}
+
+/// The bookkeeping behind [`DeviceDesk::hold_answer`]. In memory only: a held ask lives for at
+/// most [`PAIR_WAIT_MAX_SECONDS`] on one connection, and a relaunch ends the connection anyway.
+#[derive(Default)]
+struct Hold {
+    /// Bumped by every event that ends a hold with a new answer to give: the press on this Mac,
+    /// any forgetting of the device, and the channel's teardown ([`DeviceDesk::release_holds`]).
+    released: u64,
+    /// Ticket of the ask being held now, if one is, and the waker of the task holding it.
+    current: Option<(u64, Option<Waker>)>,
+    next_ticket: u64,
+}
+
+impl Hold {
+    /// Ring the release and wake the held task. Waking under the desk's lock is safe: a tokio
+    /// waker only schedules the task and never polls it inline, and the verifier's waker is a
+    /// flag.
+    fn release(&mut self) {
+        self.released += 1;
+        if let Some(waker) = self.current.as_mut().and_then(|(_, waker)| waker.take()) {
+            waker.wake();
+        }
+    }
+}
+
+/// How a held ask ended. [`HoldEnd::Released`] means something changed that the phone should hear
+/// about, so the listener runs the request again and sends THAT answer; a superseded hold answers
+/// "still waiting" at once, because the newer ask now carries the wait.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HoldEnd {
+    Released,
+    Superseded,
+}
+
+/// The future [`DeviceDesk::hold_answer`] returns. **Plain `std`, no runtime**: this module is
+/// compiled on its own by `mobile/conformance/verifier`, which has no tokio, and a hold the
+/// verifier can poll by hand is a release signal it can prove.
+pub struct HeldAnswer {
+    desk: Arc<DeviceDesk>,
+    ticket: u64,
+    since: u64,
+}
+
+impl Future for HeldAnswer {
+    type Output = HoldEnd;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<HoldEnd> {
+        let mut state = self.desk.state.lock().unwrap();
+        if state.hold.released != self.since {
+            return Poll::Ready(HoldEnd::Released);
+        }
+        match state.hold.current.as_mut() {
+            Some((ticket, waker)) if *ticket == self.ticket => {
+                *waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+            _ => Poll::Ready(HoldEnd::Superseded),
+        }
+    }
+}
+
+impl Drop for HeldAnswer {
+    /// A hold that timed out, was superseded or was canceled with its connection gives up the
+    /// slot, so a stale waker is never the one a release reaches.
+    fn drop(&mut self) {
+        let mut state = self.desk.state.lock().unwrap();
+        if state.hold.current.as_ref().is_some_and(|(ticket, _)| *ticket == self.ticket) {
+            state.hold.current = None;
+        }
+    }
 }
 
 // =========================================================================================
@@ -539,6 +668,10 @@ impl StoppedBy {
     /// Nobody pressed "They match" on this Mac before the pairing window closed (§3.1 step 6),
     /// so the unconfirmed key was forgotten rather than left behind.
     pub const EXPIRED: &'static str = "expired";
+    /// **This Mac pressed They match, and the phone never used the pairing** within
+    /// [`UNFINISHED_GRACE_MS`] of the window closing (Sage's pair-v2 hypotheses review §2), so the
+    /// key its phone gave up on was forgotten rather than listed as a phone that is paired.
+    pub const UNFINISHED: &'static str = "unfinished";
     /// A record this build cannot read, or one written before the reason was recorded. The sheet
     /// says the sentence that was the only one before; the refusal itself still stands.
     pub const UNKNOWN: &'static str = "";
@@ -576,6 +709,7 @@ pub fn rejection_by(dir: &Path) -> &'static str {
         Some(StoppedBy::MAC) => StoppedBy::MAC,
         Some(StoppedBy::CODE_USED_TWICE) => StoppedBy::CODE_USED_TWICE,
         Some(StoppedBy::EXPIRED) => StoppedBy::EXPIRED,
+        Some(StoppedBy::UNFINISHED) => StoppedBy::UNFINISHED,
         _ => StoppedBy::UNKNOWN,
     }
 }
@@ -640,6 +774,7 @@ impl DeviceDesk {
                 audio: VecDeque::new(),
                 redeemed: None,
                 code_reused: false,
+                hold: Hold::default(),
             }),
         })
     }
@@ -852,6 +987,9 @@ impl DeviceDesk {
             // THE WINDOW'S TIMER KEEPS RUNNING (Sage §3.1 step 6): the press on this Mac has to
             // come before the window this code came from would have closed.
             confirm_by: window_opened_at + PAIRING_WINDOW_MS,
+            // AND "PAIRED" WAITS FOR THE PHONE TO USE IT (Sage's pair-v2 review §2): the first
+            // request through `verify` after the press sets this, and nothing else does.
+            completed: false,
         };
         // Pairing is explicit authorization to use this key again. Device IDs are key-derived.
         if state.revoked.contains(&device.id) {
@@ -883,27 +1021,90 @@ impl DeviceDesk {
         self.forget_in(&mut state)
     }
 
-    /// **An unconfirmed device whose window has closed is forgotten** — Sage §3.1 step 6: *"An
-    /// unconfirmed device at expiry is forgotten, so an abandoned pairing never leaves a key
-    /// behind."* Returns whether it forgot one, so the owner of the listener can take the socket
-    /// down and the sheet can say why ([`StoppedBy::EXPIRED`]). A confirmed device is never touched.
-    pub fn expire_unconfirmed(&self) -> Result<bool, PhoneError> {
+    /// **A pairing that ran out of time is forgotten, and the answer says which clock ran out.**
+    ///
+    /// - [`StoppedBy::EXPIRED`]: nobody pressed They match on this Mac before the window closed —
+    ///   Sage §3.1 step 6, *"An unconfirmed device at expiry is forgotten, so an abandoned pairing
+    ///   never leaves a key behind."*
+    /// - [`StoppedBy::UNFINISHED`]: this Mac pressed, and the phone never used the pairing within
+    ///   [`UNFINISHED_GRACE_MS`] after that (Sage's pair-v2 hypotheses review §2).
+    ///
+    /// `None` when nothing lapsed. The owner of the listener takes the socket down on `Some` and
+    /// the sheet says the sentence for that reason. A completed device is never touched.
+    pub fn expire_lapsed(&self) -> Result<Option<&'static str>, PhoneError> {
         let mut state = self.state.lock().unwrap();
-        let lapsed = state.device.as_ref().is_some_and(|d| d.confirmation_lapsed(super::now_millis()));
-        if lapsed {
-            self.forget_in(&mut state)?;
-        }
-        Ok(lapsed)
+        let now = super::now_millis();
+        let why = match state.device.as_ref() {
+            Some(d) if d.confirmation_lapsed(now) => StoppedBy::EXPIRED,
+            Some(d) if d.finish_lapsed(now) => StoppedBy::UNFINISHED,
+            _ => return Ok(None),
+        };
+        self.forget_in(&mut state)?;
+        Ok(Some(why))
     }
 
     /// **When the next pairing deadline falls**, if anything is waiting on one: an open window's
-    /// close, or an unconfirmed device's `confirm_by`. What `PhoneRuntime`'s deadline watcher
-    /// sleeps until — one sleep per deadline, never a poll.
+    /// close, an unconfirmed device's `confirm_by`, or a pressed-but-unfinished device's
+    /// `confirm_by` plus [`UNFINISHED_GRACE_MS`]. What `PhoneRuntime`'s deadline watcher sleeps
+    /// until — one sleep per deadline, never a poll.
     pub fn pairing_deadline(&self) -> Option<u64> {
         let state = self.state.lock().unwrap();
         let window = state.pairing.as_ref().map(|w| w.opened_at + PAIRING_WINDOW_MS);
-        let device = state.device.as_ref().filter(|d| !d.mac_confirmed).map(|d| d.confirm_by);
+        let device = state.device.as_ref().and_then(|d| {
+            if !d.mac_confirmed {
+                Some(d.confirm_by)
+            } else if !d.completed {
+                Some(d.confirm_by + UNFINISHED_GRACE_MS)
+            } else {
+                None
+            }
+        });
         window.into_iter().chain(device).max()
+    }
+
+    // --- the held ask (Sage's pair-v2 hypotheses review §1) -------------------------------
+
+    /// Where the release signal stands. The listener reads it BEFORE it runs a request that may
+    /// be held, and hands it to [`DeviceDesk::hold_answer`]: a press that lands between the
+    /// request's answer being computed and the hold starting has already moved this, so the hold
+    /// ends at once instead of making the phone wait fourteen seconds for news it missed.
+    pub fn hold_generation(&self) -> u64 {
+        self.state.lock().unwrap().hold.released
+    }
+
+    /// **HOLD THE PHONE'S "They match" UNTIL THERE IS SOMETHING NEW TO SAY** — Sage's review §1,
+    /// "The fix" point 2.
+    ///
+    /// Called by the listener only after the request has already been answered "the Mac is still
+    /// waiting for its own press" — that is, after its signature verified on the one request an
+    /// unconfirmed key may make ([`DeviceDesk::verify_for_confirmation`]). So a caller without the
+    /// key never reaches it. The returned future ends:
+    ///
+    /// - [`HoldEnd::Released`] on the press on this Mac ([`DeviceDesk::confirm_on_mac`]), on any
+    ///   forgetting of the device — `They do not match` on this Mac or the phone, the expiry sweep,
+    ///   `Forget this phone`, the spent-code alarm — and on the channel's teardown
+    ///   ([`DeviceDesk::release_holds`]), or if any of those already happened after `since`;
+    /// - [`HoldEnd::Superseded`] when another held ask begins. **At most one ask is held at a
+    ///   time**, so the holder of a key can never occupy more than one of the listener's 32
+    ///   connection slots with holds.
+    ///
+    /// The time limit is the caller's ([`PAIR_WAIT_MAX_SECONDS`] under `tokio::time::timeout`).
+    pub fn hold_answer(self: &Arc<Self>, since: u64) -> HeldAnswer {
+        let mut state = self.state.lock().unwrap();
+        state.hold.next_ticket += 1;
+        let ticket = state.hold.next_ticket;
+        // The previous holder is answered at once: its future sees a ticket that is not its own.
+        if let Some((_, Some(waker))) = state.hold.current.replace((ticket, None)) {
+            waker.wake();
+        }
+        HeldAnswer { desk: Arc::clone(self), ticket, since }
+    }
+
+    /// **The channel is going away: every held ask gets its answer now.** Called by
+    /// `listen::Listener::stop` before it signals shutdown, so a phone that is being held hears
+    /// the current state instead of a connection that simply drops.
+    pub fn release_holds(&self) {
+        self.state.lock().unwrap().hold.release();
     }
 
     /// **MAY THIS REQUEST'S BODY BE LARGER THAN 64 KiB?** — Sage's pairing review F3.
@@ -956,6 +1157,9 @@ impl DeviceDesk {
         state.pairing = None;
         state.challenges.clear();
         state.audio.clear();
+        // A phone being held hears that this pairing ended, now, rather than at the end of its
+        // hold (Sage's pair-v2 review §1: released by "They do not match" and the expiry sweep).
+        state.hold.release();
         match std::fs::remove_file(&self.path) {
             Ok(()) => {},
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
@@ -1059,6 +1263,25 @@ impl DeviceDesk {
         if !device.mac_confirmed && !unconfirmed_may_answer {
             return Err(Refusal::AwaitingMacConfirmation);
         }
+
+        // 5. THE PHONE IS USING THE PAIRING (Sage's pair-v2 review §2). Only `verify` counts:
+        //    every ask a phone makes while it waits for the press goes through
+        //    `verify_for_confirmation`, so the first request through here after the press is the
+        //    first one a phone makes because it HEARD the yes. Written once per pairing.
+        let mut device = device;
+        if !unconfirmed_may_answer && !device.completed {
+            device.completed = true;
+            if let Some(record) = state.device.as_mut() {
+                record.completed = true;
+            }
+            if let Err(error) = self.write(&state) {
+                // Not a refusal: the request is genuine and is answered, and the fact stays true
+                // in memory so this run's sweep never forgets a phone that is plainly working.
+                // What is lost is the record on disk, and a relaunch reads "unfinished" until the
+                // phone's next request writes it again. Said, because that is the residual.
+                eprintln!("[richos] the phone used its pairing but that could not be written down: {error}");
+            }
+        }
         Ok(device)
     }
 
@@ -1109,6 +1332,9 @@ impl DeviceDesk {
             if let Some(device) = state.device.as_mut() { device.mac_confirmed = false; }
             return Err(error);
         }
+        // THE PHONE BEING HELD HEARS IT NOW (Sage's pair-v2 review §1): after the write, so the
+        // answer it is about to be given is one this Mac will still give after a relaunch.
+        state.hold.release();
         Ok(())
     }
 
@@ -1407,9 +1633,26 @@ pub(crate) mod tests {
         }
     }
 
-    /// A phone paired AND confirmed by a person at this Mac — the state every credential test
-    /// below is about. The unconfirmed state has tests of its own (`unpaired_but_redeemed`).
+    /// A phone paired AND confirmed by a person at this Mac AND already using the pairing — the
+    /// state every credential test below is about. The unconfirmed state has tests of its own
+    /// (`unpaired_but_redeemed`), and so does the pressed-but-unfinished one (`pressed_unfinished`).
     fn paired(tag: &str) -> (TempDir, Arc<DeviceDesk>, Phone, Device, String) {
+        let (dir, desk, phone, _pressed, challenge) = pressed_unfinished(tag);
+        // Set directly rather than through a request, so no test's rate bucket is spent by its
+        // setup; `the_phone_using_the_pairing_is_what_completes_it` proves the request path.
+        mark_completed(&desk);
+        let device = desk.paired().unwrap();
+        (dir, desk, phone, device, challenge)
+    }
+
+    fn mark_completed(desk: &DeviceDesk) {
+        let mut state = desk.state.lock().unwrap();
+        state.device.as_mut().expect("a paired device").completed = true;
+        desk.write(&state).unwrap();
+    }
+
+    /// Pressed on this Mac, and the phone has not used the pairing yet (Sage's pair-v2 review §2).
+    fn pressed_unfinished(tag: &str) -> (TempDir, Arc<DeviceDesk>, Phone, Device, String) {
         let (dir, desk, phone, _redeemed, challenge) = unpaired_but_redeemed(tag);
         desk.confirm_on_mac().unwrap();
         let device = desk.paired().unwrap();
@@ -1588,13 +1831,13 @@ pub(crate) mod tests {
         let (dir, desk, phone, device, challenge) = unpaired_but_redeemed("expiry");
         assert_eq!(device.confirm_by, desk.state.lock().unwrap().redeemed.as_ref().unwrap().1 + PAIRING_WINDOW_MS);
         assert_eq!(desk.pairing_deadline(), Some(device.confirm_by));
-        assert!(!desk.expire_unconfirmed().unwrap(), "a device inside its window was swept");
+        assert_eq!(desk.expire_lapsed().unwrap(), None, "a device inside its window was swept");
 
         desk.state.lock().unwrap().device.as_mut().unwrap().confirm_by = super::super::now_millis() - 1;
         let answer = present(&phone, &device.id, &challenge, "POST", "/api/pair", b"{\"fingerprint_confirmed\":true}");
         assert_eq!(desk.verify_for_confirmation(&answer), Err(Refusal::NoDevice));
         assert!(matches!(desk.confirm_on_mac(), Err(PhoneError::NotPaired)), "a press after the window activated the key");
-        assert!(desk.expire_unconfirmed().unwrap());
+        assert_eq!(desk.expire_lapsed().unwrap(), Some(StoppedBy::EXPIRED));
         assert!(desk.paired().is_none());
         assert!(DeviceDesk::open(&dir.0).unwrap().paired().is_none(), "the abandoned key survived a relaunch");
         assert_eq!(desk.pairing_deadline(), None);
@@ -1602,7 +1845,7 @@ pub(crate) mod tests {
         // POSITIVE CONTROL: a confirmed device with a long-past confirm_by is untouched.
         let (_dir2, desk2, _p2, _d2, _c2) = paired("expiry-confirmed");
         desk2.state.lock().unwrap().device.as_mut().unwrap().confirm_by = 1;
-        assert!(!desk2.expire_unconfirmed().unwrap());
+        assert_eq!(desk2.expire_lapsed().unwrap(), None);
         assert!(desk2.paired().is_some());
         assert_eq!(desk2.pairing_deadline(), None, "a confirmed phone has no deadline");
     }
@@ -1637,6 +1880,175 @@ pub(crate) mod tests {
         let device: Device = serde_json::from_value(legacy).unwrap();
         assert!(device.mac_confirmed);
         assert!(device.trusted());
+        // Nor may it be swept as a pairing its phone never finished (Sage's pair-v2 review §2).
+        assert!(device.completed, "a record from before `completed` existed was read as unfinished");
+        assert!(!device.finish_lapsed(u64::MAX));
+    }
+
+    // --- Sage's pair-v2 hypotheses review §1: the held ask, and what releases it ---------------
+
+    /// A waker that only records that it was woken, so a hold can be polled by hand.
+    struct Flag(std::sync::atomic::AtomicBool);
+    impl std::task::Wake for Flag {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    impl Flag {
+        fn new() -> Arc<Self> {
+            Arc::new(Flag(std::sync::atomic::AtomicBool::new(false)))
+        }
+        fn woken(&self) -> bool {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+    fn poll_hold(hold: &mut HeldAnswer, flag: &Arc<Flag>) -> Poll<HoldEnd> {
+        let waker = Waker::from(Arc::clone(flag));
+        Pin::new(hold).poll(&mut Context::from_waker(&waker))
+    }
+
+    /// **THE PRESS ON THE MAC REACHES THE HELD PHONE AT ONCE.** Before this, the phone learned of
+    /// the press only at its next scheduled ask — up to 15 s later — so the Mac said "It is paired"
+    /// while the phone beside it still said "Now press They match on your Mac".
+    #[test]
+    fn the_press_on_the_mac_releases_a_held_ask_at_once() {
+        let (_dir, desk, _phone, _device, _c) = unpaired_but_redeemed("hold-press");
+        let since = desk.hold_generation();
+        let mut hold = desk.hold_answer(since);
+        let flag = Flag::new();
+        assert_eq!(poll_hold(&mut hold, &flag), Poll::Pending, "the ask was not held");
+        assert!(!flag.woken());
+        desk.confirm_on_mac().unwrap();
+        assert!(flag.woken(), "the press on the Mac did not wake the held ask");
+        assert_eq!(poll_hold(&mut hold, &flag), Poll::Ready(HoldEnd::Released));
+    }
+
+    /// A press that lands after the listener computed "still waiting" and before the hold began is
+    /// not missed: the generation read before the request moved, so the hold ends at once.
+    #[test]
+    fn a_press_between_the_answer_and_the_hold_is_not_missed() {
+        let (_dir, desk, _phone, _device, _c) = unpaired_but_redeemed("hold-race");
+        let since = desk.hold_generation();
+        desk.confirm_on_mac().unwrap();
+        let mut hold = desk.hold_answer(since);
+        assert_eq!(poll_hold(&mut hold, &Flag::new()), Poll::Ready(HoldEnd::Released));
+    }
+
+    /// **AT MOST ONE HELD ASK.** A new ask answers the previous one at once ("still waiting"), so
+    /// the holder of a key can never occupy more than one of the listener's connection slots.
+    #[test]
+    fn a_new_ask_answers_the_held_one_and_only_one_is_held() {
+        let (_dir, desk, _phone, _device, _c) = unpaired_but_redeemed("hold-one");
+        let since = desk.hold_generation();
+        let (first_flag, second_flag) = (Flag::new(), Flag::new());
+        let mut first = desk.hold_answer(since);
+        assert_eq!(poll_hold(&mut first, &first_flag), Poll::Pending);
+        let mut second = desk.hold_answer(since);
+        assert!(first_flag.woken(), "the older hold was not told a newer ask replaced it");
+        assert_eq!(poll_hold(&mut first, &first_flag), Poll::Ready(HoldEnd::Superseded));
+        assert_eq!(poll_hold(&mut second, &second_flag), Poll::Pending, "the newer ask is not the one held");
+        // And the older one, finished, cannot clear the newer one's slot on its way out.
+        drop(first);
+        desk.confirm_on_mac().unwrap();
+        assert!(second_flag.woken(), "dropping the superseded hold cleared the live one");
+    }
+
+    /// Every other way a pairing ends releases the hold too: `They do not match` on either side
+    /// (both forget the device), the expiry sweep, and the channel's teardown.
+    #[test]
+    fn every_way_a_pairing_ends_releases_the_held_ask() {
+        type End = fn(&DeviceDesk);
+        let ends: [(&str, End); 3] = [
+            ("They do not match (forget)", |desk| desk.forget().unwrap()),
+            ("the expiry sweep", |desk| {
+                desk.state.lock().unwrap().device.as_mut().unwrap().confirm_by = super::super::now_millis() - 1;
+                assert_eq!(desk.expire_lapsed().unwrap(), Some(StoppedBy::EXPIRED));
+            }),
+            ("the channel's teardown", |desk| desk.release_holds()),
+        ];
+        for (name, end) in ends {
+            let (_dir, desk, _phone, _device, _c) = unpaired_but_redeemed("hold-ends");
+            let flag = Flag::new();
+            let mut hold = desk.hold_answer(desk.hold_generation());
+            assert_eq!(poll_hold(&mut hold, &flag), Poll::Pending, "{name}");
+            end(&desk);
+            assert!(flag.woken(), "{name} did not wake the held ask");
+            assert_eq!(poll_hold(&mut hold, &flag), Poll::Ready(HoldEnd::Released), "{name}");
+        }
+    }
+
+    /// A hold that timed out or whose connection went away gives up the slot: nothing is left for
+    /// a later release to wake.
+    #[test]
+    fn a_hold_that_ends_by_itself_gives_up_its_slot() {
+        let (_dir, desk, _phone, _device, _c) = unpaired_but_redeemed("hold-drop");
+        let mut hold = desk.hold_answer(desk.hold_generation());
+        assert_eq!(poll_hold(&mut hold, &Flag::new()), Poll::Pending);
+        drop(hold);
+        assert!(desk.state.lock().unwrap().hold.current.is_none(), "a finished hold kept its slot");
+    }
+
+    // --- Sage's pair-v2 hypotheses review §2: "paired" needs the phone to have used it ----------
+
+    /// **THE PRESS ON THE MAC IS NOT THE PHONE HEARING IT.** The phone's own asks while it waits
+    /// never complete the pairing; the first ordinary request after the press does, and that
+    /// survives a relaunch.
+    #[test]
+    fn the_phone_using_the_pairing_is_what_completes_it() {
+        let (dir, desk, phone, device, challenge) = unpaired_but_redeemed("complete");
+        assert!(!device.completed, "a pairing was born completed");
+        let ask = present(&phone, &device.id, &challenge, "POST", "/api/pair", b"{\"fingerprint_confirmed\":true}");
+        let ordinary = present(&phone, &device.id, &challenge, "GET", "/api/events", b"");
+
+        assert_eq!(desk.verify(&ordinary), Err(Refusal::AwaitingMacConfirmation));
+        desk.confirm_on_mac().unwrap();
+        assert!(desk.verify_for_confirmation(&ask).is_ok());
+        assert!(!desk.paired().unwrap().completed, "the phone's own ask while waiting was taken as using the pairing");
+        assert!(!DeviceDesk::open(&dir.0).unwrap().paired().unwrap().completed);
+
+        let used = desk.verify(&ordinary).expect("the first ordinary request after the press");
+        assert!(used.completed, "verify returned the device as unfinished");
+        assert!(desk.paired().unwrap().completed, "the first ordinary request did not complete the pairing");
+        assert!(DeviceDesk::open(&dir.0).unwrap().paired().unwrap().completed, "completion did not survive a relaunch");
+        assert_eq!(desk.pairing_deadline(), None, "a completed pairing still has a deadline");
+    }
+
+    /// **A PAIRING THIS MAC ACCEPTED AND THE PHONE NEVER USED IS FORGOTTEN AFTER THE GRACE** —
+    /// Sage's review §2, variant 2a: the phone lost the Mac after its own press, the person pressed
+    /// here, and the phone deleted its key at its deadline. On `main` this Mac kept that key as
+    /// "It is paired" forever and refused every new pairing until `Forget this phone`.
+    #[test]
+    fn a_pairing_the_phone_never_used_is_forgotten_after_the_grace() {
+        let (dir, desk, phone, device, challenge) = pressed_unfinished("unfinished");
+        assert_eq!(desk.pairing_deadline(), Some(device.confirm_by + UNFINISHED_GRACE_MS));
+        assert_eq!(desk.expire_lapsed().unwrap(), None, "a pairing inside its grace was swept");
+
+        // Just inside the grace: kept.
+        let now = super::super::now_millis();
+        desk.state.lock().unwrap().device.as_mut().unwrap().confirm_by = now - UNFINISHED_GRACE_MS + 60_000;
+        assert_eq!(desk.expire_lapsed().unwrap(), None);
+        // Past it: forgotten, with its own reason, and the key is refused as forgotten.
+        desk.state.lock().unwrap().device.as_mut().unwrap().confirm_by = now - UNFINISHED_GRACE_MS - 1;
+        assert_eq!(desk.expire_lapsed().unwrap(), Some(StoppedBy::UNFINISHED));
+        assert!(desk.paired().is_none());
+        assert!(DeviceDesk::open(&dir.0).unwrap().paired().is_none(), "the unfinished key survived a relaunch");
+        let p = present(&phone, &device.id, &challenge, "GET", "/api/events", b"");
+        assert_eq!(desk.verify(&p), Err(Refusal::Revoked));
+        // And a new code can be shown: the slot is free.
+        assert!(desk.open_pairing().is_ok(), "the forgotten pairing still holds the one slot");
+
+        // POSITIVE CONTROL: a completed pairing with the same long-past deadline is untouched.
+        let (_dir2, desk2, _p2, _d2, _c2) = paired("unfinished-control");
+        desk2.state.lock().unwrap().device.as_mut().unwrap().confirm_by = 1;
+        assert_eq!(desk2.expire_lapsed().unwrap(), None);
+        assert!(desk2.paired().is_some());
+    }
+
+    #[test]
+    fn the_unfinished_reason_is_read_back_from_disk() {
+        let dir = TempDir::new("unfinished-record");
+        record_rejection(&dir.0, 1, StoppedBy::UNFINISHED).unwrap();
+        assert_eq!(rejection_by(&dir.0), StoppedBy::UNFINISHED);
     }
 
     /// Build a signed request the way the phone will.
@@ -2216,6 +2628,7 @@ pub(crate) mod tests {
             desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS)
                 .unwrap();
             desk.confirm_on_mac().unwrap();
+            mark_completed(&desk);
             desk.paired().unwrap()
         };
         let forgotten = Phone::new();

@@ -146,18 +146,24 @@ async function boot() {
 	const keys = await keyStore.load();
 
 	// A PAIRING THAT WAS STILL WAITING FOR THE PRESS ON THE MAC when the app was closed (Sage F1).
-	// Inside its bound it goes straight back to waiting; past it, the Mac has already forgotten
-	// this key, so this phone forgets it too and asks for a fresh code.
+	// Inside its bound it goes straight back to waiting. Past it, this phone still asks the Mac ONE
+	// last time before it gives up (Sage's pair-v2 hypotheses review §2): the person may have
+	// pressed on the Mac while this app was closed, and a Mac that said yes to a phone that then
+	// threw its key away is the half-paired state that review is about.
 	const awaitingUntil = Number(saved.awaitingMacUntil) || 0;
 	if (keys && apiState.deviceId && !pendingPairCode && awaitingUntil) {
+		makeApi(keys);
+		macHolds = saved.macPairWait === true;
 		if (Date.now() < awaitingUntil) {
-			makeApi(keys);
 			showWaitingForMac(null);
-			waitForMac(awaitingUntil);
-			return;
+		} else {
+			showTakeover('pairing');
+			$('fingerprint-box').hidden = true;
+			$('pairing-row').hidden = true;
+			$('pairing-lede').textContent = 'Pairing with your Mac\u2026';
+			$('pairing-detail').textContent = '';
 		}
-		await forgetThisPairing();
-		await startPairing(null);
+		waitForMac(awaitingUntil);
 		return;
 	}
 
@@ -255,8 +261,13 @@ async function startPairing(existingKeys) {
 		if (err && err.macNeedsUpdate) {
 			try { await api.confirmFingerprint(false); } catch { /* said locally either way, below */ }
 			await forgetThisPairing();
-			$('pairing-lede').textContent = 'Your Mac needs an update before this phone can pair with it.';
-			$('pairing-detail').textContent = 'Update RichOS on your Mac, then show a fresh code there and open it on this phone again.';
+			// Urban's review, state 5, and Sage's pair-v2 review §3: the older Mac this answer came
+			// from shows its own "Your phone said the six words did not match" screen, because
+			// the one request above is the only way to make it forget this key. The middle
+			// sentence accounts for that and must NOT reassure: a relay that strips `pair-v2` from
+			// a current Mac produces the same two screens.
+			$('pairing-lede').textContent = 'Your Mac needs an update.';
+			$('pairing-detail').textContent = 'This phone cannot pair with the version of RichOS on it. Your Mac may say the six words did not match: it stopped because this phone did. Update RichOS on your Mac, then show a fresh code there and open it on this phone again.';
 			return;
 		}
 		$('pairing-lede').textContent = err && err.reason === 'unreachable'
@@ -264,7 +275,9 @@ async function startPairing(existingKeys) {
 			: 'Your Mac did not accept that pairing code.';
 		$('pairing-detail').textContent = err && err.reason === 'unreachable'
 			? 'Make sure you are on the same Wi-Fi as your Mac, that RichOS is open on it, and try the code again.'
-			: 'A pairing code is good for sixty seconds and for one phone. Show a fresh one on your Mac and open it again.';
+			// Urban's review, state 9: the Mac's window is five minutes (`phone/mod.rs`
+			// PAIRING_WINDOW_MS), not the sixty seconds this used to say.
+			: 'A pairing code works once, for one phone, and runs out after a few minutes. Show a fresh one on your Mac and open it again.';
 		return;
 	}
 
@@ -272,6 +285,8 @@ async function startPairing(existingKeys) {
 	threads = answer.threads || [];
 	currentThreadId = (threads[0] && threads[0].id) || answer.thread_id || null;
 	macWaitBoundMs = globalThis.RichOSApi.macWaitBoundMs(answer);
+	// Ledger row S3's capability pattern: `Prefer: wait` goes only to a Mac that names `pair-wait`.
+	macHolds = globalThis.RichOSApi.offers(answer.capabilities, globalThis.RichOSApi.PAIR_WAIT);
 
 	// SIX WORDS, computed here — never taken from the Mac as words, and never shown to him as a
 	// hash. v2 (Sage F2): over the origin this phone dialed, the Mac's pairing value and this
@@ -304,32 +319,28 @@ function deviceName() {
 
 $('pair-confirm').addEventListener('click', async () => {
 	$('pair-confirm').disabled = true;
-	// TELL THE MAC HE ANSWERED, BEFORE ANYTHING ELSE ON THIS PRESS. Until this existed the Mac's
-	// own sheet read `It is paired` while this screen was still asking the question (Ray's
-	// nightly `.7`, defect 2) — it had nothing else to go on.
+	// THE PRESS IS THE FIRST ASK (Sage's pair-v2 hypotheses review §1, "The fix" point 1). The
+	// phone's signed `They match` tells the Mac he answered — until that existed the Mac's sheet
+	// read `It is paired` while this screen was still asking (Ray's nightly `.7`, defect 2) — and
+	// every later ask of the wait is the same request again, so the answer and the question about
+	// the Mac's own press travel together.
 	//
-	// AND IT NO LONGER LETS THIS PHONE IN BY ITSELF (Sage F1). The Mac answers everything
-	// "waiting" until the person presses They match ON THE MAC, so after this press the phone
-	// waits for that one — unless the Mac says it has already been pressed. A failure here is not a
-	// reason to stop: the wait below asks the Mac directly.
-	let answer = null;
-	try { answer = await api.confirmFingerprint(true); } catch { /* the wait asks the Mac itself */ }
+	// It no longer lets this phone in by itself (Sage F1): the Mac answers "waiting" until the
+	// person presses They match ON THE MAC. The deadline counts from this press, as before, and it
+	// is written down first so a relaunch in the middle of a held ask resumes the wait.
+	const until = Date.now() + macWaitBoundMs;
 	await settings.set('threads', threads);
 	await settings.set('threadId', currentThreadId);
 	await settings.set('vapidPublicKey', vapidPublicKey);
+	await settings.set('macPairWait', macHolds);
+	await settings.set('awaitingMacUntil', until);
 	await persistState();
 	// The pairing code is single use; leaving it in the address would re-run pairing on the next
 	// launch and fail with a stale code.
 	history.replaceState(null, '', location.pathname);
 	pendingPairCode = null;
-	if (answer && answer.ok === true && answer.awaiting_mac_confirmation !== true) {
-		await finishPairing();
-		return;
-	}
-	const until = Date.now() + macWaitBoundMs;
-	await settings.set('awaitingMacUntil', until);
-	showWaitingForMac($('fingerprint-words').textContent);
-	waitForMac(until);
+	const words = $('fingerprint-words').textContent;
+	waitForMac(until, () => showWaitingForMac(words));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -337,15 +348,32 @@ $('pair-confirm').addEventListener('click', async () => {
 // ---------------------------------------------------------------------------------------------
 //
 // The phone has said the words match; the Mac has not. Until the person presses They match on
-// the Mac, every request this phone makes is answered "waiting" (a retryable 409). So this screen
-// says which press is missing, keeps the words up so he can still compare them, keeps
-// `They do not match` as the way out, and asks the Mac again on `RichOSApi.macWaitDelayMs`'s
-// schedule — 2, 3, 5, 8, 13 s, then every 15 s — only while the app is on screen, and never past
-// the bound the Mac gave (at most five minutes). At most 22 requests in the five minutes, and none
-// while hidden: CEO ruling §81's "never a tight poll".
+// the Mac, every request this phone makes is answered "waiting". So this screen says which press
+// is missing, keeps the words up so he can still compare them, keeps `They do not match` as the
+// way out, and asks the Mac again — with its own signed `They match`, which is the answer and the
+// question at once (Sage's pair-v2 hypotheses review §1, point 1).
+//
+// **A MAC THAT NAMES `pair-wait` HOLDS THE ASK** until the press, for at most 14 s, so the phone
+// hears the press within one round trip instead of at its next scheduled ask. The no-spin rule is
+// `RichOSApi.macWaitNextDelayMs`: an answer that took 7 s or more is followed by the next ask at
+// once; a quicker one by the scheduled delay, never less than 7 s after the previous ask started.
+// **A Mac that does not name it** is asked on `macWaitDelayMs`'s schedule — 2, 3, 5, 8, 13 s, then
+// every 15 s — exactly as before.
+//
+// Either way: only while the app is on screen (leaving the screen cancels the ask in flight with
+// an `AbortController`, and nothing is scheduled while hidden), and never past the bound the Mac
+// gave, at most five minutes — **with one last ask AT that bound** (Sage's review §2), so a press
+// that landed after the previous ask is heard rather than dropped. CEO ruling §81: never a tight
+// poll and nothing off screen.
 
 let macWaitBoundMs = globalThis.RichOSApi.MAC_WAIT_WINDOW_MS;
+let macHolds = false;
 let macWait = null;
+
+/// How long the first ask may take before the six words give way to the waiting screen. An answer
+/// inside it — the Mac was already pressed, or a Mac that does not hold — goes straight to its own
+/// screen with no flash of this one in between.
+const SHOW_WAITING_AFTER_MS = 500;
 
 function showWaitingForMac(words) {
 	showTakeover('pairing');
@@ -353,7 +381,13 @@ function showWaitingForMac(words) {
 	$('pairing-row').hidden = false;
 	$('pair-confirm').hidden = true;
 	$('pairing-lede').textContent = 'Now press They match on your Mac.';
-	$('pairing-detail').textContent = 'This phone connects as soon as you do. If the words on your Mac are different, press They do not match here or there.';
+	// Urban's review, state 3: "carries on by itself" is true however long the Mac takes to be
+	// heard, "here or on your Mac" names both places, and the control's name is set in bold.
+	const detail = $('pairing-detail');
+	detail.textContent = 'This phone carries on by itself once you do. If the words on your Mac are different, press ';
+	const control = document.createElement('strong');
+	control.textContent = 'They do not match';
+	detail.append(control, ', here or on your Mac.');
 }
 
 function stopWaitingForMac() {
@@ -361,53 +395,84 @@ function stopWaitingForMac() {
 	macWait = null;
 }
 
-function waitForMac(until) {
+/// `onWaiting` is called once, the first time the phone knows it is waiting: the first answer
+/// says so, or the first ask is still out after `SHOW_WAITING_AFTER_MS` (the Mac is holding it).
+function waitForMac(until, onWaiting) {
 	stopWaitingForMac();
+	const A = globalThis.RichOSApi;
 	let attempt = 0;
 	let timer = null;
-	let asking = false;
+	let asking = null;      // the AbortController of the ask in flight
+	let lastAskAt = 0;
 	let stopped = false;
+	let told = !onWaiting;
+	const tellWaiting = () => { if (!told) { told = true; onWaiting(); } };
 	const ask = async () => {
 		timer = null;
-		if (stopped || asking) return;
-		if (Date.now() >= until) { await gaveUpWaiting('expired'); return; }
-		// Hidden: nothing is asked and nothing is scheduled. Coming back on screen asks at once.
-		if (document.hidden) return;
-		asking = true;
+		// Hidden: nothing is asked and nothing is scheduled. Coming back on screen asks again.
+		if (stopped || asking || document.hidden) return;
+		const final = Date.now() >= until;
+		// Held only by a Mac that offered it, and never past this phone's own deadline.
+		const wait = macHolds && !final ? Math.min(A.PAIR_WAIT_SECONDS, Math.floor((until - Date.now()) / 1000)) : 0;
+		const controller = new AbortController();
+		asking = controller;
+		lastAskAt = Date.now();
+		const shortly = told ? null : setTimeout(tellWaiting, SHOW_WAITING_AFTER_MS);
 		let answered = false;
+		let refused = false;
 		try {
-			answered = await api.macConfirmed(currentThreadId);
+			answered = await api.macAnswer({ wait, signal: controller.signal });
 		} catch (err) {
-			// A refusal is the Mac's final answer: the person pressed They do not match there, or
-			// the window closed. Anything else (unreachable, a fault) waits on the same schedule.
-			if (err && (err.reason === globalThis.RichOSApi.REVOKED || err.reason === globalThis.RichOSApi.REFUSED)) {
-				asking = false;
-				await gaveUpWaiting('refused');
+			if (err && err.aborted) {
+				// Canceled by leaving the screen or by a stop: whoever canceled it decides what next.
+				clearTimeout(shortly);
+				if (asking === controller) asking = null;
 				return;
 			}
+			// A refusal is the Mac's final answer: the person pressed They do not match there, or
+			// the window closed. Anything else (unreachable, a fault) waits on the same rules.
+			refused = !!err && (err.reason === A.REVOKED || err.reason === A.REFUSED);
 		}
-		asking = false;
+		clearTimeout(shortly);
+		asking = null;
 		if (stopped) return;
 		if (answered) { stopWaitingForMac(); await finishPairing(); return; }
-		schedule();
+		if (refused) { await gaveUpWaiting('refused'); return; }
+		// THE LAST ASK WAS AT THE DEADLINE, and the Mac still had not said yes (or could not be
+		// reached): this phone stops, and says it did not hear back — which is true either way.
+		if (final) { await gaveUpWaiting('expired'); return; }
+		tellWaiting();
+		const now = Date.now();
+		timer = setTimeout(ask, Math.max(0, A.macWaitNextAskAt(attempt++, lastAskAt, now, until, macHolds) - now));
 	};
-	const schedule = () => {
+	const onVisibility = () => {
 		if (stopped) return;
-		const left = until - Date.now();
-		if (left <= 0) { void gaveUpWaiting('expired'); return; }
-		timer = setTimeout(ask, Math.min(globalThis.RichOSApi.macWaitDelayMs(attempt++), left));
+		if (document.hidden) {
+			// Nothing runs off screen: the ask in flight is canceled, and nothing stays scheduled.
+			if (asking) { asking.abort(); asking = null; }
+			if (timer) { clearTimeout(timer); timer = null; }
+			return;
+		}
+		if (timer || asking) return;
+		// Back on screen: ask again — at once, or as soon as the 7 s spacing allows while the Mac
+		// holds (past the deadline too: that ask is the last one, and it keeps the spacing).
+		const spacing = macHolds ? Math.max(0, A.MAC_WAIT_MIN_SPACING_MS - (Date.now() - lastAskAt)) : 0;
+		timer = setTimeout(ask, spacing);
 	};
-	const onVisibility = () => { if (!document.hidden && !timer && !asking && !stopped) void ask(); };
 	document.addEventListener('visibilitychange', onVisibility);
 	macWait = {
 		stop() {
 			stopped = true;
 			if (timer) clearTimeout(timer);
 			timer = null;
+			if (asking) asking.abort();
+			asking = null;
 			document.removeEventListener('visibilitychange', onVisibility);
 		}
 	};
-	schedule();
+	// The first ask goes at once. From the press it IS the phone's `They match`; after a relaunch
+	// it is the first word from a phone that has been away.
+	void ask();
 }
 
 async function gaveUpWaiting(why) {
@@ -415,12 +480,14 @@ async function gaveUpWaiting(why) {
 	await forgetThisPairing();
 	$('fingerprint-box').hidden = true;
 	$('pairing-row').hidden = true;
+	// Urban's review, states 6 and 7. `expired` is reached when nobody pressed on the Mac AND when
+	// the phone could not reach the Mac for the whole wait, so it says only what the phone knows.
 	$('pairing-lede').textContent = why === 'refused'
 		? 'Your Mac did not accept this phone.'
-		: 'Your Mac did not get an answer in time.';
+		: 'Pairing timed out.';
 	$('pairing-detail').textContent = why === 'refused'
-		? 'If They do not match was pressed on your Mac, that is why. Otherwise show a fresh code on your Mac and open it on this phone again.'
-		: 'Nothing was paired. Show a fresh code on your Mac and open it on this phone again.';
+		? 'Nothing was paired. Either someone said the words did not match on your Mac, or pairing was stopped there. Show a fresh code on your Mac and open it on this phone again.'
+		: 'This phone did not hear back from your Mac in time, so it stopped. Show a fresh code on your Mac and open it on this phone again.';
 }
 
 async function finishPairing() {
@@ -437,6 +504,7 @@ async function forgetThisPairing() {
 	await keyStore.clear();
 	await settings.set('deviceId', null);
 	await settings.set('awaitingMacUntil', null);
+	await settings.set('macPairWait', null);
 	apiState.deviceId = null;
 }
 
@@ -454,8 +522,11 @@ $('pair-reject').addEventListener('click', async () => {
 	$('pair-confirm').hidden = false;
 	$('fingerprint-box').hidden = true;
 	$('pairing-row').hidden = true;
+	// Urban's review, state 4 (the BLOCKER): the one security decision in the flow ends by saying
+	// that nothing was paired, and with an action the person can finish. "On your Mac", because an
+	// unpaired phone cannot reach Rich.
 	$('pairing-lede').textContent = 'Stopped, and nothing was paired.';
-	$('pairing-detail').textContent = 'If the six words on this phone are not the six words on your Mac, this phone was not talking to your Mac. Tell Rich, and do not pair again until he has looked at it.';
+	$('pairing-detail').textContent = 'If the words on this phone and your Mac were different, this phone was not talking to your Mac. Tell Rich on your Mac before you pair again.';
 });
 
 // ---------------------------------------------------------------------------------------------

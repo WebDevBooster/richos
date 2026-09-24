@@ -54,7 +54,8 @@ function count(file, body) {
 	switch (file) {
 		case 'keys.json': return 1;
 		case 'pairing.json': return n(body.links) + n(body.api_base_validation.cases) + n(body.pair_exchanges) + n(body.fingerprint_confirmations)
-			+ (body.pair_v2 ? n(body.pair_v2.exchanges) + 1 : 0) + (body.mac_confirmation ? n(body.mac_confirmation.probes) + 2 : 0);
+			+ (body.pair_v2 ? n(body.pair_v2.exchanges) + 1 : 0) + (body.mac_confirmation ? n(body.mac_confirmation.probes) + 2 : 0)
+			+ (body.pair_wait ? n(body.pair_wait.asks) + n(body.pair_wait.next_delay_cases) + n(body.pair_wait.wait_plans) : 0);
 		case 'fingerprint.json': return n(body.cases) + (body.v2 ? n(body.v2.cases) : 0);
 		case 'signing.json': return n(body.valid) + n(body.invalid) + n(body.accepted_by_the_mac_though_unusual);
 		case 'events.json': return n(body.wire_cases) + n(body.thread_cases) + n(body.hello_cases) + 1;

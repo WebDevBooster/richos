@@ -722,9 +722,23 @@ async function openSheet(browser, theme, preset) {
       assert(!/It is paired/.test(halfway) && /on your phone/i.test(halfway), "the card after the Mac's press: " + halfway);
       assert(!halfWords, "the six words stayed on the Mac after the Mac had answered");
 
+      // SAGE'S PAIR-V2 REVIEW §2: BOTH PRESSES ARE IN AND THE PHONE HAS NOT USED THE PAIRING. On
+      // `main` this read `It is paired` — for a phone that may already have thrown its key away.
+      const unused = await openSheet(browser, "dark", { phonePaired: true, phoneUnfinished: true });
+      const unusedLine = (await unused.textContent("#phone-paired-state")).trim();
+      const unusedWords = await unused.isVisible("#phone-paired-words");
+      await unused.close();
+      assertEqual(
+        unusedLine,
+        "This Mac accepted it. Waiting for your phone to finish.",
+        "the card claims a phone is paired before the phone has used the pairing"
+      );
+      assert(!unusedWords, "the six words came back after both answers were in");
+
       return (
         "unconfirmed: \"" + before.slice(0, 96) + "…\" with the words on screen; " +
-        "Mac pressed: \"" + halfway + "\"; confirmed: \"" + after.slice(0, 48) + "…\" with the words gone"
+        "Mac pressed: \"" + halfway + "\"; phone not finished: \"" + unusedLine + "\"; " +
+        "confirmed: \"" + after.slice(0, 48) + "…\" with the words gone"
       );
     }
   );
@@ -790,7 +804,7 @@ async function openSheet(browser, theme, preset) {
       assertEqual((note.match(/\.\s|\.$/g) || []).length, 1, "the report is more than one sentence: " + note);
 
       // And every other reason the Mac can stop gets its own true sentence, in the same shape.
-      for (const [by, needle] of [["code-used-twice", /second phone used the same code/], ["expired", /within five minutes/], ["phone", /^Your phone said/]]) {
+      for (const [by, needle] of [["code-used-twice", /second phone used the same code/], ["expired", /within five minutes/], ["unfinished", /never finished pairing/], ["phone", /^Your phone said/]]) {
         const page = await openSheet(browser, "dark", { phoneRejected: true, phoneRejectedBy: by, phoneTailnet: READY_TAILNET });
         await page.waitForSelector("#phone-rejected:not([hidden])");
         const said = (await page.textContent("#phone-rejected-note")).trim();
