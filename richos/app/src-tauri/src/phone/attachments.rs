@@ -605,8 +605,13 @@ impl AttachmentDesk {
             }
         }
         if Self::staged_in(&dir).is_empty() {
-            // An empty message folder is not worth an error; the seven-day sweep takes it.
-            let _ = std::fs::remove_dir(&dir);
+            // An empty message folder is not worth an error to the person; the seven-day sweep
+            // takes whatever is left, and the log says why it was left.
+            match std::fs::remove_dir(&dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => eprintln!("[richos] an emptied attachment folder was left for the sweep: {e}"),
+            }
         }
         Ok(found)
     }

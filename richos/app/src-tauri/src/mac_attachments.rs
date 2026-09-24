@@ -303,6 +303,14 @@ impl MacAttachments {
     }
 }
 
+/// Emit to the window, and say so in the log when it could not be delivered: a drop that
+/// never reached the page is otherwise a file he dropped and nothing happened.
+fn tell<S: Serialize + Clone>(app: &tauri::AppHandle, event: &str, payload: S) {
+    if let Err(e) = app.emit(event, payload) {
+        eprintln!("[richos] {event} could not reach the window: {e}");
+    }
+}
+
 /// **The drop listener, one per window.** Installed beside `remember_window_geometry` at both
 /// places a main window is built, so a window re-opened from the Dock takes drops too.
 pub fn listen_for_drops(window: &tauri::WebviewWindow) {
@@ -311,19 +319,19 @@ pub fn listen_for_drops(window: &tauri::WebviewWindow) {
         let tauri::WindowEvent::DragDrop(drag) = event else { return };
         match drag {
             tauri::DragDropEvent::Enter { paths, .. } => {
-                let _ = app.emit(EVENT_FILE_DRAG, DragView { phase: "enter", count: paths.len() });
+                tell(&app, EVENT_FILE_DRAG, DragView { phase: "enter", count: paths.len() });
             }
             tauri::DragDropEvent::Leave => {
-                let _ = app.emit(EVENT_FILE_DRAG, DragView { phase: "leave", count: 0 });
+                tell(&app, EVENT_FILE_DRAG, DragView { phase: "leave", count: 0 });
             }
             tauri::DragDropEvent::Drop { paths, .. } => {
-                let _ = app.emit(EVENT_FILE_DRAG, DragView { phase: "leave", count: 0 });
+                tell(&app, EVENT_FILE_DRAG, DragView { phase: "leave", count: 0 });
                 if paths.is_empty() {
                     return;
                 }
                 let Some(state) = app.try_state::<MacAttachments>() else { return };
                 let view = state.record_drop(paths.clone());
-                let _ = app.emit(EVENT_FILE_DROP, view);
+                tell(&app, EVENT_FILE_DROP, view);
             }
             _ => {}
         }
