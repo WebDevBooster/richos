@@ -4,6 +4,7 @@
 Receipts join app obligations to provider calls. They are not a second workspace
 registry. Uncertain dispatch is retained for reconciliation, never replayed.
 """
+import calendar
 import contextlib
 import errno
 import fcntl
@@ -764,6 +765,47 @@ def _write_land_lock(handle, record):
         pass
 
 
+def _live_fence_lease(repo):
+    """The holder record of a LIVE operator-fence land lease on `repo`, or None.
+
+    Spec r3 e1 and Frank G2: this lander runs Git with core.hooksPath=/dev/null,
+    so the Git fence never sees its merge. Waiting here on a live lease is
+    therefore the ONLY thing that serializes the product lander against a lease
+    holder, and it is required rather than optional.
+
+    Read from the repository's own launcher (the switch and the lease home live
+    there, Frank G10 and G12) and never from this process's environment. With the
+    launcher absent or its state off this returns None at the first read, so the
+    product path is unchanged while the switch is off (N1). Liveness is the
+    holder's pid running with its recorded start time, the same test the fence
+    makes; nothing is signaled."""
+    try:
+        rc, out, _err = W.git(str(repo), "rev-parse", "--path-format=absolute", "--git-common-dir")
+        if rc != 0:
+            return None
+        with open(os.path.join(out.strip(), "hooks", "reference-transaction"), encoding="utf-8") as handle:
+            text = handle.read(65536)
+    except OSError:
+        return None
+    if "richos-operator-fence-launcher" not in text:
+        return None
+    conf = dict(re.findall(r'(?m)^OPERATOR_FENCES_([A-Z_]+)="([^"]*)"\s*$', text))
+    if conf.get("STATE") != "on" or not conf.get("HOME") or not conf.get("KEY"):
+        return None
+    lease = W.read_json(os.path.join(conf["HOME"], conf["KEY"] + ".lease"))
+    holder = (lease or {}).get("holder")
+    if not isinstance(holder, dict):
+        return None
+    state, started = W.process_start(holder.get("pid"))
+    if state != "ok":
+        return None
+    try:
+        epoch = calendar.timegm(time.strptime(" ".join(started.split()), "%a %b %d %H:%M:%S %Y"))
+    except (ValueError, OverflowError):
+        return None
+    return holder if abs(epoch - int(holder.get("start", -1))) <= 1 else None
+
+
 def _land_holder_text(holder):
     if not holder:
         return "another conversation, which left no readable record in the lock file"
@@ -814,26 +856,40 @@ def land_lock(scope, repo):
     handle = os.fdopen(os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "r+")
     try:
         while True:
+            leased = None
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
             except OSError as error:
                 if error.errno not in (errno.EAGAIN, errno.EACCES):
                     raise
+            else:
+                # A land lease is taken and released under this same flock
+                # (land-lease.sh's check-and-set), so while we hold it no lease
+                # can appear: checking here, and letting go while one is live,
+                # is race-free. Off or absent fence: None, and nothing changes.
+                leased = _live_fence_lease(repo)
+                if leased is None:
+                    break
+                fcntl.flock(handle, fcntl.LOCK_UN)
+            if leased is not None:
+                holder = {"thread_id": "an operator land lease (%s, pid %s)" % (
+                    leased.get("kind") or "holder", leased.get("pid")), "pid": leased.get("pid"),
+                    "entity_id": "the operator's own team", "since": "its lease"}
+            else:
                 holder = _read_land_lock(path) or holder
-                waited = time.monotonic() - started
-                if waited >= timeout:
-                    raise ValueError(
-                        "this repository's land is held by %s and did not finish within %.0f seconds, so "
-                        "nothing here was merged and nothing was cleaned up. Two conversations may share a "
-                        "repository and their lands take turns; this one waited rather than refusing, "
-                        "because a refused land sends finished, reviewed work back for a fresh "
-                        "implementation and a fresh review. The bound is not about a holder that crashed "
-                        "— the kernel releases that lock the moment its process dies — it is about one "
-                        "that is alive and stuck, and a land is local Git only (integrate never pushes), "
-                        "so %.0f seconds is far above any real one. Retry once that land has finished."
-                        % (_land_holder_text(holder), timeout, timeout))
-                time.sleep(min(0.5, 0.01 + waited / 20.0))
+            waited = time.monotonic() - started
+            if waited >= timeout:
+                raise ValueError(
+                    "this repository's land is held by %s and did not finish within %.0f seconds, so "
+                    "nothing here was merged and nothing was cleaned up. Two conversations may share a "
+                    "repository and their lands take turns; this one waited rather than refusing, "
+                    "because a refused land sends finished, reviewed work back for a fresh "
+                    "implementation and a fresh review. The bound is not about a holder that crashed "
+                    "— the kernel releases that lock the moment its process dies — it is about one "
+                    "that is alive and stuck, and a land is local Git only (integrate never pushes), "
+                    "so %.0f seconds is far above any real one. Retry once that land has finished."
+                    % (_land_holder_text(holder), timeout, timeout))
+            time.sleep(min(0.5, 0.01 + waited / 20.0))
         status = {"repository": str(repo), "lock": str(path), "record": W.land_record_path(repo),
                   "waited_seconds": round(time.monotonic() - started, 3)}
         if holder is not None:
