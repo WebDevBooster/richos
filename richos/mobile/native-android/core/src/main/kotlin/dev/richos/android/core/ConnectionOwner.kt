@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import java.io.IOException
@@ -77,7 +78,10 @@ class ConnectionOwner(
     /** Runs until its coroutine is stopped (the app's process scope owns it). */
     suspend fun run() = coroutineScope {
         val deliveryScope = this
-        combine(visible, available) { shown, online -> shown to online }.collectLatest { (shown, online) ->
+        // Remember connectivity while hidden without re-running lifecycle persistence for
+        // every radio transition. On return, use the latest actual network availability.
+        combine(visible, available) { shown, online -> shown to (shown && online) }
+            .distinctUntilChanged().collectLatest { (shown, online) ->
             // collectLatest cancels the old socket/backoff before entering a new lifecycle state.
             try {
             if (!shown) {

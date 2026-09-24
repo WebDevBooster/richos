@@ -52,7 +52,7 @@ class ConnectionOwnerTest {
         override suspend fun delete(origin: String) = Unit
     }
 
-    private suspend fun core(http: Http, keys: DeviceKeys = this.keys): RichCore {
+    private suspend fun core(http: Http, keys: DeviceKeys = this.keys, onWrite: () -> Unit = {}): RichCore {
         var saved = Fixtures.fixture("offline").session
         return RichCore.open(
             Ports(
@@ -63,7 +63,7 @@ class ConnectionOwnerTest {
                 },
                 session = object : SessionStore {
                     override suspend fun read() = saved
-                    override suspend fun write(session: Session) { saved = session }
+                    override suspend fun write(session: Session) { saved = session; onWrite() }
                 },
                 transport = null, clock = Clock { Fixtures.EPOCH }, ids = IdSource { "x" }, http = http, keys = keys,
             ),
@@ -87,6 +87,32 @@ class ConnectionOwnerTest {
         assertEquals(2, streams.opened.size)
         assertTrue("since=" !in streams.opened.last())
         assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        job.cancel()
+    }
+
+    @Test
+    fun hiddenNetworkChangesDoNotRepeatLifecyclePersistence() = runTest {
+        val mac = Mac { HttpResponse(404, emptyMap(), ByteArray(0)) }
+        var writes = 0
+        val core = core(mac, onWrite = { writes++ })
+        val streams = Streams({ open, _ -> open(200); kotlinx.coroutines.awaitCancellation() })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams, foreground = false)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent()
+        val settledWrites = writes
+        repeat(10) {
+            owner.networkChanged(false); runCurrent()
+            owner.networkChanged(true); runCurrent()
+        }
+        assertEquals(settledWrites, writes, "hidden route changes must not repeat background saves")
+        assertTrue(mac.seen.isEmpty())
+        assertTrue(streams.opened.isEmpty())
+        owner.networkChanged(false); runCurrent()
+        owner.foregrounded(); runCurrent()
+        assertEquals(ConnectionReason.PHONE_OFFLINE, core.state.connection.reason)
+        assertTrue(streams.opened.isEmpty())
+        owner.networkChanged(true); runCurrent()
+        assertEquals(1, streams.opened.size)
         job.cancel()
     }
 
