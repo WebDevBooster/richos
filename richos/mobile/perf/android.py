@@ -303,7 +303,7 @@ def ui_nodes(xml_text):
     nodes = []
     for n in root.iter("node"):
         m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds") or "")
-        nodes.append({"text": n.get("text") or "", "desc": n.get("content-desc") or "",
+        nodes.append({"text": n.get("text") or "", "desc": n.get("content-desc") or "", "class": n.get("class") or "",
                       "bounds": tuple(int(g) for g in m.groups()) if m else None,
                       "clickable": n.get("clickable") == "true", "focused": n.get("focused") == "true"})
     return nodes
@@ -318,6 +318,15 @@ def find_node(nodes, desc=None, text=None, contains=None):
         if contains is not None and contains in n["text"]:
             return n
     return None
+
+
+def composer_node(nodes):
+    label = find_node(nodes, desc="Message Rich")
+    if label is None:
+        return None
+    # AndroidView exposes the native editable text and Compose's label as separate nodes.
+    matches = [node for node in nodes if node.get("class") == "android.widget.EditText" and node.get("bounds") == label.get("bounds")]
+    return matches[0] if len(matches) == 1 else label
 
 
 def center(node):
@@ -739,7 +748,7 @@ class Measure:
         return out
 
     def enter_empty_composer(self, text):
-        field = find_node(self.dump_ui(), desc="Message Rich")
+        field = composer_node(self.dump_ui())
         if field is None or field.get("text", "") not in ("", "Message Rich"):
             raise Unmeasurable("production probes require an empty composer; existing work was left untouched")
         if not re.fullmatch(r"[A-Za-z0-9 ]+", text):
@@ -757,7 +766,7 @@ class Measure:
         else:
             self.bridge.action({"type": "compose", "text": ""})
         self.d.sleep(0.5)
-        field = find_node(self.dump_ui(), desc="Message Rich")
+        field = composer_node(self.dump_ui())
         if field is None:
             raise Unmeasurable("no composer field on screen")
         x, y = center(field)
@@ -769,7 +778,7 @@ class Measure:
                 self.pace()
                 self.d.sh(f"input text {ch}")
         out = self._cost(pid, type_all, len(text), with_io)
-        draft = (find_node(self.dump_ui(), desc="Message Rich") or {}).get("text") if production else self.bridge.state()["draft"]
+        draft = (composer_node(self.dump_ui()) or {}).get("text") if production else self.bridge.state()["draft"]
         out["draftMatches"] = draft == text
         self.d.sh("input keyevent KEYCODE_BACK", check=False)
         if production:
@@ -806,7 +815,41 @@ class Measure:
         return out
 
     # -- background --------------------------------------------------------------------------------
-    def background(self, seconds, settle_s, uid):
+    def background_physical(self, seconds, settle_s, uid):
+        """Read-only accounting on a user's phone. Never reset their battery history or fake unplugging."""
+        pid = self.d.pid()
+        if pid is None:
+            raise Unmeasurable("the app is not running")
+        self.home()
+        self.d.sleep(settle_s)
+        power_before = self.d.sh("dumpsys battery", check=False)
+        before = parse_checkin(self.d.sh("dumpsys batterystats --checkin"), uid)
+        self.d.sleep(seconds)
+        after = parse_checkin(self.d.sh("dumpsys batterystats --checkin"), uid)
+        delta = {"uidSeen": before["uidSeen"] and after["uidSeen"], "cpuMs": None, "networkBytes": None,
+                 "wakeupAlarms": [], "wakelocks": [], "jobs": [], "syncs": [], "partialWakelockMs": None, "processes": []}
+        for field in ("cpuMs", "networkBytes"):
+            if before[field] is not None and after[field] is not None:
+                shared = before[field].keys() & after[field].keys()
+                values = {k: after[field][k] - before[field][k] for k in shared
+                          if isinstance(before[field][k], (int, float)) and isinstance(after[field][k], (int, float))}
+                if values and all(v >= 0 for v in values.values()): delta[field] = values
+        if before["partialWakelockMs"] is not None and after["partialWakelockMs"] is not None:
+            value = after["partialWakelockMs"] - before["partialWakelockMs"]
+            if value >= 0: delta["partialWakelockMs"] = value
+        locks = [line.strip() for line in self.d.sh("dumpsys power", check=False).splitlines()
+                 if "WAKE_LOCK" in line and (f"uid={uid}" in line or PACKAGE in line)]
+        return {"seconds": seconds, "settleSeconds": settle_s, "processAliveAtEnd": self.d.pid() == pid,
+                "settleWindowWakeups": None, "threadWakeups": None, "cpuTicks": None,
+                "batterystats": delta, "accountingBefore": before, "accountingAfter": after,
+                "heldWakeLocks": locks, "pendingAlarms": None, "scheduledJobs": None, "openSockets": None,
+                "readOnlyPhysicalObservation": True, "powerBefore": power_before.strip(),
+                "measurementLimits": "UID accounting deltas only. Charging can pause battery accounting; inaccessible thread/socket counters are unknown. "
+                                     "No zero-work or no-warning verdict is inferred, even if the process exited. Battery history and power state were preserved."}
+
+    def background(self, seconds, settle_s, uid, physical=False):
+        if physical:
+            return self.background_physical(seconds, settle_s, uid)
         pid = self.d.pid()
         if pid is None:
             raise Unmeasurable("the app is not running")

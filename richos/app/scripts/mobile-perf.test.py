@@ -416,6 +416,31 @@ def _():
         assert "real controls" in record["metrics"]["tapToFeedback"]["method"]
 
 
+@case("R10 physical background observation preserves battery history and reports unknown work")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = FakeAdb(qemu="0")
+        record, failures_ = perf.run_android(
+            android_args(tmp, kind="physical", production=True, route="managed", only="background"),
+            runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
+        assert failures_ == 0, record["phases"]
+        assert record["metrics"]["backgroundQuiet"]["zeroWork"] is None
+        assert not any("batterystats --reset" in c or "battery unplug" in c or "battery reset" in c for c in fake.calls)
+
+
+@case("R11 native composer text is read from the EditText sharing its label bounds")
+def _():
+    nodes = android.ui_nodes('<hierarchy><node class="android.widget.EditText" text="keep existing work" bounds="[0,0][100,50]"/>'
+                             '<node class="android.view.View" content-desc="Message Rich" text="" bounds="[0,0][100,50]"/></hierarchy>')
+    assert android.composer_node(nodes)["text"] == "keep existing work"
+    from unittest.mock import patch
+    fake = FakeAdb()
+    measure = android.Measure(android.Device("/fake/adb", "phone", runner=fake, sleep=lambda s: None), log=quiet)
+    with patch.object(measure, "dump_ui", return_value=nodes):
+        raises(perfcore.Unmeasurable, measure.enter_empty_composer, "probe")
+    assert not any("input text" in c for c in fake.calls)
+
+
 @case("R2 an installed APK that is not the stamped one is REFUSED before any measurement")
 def _():
     with tempfile.TemporaryDirectory() as tmp:

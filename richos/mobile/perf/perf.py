@@ -474,16 +474,20 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                     "frame counts per delta. The bridge's own save of its document per command is included",
                     None, None, **stream)
 
-        bg = phase("background", lambda: m.background(args.background_seconds, args.background_settle, uid))
+        bg = phase("background", lambda: m.background(args.background_seconds, args.background_settle, uid, physical=args.kind == "physical"))
         if bg:
-            quiet = (bg["processAliveAtEnd"] is False) or (
+            quiet = None if bg.get("readOnlyPhysicalObservation") else (
                 (bg["threadWakeups"] or {}).get("total", 0) == 0 and not bg["batterystats"]["wakeupAlarms"]
                 and not bg["batterystats"]["jobs"] and not bg["heldWakeLocks"]
-                and (bg["batterystats"]["networkBytes"] or {}).get("total", 0) == 0)
+                and bg["threadWakeups"] is not None and bg["batterystats"].get("uidSeen", False)
+                and bg["batterystats"]["networkBytes"] is not None
+                and bg["batterystats"]["networkBytes"].get("total") == 0)
             record["metrics"]["backgroundQuiet"] = metric(
+                ("HOME; read-only UID battery-accounting snapshots before and after the interval; no reset or simulated unplugging. "
+                 "Unknown counters and charging conditions prevent a zero-work verdict." if args.kind == "physical" else
                 "HOME; after --background-settle seconds, over --background-seconds: context switches of every app "
                 "thread, CPU ticks, batterystats reset at the start and read at the end (checkin: wakeup alarms, "
-                "wake locks, jobs, syncs, network bytes), pending alarms, jobs, held wake locks, open sockets",
+                "wake locks, jobs, syncs, network bytes), pending alarms, jobs, held wake locks, open sockets"),
                 None, None, zeroWork=quiet, target={"row": perfcore.BUDGETS["backgroundQuiet"]["row"], "value": 0,
                                                     "source": perfcore.PRD + " §7 (proposed)"}, **bg)
 
