@@ -2,9 +2,34 @@ package dev.richos.android.core
 
 import dev.richos.android.core.dev.*
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlin.test.*
 
 class RecordingLifecycleTest {
+    @Test fun backgroundDuringSlowJournalNeverStartsCapture() = runTest {
+        val writing = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var pause = false
+        val runtime = DevRuntime.create(Fixtures.fixture("online"), save = { doc ->
+            if (pause && doc.session.activeRecording != null) {
+                writing.complete(Unit)
+                release.await()
+                pause = false
+            }
+        })
+        runtime.core.dispatch(Action.MicrophonePermission(Microphone.GRANTED))
+        pause = true
+        val start = async { runtime.core.dispatch(Action.VoiceStartLocked("late", 386.0, Fixtures.EPOCH)) }
+        writing.await()
+        val background = async(start = CoroutineStart.UNDISPATCHED) { runtime.core.backgrounded() }
+        release.complete(Unit)
+        start.await(); background.await()
+        assertTrue(runtime.export().recorder.none { it.startsWith("start:") })
+        assertNull(runtime.core.state.voice)
+        assertNull(runtime.export().session.activeRecording)
+    }
     @Test fun captureJournalSurvivesProcessDeathAndNeverResendsRecoveredAudio() = runTest {
         var saved = Fixtures.fixture("online").session.copy(microphone = Microphone.GRANTED)
         val items = linkedMapOf<String, OutboxItem>()

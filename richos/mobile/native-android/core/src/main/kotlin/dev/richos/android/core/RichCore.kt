@@ -48,6 +48,7 @@ class RichCore private constructor(
     private val transport: Transport = ports.transport
         ?: MacTransport(api, { session.pairing }, { freshChallenge = it }, ports.files)
     private var generation = 0
+    @Volatile private var visible = true
 
     /** The last committed state; the app collects this. */
     val states: StateFlow<AppState> = flow.asStateFlow()
@@ -193,9 +194,10 @@ class RichCore private constructor(
      * foreground reconciles). Not trouble: no notice falls due, and with the link closed nothing in
      * the outbox is owed a timed try, so nothing wakes the app until it returns or a person sends.
      */
-    fun foregrounded() { outbox.foregrounded() }
+    fun foregrounded() { visible = true; outbox.foregrounded() }
 
     suspend fun backgrounded(): AppState {
+        visible = false
         outbox.backgrounded()
         return mutex.withLock {
         // Lifecycle shutdown must take effect even when disk is full. An online flag is never a
@@ -824,7 +826,13 @@ class RichCore private constructor(
                     val journal = session.copy(activeRecording = KeptRecording(effect.id, 0, reason = KeptReason.INTERRUPTED, recordedAt = ports.clock.now()))
                     ports.session.write(journal)
                     session = journal
+                    if (!visible) {
+                        voiceSession = null
+                        commit(session.copy(activeRecording = null))
+                        return false
+                    }
                     ports.recorder.start(effect.id)
+                    if (!visible) return voiceLocked(Action.VoiceInterrupted(ports.clock.now()))
                 } catch (failure: Throwable) {
                     voiceSession = null
                     emit()
