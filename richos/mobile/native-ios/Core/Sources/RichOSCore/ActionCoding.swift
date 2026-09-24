@@ -50,6 +50,11 @@ extension Action: Codable {
         var hostId: String?
         var intake: SharedIntake?
         var event: String?
+        var source: AttachSource?
+        var files: [OutboxFile]?
+        var name: String?
+        var bytes: Int?
+        var tooLarge: Bool?
 
         init(_ type: String) { self.type = type }
     }
@@ -69,6 +74,8 @@ extension Action: Codable {
         "notifications-enable", "notifications-result", "notifications-disable", "dismiss-notification-offer",
         "notifications-previews", "forget-request", "forget-pair", "settings",
         "update-policy", "update-dismiss", "update-open", "support", "check-updates", "privacy-policy",
+        "attach-menu-open", "attach-menu-close", "attach-pick", "attach-picked", "attach-refused", "attach-denied",
+        "attach-remove", "attach-notice-dismiss",
     ]
 
     public init(from decoder: Decoder) throws {
@@ -167,6 +174,14 @@ extension Action: Codable {
         case "support": self = .openSupport
         case "check-updates": self = .checkForUpdates
         case "privacy-policy": self = .openPrivacyPolicy
+        case "attach-menu-open": self = .openAttachMenu
+        case "attach-menu-close": self = .closeAttachMenu
+        case "attach-pick": self = .pickAttachments(try need(w.source, "source"))
+        case "attach-picked": self = .attachmentsPicked(try need(w.files, "files"))
+        case "attach-refused": self = .attachmentRefused(name: try need(w.name, "name"), bytes: w.bytes, tooLarge: try need(w.tooLarge, "tooLarge"))
+        case "attach-denied": self = .attachPermissionDenied(try need(w.source, "source"))
+        case "attach-remove": self = .removePendingAttachment(id: try need(w.id, "id"))
+        case "attach-notice-dismiss": self = .dismissAttachNotice
         default:
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription:
                 "unknown action '\(w.type)'; known: \(Self.knownTypes.joined(separator: ", "))"))
@@ -255,6 +270,14 @@ extension Action: Codable {
         case .openSupport: w = Wire("support")
         case .checkForUpdates: w = Wire("check-updates")
         case .openPrivacyPolicy: w = Wire("privacy-policy")
+        case .openAttachMenu: w = Wire("attach-menu-open")
+        case .closeAttachMenu: w = Wire("attach-menu-close")
+        case .pickAttachments(let source): w = Wire("attach-pick"); w.source = source
+        case .attachmentsPicked(let files): w = Wire("attach-picked"); w.files = files
+        case .attachmentRefused(let name, let bytes, let tooLarge): w = Wire("attach-refused"); w.name = name; w.bytes = bytes; w.tooLarge = tooLarge
+        case .attachPermissionDenied(let source): w = Wire("attach-denied"); w.source = source
+        case .removePendingAttachment(let id): w = Wire("attach-remove"); w.id = id
+        case .dismissAttachNotice: w = Wire("attach-notice-dismiss")
         }
         try w.encode(to: encoder)
     }

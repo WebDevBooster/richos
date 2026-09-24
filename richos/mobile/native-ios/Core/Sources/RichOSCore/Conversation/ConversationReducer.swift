@@ -129,11 +129,14 @@ public enum ConversationReducer {
 
     private static func send(_ s: inout AppState, clientID: String, at: Int64, _ effects: inout [Effect]) {
         let text = s.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard s.pairing == .paired, s.consentGiven, !text.isEmpty, s.connectionNotice != .incompatible else { return }
+        guard s.pairing == .paired, s.consentGiven, !text.isEmpty || !s.pendingAttachments.isEmpty,
+              s.connectionNotice != .incompatible else { return }
         guard s.draft.count <= Limits.messageCharacters else {
             s.toast = .tooLong(limit: Limits.messageCharacters)
             return
         }
+        // Photos or files in the tray: they and the draft's words go together (Android `send`).
+        if sendAttachments(&s, clientID: clientID, text: text, at: at, &effects) { return }
         guard s.outbox.count < outboxLimit else {
             s.toast = .outboxFull(limit: outboxLimit)
             return

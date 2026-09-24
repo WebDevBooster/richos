@@ -72,7 +72,7 @@ enum Intent: Equatable, Sendable {
     case openAppStore
     case updateLater
     case checkAgain
-    // Attachments (round-12 attachments; the core's attachment domain is pending)
+    // Attachments (round-12 attachments; the core's `AttachmentPicking`)
     case openAttachMenu
     case closeAttachMenu
     case openPicker(ScreenModel.Picker)
@@ -138,6 +138,16 @@ enum Intent: Equatable, Sendable {
         case .openPrivacyPolicy: return .openPrivacyPolicy
         case .updateLater: return .dismissUpdate
         case .setAppearance(let appearance): return .setAppearance(appearance)
+        case .openAttachMenu: return .openAttachMenu
+        case .closeAttachMenu: return .closeAttachMenu
+        case .openPicker(let picker):
+            switch picker {
+            case .photos: return .pickAttachments(.photos)
+            case .camera: return .pickAttachments(.camera)
+            case .files: return .pickAttachments(.files)
+            }
+        case .removePending(let id): return .removePendingAttachment(id: id)
+        case .dismissCard(let id) where id.hasPrefix("attach-"): return .dismissAttachNotice
         default: return nil
         }
     }

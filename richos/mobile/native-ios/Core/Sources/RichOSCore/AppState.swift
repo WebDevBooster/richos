@@ -53,6 +53,13 @@ public struct AppState: Codable, Equatable, Sendable {
     public var notifiedReply: String?
     /// TRANSIENT. The keyboard is up for the composer.
     public var composerFocused = false
+    /// Photos and files chosen from the + menu, waiting in the composer's tray, in the order chosen.
+    /// Persisted with the draft: the staged copies are on this phone until sent or removed.
+    public var pendingAttachments: [OutboxFile] = []
+    /// TRANSIENT. The + menu is open (`att-menu`).
+    public var attachMenuOpen = false
+    /// TRANSIENT. A card about photos and files (refused, permission off, Mac cannot take them).
+    public var attachNotice: AttachNotice?
     /// TRANSIENT. The one reply being heard, if any.
     public var playback: Playback?
 
@@ -214,6 +221,8 @@ extension AppState {
         public var notifications: Notifications
         public var appearance: Appearance
         public var notifiedReply: String?
+        /// Optional so a state saved before the tray existed still loads (same schema).
+        public var pendingAttachments: [OutboxFile]?
     }
 
     public var persisted: Persisted {
@@ -221,7 +230,7 @@ extension AppState {
         Persisted(schema: schema, pairing: pairing == .connecting ? .unpaired : pairing, mac: pairing == .connecting ? nil : mac,
                   fingerprintWords: fingerprintWords, consentGiven: consentGiven, messages: messages, draft: draft,
                   outbox: outbox, keptRecordings: keptRecordings, notifications: notifications, appearance: appearance,
-                  notifiedReply: notifiedReply)
+                  notifiedReply: notifiedReply, pendingAttachments: pendingAttachments.isEmpty ? nil : pendingAttachments)
     }
 
     public init(restoring p: Persisted) throws {
@@ -230,6 +239,7 @@ extension AppState {
         pairing = p.pairing; mac = p.mac; fingerprintWords = p.fingerprintWords; consentGiven = p.consentGiven
         messages = p.messages; draft = p.draft; outbox = p.outbox; keptRecordings = p.keptRecordings
         notifications = p.notifications; appearance = p.appearance; notifiedReply = p.notifiedReply
+        pendingAttachments = p.pendingAttachments ?? []
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).
         for i in outbox.indices where outbox[i].state == .sending {
@@ -595,6 +605,8 @@ public enum Toast: Codable, Equatable, Sendable {
     case tooLong(limit: Int)
     /// The phone holds the most unsent messages it will keep; resolve some before sending more.
     case outboxFull(limit: Int)
+    /// `att-limit`: the tray holds the Mac's per-message count; the next one is refused.
+    case attachLimit(limit: Int)
 }
 
 /// The two ruled palettes. Raw values are the CLI's and launch arguments' spelling.

@@ -34,7 +34,7 @@ struct RichOSNativeApp: App {
                 let network = NetworkEffects(transport: transport, stream: transport, identities: KeychainIdentityStore(),
                                              recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
                                              attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
-                let platform = PlatformEffects(network: network)
+                let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())
                 let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: platform)
                 platform.dispatch = { loaded.receive($0) }
                 await network.setSink { action in await MainActor.run { loaded.receive(action) } }

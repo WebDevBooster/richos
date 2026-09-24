@@ -12,7 +12,7 @@ struct RootView: View {
     let send: (Action) -> Void
 
     var body: some View {
-        ScreenView(model: ScreenModel(state: state)) { intent in
+        ScreenView(model: ScreenModel(state: state, attachments: Self.attachments)) { intent in
             // An intent the core has no action for yet changes nothing: a screen never pretends.
             if let action = intent.action() { send(action) }
         }
@@ -29,6 +29,9 @@ struct RootView: View {
         }
         #endif
     }
+
+    /// Where the staged photos live, so the tray and unsent albums can show them.
+    private static let attachments = ShareIntake.attachmentsDirectory()
 
     /// Debug builds pin the clock to the fixtures' morning (`-rios-now <ms>`), so "Today" and "8:02 AM"
     /// read the same on any day; Release always draws against now.

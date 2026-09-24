@@ -9,6 +9,11 @@ delivered it (`18d5062d` onward: the full `AppState`, 63 round-12 fixtures, the 
 
 ## 1. Attachments (ceo-decisions §75: photos and files in v1)
 
+**Delivered 2026-09-24 (isaac-opus-store1):** the + menu, the three pickers, the tray, the refusal
+and permission cards, and send are in the core (`Conversation/AttachmentPicking.swift`) and the
+platform (`App/Platform/AttachmentPicker.swift`). Still open from this list: the viewer, the
+reference chip's jump, upload progress and stop.
+
 The views exist (`App/Features/Attachments/`, round-12 `attachments.html`) and read
 `ScreenModel.attach`, which stays empty until the core carries attachments. The shapes they draw are in
 `Attachments/AttachmentModel.swift` (`PendingItem`, `AttachPhoto`, `AttachFile`, `Reference`,
@@ -28,8 +33,8 @@ The views exist (`App/Features/Attachments/`, round-12 `attachments.html`) and r
 
 | Intent (view) | Where | Needed |
 |---|---|---|
-| `sendWaitingFirst`, `discardAndPair` | `pair-blocked` dialog | the pairing-replacement choices |
-| `checkForUpdates`, `checkAgain` | Settings row, update dialog | a policy re-fetch action |
+| `sendWaitingFirst`, `discardAndPair` | `pair-blocked` dialog | delivered: `retryNow`, `discardUnsentAndPair` (Urban G2) |
+| `checkForUpdates`, `checkAgain` | Settings row, update dialog | delivered: they open the App Store listing (`AppLinks`) |
 | `dismissCard("mic-denied")` | `rec-mic-denied` "Not now" | a dismissal the core remembers |
 | a reply's time | `conv-replying`, `conv-streaming` | `ReplyActivity` carries no time; the row shows the last message's |
 | `hearReply(id)` entry point | Rich's replies | nothing says which replies can be heard (PRD: "expose reply playback whenever the Mac supports it"), so "Hear it" appears only while `playback` names that reply; a `Message.audioAvailable` (or a Mac capability) would show it at rest |

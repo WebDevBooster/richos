@@ -332,6 +332,39 @@ do {
     check(!source.contains("Light appearance") && !source.contains(".setAppearance("), "G9 Settings draws no appearance row")
 }
 
+// The + menu (App Store blocker 5): the menu, the tray, the refusal cards and the bubbles are drawn
+// from the core's attachment state.
+do {
+    var s = try! Fixture.named("conv-populated").state
+    s.attachmentLimits = try! JSONDecoder().decode(AttachmentLimits.self, from: Data(#"{"max_file_bytes":26214400,"max_files_per_message":10,"max_message_bytes":104857600,"upload_seconds":300,"media_types":["image/jpeg","application/pdf"]}"#.utf8))
+    s = Reducer.reduce(s, .openAttachMenu).state
+    check(ScreenModel(state: s).attach.menuOpen, "attach: + opens the menu")
+    let photo = OutboxFile(id: "p1", name: "IMG_1.jpg", mediaType: "image/jpeg", byteCount: 900_000, sha256: "a", path: "pending/p1-IMG_1.jpg")
+    let pdf = OutboxFile(id: "d1", name: "Brief.pdf", mediaType: "application/pdf", byteCount: 2_400_000, sha256: "b", path: "pending/d1-Brief.pdf")
+    s = Reducer.reduce(s, .attachmentsPicked([photo, pdf])).state
+    let dir = URL(fileURLWithPath: "/tmp/attachments")
+    let tray = ScreenModel(state: s, attachments: dir).attach.pending
+    check(tray.map(\.id) == ["p1", "d1"], "attach: the tray shows what was picked, in order")
+    if case .photo(let p)? = tray.first { check(p.source == .file(dir.appendingPathComponent("pending/p1-IMG_1.jpg")), "attach: a tray photo shows its staged copy") }
+    else { check(false, "attach: a tray photo shows its staged copy") }
+    if case .file(let f)? = tray.last { check(f.summary == "PDF · 2.4 MB", "attach: a tray file reads PDF · 2.4 MB") } else { check(false, "attach: a tray file reads PDF · 2.4 MB") }
+    s.draft = "For the offsite."
+    s = Reducer.reduce(s, .sendDraft(clientID: "c1", at: 5_000)).state
+    let rows = ScreenModel(state: s, attachments: dir).thread.rows.suffix(2)
+    if case .album(let photos, let caption)? = rows.first?.body { check(photos.count == 1 && caption == "For the offsite.", "attach: sent photos are an album with the words") }
+    else { check(false, "attach: sent photos are an album with the words") }
+    if case .file(let f, nil)? = rows.last?.body { check(f.name == "Brief.pdf", "attach: a sent file is a file bubble") } else { check(false, "attach: a sent file is a file bubble") }
+    check(rows.allSatisfy { $0.delivery == .waiting || $0.delivery == .sending }, "attach: the bubbles show their honest delivery state")
+    let big = OutboxFile(id: "z", name: "Lease.pdf", mediaType: "application/pdf", byteCount: 31_000_000, sha256: "c", path: "pending/z-Lease.pdf")
+    let refused = ScreenModel(state: Reducer.reduce(s, .attachmentsPicked([big])).state)
+    check(refused.cards.contains(.attachRefused(name: "Lease.pdf", detail: "is 31 MB. Rich can take files up to 25 MB each.", tooLarge: true)),
+          "attach: too large is refused in one card with the size and the limit")
+    check(ScreenModel(state: Reducer.reduce(s, .attachPermissionDenied(.camera)).state).cards.contains(.attachCameraDenied), "attach: camera denied shows its card")
+    var noMac = s
+    noMac.attachmentLimits = nil
+    check(ScreenModel(state: Reducer.reduce(noMac, .pickAttachments(.files)).state).cards.contains(.attachMacUnsupported), "attach: a Mac without attachments says so")
+}
+
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
 print("  headless: all checks passed")
 SWIFT

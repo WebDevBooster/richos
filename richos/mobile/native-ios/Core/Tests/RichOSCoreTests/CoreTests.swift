@@ -117,6 +117,8 @@ let repositoryRoot: URL = {
             .updatePolicy(UpdateNotice(prominence: .banner, version: "1.1", message: "x"), voicePaused: true),
             .updatePolicy(nil, voicePaused: false), .dismissUpdate, .openAppStore, .openSupport,
             .checkForUpdates, .openPrivacyPolicy, .discardUnsentAndPair,
+            .openAttachMenu, .closeAttachMenu, .pickAttachments(.photos), .attachmentsPicked([OutboxFile(id: "p", name: "a.jpg", mediaType: "image/jpeg", byteCount: 1, sha256: "00", path: "pending/p-a.jpg")]),
+            .attachmentRefused(name: "a.zip", bytes: 3, tooLarge: false), .attachPermissionDenied(.camera), .removePendingAttachment(id: "p"), .dismissAttachNotice,
         ]
         #expect(Set(try all.map { try #require(JSONSerialization.jsonObject(with: CoreJSON.encode($0)) as? [String: Any])["type"] as? String })
                 == Set(Action.knownTypes))
