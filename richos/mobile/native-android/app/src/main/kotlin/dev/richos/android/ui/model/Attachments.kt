@@ -57,7 +57,7 @@ enum class ShareKind { PHOTO, PHOTOS, FILE, TOO_LARGE }
 enum class ShareStage { COMPOSE, SENDING, SENT, SAVED, UNPAIRED }
 
 @Immutable
-data class ShareSheet(val kind: ShareKind, val stage: ShareStage = ShareStage.COMPOSE, val caption: String = "", val photos: List<Photo> = emptyList(), val file: FileInfo? = null, val macName: String = "Alex’s Mac")
+data class ShareSheet(val kind: ShareKind, val stage: ShareStage = ShareStage.COMPOSE, val caption: String = "", val photos: List<Photo> = emptyList(), val file: FileInfo? = null, val macName: String = YOUR_MAC)
 
 /** The photo (or file's first page) opened full screen. */
 @Immutable

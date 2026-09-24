@@ -40,6 +40,7 @@ import dev.richos.android.ui.model.Photo
 import dev.richos.android.ui.model.ShareKind
 import dev.richos.android.ui.model.ShareSheet
 import dev.richos.android.ui.model.ShareStage
+import dev.richos.android.ui.model.YOUR_MAC
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
@@ -203,7 +204,7 @@ class ShareActivity : ComponentActivity() {
         val state = withTimeoutOrNull(STORE_PATIENCE_MS) { app.store.states.filterNotNull().first() }
         if (state == null) return close(ShareOutcome.REFUSED.words)
         if (!state.paired) {
-            sheet.value = ShareSheet(ShareKind.PHOTO, ShareStage.UNPAIRED, macName = MAC)
+            sheet.value = ShareSheet(ShareKind.PHOTO, ShareStage.UNPAIRED, macName = YOUR_MAC)
             return
         }
         val limits = state.attachmentLimits ?: AttachmentLimits()
@@ -214,7 +215,7 @@ class ShareActivity : ComponentActivity() {
         staged = intake.files
         if (intake.tooMany) return close("Rich takes up to ${limits.maxFilesPerMessage} files in one message. Share fewer at a time.")
         intake.refused.firstOrNull { it.reason == Stager.Reason.TOO_LARGE }?.let { big ->
-            sheet.value = ShareSheet(ShareKind.TOO_LARGE, file = fileInfo(big.name, big.bytes ?: (limits.maxFileBytes + 1)), macName = MAC)
+            sheet.value = ShareSheet(ShareKind.TOO_LARGE, file = fileInfo(big.name, big.bytes ?: (limits.maxFileBytes + 1)), macName = YOUR_MAC)
             return
         }
         // Something shared could not be read: say so and send nothing, rather than show a sheet
@@ -227,11 +228,11 @@ class ShareActivity : ComponentActivity() {
         withContext(Dispatchers.IO) { images.take(3).forEach { a -> thumbnail(s, a)?.let { thumbs[a.id] = it } } }
         sheet.value = when {
             others.isNotEmpty() -> ShareSheet(
-                ShareKind.FILE, caption = text, macName = MAC,
+                ShareKind.FILE, caption = text, macName = YOUR_MAC,
                 file = fileInfo(if (others.size == 1) others[0].name else "${others[0].name} and ${staged.size - 1} more", others.sumOf { it.size }, others[0].name),
             )
             else -> ShareSheet(
-                if (images.size > 1) ShareKind.PHOTOS else ShareKind.PHOTO, caption = text, macName = MAC,
+                if (images.size > 1) ShareKind.PHOTOS else ShareKind.PHOTO, caption = text, macName = YOUR_MAC,
                 photos = images.map { a -> Photo(a.id, thumbs[a.id]?.width ?: 4, thumbs[a.id]?.height ?: 3, a.name, a.size) },
             )
         }
@@ -303,7 +304,6 @@ class ShareActivity : ComponentActivity() {
 
     companion object {
         private const val MIB = 1024 * 1024
-        private const val MAC = "your Mac"
         private const val THUMB_EDGE = 512
         const val STORE_PATIENCE_MS = 5_000L
         const val SEND_PATIENCE_MS = 20_000L

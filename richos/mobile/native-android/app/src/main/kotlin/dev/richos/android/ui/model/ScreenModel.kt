@@ -461,11 +461,19 @@ sealed interface UpdateNotice {
 
 enum class NotificationStatus { ON, OFF, TURNING_ON, DENIED, UNSUPPORTED, PROVIDER_UNAVAILABLE, SERVICE_UNAVAILABLE }
 
+/**
+ * The paired Mac, as a person reads it, while its own name is unknown: "Paired with your Mac",
+ * "Rich on your Mac" (G1, UX audit richos-hq fffe1d1d §4.2; the iPhone's `mac?.name ?? "your Mac"`).
+ * The Mac reports no name today: its pair answer has none (contract §2.3; the Mac's `/api/pair`
+ * route), so every pairing reads this until it does. Never a sample name: that would be someone else's.
+ */
+const val YOUR_MAC = "your Mac"
+
 @Immutable
 data class SettingsInfo(
     /** The version the hosted update policy announced (core `update`), or null: nothing has said so. */
     val availableVersion: String? = null,
-    val macName: String = "Alex’s Mac",
+    val macName: String = YOUR_MAC,
 )
 
 @Immutable
