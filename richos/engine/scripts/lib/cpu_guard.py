@@ -25,7 +25,6 @@ STATE = Path(os.environ.get('RICHOS_CPU_GUARD_STATE', '/Volumes/E1TB/state/richo
 INTERVAL = 2.0
 WINDOW = 10.0
 JOB_CORES = 3.0
-TOTAL_FRACTION = .60
 LABEL = 'com.richos.cpu-guard'
 
 
@@ -168,7 +167,6 @@ class Watch:
         self.previous = {}
         self.last = None
         self.over = {}
-        self.total_since = None
         self.pending = {}
         self.host_since = None
         self.reported_at = 0
@@ -216,11 +214,9 @@ class Watch:
         # Sessions stay alive. A registered workload root may itself be stopped.
         protected = {p for p, r in roots.items() if r['role'] == 'session'} | {os.getpid()}
         allowed = set(owned) - protected - set(self.pending)
-        total = sum(rates.get(p, 0) for p in allowed)
-        if total > (os.cpu_count() or 4) * TOTAL_FRACTION or (host_busy >= 85 and total >= .5):
-            self.total_since = self.total_since if self.total_since is not None else now
-        else:
-            self.total_since = None
+        # Host pressure closes admission, not already admitted work. Killing
+        # the largest process here repeatedly killed sub-core land checks and
+        # capped Gradle builds while unrelated work saturated the host.
         candidates = []
         for pid in allowed:
             rate = rates.get(pid, 0)
@@ -231,8 +227,6 @@ class Watch:
             since = self.over.get((pid, rows[pid]['birth']))
             if since is not None and now - since >= WINDOW:
                 candidates.append(pid)
-        if self.total_since is not None and now - self.total_since >= WINDOW and allowed:
-            candidates.append(max(allowed, key=lambda p: rates.get(p, 0)))
         self.over = {k: v for k, v in self.over.items() if k[0] in allowed and rows[k[0]]['birth'] == k[1]}
         return sorted(set(candidates), key=lambda p: rates.get(p, 0), reverse=True), rates, protected
 
@@ -265,7 +259,7 @@ class Watch:
                     targets.add(pid)
         return targets
 
-    def stop(self, pid, rows, protected, rates, reason='sustained CPU overload'):
+    def stop(self, pid, rows, protected, rates, reason='process exceeded sustained per-process CPU limit'):
         # Expand only observed descendants. Never killpg on a potentially shared group.
         targets = {pid}
         while True:
@@ -334,7 +328,6 @@ def watch(engine):
                     watcher.stop(pid, rows, protected, rates, 'local simulator incident containment')
                 if candidates:
                     watcher.stop(candidates[0], rows, protected, rates)
-                    watcher.total_since = None
                 if busy >= 85:
                     watcher.host_since = watcher.host_since if watcher.host_since is not None else now
                     if not candidates and now-watcher.host_since >= WINDOW and now-watcher.reported_at >= 300:

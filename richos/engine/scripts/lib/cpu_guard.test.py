@@ -66,13 +66,13 @@ class GuardTests(unittest.TestCase):
             chosen,_,_=watch.sample({10:self.row(),20:self.row(10,cpu)},now)
             self.assertEqual(chosen,[])
 
-    def test_aggregate_small_workers(self):
+    def test_aggregate_small_workers_are_not_killed(self):
         self.root()
         watch=G.Watch()
         with patch.object(os,'cpu_count',return_value=4):
             for now in range(0,14,2):
                 chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now*2),21:self.row(10,now*2)},now)
-            self.assertEqual(len(chosen),1)
+            self.assertEqual(chosen,[])
 
     def test_signal_checks_identity_again(self):
         watch=G.Watch()
@@ -97,12 +97,12 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(G.forbidden("bash <<'EOF'\nswift test\nEOF"), "swift test")
         self.assertEqual(G.forbidden("cat <<'EOF'\ntext\nEOF\nswift test"), "swift test")
 
-    def test_busy_host_reclaims_small_owned_workload(self):
+    def test_busy_host_preserves_small_admitted_workload(self):
         self.root()
         watch=G.Watch()
-        for now in range(0,14,2):
-            chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=95)
-        self.assertEqual(chosen,[20])
+        for now in range(0,62,2):
+            chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=99.5)
+        self.assertEqual(chosen,[])
 
     def test_caps_cannot_be_overridden(self):
         gradle=N.capped(['./gradlew','test'])
