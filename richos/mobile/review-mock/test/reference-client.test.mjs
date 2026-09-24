@@ -78,7 +78,8 @@ test('the reference client reviews the whole app against a review host', async (
 
 	// Before the press on the access page, a send is a temporary fault: the queue keeps it.
 	await assert.rejects(api.sendText({ clientId: 'early', threadId: 'thr_board_prep', text: 'too early', sentAt: new Date().toISOString() }), (e) => e.reason === FAULT);
-	assert.deepEqual(await api.confirmFingerprint(true), { ok: true });
+	// The Mac's own answer while it waits for the press (`routes.rs`): the phone is told to wait.
+	assert.deepEqual(await api.confirmFingerprint(true), { ok: true, awaiting_mac_confirmation: true });
 	await host.confirmOnMac(true);
 
 	// The stream opens with hello, which sets the challenge and the capabilities.

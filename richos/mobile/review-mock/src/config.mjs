@@ -4,7 +4,8 @@
 // Bindings and variables (see README "Deploy"):
 //   ACCESS_HOSTNAME        plain   the access page's HTTPS name
 //   REVIEW_HOSTS           plain   JSON [{ "hostname", "label", "username" }, …], at most 8
-//   PAIRING_WORDS          plain   "v1" (today's corpus, the default) or "v2" (Sage's derivation)
+//   PAIRING_WORDS          plain   "v2" (Sage's derivation, the default: what the Mac announces as
+//                                  `pair-v2`) or "v1" (the words of the fingerprint alone)
 //   CONNECT_ORIGIN         plain   the Connect Worker, default https://connect.richos.ceo
 //   REVIEW_PASSWORD_HASHES secret  JSON { username: "pbkdf2-sha256$…" }
 //   SESSION_KEY            secret  base64url of 32 random bytes
@@ -70,7 +71,9 @@ export function readConfig(env) {
 	need(sessionKeyOk, 'SESSION_KEY must be base64url of 32 bytes.');
 	need(Boolean(env.HOSTS && typeof env.HOSTS.idFromName === 'function'), 'The HOSTS Durable Object binding is missing.');
 	need(Boolean(env.LOGIN_LIMIT && typeof env.LOGIN_LIMIT.limit === 'function'), 'The LOGIN_LIMIT rate-limit binding is missing.');
-	const words = String(env.PAIRING_WORDS || 'v1');
+	// v2 by default since the Mac announces `pair-v2` and the corpus carries the v2 vectors
+	// (cc/echo-opus-pair2): a review host that answered v1 would be a Mac the v2 apps refuse.
+	const words = String(env.PAIRING_WORDS || 'v2');
 	need(words === 'v1' || words === 'v2', 'PAIRING_WORDS must be v1 or v2.');
 	const connectOrigin = String(env.CONNECT_ORIGIN || 'https://connect.richos.ceo');
 	need(/^https:\/\/[a-z0-9.-]+$/.test(connectOrigin), 'CONNECT_ORIGIN must be an https origin.');

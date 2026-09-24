@@ -100,8 +100,10 @@ const PAIR_ANSWER = {
 	protocol_version: PROTOCOL_VERSION,
 	capabilities: CAPABILITIES_FULL,
 	// Sage's pairing review section 3.1 step 3: the answer is unchanged, plus the derivation the Mac
-	// uses (phone/routes.rs complete_pairing).
+	// uses and how long the person has to press They match on the Mac (phone/routes.rs
+	// complete_pairing), which bounds the phone's wait for that press.
 	pairing_version: 2,
+	confirm_within_seconds: 300,
 	attachment_limits: ATTACHMENT_LIMITS,
 	build: '1.2.0'
 };

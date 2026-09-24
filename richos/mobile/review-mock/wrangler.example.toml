@@ -28,7 +28,7 @@ enabled = false
 [vars]
 ACCESS_HOSTNAME = "review.example.org"
 REVIEW_HOSTS = '[{"hostname":"apple.review.example.org","label":"Apple App Review","username":"apple-review"},{"hostname":"google.review.example.org","label":"Google Play review","username":"google-review"},{"hostname":"spare.review.example.org","label":"Additional device","username":"spare-review"}]'
-PAIRING_WORDS = "v1"
+PAIRING_WORDS = "v2"
 CONNECT_ORIGIN = "https://connect.richos.ceo"
 
 # Each review host is one Durable Object, keyed by its hostname: that is the isolation.

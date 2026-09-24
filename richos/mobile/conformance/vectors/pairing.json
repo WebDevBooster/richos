@@ -241,6 +241,7 @@
               "pair-v2"
             ],
             "pairing_version": 2,
+            "confirm_within_seconds": 300,
             "attachment_limits": {
               "max_file_bytes": 26214400,
               "max_files_per_message": 10,
@@ -316,6 +317,7 @@
             "pair-v2"
           ],
           "pairing_version": 2,
+          "confirm_within_seconds": 300,
           "attachment_limits": {
             "max_file_bytes": 26214400,
             "max_files_per_message": 10,
@@ -381,6 +383,7 @@
               "pair-v2"
             ],
             "pairing_version": 2,
+            "confirm_within_seconds": 300,
             "attachment_limits": {
               "max_file_bytes": 26214400,
               "max_files_per_message": 10,
@@ -453,6 +456,7 @@
             "pair-v2"
           ],
           "pairing_version": 2,
+          "confirm_within_seconds": 300,
           "attachment_limits": {
             "max_file_bytes": 26214400,
             "max_files_per_message": 10,
@@ -661,6 +665,7 @@
                 "pair-v2"
               ],
               "pairing_version": 2,
+              "confirm_within_seconds": 300,
               "attachment_limits": {
                 "max_file_bytes": 26214400,
                 "max_files_per_message": 10,
@@ -736,6 +741,7 @@
               "pair-v2"
             ],
             "pairing_version": 2,
+            "confirm_within_seconds": 300,
             "attachment_limits": {
               "max_file_bytes": 26214400,
               "max_files_per_message": 10,
@@ -801,6 +807,7 @@
                 "attachments",
                 "native-push-fcm"
               ],
+              "confirm_within_seconds": 300,
               "attachment_limits": {
                 "max_file_bytes": 26214400,
                 "max_files_per_message": 10,
