@@ -1,6 +1,7 @@
 package dev.richos.android.platform
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -49,6 +50,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -250,6 +252,8 @@ class FcmPlatform(
     }
 
     override suspend fun unregisterNotifications() {
+        // D04: off means off. A reply already in the shade goes too, not only the ones to come.
+        Replies.withdrawAll(context)
         ledger.clear()
         withContext(Dispatchers.IO) { previewKeys.discard() }
         if (FirebaseApp.getApps(context).isNotEmpty()) runCatching { FirebaseMessaging.getInstance().deleteToken() }
@@ -263,6 +267,8 @@ class FcmPlatform(
      * on. Bounded; if it cannot reach Firebase now, the next launch finishes it ([reconcile]).
      */
     override suspend fun forgetInstallation() {
+        // D04: the Mac is forgotten, so nothing it sent stays in the shade (its taps open nothing now).
+        Replies.withdrawAll(context)
         if (!firebaseReady()) return
         withContext(Dispatchers.IO) { runCatching { pendingForget.parentFile?.mkdirs(); pendingForget.createNewFile() } }
         val done = firebaseLane.withLock { withTimeoutOrNull(FORGET_PATIENCE_MS) { runCatching { deleteInstallation() }.isSuccess } }
@@ -466,9 +472,7 @@ object Replies {
         // One notification per event, so one pending intent per event: PendingIntent identity ignores
         // extras, and a shared request code made every notification open the newest reply's references.
         val id = collapse?.hashCode() ?: 0
-        val open = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            ?.let { target?.into(it) ?: it }
+        val open = openIntent(context, target)
         val tap = open?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(SMALL_ICON)
@@ -480,19 +484,40 @@ object Replies {
             .setGroup(GROUP)
             .setAutoCancel(true)
             .setContentIntent(tap)
+            // Which reply this is, so the app can withdraw it once that reply has been read (D04).
+            // The Mac's references only, as the tap carries them: never an id, never the words.
+            .apply { target?.let { addExtras(it.extras()) } }
             .build()
         val manager = NotificationManagerCompat.from(context)
         // A repeat delivery of the same event replaces, never stacks.
-        manager.notify(if (id == SUMMARY_ID) id + 1 else id, notification)
+        manager.notify(notificationId(collapse), notification)
         // The group's own summary, which Android shows when it collapses the replies ("RichConnect ·
         // 2"). Left to Android, the automatic bundle's tap carried no reply, so the app opened with
         // nothing focused. This summary's tap targets the reply just posted, the newest, so tapping
         // the collapsed group opens the conversation at that reply with the single gold glow, as a
         // normal tap does (Urban's 2026-09-24 audit G5, §4.3). The replies still sound; the summary
         // never does (GROUP_ALERT_CHILDREN).
+        manager.notify(SUMMARY_ID, summary(context, text, open))
+        posted.incrementAndGet()
+    }
+
+    /** The id a reply's notification is posted under: its event reference, hashed, never the summary's. */
+    private fun notificationId(collapse: String?): Int {
+        val id = collapse?.hashCode() ?: 0
+        return if (id == SUMMARY_ID) id + 1 else id
+    }
+
+    /** What a tap opens: the app, carrying the reply's references when there are any. */
+    private fun openIntent(context: Context, target: NotificationTarget?): Intent? =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            ?.let { target?.into(it) ?: it }
+
+    /** The group's summary, whose tap opens [open] (the newest reply still posted). */
+    private fun summary(context: Context, text: CharSequence, open: Intent?): Notification {
         // Its own copy of the intent: the reply's pending intent must never share (and so change with) it.
         val summaryTap = open?.let { PendingIntent.getActivity(context, SUMMARY_ID, Intent(it), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
-        val summary = NotificationCompat.Builder(context, CHANNEL)
+        return NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(SMALL_ICON)
             .setColor(ACCENT)
             .setContentTitle("Rich")
@@ -501,10 +526,68 @@ object Replies {
             .setGroup(GROUP)
             .setGroupSummary(true)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+            // Re-pointed when a reply is read (D04): an update, and never a second sound.
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(summaryTap)
             .build()
-        manager.notify(SUMMARY_ID, summary)
+    }
+
+    /**
+     * Whether a reply of ours may be in the shade, so a conversation on screen asks Android only when
+     * there can be something to withdraw. Unknown when the process starts (an earlier process may have
+     * posted); known empty once a pass leaves nothing, until the next post. A post racing a pass
+     * moves [posted] past the generation the pass read, so it is never forgotten.
+     */
+    private val posted = AtomicLong(1)
+    private val clearedAt = AtomicLong(0)
+
+    /**
+     * D04: the replies the person has read in the conversation on screen leave the shade, and the
+     * group's summary with the last of them. A reply still posted keeps its notification, and the
+     * collapsed group's tap is re-pointed at the newest of those, never at a reply just read.
+     * Read-only when nothing matches: no notification is re-posted, so the shade never flickers.
+     */
+    fun withdrawRead(context: Context, read: ReadReplies.Read) {
+        if (posted.get() == clearedAt.get()) return
+        val generation = posted.get()
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val active = runCatching { manager.activeNotifications.toList() }.getOrNull() ?: return
+        val summaryPosted = active.any { it.id == SUMMARY_ID }
+        val replies = active.filter { it.id != SUMMARY_ID && it.notification.group == GROUP }
+        val thread = NotificationTarget.reference(read.threadId)
+        val events = read.replyIds.mapTo(HashSet(), NotificationTarget::reference)
+        val ids = events.mapTo(HashSet(), ::notificationId)
+        val (gone, left) = replies.partition { sbn ->
+            when (val target = NotificationTarget.fromExtras(sbn.notification.extras)) {
+                // Posted before replies carried their references (builds up to e768c515, the D04
+                // build): the notification id is the reply's reference, hashed, which names it.
+                null -> sbn.id in ids
+                else -> target.thread == thread && target.event in events
+            }
+        }
+        gone.forEach { manager.cancel(it.tag, it.id) }
+        val newest = left.maxWithOrNull(compareBy({ it.postTime }, { it.notification.`when` }))
+        when {
+            newest == null -> {
+                if (summaryPosted) manager.cancel(SUMMARY_ID)
+                clearedAt.accumulateAndGet(generation, ::maxOf)
+            }
+            gone.isNotEmpty() && summaryPosted -> {
+                val extras = newest.notification.extras
+                val text = extras.getCharSequence(Notification.EXTRA_TEXT) ?: NotificationPreview.GENERIC
+                manager.notify(SUMMARY_ID, summary(context, text, openIntent(context, NotificationTarget.fromExtras(extras))))
+            }
+        }
+    }
+
+    /** Every reply and the summary leave the shade: notifications turned off, or the Mac forgotten (D04). */
+    fun withdrawAll(context: Context) {
+        val generation = posted.get()
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val active = runCatching { manager.activeNotifications.toList() }.getOrNull() ?: return
+        active.filter { it.id == SUMMARY_ID || it.notification.group == GROUP }.forEach { manager.cancel(it.tag, it.id) }
+        clearedAt.accumulateAndGet(generation, ::maxOf)
     }
 
     /** The one group every reply notification belongs to, owned by the app (not Android's auto-bundle). */

@@ -50,6 +50,7 @@ import dev.richos.android.core.AppState
 import dev.richos.android.core.Theme
 import dev.richos.android.design.phoneTheme
 import dev.richos.android.platform.NotificationTaps
+import dev.richos.android.platform.ReadReplies
 import dev.richos.android.platform.StagedPhotos
 import dev.richos.android.ui.attach.LocalPhotoPixels
 import androidx.lifecycle.lifecycleScope
@@ -155,6 +156,8 @@ class MainActivity : ComponentActivity() {
                 AppRoot(null, theme, problem = refusal)
             }
         }
+        // A reply read here leaves the shade, however the app was opened (D04, platform/ReadReplies.kt).
+        ReadReplies.follow(this, store.states)
         // A tapped reply notification opens that reply (platform/NotificationTaps.kt).
         if (savedInstanceState == null) NotificationTaps.handle(intent, store, (application as RichApplication).appScope)
     }
