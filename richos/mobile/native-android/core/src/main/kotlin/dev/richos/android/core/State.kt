@@ -220,6 +220,9 @@ data class AppState(
     val composerAction: ComposerAction
         get() = if (draft.isBlank() && pendingAttachments.isEmpty()) ComposerAction.RECORD else ComposerAction.SEND
 
+    /** The selected conversation as it is drawn ([Transcript]). Derived, never stored. */
+    val transcript: List<Line> get() = Transcript.of(this)
+
     companion object {
         fun of(session: Session, outbox: List<OutboxItem>, dueInMs: Long?, lastSend: SendReport?, connection: ConnectionState = ConnectionState()) = AppState(
             threads = session.threads,
