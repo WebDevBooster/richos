@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -40,6 +42,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -80,6 +85,7 @@ import dev.richos.android.ui.voice.VoiceFrames
  * The recording is core's ([voice]). Nothing here decides a threshold.
  */
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun Composer(
     draft: String,
     voice: VoicePose?,
@@ -96,6 +102,20 @@ fun Composer(
     val shape = RoundedCornerShape(26.dp)
     var pressed by remember { mutableStateOf(false) }
     val editor = rememberDraftEditor(draft, onEvent)
+    val keyboardVisible = WindowInsets.isImeVisible
+    var keyboardWasVisible by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
+    val view = LocalView.current
+    val hasHardwareKeyboard = LocalConfiguration.current.keyboard != android.content.res.Configuration.KEYBOARD_NOKEYS
+    LaunchedEffect(keyboardVisible) {
+        // Dismissing the soft keyboard ends editing. Retaining focus here otherwise leaves
+        // the cursor blinking twice a second on an idle conversation. Do not steal focus
+        // during a lifecycle transition or from a physical keyboard user.
+        if (keyboardWasVisible && !keyboardVisible && view.hasWindowFocus() && !hasHardwareKeyboard) {
+            focus.clearFocus()
+        }
+        keyboardWasVisible = keyboardVisible
+    }
     // Core's draft changed (a send cleared it, the bridge set it): the editor decides whether it is news.
     LaunchedEffect(draft) { editor.reconcile() }
     val text = editor.value.text
