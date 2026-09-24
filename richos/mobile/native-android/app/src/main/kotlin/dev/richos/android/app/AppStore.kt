@@ -129,6 +129,7 @@ class AppStore(private val scope: CoroutineScope) {
      */
     fun dispatchThen(action: Action, done: ((refusal: String?) -> Unit)?) {
         val target = core.value ?: return
+        if (action == Action.Send) PerformanceMarks.mark("send-tapped")
         scope.launch {
             val refused = try {
                 target.dispatch(action)

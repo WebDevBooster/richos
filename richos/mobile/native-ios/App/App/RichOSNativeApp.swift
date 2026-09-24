@@ -31,11 +31,19 @@ struct RichOSNativeApp: App {
         return SharePlatform.context(for: state, macAcceptsAttachments: state.attachmentLimits != nil, limits: state.attachmentLimits)
     }
 
+    private func usefulMarker(_ store: AppStore) -> some View {
+        let state = store.state
+        let revision = UsefulFrameMarker.Revision(count: state.messages.count, last: state.messages.last, reply: state.reply)
+        return UsefulFrameMarker(active: scenePhase == .active, revision: revision)
+            .frame(width: 1, height: 1).allowsHitTesting(false).accessibilityHidden(true)
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
                 if let store {
                     RootView(state: store.state, send: { store.send($0) })
+                        .overlay(alignment: .topLeading) { usefulMarker(store) }
                         .safeAreaInset(edge: .top) {
                             if let problem = store.persistenceProblem {
                                 Text(problem)
@@ -59,7 +67,7 @@ struct RichOSNativeApp: App {
                                              recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
                                              attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
                 let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())
-                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: platform)
+                let loaded = await AppStore.launch(storage: AppStore.defaultStorage(), effects: platform, performance: PerformanceMarks.record)
                 platform.dispatch = { loaded.receive($0) }
                 await network.setSink { action in await MainActor.run { loaded.receive(action) } }
                 await network.setPreviewKeyProvider { origin, previews in

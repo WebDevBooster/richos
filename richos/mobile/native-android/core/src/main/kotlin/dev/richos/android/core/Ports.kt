@@ -90,6 +90,10 @@ class TransportFailure(
     val missing: List<String> = emptyList(),
 ) : Exception(reason)
 
+fun interface PerformanceEvents {
+    fun mark(event: String)
+}
+
 class Ports(
     val storage: OutboxStorage,
     val session: SessionStore,
@@ -110,4 +114,5 @@ class Ports(
     val picker: AttachPicker = AttachPicker.NONE,
     /** The id the Mac registers push for (Echo 65952d16: `dev.richos.native.android` in development). */
     val applicationId: String = "dev.richos.native.android",
+    val performance: PerformanceEvents = PerformanceEvents { },
 )

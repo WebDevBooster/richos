@@ -54,6 +54,7 @@ object AppPorts {
             keys = KeystoreKeys(),
             deviceName = "Android phone",
             applicationId = context.packageName,
+            performance = dev.richos.android.core.PerformanceEvents(PerformanceMarks::mark),
             files = StagedFiles(stagedDir(context)),
             recorder = recorder,
             platform = platform,

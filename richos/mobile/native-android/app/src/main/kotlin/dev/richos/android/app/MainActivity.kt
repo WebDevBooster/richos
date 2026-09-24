@@ -10,6 +10,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawWithContent
 import dev.richos.android.ui.composer.DraftLink
 import dev.richos.android.ui.composer.LocalDraftLink
 import androidx.core.content.ContextCompat
@@ -55,6 +59,13 @@ import dev.richos.android.ui.toAction
 
 /** The single activity (build plan §3.3). Edge to edge; Compose draws everything. */
 class MainActivity : ComponentActivity() {
+    private var resumeGeneration by mutableIntStateOf(0)
+    override fun onResume() {
+        super.onResume()
+        resumeGeneration++
+        PerformanceMarks.mark("foreground-requested")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
@@ -93,6 +104,7 @@ class MainActivity : ComponentActivity() {
                 onPauseOrDispose { }
             }
             val current = state
+            val drawn = remember { DrawnMarks() }
             if (current != null) {
                 val model = ScreenModel(app = current.copy(theme = theme), refusal = refusal, pairingSurface = pairing.surface, scannerCamera = pairing.camera)
                 BackHandler(enabled = entry.ownsBack(current)) { entry.back(current) }
@@ -109,6 +121,18 @@ class MainActivity : ComponentActivity() {
                     photos.retain((current.pendingAttachments.map { it.id } +
                         current.outbox.flatMap { it.attachments.orEmpty().map { file -> file.id } }).toSet())
                 }
+                val generation = resumeGeneration
+                Box(Modifier.drawWithContent {
+                    drawContent()
+                    if (drawn.resume != generation) {
+                        PerformanceMarks.mark("foreground-useful")
+                        drawn.resume = generation
+                    }
+                    if (drawn.messages !== current.messages) {
+                        PerformanceMarks.mark("transcript-drawn")
+                        drawn.messages = current.messages
+                    }
+                }) {
                 CompositionLocalProvider(LocalDraftLink provides drafts, LocalPhotoPixels provides photos::pixels) {
                     RichApp(
                         model,
@@ -124,6 +148,7 @@ class MainActivity : ComponentActivity() {
                         // No camera to open (none on the phone, or it failed): nothing is left holding it.
                         camera = if (pairing.camera == ScannerCamera.UNAVAILABLE) null else ({ CameraFeed(onStatus = entry::cameraStatus, onCode = entry::scanned) }),
                     )
+                }
                 }
             } else {
                 // Until the saved state is read (a few milliseconds): the ground, nothing else.
@@ -170,3 +195,5 @@ fun AppRoot(state: AppState?, theme: Theme, problem: String? = null) {
         }
     }
 }
+
+private class DrawnMarks { var resume = -1; var messages: Any? = null }

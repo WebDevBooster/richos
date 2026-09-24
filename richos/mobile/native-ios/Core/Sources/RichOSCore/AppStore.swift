@@ -13,6 +13,7 @@ public final class AppStore {
     /// A storage failure the person should know about, in plain words. `nil` while healthy.
     public private(set) var persistenceProblem: String?
 
+    @ObservationIgnored private let performance: @Sendable (String) -> Void
     @ObservationIgnored public let runner: EffectRunner
     /// When the stored state could not be read, nothing is written over it: it may hold unsent
     /// work (the preserved client's rule, `richos/mobile/DEVELOPMENT.md` "Session schema 2").
@@ -42,7 +43,8 @@ public final class AppStore {
         #endif
     }
 
-    public init(state: AppState, runner: EffectRunner) {
+    public init(state: AppState, runner: EffectRunner, performance: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.performance = performance
         self.state = state
         self.runner = runner
     }
@@ -50,19 +52,20 @@ public final class AppStore {
     /// The store for this launch: the saved state, or a new install. `effects` is the platform and
     /// network adapter (stream I3 supplies the platform half); without it, non-storage effects are
     /// recorded and skipped.
-    public static func launch(storage: any Storage, effects: (any EffectHandler)? = nil) async -> AppStore {
+    public static func launch(storage: any Storage, effects: (any EffectHandler)? = nil,
+                              performance: @escaping @Sendable (String) -> Void = { _ in }) async -> AppStore {
         let runner = EffectRunner(storage: storage, handler: effects)
         do {
-            return AppStore(state: try await runner.load() ?? .initial, runner: runner)
+            return AppStore(state: try await runner.load() ?? .initial, runner: runner, performance: performance)
         } catch let error as StoredSchemaError where error.newer {
             // Saved by a newer app (round-12 `pair-stale`): say so, and write nothing over it.
             var state = AppState.initial
             state.pairingProblem = .sessionNeedsNewerApp
-            let store = AppStore(state: state, runner: runner)
+            let store = AppStore(state: state, runner: runner, performance: performance)
             store.storageIsReadOnly = true
             return store
         } catch {
-            let store = AppStore(state: .initial, runner: runner)
+            let store = AppStore(state: .initial, runner: runner, performance: performance)
             store.storageIsReadOnly = true
             store.persistenceProblem = "Saved data on this iPhone could not be read, so it was left untouched."
             return store
@@ -77,6 +80,7 @@ public final class AppStore {
     /// What long-running sources (the live connection) report. In a Debug fixture it is dropped: a
     /// fixture is a still frame, and a connection opened before it must not rewrite it.
     public func receive(_ action: Action) {
+        if case .replyDelta = action { performance("text-received") }
         #if DEBUG
         if effectsSuspended { return }
         #endif
@@ -108,6 +112,7 @@ public final class AppStore {
 
     @discardableResult
     public func apply(_ action: Action) -> Task<Void, Never> {
+        if case .sendDraft = action { performance("send-requested") }
         switch action {
         case .backgrounded: foreground = false
         case .foregrounded: foreground = true
@@ -154,6 +159,7 @@ public final class AppStore {
             do {
                 guard !storageIsReadOnly else { throw CoreError("Saved data is read-only") }
                 try await runner.run([.persist], state: next)
+                performance("durable-queued")
                 state = next
                 persistenceProblem = nil
                 saved = true

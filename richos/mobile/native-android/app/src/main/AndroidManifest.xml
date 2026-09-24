@@ -29,6 +29,8 @@
         android:label="RichConnect"
         android:supportsRtl="true"
         android:theme="@style/Theme.RichOS">
+        <!-- Shell profiling exposes timing traces without enabling the Debug bridge. -->
+        <profileable android:shell="true" />
         <activity
             android:name=".app.MainActivity"
             android:exported="true"

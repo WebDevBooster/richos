@@ -212,6 +212,7 @@ class RichCore private constructor(
         for (item in items) {
             when (item) {
                 is SseItem.Frame -> {
+                    if (item.frame.event == "delta") ports.performance.mark("text-received")
                     next = apply(next, item.frame)
                     item.frame.id?.toLongOrNull()?.let { next = next.copy(streamCursor = it) }
                 }
@@ -305,7 +306,9 @@ class RichCore private constructor(
 
     /** The journal and consumed input commit together; replay uses the same stable client IDs. */
     private suspend fun enqueueConsuming(items: List<OutboxItem>, consumed: Session) {
+        ports.performance.mark("send-requested")
         commit(consumed.copy(pendingEnqueues = items))
+        ports.performance.mark("durable-queued")
         finishEnqueues()
     }
 
