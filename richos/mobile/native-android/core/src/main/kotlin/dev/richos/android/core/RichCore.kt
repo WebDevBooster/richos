@@ -188,6 +188,7 @@ class RichCore private constructor(
      * the outbox is owed a timed try, so nothing wakes the app until it returns or a person sends.
      */
     suspend fun backgrounded(): AppState = mutex.withLock {
+        voiceLocked(Action.VoiceInterrupted(ports.clock.now()))
         val keep = connection.reason == ConnectionReason.PHONE_OFFLINE || connection.reason == ConnectionReason.SERVICE_UNAVAILABLE
         val reason = when {
             keep -> connection.reason
@@ -744,34 +745,37 @@ class RichCore private constructor(
     }
 
     private suspend fun voice(action: Action): AppState {
+        val sent = mutex.withLock { voiceLocked(action) }
+        return if (sent) flush() else flow.value
+    }
+
+    private suspend fun voiceLocked(action: Action): Boolean {
         var sent = false
-        mutex.withLock {
-            val world = VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord())
-            val (next, effects) = VoiceMachine.reduce(world, action, ports.clock.now())
-            voiceSession = next.voice
-            toast = next.toast
-            microphonePrompt = next.microphonePrompt
-            for (effect in effects) {
-                when (effect) {
-                    is VoiceEffect.StartRecording -> ports.recorder.start(effect.id)
-                    is VoiceEffect.StopRecording -> ports.recorder.stop(effect.id, effect.keep)
-                    is VoiceEffect.DeleteRecording -> ports.recorder.delete(effect.id)
-                    VoiceEffect.RequestMicrophone -> ports.recorder.requestMicrophone()
-                    VoiceEffect.HapticTick -> ports.recorder.haptic()
-                    is VoiceEffect.Send -> {
-                        val thread = session.selectedThreadId ?: continue
-                        outbox.enqueue(voiceItem(effect.id, thread, effect.durationMs, effect.levels))
-                        sent = true
-                    }
+        val world = VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord())
+        val (next, effects) = VoiceMachine.reduce(world, action, ports.clock.now())
+        voiceSession = next.voice
+        toast = next.toast
+        microphonePrompt = next.microphonePrompt
+        for (effect in effects) {
+            when (effect) {
+                is VoiceEffect.StartRecording -> ports.recorder.start(effect.id)
+                is VoiceEffect.StopRecording -> ports.recorder.stop(effect.id, effect.keep)
+                is VoiceEffect.DeleteRecording -> ports.recorder.delete(effect.id)
+                VoiceEffect.RequestMicrophone -> ports.recorder.requestMicrophone()
+                VoiceEffect.HapticTick -> ports.recorder.haptic()
+                is VoiceEffect.Send -> {
+                    val thread = session.selectedThreadId ?: continue
+                    outbox.enqueue(voiceItem(effect.id, thread, effect.durationMs, effect.levels))
+                    sent = true
                 }
             }
-            if (next.microphone != session.microphone || next.kept != session.keptRecordings) {
-                commit(session.copy(microphone = next.microphone, keptRecordings = next.kept))
-            } else {
-                emit()
-            }
         }
-        return if (sent) flush() else flow.value
+        if (next.microphone != session.microphone || next.kept != session.keptRecordings) {
+            commit(session.copy(microphone = next.microphone, keptRecordings = next.kept))
+        } else {
+            emit()
+        }
+        return sent
     }
 
     /** `client.js` `effectiveConnectionReason`: revoked, then incompatible, then connected, then the link's reason. */

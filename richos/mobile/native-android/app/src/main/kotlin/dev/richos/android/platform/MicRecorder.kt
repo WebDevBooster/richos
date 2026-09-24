@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import dev.richos.android.core.Microphone
 import dev.richos.android.core.Recorder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -38,6 +39,7 @@ class MicRecorder(
     private val onLevel: (Double) -> Unit,
     private val onPermission: (Microphone) -> Unit,
     private val foreground: () -> ComponentActivity?,
+    private val onInterrupted: (String) -> Unit = {},
 ) : Recorder {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -72,16 +74,28 @@ class MicRecorder(
         }
         record = audio
         current = id to file
-        audio.startRecording()
         job = scope.launch {
-            val buffer = ShortArray(Wav.LEVEL_WINDOW)
-            FileOutputStream(file, true).use { out ->
-                while (isActive) {
-                    val n = audio.read(buffer, 0, buffer.size)
-                    if (n <= 0) continue
-                    out.write(Wav.pcm(buffer, n))
-                    onLevel(Wav.level(buffer, n))
+            try {
+                audio.startRecording()
+                val buffer = ShortArray(Wav.LEVEL_WINDOW)
+                FileOutputStream(file, true).use { out ->
+                    while (isActive) {
+                        val n = audio.read(buffer, 0, buffer.size)
+                        // A failed blocking read must never turn into a hot retry loop.
+                        if (n <= 0) throw java.io.IOException("Microphone capture stopped")
+                        out.write(Wav.pcm(buffer, n))
+                        onLevel(Wav.level(buffer, n))
+                    }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                onInterrupted(id)
+            } finally {
+                runCatching { audio.stop() }
+                audio.release()
+                // Keep the captured prefix recoverable even after a device/read failure.
+                runCatching { Wav.finish(file) }
             }
         }
     }
@@ -96,7 +110,6 @@ class MicRecorder(
         record?.let { runCatching { it.stop() } }
         job?.cancelAndJoin()
         job = null
-        record?.release()
         record = null
         withContext(Dispatchers.IO) {
             if (keep) Wav.finish(file) else file.delete()

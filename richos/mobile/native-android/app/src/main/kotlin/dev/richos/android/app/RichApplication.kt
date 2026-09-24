@@ -81,6 +81,9 @@ class RichApplication : Application() {
                 dir = AppPorts.stagedDir(this),
                 onLevel = { store.dispatch(Action.VoiceLevel(it)) },
                 onPermission = { store.dispatch(Action.MicrophonePermission(it)) },
+                onInterrupted = { id -> scope.launch {
+                    if (store.current?.state?.voice?.id == id) store.dispatch(Action.VoiceInterrupted(System.currentTimeMillis()))
+                } },
                 foreground = { foreground?.get() as? ComponentActivity },
             )
             Replies.ensureChannel(this)
