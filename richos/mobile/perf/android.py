@@ -596,6 +596,7 @@ class Measure:
             pid = self.d.pid()
             self.home()
             self.d.sleep(away_s)
+            self.pace()  # the launcher settles before the resume is timed
             launch = self.foreground()
             after = self.d.pid()
             state = launch["launchState"]

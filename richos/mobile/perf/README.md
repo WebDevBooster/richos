@@ -29,6 +29,7 @@ richos/mobile/native-ios/bin/rios perf --device <UDID> --stamp <stamp.json> --ou
 
 python3 richos/mobile/perf/perf.py check <record.json>...   # a record's structural promises
 python3 richos/mobile/perf/perf.py budgets                   # the PRD §7 targets it compares to
+python3 richos/mobile/perf/perf.py merge <part.json>... --out <file.json>   # one record from boots split with --only
 python3 richos/mobile/perf/perf.py stamp --artifact <apk|.app> --checkout <repo> --paths <p>...
 ```
 
@@ -44,10 +45,13 @@ serial and its device lease); `emu adb <args>` is the same passthrough for one-o
 idle). The tool renews the idle lease as it works. **The Mac's CPU circuit breaker**
 (`engine/scripts/lib/cpu_guard.py`) stops an emulator whose host process stays above 3 cores for
 10 s, and back-to-back cold launches did exactly that on 2026-09-24 (qemu at 5.9–7.0 cores, three
-runs stopped at the third launch). So before every trial and window the tool waits until the
-emulator's host process used under 1.5 cores over one second (at most 30 s), and the record's
-`device.host.pacing` says how long it waited. Use `--only` to split a run that would outlive the
-lease across boots.
+runs stopped at the third launch, a fourth in the warm series at 5.7). So before every trial,
+keystroke, delta, swipe and window, and after HOME before a timed resume, the tool waits until the
+emulator's host process used under 1.5 cores in two consecutive one-second samples (the breaker
+samples every 2 s; at most 30 s), and the record's `device.host.pacing` says how long it waited.
+A run that still loses its device writes its record with every later phase NOT RUN and why.
+Split a run across boots with `--only` and join the parts with `perf.py merge`: it refuses parts
+whose installed bytes differ, a part built from uncommitted changes, or a phase measured twice.
 
 ## What each number is
 

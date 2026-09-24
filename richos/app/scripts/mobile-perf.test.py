@@ -505,7 +505,7 @@ def _():
     assert ios.parse_xctrace_signposts(xml, "useful-content") == [812000000, 900000000]
 
 
-@case("P1 pacing waits until the emulator's host process is under 1.5 cores, gives up at 30 s, and says so")
+@case("P1 pacing waits for two quiet seconds under 1.5 cores on the emulator's host process, gives up at 30 s, says so")
 def _():
     with tempfile.TemporaryDirectory() as cache:
         assert perf.emulator_pacer(cache) == (None, [])  # no emulator record: no pacing, no guess
@@ -515,14 +515,40 @@ def _():
 
         def sleep(s):
             now[0] += s
-        cpu = iter([0.0, 6.5, 6.5, 9.0, 9.0, 9.4])  # 6.5 cores, then 2.5, then 0.4 over one second
+        cpu = iter([0.0, 6.5, 9.0, 9.4, 9.8])  # 6.5 cores, 2.5, then 0.4 twice: quiet for two seconds
         pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(cpu))
         pace()
-        assert waits == [{"waitedSeconds": 3.0, "cores": 0.4, "quiet": True}], waits
+        assert waits == [{"waitedSeconds": 4.0, "cores": 0.4, "quiet": True}], waits
+        cpu = iter([0.0, 0.4, 3.4, 3.8, 4.2])  # quiet, busy, quiet, quiet: one quiet second is not enough
+        pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(cpu))
+        pace()
+        assert waits[0]["waitedSeconds"] == 4.0 and waits[0]["quiet"], waits
         busy = iter([float(i * 5) for i in range(100)])  # always 5 cores
         pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(busy))
         pace()
         assert waits[0]["quiet"] is False and waits[0]["waitedSeconds"] >= 30, waits
+
+
+@case("M1 merge: parts of one build (same bytes) on one device become one record; twice-measured, other bytes or dirty refused")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        first, _ = perf.run_android(android_args(tmp, only="seed,cold"), runner=FakeAdb(), sleep=lambda s: None, host=lambda: {}, log=quiet)
+        second, _ = perf.run_android(android_args(tmp, only="seed,warm"), runner=FakeAdb(), sleep=lambda s: None, host=lambda: {}, log=quiet)
+        first["phases"]["warm"] = "NOT RUN: the device went away"
+        first["notMeasured"].append({"what": "warm", "why": "not run: the device went away"})
+        merged = perf.merge_records([first, second])
+        assert set(merged["metrics"]) == {"coldLaunch", "warmResume"} and merged["metrics"]["warmResume"]["part"] == 2
+        assert merged["phases"]["warm"] == "measured (part 2)" and not any(g["what"] == "warm" for g in merged["notMeasured"])
+        assert len(merged["parts"]) == 2 and not perfcore.check_record(merged), perfcore.check_record(merged)
+        assert "measured in two parts" in raises(perfcore.Refused, perf.merge_records, [first, first])
+        other = json.loads(json.dumps(second))
+        other["build"]["installedSha256"] = "f" * 64
+        assert "build installedSha256 differs" in raises(perfcore.Refused, perf.merge_records, [first, other])
+        later = json.loads(json.dumps(second))
+        later["build"]["commit"] = "c" * 40  # same bytes, stamped at a later commit: one build
+        assert perf.merge_records([first, later])["build"]["commits"] == sorted({first["build"]["commit"], "c" * 40})
+        later["build"]["dirty"] = True
+        assert "uncommitted" in raises(perfcore.Refused, perf.merge_records, [first, later])
 
 
 # ---------------------------------------------------------------------------------------------

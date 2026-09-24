@@ -6,6 +6,7 @@
     perf.py stamp --artifact FILE --checkout DIR --paths P [P ...]     identity of a build, as JSON
     perf.py check RECORD.json [...]                                     a record's structural promises
     perf.py budgets                                                      the PRD §7 budgets this compares to
+    perf.py merge PART.json PART.json [--out FILE]                      one record from a run split across boots
 
 On Android use it through `randroid emu perf [options]`, which supplies the adb, the serial it
 recorded and the stamp of the APK it installed; a physical phone is named explicitly with
@@ -93,6 +94,72 @@ def cmd_check(args):
     return 1 if bad else 0
 
 
+def merge_records(parts):
+    """One record from runs split across emulator boots (`--only`): the same platform, build bytes,
+    commit and device model, each phase measured in exactly one part. A phase one part could not
+    run and another measured is the other's; `parts` keeps each run's own times and phases."""
+    if len(parts) < 2:
+        raise Refused("merge needs at least two records")
+    first = parts[0]
+    for r in parts[1:]:
+        for key in ("platform",):
+            if r.get(key) != first.get(key):
+                raise Refused(f"cannot merge: {key} {r.get(key)} is not {first.get(key)}")
+        # The build is its bytes: parts stamped at different commits merge only when the installed
+        # APK is byte-identical and neither stamp saw uncommitted changes to its sources.
+        for key in ("installedSha256", "builtSha256"):
+            if (r.get("build") or {}).get(key) != (first.get("build") or {}).get(key):
+                raise Refused(f"cannot merge: build {key} differs ({(r.get('build') or {}).get(key)} vs {(first.get('build') or {}).get(key)})")
+        if (r.get("build") or {}).get("dirty") or (first.get("build") or {}).get("dirty"):
+            raise Refused("cannot merge: a part was built from uncommitted changes")
+        for key in ("kind", "model", "os"):
+            if (r.get("device") or {}).get(key) != (first.get("device") or {}).get(key):
+                raise Refused(f"cannot merge: device {key} differs")
+    merged = json.loads(json.dumps(first))
+    merged["metrics"], merged["phases"], merged["notMeasured"], merged["parts"] = {}, {}, [], []
+    measured = set()
+    for r in parts:
+        for name, state in r.get("phases", {}).items():
+            if state == "measured":
+                if name in measured and name != "seed":
+                    raise Refused(f"cannot merge: phase {name} was measured in two parts")
+                measured.add(name)
+    for i, r in enumerate(parts, 1):
+        for name, m in r.get("metrics", {}).items():
+            if name in merged["metrics"]:
+                raise Refused(f"cannot merge: metric {name} appears in two parts")
+            merged["metrics"][name] = dict(m, part=i)
+        for name, state in r.get("phases", {}).items():
+            if state == "measured" or name not in measured:
+                merged["phases"][name] = state if state != "measured" else f"measured (part {i})"
+        for entry in r.get("notMeasured", []):
+            if entry.get("what") not in measured and entry not in merged["notMeasured"]:
+                merged["notMeasured"].append(entry)
+        merged["parts"].append({"part": i, "startedAt": r.get("startedAt"), "finishedAt": r.get("finishedAt"),
+                                "phases": r.get("phases"), "host": (r.get("device") or {}).get("host"),
+                                "conditions": r.get("conditions")})
+    merged["device"].pop("host", None)
+    merged["build"]["commits"] = sorted({(r.get("build") or {}).get("commit") for r in parts})
+    merged["startedAt"] = min(r.get("startedAt", "") for r in parts)
+    merged["finishedAt"] = max(r.get("finishedAt", "") for r in parts)
+    cold = (merged["metrics"].get("coldLaunch") or {}).get("samplesMs") or []
+    merged["acceptance"] = perfcore.acceptance(merged["device"]["kind"], not merged["build"].get("debuggable"), len(cold))
+    return merged
+
+
+def cmd_merge(args):
+    parts = []
+    for path in args.records:
+        with open(path) as f:
+            parts.append(json.load(f))
+    merged = merge_records(parts)
+    problems = perfcore.check_record(merged)
+    if problems:
+        merged["recordProblems"] = problems
+    emit(merged, args.out)
+    return 1 if problems else 0
+
+
 def cmd_budgets(_args):
     print(json.dumps({"source": perfcore.PRD + " §7 (proposed targets)", "budgets": perfcore.BUDGETS}, indent=2))
     return 0
@@ -156,17 +223,22 @@ def emulator_pacer(cache, sleep=time.sleep, limit_cores=1.5, timeout_s=30.0, clo
     read = cpu_seconds or read_cpu
 
     def pace():
+        """Quiet means two consecutive one-second samples under the limit: the breaker samples
+        every 2 s, so a quiet stretch of 2 s is one of its samples under 3 cores."""
         start = clock()
+        streak = 0
+        a = read()
         while True:
-            a = read()
             sleep(1.0)
             b = read()
             if a is None or b is None:
                 waits.append({"waitedSeconds": round(clock() - start, 1), "cores": None, "note": "emulator process not readable"})
                 return
             cores = max(0.0, b - a)
-            if cores < limit_cores or clock() - start >= timeout_s:
-                waits.append({"waitedSeconds": round(clock() - start, 1), "cores": round(cores, 2), "quiet": cores < limit_cores})
+            a = b
+            streak = streak + 1 if cores < limit_cores else 0
+            if streak >= 2 or clock() - start >= timeout_s:
+                waits.append({"waitedSeconds": round(clock() - start, 1), "cores": round(cores, 2), "quiet": streak >= 2})
                 return
     return pace, waits
 
@@ -418,8 +490,9 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             dev.sh(f"cmd uimode night {restore}", check=False)
     if waits:
         record["device"].setdefault("host", {})["pacing"] = {
-            "rule": "before each trial and window, wait until the emulator's host process used under 1.5 cores "
-                    "over one second (at most 30 s); keeps the run under the Mac's CPU circuit breaker",
+            "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used "
+                    "under 1.5 cores in two consecutive one-second samples (at most 30 s); keeps the run under the "
+                    "Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
             "waits": len(waits), "totalWaitSeconds": round(sum(w["waitedSeconds"] for w in waits), 1),
             "notQuiet": sum(1 for w in waits if w.get("quiet") is False)}
     record["notMeasured"].extend(android_gaps(record, args))
@@ -511,6 +584,9 @@ def parse_args(argv):
     c = sub.add_parser("check", help="check records' structural promises")
     c.add_argument("records", nargs="+")
     sub.add_parser("budgets", help="print the PRD §7 budgets")
+    mg = sub.add_parser("merge", help="one record from runs split across boots with --only")
+    mg.add_argument("records", nargs="+")
+    mg.add_argument("--out")
     return p.parse_args(argv)
 
 
@@ -533,6 +609,8 @@ def main(argv=None):
             return cmd_check(args)
         if args.cmd == "budgets":
             return cmd_budgets(args)
+        if args.cmd == "merge":
+            return cmd_merge(args)
         if args.cmd == "android":
             record, failures = run_android(args)
         else:
