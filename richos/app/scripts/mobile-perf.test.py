@@ -198,6 +198,24 @@ def _():
     assert "InputEventId" in raises(perfcore.Unmeasurable, android.tap_latency, [{"id": 1, "eventTimeNs": 0}], rows)
 
 
+@case("A12 launch joins different trace and frame clock origins through the draw counter")
+def _():
+    trace = "\n".join([
+        " system-1 (1) [000] .... 10.000000: tracing_mark_write: S|1|launchingActivity#7|0",
+        " system-1 (1) [000] .... 10.500000: tracing_mark_write: I|1|launchingActivity#7:completed-cold:dev.richos.connect",
+        " app-42 (42) [000] .... 10.999999: tracing_mark_write: B|42|richconnect:foreground-useful",
+        " app-42 (42) [000] .... 11.000000: tracing_mark_write: C|42|richconnect:monotonic-ns|3000000000",
+        " app-42 (42) [000] .... 11.000001: tracing_mark_write: E|42",
+    ])
+    frame = {"Flags": 0, "DrawStart": 2_900_000_000, "SyncQueued": 3_050_000_000,
+             "FrameCompleted": 3_060_000_000, "DisplayPresentTime": 3_100_000_000, "FrameTimelineVsyncId": 55}
+    result = android.useful_launch_frame(trace, [frame], 42)
+    assert result["usefulMs"] == 1100 and result["frameTimelineId"] == 55, result
+    raises(perfcore.Unmeasurable, android.useful_launch_frame, trace, [frame, frame], 42)
+    raises(perfcore.Unmeasurable, android.useful_launch_frame, trace, [{**frame, "DisplayPresentTime": 0}], 42)
+    raises(perfcore.Unmeasurable, android.useful_launch_frame, trace.replace("monotonic-ns", "missing"), [frame], 42)
+
+
 @case("A5 frame timing counts deadline misses and stalls of 100 ms or more")
 def _():
     rows = android.app_window(android.parse_framestats(fixture("gfxinfo-framestats-tap.txt")))["rows"]

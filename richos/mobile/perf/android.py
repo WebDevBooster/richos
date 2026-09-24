@@ -143,6 +143,50 @@ def parse_input_events(trace, pid):
     return events
 
 
+def useful_launch_frame(trace, rows, pid):
+    """Join the system launch interval to the app's useful draw and its presented frame.
+
+    Never subtract ftrace timestamps from FrameMetrics: OEMs can use different clock origins.
+    The app emits both clock coordinates at the draw; only durations cross that join.
+    """
+    events = []
+    for line in trace.splitlines():
+        match = re.search(r" ([0-9]+\.[0-9]+): tracing_mark_write: (.*)$", line)
+        if match: events.append((int(float(match[1]) * 1_000_000_000), match[2]))
+    completed = [(at, payload) for at, payload in events if re.search(r"\|launchingActivity#\d+:completed-(?:cold|warm|hot):" + re.escape(PACKAGE) + r"$", payload)]
+    if not completed:
+        raise Unmeasurable("no system launch interval for RichConnect in this OEM trace")
+    _, completion = completed[-1]
+    owner, name = completion.split("|")[1:3]
+    name = name.split(":")[0]
+    starts = [at for at, payload in events if payload.startswith(f"S|{owner}|{name}|")]
+    if len(starts) != 1:
+        raise Unmeasurable("missing or ambiguous system launch start")
+    start = starts[0]
+    draw = None
+    for index, (at, payload) in enumerate(events):
+        if at >= start and payload == f"B|{pid}|richconnect:foreground-useful":
+            for counter_at, counter in events[index + 1:]:
+                if counter == f"E|{pid}": break
+                prefix = f"C|{pid}|richconnect:monotonic-ns|"
+                if counter.startswith(prefix):
+                    draw = (counter_at, int(counter[len(prefix):])); break
+            break
+    if draw is None:
+        raise Unmeasurable("useful draw has no monotonic clock counter")
+    trace_at, monotonic = draw
+    frames = [r for r in rows if frame_ok(r) and r.get("DrawStart", 0) <= monotonic <= r.get("SyncQueued", 0)]
+    if len(frames) != 1:
+        raise Unmeasurable("useful draw does not identify exactly one frame")
+    frame = frames[0]
+    present = frame.get("DisplayPresentTime", 0)
+    if not monotonic <= present <= monotonic + 2_000_000_000:
+        raise Unmeasurable("OEM did not report a usable presentation timestamp")
+    return {"usefulMs": round((trace_at - start + present - monotonic) / 1_000_000, 2),
+            "launchStartTraceNs": start, "drawTraceNs": trace_at, "drawMonotonicNs": monotonic,
+            "presentedMonotonicNs": present, "frameTimelineId": frame.get("FrameTimelineVsyncId")}
+
+
 def frame_ok(row):
     """A framestats row that timed a real frame (Flags 0; a nonzero Flags row is not a timed frame)."""
     return row.get("Flags", 0) == 0 and row.get("FrameCompleted", 0) > 0
@@ -562,12 +606,31 @@ class Measure:
         self.bridge.call("transport", mode)
 
     # -- cold launch -----------------------------------------------------------------------------
-    def cold(self, trials, newest_text=None):
-        first, useful, rejected = [], [], []
+    def traced_launch(self):
+        launch = {}
+        def start(): launch.update(self.foreground())
+        trace = self.atrace(["am", "view", "gfx"], start, 2.0)
+        detail = useful_launch_frame(trace, self.gfx()["rows"], self.d.pid())
+        return launch, detail
+
+    def cold(self, trials, newest_text=None, physical=False):
+        first, useful, rejected, details = [], [], [], []
         for i in range(trials):
             self.pace()
             self.d.sh(f"am force-stop {PACKAGE}")
             self.d.sleep(1.0)
+            if physical:
+                try:
+                    launch, detail = self.traced_launch()
+                    if launch["launchState"] != "COLD": raise Unmeasurable("not a cold launch")
+                    first.append(launch["totalMs"]); useful.append(detail["usefulMs"]); details.append(detail)
+                    self.log(f"cold {i + 1}/{trials}: first frame {launch['totalMs']} ms, useful frame presented {detail['usefulMs']} ms")
+                except Unmeasurable as error:
+                    rejected.append({"trial": i + 1, "why": str(error)})
+                    self.log(f"cold {i + 1}/{trials}: REJECTED, {error}")
+                    if len(rejected) >= 2 and not useful: break
+                self.d.sleep(self.settle_s)
+                continue
             since = self.d.uptime_epoch()
             launch = self.foreground()
             if launch["launchState"] != "COLD":
@@ -593,16 +656,17 @@ class Measure:
             nodes = self.dump_ui()
             check = {"composerOnScreen": find_node(nodes, desc="Message Rich") is not None,
                      "newestMessageOnScreen": find_node(nodes, contains=newest_text) is not None}
-        return {"first": first, "useful": useful, "rejected": rejected, "screenCheck": check}
+        return {"first": first, "useful": useful, "rejected": rejected, "screenCheck": check, "presentationSamples": details}
 
     # -- warm resume -----------------------------------------------------------------------------
-    def warm(self, trials, away_s=2.0):
+    def warm(self, trials, away_s=2.0, physical=False):
         """PRD J2: a resume with the PROCESS retained is warm. Android reports HOT (the activity kept)
         or WARM (the process kept, the activity recreated); both count, each sample keeps its state,
         and the first recreation's reason is read from the system's event log. A new pid is a cold
         start and is rejected."""
         samples, states_seen, rejected, states = [], [], [], {}
         destroyed = None
+        details = []
         self.foreground()
         self.d.sleep(self.settle_s)
         for i in range(trials):
@@ -612,7 +676,15 @@ class Measure:
             self.home()
             self.d.sleep(away_s)
             self.pace()  # the launcher settles before the resume is timed
-            launch = self.foreground()
+            detail = None
+            if physical:
+                try: launch, detail = self.traced_launch()
+                except Unmeasurable as error:
+                    rejected.append({"trial": i + 1, "why": str(error)})
+                    self.log(f"warm {i + 1}/{trials}: REJECTED, {error}")
+                    if len(rejected) >= 2 and not samples: break
+                    continue
+            else: launch = self.foreground()
             after = self.d.pid()
             state = launch["launchState"]
             states[state] = states.get(state, 0) + 1
@@ -623,15 +695,16 @@ class Measure:
                 rejected.append({"trial": i + 1, "why": f"LaunchState {state}"})
                 self.log(f"warm {i + 1}/{trials}: REJECTED, {rejected[-1]['why']}")
             else:
-                samples.append(launch["totalMs"])
+                samples.append(detail["usefulMs"] if detail else launch["totalMs"])
+                if detail: details.append(detail)
                 states_seen.append(state)
-                self.log(f"warm {i + 1}/{trials}: {launch['totalMs']} ms ({state})")
+                self.log(f"warm {i + 1}/{trials}: {samples[-1]} ms ({state})")
                 if state == "WARM" and destroyed is None:
                     events = self.d.run("logcat", "-b", "events", "-d", "-v", "epoch", "-T", since, check=False)
                     destroyed = [l.split("wm_destroy_activity: ", 1)[1].strip() for l in events.splitlines()
                                  if "wm_destroy_activity" in l and PACKAGE in l][:3]
             self.d.sleep(self.settle_s)
-        return {"samples": samples, "states": states_seen, "rejected": rejected, "launchStates": states,
+        return {"presentationSamples": details, "samples": samples, "states": states_seen, "rejected": rejected, "launchStates": states,
                 "firstRecreation": destroyed}
 
     # -- tap to feedback -------------------------------------------------------------------------

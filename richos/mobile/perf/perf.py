@@ -393,13 +393,15 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
                            if bridge else "production"}
         newest = f"Synthetic message {args.history} " if bridge and args.history else None
 
-        cold = phase("cold", lambda: m.cold(args.cold, newest))
+        cold = phase("cold", lambda: m.cold(args.cold, newest, physical=args.kind == "physical"))
         if cold:
             record["metrics"]["coldLaunch"] = metric(
+                ("System launchingActivity trace start to DisplayPresentTime of the frame carrying foreground-useful; "
+                 "the app's monotonic counter joins the OEM trace clock to FrameMetrics without mixing clock origins. " if args.kind == "physical" else
                 "am force-stop; am start -W (LaunchState COLD); useful content = ActivityTaskManager 'Fully drawn' "
-                "(MainActivity ReportDrawnWhen: first frame after the saved state is read); see conditions.networkCondition",
+                "(MainActivity ReportDrawnWhen: first frame after the saved state is read); see conditions.networkCondition"),
                 cold["useful"], "coldLaunch", firstFrameMs=cold["first"], firstFrameStats=perfcore.stats(cold["first"]),
-                rejected=cold["rejected"], screenCheck=cold["screenCheck"])
+                rejected=cold["rejected"], screenCheck=cold["screenCheck"], presentationSamples=cold.get("presentationSamples", []))
         if bridge and args.live_spot_check:
             def live():
                 m.transport("accept")
@@ -433,17 +435,19 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
             if s:
                 idle["settings"] = s
 
-        warm = phase("warm", lambda: m.warm(args.warm, args.away))
+        warm = phase("warm", lambda: m.warm(args.warm, args.away, physical=args.kind == "physical"))
         if warm:
             hot = [ms for ms, st in zip(warm["samples"], warm["states"]) if st == "HOT"]
             recreated = [ms for ms, st in zip(warm["samples"], warm["states"]) if st == "WARM"]
             record["metrics"]["warmResume"] = metric(
+                ("HOME, --away seconds; system launchingActivity start to the useful frame's DisplayPresentTime using "
+                 "the draw clock counter. Require the same process and preserve HOT/WARM labels. " if args.kind == "physical" else
                 "HOME, --away seconds, the launcher settles, launcher intent with am start -W: TotalTime of a start in "
                 "the same process (PRD J2: process retained). Android's HOT (activity kept) and WARM (activity "
-                "recreated) both count, each sample keeps its state; a new pid is a cold start and is rejected",
+                "recreated) both count, each sample keeps its state; a new pid is a cold start and is rejected"),
                 warm["samples"], "warmResume", sampleStates=warm["states"], launchStates=warm["launchStates"],
                 hotStats=perfcore.stats(hot), recreatedStats=perfcore.stats(recreated),
-                firstRecreation=warm["firstRecreation"], rejected=warm["rejected"])
+                firstRecreation=warm["firstRecreation"], rejected=warm["rejected"], presentationSamples=warm.get("presentationSamples", []))
 
         if bridge or args.production:
             scroll = phase("scroll", lambda: m.scroll(args.swipes))
