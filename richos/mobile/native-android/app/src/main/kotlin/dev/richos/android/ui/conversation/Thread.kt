@@ -283,7 +283,7 @@ private fun HistoryTop(edge: HistoryEdge) {
 
 /**
  * The first minute: the mark, one line, the composer ready (`conv-empty`), then the CEO's how-to
- * for the microphone, verbatim. Round 12.1 (`.beginning .mic-how`):
+ * for the microphone, verbatim with his straight apostrophe. Round 12.1 (`.beginning .mic-how`):
  * below a hairline (`line-faint`) 22 dp under the line above and 20 dp above the paragraph, 16 sp,
  * FULL ink (not the soft ink of the line above), centered, a 300 dp measure, leading 1.55 (Urban's
  * 2026-09-24 audit G7). Scrolls rather than clipping: the smallest phone at the largest text setting
@@ -312,6 +312,6 @@ fun EmptyConversation(modifier: Modifier = Modifier) {
     }
 }
 
-/** The CEO's paragraph (round 12.1 NOTES, screen 12), word for word. */
+/** The CEO’s paragraph (round 12.1 NOTES, screen 12), word for word: his straight apostrophe is his dictated copy, not house style (audit G8). */
 const val MIC_HOW =
-    "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don’t need to hold and can scroll."
+    "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don't need to hold and can scroll."

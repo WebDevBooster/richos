@@ -146,6 +146,14 @@ class MockupFidelityTest {
         }
     }
 
+    /** G8: the CEO's paragraph keeps his straight apostrophe, verbatim (round 12.1 NOTES, screen 12). */
+    @Test
+    fun `G8 - the CEO's straight apostrophe, verbatim`() {
+        val verbatim = "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don't need to hold and can scroll."
+        show(screen("conv-empty"))
+        assertEquals(verbatim, text(tagged("mic-how")))
+    }
+
     /** G6: the serif headings are never hyphenated ("RichCon-nect", "re-moved"), at any text size. */
     @Test
     fun `G6 - headings are never hyphenated`() {
