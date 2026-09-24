@@ -56,7 +56,11 @@ the source and resulting ledger hashes. The caller owns deletion of these copies
 `~/.richos-testvm/guest.lock`), and measured CPU use must be below 80%. Since CEO ruling
 §77 (2026-09-22) a walk is a test run: it does not take the nightly `release.lock`, which
 stays with the nightly/release commands. `--state-dir` is still accepted and no longer
-read. Acquisition is nonblocking. Under
+read. Acquisition is nonblocking unless `--wait SECONDS` is given: then the CPU admission
+is retried under the guest lock for at most that long, with `reserve.py`'s own bound and
+backoff. Do not wrap a walk in `reserve.py --wait` instead: the walk samples again the
+moment the outer command admits it, and on a busy Mac that second single sample refuses
+the run. Under
 that lock it refuses another running clone, creates a unique headless guest and
 keeps the reservation until `stop.sh` has stopped the captured processes and deleted
 the clone. It also cleans up after boot failure or interruption. Only `caffeinate -is`
