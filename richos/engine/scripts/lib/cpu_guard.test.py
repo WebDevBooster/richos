@@ -112,6 +112,31 @@ class GuardTests(unittest.TestCase):
             with self.assertRaises(ValueError): N.capped(args)
         self.assertEqual(N.capped(['swift','test'])[-2:],['--jobs','1'])
 
+    def test_prebuilt_ui_test_proceeds_with_compiler_lane_held_but_build_does_not(self):
+        directory = G.STATE / 'machine'
+        lane_dir = G.STATE / 'native-build-v1'
+        W.init(directory, 2)
+        W.init(lane_dir, 1)
+        held = W.Budget(lane_dir, shared=False).acquire()
+        original = W.Budget.acquire
+        def immediate(budget, **kwargs):
+            return original(budget, **dict(kwargs, timeout=0))
+        try:
+            with patch.dict(os.environ, RICHOS_MACHINE_WORKERS=str(directory), RICHOS_WORKER_SLOT_HELD='0'), \
+                    patch.object(sys, 'platform', 'linux'), patch.object(W, 'machine_directory', return_value=directory), \
+                    patch.object(W.Budget, 'acquire', immediate), patch.object(G, 'register'), \
+                    patch.object(W, 'run_command', return_value=0) as run:
+                self.assertEqual(N.run(['xcodebuild', 'test-without-building', '-xctestrun', 'tests']), 0)
+                command = run.call_args.args[0]
+                self.assertIn('-parallel-testing-enabled', command)
+                self.assertEqual(command[command.index('-jobs') + 1], '1')
+                with self.assertRaises(TimeoutError): N.run(['xcodebuild', 'build'])
+                with self.assertRaises(TimeoutError): N.run(['xcodebuild', 'test-without-building', 'build'])
+                self.assertEqual(W.Budget(lane_dir, shared=False).held(), 1)
+                self.assertEqual(W.Budget(directory, shared=False).held(), 0)
+        finally:
+            held.release()
+
     def test_health_requires_successful_independent_device_collector(self):
         G.write_json(G.STATE/'heartbeat.json', dict(at=time.time(), ok=True))
         self.assertFalse(G.healthy())

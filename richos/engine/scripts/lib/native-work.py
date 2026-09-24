@@ -57,6 +57,14 @@ def wait_for_headroom(reserve, timeout=1800):
         time.sleep(3)
 
 
+def needs_compiler_lane(command):
+    # A prebuilt UI test uses a leased device and a machine worker, but does
+    # not compile. It must not block an unrelated Android or Swift build.
+    builds = {'build', 'build-for-testing', 'test', 'archive', 'install', 'analyze', 'clean'}
+    return not (os.path.basename(command[0]) == 'xcodebuild' and 'test-without-building' in command
+                and not builds.intersection(command[1:]))
+
+
 def run(command):
     if sys.platform == 'darwin' and not cpu_guard.healthy():
         raise RuntimeError('CPU watchdog is not healthy; native work refused. Run cpu_guard.py status.')
@@ -66,7 +74,7 @@ def run(command):
     directory = worker_tokens.machine_directory()
     lane_dir = Path(directory).parent / 'native-build-v1'
     worker_tokens.init(lane_dir, 1)
-    lane = worker_tokens.Budget(lane_dir, shared=False).acquire()
+    lane = worker_tokens.Budget(lane_dir, shared=False).acquire() if needs_compiler_lane(command) else None
     token = None
     try:
         # A nested check borrows exactly its parent's slot. Acquiring another
@@ -86,7 +94,7 @@ def run(command):
         return worker_tokens.run_command(command, token, env)
     finally:
         if token: token.release()
-        lane.release()
+        if lane: lane.release()
 
 
 if __name__ == '__main__':
