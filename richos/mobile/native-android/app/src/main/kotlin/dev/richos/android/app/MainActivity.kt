@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                 // The message field's own line to core's draft, so typing never waits on core.
                 val drafts = remember(store) {
                     object : DraftLink {
-                        override fun latest() = store.committedDraft
+                        override fun latest() = store.currentDraft
                         override fun write(text: String, done: () -> Unit) = store.composeDraft(text, done)
                     }
                 }

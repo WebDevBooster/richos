@@ -19,7 +19,7 @@ import androidx.compose.ui.text.input.TextFieldValue
  * (andy-opus-pair1, 2026-09-24; reproduced headless as "g", "Pibg" and "Peg").
  */
 interface DraftLink {
-    /** Core's draft NOW: its last committed state read directly, never a copy still on its way to the screen. */
+    /** Core's draft NOW, including an unsaved edit retained after a reported write failure. */
     fun latest(): String
 
     /**

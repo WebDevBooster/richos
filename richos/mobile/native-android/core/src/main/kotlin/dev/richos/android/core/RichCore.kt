@@ -30,7 +30,7 @@ import java.net.URI
  * The application core: one instance per process, over injected [Ports]. The port of the
  * preserved phone core's `createApp` (`richos/mobile/core/app.js`): actions are serialized,
  * every accepted action is written through the [SessionStore] before it resolves, and
- * [state] is always the last committed state.
+ * [state] retains the latest draft in memory if saving it fails; failed saves still throw.
  *
  * Network work never holds the lock: an action commits its "in progress" state, releases the
  * lock for the request, then re-takes it to commit the outcome — unless a later action has
@@ -189,7 +189,19 @@ class RichCore private constructor(
             commit(session.copy(selectedThreadId = action.threadId, readingAnchor = null))
         }
         is Action.RememberReading -> mutex.withLock { commit(session.copy(readingAnchor = action.anchor)) }
-        is Action.Compose -> mutex.withLock { commit(session.copy(draft = action.text)) }
+        is Action.Compose -> mutex.withLock {
+            val next = session.copy(draft = action.text)
+            try {
+                commit(next)
+            } catch (failure: java.io.IOException) {
+                // A failed save must not echo the older disk draft into the
+                // editor or let a later Send use those older words. Keep the
+                // edit in memory, report the failure and retry no work here.
+                session = next
+                emit()
+                throw failure
+            }
+        }
         is Action.SetTheme -> mutex.withLock { commit(session.copy(theme = action.theme)) }
     }
 

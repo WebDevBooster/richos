@@ -154,8 +154,8 @@ class AppStore(private val scope: CoroutineScope) {
         }
     }
 
-    /** Core's draft as last committed, read from the core itself (not from [states], which follows it). */
-    val committedDraft: String get() = core.value?.state?.draft ?: ""
+    /** Core's current draft, including an edit retained in memory after a reported save failure. */
+    val currentDraft: String get() = core.value?.state?.draft ?: ""
 
     /**
      * The composer's write of its draft: `compose`, in order with every other action, then [done] on
