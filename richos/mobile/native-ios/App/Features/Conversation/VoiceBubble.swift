@@ -13,8 +13,12 @@ struct VoiceBubbleBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                PlayButton(size: 44, icon: .play, label: "Play voice message",
-                           edge: row.author == .me ? palette.playEdgeOnMine : nil) { send(.playVoice(id: row.id)) }
+                PlayButton(size: 44, icon: isPlaying ? .stop : .play,
+                           label: isPlaying ? "Stop voice message" : "Play voice message",
+                           edge: row.author == .me ? palette.playEdgeOnMine : nil) {
+                    send(isPlaying ? .stopReply : .playVoice(id: row.id))
+                }
+                .accessibilityIdentifier("voice.play.\(row.id)")
                 Waveform(levels: levels.isEmpty ? Waveform.pretend(42, seed: row.id.stableSeed) : Waveform.resample(levels, 42),
                          played: 0, barMax: 26, height: 34)
             }
@@ -31,6 +35,11 @@ struct VoiceBubbleBody: View {
             }
             .padding(.leading, 54)
         }
+    }
+
+    private var isPlaying: Bool {
+        if case .playing = row.audio { return true }
+        return false
     }
 
     private var duration: some View {

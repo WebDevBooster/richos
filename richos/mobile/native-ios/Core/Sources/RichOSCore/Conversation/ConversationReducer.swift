@@ -137,6 +137,8 @@ public enum ConversationReducer {
         case .dismissToast:
             s.toast = nil
         case .backgrounded:
+            if s.playback != nil { effects.append(.stopAudio) }
+            s.playback = nil
             s.history.loadingOlder = false
             // The stream carrying the reply closes with the app. The next one re-announces a reply
             // still being written and sends a finished one as history, never as "finished", so a

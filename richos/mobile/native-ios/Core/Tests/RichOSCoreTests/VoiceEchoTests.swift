@@ -5,6 +5,17 @@ import Testing
 @testable import RichOSFixtures
 
 struct VoiceEchoTests {
+    @Test func backgroundReleasesPlaybackAndLateStartCannotRestoreIt() throws {
+        var state = try Fixture.named("conv-empty").state
+        state.playback = Playback(messageID: "capture", phase: .playing)
+        let hidden = Reducer.reduce(state, .backgrounded(at: 4))
+        #expect(hidden.state.playback == nil)
+        #expect(hidden.effects.contains(.stopAudio))
+        let late = Reducer.reduce(hidden.state, .playbackStarted(id: "capture"))
+        #expect(late.state.playback == nil)
+        #expect(late.effects.contains(.stopAudio))
+    }
+
     @Test(arguments: ["malformed", String(repeating: "0", count: 64)])
     func unrelatedTranscriptCannotConsumeVoice(hash: String) async throws {
         let mac = ScriptedMac([["status": 200, "body": ["text_sha256": hash]]])
