@@ -1302,6 +1302,14 @@ t "scenario outcomes, turn budgets, held reservation and owned timeout cleanup"
   python3 "$HERE/scenario.test.py" >"$TMP/scenario.log" 2>&1; ok $? "$(cat "$TMP/scenario.log")"
 t_done
 
+t "run-walk --wait reaches the guest-lock admission; the default still refuses at once"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/run-walk-wait.test.py" >"$TMP/run-walk-wait.log" 2>&1; ok $? "$(cat "$TMP/run-walk-wait.log")"
+t_done
+
+t "files-since: every class, the baseline window, and a control that must be found and flagged"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/files-since.test.py" >"$TMP/files-since.log" 2>&1; ok $? "$(cat "$TMP/files-since.log")"
+t_done
+
 # ===========================================================================
 echo
 if [ "$FAIL" -eq 0 ]; then

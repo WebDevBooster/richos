@@ -266,7 +266,7 @@ fn v2_words() -> usize {
 /// is admitted by `verify_for_confirmation`, and after `confirm_on_mac` the same probe is accepted.
 fn awaiting_the_press(dir: &Path, keys: &Value) -> usize {
     std::fs::create_dir_all(dir).unwrap();
-    let desk = DeviceDesk::open(dir).unwrap();
+    let desk = std::sync::Arc::new(DeviceDesk::open(dir).unwrap());
     mac::queue_random(vec![7, 6, 5, 4, 3, 2, 1, 0]);
     let window = desk.open_pairing().unwrap();
     desk.complete_pairing(&window.code, &PublicKeyForm::Jwk(keys["public_key_jwk"].clone()), "Conformance phone", "connect", "android")
@@ -281,10 +281,66 @@ fn awaiting_the_press(dir: &Path, keys: &Value) -> usize {
     issue(&desk, &a.challenge);
     let presented = Presented { method: &a.method, path_with_query: &a.path_with_query, device_id: &a.device_id, challenge: &a.challenge, signature: a.signature.clone(), body: &a.body };
     assert!(desk.verify_for_confirmation(&presented).is_ok(), "the phone's own answer to the six words was refused while waiting");
+
+    // ---- pair-wait (Sage's pair-v2 hypotheses review §1): the held ask and its release signal --
+    let proven_pair_wait = pair_wait_release(&desk);
+
     desk.confirm_on_mac().unwrap();
     issue(&desk, &r.challenge);
     assert!(verify(&desk, &r).is_ok(), "the press on the Mac did not let the corpus key in");
-    3
+    3 + proven_pair_wait
+}
+
+/// A waker that records being woken, so the production hold can be polled by hand with no runtime.
+struct Woken(std::sync::atomic::AtomicBool);
+impl std::task::Wake for Woken {
+    fn wake(self: std::sync::Arc<Self>) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// **THE PAIR-WAIT SECTION AGAINST THE PRODUCTION DESK**, on a desk whose device is still waiting for
+/// the press: the recorded held ask carries `Prefer` outside the signature and is admitted as the
+/// phone's own answer; the capability and the hold ceiling are the Mac's own constants; and a hold
+/// begun on the production `DeviceDesk` is pending until `confirm_on_mac`, which wakes it and ends it
+/// `Released` — the signal the listener answers the held phone on. Called BEFORE the press.
+fn pair_wait_release(desk: &std::sync::Arc<DeviceDesk>) -> usize {
+    use mac::device::{HoldEnd, PAIR_WAIT_CAPABILITY, PAIR_WAIT_MAX_SECONDS};
+    use std::future::Future;
+    use std::task::{Context, Poll, Waker};
+
+    let pw = &load("pairing.json")["pair_wait"];
+    assert_eq!(pw["capability"].as_str(), Some(PAIR_WAIT_CAPABILITY), "pairing.json pair_wait capability");
+    assert_eq!(pw["hold_seconds_max"].as_u64(), Some(PAIR_WAIT_MAX_SECONDS), "pairing.json pair_wait hold_seconds_max");
+    #[cfg(mac_native_v1)]
+    assert!(mac::routes::capabilities(false, false).contains(&PAIR_WAIT_CAPABILITY), "the Mac does not advertise pair-wait");
+
+    // Every recorded ask is the phone's own answer, admitted while the Mac waits, whatever it asks.
+    let asks = pw["asks"].as_array().expect("pairing.json pair_wait has no asks");
+    for case in asks {
+        let name = case["name"].as_str().unwrap();
+        let request = &case["requests"][0];
+        let wait = case["wait_seconds"].as_u64().unwrap();
+        let prefer = request["headers"]["Prefer"].as_str();
+        assert_eq!(prefer.map(str::to_owned), (wait > 0).then(|| format!("wait={wait}")), "pair_wait: {name}: the Prefer header");
+        assert!(!request["signed"]["signing_string"].as_str().unwrap().contains("wait="), "pair_wait: {name}: Prefer was signed");
+        let ask = read(&format!("pairing.json: pair_wait: {name}"), request);
+        issue(desk, &ask.challenge);
+        let presented = Presented { method: &ask.method, path_with_query: &ask.path_with_query, device_id: &ask.device_id, challenge: &ask.challenge, signature: ask.signature.clone(), body: &ask.body };
+        assert!(desk.verify_for_confirmation(&presented).is_ok(), "pair_wait: {name}: the held ask was refused while the Mac waits for its press");
+    }
+
+    // THE RELEASE SIGNAL FIRES ON THE PRESS ON THE MAC.
+    let woken = std::sync::Arc::new(Woken(std::sync::atomic::AtomicBool::new(false)));
+    let waker = Waker::from(std::sync::Arc::clone(&woken));
+    let mut hold = desk.hold_answer(desk.hold_generation());
+    let poll = |hold: &mut mac::device::HeldAnswer| std::pin::Pin::new(hold).poll(&mut Context::from_waker(&waker));
+    assert_eq!(poll(&mut hold), Poll::Pending, "a held ask was not held on the production desk");
+    assert!(!woken.0.load(std::sync::atomic::Ordering::SeqCst));
+    desk.confirm_on_mac().unwrap();
+    assert!(woken.0.load(std::sync::atomic::Ordering::SeqCst), "confirm_on_mac did not wake the held ask");
+    assert_eq!(poll(&mut hold), Poll::Ready(HoldEnd::Released), "the held ask did not end on the press");
+    asks.len() + 3
 }
 
 fn strings(value: &Value) -> Vec<String> {

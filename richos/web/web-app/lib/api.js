@@ -92,6 +92,51 @@
 		return n < MAC_WAIT_DELAYS_MS.length ? MAC_WAIT_DELAYS_MS[n] : MAC_WAIT_CAP_MS;
 	}
 
+	/// **THE MAC CAN HOLD THIS PHONE'S ANSWER UNTIL THE PRESS** — Sage's pair-v2 hypotheses review
+	/// §1, "The fix" points 2 and 4, and the capability pattern of ledger row S3. A Mac that names
+	/// `pair-wait` answers a `They match` sent with `Prefer: wait=N` the moment the person presses
+	/// on the Mac, holding it for at most `PAIR_WAIT_SECONDS`. A Mac that does not name it is sent
+	/// no `Prefer` and the wait keeps `macWaitDelayMs`'s schedule, exactly as before.
+	const PAIR_WAIT = 'pair-wait';
+	const PAIR_WAIT_SECONDS = 14;
+
+	/// **THE NO-SPIN RULE WHILE THE MAC HOLDS**: two asks never start less than this far apart. A
+	/// relay that forges `pair-wait` and answers at once therefore degrades to one ask every 7 s at
+	/// the most — floor(300 / 7) + 1 = 43 in the five-minute window, under the Mac's 60-a-minute
+	/// device bucket — and never to a tight loop.
+	const MAC_WAIT_MIN_SPACING_MS = 7000;
+
+	/// **How long to wait before the next ask.** `tookMs` is how long the previous ask took from
+	/// sending to its answer; `holds` is whether the Mac named `pair-wait`.
+	///
+	/// - Not holding: today's schedule, `macWaitDelayMs(attempt)`, unchanged.
+	/// - Holding, and the answer took at least 7 s: ask again at once — the Mac held it, and the
+	///   next hold starts where this one ended.
+	/// - Holding, and the answer came sooner: the scheduled delay, but never less than what keeps
+	///   the two asks 7 s apart.
+	function macWaitNextDelayMs(attempt, tookMs, holds) {
+		const scheduled = macWaitDelayMs(attempt);
+		if (!holds) return scheduled;
+		const took = Math.max(0, Number(tookMs) || 0);
+		if (took >= MAC_WAIT_MIN_SPACING_MS) return 0;
+		return Math.max(scheduled, MAC_WAIT_MIN_SPACING_MS - took);
+	}
+
+	/// **WHEN THE NEXT ASK GOES**, as a moment on the same clock as the arguments: the previous ask
+	/// started at `askedAt` and was answered at `answeredAt`, and `until` is the phone's deadline.
+	///
+	/// `macWaitNextDelayMs` after the answer, and never later than the deadline — where the LAST
+	/// ask goes (Sage's pair-v2 hypotheses review §2: one final ask, so a press that landed after
+	/// the previous ask is heard). While the Mac holds, the last ask still keeps the 7 s spacing,
+	/// so it may go a few seconds after the deadline; that answer is as settled as one at the
+	/// deadline, because the phone's deadline is at or after the Mac's own `confirm_by` (Sage §2b).
+	/// A Mac that does not hold keeps today's rule: the last ask at the deadline itself.
+	function macWaitNextAskAt(attempt, askedAt, answeredAt, until, holds) {
+		const next = answeredAt + macWaitNextDelayMs(attempt, answeredAt - askedAt, holds);
+		if (next <= until) return next;
+		return holds ? Math.max(until, askedAt + MAC_WAIT_MIN_SPACING_MS) : until;
+	}
+
 	/// How long the wait may last, from the pair answer. A Mac that says nothing gets the window;
 	/// a Mac that says more than the window is not believed.
 	function macWaitBoundMs(answer) {
@@ -253,11 +298,18 @@
 		///
 		/// Either way the signature covers the path WITHOUT the credential, because the Mac strips
 		/// `auth` before it verifies (`routes.rs:572-586` `signed_path`).
+		///
+		/// `options.headers` are added UNSIGNED — `Prefer` is the only one, and it is unsigned on
+		/// purpose (Sage's review, "Security, plainly": stripping or forging it changes only how
+		/// long an answer takes). `options.signal` is an `AbortSignal`; an ask it cancels is thrown
+		/// as unreachable with `aborted: true`, so a caller can tell "I stopped it" from "the Mac
+		/// could not be reached".
 		async function request(method, pathWithQuery, body, contentType, options) {
 			if (!fetchImpl) throw new ApiError(FAULT, 'this browser has no fetch');
 			const inQuery = !!(options && options.credential === 'query');
+			const signal = options && options.signal ? options.signal : undefined;
 			const baseUrl = joinBase(state.apiBase, pathWithQuery);
-			const headers = {};
+			const headers = Object.assign({}, options && options.headers);
 			let payload;
 			if (body !== undefined && body !== null) {
 				payload = opts.isBodyReference?.(body) || typeof body === 'string' || body instanceof Uint8Array || body instanceof ArrayBuffer
@@ -286,11 +338,15 @@
 				}
 				let answer;
 				try {
-					answer = await fetchImpl(url, { method, headers: sent, body: payload, mode: 'cors', cache: 'no-store' });
+					const init = { method, headers: sent, body: payload, mode: 'cors', cache: 'no-store' };
+					if (signal) init.signal = signal;
+					answer = await fetchImpl(url, init);
 				} catch (err) {
 					// This is the branch the queue exists for. A `fetch` that throws did not reach the
 					// Mac at all — wrong network, Mac asleep, name not resolving here.
-					throw new ApiError(UNREACHABLE, String((err && err.message) || err));
+					const failed = new ApiError(UNREACHABLE, String((err && err.message) || err));
+					failed.aborted = !!(signal && signal.aborted);
+					throw failed;
 				}
 				const next = answer.headers && answer.headers.get
 					? answer.headers.get('X-RichOS-Challenge')
@@ -663,17 +719,53 @@
 			/// FORGETS this phone, which is the same thing `pair-reject` does to the key on this
 			/// side, so the two ends finish in one state.
 			async confirmFingerprint(matched) {
-				return json('POST', '/api/pair', {
-					device_id: state.deviceId,
-					fingerprint_confirmed: matched === true,
-					...(opts.nativeClient ? {push_transport:'apns'} : {})
-				});
+				return json('POST', '/api/pair', answerBody(matched));
+			},
+
+			/// **ASK THE MAC WITH THE ANSWER, AND LET IT HOLD THE ASK** — Sage's pair-v2 hypotheses
+			/// review §1, "The fix" point 1 (and the fix for his §2c).
+			///
+			/// The wait for the press on the Mac sends THIS phone's own signed `They match` again —
+			/// byte for byte the body `confirmFingerprint(true)` sends — instead of reading a
+			/// backfill row. Every Mac with the press answers it on every outcome: still waiting
+			/// (`awaiting_mac_confirmation: true`), pressed (`{"ok":true}`), a 403 revoked after
+			/// `They do not match` on the Mac, a 404 after the window closed. And because the ask is
+			/// the answer, a phone whose first `They match` was lost on the way is recorded by the
+			/// same request that learns of the press.
+			///
+			/// `options.wait` (seconds) adds `Prefer: wait=N` — send it only to a Mac that names
+			/// `pair-wait`. `options.signal` cancels the ask (the app does, when it leaves the
+			/// screen). Resolves `true` once the Mac has been pressed, `false` while it still waits;
+			/// every other failure is thrown as it is, so a refusal reaches the screen as the final
+			/// answer it is.
+			async macAnswer(options) {
+				const wait = Math.floor(Number(options && options.wait) || 0);
+				const extra = { signal: options && options.signal };
+				if (wait > 0) extra.headers = { Prefer: `wait=${Math.min(wait, PAIR_WAIT_SECONDS)}` };
+				try {
+					const answer = await json('POST', '/api/pair', answerBody(true), undefined, extra);
+					return answer.ok === true && answer.awaiting_mac_confirmation !== true;
+				} catch (err) {
+					if (err && err.awaitingMac) return false;
+					throw err;
+				}
 			}
 		};
+
+		/// The phone's answer to the six words, as the Mac reads it (`routes.rs`
+		/// `only_answers_the_words`: this and nothing else).
+		function answerBody(matched) {
+			return {
+				device_id: state.deviceId,
+				fingerprint_confirmed: matched === true,
+				...(opts.nativeClient ? {push_transport:'apns'} : {})
+			};
+		}
 	}
 
 	return {
 		createApi, ApiError, signingInput, offers, UNREACHABLE, REVOKED, REFUSED, FAULT,
-		PAIR_V2, MAC_WAIT_DELAYS_MS, MAC_WAIT_CAP_MS, MAC_WAIT_WINDOW_MS, macWaitDelayMs, macWaitBoundMs
+		PAIR_V2, MAC_WAIT_DELAYS_MS, MAC_WAIT_CAP_MS, MAC_WAIT_WINDOW_MS, macWaitDelayMs, macWaitBoundMs,
+		PAIR_WAIT, PAIR_WAIT_SECONDS, MAC_WAIT_MIN_SPACING_MS, macWaitNextDelayMs, macWaitNextAskAt
 	};
 });

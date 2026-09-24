@@ -238,7 +238,8 @@
               "native-push",
               "attachments",
               "native-push-fcm",
-              "pair-v2"
+              "pair-v2",
+              "pair-wait"
             ],
             "pairing_version": 2,
             "confirm_within_seconds": 300,
@@ -314,7 +315,8 @@
             "native-push",
             "attachments",
             "native-push-fcm",
-            "pair-v2"
+            "pair-v2",
+            "pair-wait"
           ],
           "pairing_version": 2,
           "confirm_within_seconds": 300,
@@ -380,7 +382,8 @@
               "native-push",
               "attachments",
               "native-push-fcm",
-              "pair-v2"
+              "pair-v2",
+              "pair-wait"
             ],
             "pairing_version": 2,
             "confirm_within_seconds": 300,
@@ -453,7 +456,8 @@
             "native-push",
             "attachments",
             "native-push-fcm",
-            "pair-v2"
+            "pair-v2",
+            "pair-wait"
           ],
           "pairing_version": 2,
           "confirm_within_seconds": 300,
@@ -662,7 +666,8 @@
                 "native-push",
                 "attachments",
                 "native-push-fcm",
-                "pair-v2"
+                "pair-v2",
+                "pair-wait"
               ],
               "pairing_version": 2,
               "confirm_within_seconds": 300,
@@ -738,7 +743,8 @@
               "native-push",
               "attachments",
               "native-push-fcm",
-              "pair-v2"
+              "pair-v2",
+              "pair-wait"
             ],
             "pairing_version": 2,
             "confirm_within_seconds": 300,
@@ -805,7 +811,8 @@
                 "audio",
                 "native-push",
                 "attachments",
-                "native-push-fcm"
+                "native-push-fcm",
+                "pair-wait"
               ],
               "confirm_within_seconds": 300,
               "attachment_limits": {
@@ -1295,6 +1302,1195 @@
           }
         }
       }
+    ]
+  },
+  "pair_wait": {
+    "source": "web/web-app/lib/api.js macAnswer, macWaitNextDelayMs, macWaitNextAskAt, PAIR_WAIT, PAIR_WAIT_SECONDS, MAC_WAIT_MIN_SPACING_MS; the loop is web/web-app/app.js waitForMac; the Mac side is phone/listen.rs handle (the hold), phone/device.rs hold_answer/release (the release signal) and phone/routes.rs holdable",
+    "rule": "The wait for the press on the Mac asks with the phone's OWN signed They match: POST /api/pair with exactly the body the phone sent when the person pressed They match on the phone (fingerprint_confirmed: true, device_id, and the platform's push_transport). The press itself is the first ask. A Mac whose pairing answer lists \"pair-wait\" in capabilities is sent Prefer: wait=<seconds>, seconds = min(hold_seconds_max, whole seconds left to the phone's deadline), and holds the answer until the person presses on the Mac (then answers {\"ok\":true}), until They do not match on the Mac or the window closes (then its refusal), or until the wait runs out (then still waiting). A Mac without it is sent no Prefer and answers at once. Next ask: next_delay_cases (web/web-app/lib/api.js macWaitNextDelayMs) after the answer, and never later than the deadline, where the last ask goes; while the Mac offers pair-wait that last ask still keeps min_ask_spacing_ms, so it may go a few seconds after the deadline (macWaitNextAskAt; last_ask_cases). Leaving the foreground cancels the ask in flight and schedules nothing; coming back asks again, no sooner than min_ask_spacing_ms after the previous ask while the Mac offers pair-wait. At (or, keeping the spacing, just after) the deadline the phone asks ONE last time with no Prefer: pressed means paired, a refusal means declined, anything else means expired. The phone's own request timeout for these asks must exceed hold_seconds_max.",
+    "capability": "pair-wait",
+    "offered_beside": "pair-v2",
+    "prefer_header": "Prefer: wait=<seconds>",
+    "hold_seconds_max": 14,
+    "min_ask_spacing_ms": 7000,
+    "request_timeout_must_exceed_ms": 14000,
+    "ask_body": "the platform's own fingerprint_confirmed:true body, byte for byte as it sent it at the press; the recorded requests use the reference client's nativeClient body (push_transport \"apns\"), and Android sends its own confirmation body (push_transport \"fcm\", push-registration-fcm.json requests)",
+    "answers": {
+      "pressed": {
+        "status": 200,
+        "body": {
+          "ok": true
+        },
+        "phone": "paired: open the conversation"
+      },
+      "still_waiting": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "awaiting_mac_confirmation": true
+        },
+        "phone": "keep waiting: next ask per next_delay_cases"
+      },
+      "still_waiting_as_409": {
+        "status": 409,
+        "body": "{\"awaiting_mac_confirmation\":true,\"reason\":\"Press They match on your Mac.\"}",
+        "phone": "keep waiting (the awaiting answer some routes give; see mac_confirmation.awaiting_answer_classification)"
+      },
+      "refused_on_the_mac": {
+        "status": 403,
+        "body": {
+          "revoked": true
+        },
+        "phone": "declined: They do not match was pressed on the Mac, or the Mac forgot this pairing"
+      },
+      "window_closed": {
+        "status": 404,
+        "body": "",
+        "phone": "declined (the Mac no longer knows this key)"
+      },
+      "unreachable": {
+        "status": null,
+        "phone": "keep waiting; at the final ask, expired"
+      }
+    },
+    "asks": [
+      {
+        "name": "held, and the person presses They match on the Mac during the hold",
+        "wait_seconds": 14,
+        "mac_answer": {
+          "status": 200,
+          "body": {
+            "ok": true
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "yS0gNO2-K0kGbJ9qMM6ZVPtMqR8GcdEJ"
+          }
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Authorization": "RichOS-Device dev_8d4c57b7ff82.yS0gNO2-K0kGbJ9qMM6ZVPtMqR8GcdEJ.EJOkIAEqJH1-hbNOobt0OQSxEE7JRj36sj6aFs3aYU2K3VmCtsblbRJKbDiTjEOu6pkqwtASwKNpWShRb25flg",
+              "Content-Type": "application/json",
+              "Prefer": "wait=14"
+            },
+            "body": {
+              "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+              "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "length": 85
+            },
+            "signed": {
+              "credential": "header",
+              "challenge": "yS0gNO2-K0kGbJ9qMM6ZVPtMqR8GcdEJ",
+              "path_with_query": "/api/pair",
+              "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signing_string": "yS0gNO2-K0kGbJ9qMM6ZVPtMqR8GcdEJ\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signature_b64url": "EJOkIAEqJH1-hbNOobt0OQSxEE7JRj36sj6aFs3aYU2K3VmCtsblbRJKbDiTjEOu6pkqwtASwKNpWShRb25flg",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.yS0gNO2-K0kGbJ9qMM6ZVPtMqR8GcdEJ.EJOkIAEqJH1-hbNOobt0OQSxEE7JRj36sj6aFs3aYU2K3VmCtsblbRJKbDiTjEOu6pkqwtASwKNpWShRb25flg"
+            },
+            "mac": {
+              "signing_string": "yS0gNO2-K0kGbJ9qMM6ZVPtMqR8GcdEJ\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": true
+        }
+      },
+      {
+        "name": "held until the hold ran out, still waiting",
+        "wait_seconds": 14,
+        "mac_answer": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "awaiting_mac_confirmation": true
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "zMnO5-WNXnXewmzeKD4PzMVPEXu1nlXn"
+          }
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Authorization": "RichOS-Device dev_8d4c57b7ff82.zMnO5-WNXnXewmzeKD4PzMVPEXu1nlXn.JUfjSdsgO3RG-n5ztud0Q9KkPxoAxycWbRq70hsmt6GTO-y4NVW92FM4CUcRowPHn5V_vFIdWtrSsq30iA5Xgw",
+              "Content-Type": "application/json",
+              "Prefer": "wait=14"
+            },
+            "body": {
+              "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+              "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "length": 85
+            },
+            "signed": {
+              "credential": "header",
+              "challenge": "zMnO5-WNXnXewmzeKD4PzMVPEXu1nlXn",
+              "path_with_query": "/api/pair",
+              "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signing_string": "zMnO5-WNXnXewmzeKD4PzMVPEXu1nlXn\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signature_b64url": "JUfjSdsgO3RG-n5ztud0Q9KkPxoAxycWbRq70hsmt6GTO-y4NVW92FM4CUcRowPHn5V_vFIdWtrSsq30iA5Xgw",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.zMnO5-WNXnXewmzeKD4PzMVPEXu1nlXn.JUfjSdsgO3RG-n5ztud0Q9KkPxoAxycWbRq70hsmt6GTO-y4NVW92FM4CUcRowPHn5V_vFIdWtrSsq30iA5Xgw"
+            },
+            "mac": {
+              "signing_string": "zMnO5-WNXnXewmzeKD4PzMVPEXu1nlXn\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": false
+        }
+      },
+      {
+        "name": "a Mac without pair-wait: the same ask, no Prefer, answered at once",
+        "wait_seconds": 0,
+        "mac_answer": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "awaiting_mac_confirmation": true
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "mkpb_YgkBooKwgQFcU_kwaCsZD6WXw0d"
+          }
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Authorization": "RichOS-Device dev_8d4c57b7ff82.mkpb_YgkBooKwgQFcU_kwaCsZD6WXw0d.-QH6L6pQ4-XFKxs2dWTjiY-otzP1XSwUbkgoDL64KjR46zezwAIzMh-kJkbwwEKnRj7Dogu4GzIa1tScwXS0Bw",
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+              "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "length": 85
+            },
+            "signed": {
+              "credential": "header",
+              "challenge": "mkpb_YgkBooKwgQFcU_kwaCsZD6WXw0d",
+              "path_with_query": "/api/pair",
+              "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signing_string": "mkpb_YgkBooKwgQFcU_kwaCsZD6WXw0d\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signature_b64url": "-QH6L6pQ4-XFKxs2dWTjiY-otzP1XSwUbkgoDL64KjR46zezwAIzMh-kJkbwwEKnRj7Dogu4GzIa1tScwXS0Bw",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.mkpb_YgkBooKwgQFcU_kwaCsZD6WXw0d.-QH6L6pQ4-XFKxs2dWTjiY-otzP1XSwUbkgoDL64KjR46zezwAIzMh-kJkbwwEKnRj7Dogu4GzIa1tScwXS0Bw"
+            },
+            "mac": {
+              "signing_string": "mkpb_YgkBooKwgQFcU_kwaCsZD6WXw0d\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": false
+        }
+      },
+      {
+        "name": "They do not match on the Mac ends the hold with the refusal",
+        "wait_seconds": 14,
+        "mac_answer": {
+          "status": 403,
+          "body": {
+            "revoked": true
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "oLQW018L8fv_TY5uYDjGkTAzaF3_sET8"
+          }
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Authorization": "RichOS-Device dev_8d4c57b7ff82.oLQW018L8fv_TY5uYDjGkTAzaF3_sET8.i1kiI56H-ERFTgQZoG_lYG7zrdNw8f5MnkbpEyOBoRDU0OcWqs9etmR2EOByZefiGsGWmTwZjpdgKa-9id2gcw",
+              "Content-Type": "application/json",
+              "Prefer": "wait=14"
+            },
+            "body": {
+              "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+              "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "length": 85
+            },
+            "signed": {
+              "credential": "header",
+              "challenge": "oLQW018L8fv_TY5uYDjGkTAzaF3_sET8",
+              "path_with_query": "/api/pair",
+              "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signing_string": "oLQW018L8fv_TY5uYDjGkTAzaF3_sET8\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signature_b64url": "i1kiI56H-ERFTgQZoG_lYG7zrdNw8f5MnkbpEyOBoRDU0OcWqs9etmR2EOByZefiGsGWmTwZjpdgKa-9id2gcw",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.oLQW018L8fv_TY5uYDjGkTAzaF3_sET8.i1kiI56H-ERFTgQZoG_lYG7zrdNw8f5MnkbpEyOBoRDU0OcWqs9etmR2EOByZefiGsGWmTwZjpdgKa-9id2gcw"
+            },
+            "mac": {
+              "signing_string": "oLQW018L8fv_TY5uYDjGkTAzaF3_sET8\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": false,
+          "error": {
+            "reason": "revoked",
+            "status": 0,
+            "retryable": false,
+            "about_this_message": false
+          }
+        }
+      },
+      {
+        "name": "the window closed on the Mac",
+        "wait_seconds": 14,
+        "mac_answer": {
+          "status": 404,
+          "body": "",
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "lE9qDhMIwfUT7IkKey_P24Jt1fg7Rc8j"
+          }
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Authorization": "RichOS-Device dev_8d4c57b7ff82.lE9qDhMIwfUT7IkKey_P24Jt1fg7Rc8j.Y2CMZDMada-ZeDBE10LCqlZzxvsS59PIcojX9QPU20Lacwbw9naZDuDnxSYBclfM-39LaPPai3J2wSPXm2u6ng",
+              "Content-Type": "application/json",
+              "Prefer": "wait=14"
+            },
+            "body": {
+              "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+              "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "length": 85
+            },
+            "signed": {
+              "credential": "header",
+              "challenge": "lE9qDhMIwfUT7IkKey_P24Jt1fg7Rc8j",
+              "path_with_query": "/api/pair",
+              "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signing_string": "lE9qDhMIwfUT7IkKey_P24Jt1fg7Rc8j\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signature_b64url": "Y2CMZDMada-ZeDBE10LCqlZzxvsS59PIcojX9QPU20Lacwbw9naZDuDnxSYBclfM-39LaPPai3J2wSPXm2u6ng",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.lE9qDhMIwfUT7IkKey_P24Jt1fg7Rc8j.Y2CMZDMada-ZeDBE10LCqlZzxvsS59PIcojX9QPU20Lacwbw9naZDuDnxSYBclfM-39LaPPai3J2wSPXm2u6ng"
+            },
+            "mac": {
+              "signing_string": "lE9qDhMIwfUT7IkKey_P24Jt1fg7Rc8j\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": false,
+          "error": {
+            "reason": "refused",
+            "status": 404,
+            "retryable": false,
+            "about_this_message": false
+          }
+        }
+      },
+      {
+        "name": "the final ask at the deadline carries no Prefer",
+        "wait_seconds": 0,
+        "mac_answer": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "awaiting_mac_confirmation": true
+          },
+          "headers": {
+            "Content-Type": "application/json; charset=utf-8",
+            "X-RichOS-Challenge": "pP45lKhujk4smd1FK9YxMggp98Y-5y_U"
+          }
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "target": "/api/pair",
+            "headers": {
+              "Authorization": "RichOS-Device dev_8d4c57b7ff82.pP45lKhujk4smd1FK9YxMggp98Y-5y_U.CLOc331Zon5gidtY_DlOLwsQoSV1CUHYWNZoX7YXIFD8mdZdRorh3YGaDE77oG-WRfoxm0Gpgciuas76QD0U2g",
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "utf8": "{\"device_id\":\"dev_8d4c57b7ff82\",\"fingerprint_confirmed\":true,\"push_transport\":\"apns\"}",
+              "sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "length": 85
+            },
+            "signed": {
+              "credential": "header",
+              "challenge": "pP45lKhujk4smd1FK9YxMggp98Y-5y_U",
+              "path_with_query": "/api/pair",
+              "body_sha256_hex": "a2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signing_string": "pP45lKhujk4smd1FK9YxMggp98Y-5y_U\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "signature_b64url": "CLOc331Zon5gidtY_DlOLwsQoSV1CUHYWNZoX7YXIFD8mdZdRorh3YGaDE77oG-WRfoxm0Gpgciuas76QD0U2g",
+              "authorization": "RichOS-Device dev_8d4c57b7ff82.pP45lKhujk4smd1FK9YxMggp98Y-5y_U.CLOc331Zon5gidtY_DlOLwsQoSV1CUHYWNZoX7YXIFD8mdZdRorh3YGaDE77oG-WRfoxm0Gpgciuas76QD0U2g"
+            },
+            "mac": {
+              "signing_string": "pP45lKhujk4smd1FK9YxMggp98Y-5y_U\nPOST\n/api/pair\na2f4d08426d1692d34f3311a2b2a695ed837257efa25657d51d45f8abe11c555",
+              "verdict": "accepted"
+            }
+          }
+        ],
+        "outcome": {
+          "ok": true,
+          "value": false
+        }
+      }
+    ],
+    "next_delay_cases": [
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 7000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 4000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 2000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 7000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 4000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 3000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 7000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": true,
+        "next_ask_after_ms": 0
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 2000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 2000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 2000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 2000
+      },
+      {
+        "attempt": 0,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 2000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 3000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 3000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 3000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 3000
+      },
+      {
+        "attempt": 1,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 3000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 2,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 5000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 3,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 8000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 4,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 13000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 5,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 0,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 3000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 6999,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 7000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      },
+      {
+        "attempt": 9,
+        "previous_ask_took_ms": 14000,
+        "mac_offers_pair_wait": false,
+        "next_ask_after_ms": 15000
+      }
+    ],
+    "last_ask_cases": [
+      {
+        "name": "held until the deadline cut the hold short (6 s): the last ask keeps the 7 s spacing",
+        "attempt": 30,
+        "previous_ask_at_ms": 294000,
+        "previous_answer_at_ms": 300000,
+        "deadline_ms": 300000,
+        "mac_offers_pair_wait": true,
+        "next_ask_at_ms": 301000
+      },
+      {
+        "name": "answered at once near the deadline: the last ask goes at the deadline",
+        "attempt": 30,
+        "previous_ask_at_ms": 290000,
+        "previous_answer_at_ms": 290100,
+        "deadline_ms": 300000,
+        "mac_offers_pair_wait": true,
+        "next_ask_at_ms": 300000
+      },
+      {
+        "name": "a Mac without pair-wait: the last ask goes at the deadline itself",
+        "attempt": 20,
+        "previous_ask_at_ms": 286000,
+        "previous_answer_at_ms": 286050,
+        "deadline_ms": 300000,
+        "mac_offers_pair_wait": false,
+        "next_ask_at_ms": 300000
+      },
+      {
+        "name": "a full hold well before the deadline: ask again at once",
+        "attempt": 7,
+        "previous_ask_at_ms": 100000,
+        "previous_answer_at_ms": 114000,
+        "deadline_ms": 300000,
+        "mac_offers_pair_wait": true,
+        "next_ask_at_ms": 114000
+      }
+    ],
+    "wait_plans": [
+      {
+        "name": "a Mac that holds every ask for as long as it was asked, and is never pressed",
+        "mac_offers_pair_wait": true,
+        "asks": [
+          {
+            "at_ms": 0,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 14000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 28000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 42000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 56000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 70000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 84000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 98000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 112000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 126000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 140000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 154000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 168000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 182000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 196000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 210000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 224000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 238000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 252000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 266000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 280000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 294000,
+            "prefer_wait_seconds": 6,
+            "final": false
+          },
+          {
+            "at_ms": 301000,
+            "prefer_wait_seconds": null,
+            "final": true
+          }
+        ],
+        "total_asks": 23,
+        "smallest_gap_between_asks_ms": 7000
+      },
+      {
+        "name": "a relay that forges pair-wait and answers every ask at once",
+        "mac_offers_pair_wait": true,
+        "asks": [
+          {
+            "at_ms": 0,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 7000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 14000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 21000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 29000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 42000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 57000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 72000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 87000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 102000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 117000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 132000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 147000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 162000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 177000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 192000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 207000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 222000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 237000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 252000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 267000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 282000,
+            "prefer_wait_seconds": 14,
+            "final": false
+          },
+          {
+            "at_ms": 297000,
+            "prefer_wait_seconds": 3,
+            "final": false
+          },
+          {
+            "at_ms": 304000,
+            "prefer_wait_seconds": null,
+            "final": true
+          }
+        ],
+        "total_asks": 24,
+        "smallest_gap_between_asks_ms": 7000
+      },
+      {
+        "name": "a Mac without pair-wait (every Mac before this one)",
+        "mac_offers_pair_wait": false,
+        "asks": [
+          {
+            "at_ms": 0,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 2000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 5000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 10000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 18000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 31000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 46000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 61000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 76000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 91000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 106000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 121000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 136000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 151000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 166000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 181000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 196000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 211000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 226000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 241000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 256000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 271000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 286000,
+            "prefer_wait_seconds": null,
+            "final": false
+          },
+          {
+            "at_ms": 300000,
+            "prefer_wait_seconds": null,
+            "final": true
+          }
+        ],
+        "total_asks": 24,
+        "smallest_gap_between_asks_ms": 2000
+      }
+    ],
+    "mac_release_events": [
+      "the press on the Mac (DeviceDesk::confirm_on_mac): answered {\"ok\":true} at once",
+      "They do not match on the Mac, the expiry sweep, the spent-code alarm and Forget (DeviceDesk::forget_in): answered with the refusal",
+      "the channel stopping (Listener::stop -> DeviceDesk::release_holds): answered with the state at that moment, drained for at most 1,000 ms",
+      "a newer ask from the same phone: the older one is answered still waiting at once (one hold per device)"
     ]
   }
 }

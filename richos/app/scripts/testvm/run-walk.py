@@ -7,6 +7,12 @@ run-walk.py --bundle BUNDLE --home FIXTURE --engine ENGINE -- delta-walk.py --ou
 CEO ruling §77: a walk is a test run, admitted by the CPU rule; it does not take
 the nightly release.lock. The VM is one shared resource, so the walk holds
 <TESTVM_ROOT>/guest.lock (default ~/.richos-testvm) instead: one walk guest at a time.
+
+--wait SECONDS retries the CPU admission under that lock for at most SECONDS (reserve.py's
+own bound and backoff). The default, 0, refuses at once, as before. Wrapping this in
+`reserve.py --wait` does not help on a busy Mac: this script samples again as soon as the
+outer one admits, and that second single sample decides the run (2026-09-24: outer
+admitted, inner refused at 86.3%, exit 75).
 """
 import argparse
 import json
@@ -31,6 +37,8 @@ def main():
     p.add_argument('--report',type=Path,required=True,help='whole-run boot/scenario/cleanup timing report outside scratch')
     p.add_argument('--state-dir',type=Path,default=Path.home()/'.richos-nightly',
                    help='accepted so older command lines parse; a walk no longer takes release.lock (CEO ruling §77)')
+    p.add_argument('--wait',type=float,default=0,metavar='SECONDS',
+                   help='retry CPU admission under the guest lock for at most SECONDS (default 0: refuse at once)')
     p.add_argument('command',nargs=argparse.REMAINDER)
     a=p.parse_args();command=a.command[1:] if a.command[:1]==['--'] else a.command
     if not command:p.error('a scenario command is required after --')
@@ -40,7 +48,7 @@ def main():
     guest_lock=root/'guest.lock'
     def interrupted(signum,frame):raise KeyboardInterrupt('interrupted by signal '+str(signum))
     for sig in (signal.SIGTERM,signal.SIGHUP):signal.signal(sig,interrupted)
-    with reservation(lock=guest_lock):
+    with reservation(lock=guest_lock,wait_seconds=a.wait):
         listing=subprocess.run(['bash','-c','. "$1/lib.sh"; preflight_tart; tart list --format json','walk',str(HERE)],capture_output=True,text=True,timeout=20,check=True)
         rows=json.loads(listing.stdout)
         base=os.environ.get('TESTVM_BASE_VM','richos-base')

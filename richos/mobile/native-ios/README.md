@@ -27,10 +27,19 @@ the voice gesture's names are new (`voice-press`, `voice-move`, `voice-release`,
 are optional: `{"type":"send"}` is stamped on arrival, `{"type":"send","clientId":"c","at":5}` replays.
 
 **Fixtures** are named after the round-12 screen they show — one for each of the 63 screens that are
-app screens on iPhone (`bin/rios headless fixture nope` lists them). `sim launch <fixture>` and the
+app screens on iPhone, plus pairing v2's six (`pair-awaiting-mac`, `pair-mac-update`,
+`pair-mac-refused`, `pair-mac-expired`, `pair-words-rejected`, `pair-unreachable`), which round 12
+predates (`bin/rios headless fixture nope` lists them).
+
+**Pairing is v2 only** (`../conformance/README.md`, `pairing.json` `pair_v2` and `mac_confirmation`,
+`fingerprint.json` `v2`). The six words are derived on the phone from the origin it dialed, the Mac's
+`ca_fingerprint_sha256` and its own key; a Mac without `pair-v2` is refused, never fallen back to.
+After "They match" on the phone, the phone waits for the same press on the Mac on one bounded
+schedule (2, 3, 5, 8, 13 s, then every 15 s; at most 22 probes in five minutes), only while the app
+is on screen (`Core/Sources/RichOSCore/Pairing/MacWait.swift`). `sim launch <fixture>` and the
 launch arguments `-rios-fixture <name> -rios-appearance dark|light` open the app straight onto one.
 
-**Scenarios** (`compose-draft`, `pair-by-scan`, `pair-refused-and-rejected`, `outbox-retry`,
+**Scenarios** (`compose-draft`, `pair-by-scan`, `pair-mac-wait`, `pair-refused-and-rejected`, `outbox-retry`,
 `outbox-refused-continues`, `offline-reconnect`, `voice-hold-send`, `voice-lock-send`,
 `voice-interrupted`, `revoked`) carry their own checks and run identically headless and in the
 simulator (`sim verify` requires byte-identical results).
@@ -47,6 +56,9 @@ For `bin/rios device verify pairing`, `device verify text`, `device verify recor
 `RICHOS_MOBILE_TEST_CONFIG` to the isolated lab's external JSON with
 `"isolatedLab": "true"`. Pairing requires its current HTTPS `pairLink` and exact
 fingerprint `words`; recording requires that same isolated session already paired.
+Pairing is v2: the `words` are the ones the phone shows (over the origin it dials), and after
+"They match" on the phone the runner prints `PHYSICAL_PRESS_THEY_MATCH_ON_MAC`; press "They match"
+on the lab Mac within 120 seconds.
 These checks drive normal Release UI and real microphone capture. They never use
 fixtures or pass the lab configuration to the app. Do not run them against a personal
 conversation. Pairing starts unpaired. Recording discards its first test capture and

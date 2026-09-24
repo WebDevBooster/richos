@@ -179,6 +179,114 @@ async function macConfirmation() {
 	};
 }
 
+// ---- pair-wait: ask with the answer, and let the Mac hold it (Sage's pair-v2 hypotheses review) --
+
+/// **What both native apps implement next** (Sage's pair-v2 hypotheses review §1 "The fix" points
+/// 1, 2, 4, 5 and §2 "The fix" point 1). Every value below comes from `web/web-app/lib/api.js`
+/// (`macAnswer`, `macWaitNextDelayMs` and the constants beside them) driven against the scripted
+/// Mac; the wait plans are simulated from those same functions with the PWA's own loop
+/// (`web/web-app/app.js` `waitForMac`), step for step.
+async function pairWait() {
+	const A = load('api');
+	const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
+	const ask = async (name, wait, reply) => {
+		const c = challenge(name);
+		const { api, mac: fake, signer } = makeApi({ script: [reply(c)], state: { challenge: c } });
+		const result = await outcome(api.macAnswer({ wait }));
+		const requests = transcript(fake, signer).map((request) => ({ ...request, mac: macVerdict(request) }));
+		return { name, wait_seconds: wait, mac_answer: reply(c), requests, outcome: result };
+	};
+	const withChallenge = (c) => ({ ...JSON_HEADERS, 'X-RichOS-Challenge': c });
+
+	// The whole wait, from the phone's own press at 0 ms to its deadline at the window, for a Mac
+	// that is never pressed (the longest wait there is). `tookFor(wait)` is how long each answer
+	// takes; the PWA's loop is reproduced exactly: the next ask goes at `macWaitNextAskAt`, and the
+	// last one — once that moment is at or past the deadline — carries no hold.
+	const plan = (name, holds, tookFor) => {
+		const until = A.MAC_WAIT_WINDOW_MS;
+		const asks = [];
+		let t = 0;
+		let attempt = 0;
+		for (;;) {
+			const final = t >= until;
+			const wait = holds && !final ? Math.min(A.PAIR_WAIT_SECONDS, Math.floor((until - t) / 1000)) : 0;
+			asks.push({ at_ms: t, prefer_wait_seconds: wait > 0 ? wait : null, final });
+			if (final) break;
+			const answeredAt = t + tookFor(wait);
+			t = A.macWaitNextAskAt(attempt++, t, answeredAt, until, holds);
+			if (asks.length > 1000) throw new Error(`wait plan "${name}" does not end`);
+		}
+		const gaps = asks.slice(1).map((a, i) => a.at_ms - asks[i].at_ms);
+		return { name, mac_offers_pair_wait: holds, asks, total_asks: asks.length, smallest_gap_between_asks_ms: Math.min(...gaps) };
+	};
+
+	const next = [];
+	for (const holds of [true, false]) {
+		for (const attempt of [0, 1, 2, 3, 4, 5, 9]) {
+			for (const took of [0, 3000, 6999, 7000, 14000]) {
+				next.push({ attempt, previous_ask_took_ms: took, mac_offers_pair_wait: holds, next_ask_after_ms: A.macWaitNextDelayMs(attempt, took, holds) });
+			}
+		}
+	}
+
+	// The last ask, near the deadline: at the deadline, or while the Mac holds, no sooner than the
+	// spacing allows.
+	const lastAsk = [
+		['held until the deadline cut the hold short (6 s): the last ask keeps the 7 s spacing', 30, 294000, 300000, true],
+		['answered at once near the deadline: the last ask goes at the deadline', 30, 290000, 290100, true],
+		['a Mac without pair-wait: the last ask goes at the deadline itself', 20, 286000, 286050, false],
+		['a full hold well before the deadline: ask again at once', 7, 100000, 114000, true]
+	].map(([name, attempt, askedAt, answeredAt, holds]) => ({
+		name, attempt, previous_ask_at_ms: askedAt, previous_answer_at_ms: answeredAt, deadline_ms: A.MAC_WAIT_WINDOW_MS,
+		mac_offers_pair_wait: holds, next_ask_at_ms: A.macWaitNextAskAt(attempt, askedAt, answeredAt, A.MAC_WAIT_WINDOW_MS, holds)
+	}));
+
+	const plans = [
+		plan('a Mac that holds every ask for as long as it was asked, and is never pressed', true, (wait) => wait * 1000),
+		plan('a relay that forges pair-wait and answers every ask at once', true, () => 0),
+		plan('a Mac without pair-wait (every Mac before this one)', false, () => 0)
+	];
+	const forged = plans[1];
+	if (forged.smallest_gap_between_asks_ms < A.MAC_WAIT_MIN_SPACING_MS) throw new Error('the no-spin rule does not hold against a forged pair-wait');
+
+	return {
+		source: 'web/web-app/lib/api.js macAnswer, macWaitNextDelayMs, macWaitNextAskAt, PAIR_WAIT, PAIR_WAIT_SECONDS, MAC_WAIT_MIN_SPACING_MS; the loop is web/web-app/app.js waitForMac; the Mac side is phone/listen.rs handle (the hold), phone/device.rs hold_answer/release (the release signal) and phone/routes.rs holdable',
+		rule: 'The wait for the press on the Mac asks with the phone\'s OWN signed They match: POST /api/pair with exactly the body the phone sent when the person pressed They match on the phone (fingerprint_confirmed: true, device_id, and the platform\'s push_transport). The press itself is the first ask. A Mac whose pairing answer lists "pair-wait" in capabilities is sent Prefer: wait=<seconds>, seconds = min(hold_seconds_max, whole seconds left to the phone\'s deadline), and holds the answer until the person presses on the Mac (then answers {"ok":true}), until They do not match on the Mac or the window closes (then its refusal), or until the wait runs out (then still waiting). A Mac without it is sent no Prefer and answers at once. Next ask: next_delay_cases (web/web-app/lib/api.js macWaitNextDelayMs) after the answer, and never later than the deadline, where the last ask goes; while the Mac offers pair-wait that last ask still keeps min_ask_spacing_ms, so it may go a few seconds after the deadline (macWaitNextAskAt; last_ask_cases). Leaving the foreground cancels the ask in flight and schedules nothing; coming back asks again, no sooner than min_ask_spacing_ms after the previous ask while the Mac offers pair-wait. At (or, keeping the spacing, just after) the deadline the phone asks ONE last time with no Prefer: pressed means paired, a refusal means declined, anything else means expired. The phone\'s own request timeout for these asks must exceed hold_seconds_max.',
+		capability: A.PAIR_WAIT,
+		offered_beside: A.PAIR_V2,
+		prefer_header: 'Prefer: wait=<seconds>',
+		hold_seconds_max: A.PAIR_WAIT_SECONDS,
+		min_ask_spacing_ms: A.MAC_WAIT_MIN_SPACING_MS,
+		request_timeout_must_exceed_ms: A.PAIR_WAIT_SECONDS * 1000,
+		ask_body: 'the platform\'s own fingerprint_confirmed:true body, byte for byte as it sent it at the press; the recorded requests use the reference client\'s nativeClient body (push_transport "apns"), and Android sends its own confirmation body (push_transport "fcm", push-registration-fcm.json requests)',
+		answers: {
+			pressed: { status: 200, body: { ok: true }, phone: 'paired: open the conversation' },
+			still_waiting: { status: 200, body: { ok: true, awaiting_mac_confirmation: true }, phone: 'keep waiting: next ask per next_delay_cases' },
+			still_waiting_as_409: { status: 409, body: AWAITING_MAC_BODY, phone: 'keep waiting (the awaiting answer some routes give; see mac_confirmation.awaiting_answer_classification)' },
+			refused_on_the_mac: { status: 403, body: { revoked: true }, phone: 'declined: They do not match was pressed on the Mac, or the Mac forgot this pairing' },
+			window_closed: { status: 404, body: '', phone: 'declined (the Mac no longer knows this key)' },
+			unreachable: { status: null, phone: 'keep waiting; at the final ask, expired' }
+		},
+		asks: [
+			await ask('held, and the person presses They match on the Mac during the hold', A.PAIR_WAIT_SECONDS, (c) => answer(200, { ok: true }, withChallenge(c))),
+			await ask('held until the hold ran out, still waiting', A.PAIR_WAIT_SECONDS, (c) => answer(200, { ok: true, awaiting_mac_confirmation: true }, withChallenge(c))),
+			await ask('a Mac without pair-wait: the same ask, no Prefer, answered at once', 0, (c) => answer(200, { ok: true, awaiting_mac_confirmation: true }, withChallenge(c))),
+			await ask('They do not match on the Mac ends the hold with the refusal', A.PAIR_WAIT_SECONDS, (c) => answer(403, { revoked: true }, withChallenge(c))),
+			await ask('the window closed on the Mac', A.PAIR_WAIT_SECONDS, (c) => answer(404, '', withChallenge(c))),
+			await ask('the final ask at the deadline carries no Prefer', 0, (c) => answer(200, { ok: true, awaiting_mac_confirmation: true }, withChallenge(c)))
+		],
+		next_delay_cases: next,
+		last_ask_cases: lastAsk,
+		wait_plans: plans,
+		mac_release_events: [
+			'the press on the Mac (DeviceDesk::confirm_on_mac): answered {"ok":true} at once',
+			'They do not match on the Mac, the expiry sweep, the spent-code alarm and Forget (DeviceDesk::forget_in): answered with the refusal',
+			'the channel stopping (Listener::stop -> DeviceDesk::release_holds): answered with the state at that moment, drained for at most 1,000 ms',
+			'a newer ask from the same phone: the older one is answered still waiting at once (one hold per device)'
+		]
+	};
+}
+
 /// SAGE F2's RELAY, AS A SCENARIO. The phone dials origin R; a relay at R forwards the pairing to
 /// the Mac at M, which answers with its real hash. The phone derives over R and its key; the Mac
 /// derives over M and the key it registered (the same key, relayed faithfully). The lines differ.
@@ -244,7 +352,10 @@ export async function pairing() {
 			relay_scenario: await relayScenario()
 		},
 		fingerprint_confirmations: confirms,
-		mac_confirmation: await macConfirmation()
+		mac_confirmation: await macConfirmation(),
+		// A section of its own, like pair_v2, so today's replay of mac_confirmation (the backfill
+		// probe on the backed-off schedule) keeps describing the native apps until each adopts it.
+		pair_wait: await pairWait()
 	};
 }
 

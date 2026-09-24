@@ -124,21 +124,49 @@ enum MacVerifier {
     }
 }
 
+/// `fingerprint.json`: the 256-word list this phone ships, and every `v2.cases` entry rebuilt from the
+/// origin, the Mac's value byte for byte and the key's point. The v1 `cases` (the hash alone) belong to
+/// the preserved iPhone app; this v2 phone has no v1 derivation to replay them through.
 @Suite struct FingerprintConformance {
-    @Test func everyCaseGivesTheRecordedWordsOrIsRefused() throws {
+    @Test func theShippedWordListIsTheCorpusList() throws {
         let file = try Corpus.load("fingerprint")
         #expect(file["wordlist"] as? [String] == WordList.words)
+        #expect(file["word_count"] as? Int == Fingerprint.wordCount)
         let joined = Data(WordList.words.joined(separator: "\n").utf8)
         #expect(SHA256.hash(data: joined).map { String(format: "%02x", $0) }.joined() == file["wordlist_sha256_of_newline_joined"] as? String)
-        for c in try Corpus.cases(file, "cases") {
+    }
+
+    @Test func everyV2CaseGivesTheRecordedInputAndWords() throws {
+        let v2 = try #require(try Corpus.load("fingerprint")["v2"] as? [String: Any])
+        #expect(v2["label"] as? String == Fingerprint.label)
+        let cases = try Corpus.cases(v2, "cases")
+        #expect(!cases.isEmpty)
+        for c in cases {
             let name = c["name"] as? String ?? "?"
-            let input = c["input"] as? String ?? ""
-            if c["accept"] as? Bool == true {
-                #expect(try Fingerprint.words(fromHex: input) == c["words"] as? [String], "\(name)")
-            } else {
-                #expect(throws: (any Error).self, "\(name)") { try Fingerprint.words(fromHex: input) }
-            }
+            let origin = try #require(c["origin"] as? String)
+            let value = try #require(c["ca_fingerprint_sha256"] as? String)
+            let point = try #require(c["device_point_b64url"] as? String)
+            #expect(try Fingerprint.input(origin: origin, caFingerprintSHA256: value, devicePoint: point) == c["input_utf8"] as? String, "\(name): input")
+            let words = try Fingerprint.words(origin: origin, caFingerprintSHA256: value, devicePoint: point)
+            #expect(words == c["words"] as? [String] && words.joined(separator: " ") == c["phrase"] as? String, "\(name): words")
         }
+    }
+
+    /// The point is this phone's own key's: the corpus key's point is the one its v2 cases hash.
+    @Test func thePointIsTheKeysUncompressedPointInBase64URL() throws {
+        let keys = try Corpus.load("keys")
+        #expect(Base64URL.encode(Corpus.testKey.publicKey.x963Representation) == keys["public_point_b64url"] as? String)
+        let v2 = try #require(try Corpus.load("fingerprint")["v2"] as? [String: Any])
+        #expect(try Corpus.cases(v2, "cases").first?["device_point_b64url"] as? String == keys["public_point_b64url"] as? String)
+    }
+
+    @Test func anAddressThatIsNotAnHTTPSOriginIsRefusedNotHashed() throws {
+        for bad in ["http://mm1.tail1a2b3c.ts.net:8443", "mm1.tail1a2b3c.ts.net", "", "https://"] {
+            #expect(throws: Fingerprint.Invalid.self, "\(bad)") { try Fingerprint.normalizeOrigin(bad) }
+        }
+        #expect(throws: Fingerprint.Invalid.self) { try Fingerprint.words(origin: "https://a.example", caFingerprintSHA256: "", devicePoint: "BA") }
+        #expect(throws: Fingerprint.Invalid.self) { try Fingerprint.words(origin: "https://a.example", caFingerprintSHA256: "55:A7", devicePoint: "") }
+        #expect(try Fingerprint.normalizeOrigin("HTTPS://Relay.Example:8443/") == "https://relay.example:8443")
     }
 }
 

@@ -99,6 +99,7 @@ let repositoryRoot: URL = {
             .compose(text: "x"), .setAppearance(.light), .openScanner, .closeScanner, .scanned(text: "x"),
             .submitPairingLink(text: "x"), .cameraPermission(.denied), .pairingAnswered(Scenario.answer), .pairingRefused,
             .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem, .openSheet(.forget), .closeSheet,
+            .pairingNeedsMacUpdate, .macConfirmation(.awaiting, at: 22), .macConfirmation(.confirmed, at: 23), .macConfirmation(.refused, at: 24),
             .sendDraft(clientID: "c", at: 1), .deliveryAccepted(clientID: "c", at: 2),
             .deliveryFailed(clientID: "c", failure: .retryable(reason: "x"), at: 3), .deliveryFailed(clientID: "c", failure: .revoked, at: 3),
             .tick(at: 4), .retryNow(at: 5), .discardMessage(id: "c"), .messagesArrived(Conversation.round12), .replyStarted,
@@ -185,12 +186,16 @@ let repositoryRoot: URL = {
         }
     }
 
-    @Test func theSixWordsAreComputedOnThePhoneFromTheMacsHex() throws {
-        // Contract fixtures/fingerprint.json.
-        let hex = "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B"
-        #expect(try Fingerprint.words(fromHex: hex).joined(separator: " ") == "cobra morning cargo moose grape bonus")
-        #expect(try Fingerprint.words(fromHex: "sha256: 31bd24bc7312") == Fingerprint.words(fromHex: hex))
-        #expect(throws: Fingerprint.Invalid.self) { try Fingerprint.words(fromHex: "31:BD") }
+    /// The six words are v2 words over the origin the phone DIALED: the same Mac answer and key give
+    /// different words through a relay, and the words never depend on the answer's `api_base`.
+    @Test func theSixWordsAreV2WordsOverTheDialedOrigin() throws {
+        var s = try Fixture.named("pair-progress").state
+        s = Reducer.reduce(s, .pairingAnswered(Scenario.answer)).state
+        #expect(s.screen == .pairWords && s.fingerprintWords.joined(separator: " ") == Scenario.answerWords)
+        var relayed = try Fixture.named("pair-progress").state
+        relayed.mac = MacLink(origin: "https://relay.example", route: .other)
+        relayed = Reducer.reduce(relayed, .pairingAnswered(Scenario.answer)).state
+        #expect(relayed.fingerprintWords == ["pocket", "pebble", "carbon", "candle", "compass", "lumber"])
     }
 
     @Test func theWordListIsTheWebAppsListByteForByte() throws {
@@ -219,11 +224,26 @@ let repositoryRoot: URL = {
         #expect(next.scanner == nil && next.sheet == .cameraDenied)
     }
 
+    /// No value from the Mac, or no key to name: no v2 words can be shown, and a v2 phone never falls
+    /// back to the old ones. Nothing is trusted and the key is forgotten.
     @Test func aMacThatCannotStateItsFingerprintIsNotTrusted() throws {
         var s = try Fixture.named("pair-progress").state
         s.pairingProblem = nil
-        let (next, effects) = Reducer.reduce(s, .pairingAnswered(PairAnswer(deviceID: "dev_x", fingerprintHex: "zz")))
-        #expect(next.pairing == .unpaired && next.pairingProblem == .refused && effects.contains(.forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")))
+        for answer in [PairAnswer(deviceID: "dev_x", fingerprintHex: "", devicePoint: Scenario.answer.devicePoint),
+                       PairAnswer(deviceID: "dev_x", fingerprintHex: Scenario.answer.fingerprintHex)] {
+            let (next, effects) = Reducer.reduce(s, .pairingAnswered(answer))
+            #expect(next.pairing == .unpaired && next.pairingProblem == .refused && next.fingerprintWords.isEmpty
+                    && effects.contains(.forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")))
+        }
+    }
+
+    /// `refused_for_missing_pair_v2`: the network effect has signed the one "They do not match"; the
+    /// reducer ends the pairing, says the Mac needs an update and forgets the key.
+    @Test func aMacWithoutPairV2EndsThePairingAndSaysItNeedsAnUpdate() throws {
+        let s = try Fixture.named("pair-progress").state
+        let (next, effects) = Reducer.reduce(s, .pairingNeedsMacUpdate)
+        #expect(next.screen == .pairIntro && next.pairingProblem == .macNeedsUpdate && next.mac == nil)
+        #expect(effects.contains(.forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")))
     }
 }
 
@@ -591,9 +611,14 @@ actor FakePlatform: EffectHandler {
     launch-cached
     """.split(separator: " ").map(String.init)
 
+    /// Pairing v2's states, which round 12 predates (the PWA's waiting screen and its three endings).
+    static let pairingV2Screens = ["pair-awaiting-mac", "pair-mac-update", "pair-mac-refused", "pair-mac-expired",
+                                   "pair-words-rejected", "pair-unreachable"]
+
     @Test func thereIsOneFixturePerRound12AppScreen() {
         #expect(Self.round12AppScreens.count == 63)
-        #expect(Fixture.all.map(\.name) == Self.round12AppScreens)
+        #expect(Fixture.all.map(\.name).filter { !Self.pairingV2Screens.contains($0) } == Self.round12AppScreens)
+        #expect(Fixture.all.map(\.name).filter(Self.pairingV2Screens.contains) == Self.pairingV2Screens)
     }
 
     @Test func everyFixtureIsOnTheFullScreenSurfaceItsDesignShows() throws {
@@ -601,6 +626,8 @@ actor FakePlatform: EffectHandler {
             "pair-intro": .pairIntro, "pair-scanner": .pairScanner, "pair-scanner-found": .pairScanner,
             "pair-camera-denied": .pairIntro, "pair-progress": .pairProgress, "pair-words": .pairWords,
             "pair-refused": .pairIntro, "pair-stale": .pairStale, "pair-consent": .pairConsent,
+            "pair-awaiting-mac": .pairAwaitingMac, "pair-mac-update": .pairIntro, "pair-mac-refused": .pairIntro,
+            "pair-mac-expired": .pairIntro, "pair-words-rejected": .pairIntro, "pair-unreachable": .pairIntro,
             "conv-empty": .conversationEmpty, "conn-revoked": .connectionRevoked, "upd-blocking": .updateRequired,
         ]
         for fixture in Fixture.all {
