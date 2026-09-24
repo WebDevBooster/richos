@@ -47,7 +47,7 @@ def wait_for_headroom(reserve, timeout=1800):
             sample = reserve.host_sample()
         except BlockingIOError:
             sample = None
-        if sample is not None and not reserve._refusal(sample, 60, 16) and sample['cpu_idle_percent'] >= 30:
+        if sample is not None and not reserve._refusal(sample, reserve.DEFAULT_MAX_CPU, 16):
             return
         if time.monotonic() >= deadline:
             raise TimeoutError('native build admission timed out waiting for measurable CPU/memory headroom')
