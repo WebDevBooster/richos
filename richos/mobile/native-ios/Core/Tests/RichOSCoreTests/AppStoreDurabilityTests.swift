@@ -87,6 +87,23 @@ private actor DeliveryWitness: EffectHandler {
         #expect(try await store.runner.load()?.draft == "second")
     }
 
+    @Test func aSecondComposedMessageDuringSaveIsNotDiscardedAsADoubleTap() async throws {
+        let storage = SaveGate()
+        let store = AppStore(state: try Fixture.named("conv-empty").state, runner: EffectRunner(storage: storage))
+        await store.apply(.compose(text: "first")).value
+        await storage.configure(pause: true)
+        let send = store.apply(.sendDraft(clientID: "first", at: 100))
+        await storage.untilStarted()
+        store.send(.compose(text: "second"))
+        store.send(.sendDraft(clientID: "second", at: 101))
+        store.send(.sendDraft(clientID: "duplicate", at: 102))
+        await storage.release()
+        await send.value
+        await store.settle()
+        #expect(store.state.outbox.map(\.clientID) == ["first", "second"])
+        #expect(store.state.draft.isEmpty)
+    }
+
     @Test func backgroundDuringSaveDoesNotStartDelivery() async throws {
         let storage = SaveGate()
         let witness = DeliveryWitness(storage)

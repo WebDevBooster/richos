@@ -115,7 +115,12 @@ public final class AppStore {
         }
         if let transaction {
             // Repeated presses while the same composer is being committed are one intent.
-            if case .sendDraft = action { return transaction }
+            if case .sendDraft = action {
+                // A new composition followed by Send is a second intent, even on a slow disk.
+                let lastCompose = deferred.lastIndex { if case .compose = $0 { return true }; return false }
+                let lastSend = deferred.lastIndex { if case .sendDraft = $0 { return true }; return false }
+                if lastCompose == nil || (lastSend != nil && lastSend! > lastCompose!) { return transaction }
+            }
             deferred.append(action)
             if case .backgrounded = action {
                 let (_, effects) = Reducer.reduce(state, action)
