@@ -12,6 +12,7 @@ import android.os.Vibrator
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import dev.richos.android.core.CoreError
 import dev.richos.android.core.Microphone
 import dev.richos.android.core.Recorder
 import kotlinx.coroutines.CancellationException
@@ -54,29 +55,34 @@ class MicRecorder(
         stopCurrent(keep = true)
         if (!granted()) {
             onPermission(Microphone.DENIED)
-            return
+            throw CoreError("Microphone permission is needed to record.")
         }
-        val file = staged(id) ?: return
+        val file = staged(id) ?: throw CoreError("The recording could not be created.")
         val minBuffer = AudioRecord.getMinBufferSize(Wav.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val audio = try {
             AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, Wav.SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuffer, Wav.LEVEL_WINDOW * 4))
         } catch (e: SecurityException) {
             onPermission(Microphone.DENIED)
-            return
+            throw CoreError("Microphone permission is needed to record.")
         }
-        if (audio.state != AudioRecord.STATE_INITIALIZED) {
+        try {
+            if (audio.state != AudioRecord.STATE_INITIALIZED) throw CoreError("The microphone could not start.")
+            withContext(Dispatchers.IO) {
+                dir.mkdirs()
+                FileOutputStream(file).use { it.write(Wav.header(0)) }
+                audio.startRecording()
+                if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw CoreError("The microphone could not start.")
+            }
+        } catch (failure: Throwable) {
+            runCatching { audio.stop() }
             audio.release()
-            return
-        }
-        withContext(Dispatchers.IO) {
-            dir.mkdirs()
-            FileOutputStream(file).use { it.write(Wav.header(0)) }
+            if (failure is CancellationException) throw failure
+            throw CoreError("The recording could not start. Check microphone access and available storage.")
         }
         record = audio
         current = id to file
         job = scope.launch {
             try {
-                audio.startRecording()
                 val buffer = ShortArray(Wav.LEVEL_WINDOW)
                 FileOutputStream(file, true).use { out ->
                     while (isActive) {

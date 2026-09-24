@@ -5,6 +5,19 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 
 class RecordingLifecycleTest {
+    @Test fun recorderStartupFailureNeverPublishesARecordingThatDidNotStart() = runTest {
+        var fail = false
+        val runtime = DevRuntime.create(Fixtures.fixture("online"), save = {
+            if (fail) throw java.io.IOException("recorder unavailable")
+        })
+        runtime.core.dispatch(Action.MicrophonePermission(Microphone.GRANTED))
+        fail = true
+        assertFailsWith<java.io.IOException> {
+            runtime.core.dispatch(Action.VoiceStartLocked("recording", 386.0, runtime.export().now))
+        }
+        assertNull(runtime.core.state.voice)
+    }
+
     @Test fun backgroundKeepsLockedAudioAndStopsCaptureWithoutSending() = runTest {
         val runtime = DevRuntime.create(Fixtures.fixture("online"))
         runtime.core.dispatch(Action.MicrophonePermission(Microphone.GRANTED))

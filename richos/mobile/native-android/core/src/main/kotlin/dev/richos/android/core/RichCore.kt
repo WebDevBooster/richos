@@ -768,7 +768,13 @@ class RichCore private constructor(
         microphonePrompt = next.microphonePrompt
         for (effect in effects) {
             when (effect) {
-                is VoiceEffect.StartRecording -> ports.recorder.start(effect.id)
+                is VoiceEffect.StartRecording -> try {
+                    ports.recorder.start(effect.id)
+                } catch (failure: Throwable) {
+                    voiceSession = world.voice
+                    emit()
+                    throw failure
+                }
                 is VoiceEffect.StopRecording -> ports.recorder.stop(effect.id, effect.keep)
                 is VoiceEffect.DeleteRecording -> ports.recorder.delete(effect.id)
                 VoiceEffect.RequestMicrophone -> ports.recorder.requestMicrophone()
