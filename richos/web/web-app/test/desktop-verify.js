@@ -292,8 +292,16 @@ async function runEngine(playwright, engine) {
 		const pressedAt = Date.now();
 		mac.pressOnMac();
 		await page.waitForSelector('#composer', { state: 'visible', timeout: 15000 });
-		check('the press on the Mac hands over to the conversation, on the phone\'s backed-off schedule',
-			await page.isVisible('#messages'), `${Date.now() - pressedAt} ms after the press`);
+		const handover = Date.now() - pressedAt;
+		// SAGE'S PAIR-V2 REVIEW §1: the wait asks with the phone's own They match, a Mac that names
+		// `pair-wait` holds it, and the press is heard within a round trip rather than at the next
+		// scheduled ask (up to 15 s later on `main`).
+		const asks = mac.state.pairAsks.map((a) => ({ prefer: a.prefer, held: a.held, ended: a.ended }));
+		check('the wait asks the Mac with the phone\'s own They match, and the Mac holds it until the press',
+			asks.length >= 1 && asks.every((a) => /^wait=\d+$/.test(a.prefer || '')) && asks[asks.length - 1].ended === 'pressed',
+			JSON.stringify(asks));
+		check('the press on the Mac hands over to the conversation within a round trip, not at the next scheduled ask',
+			await page.isVisible('#messages') && handover < 2000, `${handover} ms after the press`);
 		check('the pairing code is spent and gone from the address, so a relaunch does not re-pair',
 			!(await page.evaluate(() => location.hash)).includes('pair='),
 			await page.evaluate(() => location.hash));
