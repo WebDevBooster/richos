@@ -73,4 +73,29 @@ mutant interrupted-collector-silent "test_T32" "$D" \
     '                pass' \
     "a killed cleanup pass would leave no alert."
 
+mutant owned-run-not-renewed "test_T44" "$D" \
+    '        lease["last_use"] = time.time(){NL}        lease["activity"] = {"pid": child.pid, "renewer": os.getpid(), "renewed": lease["last_use"]}' \
+    '        lease["activity"] = {"pid": child.pid, "renewer": os.getpid(), "renewed": time.time()}' \
+    "a live, owned xcodebuild run would lose its simulator five minutes in (esc-20260924T220236Z-52fae3ec)."
+
+mutant dead-owner-still-renewed "test_T45" "$D" \
+    '    if owner_state(owner)[0] != "alive":{NL}        return False, "the run'"'"'s owner is not proven alive"' \
+    '    if False:{NL}        return False, "the run'"'"'s owner is not proven alive"' \
+    "an orphaned run would keep renewing a lease whose owner is gone."
+
+mutant expired-lease-renewed "test_T46b" "$D" \
+    '        if lease_expired(rec):{NL}            return False, "the lease reached its lifetime or inactivity limit"' \
+    '        if False:{NL}            return False, "the lease reached its lifetime or inactivity limit"' \
+    "renewal would keep writing to a lease past its lifetime."
+
+mutant ended-run-still-renewed "test_T51" "$D" \
+    '    if child.poll() is not None:{NL}        return False, "the owned run ended"' \
+    '    if False:{NL}        return False, "the owned run ended"' \
+    "a finished run would keep its device from counting as idle."
+
+mutant reregister-keeps-long-lifetime "test_T50" "$D" \
+    '"max_seconds": LEASE_MAX_SECONDS,' \
+    '"max_seconds": old_lease.get("max_seconds", LEASE_MAX_SECONDS),' \
+    "registering again would carry a declared lifetime to a caller that never declared it."
+
 mutation_end

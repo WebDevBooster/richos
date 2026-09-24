@@ -837,6 +837,163 @@ class Collector(Base):
         with self.assertRaisesRegex(ValueError, "expired"):
             T.touch_lease("ios-simulator", udid)
 
+    # --- an owned run keeps its lease (escalation esc-20260924T220236Z-52fae3ec) ---
+    def run_active(self, udid, owner_pid, *command, interval="0.3"):
+        """The renewer as its callers start it: the CLI, in this sandbox."""
+        p = subprocess.Popen([sys.executable, "-B", os.path.join(HERE, "testdevices.py"), "run-active",
+                              "--kind", "ios-simulator", "--id", udid, "--owner-pid", str(owner_pid),
+                              "--interval", interval, "--"] + list(command),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.procs.append(p)
+        return p
+
+    def lease(self, udid):
+        return (T._read_json(T._record_path("ios-simulator", udid)) or {}).get("lease")
+
+    def test_T44_an_owned_run_holds_its_lease_past_300_s_of_cli_silence(self):
+        import cpu_guard
+        udid = self.device("rios-ui-active")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        silent_since = time.time() - (T.LEASE_IDLE_SECONDS - 3)   # the CLI's last touch
+        rec["lease"]["last_use"] = silent_since
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        runner = self.run_active(udid, os.getpid(), "sleep", "5")
+        time.sleep(4)                                              # 301 s after the CLI's last touch
+        self.assertGreaterEqual(time.time() - silent_since, T.LEASE_IDLE_SECONDS + 1)
+        with patch.object(cpu_guard, "event") as event:
+            self.assertEqual(T.expire_leases(), 0)
+            event.assert_not_called()
+        self.assertEqual([d["state"] for d in self.devices()], ["Booted"])
+        lease = self.lease(udid)
+        self.assertEqual(lease["created"], rec["lease"]["created"])
+        self.assertEqual(lease["max_seconds"], T.LEASE_MAX_SECONDS)
+        self.assertEqual(lease["activity"]["renewer"], runner.pid)
+        self.assertEqual(runner.wait(timeout=10), 0)
+        # The run is over: renewal stops with it, and silence counts again.
+        ended = self.lease(udid)["last_use"]
+        time.sleep(0.8)
+        self.assertEqual(self.lease(udid)["last_use"], ended)
+        self.assertTrue(T.lease_expired({"lease": self.lease(udid)}, ended + T.LEASE_IDLE_SECONDS))
+
+    def test_T45_an_owned_run_whose_owner_dies_is_collected_and_no_longer_renewed(self):
+        import cpu_guard
+        owner = self.proc()
+        udid = self.device("rios-ui-owner-dies")
+        T.register("ios-simulator", udid, owner.pid)
+        runner = self.run_active(udid, owner.pid, "sleep", "4")
+        time.sleep(1)
+        self.assertIn("activity", self.lease(udid))
+        owner.kill()
+        owner.wait()
+        time.sleep(0.8)
+        stopped = self.lease(udid)["last_use"]
+        time.sleep(0.8)
+        self.assertEqual(self.lease(udid)["last_use"], stopped)      # the renewer let go
+        self.assertIsNone(runner.poll())                             # while its run still runs
+        with patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(), 0)
+        self.assertEqual(self.devices(), [])
+        self.assertEqual(T.records(), [])
+        runner.wait(timeout=10)
+        self.assertIn("not proven alive", runner.stderr.read())
+
+    def test_T46_an_owned_run_ends_at_its_lifetime(self):
+        import cpu_guard
+        udid = self.device("rios-ui-runaway")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["created"] = time.time() - (T.LEASE_MAX_SECONDS - 1.5)
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        runner = self.run_active(udid, os.getpid(), "sleep", "4")
+        time.sleep(0.8)
+        self.assertEqual(self.lease(udid)["created"], rec["lease"]["created"])
+        self.assertIn("activity", self.lease(udid))
+        time.sleep(1.2)
+        with patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(), 0)
+        self.assertEqual(self.devices(), [])
+        runner.wait(timeout=10)
+
+    def test_T46b_renewal_refuses_an_expired_lease(self):
+        udid = self.device("rios-ui-expired-renewal")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        owner = T.choose_owner(os.getpid())
+        live = self.proc()
+        rec["lease"]["created"] = time.time() - T.LEASE_MAX_SECONDS
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        renewed, why = T.renew_activity("ios-simulator", udid, owner, rec["lease"]["created"], live)
+        self.assertFalse(renewed)
+        self.assertIn("lifetime", why)
+        self.assertNotIn("activity", self.lease(udid))
+
+    def test_T47_a_killed_renewer_renews_nothing(self):
+        udid = self.device("rios-ui-renewer-killed")
+        T.register("ios-simulator", udid, os.getpid())
+        runner = self.run_active(udid, os.getpid(), "sleep", "3")
+        time.sleep(0.8)
+        runner.kill()                    # the renewer, by the pid captured at its spawn
+        runner.wait()
+        stopped = self.lease(udid)["last_use"]
+        time.sleep(0.8)
+        self.assertEqual(self.lease(udid)["last_use"], stopped)
+        time.sleep(1.5)                  # its orphaned `sleep 3` ends by itself
+
+    def test_T48_run_active_refuses_a_foreign_missing_or_expired_lease_and_runs_nothing(self):
+        marker = os.path.join(self.root, "ran")
+        udid = self.device("rios-ui-refused")
+        other = self.proc()
+        missing = self.run_active(udid, os.getpid(), "touch", marker)
+        self.assertEqual(missing.wait(timeout=10), 2)
+        T.register("ios-simulator", udid, other.pid)
+        foreign = self.run_active(udid, os.getpid(), "touch", marker)
+        self.assertEqual(foreign.wait(timeout=10), 2)
+        self.assertIn("another run", foreign.stderr.read())
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["last_use"] = time.time() - T.LEASE_IDLE_SECONDS
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        expired = self.run_active(udid, os.getpid(), "touch", marker)
+        self.assertEqual(expired.wait(timeout=10), 2)
+        self.assertFalse(os.path.exists(marker))
+
+    def test_T49_run_active_returns_the_runs_exit_status(self):
+        udid = self.device("rios-ui-status")
+        T.register("ios-simulator", udid, os.getpid())
+        self.assertEqual(self.run_active(udid, os.getpid(), "sh", "-c", "exit 65").wait(timeout=10), 65)
+        self.assertEqual(self.run_active(udid, os.getpid(), "sh", "-c", "kill -TERM $$").wait(timeout=10), 143)
+
+    def test_T50_a_declared_ui_suite_lease_lives_longer_and_nothing_lengthens_a_lease(self):
+        ui = T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="ui-suite")
+        lease = self.lease(ui)
+        self.assertEqual((lease["max_seconds"], lease["purpose"]), (T.LEASE_PURPOSES["ui-suite"], "ui-suite"))
+        self.assertLessEqual(T.LEASE_PURPOSES["ui-suite"], 2 * T.LEASE_MAX_SECONDS)
+        self.assertEqual(lease["idle_seconds"], T.LEASE_IDLE_SECONDS)
+        active = dict(lease, last_use=lease["created"] + T.LEASE_MAX_SECONDS)     # renewed by its run
+        self.assertFalse(T.lease_expired({"lease": active}, lease["created"] + T.LEASE_MAX_SECONDS + 1))
+        self.assertTrue(T.lease_expired({"lease": dict(lease, last_use=lease["created"] + 1799)},
+                                        lease["created"] + 1800))
+        # Registering again resets to the default; it never keeps or grants more.
+        again = T.register("ios-simulator", ui, os.getpid())
+        self.assertEqual(again["lease"]["max_seconds"], T.LEASE_MAX_SECONDS)
+        self.assertNotIn("purpose", again["lease"])
+        T.release_ios(ui, os.getpid())
+        plain = T.acquire_ios("iPad", "runtime", os.getpid())
+        self.assertEqual(self.lease(plain)["max_seconds"], T.LEASE_MAX_SECONDS)
+        T.acquire_ios("iPad", "runtime", os.getpid(), purpose="ui-suite")      # the same lease again
+        self.assertEqual(self.lease(plain)["max_seconds"], T.LEASE_MAX_SECONDS)
+        T.release_ios(plain, os.getpid())
+        with self.assertRaisesRegex(ValueError, "unknown lease purpose"):
+            T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="forever")
+
+    def test_T51_renewal_stops_when_the_owned_run_ends(self):
+        udid = self.device("rios-ui-run-ended")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        ended = self.proc("true")
+        ended.wait()
+        renewed, why = T.renew_activity("ios-simulator", udid, T.choose_owner(os.getpid()),
+                                        rec["lease"]["created"], ended)
+        self.assertFalse(renewed)
+        self.assertIn("run ended", why)
+        self.assertNotIn("activity", self.lease(udid))
+
 
 
 class _Result(unittest.TextTestResult):

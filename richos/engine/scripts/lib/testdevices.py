@@ -352,6 +352,21 @@ def owner_state(owner):
 
 KINDS = ("ios-simulator", "android-emulator", "ios-cache", "android-cache")
 
+# A device lease has two independent limits (host-cpu-enforcement.md). The
+# inactivity limit catches a device its CLI forgot; the lifetime is absolute and
+# nothing renews it.
+LEASE_MAX_SECONDS = 900
+LEASE_IDLE_SECONDS = 300
+# How often run-active renews an owned run's activity: ten renewals fit inside
+# one inactivity limit, so a renewer starved by a busy host still keeps up.
+LEASE_RENEW_SECONDS = 30
+# A DECLARED purpose may name a longer lifetime; a caller never names a number.
+# The native iOS UI suite runs its whole selection serially on one device and
+# took 787-884 s per device under load on 2026-09-24, against a 900 s lifetime
+# that also covers the boot. 1800 s is twice that measurement. Owner death and
+# lease-holder death still collect at once whatever the lifetime is.
+LEASE_PURPOSES = {"ui-suite": 1800}
+
 
 def _record_path(kind, ident):
     h = hashlib.sha1(("%s\0%s" % (kind, ident)).encode("utf-8")).hexdigest()[:16]
@@ -401,8 +416,12 @@ def register(kind, ident, owner_pid=None, script="", checkout="", device_set="")
             rec["prepared"] = previous["prepared"]
         if kind in ("ios-simulator", "android-emulator"):
             old_lease = previous.get("lease", {}) if previous.get("generation") == generation else {}
+            # Re-registering never lengthens a lease: a declared purpose's
+            # lifetime is set once, by acquire_ios, and this resets to the default.
             rec["lease"] = {**old_lease, "created": old_lease.get("created", time.time()),
-                            "last_use": time.time(), "max_seconds": 900, "idle_seconds": 300}
+                            "last_use": time.time(), "max_seconds": LEASE_MAX_SECONDS,
+                            "idle_seconds": LEASE_IDLE_SECONDS}
+            rec["lease"].pop("purpose", None)
         _write_json(path, rec)
     return rec
 
@@ -423,6 +442,93 @@ def touch_lease(kind, ident):
         if rec.get("lease"):
             rec["lease"]["last_use"] = time.time()
             _write_json(path, rec)
+
+
+def renew_activity(kind, ident, owner, created, child):
+    """One renewal on behalf of an OWNED, LIVE run: (renewed, why not).
+
+    Renews only the inactivity clock of the exact lease generation `created`,
+    only while `child` (a process this renewer started) still runs, and only
+    while the lease's registered owner is `owner` and is alive. The lifetime is
+    never touched, and an expired lease is never renewed, so a runaway run ends
+    at its lifetime like any other.
+    """
+    if child.poll() is not None:
+        return False, "the owned run ended"
+    # Read the owner's process before taking the registry lock: `ps` stalled
+    # for seconds under the September 24 load, and the collector needs the lock.
+    if owner_state(owner)[0] != "alive":
+        return False, "the run's owner is not proven alive"
+    with registry_lock():
+        path = _record_path(kind, _norm(kind, ident))
+        rec = _read_json(path)
+        lease = (rec or {}).get("lease")
+        if not lease:
+            return False, "the device has no lease any more"
+        if lease.get("created") != created:
+            return False, "the lease was replaced by another generation"
+        if not any(same_owner(o, owner) for o in rec.get("owners", [rec.get("owner", {})])):
+            return False, "the lease belongs to another run"
+        if lease_expired(rec):
+            return False, "the lease reached its lifetime or inactivity limit"
+        lease["last_use"] = time.time()
+        lease["activity"] = {"pid": child.pid, "renewer": os.getpid(), "renewed": lease["last_use"]}
+        _write_json(path, rec)
+    return True, ""
+
+
+def run_active(kind, ident, command, owner_pid=None, checkout="", interval=None):
+    """Run COMMAND as the owned activity of an existing lease; return its exit status.
+
+    A lease's inactivity limit is written for a CLI that touches its device
+    between calls. A test run is one long call: `xcodebuild test-without-building`
+    ran 787-884 s per device on 2026-09-24 and nothing renewed the lease, so the
+    collector shut the simulator down five minutes in (escalation
+    esc-20260924T220236Z-52fae3ec). This renews activity from the process that
+    started the run, for exactly as long as that process lives. It stops the
+    moment the run ends, the owner ends, this renewer ends or the lease is
+    gone, and it cannot extend the lifetime.
+    """
+    owner = choose_owner(owner_pid, checkout, "run-active")
+    if owner.get("unknown"):
+        raise ValueError("an owned run needs a durable owner: " + owner["unknown"])
+    with registry_lock():
+        rec = _read_json(_record_path(kind, _norm(kind, ident)))
+        if not rec or not rec.get("lease"):
+            raise ValueError("device has no registered lease; prepare it again")
+        if not any(same_owner(o, owner) for o in rec.get("owners", [rec.get("owner", {})])):
+            raise ValueError("cannot run under another run's device lease")
+        if lease_expired(rec):
+            raise ValueError("device lease expired; stop and prepare the device again")
+        created = rec["lease"]["created"]
+    interval = LEASE_RENEW_SECONDS if interval is None else interval
+    # Same process group as this renewer: a signal to the run's group reaches both.
+    try:
+        child = subprocess.Popen(command)
+    except OSError as exc:
+        sys.stderr.write("testdevices run-active: cannot start %s: %s\n" % (command[0], exc))
+        return 127
+    renewing = True
+    while True:
+        try:
+            code = child.wait(timeout=interval)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        except KeyboardInterrupt:
+            renewing = False
+            continue
+        if not renewing:
+            continue
+        try:
+            renewed, why = renew_activity(kind, ident, owner, created, child)
+        except (OSError, TimeoutError, ValueError) as exc:
+            renewed, why = False, "renewal failed: %s" % exc
+        if not renewed:
+            renewing = False
+            if child.poll() is None:
+                sys.stderr.write("testdevices run-active: stopped renewing %s: %s\n" % (ident, why))
+    return code if code >= 0 else 128 - code
 
 
 def lease_expired(rec, now=None):
@@ -1200,9 +1306,14 @@ def same_owner(a, b):
     return not a.get("unknown") and all(a.get(k) is not None and a.get(k) == b.get(k) for k in keys)
 
 
-def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300):
-    """One active pool lease per machine; one retained OS per type/runtime."""
+def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300, purpose=None):
+    """One active pool lease per machine; one retained OS per type/runtime.
+
+    `purpose` names a declared lifetime from LEASE_PURPOSES for a NEW lease.
+    An existing lease is never lengthened by acquiring it again."""
     import cpu_guard
+    if purpose is not None and purpose not in LEASE_PURPOSES:
+        raise ValueError("unknown lease purpose %r (declared: %s)" % (purpose, ", ".join(sorted(LEASE_PURPOSES))))
     cpu_guard.require_ios()
     owner = choose_owner(owner_pid, checkout, "prepared-ios")
     if owner.get("unknown"):
@@ -1235,6 +1346,9 @@ def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300):
                 else:
                     rec = register("ios-simulator", udid, owner_pid, "prepared-ios", checkout)
                     rec["prepared"] = key
+                    if purpose is not None:
+                        rec["lease"]["max_seconds"] = LEASE_PURPOSES[purpose]
+                        rec["lease"]["purpose"] = purpose
                     _write_json(_record_path("ios-simulator", udid), rec)
                 return udid
         if time.monotonic() >= deadline:
@@ -1409,6 +1523,15 @@ def _main(argv):
     pool.add_argument("--runtime", required=True)
     pool.add_argument("--owner-pid", type=int)
     pool.add_argument("--checkout", default="")
+    pool.add_argument("--purpose", choices=sorted(LEASE_PURPOSES),
+                      help="a declared purpose whose lease lifetime is longer (never a number)")
+    active = sub.add_parser("run-active", help="run COMMAND as the owned activity of an existing lease")
+    active.add_argument("--kind", required=True, choices=["android-emulator", "ios-simulator"])
+    active.add_argument("--id", required=True)
+    active.add_argument("--owner-pid", type=int)
+    active.add_argument("--checkout", default="")
+    active.add_argument("--interval", type=float, default=None, help=argparse.SUPPRESS)
+    active.add_argument("command", nargs=argparse.REMAINDER)
     release = sub.add_parser("release-ios")
     release.add_argument("--id", required=True)
     release.add_argument("--owner-pid", type=int)
@@ -1452,8 +1575,17 @@ def _main(argv):
     c.add_argument("--budget", type=float, default=0.0, help="seconds for removals (0 = unbounded)")
     a = ap.parse_args(argv)
     if a.cmd == "acquire-ios":
-        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout))
+        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout, purpose=a.purpose))
         return 0
+    if a.cmd == "run-active":
+        command = a.command[1:] if a.command[:1] == ["--"] else a.command
+        if not command:
+            ap.error("run-active requires a command after --")
+        try:
+            return run_active(a.kind, a.id, command, a.owner_pid, a.checkout, a.interval)
+        except ValueError as e:
+            sys.stderr.write("testdevices run-active: %s\n" % e)
+            return 2
     if a.cmd == "release-ios":
         release_ios(a.id, a.owner_pid, a.checkout)
         return 0
