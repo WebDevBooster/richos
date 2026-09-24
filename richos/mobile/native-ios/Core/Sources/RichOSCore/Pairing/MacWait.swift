@@ -51,7 +51,7 @@ public struct MacWait: Codable, Equatable, Sendable {
     /// When the wait ends, ms since 1970: the Mac's answer to the phone's own "They match" plus the
     /// bound. `nil` until that answer arrives (persisted, so a relaunch inside the bound resumes).
     public var deadlineMs: Int64?
-    /// TRANSIENT. Probes sent in this wait; never more than `maxRequests`.
+    /// Probes sent in this wait; never more than `maxRequests`, relaunches included (persisted).
     public var requests: Int
     /// TRANSIENT. When the next probe is owed; `nil` while one is in flight, while the app is off
     /// screen, and before the Mac has answered the phone's own "They match".

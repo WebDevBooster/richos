@@ -238,11 +238,13 @@ extension AppState {
         public var following: Bool? = nil
         public var readingAnchor: ReadingAnchor? = nil
         public var activeRecording: KeptRecording? = nil
-        /// Pairing v2's wait for the press on the Mac: its bound and, once the phone has said "They
-        /// match", its deadline. Only these two survive a relaunch; the schedule is rebuilt on return
-        /// to the screen, so a probe never writes a file. Optional: older states have none.
+        /// Pairing v2's wait for the press on the Mac: its bound, its deadline once the phone has said
+        /// "They match", and the probes already made, so a relaunch neither outlives the bound nor
+        /// resets the 22-probe ceiling (the Android core keeps the same three). The schedule itself is
+        /// rebuilt on return to the screen. Optional: older states have none.
         public var macWaitBoundMs: Int64? = nil
         public var macWaitDeadlineMs: Int64? = nil
+        public var macWaitRequests: Int? = nil
     }
 
     public var persisted: Persisted {
@@ -256,7 +258,8 @@ extension AppState {
                       guard v.phase == .held || v.phase == .locked, let start = v.recordingStartedAtMs else { return nil }
                       return KeptRecording(id: v.id, durationMs: 0, levels: [], reason: .interrupted, recordedAt: start)
                   },
-                  macWaitBoundMs: macWait?.boundMs, macWaitDeadlineMs: macWait?.deadlineMs)
+                  macWaitBoundMs: macWait?.boundMs, macWaitDeadlineMs: macWait?.deadlineMs,
+                  macWaitRequests: macWait.flatMap { $0.requests > 0 ? $0.requests : nil })
     }
 
     public init(restoring p: Persisted) throws {
@@ -272,7 +275,7 @@ extension AppState {
             // Restored paused: a launch is a return to the screen, and `foregrounded` resumes the wait
             // (or ends it, past the bound).
             macWait = MacWait(boundMs: p.macWaitBoundMs ?? MacWait.windowMs, deadlineMs: p.macWaitDeadlineMs,
-                              paused: pairing == .awaitingMac)
+                              requests: p.macWaitRequests ?? 0, paused: pairing == .awaitingMac)
         }
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).

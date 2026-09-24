@@ -242,7 +242,7 @@ actor CorpusIdentityStore: IdentityStore {
     @Test func offScreenNothingIsOwedAndALateAnswerIsDropped() throws {
         let t0: Int64 = 1_000_000
         var s = Reducer.reduce(awaiting(deadline: t0 + 300_000), .foregrounded(at: t0))
-        #expect(s.effects == [.checkMacConfirmation] && s.state.macWait?.asking == true, "on screen: one probe at once")
+        #expect(s.effects == [.persist, .checkMacConfirmation] && s.state.macWait?.asking == true, "on screen: one probe at once")
         let asked = s.state
         s = Reducer.reduce(asked, .backgrounded(at: t0 + 100))
         #expect(s.effects.isEmpty && s.state.macWait?.paused == true && s.state.macWait?.asking == false)
@@ -258,7 +258,7 @@ actor CorpusIdentityStore: IdentityStore {
         }
         // Back inside the bound: one probe at once. Past it: the end, truthfully, with nothing asked.
         let back = Reducer.reduce(background, .foregrounded(at: t0 + 60_000))
-        #expect(back.effects == [.checkMacConfirmation] && back.state.macWait?.requests == 2)
+        #expect(back.effects == [.persist, .checkMacConfirmation] && back.state.macWait?.requests == 2)
         let late = Reducer.reduce(background, .foregrounded(at: t0 + 300_000))
         #expect(!late.effects.contains(.checkMacConfirmation) && late.state.pairingProblem == .macAnswerExpired
                 && late.effects.contains(.forgetIdentity(origin: Self.origin)))
@@ -276,6 +276,22 @@ actor CorpusIdentityStore: IdentityStore {
             s = Reducer.reduce(front.state, .backgrounded(at: at + 500)).state
         }
         #expect(probes == MacWait.maxRequests && s.pairing == .awaitingMac)
+    }
+
+    /// Nor can relaunching: the probe count and the deadline survive a restart.
+    @Test func relaunchingNeverExceedsTheCeilingOrOutlivesTheBound() throws {
+        let t0: Int64 = 1_000_000
+        var s = awaiting(deadline: t0 + 300_000)
+        var probes = 0
+        for i in 0..<100 {
+            let front = Reducer.reduce(s, .foregrounded(at: t0 + Int64(i) * 1_000))
+            probes += front.effects.filter { $0 == .checkMacConfirmation }.count
+            s = try AppState(restoring: front.state.persisted)  // the process is killed and relaunched
+            #expect(s.macWait?.deadlineMs == t0 + 300_000 && s.macWait?.paused == true)
+        }
+        #expect(probes == MacWait.maxRequests && s.macWait?.requests == MacWait.maxRequests)
+        let late = Reducer.reduce(s, .foregrounded(at: t0 + 300_000))
+        #expect(late.state.pairingProblem == .macAnswerExpired && !late.effects.contains(.checkMacConfirmation))
     }
 
     /// An alert or Control Center passing over the app is not a return: the schedule stands.
