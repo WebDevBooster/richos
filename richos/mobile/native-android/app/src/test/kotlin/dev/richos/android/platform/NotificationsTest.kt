@@ -145,6 +145,23 @@ class NotificationsTest {
         assertTrue(opened.all { it.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0 })
     }
 
+    /** Urban's 2026-09-24 audit G4: the RichConnect mark, not Android's stock chat bubble, tinted gold. */
+    @Test
+    fun `a reply notification carries the RichConnect mark, tinted signal gold`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        RichMessagingService.keysFor = { _: Context -> keys() }
+        Robolectric.buildService(RichMessagingService::class.java).create().get().onMessageReceived(data("c".repeat(64)))
+        val posted = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        assertTrue(posted.isNotEmpty())
+        for (n in posted) {
+            assertEquals(dev.richos.android.R.drawable.ic_notification, n.smallIcon.resId)
+            assertTrue(n.smallIcon.resId != android.R.drawable.stat_notify_chat)
+            assertEquals(0xFF9C7C34.toInt(), n.color)
+        }
+        // The drawable is the generated one-color mark (release/make-app-icon.cjs), and it inflates.
+        assertTrue(app.getDrawable(dev.richos.android.R.drawable.ic_notification) != null)
+    }
+
     @Test
     fun `a malformed reference still shows the reply, and the tap opens the app without a target`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)

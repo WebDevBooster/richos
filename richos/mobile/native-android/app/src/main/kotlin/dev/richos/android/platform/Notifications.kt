@@ -341,6 +341,19 @@ class TokenLedger(private val file: File) {
 object Replies {
     const val CHANNEL = "replies"
 
+    /**
+     * The RichConnect mark as the small icon (round 12.1 `notif-lock-*`: the card carries the mark,
+     * Urban's 2026-09-24 audit G4), generated from the icon source by `release/make-app-icon.cjs`.
+     */
+    val SMALL_ICON = dev.richos.android.R.drawable.ic_notification
+
+    /**
+     * The signal gold that tints it. The shade may be light or dark and the app cannot know which,
+     * so it is the one gold that clears the 3:1 non-text floor on both: Daybreak's #9C7C34, 3.93:1 on
+     * white and 4.10:1 on a dark shade (#202124) by contrast.py. Sovereign's #C2A35C is 2.42:1 on white.
+     */
+    const val ACCENT = 0xFF9C7C34.toInt()
+
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL) == null) {
@@ -381,7 +394,8 @@ object Replies {
             ?.let { target?.into(it) ?: it }
         val tap = open?.let { PendingIntent.getActivity(context, id, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(SMALL_ICON)
+            .setColor(ACCENT)
             .setContentTitle("Rich")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
