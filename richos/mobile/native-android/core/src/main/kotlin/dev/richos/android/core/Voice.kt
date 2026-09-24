@@ -14,7 +14,9 @@ import kotlin.math.min
  *
  * Rules never broken, each a test: an interruption or a permission prompt is never a send; a
  * recording that reaches the ceiling or is interrupted is KEPT, never sent by itself and never
- * discarded; a release under 500 ms sends nothing.
+ * discarded; a release under 500 ms sends nothing; a press while the microphone is off always
+ * answers with the microphone-off card (`rec-mic-denied`, D03), and the system's question is asked
+ * again only from that card, and only while the system would still show it.
  */
 object VoiceGeometry {
     /** Touch-down to recording: the button squishes at once, nothing records for 200 ms. */
@@ -154,6 +156,13 @@ data class VoiceWorld(
     val microphonePrompt: Boolean,
     /** Paired, voice offered by the Mac, a compatible Mac: a press may record. */
     val canRecord: Boolean,
+    /**
+     * The microphone-off card (`rec-mic-denied`) is up: a press found the microphone off. Only a
+     * press raises it; a grant, "Not now" or forgetting the pairing takes it down.
+     */
+    val microphoneCard: Boolean = false,
+    /** While denied: the system would still show its question if asked again. */
+    val microphoneCanAsk: Boolean = false,
 )
 
 /** The machine itself: pure, `(world, action) → (world, effects)`. The iOS core's `VoiceReducer`. */
@@ -170,7 +179,10 @@ object VoiceMachine {
                 w
             } else {
                 when (w.microphone) {
-                    Microphone.DENIED -> w // the recovery card explains and offers Settings (`rec-mic-denied`)
+                    // D03: the press is answered by the card that says the microphone is off and
+                    // offers the way back on (the system's question while it would still show, else
+                    // Settings). The press itself never asks: the person already answered.
+                    Microphone.DENIED -> w.copy(microphoneCard = true)
                     Microphone.UNKNOWN -> {
                         // The system asks once, on the first deliberate press. This press never records.
                         fx += VoiceEffect.RequestMicrophone
@@ -181,7 +193,10 @@ object VoiceMachine {
             }
         }
         is Action.MicrophonePermission -> {
-            val next = w.copy(microphone = action.permission)
+            val denied = action.permission == Microphone.DENIED
+            // The card stays while the microphone is still off (its action follows the OS's
+            // answer); it goes the moment the microphone is allowed, from the dialog or Settings.
+            val next = w.copy(microphone = action.permission, microphoneCanAsk = denied && action.canAsk, microphoneCard = w.microphoneCard && denied)
             // The press that asked is over; the next press records.
             if (w.microphonePrompt) next.copy(microphonePrompt = false, voice = null) else next
         }
@@ -264,12 +279,20 @@ object VoiceMachine {
             // Accessibility's "record hands-free": no gesture to hold, so recording starts locked.
             if (w.voice != null || !w.canRecord || w.microphone != Microphone.GRANTED) {
                 if (w.microphone == Microphone.UNKNOWN && w.voice == null) fx += VoiceEffect.RequestMicrophone
-                w
+                // The same answer a held press gets while the microphone is off (D03).
+                if (w.microphone == Microphone.DENIED && w.voice == null && w.canRecord) w.copy(microphoneCard = true) else w
             } else {
                 fx += VoiceEffect.StartRecording(action.id)
                 w.copy(voice = VoiceSession(action.id, VoicePhase.LOCKED, startedAtMs = action.at, nowMs = action.at, recordingStartedAtMs = action.at, width = action.width, wasLocked = true))
             }
         }
+        Action.AskMicrophone -> {
+            // Only from the card, and only while the system would still show its question: never a
+            // request the OS would silently refuse, and never a loop of prompts.
+            if (w.microphoneCard && w.microphone == Microphone.DENIED && w.microphoneCanAsk && w.voice == null) fx += VoiceEffect.RequestMicrophone
+            w
+        }
+        Action.DismissMicrophoneCard -> w.copy(microphoneCard = false)
         Action.Tick -> tick(w, now, fx)
         is Action.SendKept -> {
             val kept = w.kept.firstOrNull { it.id == action.id }
