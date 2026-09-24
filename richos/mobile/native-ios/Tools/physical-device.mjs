@@ -1,7 +1,7 @@
 // Physical native checks share the existing USB/process supervisor. The app is
 // Release, normally paired and never receives fixture arguments or lab secrets.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runDeviceProcess } from '../../cli/device-runner.mjs';
@@ -37,6 +37,11 @@ export function verifyPushEnvironment(configured, signed) {
   if (!['development', 'production'].includes(configured) || configured !== signed) {
     throw Error('APNs registration environment must match the signed aps-environment entitlement');
   }
+}
+
+// Only `verify` may reuse products; `build` always builds.
+export function prebuilt(env, command) {
+  return command === 'verify' && env.RICHOS_PHYSICAL_PREBUILT === '1';
 }
 
 function usb() {
@@ -78,10 +83,17 @@ export async function main(args, env = process.env) {
     '-destination', `id=${settings.device}`, '-derivedDataPath', derived,
     `DEVELOPMENT_TEAM=${settings.team}`, 'CODE_SIGN_STYLE=Automatic', 'CODE_SIGN_IDENTITY=Apple Development',
     'RICHOS_APS_ENVIRONMENT=development', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration'];
-  const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
-    { log, env, health, timeoutMs: 600000 });
-  if (built.status !== 0) throw Error(`Device build failed: ${log}`);
   const app = join(derived, 'Build/Products/Release-iphoneos/RichOSNative.app');
+  if (prebuilt(env, command)) {
+    // Reuse the exact products of an earlier build, so a series of checks runs the same stamped
+    // bytes and does not spend two minutes rebuilding them each time. The caller verifies the
+    // stamp (phone-ios.py --prebuilt --stamp); this only refuses when there is nothing to reuse.
+    if (!existsSync(app)) throw Error('RICHOS_PHYSICAL_PREBUILT=1 but there is no earlier build to reuse; run once without it');
+  } else {
+    const built = await runDeviceProcess('python3', ['-B', native, '--', 'xcodebuild', 'build-for-testing', ...base],
+      { log, env, health, timeoutMs: 600000 });
+    if (built.status !== 0) throw Error(`Device build failed: ${log}`);
+  }
   const push = JSON.parse(execFileSync('python3', ['-c', `import json,plistlib,pathlib,subprocess,sys
 p=pathlib.Path(sys.argv[1]);info=plistlib.loads((p/'Info.plist').read_bytes())
 signed=plistlib.loads(subprocess.check_output(['codesign','-d','--entitlements',':-',str(p)],stderr=subprocess.DEVNULL))

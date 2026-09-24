@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allowanceSeconds, configuration, verifyPushEnvironment } from './physical-device.mjs';
+import { allowanceSeconds, configuration, prebuilt, verifyPushEnvironment } from './physical-device.mjs';
+
+test('only verify may reuse an earlier build, and only when asked', () => {
+  assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'verify'), true);
+  assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: '1' }, 'build'), false);
+  assert.equal(prebuilt({}, 'verify'), false);
+  assert.equal(prebuilt({ RICHOS_PHYSICAL_PREBUILT: 'yes' }, 'verify'), false);
+});
 
 const env = { RICHOS_IOS_DEVICE: '00000000-0000000000000000', RICHOS_APPLE_TEAM: 'ABCDEFGHIJ' };
 test('physical checks require a named device, team and single supported selection', () => {

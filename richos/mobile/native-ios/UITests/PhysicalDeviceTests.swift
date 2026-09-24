@@ -288,8 +288,21 @@ final class PhysicalDeviceTests: XCTestCase {
 
     /// The element a step names: `id` (accessibility identifier) or `label` (substring of the
     /// accessibility label), in the app or, with `"in": "springboard"`, in the system UI.
+    private func root(_ step: [String: Any], _ springboard: XCUIApplication) -> XCUIApplication {
+        switch step["in"] as? String {
+        case "springboard": return springboard
+        // The route under test (PRD §5): only its connect switch is ever read or pressed. The
+        // host refuses a shot or tree there, because its screen shows the person's own account.
+        case "tailscale": return XCUIApplication(bundleIdentifier: "io.tailscale.ipn.ios")
+        default: return app
+        }
+    }
+
     private func target(_ step: [String: Any], _ springboard: XCUIApplication) -> XCUIElement? {
-        let root = (step["in"] as? String) == "springboard" ? springboard : app
+        let root = root(step, springboard)
+        if step["id"] == nil, step["label"] == nil, let kind = step["kind"] as? String {
+            return kind == "switch" ? root.switches.firstMatch : root.buttons.firstMatch
+        }
         if let id = step["id"] as? String {
             return id == "composer.field" && root == app ? field : root.descendants(matching: .any)[id]
         }
@@ -312,7 +325,7 @@ final class PhysicalDeviceTests: XCTestCase {
                 app.launchArguments = []
             }
             app.launch()
-        case "activate": app.activate()
+        case "activate": root(step, springboard).activate()
         case "terminate": app.terminate()
         case "home":
             XCUIDevice.shared.press(.home)
@@ -376,7 +389,7 @@ final class PhysicalDeviceTests: XCTestCase {
             }
         case "count":
             guard let label = step["label"] as? String else { return "count needs a label" }
-            let root = (step["in"] as? String) == "springboard" ? springboard : app
+            let root = root(step, springboard)
             detail["count"] = root.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", label)).count
             if let want = step["equals"] as? Int, detail["count"] as? Int != want { return "count differs from what the step expected" }
         case "alert":
