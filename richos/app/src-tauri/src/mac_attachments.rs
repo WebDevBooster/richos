@@ -440,6 +440,9 @@ mod tests {
                 folder.join("brief.pdf").display(), PDF.len()
             )
         );
+        // The folder the desk wrote is the folder the answering session is given to read
+        // (`EngineProfile::attachments_folder`): one name, from one rule.
+        assert_eq!(folder.parent().unwrap(), richos_core::attachments::conversation_folder(&data.0, "thr_5c1e"));
         // The bytes Rich will open are the bytes that were dropped, in the phone's folder shape.
         assert_eq!(std::fs::read(folder.join("brief.pdf")).unwrap(), PDF);
         assert_eq!(std::fs::read(folder.join("Screenshot 2026-09-24 at 10.02.11.png")).unwrap(), PNG);

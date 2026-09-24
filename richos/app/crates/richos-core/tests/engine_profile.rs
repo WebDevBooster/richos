@@ -209,12 +209,24 @@ fn classified_permissions_keep_defaults_and_only_add_the_current_company_and_thr
     assert!(args.windows(2).any(|pair|pair==["--permission-mode","auto"]));
     let start=args.iter().position(|arg|arg=="--add-dir").unwrap()+1;
     let directories:Vec<_>=args[start..].iter().take_while(|arg|!arg.starts_with("--")).map(String::as_str).collect();
-    assert_eq!(directories,vec![a.to_str().unwrap(),profile.target_state().to_str().unwrap()]);
+    // THIS conversation's attached files (CEO §86): without them in a read root, an attachment
+    // from the phone or the Mac is a path Rich can see and a file he cannot open.
+    let files=richos_core::attachments::conversation_folder(&f.0,thread.as_str());
+    assert_eq!(profile.attachments_folder().as_deref(),Some(files.as_path()));
+    assert_eq!(directories,vec![a.to_str().unwrap(),profile.target_state().to_str().unwrap(),files.to_str().unwrap()]);
+    // It exists before the session starts, and it is private.
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&files).unwrap().permissions().mode()&0o777,0o700);
+    // Never the root, and never another conversation's folder.
+    let beta_thread=spine.create_thread("Beta",&beta).unwrap();
+    let other=richos_core::attachments::conversation_folder(&f.0,beta_thread.as_str());
+    assert!(!args.iter().any(|arg|arg==f.0.join("attachments").to_str().unwrap()||arg==other.to_str().unwrap()));
     assert!(!args.iter().any(|arg|arg.contains("bypassPermissions")||arg.contains("dangerously-skip")));
     let settings:serde_json::Value=serde_json::from_str(&args[args.iter().position(|arg|arg=="--settings").unwrap()+1]).unwrap();
     assert_eq!(settings["permissions"]["blockReadsOutsideWorkingDirectories"],true);
     assert_eq!(settings["autoMode"]["classifyAllShell"],true);
     assert_eq!(settings["autoMode"]["environment"][0],"$defaults");
+    assert!(settings["autoMode"]["environment"][3].as_str().unwrap().contains(files.to_str().unwrap()));
     assert_eq!(settings["autoMode"]["soft_deny"][0],"$defaults");
     assert!(!settings.to_string().contains(b.to_str().unwrap()));
 }

@@ -280,12 +280,13 @@ pub fn valid_id(id: &str) -> bool {
 /// A directory name for an identifier that did not come from this Mac. Kept as-is when it is
 /// plainly safe (`thr_…`, a UUID); otherwise replaced by `x.<hash>`, which can never collide
 /// with a kept one because kept ones contain no `.`.
+///
+/// **The rule lives in `richos_core::attachments`**, because the session that answers the CEO
+/// is given this conversation's folder as a read root there (`engine_profile.rs`), and the
+/// folder the desk writes and the folder the session may read must be one name, not two
+/// copies of a rule.
 pub fn segment(id: &str) -> String {
-    if !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
-        id.to_string()
-    } else {
-        format!("x.{}", &hex(&sha256(id.as_bytes()))[..32])
-    }
+    richos_core::attachments::segment(id)
 }
 
 /// What the Mac holds for one uploaded, not-yet-committed file.
