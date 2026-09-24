@@ -775,7 +775,8 @@ class RichCore private constructor(
                 VoiceEffect.HapticTick -> ports.recorder.haptic()
                 is VoiceEffect.Send -> {
                     val thread = session.selectedThreadId ?: continue
-                    outbox.enqueue(voiceItem(effect.id, thread, effect.durationMs, effect.levels))
+                    enqueueConsuming(listOf(voiceItem(effect.id, thread, effect.durationMs, effect.levels)),
+                        session.copy(microphone = next.microphone, keptRecordings = next.kept))
                     sent = true
                 }
             }

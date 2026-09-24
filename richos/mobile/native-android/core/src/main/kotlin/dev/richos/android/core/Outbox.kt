@@ -119,8 +119,8 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                 val receipt = send(sending)
                 if (receipt.duplicate) report = report.copy(duplicates = report.duplicates + 1)
                 if (revisionOf(sending.clientId) != mine) continue
-                items = items.filter { it.clientId != sending.clientId }
                 storage.remove(sending.clientId)
+                items = items.filter { it.clientId != sending.clientId }
                 bump(sending.clientId)
                 report = report.copy(sent = report.sent + 1)
             } catch (e: TransportFailure) {
@@ -143,8 +143,8 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
 
     suspend fun discard(clientId: String) {
         bump(clientId)
-        items = items.filter { it.clientId != clientId }
         storage.remove(clientId)
+        items = items.filter { it.clientId != clientId }
     }
 
     /** The user's "Try now": blocked items go back to waiting and every clock is cleared. */
