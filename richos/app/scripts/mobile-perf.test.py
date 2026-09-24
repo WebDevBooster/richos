@@ -484,6 +484,25 @@ def _():
     assert not any("input text" in c for c in fake.calls)
 
 
+@case("R12 stopped Send setup retains completed trials and their raw evidence")
+def _():
+    from unittest.mock import patch
+    with tempfile.TemporaryDirectory() as tmp:
+        measure = android.Measure(android.Device("/fake/adb", "emulator-5580", runner=FakeAdb(), sleep=lambda s: None),
+                                  log=quiet, evidence_dir=tmp)
+        nodes = [{"text": "perf probe 1", "desc": "Send message", "bounds": [0, 0, 100, 50]}]
+        with patch.object(measure, "enter_empty_composer", side_effect=[None, perfcore.Unmeasurable("occupied")]), \
+             patch.object(measure, "dump_ui", return_value=nodes), \
+             patch.object(measure, "atrace", return_value="raw test trace"), \
+             patch.object(measure, "gfx", return_value={"rows": []}), \
+             patch.object(android, "tap_latency", return_value={"inputToFrameMs": 20, "inputToSettledMs": 30, "burstFrames": 1}):
+            result = measure.tap(3, production=True)
+        assert result["samples"] == [20]
+        assert result["rejected"] == [{"trial": 2, "why": "occupied", "stoppedSeries": True}]
+        assert os.path.exists(os.path.join(tmp, "tap-0001.trace.gz"))
+        assert os.path.exists(os.path.join(tmp, "tap-0001.json"))
+
+
 @case("R2 an installed APK that is not the stamped one is REFUSED before any measurement")
 def _():
     with tempfile.TemporaryDirectory() as tmp:

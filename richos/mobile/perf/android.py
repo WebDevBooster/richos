@@ -750,7 +750,12 @@ class Measure:
             self.pace()
             probe = f"perf probe {i + 1}"
             if production:
-                self.enter_empty_composer(probe)
+                try:
+                    self.enter_empty_composer(probe)
+                except Unmeasurable as error:
+                    rejected.append({"trial": i + 1, "why": str(error), "stoppedSeries": True})
+                    self.log(f"tap {i + 1}/{trials}: STOPPED, {error}")
+                    break
             else:
                 self.bridge.action({"type": "compose", "text": probe})
             self.d.sleep(1.0)
@@ -763,6 +768,11 @@ class Measure:
             self.gfx_reset()
             trace = self.atrace(["input", "view"], lambda: self.d.sh(f"input tap {x} {y}"), 1.5)
             window = self.gfx()
+            if self.evidence_dir:
+                self.evidence_dir.mkdir(parents=True, exist_ok=True)
+                stem = self.evidence_dir / f"tap-{i + 1:04d}"
+                with gzip.open(str(stem) + ".trace.gz", "wt") as output: output.write(trace)
+                Path(str(stem) + ".json").write_text(json.dumps({"pid": pid, "window": window}))
             try:
                 r = tap_latency(parse_input_events(trace, pid), window["rows"])
             except Unmeasurable as e:
@@ -857,7 +867,9 @@ class Measure:
 
     def enter_empty_composer(self, text):
         field = composer_node(self.dump_ui())
-        if field is None or field.get("text", "") not in ("", "Message Rich"):
+        if field is None:
+            raise Unmeasurable("the production composer is absent from the UI dump; no text was entered")
+        if field.get("text", "") not in ("", "Message Rich"):
             raise Unmeasurable("production probes require an empty composer; existing work was left untouched")
         if not re.fullmatch(r"[A-Za-z0-9 ]+", text):
             raise Unmeasurable("probe text must contain only letters, digits and spaces")
