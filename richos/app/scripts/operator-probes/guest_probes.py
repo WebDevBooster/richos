@@ -118,6 +118,57 @@ def pgid_of(pid):
         return None
 
 
+def environ_names(pid):
+    """The variable NAMES a running process was started with, from the kernel
+    (sysctl CTL_KERN / KERN_PROCARGS2), without asking the process or its model anything.
+    Values are read into memory and dropped; only names leave this function."""
+    import ctypes
+    import ctypes.util
+    libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+    argmax = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(argmax))
+    if libc.sysctl((ctypes.c_int * 2)(1, 8), 2, ctypes.byref(argmax), ctypes.byref(size), None, 0) != 0:
+        return None
+    buf = ctypes.create_string_buffer(argmax.value)
+    size = ctypes.c_size_t(argmax.value)
+    if libc.sysctl((ctypes.c_int * 3)(1, 49, pid), 3, buf, ctypes.byref(size), None, 0) != 0:
+        return None
+    data = buf.raw[:size.value]
+    argc = int.from_bytes(data[:4], 'little')
+    rest = data[4:]
+    pos = rest.find(b'\0')
+    while pos < len(rest) and rest[pos:pos + 1] == b'\0':
+        pos += 1
+    parts = rest[pos:].split(b'\0')
+    names = []
+    for item in parts[argc:]:
+        if not item:
+            break
+        name = item.split(b'=', 1)[0].decode('utf-8', 'replace')
+        if name:
+            names.append(name)
+    return sorted(set(names))
+
+
+def descendants(pid):
+    """Every process below `pid`, by parent pid: processes our own child created."""
+    code, out, _ = run(['ps', '-A', '-o', 'pid=,ppid=,command='], timeout=30)
+    rows = []
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2] if len(parts) > 2 else ''))
+    below, frontier = [], {pid}
+    while frontier:
+        nxt = set()
+        for p, pp, cmd in rows:
+            if pp in frontier:
+                below.append((p, cmd))
+                nxt.add(p)
+        frontier = nxt
+    return below
+
+
 def names_file(path):
     try:
         return sorted(set(l.strip() for l in Path(path).read_text().splitlines() if l.strip()))
@@ -586,8 +637,10 @@ class Lead(object):
                     return None
                 self.cond.wait(min(remaining, 1.0))
 
-    def initialize(self):
-        rid = self.control('initialize', hooks={})
+    def initialize(self, **declared):
+        """The handshake. `declared` carries capability fields of the initialize request, such
+        as perTaskStopAffordance (P3, P12)."""
+        rid = self.control('initialize', hooks={}, **declared)
         got = self.wait(lambda f: f.get('type') == 'control_response'
                         and (f.get('response') or {}).get('request_id') == rid, 60)
         return bool(got) and got[2]['response'].get('subtype') == 'success'
@@ -706,14 +759,36 @@ def tool_uses(lead, start, name=None):
             if b.get('type') == 'tool_use' and (name is None or b.get('name') == name)]
 
 
+def tool_result_text(lead, tool_use_id):
+    for f in lead.all_frames():
+        if f.get('type') != 'user':
+            continue
+        for b in (f.get('message') or {}).get('content') or []:
+            if isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id') == tool_use_id:
+                c = b.get('content')
+                return c if isinstance(c, str) else '\n'.join(x.get('text', '') for x in c or [] if isinstance(x, dict))
+    return None
+
+
+def bash_output(lead, text, timeout=300):
+    """Ask for one Bash command and read its output off the stream, not from a file."""
+    start, _ = do(lead, text, timeout)
+    uses = tool_uses(lead, start, 'Bash')
+    return (tool_result_text(lead, uses[-1].get('id')) if uses else None), start
+
+
 # =============================================================================================
 # teammates, started the way his lead starts them: spawn.sh, then the Agent call it prints
 # =============================================================================================
 
 def brief(ctx, name, seconds):
     path = ctx.p.work / ('brief-%s.md' % name)
+    # The owned-state line is the engine's own documented way through guard-owned-state.sh
+    # (run 3: the fixture has no CI, so its CI check reports unhealthy and refuses every spawn).
     path.write_text('Run exactly this Bash command in the foreground and wait for it to finish: sleep %d\n'
-                    'Then reply with the single word finished. Do nothing else.\n' % seconds)
+                    'Then reply with the single word finished. Do nothing else.\n\n'
+                    'owned-state-ack: ci — this probe fixture has no CI at all, and its VM is deleted after the run\n'
+                    % seconds)
     return path
 
 
@@ -916,8 +991,13 @@ def p2(ctx, r):
                 second.initialize()
                 ask(second, 'Reply with exactly the word ready.', 180)
                 texts = [a['text'] for a in second.alarms()]
+                # Real signals only: a reaper saying it could not decide, or that it reaped
+                # something. (Run 4's first version matched "the scheduled reaper is NOT
+                # INSTALLED", which is a notice about cron, not about this agent.)
                 r['second_session_alarms_mentioning_reap_or_indeterminate'] = [
-                    t[:600] for t in texts if re.search(r'INDETERMINATE|reap', t, re.I)]
+                    t[:600] for t in texts
+                    if re.search(r'INDETERMINATE|undecidable=[1-9]|reaped=[1-9]|reaped [1-9]|removed .*agent-', t)]
+                r['second_session_alarm_count'] = len(texts)
             finally:
                 second.close()
             r['worktree_still_there_after_second_session'] = any(w['worktree'] == worktree for w in ctx.worktrees())
@@ -955,44 +1035,69 @@ def p2(ctx, r):
         'present' if r.get('front_desk_record') else 'ABSENT')
 
 
-@probe('P3')
-def p3(ctx, r):
-    lead = Lead(ctx, 'P3', 'lead', ctx.lead_args())
+def interrupt_run(ctx, r, key, declared):
+    """One lead with one backgrounded teammate, mid-turn in a shell command, interrupted.
+    `declared` is whether the initialize request says perTaskStopAffordance: true."""
+    rec = r.setdefault(key, {'perTaskStopAffordance': declared})
+    lead = Lead(ctx, 'P3', key, ctx.lead_args())
     try:
-        lead.initialize()
-        task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p3a', 'alpha', 240)
-        r['spawn'] = detail
+        rec['initialize'] = lead.initialize(**({'perTaskStopAffordance': True} if declared else {}))
+        task_id, worktree, detail = spawn_teammate(ctx, lead, 'probe-sonnet-p3%s' % ('d' if declared else 'u'), 'alpha', 240)
+        rec['spawn'] = detail
         if not worktree:
-            return 'NOT-RUN', 'no teammate could be started (see spawn)'
+            rec['not_run'] = 'no teammate could be started (see spawn)'
+            return rec
         start = lead.count()
         lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it: sleep 90. Then reply slept.')
         got = lead.wait(lambda f: f.get('type') == 'assistant' and any(
             b.get('type') == 'tool_use' and b.get('name') == 'Bash' for b in (f.get('message') or {}).get('content') or []),
             120, start)
-        r['lead_in_shell'] = bool(got)
-        lead.user('Reply with exactly: QUEUED-MARK')
+        rec['lead_in_shell'] = bool(got)
+        queued = lead.user('Reply with exactly: QUEUED-MARK')
         time.sleep(3)
-        r['interrupt_sent_at'] = time.time() - lead.started
-        lead.control('interrupt')
+        rec['interrupt_sent_at'] = round(time.time() - lead.started, 3)
+        rid = lead.control('interrupt')
+        reply = lead.wait(lambda f: f.get('type') == 'control_response' and
+                          (f.get('response') or {}).get('request_id') == rid, 30)
+        rec['interrupt_reply'] = redact(reply[2].get('response')) if reply else None
+        rec['queued_uuid_still_queued'] = bool(reply) and queued in json.dumps(reply[2])
         ended = lead.result_after(start, 60)
-        r['turn_ended'] = bool(ended) and ended[2].get('subtype')
+        rec['turn_ended'] = bool(ended) and ended[2].get('subtype')
         time.sleep(5)
-        r['liveness_after_interrupt'] = ctx.liveness(worktree)
-        r['worktree_locked'] = any(w['worktree'] == worktree and 'locked' in w for w in ctx.worktrees())
-        r['agent_notified_stopped'] = any(f.get('subtype') == 'task_notification' and f.get('task_id') == task_id
-                                          for f in lead.all_frames())
-        later = lead.wait(lambda f: f.get('type') == 'result', 60, (ended[0] + 1) if ended else start)
-        r['queued_message_answered'] = 'QUEUED-MARK' in lead.text(start)
-        r['queued_turn_ran'] = bool(later)
+        rec['liveness_after_interrupt'] = ctx.liveness(worktree)
+        rec['worktree_locked'] = any(w['worktree'] == worktree and 'locked' in w for w in ctx.worktrees())
+        rec['agent_notified_stopped'] = [f.get('status') for f in lead.all_frames()
+                                         if f.get('subtype') == 'task_notification' and f.get('task_id') == task_id]
+        later = lead.wait(lambda f: f.get('type') == 'result', 45, (ended[0] + 1) if ended else start)
+        rec['queued_message_answered'] = 'QUEUED-MARK' in lead.text(start)
+        rec['queued_turn_ran'] = bool(later)
     finally:
         lead.close()
-    if not r.get('lead_in_shell'):
-        return 'PREMISE-FALSE', 'the lead never started the shell command, so the interrupt did not land mid-command'
-    if r['liveness_after_interrupt'][0] == 'ALIVE' and r['worktree_locked'] and not r['agent_notified_stopped'] \
-            and r['turn_ended']:
-        return 'PASS', 'the lead turn ended and the agent stayed ALIVE with its lock held'
-    return 'FAIL', 'after the interrupt: liveness %s, locked %s, stopped %s, turn ended %s' % (
-        r['liveness_after_interrupt'][0], r['worktree_locked'], r['agent_notified_stopped'], r['turn_ended'])
+    rec['agent_survived'] = rec['liveness_after_interrupt'][0] == 'ALIVE' and rec['worktree_locked'] \
+        and 'stopped' not in rec['agent_notified_stopped']
+    return rec
+
+
+@probe('P3')
+def p3(ctx, r):
+    # The operator client stops agents one by one with stop_task (d), so it declares the
+    # per-task stop affordance; the 2.1.282 binary documents that an interrupt then "spares
+    # running background agents/workflows (Stop only aborts the turn)". The control is the same
+    # run without the declaration, which run 4 measured killing the agent.
+    main = interrupt_run(ctx, r, 'declared', True)
+    control = interrupt_run(ctx, r, 'control-undeclared', False)
+    for rec in (main, control):
+        if rec.get('not_run'):
+            return 'NOT-RUN', rec['not_run']
+        if not rec.get('lead_in_shell'):
+            return 'PREMISE-FALSE', 'a lead never started its shell command, so the interrupt did not land mid-command'
+    if control['agent_survived']:
+        return 'PREMISE-FALSE', 'without the declaration the agent survived too, so the declaration was not what spared it'
+    if main['agent_survived'] and main['turn_ended']:
+        return 'PASS', ('with perTaskStopAffordance declared the turn ended and the agent stayed ALIVE with its lock held; '
+                        'without it the interrupt stopped the agent')
+    return 'FAIL', 'declared run: liveness %s, locked %s, notifications %s, turn ended %s' % (
+        main['liveness_after_interrupt'][0], main['worktree_locked'], main['agent_notified_stopped'], main['turn_ended'])
 
 
 def two_teammates(ctx, lead, r, tag):
@@ -1186,85 +1291,114 @@ def p7(ctx, r):
     return 'PASS', 'compacted automatically, both lines survived, resumed with source resume'
 
 
+def shell_names(ctx, lead, root_pid, seconds=23):
+    """Have the lead run `sleep <seconds>` in its tool shell and read that process's variable
+    names from the kernel. The model is asked for nothing but a sleep; run 4 showed a lead
+    rightly refusing to list its environment on request."""
+    start = lead.count()
+    lead.user(FIXTURE_NOTE + 'Run exactly this Bash command in the foreground and wait for it to finish: sleep %d. '
+                             'Then reply slept.' % seconds)
+    names, deadline = None, time.time() + 120
+    while names is None and time.time() < deadline:
+        for pid, command in descendants(root_pid):
+            if re.search(r'(^|/)sleep %d$' % seconds, command.strip()):
+                names = environ_names(pid)
+                break
+        else:
+            time.sleep(0.5)
+    lead.result_after(start, 180)
+    return names
+
+
 @probe('P8')
 def p8(ctx, r):
-    names_out = ctx.p.work / 'p8-lead-names.txt'
     hook_out = ctx.p.work / 'p8-hook-tools.txt'
-    facts_out = ctx.p.work / 'p8-lead-facts.txt'
     settings = ctx.p.work / 'p8-settings.json'
+    # `command -v` from inside a hook of the lead: the harness's own hook, writing to scratch.
     settings.write_text(json.dumps({'hooks': {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command',
         'command': 'for t in python3 git gh java; do command -v $t; done > %s' % hook_out}]}]}}))
     env = ctx.lead_env()
-    planted = dict(os.environ)
-    planted['ANTHROPIC_API_KEY'] = 'planted-by-the-probe-not-a-key'
-    r['app_environment_had_planted_key'] = 'ANTHROPIC_API_KEY' in planted
+    # The "app's environment" carries a planted key; the lead's is built from empty, so it must
+    # not arrive anywhere. (This harness process is the app's stand-in.)
+    os.environ['ANTHROPIC_API_KEY'] = 'planted-by-the-probe-not-a-key'
     lead = Lead(ctx, 'P8', 'lead', ctx.lead_args(extra=['--settings', str(settings)]), env=env)
     try:
         lead.initialize()
-        # The push goes to a NEW branch on the fixture remote, so nothing is written into the
-        # entity's main checkout; what is proven is the SSH path from the lead's environment.
-        start, got = do(lead, (
-            'Run exactly this one Bash command and then reply done:\n'
-            'env | cut -d= -f1 | sort > %s; { echo "TMPFILE=$(mktemp)"; echo "CLAUDE_PID=$CLAUDE_PID"; '
-            'git -C %s push -q origin HEAD:refs/heads/probe-p8 && echo PUSH=ok || echo PUSH=failed; } > %s 2>&1'
-        ) % (names_out, ctx.p.entity, facts_out), 300)
         r['claude_pid'] = lead.claude_pid()
-        r['lead_ran_the_command'] = bool(tool_uses(lead, start, 'Bash'))
-        r['lead_said'] = lead.text(start)[-600:]
+        r['lead_process_names'] = environ_names(r['claude_pid']) if r['claude_pid'] else None
+        r['lead_tool_shell_names'] = shell_names(ctx, lead, r['claude_pid'])
+        facts_text, start = bash_output(lead, 'Run this Bash command and show its output: '
+                                              'mktemp && echo "CLAUDE_PID=$CLAUDE_PID"')
+        push_text, _ = bash_output(lead, 'Push the current commit to a new branch on the fixture remote with this '
+                                         'Bash command and show its output: git push origin HEAD:refs/heads/probe-p8')
     finally:
         lead.close()
-    lead_names = names_file(names_out) or []
-    r['lead_tool_shell_names'] = lead_names
-    facts = {}
-    for line in (facts_out.read_text().splitlines() if facts_out.exists() else []):
-        if '=' in line:
-            k, v = line.split('=', 1)
-            facts[k] = v
-    r['push'] = facts.get('PUSH')
-    r['tmpfile_under_tmpdir'] = facts.get('TMPFILE', '').startswith(ctx.tmpdir.rstrip('/'))
-    r['claude_pid_matches'] = facts.get('CLAUDE_PID') == str(r.get('claude_pid'))
+        os.environ.pop('ANTHROPIC_API_KEY', None)
+    lines = (facts_text or '').split()
+    r['tmpfile'] = next((l for l in lines if l.startswith('/')), None)
+    r['tmpfile_under_tmpdir'] = bool(r['tmpfile']) and r['tmpfile'].startswith(ctx.tmpdir.rstrip('/'))
+    reported_pid = next((l.split('=', 1)[1] for l in lines if l.startswith('CLAUDE_PID=')), None)
+    r['claude_pid_reported'] = reported_pid
+    r['claude_pid_matches'] = reported_pid == str(r.get('claude_pid'))
+    code, _, _ = run(['git', '--git-dir', str(ctx.p.remote), 'rev-parse', '--verify', '--quiet', 'refs/heads/probe-p8'])
+    r['push'] = 'ok' if code == 0 else 'failed'
+    r['push_said'] = (push_text or '')[-300:]
     code, out, _ = run(['/bin/zsh', '-lc', 'for t in python3 git gh java; do command -v $t; done'], timeout=60)
     r['terminal_tools'] = out.split()
     r['hook_tools'] = hook_out.read_text().split() if hook_out.exists() else None
-    # ---- the control: what claude sets in a tool shell by itself --------------------------
-    control_names = ctx.p.work / 'p8-control-names.txt'
+    # ---- the control: a claude started with almost nothing, to learn what claude and its
+    #      shell set by themselves -----------------------------------------------------------
     bare = {'HOME': str(ctx.p.home), 'PATH': ctx.stored['PATH']}
     bare.update(HARNESS_PIN)
     control = Lead(ctx, 'P8', 'control-bare', ctx.lead_args(), env=bare, supervised=False)
     try:
         control.initialize()
-        do(control, 'Run exactly this one Bash command and then reply done: env | cut -d= -f1 | sort > %s' % control_names, 300)
+        control_shell = shell_names(ctx, control, control.proc.pid)
     finally:
         control.close()
-    claude_own = sorted(set(names_file(control_names) or []) - set(bare))
-    r['names_claude_sets_itself'] = claude_own
+    r['control_tool_shell_names'] = control_shell
+    claude_own = sorted(set(control_shell or []) - set(bare))
+    r['names_claude_or_its_shell_set_itself'] = claude_own
+    # ---- the lead process: exactly what the app handed the supervisor, plus what the
+    #      supervisor adds (r3 §11 item 3) --------------------------------------------------
     expected = sorted(set(k for k in ALLOWLIST if k in env) | set(APP_NAMES) | set(SUPERVISOR_NAMES) |
                       set(HARNESS_PIN))
     r['expected_names'] = expected
-    measured = sorted(set(lead_names) - set(claude_own) - {'PWD', 'OLDPWD', 'SHLVL', '_'})
-    r['measured_names_minus_claude_own'] = measured
-    r['extra'] = sorted(set(measured) - set(expected))
-    r['missing'] = sorted(set(expected) - set(measured))
-    r['planted_key_reached_lead'] = 'ANTHROPIC_API_KEY' in lead_names
+    process = set(r['lead_process_names'] or [])
+    r['process_extra'] = sorted(process - set(expected))
+    r['process_extra_that_the_interpreter_adds'] = sorted((process - set(expected)) & set(INTERPRETER_NAMES))
+    r['process_missing'] = sorted(set(expected) - process)
+    # ---- the tool shell, minus what claude and its shell add by themselves ---------------
+    shell = set(r['lead_tool_shell_names'] or []) - set(claude_own) - {'PWD', 'OLDPWD', 'SHLVL', '_'}
+    r['shell_measured_minus_claude_own'] = sorted(shell)
+    r['shell_extra'] = sorted(shell - set(expected) - set(INTERPRETER_NAMES))
+    r['shell_missing'] = sorted(set(expected) - shell - set(claude_own))
+    r['planted_key_reached_lead'] = 'ANTHROPIC_API_KEY' in process or 'ANTHROPIC_API_KEY' in (r['lead_tool_shell_names'] or [])
     r['ssh_auth_sock_method'] = ctx.ssh_method
-    if not r['lead_ran_the_command']:
-        return 'PREMISE-FALSE', 'the lead did not run the measuring command, so nothing was measured'
-    if not control_names.exists():
-        return 'PREMISE-FALSE', 'the control session recorded no names, so claude\'s own names are unknown'
+    if r['lead_process_names'] is None or r['lead_tool_shell_names'] is None:
+        return 'PREMISE-FALSE', 'the environment of the lead or of its tool shell could not be read'
+    if control_shell is None:
+        return 'PREMISE-FALSE', 'the control session\'s tool shell could not be read, so claude\'s own names are unknown'
     problems = []
     if r['push'] != 'ok':
-        problems.append('the push failed')
+        problems.append('the push did not reach the fixture remote')
     if not r['tmpfile_under_tmpdir']:
-        problems.append('mktemp did not land under the derived TMPDIR')
+        problems.append('mktemp gave %s, not a path under the derived TMPDIR %s' % (r['tmpfile'], ctx.tmpdir))
     if not r['claude_pid_matches']:
-        problems.append('CLAUDE_PID %s is not the lead pid %s' % (facts.get('CLAUDE_PID'), r.get('claude_pid')))
+        problems.append('CLAUDE_PID %s is not the lead pid %s' % (reported_pid, r.get('claude_pid')))
     if r['hook_tools'] != r['terminal_tools']:
         problems.append('tools in a hook %s differ from the terminal %s' % (r['hook_tools'], r['terminal_tools']))
     if r['planted_key_reached_lead']:
         problems.append('the planted ANTHROPIC_API_KEY reached the lead')
-    if r['extra'] or r['missing']:
-        problems.append('set equality: extra %s, missing %s' % (r['extra'], r['missing']))
-    return ('FAIL', '; '.join(problems)) if problems else ('PASS', 'set equality held; push ok; TMPDIR and CLAUDE_PID right')
+    if r['process_missing'] or set(r['process_extra']) - set(INTERPRETER_NAMES):
+        problems.append('lead process set equality: extra %s, missing %s' % (r['process_extra'], r['process_missing']))
+    if r['shell_extra'] or r['shell_missing']:
+        problems.append('tool shell set equality: extra %s, missing %s' % (r['shell_extra'], r['shell_missing']))
+    if problems:
+        return 'FAIL', '; '.join(problems)
+    return 'PASS', ('set equality held for the lead process and its tool shell%s; push ok; TMPDIR and CLAUDE_PID right'
+                    % (' (plus the interpreter\'s own %s)' % r['process_extra_that_the_interpreter_adds']
+                       if r['process_extra_that_the_interpreter_adds'] else ''))
 
 
 @probe('P9')
@@ -1395,7 +1529,8 @@ def p11(ctx, r):
 def p12(ctx, r):
     lead = Lead(ctx, 'P12', 'lead', ctx.lead_args())
     try:
-        lead.initialize()
+        # Declared as the app's operator client will declare it: it renders a per-task stop.
+        r['initialize'] = lead.initialize(perTaskStopAffordance=True)
         (a_id, a_wt), (b_id, b_wt) = two_teammates(ctx, lead, r, 'p12')
         r['task_id_map'] = {'probe-sonnet-p12a': a_id, 'probe-sonnet-p12b': b_id}
         r['mapping_frame'] = 'system/task_started.tool_use_id -> the Agent tool_use block whose input.name is the teammate'
@@ -1471,20 +1606,25 @@ def p13(ctx, r):
 
 @probe('P14')
 def p14(ctx, r):
-    # Every question the platform still asks is answered NO, so nothing protected is written.
+    # Every question the platform still asks is answered NO. A write the platform does NOT ask
+    # about goes through (run 3 wrote into .git/info unasked), which is itself the measurement,
+    # so each target's modification time is taken before and after.
+    targets = (ctx.p.entity / '.git' / 'info' / 'probe-note.txt',
+               ctx.p.entity / '.claude' / 'settings.local.json',
+               ctx.p.entity / '.vscode' / 'settings.json')
+    before = {str(x): (x.stat().st_mtime if x.exists() else None) for x in targets}
     lead = Lead(ctx, 'P14', 'lead', ctx.lead_args(), permission='deny')
     try:
         lead.initialize()
-        # Three writes Claude Code is known to guard even in bypass mode: inside .git, a project
-        # settings file, and an editor settings file. Each is scratch in this fixture. The
-        # probe answers NO to every question, so nothing is actually written.
+        # Three writes Claude Code is known to guard: inside .git, a project settings file,
+        # and an editor settings file. Each is scratch in this fixture.
         start, got = do(lead, (
             'Make these three tool calls, one each, then reply done. It is expected that some of them are refused; '
             'that refusal is what the probe records. 1) Use the Write tool to create %s containing: probe note. '
-            '2) Use the Write tool to create %s containing: {"probeMarker": true}. '
+            '2) Use the Write tool to rewrite %s with exactly the content it already has: {"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}. '
             '3) Use the Write tool to create %s containing: {}.') % (
             ctx.p.entity / '.git' / 'info' / 'probe-note.txt',
-            ctx.p.entity / '.claude' / 'settings.json',
+            ctx.p.entity / '.claude' / 'settings.local.json',
             ctx.p.entity / '.vscode' / 'settings.json'), 300)
         r['lead_said'] = lead.text(start)[-800:]
         r['tool_calls'] = [(b.get('name'), (b.get('input') or {}).get('file_path'))
@@ -1493,9 +1633,7 @@ def p14(ctx, r):
     finally:
         lead.close()
     r['requests_that_reached_the_host'] = lead.requests
-    r['written'] = {str(x): x.exists() for x in (ctx.p.entity / '.git' / 'info' / 'probe-note.txt',
-                                                  ctx.p.entity / '.claude' / 'settings.json',
-                                                  ctx.p.entity / '.vscode' / 'settings.json')}
+    r['written_without_asking'] = {str(x): (x.exists() and (x.stat().st_mtime != before[str(x)])) for x in targets}
     if not r['tool_calls']:
         return 'PREMISE-FALSE', 'the lead made none of the three calls, so nothing could reach the host'
     return 'RECORDED', '%d control request(s) reached the host: %s' % (
