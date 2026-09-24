@@ -340,6 +340,35 @@ actor CorpusIdentityStore: IdentityStore {
     }
 }
 
+/// How a pairing that did not happen is told (Urban's review of the pairing words, 2026-09-24).
+@Suite struct PairingEndingTests {
+    /// State 4: "They do not match" on the phone is the one security decision in pairing, so it ends
+    /// on a card that says it stopped, never on a plain intro that looks like a reset.
+    @Test func theyDoNotMatchSaysItStoppedAndNothingWasPaired() throws {
+        for start in ["pair-words", "pair-awaiting-mac"] {
+            let (next, effects) = Reducer.reduce(try Fixture.named(start).state, .rejectWords)
+            #expect(next.screen == .pairIntro && next.pairingProblem == .wordsRejected && next.mac == nil, "\(start)")
+            #expect(effects.contains(.confirmFingerprint(matches: false)) && effects.contains(.forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")))
+        }
+    }
+
+    /// Question 1: the card is still there after opening the scanner and backing out, and the moment
+    /// a new code is read it goes.
+    @Test func backingOutOfTheScannerKeepsTheCardAndANewCodeClearsIt() throws {
+        for name in ["pair-mac-update", "pair-mac-refused", "pair-mac-expired", "pair-words-rejected", "pair-refused", "pair-unreachable"] {
+            var s = try Fixture.named(name).state
+            let card = s.pairingProblem
+            s.camera = .granted
+            s = Reducer.reduce(s, .openScanner).state
+            #expect(s.screen == .pairScanner, "\(name): the scanner opens")
+            let backedOut = Reducer.reduce(s, .closeScanner).state
+            #expect(backedOut.screen == .pairIntro && backedOut.pairingProblem == card, "\(name): the card is still there")
+            let scanned = Reducer.reduce(s, .scanned(text: Scenario.link)).state
+            #expect(scanned.pairingProblem == nil && scanned.pairing == .connecting, "\(name): a new code clears it")
+        }
+    }
+}
+
 /// A Mac whose answers wait until the test releases them, then answers every request at once.
 actor GatedMac: HTTPTransport {
     private(set) var targets: [String] = []

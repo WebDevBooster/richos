@@ -14,7 +14,9 @@ enum PairingReducer {
                 s.pairingProblem = .blockedByUnsentWork(count: s.unsentCount)
                 return
             }
-            s.pairingProblem = nil
+            // What the last attempt said stays until a new code is read (`start`): backing out of
+            // the scanner leaves the card where it was (Urban's review, question 1, check 1).
+            if case .blockedByUnsentWork = s.pairingProblem { s.pairingProblem = nil }
             openCamera(&s)
         case .closeScanner:
             s.scanner = nil
@@ -80,6 +82,7 @@ enum PairingReducer {
             s.pairing = .unpaired
             s.fingerprintWords = []
             s.macWait = nil
+            s.pairingProblem = .wordsRejected
             effects.append(.confirmFingerprint(matches: false))
             if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
             s.mac = nil

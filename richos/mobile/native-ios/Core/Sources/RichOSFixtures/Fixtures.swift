@@ -8,8 +8,8 @@ import RichOSCore
 /// of the same name. All 67 round-12 ids are here except four that are not app screens on iPhone:
 /// `pair-pwa-storage`, `notif-pwa-install` (web app only) and `notif-lock-preview`,
 /// `notif-lock-generic` (Apple's lock screen; the card is the notification extension's). Pairing v2
-/// adds four that round 12 predates: `pair-awaiting-mac`, `pair-mac-update`, `pair-mac-refused`
-/// and `pair-mac-expired`.
+/// adds six that round 12 predates: `pair-awaiting-mac`, `pair-mac-update`, `pair-mac-refused`,
+/// `pair-mac-expired`, `pair-words-rejected` and `pair-unreachable`.
 ///
 /// The words are round 12's own synthetic conversation — one person and Rich, nothing real.
 public struct Fixture: Sendable {
@@ -117,6 +117,10 @@ public struct Fixture: Sendable {
         Fixture(name: "pair-mac-update", state: make { $0.pairingProblem = .macNeedsUpdate }),
         Fixture(name: "pair-mac-refused", state: make { $0.pairingProblem = .notAcceptedByMac }),
         Fixture(name: "pair-mac-expired", state: make { $0.pairingProblem = .macAnswerExpired }),
+        // "They do not match" pressed on this phone (Urban's review, state 4), and no Mac answering
+        // the pairing request (the Android app's card; round 12 draws only the refusal).
+        Fixture(name: "pair-words-rejected", state: make { $0.pairingProblem = .wordsRejected }),
+        Fixture(name: "pair-unreachable", state: make { $0.pairingProblem = .macUnreachable }),
     ]
 
     // MARK: 2 · the conversation
@@ -540,8 +544,8 @@ public struct Scenario: Sendable {
             try require(s[14].screen == .pairIntro && s[14].pairingProblem == .notAcceptedByMac && s[14].mac == nil,
                         "the Mac refused this phone: nothing is kept")
             try require(s[17].screen == .pairAwaitingMac, "waiting again")
-            try require(s[18].screen == .pairIntro && s[18].pairingProblem == nil && s[18].mac == nil && s[18].macWait == nil,
-                        "They do not match while waiting: nothing is kept")
+            try require(s[18].screen == .pairIntro && s[18].pairingProblem == .wordsRejected && s[18].mac == nil && s[18].macWait == nil,
+                        "They do not match while waiting: nothing is kept, and the screen says it stopped")
         }),
         // A refused code, a bad pasted link, and "they do not match" each leave nothing paired.
         Scenario(name: "pair-refused-and-rejected", steps: [
@@ -557,7 +561,8 @@ public struct Scenario: Sendable {
             try require(s[2].pairingProblem == .invalidLink("Pairing requires an HTTPS origin"), "an http link is refused with the reference message")
             try require(s[3].screen == .pairProgress && s[3].sheet == nil, "a valid pasted link starts pairing and closes the sheet")
             try require(s[4].screen == .pairIntro && s[4].pairingProblem == .refused && s[4].mac == nil, "a refused code pairs nothing")
-            try require(s[7].screen == .pairIntro && s[7].mac == nil && s[7].fingerprintWords.isEmpty, "they do not match: nothing is kept")
+            try require(s[7].screen == .pairIntro && s[7].mac == nil && s[7].fingerprintWords.isEmpty && s[7].pairingProblem == .wordsRejected,
+                        "they do not match: nothing is kept, and the screen says it stopped")
         }),
     ]
 

@@ -355,6 +355,10 @@ public enum PairingProblem: Codable, Equatable, Sendable {
     case notAcceptedByMac
     /// Pairing v2: the bound passed with no press on the Mac. Nothing was paired.
     case macAnswerExpired
+    /// "They do not match" pressed on this phone (on the words, or while waiting for the Mac): the
+    /// one security decision in pairing, so the screen says it stopped and nothing was paired
+    /// (Urban's review, state 4; the Android core's `words-rejected`).
+    case wordsRejected
 }
 
 /// Round-12 screen identifiers for the FULL-SCREEN surfaces, spelled as

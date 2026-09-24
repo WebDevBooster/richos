@@ -45,15 +45,13 @@ struct ScreenModel: Equatable, Sendable {
 
     enum PairProblem: Equatable, Sendable {
         case refused, invalidLink(String)
-        /// Pairing v2's three endings without a pairing; each offers "Pair again".
+        /// Pairing v2's three endings without a pairing. The way on is the intro's own "Scan your
+        /// Mac's code": the cards say "scan it again" (Urban's review, question 1).
         case macNeedsUpdate, notAcceptedByMac, macAnswerExpired
-        /// A v2 pairing ended after the person had already started it: the way on is to pair again.
-        var offersPairAgain: Bool {
-            switch self {
-            case .macNeedsUpdate, .notAcceptedByMac, .macAnswerExpired: return true
-            case .refused, .invalidLink: return false
-            }
-        }
+        /// "They do not match" pressed on this phone.
+        case wordsRejected
+        /// No Mac answered the pairing request.
+        case macUnreachable
     }
 
     enum Scanner: Equatable, Sendable { case looking, found }
@@ -230,6 +228,8 @@ extension ScreenModel {
             case .macNeedsUpdate?: takeover = .pairIntro(problem: .macNeedsUpdate)
             case .notAcceptedByMac?: takeover = .pairIntro(problem: .notAcceptedByMac)
             case .macAnswerExpired?: takeover = .pairIntro(problem: .macAnswerExpired)
+            case .wordsRejected?: takeover = .pairIntro(problem: .wordsRejected)
+            case .macUnreachable?: takeover = .pairIntro(problem: .macUnreachable)
             default: takeover = .pairIntro(problem: nil)
             }
         case .pairScanner:

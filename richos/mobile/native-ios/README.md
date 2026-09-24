@@ -27,9 +27,9 @@ the voice gesture's names are new (`voice-press`, `voice-move`, `voice-release`,
 are optional: `{"type":"send"}` is stamped on arrival, `{"type":"send","clientId":"c","at":5}` replays.
 
 **Fixtures** are named after the round-12 screen they show — one for each of the 63 screens that are
-app screens on iPhone, plus pairing v2's four (`pair-awaiting-mac`, `pair-mac-update`,
-`pair-mac-refused`, `pair-mac-expired`), which round 12 predates (`bin/rios headless fixture nope`
-lists them).
+app screens on iPhone, plus pairing v2's six (`pair-awaiting-mac`, `pair-mac-update`,
+`pair-mac-refused`, `pair-mac-expired`, `pair-words-rejected`, `pair-unreachable`), which round 12
+predates (`bin/rios headless fixture nope` lists them).
 
 **Pairing is v2 only** (`../conformance/README.md`, `pairing.json` `pair_v2` and `mac_confirmation`,
 `fingerprint.json` `v2`). The six words are derived on the phone from the origin it dialed, the Mac's

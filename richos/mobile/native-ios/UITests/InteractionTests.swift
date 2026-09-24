@@ -206,23 +206,33 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["takeover.pair-intro"].waitForExistence(timeout: 3),
                       "They do not match did not end the pairing")
         XCTAssertFalse(app.descendants(matching: .any)["pair.words"].exists, "the words outlived the pairing")
+        // The one security decision in pairing ends on a card that says so, not a plain intro.
+        let card = app.descendants(matching: .any)["pair.error"]
+        XCTAssertTrue(card.waitForExistence(timeout: 3) && card.label.contains("Stopped, and nothing was paired"),
+                      "They do not match looks like a reset: \(card.exists ? card.label : "no card")")
         XCTAssertTrue(app.buttons["pair.scan"].exists, "pairing afresh is not offered")
     }
 
     /// Coming to the front is what resumes the wait, so it is where a wait whose bound has passed
     /// ends. Interactive fixtures run the real clock; the fixture's deadline is the fixtures' morning
-    /// (2026-09-22), long past, so the launch's return to the front ends it truthfully, and
-    /// "Pair again" is a real tap that opens the scanner.
-    func testAWaitPastItsBoundSaysSoAndPairAgainOpensTheScanner() {
+    /// (2026-09-22), long past, so the launch's return to the front ends it truthfully. "Scan your
+    /// Mac's code" is a real tap that opens the scanner, and backing out leaves the card where it was.
+    func testAWaitPastItsBoundSaysSoAndTheScannerIsTheWayBack() {
         let app = Screen.launch("pair-awaiting-mac", interactive: true)
         let card = app.descendants(matching: .any)["pair.error"]
         XCTAssertTrue(card.waitForExistence(timeout: 5), "the ended wait is not explained")
-        XCTAssertTrue(card.label.contains("Your Mac did not get an answer in time"), "unexpected explanation: \(card.label)")
+        XCTAssertTrue(card.label.contains("Pairing timed out"), "unexpected explanation: \(card.label)")
         XCTAssertFalse(app.descendants(matching: .any)["takeover.pair-awaiting-mac"].exists, "still claims to be waiting")
-        let again = app.buttons["pair.again"]
-        assertOnScreenAndHittable(again, in: app, "Pair again")
-        again.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["scanner"].waitForExistence(timeout: 3), "Pair again did not open the scanner")
+        XCTAssertFalse(app.buttons["pair.again"].exists, "\"Pair again\" on a phone that was never paired")
+        let scan = app.buttons["pair.scan"]
+        assertOnScreenAndHittable(scan, in: app, "Scan your Mac's code")
+        scan.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["scanner"].waitForExistence(timeout: 3), "the scan button did not open the scanner")
+        let close = app.buttons["scanner.close"]
+        assertOnScreenAndHittable(close, in: app, "Close the scanner")
+        close.tap()
+        XCTAssertTrue(card.waitForExistence(timeout: 3) && card.label.contains("Pairing timed out"),
+                      "backing out of the scanner lost the explanation")
     }
 
     /// Leaving for the Home Screen and coming back is a real round trip through the app's lifecycle:

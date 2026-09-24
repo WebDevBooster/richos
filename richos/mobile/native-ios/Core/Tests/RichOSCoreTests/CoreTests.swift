@@ -612,7 +612,8 @@ actor FakePlatform: EffectHandler {
     """.split(separator: " ").map(String.init)
 
     /// Pairing v2's states, which round 12 predates (the PWA's waiting screen and its three endings).
-    static let pairingV2Screens = ["pair-awaiting-mac", "pair-mac-update", "pair-mac-refused", "pair-mac-expired"]
+    static let pairingV2Screens = ["pair-awaiting-mac", "pair-mac-update", "pair-mac-refused", "pair-mac-expired",
+                                   "pair-words-rejected", "pair-unreachable"]
 
     @Test func thereIsOneFixturePerRound12AppScreen() {
         #expect(Self.round12AppScreens.count == 63)
@@ -626,7 +627,7 @@ actor FakePlatform: EffectHandler {
             "pair-camera-denied": .pairIntro, "pair-progress": .pairProgress, "pair-words": .pairWords,
             "pair-refused": .pairIntro, "pair-stale": .pairStale, "pair-consent": .pairConsent,
             "pair-awaiting-mac": .pairAwaitingMac, "pair-mac-update": .pairIntro, "pair-mac-refused": .pairIntro,
-            "pair-mac-expired": .pairIntro,
+            "pair-mac-expired": .pairIntro, "pair-words-rejected": .pairIntro, "pair-unreachable": .pairIntro,
             "conv-empty": .conversationEmpty, "conn-revoked": .connectionRevoked, "upd-blocking": .updateRequired,
         ]
         for fixture in Fixture.all {
