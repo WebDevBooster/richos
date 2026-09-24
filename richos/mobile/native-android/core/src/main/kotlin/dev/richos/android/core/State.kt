@@ -100,6 +100,8 @@ data class Session(
     val streamCursor: Long? = null,
     /** Photos and files chosen for the next message, staged on the phone, not yet sent. */
     val pendingAttachments: List<Attachment> = emptyList(),
+    /** Durable send journal: consuming the composer and recording intent is one atomic write. */
+    val pendingEnqueues: List<OutboxItem> = emptyList(),
 ) {
     companion object {
         const val CACHE_ROWS = 100

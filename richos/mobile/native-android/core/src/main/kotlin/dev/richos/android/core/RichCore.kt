@@ -54,7 +54,12 @@ class RichCore private constructor(
 
     val state: AppState get() = flow.value
 
-    suspend fun dispatch(action: Action): AppState = when (action) {
+    suspend fun dispatch(action: Action): AppState {
+        mutex.withLock { finishEnqueues() }
+        return dispatchReady(action)
+    }
+
+    private suspend fun dispatchReady(action: Action): AppState = when (action) {
         is Action.Pair -> pair(action.link)
         is Action.ConfirmWords -> confirmWords(action.match)
         Action.Forget -> forget()
@@ -272,12 +277,12 @@ class RichCore private constructor(
                 // Every message is checked before any is queued: all of them go, or none.
                 groups.forEach { checkAttachments(it) }
                 val words = session.draft.trim()
-                groups.forEachIndexed { i, group ->
+                val items = groups.mapIndexed { i, group ->
                     val carries = if (photos.isEmpty()) i == groups.lastIndex else i == 0
-                    outbox.enqueue(enqueueAttachments(group, if (carries) words else ""))
+                    enqueueAttachments(group, if (carries) words else "")
                 }
+                enqueueConsuming(items, session.copy(draft = "", pendingAttachments = emptyList()))
                 attachNotice = null
-                commit(session.copy(draft = "", pendingAttachments = emptyList()))
             }
             return flush()
         }
@@ -288,19 +293,24 @@ class RichCore private constructor(
             val threadId = session.selectedThreadId ?: throw CoreError("Choose a conversation before sending")
             val clientId = ports.ids.next()
             val sentAt = isoMillis(ports.clock.now())
-            outbox.enqueue(
-                OutboxItem(
-                    clientId = clientId,
-                    threadId = threadId,
-                    kind = "text",
-                    text = text,
-                    queuedAt = sentAt,
-                    wire = Wire.text(clientId, threadId, text, sentAt),
-                ),
-            )
-            commit(session.copy(draft = ""))
+            enqueueConsuming(listOf(OutboxItem(
+                clientId = clientId, threadId = threadId, kind = "text", text = text,
+                queuedAt = sentAt, wire = Wire.text(clientId, threadId, text, sentAt),
+            )), session.copy(draft = ""))
         }
         return flush()
+    }
+
+    /** The journal and consumed input commit together; replay uses the same stable client IDs. */
+    private suspend fun enqueueConsuming(items: List<OutboxItem>, consumed: Session) {
+        commit(consumed.copy(pendingEnqueues = items))
+        finishEnqueues()
+    }
+
+    private suspend fun finishEnqueues() {
+        if (session.pendingEnqueues.isEmpty()) return
+        for (item in session.pendingEnqueues) outbox.enqueue(item)
+        commit(session.copy(pendingEnqueues = emptyList()))
     }
 
     /** One pass over the outbox, outside the lock, while online (`app.js` `drain`). */
@@ -787,7 +797,7 @@ class RichCore private constructor(
     }
 
     private fun snapshot() =
-        AppState.of(session, outbox.all(), outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now())).copy(
+        AppState.of(session, (outbox.all() + session.pendingEnqueues).distinctBy { it.clientId }, outbox.dueInMs(), lastSend, Connections.view(effectiveConnection(), ports.clock.now())).copy(
             voice = voiceSession,
             voiceElapsedMs = voiceSession?.takeIf { it.recordingStartedAtMs != null }?.elapsedMs,
             microphone = session.microphone,
@@ -839,7 +849,7 @@ class RichCore private constructor(
         suspend fun open(ports: Ports): RichCore {
             val outbox = Outbox(ports.storage, ports.clock)
             outbox.load()
-            return RichCore(ports, ports.session.read(), outbox)
+            return RichCore(ports, ports.session.read(), outbox).also { it.finishEnqueues() }
         }
 
         /** The route a pairing origin names (contract §1.1), or null for any other host. */
