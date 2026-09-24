@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+import importlib.util
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+import cpu_guard as G
+import testdevices as D
+import worker_tokens as W
+
+spec = importlib.util.spec_from_file_location('native_work', Path(__file__).with_name('native-work.py'))
+N = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(N)
+
+
+class GuardTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='cpu-guard-test-', dir=os.environ['TMPDIR'])
+        self.addCleanup(self.tmp.cleanup)
+        state = patch.object(G, 'STATE', Path(self.tmp.name))
+        env = patch.dict(os.environ, {"RICHOS_TEST_DEVICES_DIR": str(Path(self.tmp.name)/"devices")})
+        env.start()
+        self.addCleanup(env.stop)
+        state.start()
+        self.addCleanup(state.stop)
+
+    def row(self, parent=0, cpu=0, birth='birth', name='test'):
+        return dict(parent=parent, cpu=cpu, birth=birth, name=name)
+
+    def root(self, pid=10, role='session'):
+        G.write_json(G.STATE/'roots'/f'{pid}.json', dict(pid=pid,birth='birth',role=role,label='test session'))
+
+    def test_cpu_time_parser(self):
+        self.assertEqual(G.seconds('01:02.50'), 62.5)
+        self.assertEqual(G.seconds('1-02:03:04'), 93784)
+
+    def test_sustained_load_and_unowned_process(self):
+        self.root()
+        watch = G.Watch()
+        for now in (0, 2, 4, 6, 8, 10):
+            chosen, _, _ = watch.sample({10:self.row(), 20:self.row(10,now*5), 30:self.row(0,now*9)}, now)
+            self.assertEqual(chosen, [])
+        chosen, _, protected = watch.sample({10:self.row(),20:self.row(10,60),30:self.row(0,108)},12)
+        self.assertEqual(chosen,[20])
+        self.assertIn(10,protected)
+
+    def test_reparented_child_keeps_identity_but_reused_pid_does_not(self):
+        self.root()
+        watch = G.Watch()
+        watch.sample({10:self.row(),20:self.row(10)},0)
+        watch.sample({20:self.row(1,4)},2)
+        self.assertIn('20',watch.owned)
+        watch.sample({20:self.row(1,0,'new process')},4)
+        self.assertNotIn('20',watch.owned)
+
+    def test_short_burst_resets_window(self):
+        self.root()
+        watch = G.Watch()
+        for now,cpu in ((0,0),(2,10),(4,20),(6,20),(8,30),(10,40),(12,50),(14,60)):
+            chosen,_,_=watch.sample({10:self.row(),20:self.row(10,cpu)},now)
+            self.assertEqual(chosen,[])
+
+    def test_aggregate_small_workers(self):
+        self.root()
+        watch=G.Watch()
+        with patch.object(os,'cpu_count',return_value=4):
+            for now in range(0,14,2):
+                chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now*2),21:self.row(10,now*2)},now)
+            self.assertEqual(len(chosen),1)
+
+    def test_signal_checks_identity_again(self):
+        watch=G.Watch()
+        watch.owned={'20':dict(owner='test')}
+        rows={20:self.row(cpu=50)}
+        with patch.object(G,'processes',return_value={20:self.row(birth='reused')}), patch.object(os,'kill') as kill:
+            watch.stop(20,rows,set(),{20:5})
+            kill.assert_not_called()
+
+    def test_direct_launch_guard_and_read_only_commands(self):
+        for command in ('./gradlew test','bash ./gradlew test','swift test','/usr/bin/xcodebuild build',
+                        'xcrun simctl boot UUID','emulator -avd foo','FOO=bar ./gradlew build',
+                        "bash -c 'swift build'",'cd app && ./gradlew test','nice -n 10 swift test'):
+            self.assertIsNotNone(G.forbidden(command), command)
+        for command in ('git status','rg "swift test" .','echo "xcodebuild build"','xcrun simctl list devices',
+                        'xcrun simctl shutdown UUID','adb -s emulator-5580 emu kill',
+                        'randroid test core','python3 native-work.py -- swift test','./gradlew --stop'):
+            self.assertIsNone(G.forbidden(command), command)
+
+    def test_heredoc_data_is_not_a_command_but_shell_body_is(self):
+        self.assertIsNone(G.forbidden("cat <<'EOF'\nIt's a description of swift test.\nEOF\ngit status"))
+        self.assertEqual(G.forbidden("bash <<'EOF'\nswift test\nEOF"), "swift test")
+        self.assertEqual(G.forbidden("cat <<'EOF'\ntext\nEOF\nswift test"), "swift test")
+
+    def test_busy_host_reclaims_small_owned_workload(self):
+        self.root()
+        watch=G.Watch()
+        for now in range(0,14,2):
+            chosen,_,_=watch.sample({10:self.row(),20:self.row(10,now)},now,host_busy=95)
+        self.assertEqual(chosen,[20])
+
+    def test_caps_cannot_be_overridden(self):
+        gradle=N.capped(['./gradlew','test'])
+        self.assertIn('--max-workers=1',gradle)
+        self.assertIn('--no-daemon',gradle)
+        for args in (['./gradlew','--max-workers=8'],['swift','test','--jobs','8'],['xcodebuild','-jobs','8']):
+            with self.assertRaises(ValueError): N.capped(args)
+        self.assertEqual(N.capped(['swift','test'])[-2:],['--jobs','1'])
+
+    def test_missing_watchdog_fails_closed(self):
+        with patch.object(sys,'platform','darwin'):
+            with self.assertRaisesRegex(RuntimeError,'not healthy'):
+                N.run([sys.executable,'-c','raise Exception("must not run")'])
+
+    def test_device_lifetime_and_idle_are_independent(self):
+        rec={'lease':dict(created=100,last_use=900,max_seconds=900,idle_seconds=300)}
+        self.assertFalse(D.lease_expired(rec,999))
+        self.assertTrue(D.lease_expired(rec,1000))
+        rec['lease']['last_use']=100
+        self.assertTrue(D.lease_expired(rec,400))
+        self.assertFalse(D.lease_expired({},100000))
+
+    def test_kernel_lock_serializes_and_releases_on_holder_death(self):
+        directory=G.STATE/'budget'
+        W.init(directory,1)
+        token=W.Budget(directory,shared=False).acquire()
+        code='import worker_tokens as w,sys; t=w.Budget(sys.argv[1],shared=False).acquire(timeout=5); print("admitted",flush=True); t.release()'
+        child=subprocess.Popen([sys.executable,'-c',code,str(directory)],stdout=subprocess.PIPE,text=True,
+                               env={**os.environ,'PYTHONPATH':str(Path(__file__).parent)})
+        try:
+            time.sleep(.3)
+            self.assertIsNone(child.poll())
+            token.release()
+            self.assertEqual(child.communicate(timeout=6)[0].strip(),'admitted')
+            self.assertEqual(child.returncode,0)
+        finally:
+            token.release()
+            if child.poll() is None: child.kill();child.wait()
+
+    def test_real_owned_cpu_process_is_stopped_unrelated_survives(self):
+        # One busy core for <2 seconds. Exercise real sampling/signals, with a
+        # deliberately lower test threshold instead of saturating this Mac.
+        busy=subprocess.Popen([sys.executable,'-c','while True: pass'],start_new_session=True)
+        bystander=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'])
+        try:
+            G.register(busy.pid,'test burner','workload')
+            watch=G.Watch()
+            with patch.object(G,'WINDOW',.3), patch.object(G,'JOB_CORES',.1):
+                deadline=time.monotonic()+5
+                caught=False
+                while time.monotonic()<deadline:
+                    rows=G.processes()
+                    candidates,rates,protected=watch.sample(rows,time.monotonic())
+                    if candidates:
+                        self.assertEqual(candidates, [busy.pid])
+                        watch.stop(candidates[0],rows,protected,rates)
+                        self.assertIn(busy.pid, watch.pending)
+                        caught=True
+                        break
+                    time.sleep(.15)
+                self.assertTrue(caught)
+            busy.wait(timeout=3)
+            self.assertEqual(busy.returncode,-signal.SIGTERM)
+            self.assertIsNone(bystander.poll())
+        finally:
+            for child in (busy,bystander):
+                if child.poll() is None: child.kill()
+                child.wait()
+
+
+if __name__=='__main__': unittest.main()

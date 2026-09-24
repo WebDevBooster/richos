@@ -188,7 +188,10 @@ final class Simulator {
         try registerOwner(udid)
         let state = try allDevices().first(where: { $0["udid"] as? String == udid })?["state"] as? String
         try timed("boot") {
-            if state != "Booted" { try Tool.run("xcrun", ["simctl", "boot", udid]) }
+            if state != "Booted" {
+                let admission = root.appendingPathComponent("../../engine/scripts/lib/testdevices.py").standardizedFileURL
+                try Tool.run("python3", [admission.path, "boot-ios", "--id", udid])
+            }
             try Tool.run("xcrun", ["simctl", "bootstatus", udid, "-b"])
         }
         return udid
@@ -197,6 +200,8 @@ final class Simulator {
     // MARK: - the mailbox
 
     private func container(_ udid: String) throws -> URL {
+        let collector = root.appendingPathComponent("../../engine/scripts/lib/testdevices.py").standardizedFileURL
+        try Tool.run("python3", [collector.path, "touch-lease", "--kind", "ios-simulator", "--id", udid])
         let path = try Tool.run("xcrun", ["simctl", "get_app_container", udid, Self.bundleID, "data"]).stdout
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return URL(fileURLWithPath: path)
@@ -409,7 +414,13 @@ enum Tool {
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [tool] + args
+        if tool == "xcodebuild", !args.contains("-version"),
+           let root = ProcessInfo.processInfo.environment["RICHOS_NATIVE_IOS_ROOT"] {
+            let runner = URL(fileURLWithPath: root).appendingPathComponent("../../engine/scripts/lib/native-work.py").standardizedFileURL
+            process.arguments = ["python3", runner.path, "--", tool] + args
+        } else {
+            process.arguments = [tool] + args
+        }
         process.standardOutput = try FileHandle(forWritingTo: out)
         let errHandle = try FileHandle(forWritingTo: err)
         process.standardError = errHandle

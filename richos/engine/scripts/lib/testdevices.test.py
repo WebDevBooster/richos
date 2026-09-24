@@ -52,6 +52,9 @@ class Base(unittest.TestCase):
     n = 0
 
     def setUp(self):
+        admission = patch.object(T, "_device_admission", return_value=[])
+        admission.start()
+        self.addCleanup(admission.stop)
         Base.n += 1
         self.root = os.path.join(SANDBOX, "case-%02d" % Base.n)
         self.home = os.path.join(self.root, "home")
@@ -630,6 +633,73 @@ class Collector(Base):
         self.assertIn("external volume denied", self.rows()["collector:incomplete"]["why"])
         self.assertIn("android:42", self.rows())
         self.assertEqual(self.devices(), [])
+
+    def test_T38_activity_does_not_extend_maximum_lifetime(self):
+        udid = self.device("rios-ui-lease")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        created = rec["lease"]["created"]
+        T.touch_lease("ios-simulator", udid)
+        fresh = T.records()[0]
+        self.assertEqual(fresh["lease"]["created"], created)
+        self.assertGreaterEqual(fresh["lease"]["last_use"], rec["lease"]["last_use"])
+        renewed = T.register("ios-simulator", udid, os.getpid())
+        self.assertEqual(renewed["lease"]["created"], created)
+
+    def test_T39_expired_live_owned_simulator_is_removed_but_personal_device_is_not(self):
+        import cpu_guard
+        udid = self.device("rios-ui-lease")
+        personal = self.device("My iPhone")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["last_use"] = time.time() - 301
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        with patch.object(cpu_guard, "event") as event:
+            self.assertEqual(T.expire_leases(), 0)
+            event.assert_called_once()
+        self.assertEqual([d["udid"] for d in self.devices()], [personal])
+        self.assertEqual(T.records(), [])
+
+    def test_T40_pressure_sheds_registered_simulator_without_guessing_service_ownership(self):
+        import cpu_guard
+        udid = self.device("rios-ui-pressure")
+        personal = self.device("My iPhone")
+        T.register("ios-simulator", udid, os.getpid())
+        with patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(pressure=True), 0)
+        self.assertEqual([d["udid"] for d in self.devices()], [personal])
+
+    def test_T41_dead_lease_holder_is_collected_even_with_live_owner(self):
+        udid = self.device("rios-ui-holder")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["holder"] = {"pid": self.dead_pid(), "start": "old birth"}
+        self.assertEqual(T._registered_verdict(rec)[0], T.COLLECT)
+
+    def test_T42_expired_emulator_is_stopped_with_live_owner(self):
+        import cpu_guard
+        cache = os.path.join(self.android, "lease-expiry")
+        avd = "randroid-lease-expiry"
+        pid = T.launch_android(cache, avd, 5556,
+            [sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd], owner_pid=os.getpid())
+        try:
+            rec = T.records()[0]
+            rec["lease"]["created"] = time.time() - 901
+            T._write_json(T._record_path("android-emulator", cache), rec)
+            with patch.object(cpu_guard, "event"):
+                self.assertEqual(T.expire_leases(), 0)
+            self.assertEqual(T.process_start(pid), "")
+            self.assertFalse(os.path.exists(os.path.join(cache, "emulator.json")))
+        finally:
+            try: os.kill(pid, 9)
+            except ProcessLookupError: pass
+            try: os.waitpid(pid, 0)
+            except ChildProcessError: pass
+
+    def test_T43_expired_lease_cannot_be_renewed_by_touch(self):
+        udid = self.device("rios-ui-expired")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["created"] = time.time() - 901
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        with self.assertRaisesRegex(ValueError, "expired"):
+            T.touch_lease("ios-simulator", udid)
 
 
 

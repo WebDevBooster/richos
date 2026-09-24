@@ -212,6 +212,15 @@ def finish_scope(child, tracker, grace=8.0):
 
 
 def supervise(owner, argv):
+    # Enroll managed workloads even when invoked by Codex or a nightly without
+    # Claude hooks. Fixtures copying just this helper keep working unchanged.
+    guard_path = os.path.join(os.path.dirname(__file__), "cpu_guard.py")
+    if os.path.isfile(guard_path):
+        import cpu_guard
+        import pwd
+        if (os.path.realpath(os.path.expanduser("~")) == pwd.getpwuid(os.getuid()).pw_dir
+                and not os.environ.get("CLAUDE_CONFIG_DIR") and cpu_guard.healthy()):
+            cpu_guard.register(os.getpid(), "managed " + os.path.basename(argv[0]), "session")
     owner_id = identity(owner)
     if owner_id is None:
         return 125
