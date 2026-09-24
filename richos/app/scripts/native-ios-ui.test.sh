@@ -10,9 +10,8 @@
 #      * WCAG contrast of every text and indicator pairing, from the app's own Palette values.
 #   2. SIMULATOR (minutes): builds the app and its UI tests from `native-ios/project.yml`, then runs
 #      them on an iPhone SE (3rd generation) and an iPhone 16 Pro Max — each device's tests split
-#      across RICHOS_IOS_UI_SHARDS simulators of that device (default 2), every simulator created by
-#      this script, booted headless (never Simulator.app), admitted by the shared simulator limit, shut down and deleted
-#      by UDID after the run — in UTC and en_US so every picture matches the mockup's 8:02 AM.
+#      serially on a prepared simulator of each type, booted headless (never Simulator.app),
+#      exclusively leased across checkouts and shut down by UDID after the run — in UTC and en_US so every picture matches the mockup's 8:02 AM.
 #      Screenshots are exported per device.
 #
 #   native-ios-ui.test.sh                        both parts
@@ -20,7 +19,6 @@
 #   native-ios-ui.test.sh --only <Class/test>    part 2 scoped (xcodebuild -only-testing), repeatable,
 #                                                e.g. --only ScreenshotTests/testComposerDark
 #   native-ios-ui.test.sh --device se|pm         part 2 on one device
-#   RICHOS_IOS_UI_SHARDS=N native-ios-ui.test.sh  N simulators per device (default 2; 1 = unsplit)
 #
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
@@ -74,12 +72,11 @@ mkdir -p "$CACHE"
 WORK="$(mktemp -d "$CACHE/run.XXXXXX")"
 CREATED=()
 udid=""
-# However the run ends: every simulator this run created is shut down and deleted, and the work
+# However the run ends: every simulator this run leased is shut down, and the work
 # directory removed. Inline, as in native-ios-app.test.sh, so no trap-only function trips SC2329.
 trap 'rc=$?; for udid in "${CREATED[@]:-}"; do
   [ -n "$udid" ] || continue
-  xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-  xcrun simctl delete "$udid" >/dev/null 2>&1 || true
+  python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" release-ios --id "$udid" --owner-pid $$ >/dev/null || rc=1
 done
 if [ "$rc" -eq 0 ]; then rm -rf "$WORK"; else echo "native-ios-ui: failure evidence retained at $WORK"; fi' EXIT
 
@@ -290,6 +287,7 @@ if ! python3 "$DIR/lib/ios_ui_shards.py" selftest; then
 fi
 
 [ "$MODE" = headless ] && exit 0
+python3 "$ROOT/richos/engine/scripts/lib/cpu_guard.py" check-ios || exit 2
 
 # ------------------------------------------------------------------------------------------------
 # 2. Simulator
@@ -311,7 +309,7 @@ mkdir -p "$SHOTS"
 
 START=$(date +%s)
 # CEO, 2026-09-22: native builds run at lowered priority for this build window.
-nice -n 10 xcodebuild -project "$PROJECT_DIR/RichOSNative.xcodeproj" -scheme RichOSNative \
+nice -n 10 python3 "$ROOT/richos/engine/scripts/lib/native-work.py" -- xcodebuild -project "$PROJECT_DIR/RichOSNative.xcodeproj" -scheme RichOSNative \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" \
   -clonedSourcePackagesDirPath "$CACHE/SourcePackages" CODE_SIGN_IDENTITY=- \
   build-for-testing > "$WORK/build.log" 2>&1 || {
@@ -321,35 +319,13 @@ echo "native-ios-ui: built for testing in $(( $(date +%s) - START )) s"
 
 STATUS=0
 # ------------------------------------------------------------------------------------------------
-# The simulators: every device's tests are split across RICHOS_IOS_UI_SHARDS simulators of that
-# device (default 2). At most two test simulators run across all checkouts, with one boot at a time.
-#
-# MEASURED, 2026-09-23, this Mac, standalone: the build is 23 s cold and 5 s warm, a boot about
-# 30 s, and the tests the rest — 661 s for one device's 42 tests on one simulator, 686 s for the
-# other, one after the other: 1428 s for the suite (1438 s in the 184-commit land). A running UI
-# test waits on the app and on XCUITest rather than computing (user CPU 10-15% of the Mac with a
-# simulator mid-run), so the time is bought back with more simulators, not more cores — the
-# shape T3 Code uses for its own suite (adoption ledger §2.3: "sharding spreads them over separate
-# runners instead of separate workers"), so no two shards ever share a device. Each shard is its
-# own simulator, created, booted headless, shut down and deleted by this run, as before.
-#
-#   simulators per device   wall (whole suite)
-#   1, one device at a time      1428 s   (the old shape)
-#   2, all four at once           535 s   (the default)
-#   3, all six at once            970 s   (six first boots took 255 s together, and another
-#                                          agent's simulators were running at the time)
-# These are historical standalone measurements, not a speed guarantee. Combined-load testing
-# saturated the host with four boots, so the shared limit now admits two live devices and
-# serializes boots. CPU/memory admission applies immediately before each boot.
-#
-# NOTHING IS DROPPED BY SPLITTING. The test list comes from xcodebuild itself (-enumerate-tests),
-# never from the Swift sources, and after the run the tests the result bundles report for a device
-# must equal that list, name for name. A shard that ran fewer tests than it was given is a failure.
-# `--only` runs unsplit, as before; so does RICHOS_IOS_UI_SHARDS=1.
+# Reuse a prepared OS per device/runtime, with one active simulator lease.
+# Run the complete test selection serially on each requested device. Retaining
+# the OS avoids paying first-boot indexing on every proof and every checkout.
+SHARDS=1.
 # ------------------------------------------------------------------------------------------------
-SHARDS="${RICHOS_IOS_UI_SHARDS:-2}"
-case "$SHARDS" in ''|*[!0-9]*|0) echo "native-ios-ui: RICHOS_IOS_UI_SHARDS must be a positive integer" >&2; exit 64 ;; esac
-[ "${#ONLY[@]}" -gt 0 ] && SHARDS=1
+SHARDS=1
+# Reuse one prepared device at a time; splitting must not create cold simulators.
 XCTESTRUN="$(find "$DERIVED/Build/Products" -maxdepth 1 -name '*.xctestrun' | head -1)"
 [ -n "$XCTESTRUN" ] || { echo "  FAIL  native-ios-ui: build-for-testing left no .xctestrun in $DERIVED/Build/Products"; exit 1; }
 SELECT=("-only-testing:RichOSNativeUITests" "-only-testing:RichOSNativeTests")
@@ -364,60 +340,39 @@ for DEVICE in "${DEVICES[@]}"; do
   TYPE="com.apple.CoreSimulator.SimDeviceType.$(printf '%s' "$DEVICE" | sed 's/[() ]/-/g; s/--*/-/g; s/-$//')"
   s=1
   while [ "$s" -le "$SHARDS" ]; do
-    UDID="$(xcrun simctl create "rios-ui-$$-${TYPE##*.}-$s" "$TYPE" "$RUNTIME")"
-    CREATED+=("$UDID")
-    # Registered to this shell before it boots, so the engine removes it if this run is killed
-    # before its trap (§54; richos/engine/scripts/lib/testdevices.py).
-    python3 "$ROOT/richos/engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
-      --owner-pid $$ --script native-ios-ui.test.sh >/dev/null || exit 1
-    SIM_DEV+=("$DEVICE"); SIM_UDID+=("$UDID"); SIM_TYPE+=("${TYPE##*.}")
+    SIM_DEV+=("$DEVICE"); SIM_UDID+=(""); SIM_TYPE+=("$TYPE")
     s=$((s + 1))
   done
 done
-# The test list, from xcodebuild itself, before simulators boot (it needs a destination to
-# resolve, not a booted one: measured 2026-09-23 on a created, never-booted simulator).
-if [ "$SHARDS" -gt 1 ]; then
-  ( if xcodebuild test-without-building -xctestrun "$XCTESTRUN" -destination "id=${SIM_UDID[0]}" \
-         -derivedDataPath "$WORK/dd-enumerate" "${SELECT[@]}" -enumerate-tests -test-enumeration-style flat \
-         -test-enumeration-format json -test-enumeration-output-path "$WORK/tests.json" > "$WORK/enumerate.log" 2>&1
-    then echo 0 > "$WORK/enumerate.rc"; else echo 1 > "$WORK/enumerate.rc"; fi ) &
-fi
-wait
-# The list, and the split: one file of -only-testing arguments per shard. (Listed while the
-# simulators booted, above.)
-if [ "$SHARDS" -gt 1 ] && [ "$(cat "$WORK/enumerate.rc" 2>/dev/null)" != 0 ]; then
-  tail -20 "$WORK/enumerate.log"
-  echo "  FAIL  native-ios-ui: xcodebuild could not list the tests, so they cannot be split without risking one"
-  exit 1
-fi
 if ! python3 "$DIR/lib/ios_ui_shards.py" split "$WORK" "$SHARDS" "$TIMES" "${SELECT[@]}"; then
   echo "  FAIL  native-ios-ui: the test list could not be split"; exit 1
 fi
 
-# One lease covers boot, UI execution and deletion. Idle booted simulators are not free.
+# One lease covers boot, UI execution and shutdown. Idle booted simulators are not free.
 cat > "$WORK/run-simulator.sh" <<'SIMULATOR'
 #!/usr/bin/env bash
 set -euo pipefail
 work="$1"; xctestrun="$2"; i="$3"; udid="$4"; shift 4
-trap 'rc=$?; xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-  xcrun simctl delete "$udid" >/dev/null 2>&1 || rc=1
+trap 'rc=$?; python3 "$RICHOS_TESTDEVICES" release-ios --id "$udid" --owner-pid "$RICHOS_TEST_DEVICE_OWNER_PID" >/dev/null || rc=1
   exit "$rc"' EXIT
-python3 "$RICHOS_SIMULATOR_BUDGET" boot -- bash -c '
-  xcrun simctl boot "$1" && xcrun simctl bootstatus "$1" -b
-' simulator-boot "$udid"
+python3 "$RICHOS_TESTDEVICES" boot-ios --id "$udid"
 xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLocale -string en_US
 xcrun simctl spawn "$udid" defaults write .GlobalPreferences AppleLanguages -array en-US
 xcrun simctl privacy "$udid" grant microphone dev.richos.connect >/dev/null 2>&1 || true
-TZ=UTC xcodebuild test-without-building -xctestrun "$xctestrun" -destination "id=$udid" \
+TZ=UTC python3 "$RICHOS_NATIVE_WORK" -- xcodebuild test-without-building -xctestrun "$xctestrun" -destination "id=$udid" \
   -derivedDataPath "$work/dd-$i" -resultBundlePath "$work/result-$i.xcresult" \
-  -parallel-testing-enabled NO "$@"
+  "$@"
 SIMULATOR
-export RICHOS_SIMULATOR_BUDGET="$DIR/lib/simulator_budget.py"
+export RICHOS_TESTDEVICES="$ROOT/richos/engine/scripts/lib/testdevices.py"
+export RICHOS_TEST_DEVICE_OWNER_PID=$$
+export RICHOS_NATIVE_WORK="$ROOT/richos/engine/scripts/lib/native-work.py"
 START=$(date +%s)
 for i in "${!SIM_UDID[@]}"; do
   s=$(( i % SHARDS + 1 ))
   ARGS=()
   while IFS= read -r a; do [ -n "$a" ] && ARGS+=("$a"); done < "$WORK/shard-$s.args"
+  SIM_UDID[$i]="$(python3 "$RICHOS_TESTDEVICES" acquire-ios --type "${SIM_TYPE[$i]}" --runtime "$RUNTIME" --owner-pid $$)"
+  CREATED+=("${SIM_UDID[$i]}")
   # Under proof-run.py (RICHOS_WORKER_TOKENS set), the simulators count against the run the way a
   # mutation pool's workers do (richos/engine/scripts/lib/worker_tokens.py): one runs on this
   # suite's own free slot, whichever simulator holds it, and every other on a token of the budget.
@@ -427,9 +382,9 @@ for i in "${!SIM_UDID[@]}"; do
            "$RICHOS_WORKER_TOKENS" --free "$WORK/free.lock" --)
   fi
   ( T0=$(date +%s)
-    if python3 "$DIR/lib/simulator_budget.py" live -- ${TOKEN[@]+"${TOKEN[@]}"} bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
+    if ${TOKEN[@]+"${TOKEN[@]}"} bash "$WORK/run-simulator.sh" "$WORK" "$XCTESTRUN" "$i" "${SIM_UDID[$i]}" \
          "${ARGS[@]}" > "$WORK/test-$i.log" 2>&1; then rc=0; else rc=$?; fi
-    echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" ) &
+    echo "$rc" > "$WORK/test-$i.rc"; echo $(( $(date +%s) - T0 )) > "$WORK/test-$i.secs" )
 done
 wait
 
@@ -452,8 +407,7 @@ for i in "${!SIM_UDID[@]}"; do
   rm -rf "$OUT/shard-$i"
 done
 for i in "${!SIM_UDID[@]}"; do
-  xcrun simctl shutdown "${SIM_UDID[$i]}" > /dev/null 2>&1 || true
-  xcrun simctl delete "${SIM_UDID[$i]}" > /dev/null 2>&1 || true
+  python3 "$RICHOS_TESTDEVICES" release-ios --id "${SIM_UDID[$i]}" --owner-pid $$ >/dev/null
   CREATED=("${CREATED[@]/${SIM_UDID[$i]}}")
 done
 echo "native-ios-ui: screenshots in $SHOTS"

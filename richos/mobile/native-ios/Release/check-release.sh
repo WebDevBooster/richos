@@ -27,7 +27,7 @@ mkdir -p "$OUT/logs"
 
 PROJECT="$("$HERE/Release/generate.sh" "$OUT/project")" || { echo "FAIL generate: see xcodegen output above"; exit 1; }
 for CONFIG in Debug Release; do
-  if ! xcodebuild -project "$PROJECT" -scheme RichOSNative -configuration "$CONFIG" -sdk iphonesimulator \
+  if ! python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild -project "$PROJECT" -scheme RichOSNative -configuration "$CONFIG" -sdk iphonesimulator \
        -destination 'generic/platform=iOS Simulator' -derivedDataPath "$OUT/DerivedData" \
        -clonedSourcePackagesDirPath "$OUT/SourcePackages" CODE_SIGN_IDENTITY=- build >"$OUT/logs/build-$CONFIG.log" 2>&1; then
     grep -E 'error:' "$OUT/logs/build-$CONFIG.log" | sort -u | head -20

@@ -26,9 +26,10 @@ def capped(command):
             raise ValueError('parallelism is owned by native admission')
         command += ['--jobs', '1']
     elif name == 'xcodebuild':
-        if '-jobs' in command or '-parallel-testing-enabled' in command:
+        if any(a in command for a in ('-jobs', '-parallel-testing-enabled', '-collect-test-diagnostics', '-enablePerformanceTestsDiagnostics')):
             raise ValueError('parallelism is owned by native admission')
-        command += ['-jobs', '1', '-parallel-testing-enabled', 'NO']
+        command += ['-jobs', '1', '-parallel-testing-enabled', 'NO',
+                    '-collect-test-diagnostics', 'never', '-enablePerformanceTestsDiagnostics', 'NO']
     return command
 
 
@@ -56,6 +57,8 @@ def run(command):
     if sys.platform == 'darwin' and not cpu_guard.healthy():
         raise RuntimeError('CPU watchdog is not healthy; native work refused. Run cpu_guard.py status.')
     command = capped(command)
+    if os.path.basename(command[0]) == 'xcodebuild' and any(a in command for a in ('test', 'test-without-building')):
+        cpu_guard.require_ios()
     directory = worker_tokens.machine_directory()
     lane_dir = Path(directory).parent / 'native-build-v1'
     worker_tokens.init(lane_dir, 1)
