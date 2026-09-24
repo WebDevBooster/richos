@@ -130,9 +130,7 @@ fun Mark(size: Dp, modifier: Modifier = Modifier, fixed: Boolean = false) {
 @Composable
 fun Spinner(size: Dp = 16.dp, modifier: Modifier = Modifier) {
     val c = Rich.colors
-    val turn by rememberInfiniteTransition(label = "spin").animateFloat(
-        0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "spin",
-    )
+    val turn by rememberBoundedRotation()
     Box(
         modifier.size(size).graphicsLayer { rotationZ = turn }.drawBehind {
             val w = 2.dp.toPx()

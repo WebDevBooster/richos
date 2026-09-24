@@ -106,6 +106,13 @@ class IdleFramesTest {
     }
 
     @Test
+    fun `stalled sending settles without changing delivery state`() {
+        show(screen("conv-pending"))
+        compose.mainClock.advanceTimeBy(12_000)
+        assertEquals("stalled sends must stop requesting frames", 0, busyFrames())
+    }
+
+    @Test
     fun `an animation that must run runs only while its state is on screen`() {
         // Positive probes: these move on purpose, every frame.
         for (id in listOf("conn-reconnecting", "conv-replying", "conv-streaming", "conv-pending")) {

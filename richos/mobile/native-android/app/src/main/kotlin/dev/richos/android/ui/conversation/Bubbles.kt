@@ -1,5 +1,6 @@
 package dev.richos.android.ui.conversation
 
+import dev.richos.android.design.rememberBoundedRotation
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -291,9 +292,7 @@ private fun DeliveryGlyph(delivery: Delivery, tint: androidx.compose.ui.graphics
         Delivery.WAITING -> RichIcon(RichIcons.Clock, tint ?: c.inkSoft, 15.dp)
         Delivery.ATTENTION -> RichIcon(RichIcons.Alert, tint ?: c.danger, 15.dp)
         Delivery.SENDING -> {
-            val turn by rememberInfiniteTransition(label = "sending").animateFloat(
-                0f, 360f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "sending",
-            )
+            val turn by rememberBoundedRotation(periodMillis = 1_100)
             RichIcon(RichIcons.Spinner, tint ?: c.inkSoft, 15.dp, Modifier.graphicsLayer { rotationZ = turn })
         }
     }
