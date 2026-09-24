@@ -37,6 +37,8 @@
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
+#   R5-R8   redact --phones: the gate flags a phone-shaped fixture, the redactor
+#           covers it, the gate then passes the output, the evidence survives
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
@@ -295,6 +297,22 @@ else
   # A box in the wrong place must not be reported as a redaction.
   run "$QA/redact.py" "$FIX/ocr-control.png" "$TMP/red3.png" --box 0,0,4,4
   expect "R4 a box that misses leaves the address legible and exits non-zero" 1 "STILL LEGIBLE"
+
+  # The gate and the redactor must agree on what a phone number looks like: a
+  # gate that flags a frame the redactor cannot clean leaves the walker with a
+  # frame that can never ship, which is how hand-drawn boxes creep back in.
+  run "$QA/ocr-gate.sh" "$FIX/phone-control.png"
+  expect "R5 the gate flags the phone-shaped fixture (it is a real positive)" 1 "OCR GATE: 1 of 1"
+  run "$QA/redact.py" "$FIX/phone-control.png" "$TMP/phone-red.png" --phones
+  expect "R6 --phones covers the number and re-reads the output" 0 "no address-shaped or phone-shaped string survives"
+  run "$QA/ocr-gate.sh" "$TMP/phone-red.png"
+  expect "R7 the gate passes what the redactor produced" 0 "0 of 1"
+  LEFT="$("$TESS" "$TMP/phone-red.png" stdout 2>/dev/null || true)"
+  if printf '%s' "$LEFT" | grep -qi 'nothing here is real'; then
+    ok "R8 the rest of the phone card survives the redaction"
+  else
+    bad "R8 the rest of the phone card survives the redaction" "over-redaction. Read: $(printf '%s' "$LEFT" | tr '\n' ' ' | cut -c1-160)"
+  fi
 fi
 
 echo ""

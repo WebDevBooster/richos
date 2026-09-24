@@ -30,7 +30,7 @@ and never prints a number it did not measure.
 | `contrast.py` | WCAG ratio of two colors, or of a region of a frame. One estimator, stated in the file, printed with every answer. |
 | `frame.py` | Read the frame: `px`, `crop`, `extent`, `inset`, `box`, `edges`, `motion`. `inset` is the four-sided gap measurement behind the 18/18 settings-button check. |
 | `ocr-gate.sh` | The privacy gate: no frame enters the record carrying an address, a home path or a listed person's name. Refuses to report clean until a positive control proves the reader works. |
-| `redact.py` | Cover an address (found by OCR, tokens joined across a line) or an exact rectangle, then **re-read the output** and fail if anything survived. |
+| `redact.py` | Cover an address (found by OCR, tokens joined across a line), a phone-shaped digit run (`--phones`, the same shape `ocr-gate.sh` flags) or an exact rectangle, then **re-read the output** and fail if anything survived. |
 | `ocr-find.sh` | Which of these frames shows this text? Exit 0 on a hit, **1 on none**. |
 | `ocr-watch.sh` | Sample a region on an interval and read it out with timestamps — a countdown, a status line, a pane being paged through. |
 | `timeline.py` | `capture` an action and its frames **on one clock**; `--also-region` adds a SECOND rectangle captured around the same press, into `<outdir>/b/`, carrying the same action instant — the Mac and the phone page answered off one clock. `report` the first repaint against the frame before the action; `at` dates a frame something else chose (the one `ocr-find.sh --first` named) off that same clock; `stats` for min/median/max over samples. |
