@@ -204,6 +204,8 @@ def _():
         " system-1 (1) [000] .... 10.000000: tracing_mark_write: S|1|launchingActivity#7|0",
         " system-1 (1) [000] .... 10.500000: tracing_mark_write: I|1|launchingActivity#7:completed-cold:dev.richos.connect",
         " app-42 (42) [000] .... 10.999999: tracing_mark_write: B|42|richconnect:foreground-useful",
+        " worker-43 (42) [001] .... 10.999999: tracing_mark_write: E|42",
+        " worker-43 (42) [001] .... 10.999999: tracing_mark_write: C|42|richconnect:monotonic-ns|9000000000",
         " app-42 (42) [000] .... 11.000000: tracing_mark_write: C|42|richconnect:monotonic-ns|3000000000",
         " app-42 (42) [000] .... 11.000001: tracing_mark_write: E|42",
     ])
@@ -211,6 +213,8 @@ def _():
              "FrameCompleted": 3_060_000_000, "DisplayPresentTime": 3_100_000_000, "FrameTimelineVsyncId": 55}
     result = android.useful_launch_frame(trace, [frame], 42)
     assert result["usefulMs"] == 1100 and result["frameTimelineId"] == 55, result
+    assert android.useful_launch_frame(trace, [{**frame, "Flags": 1}], 42) == result
+    raises(perfcore.Unmeasurable, android.useful_launch_frame, trace, [{**frame, "Flags": 8}], 42)
     raises(perfcore.Unmeasurable, android.useful_launch_frame, trace, [frame, frame], 42)
     raises(perfcore.Unmeasurable, android.useful_launch_frame, trace, [{**frame, "DisplayPresentTime": 0}], 42)
     raises(perfcore.Unmeasurable, android.useful_launch_frame, trace.replace("monotonic-ns", "missing"), [frame], 42)

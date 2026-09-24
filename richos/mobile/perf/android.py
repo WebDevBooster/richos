@@ -33,11 +33,13 @@ a real device. Never a bare `adb`.
 """
 import base64
 import csv
+import gzip
 import io
 import json
 import re
 import subprocess
 import time
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from perfcore import Refused, Unmeasurable
@@ -151,22 +153,25 @@ def useful_launch_frame(trace, rows, pid):
     """
     events = []
     for line in trace.splitlines():
-        match = re.search(r" ([0-9]+\.[0-9]+): tracing_mark_write: (.*)$", line)
-        if match: events.append((int(float(match[1]) * 1_000_000_000), match[2]))
-    completed = [(at, payload) for at, payload in events if re.search(r"\|launchingActivity#\d+:completed-(?:cold|warm|hot):" + re.escape(PACKAGE) + r"$", payload)]
+        match = re.search(r"-(\d+)\s+\([^)]*\).*? ([0-9]+\.[0-9]+): tracing_mark_write: (.*)$", line)
+        if match:
+            seconds, fraction = match[2].split(".")
+            events.append((int(seconds) * 1_000_000_000 + int(fraction.ljust(9, "0")), match[3], int(match[1])))
+    completed = [(at, payload) for at, payload, _ in events if re.search(r"\|launchingActivity#\d+:completed-(?:cold|warm|hot):" + re.escape(PACKAGE) + r"$", payload)]
     if not completed:
         raise Unmeasurable("no system launch interval for RichConnect in this OEM trace")
     _, completion = completed[-1]
     owner, name = completion.split("|")[1:3]
     name = name.split(":")[0]
-    starts = [at for at, payload in events if payload.startswith(f"S|{owner}|{name}|")]
+    starts = [at for at, payload, _ in events if payload.startswith(f"S|{owner}|{name}|")]
     if len(starts) != 1:
         raise Unmeasurable("missing or ambiguous system launch start")
     start = starts[0]
     draw = None
-    for index, (at, payload) in enumerate(events):
+    for index, (at, payload, tid) in enumerate(events):
         if at >= start and payload == f"B|{pid}|richconnect:foreground-useful":
-            for counter_at, counter in events[index + 1:]:
+            for counter_at, counter, counter_tid in events[index + 1:]:
+                if counter_tid != tid: continue
                 if counter == f"E|{pid}": break
                 prefix = f"C|{pid}|richconnect:monotonic-ns|"
                 if counter.startswith(prefix):
@@ -175,7 +180,10 @@ def useful_launch_frame(trace, rows, pid):
     if draw is None:
         raise Unmeasurable("useful draw has no monotonic clock counter")
     trace_at, monotonic = draw
-    frames = [r for r in rows if frame_ok(r) and r.get("DrawStart", 0) <= monotonic <= r.get("SyncQueued", 0)]
+    # WindowVisibilityChanged (1) is expected on resume. It has valid draw/presentation
+    # coordinates even though it is excluded from steady-state frame-deadline statistics.
+    frames = [r for r in rows if r.get("Flags") in (0, 1) and r.get("FrameCompleted", 0) > 0
+              and 0 < r.get("DrawStart", 0) <= monotonic <= r.get("SyncQueued", 0)]
     if len(frames) != 1:
         raise Unmeasurable("useful draw does not identify exactly one frame")
     frame = frames[0]
@@ -489,7 +497,7 @@ class Measure:
     """One run's measurements against one device. Each method returns what it measured, with
     rejected trials and their reasons, or raises Unmeasurable with its sentence."""
 
-    def __init__(self, device, log=lambda s: None, settle_s=2.0, pace=None):
+    def __init__(self, device, log=lambda s: None, settle_s=2.0, pace=None, evidence_dir=None):
         self.d = device
         self.bridge = Bridge(device)
         self.log = log
@@ -500,6 +508,8 @@ class Measure:
         self.pace = pace or (lambda: None)
         self.rooted = False
         self.rooted_by_us = False
+        self.evidence_dir = Path(evidence_dir) if evidence_dir else None
+        self.launch_number = 0
 
     # -- helpers -------------------------------------------------------------------------------
     def dump_ui(self):
@@ -607,10 +617,18 @@ class Measure:
 
     # -- cold launch -----------------------------------------------------------------------------
     def traced_launch(self):
+        self.gfx_reset()
         launch = {}
         def start(): launch.update(self.foreground())
         trace = self.atrace(["am", "view", "gfx"], start, 2.0)
-        detail = useful_launch_frame(trace, self.gfx()["rows"], self.d.pid())
+        window, pid = self.gfx(), self.d.pid()
+        self.launch_number += 1
+        if self.evidence_dir:
+            self.evidence_dir.mkdir(parents=True, exist_ok=True)
+            stem = self.evidence_dir / f"launch-{self.launch_number:04d}"
+            with gzip.open(str(stem) + ".trace.gz", "wt") as output: output.write(trace)
+            Path(str(stem) + ".json").write_text(json.dumps({"launch": launch, "pid": pid, "window": window}))
+        detail = useful_launch_frame(trace, window["rows"], pid)
         return launch, detail
 
     def cold(self, trials, newest_text=None, physical=False):

@@ -323,7 +323,8 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     pace, waits = (None, [])
     if args.kind == "emulator" and args.lease and not runner:
         pace, waits = emulator_pacer(args.lease)
-    m = android.Measure(dev, log=log, settle_s=args.settle, pace=pace)
+    m = android.Measure(dev, log=log, settle_s=args.settle, pace=pace,
+                        evidence_dir=str(args.out) + ".evidence" if args.kind == "physical" and not runner else None)
     record = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": now_iso(),
               "tool": {"path": "richos/mobile/perf/perf.py", **perfcore.source_identity(REPO, ["richos/mobile/perf"])},
               "build": build, "device": device, "metrics": {}, "phases": {}, "notMeasured": []}
