@@ -33,7 +33,7 @@ echo "=== native-ios-core ==="
 
 # C1 — the core's unit tests (loop L1). The count is read back so a run of nothing cannot pass.
 if "$RIOS" test >"$SCRATCH/test.log" 2>&1; then
-  COUNT="$(grep -Eo 'Test run with [0-9]+ tests? passed' "$SCRATCH/test.log" | grep -Eo '[0-9]+' | tail -1)"
+  COUNT="$(grep -Eo 'Test run with [0-9]+ tests?( in [0-9]+ suites?)? passed' "$SCRATCH/test.log" | grep -Eo 'with [0-9]+' | grep -Eo '[0-9]+' | tail -1)"
   if [ "${COUNT:-0}" -gt 0 ]; then ok "C1 core unit tests: $COUNT passed (bin/rios test)"
   else bad "C1 core unit tests" "no passing test count in the output: $(tail -3 "$SCRATCH/test.log" | tr '\n' ' ')"; fi
 else
