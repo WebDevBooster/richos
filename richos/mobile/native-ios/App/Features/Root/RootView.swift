@@ -20,7 +20,7 @@ struct RootView: View {
             if let action = intent.action() { send(action) }
         }
         .environment(\.screenClock, Self.clock)
-        .onChange(of: TooShortLine.ending(state.voice), initial: true) { _, id in
+        .onChange(of: TooShortLine.ending(state.voice, posed: state.voice.map(VoiceClock.isPose) ?? false), initial: true) { _, id in
             if let id { tooShortLine = id }
         }
         .task(id: tooShortLine) {

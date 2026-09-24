@@ -1,3 +1,4 @@
+import Foundation
 import RichOSCore
 
 /// "Hold the button while you speak." stays its full `Motion.tooShortLineMs` (round 12: one calm
@@ -9,10 +10,10 @@ import RichOSCore
 /// in its own state; these two functions are the whole rule, so a unit test can read it.
 enum TooShortLine {
     /// The recording whose too-short ending is playing now, which starts (or restarts) the line.
-    /// A posed fixture draws at its own instant and never latches (Android: a review frame's own
-    /// `voiceMomentMs` wins).
-    static func ending(_ voice: VoiceSession?) -> String? {
-        guard let voice, case .ending(.tooShort) = voice.phase, !VoiceClock.isPose(voice) else { return nil }
+    /// A posed fixture (`posed`: the screen's `VoiceClock.isPose`) draws at its own instant and
+    /// never latches (Android: a review frame's own `voiceMomentMs` wins).
+    static func ending(_ voice: VoiceSession?, posed: Bool) -> String? {
+        guard let voice, case .ending(.tooShort) = voice.phase, !posed else { return nil }
         return voice.id
     }
 

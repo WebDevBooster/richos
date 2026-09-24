@@ -30,14 +30,16 @@ struct TooShortLineTests {
     }
 
     @Test func onlyALiveTooShortEndingLatches() {
-        #expect(TooShortLine.ending(Self.live(.ending(.tooShort), id: "v7")) == "v7")
-        #expect(TooShortLine.ending(Self.live(.ending(.sent))) == nil)
-        #expect(TooShortLine.ending(Self.live(.held)) == nil)
-        #expect(TooShortLine.ending(nil) == nil)
-        // A posed fixture (its clock far from now) draws its own frame and starts no timer.
+        #expect(TooShortLine.ending(Self.live(.ending(.tooShort), id: "v7"), posed: false) == "v7")
+        #expect(TooShortLine.ending(Self.live(.ending(.sent)), posed: false) == nil)
+        #expect(TooShortLine.ending(Self.live(.held), posed: false) == nil)
+        #expect(TooShortLine.ending(nil, posed: false) == nil)
+        // A posed fixture (its clock far from now) draws its own frame and starts no timer; the
+        // screen asks VoiceClock, as it does for every other ending.
         var posed = Self.live(.ending(.tooShort))
         posed.nowMs -= 60_000
-        #expect(TooShortLine.ending(posed) == nil)
+        #expect(VoiceClock.isPose(posed) && !VoiceClock.isPose(Self.live(.ending(.tooShort))))
+        #expect(TooShortLine.ending(posed, posed: VoiceClock.isPose(posed)) == nil)
     }
 
     @Test func aNewRecordingTakesThePlaceOfTheLine() {

@@ -331,6 +331,25 @@ MainActor.assumeIsolated {
     frozen.followPhone(.dark)
     check(frozen.state.appearance == .light, "G9 a fixture keeps its -rios-appearance theme")
 }
+// The too-short line (Android `withTooShortLine`): the core clears its toast when the ending
+// settles, 150 ms in, so the screen holds "Hold the button while you speak." its full 1.8 s.
+do {
+    var ending = try! Fixture.named("comp-idle").state
+    ending.voice = VoiceSession(id: "v1", phase: .ending(.tooShort), startedAtMs: 0, nowMs: 100, recordingStartedAtMs: nil, width: 386)
+    ending.toast = .tooShort
+    let settled = Reducer.reduce(ending, .voiceSettled).state
+    check(settled.voice == nil && settled.toast == nil, "too short: the settle frees the microphone and clears the core's toast")
+    check(TooShortLine.ending(ending.voice, posed: false) == "v1", "too short: a live too-short ending latches the line")
+    check(TooShortLine.ending(ending.voice, posed: true) == nil, "too short: a posed fixture never latches")
+    check(TooShortLine.apply("v1", to: ScreenModel(state: settled)).toast == .tooShort, "too short: the line stays after the settle while latched")
+    check(TooShortLine.apply(nil, to: ScreenModel(state: settled)).toast == nil, "too short: the line goes when the latch ends")
+    var next = settled
+    next.voice = VoiceSession(id: "v2", phase: .held, startedAtMs: 0, nowMs: 300, recordingStartedAtMs: 200, width: 386)
+    check(TooShortLine.apply("v1", to: ScreenModel(state: next)).toast == nil, "too short: a new recording takes the line's place")
+    var warned = settled
+    warned.toast = .ceilingWarning
+    check(TooShortLine.apply("v1", to: ScreenModel(state: warned)).toast == .ceilingWarning, "too short: another notice is never covered")
+}
 // G9: the Settings sheet has no appearance control (round 12.1 has none).
 do {
     let source = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? "unreadable"
@@ -407,6 +426,7 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
     "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
+    "$NATIVE/App/Features/Voice/TooShortLine.swift" \
     "$NATIVE/App/App/AppStore.swift" \
     "$NATIVE/App/Platform/Shared/PlatformIdentity.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then
