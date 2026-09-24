@@ -14,12 +14,14 @@ public enum ConnectionReducer {
         case .networkChanged(let online, let at):
             if !online {
                 s.connectionNotice = .phoneOffline
+                effects.append(.disconnect)
                 s.troubleSinceMs = s.troubleSinceMs ?? at
             } else if s.connectionNotice == .phoneOffline {
                 // Back online: say nothing yet; the transport reconnects, and the quiet period
                 // starts again from now.
                 s.connectionNotice = nil
                 s.troubleSinceMs = at
+                if s.pairing == .paired { effects.append(.connect) }
                 ConversationReducer.pump(&s, at: at, &effects)
             }
         case .connectionLost(let at):
@@ -54,7 +56,7 @@ public enum ConnectionReducer {
             s.notifications.hostID = hostID
             s.notifications.offerDismissed = true
         case .foregrounded(let at):
-            guard s.pairing == .paired else { return }
+            guard s.pairing == .paired, s.connectionNotice != .phoneOffline else { return }
             effects.append(.connect)
             ConversationReducer.pump(&s, at: at, &effects)
         case .backgrounded:

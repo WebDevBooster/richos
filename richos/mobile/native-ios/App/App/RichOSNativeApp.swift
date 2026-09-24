@@ -16,10 +16,11 @@ struct RichOSNativeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store: AppStore?
     @State private var platform: PlatformEffects?
+    @State private var networkMonitor = NetworkMonitor()
 
     /// When the core is next owed a `tick`, while the app is on screen; `nil` otherwise.
     private var nextTick: Int64? {
-        guard scenePhase == .active, let store else { return nil }
+        guard scenePhase == .active, let store, store.ticking else { return nil }
         return TickSchedule.nextTick(store.state)
     }
 
@@ -89,7 +90,10 @@ struct RichOSNativeApp: App {
                 loaded.followPhone(SystemAppearance.current())
                 SystemAppearance.observe { loaded.followPhone($0) }
                 store = loaded
-                loaded.becameActive(at: SystemClock().nowMs())
+                if scenePhase == .active {
+                    networkMonitor.start(store: loaded)
+                    loaded.becameActive(at: SystemClock().nowMs())
+                } else { loaded.wentToBackground(at: SystemClock().nowMs()) }
                 await ShareIntake.takeWaiting(into: loaded, nowMs: SystemClock().nowMs())
             }
             .task(id: nextTick) {
@@ -108,6 +112,7 @@ struct RichOSNativeApp: App {
                 guard let store else { return }
                 switch phase {
                 case .active:
+                    networkMonitor.start(store: store)
                     // The OS's microphone answer is mirrored, never stored (PRD §3).
                     PlatformEffects.permissionMirror().forEach { store.send($0) }
                     store.followPhone(SystemAppearance.current())
@@ -115,6 +120,7 @@ struct RichOSNativeApp: App {
                     // What was shared while the app was away goes into the outbox now.
                     Task { await ShareIntake.takeWaiting(into: store, nowMs: SystemClock().nowMs()) }
                 case .background:
+                    networkMonitor.stop()
                     // Backgrounding keeps a recording in progress, never sends it (the core's rule).
                     store.wentToBackground(at: SystemClock().nowMs())
                 default:
