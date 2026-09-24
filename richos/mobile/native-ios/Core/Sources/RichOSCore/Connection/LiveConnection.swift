@@ -9,7 +9,7 @@ public protocol EventStreamTransport: Sendable {
 /// The one owner of the live stream (build plan §3.2; T3's single connection owner, adoption ledger
 /// §2.8 C1, written for RichOS's signed HTTP + SSE). One stream at a time; a superseded attempt never
 /// publishes; retries wait 1 s doubling to 30 s (the reference `web/web-app/lib/link.js`) and the wait
-/// resets once a frame proves the stream usable; before a retry the challenge is refreshed; after a
+/// resets when a stream opens, which is also when the phone is connected; before a retry the challenge is refreshed; after a
 /// failure a revocation probe tells "removed from the Mac" from "unreachable"; `: re-snapshot` ends
 /// the stream and the next one starts without `since`. Everything the stream learns reaches the
 /// store as actions, so the reducer stays the only place state changes.
@@ -99,6 +99,14 @@ public actor LiveConnection {
                     }
                     throw APIClient.classify(response)
                 }
+                guard mine == generation else { return }
+                // The stream is up when it opens: a 200 is a signature the Mac accepted. A reconnect
+                // with `since` is answered with only the frames it missed and no `hello` (the Mac's
+                // `Replay::Tail`, often empty), so waiting for a `hello` left "Reconnecting…" on a
+                // healthy stream (Sage's review T9). The reference's `accepted()`
+                // (`web/web-app/lib/link.js`) and Android's `Link(OPEN)`; it resets the back-off too.
+                delay = Self.firstRetryMs
+                await sink(.connected(at: clock.nowMs()))
                 var parser = SSEParser()
                 for try await chunk in bytes {
                     guard mine == generation else { return }
@@ -149,7 +157,6 @@ public actor LiveConnection {
             let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
             if let challenge = hello.challenge { await api.adopt(challenge: challenge) }
             if threadID == nil, let thread = hello.threadID { threadID = thread; model.selectedThread = thread }
-            await sink(.connected(at: clock.nowMs()))
             // An older Mac advertises nothing; only an explicit list without "text" means it cannot
             // take text (the preserved client's `!negotiated || offers('text')`).
             if let capabilities = hello.capabilities, !capabilities.isEmpty {

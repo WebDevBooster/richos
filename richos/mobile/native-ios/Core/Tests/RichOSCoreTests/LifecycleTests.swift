@@ -9,6 +9,8 @@ import Testing
 actor LifecycleStream: EventStreamTransport {
     enum Answer: Sendable {
         case open(chunks: [String])
+        /// Opens, delivers `chunks`, then drops (the Wi-Fi blinked).
+        case dropping(chunks: [String])
         case status(Int, challenge: String?)
         case unreachable
     }
@@ -33,6 +35,12 @@ actor LifecycleStream: EventStreamTransport {
         case .status(let status, let challenge):
             let headers = challenge.map { ["X-RichOS-Challenge": $0] } ?? [:]
             return (HTTPResponse(status: status, headers: headers), AsyncThrowingStream { $0.finish() })
+        case .dropping(let chunks):
+            let stream = AsyncThrowingStream<Data, Error> { continuation in
+                for chunk in chunks { continuation.yield(Data(chunk.utf8)) }
+                continuation.finish(throwing: ScriptedMac.TransportFailure())
+            }
+            return (HTTPResponse(status: 200, headers: ["X-RichOS-Challenge": "c-open"]), stream)
         case .open(let chunks):
             let stream = AsyncThrowingStream<Data, Error> { continuation in
                 // The Mac's keep-alives arrive on this socket for as long as it is open; the phone
@@ -220,6 +228,34 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
         #expect(await holds { await stream.opened.count == 1 }, "one connection owner, one stream")
         _ = await network.handle(.disconnect, state: s)
         #expect(await becomes { await stream.open == 0 }, "backgrounding closes every stream there is")
+    }
+
+    /// Sage's review T9 (richos-hq `e642db4f` §0), reproduced here: a reconnect with `since=` is
+    /// answered with only the frames it missed and no `hello` (`app/src-tauri/src/phone/routes.rs`,
+    /// `Replay::Tail`). The phone marked itself connected only on a `hello`, so after any drop the
+    /// quiet period ran out and "Reconnecting…" stayed on a healthy stream until the app next left
+    /// the screen. A stream is up when it opens (HTTP 200): the reference's `accepted()`
+    /// (`web/web-app/lib/link.js`) and Android's `Link(OPEN)` (`ConnectionOwner.kt`).
+    @Test func aReconnectAnsweredWithOnlyTheMissedFramesIsConnected() async throws {
+        let row = #"{"id":"turn_3:user","thread_id":"thr_5c1e","cursor":3,"role":"ceo","kind":"text","text":"On my way","complete":true}"#
+        let stream = LifecycleStream([
+            .dropping(chunks: [LifecycleStream.hello]),
+            .open(chunks: ["id: 3\nevent: message\ndata: \(row)\n\n"]),
+        ])
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+                                     sleep: Waits(instant: true).sleep)
+        let host = try await host(network, state: try paired())
+        _ = try await host.dispatch(.foregrounded(at: 1))
+        #expect(await becomes { let o = await stream.opened.count; let c = await stream.closed; return o == 2 && c == 0 },
+                "dropped once, reopened, and the reopened stream stays")
+        let resumed = try #require(await stream.opened.last)
+        #expect(resumed.target.contains("since=1"), "the reopening asked for the tail: \(resumed.target)")
+        #expect(await becomes { (try? await host.currentState())?.messages.contains { $0.id == "turn_3:user" } == true },
+                "the tail arrived")
+        let s = try await host.currentState()
+        #expect(s.troubleSinceMs == nil, "the reopened stream is connected; no Reconnecting… is owed")
+        #expect(s.connectionNotice == nil && TickSchedule.nextTick(s) == nil)
+        _ = try await host.dispatch(.backgrounded(at: 9))
     }
 
     /// A `disconnect` that lands between the new owner being recorded and its start must still win.
