@@ -23,6 +23,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -88,27 +89,29 @@ class StagedFiles(private val dir: File) : FileStore {
 }
 
 /**
- * One value in one file. A file this build cannot read is moved aside and never overwritten
- * (the outbox rule in the adoption ledger §2.8, C5); a missing file is the default value.
+ * One value in one file. Unreadable user work is preserved in place and reported to the UI.
+ * Only a genuinely missing file is a fresh default, including after a process restart.
  */
 class JsonFile<T>(private val file: File, private val serializer: KSerializer<T>, private val default: () -> T) {
     private val atomic = AtomicFile(file)
+    private var validated = false
 
     /** Fields a newer build added are skipped, not a reason to set the whole file aside. */
     private val json = Json(from = CoreJson) { ignoreUnknownKeys = true }
 
     suspend fun read(): T = withContext(Dispatchers.IO) {
-        if (!file.exists()) return@withContext default()
+        if (!file.exists() && !File(file.path + ".bak").exists()) return@withContext default()
         try {
-            json.decodeFromString(serializer, String(atomic.readFully(), Charsets.UTF_8))
+            json.decodeFromString(serializer, String(atomic.readFully(), Charsets.UTF_8)).also { validated = true }
         } catch (e: SerializationException) {
-            setAside()
+            throw IOException("Saved data could not be read. It has been preserved. Contact support before resetting the app.", e)
         } catch (e: IllegalArgumentException) {
-            setAside()
+            throw IOException("Saved data could not be read. It has been preserved. Contact support before resetting the app.", e)
         }
     }
 
     suspend fun write(value: T) = withContext(Dispatchers.IO) {
+        if (!validated) read() // Never overwrite an unreadable file, even before the first read.
         file.parentFile?.mkdirs()
         val stream = atomic.startWrite()
         try {
@@ -120,9 +123,4 @@ class JsonFile<T>(private val file: File, private val serializer: KSerializer<T>
         }
     }
 
-    private fun setAside(): T {
-        val aside = File(file.path + ".unreadable-" + System.currentTimeMillis())
-        check(file.renameTo(aside)) { "$file is unreadable and could not be moved aside" }
-        return default()
-    }
 }

@@ -94,13 +94,18 @@ class AppTest {
     }
 
     @Test
-    fun `an unreadable file is moved aside and never overwritten`() {
+    fun `unreadable work stays visible as an error and cannot be overwritten after restart`() {
         val dir = File(ApplicationProvider.getApplicationContext<RichApplication>().cacheDir, "jsonfile-test").apply { deleteRecursively(); mkdirs() }
         val file = File(dir, "session.json").apply { writeText("{not json") }
         val json = JsonFile(file, Session.serializer()) { Session() }
-        runBlocking { assertEquals(Session(), json.read()) }
-        val aside = dir.listFiles()!!.single { it.name.startsWith("session.json.unreadable-") }
-        assertEquals("{not json", aside.readText())
+        runBlocking {
+            try { json.read(); org.junit.Assert.fail("Expected storage error") } catch (_: java.io.IOException) {}
+            try { json.write(Session()); org.junit.Assert.fail("Expected storage error") } catch (_: java.io.IOException) {}
+            val reopened = JsonFile(file, Session.serializer()) { Session() }
+            try { reopened.read(); org.junit.Assert.fail("Expected storage error") } catch (_: java.io.IOException) {}
+            try { reopened.write(Session()); org.junit.Assert.fail("Expected storage error") } catch (_: java.io.IOException) {}
+        }
+        assertEquals("{not json", file.readText())
         runBlocking {
             val outbox = JsonFile(File(dir, "outbox.json"), ListSerializer(OutboxItem.serializer())) { emptyList() }
             outbox.write(listOf(OutboxItem(clientId = "a", threadId = "t", kind = "text", text = "x", queuedAt = "2023-11-14T22:13:20.000Z")))

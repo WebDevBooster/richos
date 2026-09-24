@@ -123,7 +123,7 @@ class MainActivity : ComponentActivity() {
                 }
             } else {
                 // Until the saved state is read (a few milliseconds): the ground, nothing else.
-                AppRoot(null, theme)
+                AppRoot(null, theme, problem = refusal)
             }
         }
         // A tapped reply notification opens that reply (platform/NotificationTaps.kt).
@@ -147,12 +147,14 @@ private fun ComponentActivity.cameraGranted(): Boolean =
  * of each theme (design/system/tokens.css §14/§15): 14.55:1 dark, 14.90:1 light, 18 sp.
  */
 @Composable
-fun AppRoot(state: AppState?, theme: Theme) {
+fun AppRoot(state: AppState?, theme: Theme, problem: String? = null) {
     val dark = theme == Theme.DARK
     val ground = if (dark) Color(0xFF0C1322) else Color(0xFFEAE6DD)
     val ink = if (dark) Color(0xFFDFE4EE) else Color(0xFF0C1322)
     Box(Modifier.fillMaxSize().background(ground).safeDrawingPadding(), contentAlignment = Alignment.Center) {
-        if (state != null) {
+        if (problem != null) {
+            BasicText(problem, Modifier.padding(24.dp), style = TextStyle(color = ink, fontSize = 18.sp))
+        } else if (state != null) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 val text = state.draft.ifEmpty { "Message Rich" }
                 BasicText(

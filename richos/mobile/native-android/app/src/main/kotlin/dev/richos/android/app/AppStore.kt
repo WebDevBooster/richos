@@ -6,6 +6,7 @@ import dev.richos.android.core.CoreError
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.VoicePhase
 import dev.richos.android.core.VoiceSession
+import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +33,7 @@ import kotlinx.coroutines.launch
 class AppStore(private val scope: CoroutineScope) {
     private val core = MutableStateFlow<RichCore?>(null)
     private val refusal = MutableStateFlow<String?>(null)
+    private var storageFailed = false
 
     /** Null until the core has opened its saved state; then every committed state. */
     val states: StateFlow<AppState?> = core
@@ -73,7 +75,7 @@ class AppStore(private val scope: CoroutineScope) {
      * attempt is spent on unchanged conditions; the wakeup is the link opening, whose own drain
      * sends what is owed then (T3's connection runtime, via the PWA's `online` handler).
      */
-    private fun outboxOwedInMs(s: AppState): Long? = if (s.paired && s.online) s.dueInMs else null
+    private fun outboxOwedInMs(s: AppState): Long? = if (s.paired && s.online && !storageFailed) s.dueInMs else null
 
     /** True while a timer drain is running: one at a time, however many states arrive meanwhile. */
     private var draining = false
@@ -83,7 +85,7 @@ class AppStore(private val scope: CoroutineScope) {
      * now's reset of the back-off. Also the action for a platform wakeup (the network came back).
      */
     private fun drain() {
-        if (draining) return
+        if (draining || storageFailed) return
         val target = core.value ?: return
         draining = true
         scope.launch {
@@ -91,6 +93,9 @@ class AppStore(private val scope: CoroutineScope) {
                 target.dispatch(Action.Sync)
             } catch (e: CoreError) {
                 refusal.value = e.message
+            } catch (_: IOException) {
+                storageFailed = true
+                refusal.value = "Could not save your changes. Your work has been kept; free storage and try again."
             } finally {
                 draining = false
             }
@@ -100,8 +105,13 @@ class AppStore(private val scope: CoroutineScope) {
     /** Opens the production core, unless something (the debug bridge) installed one first. */
     fun open(factory: suspend () -> RichCore) {
         scope.launch {
-            val opened = factory()
-            if (core.value == null) core.value = opened
+            try {
+                val opened = factory()
+                if (core.value == null) core.value = opened
+            } catch (e: IOException) {
+                storageFailed = true
+                refusal.value = e.message ?: "Saved data could not be read. It has been preserved. Contact support."
+            }
         }
     }
 
@@ -122,11 +132,17 @@ class AppStore(private val scope: CoroutineScope) {
         scope.launch {
             val refused = try {
                 target.dispatch(action)
+                storageFailed = false
                 refusal.value = null
                 null
             } catch (e: CoreError) {
                 refusal.value = e.message
                 e.message ?: "refused"
+            } catch (_: IOException) {
+                storageFailed = true
+                val message = "Could not save your changes. Your work has been kept; free storage and try again."
+                refusal.value = message
+                message
             }
             done?.invoke(refused)
         }
