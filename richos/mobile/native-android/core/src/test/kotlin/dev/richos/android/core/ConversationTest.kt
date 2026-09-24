@@ -60,6 +60,37 @@ class ConversationTest {
         assertEquals(4, s.messages.size)
     }
 
+    /**
+     * D02. A reply's opening row, its deltas and its completion share one frame id on the Mac
+     * (`phone/stream.rs`), and a reconnect asks from `since = frame - 1`, so every return to the
+     * app replays the last reply whole. A finished reply is final: the replay must neither turn
+     * it back into an arriving one nor append its words a second time.
+     */
+    @Test
+    fun `a replayed reply the phone already holds finished stays finished at every step`() = runTest {
+        val core = DevRuntime.create().also { it.execute(DevRequest.Fixture("online")) }.core
+        core.dispatch(Action.Receive(hello))
+        val finished = "On it! The proposal is with legal."
+        val replay = listOf(
+            frame(2, "message", row("turn_8:text:0", "general", 2, "rich", "", "streaming", false)),
+            frame(2, "delta", """{"message_id":"turn_8:text:0","thread_id":"general","cursor":2,"text":"On it! "}"""),
+            frame(2, "delta", """{"message_id":"turn_8:text:0","thread_id":"general","cursor":2,"text":"The proposal is with legal."}"""),
+            frame(2, "message", row("turn_8:text:0", "general", 2, "rich", finished)),
+        )
+        for (wire in replay) {
+            val last = core.dispatch(Action.Receive(wire)).messages.last()
+            assertEquals(finished, last.text, "the finished reply's words, unchanged, while its replay arrives")
+            assertTrue(last.complete, "a finished reply never shows as arriving again")
+        }
+        // A reply still arriving when the stream dropped IS still replaced by the Mac's rows.
+        core.dispatch(Action.Receive(frame(3, "message", row("turn_9:text:0", "general", 3, "rich", "", "streaming", false))))
+        core.dispatch(Action.Receive(frame(3, "delta", """{"message_id":"turn_9:text:0","thread_id":"general","cursor":3,"text":"Up 12"}""")))
+        core.dispatch(Action.Receive(frame(3, "message", row("turn_9:text:0", "general", 3, "rich", "", "streaming", false))))
+        assertEquals("", core.state.messages.last().text, "an arriving reply takes the Mac's row, as before")
+        core.dispatch(Action.Receive(frame(3, "delta", """{"message_id":"turn_9:text:0","thread_id":"general","cursor":3,"text":"Up 12% on Q3."}""")))
+        assertEquals("Up 12% on Q3.", core.state.messages.last().text)
+    }
+
     @Test
     fun `rows are kept per conversation and the screen shows only the selected one`() = runTest {
         val core = DevRuntime.create().also { it.execute(DevRequest.Fixture("online")) }.core
