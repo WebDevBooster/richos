@@ -271,6 +271,7 @@ public enum Reducer {
         case .foregrounded, .backgrounded:
             ConnectionReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)
+            ConversationReducer.reduce(&next, action, &effects)
         case .tick:
             ConnectionReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)

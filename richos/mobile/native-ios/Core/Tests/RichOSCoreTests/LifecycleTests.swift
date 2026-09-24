@@ -317,6 +317,41 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
         _ = try await host.dispatch(.backgrounded(at: 2))
     }
 
+    static func hello(rows: [String]) -> String {
+        "id: 7\nevent: hello\ndata: {\"challenge\":\"c-hello\",\"thread_id\":\"thr_5c1e\",\"capabilities\":[\"text\"],\"messages\":[\(rows.joined(separator: ","))]}\n\n"
+    }
+
+    /// Asked, locked the phone, came back after Rich finished. The stream that was carrying the reply
+    /// is gone and the new one sends the finished reply as history, never as "finished": before, the
+    /// three thinking dots (a full-rate animation) stayed under his answer until he next left the
+    /// app, claiming Rich was still working.
+    @Test func aReplyThatFinishedWhileAwayIsNotStillThinkingOnReturn() async throws {
+        let answer = #"{"id":"turn_1:text:0","thread_id":"thr_5c1e","cursor":2,"role":"rich","kind":"text","text":"Thursday is clear.","complete":true}"#
+        let stream = LifecycleStream([.open(chunks: [Self.hello(rows: [answer])])])
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+                                     sleep: Waits(instant: true).sleep)
+        let host = try await host(network, state: try Fixture.named("conv-replying").state)
+        #expect(try await host.currentState().reply == .thinking)
+        _ = try await host.dispatch(.backgrounded(at: 1))
+        _ = try await host.dispatch(.foregrounded(at: 2))
+        #expect(await becomes { (try? await host.currentState())?.messages.contains { $0.id == "turn_1:text:0" } == true })
+        #expect(try await host.currentState().reply == nil, "the answer is there; nothing is still thinking")
+        _ = try await host.dispatch(.backgrounded(at: 3))
+    }
+
+    /// The positive probe: a reply still being written when he comes back is shown as it is.
+    @Test func aReplyStillBeingWrittenOnReturnIsShown() async throws {
+        let partial = #"{"id":"turn_1:text:0","thread_id":"thr_5c1e","cursor":2,"role":"rich","kind":"text","text":"Thursday is","complete":false}"#
+        let stream = LifecycleStream([.open(chunks: [Self.hello(rows: [partial])])])
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+                                     sleep: Waits(instant: true).sleep)
+        let host = try await host(network, state: try Fixture.named("conv-replying").state)
+        _ = try await host.dispatch(.backgrounded(at: 1))
+        _ = try await host.dispatch(.foregrounded(at: 2))
+        #expect(await becomes { (try? await host.currentState())?.reply == .streaming(text: "Thursday is") })
+        _ = try await host.dispatch(.backgrounded(at: 3))
+    }
+
     /// A `disconnect` that lands between the new owner being recorded and its start must still win.
     @Test func aConnectionStoppedBeforeItStartedNeverStarts() async throws {
         let stream = LifecycleStream()
