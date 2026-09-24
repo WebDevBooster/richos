@@ -7,6 +7,7 @@ import dev.richos.android.core.protocol.Http
 import dev.richos.android.core.protocol.HttpRequest
 import dev.richos.android.core.protocol.HttpResponse
 import dev.richos.android.core.protocol.MacApi
+import dev.richos.android.core.protocol.MissingIdentity
 import dev.richos.android.core.protocol.Row
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -44,7 +45,14 @@ class ConnectionOwnerTest {
         }
     }
 
-    private suspend fun core(http: Http): RichCore {
+    /** A phone whose Keystore no longer holds its key (a restore, a reset lock screen): what KeystoreKeys throws then. */
+    private val lostKeys = object : DeviceKeys {
+        override suspend fun publicPoint(origin: String) = DevKeys.point
+        override suspend fun sign(origin: String, data: ByteArray): ByteArray = throw MissingIdentity(origin)
+        override suspend fun delete(origin: String) = Unit
+    }
+
+    private suspend fun core(http: Http, keys: DeviceKeys = this.keys): RichCore {
         var saved = Fixtures.fixture("offline").session
         return RichCore.open(
             Ports(
@@ -110,6 +118,37 @@ class ConnectionOwnerTest {
         runCurrent()
         assertEquals(1, streams.opened.size, "a revoked phone does not keep knocking")
         job.cancel()
+    }
+
+    /**
+     * andy-opus-idle1, 2026-09-24 (esc-20260924T001816Z-092b6ab3): a paired session whose Keystore
+     * key was gone crashed the app on every launch, the probe's signing throwing past a catch that
+     * only knew TransportFailure. It is the removed-from-Mac state instead: pair again.
+     */
+    @Test
+    fun `a paired phone whose key is gone is sent to pair again, and nothing crashes`() = runTest {
+        val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c2"), ByteArray(0)) }
+        val core = core(mac, lostKeys)
+        val streams = Streams()
+        val job = backgroundScope.launch { ConnectionOwner(core, MacApi(mac, lostKeys), streams).run() }
+        runCurrent()
+        assertEquals(false, core.state.paired)
+        assertEquals("revoked", core.state.pairing.problem)
+        assertEquals(ConnectionReason.REVOKED, core.state.connection.reason)
+        assertEquals(0, streams.opened.size, "no stream opens without a signature")
+        assertTrue(mac.seen.none { it.startsWith("GET /api/events") }, "no unsigned request reached the Mac")
+        advanceTimeBy(120_000)
+        runCurrent()
+        assertEquals(0, streams.opened.size, "and it does not keep knocking")
+        job.cancel()
+    }
+
+    @Test
+    fun `a signed request from a phone whose key is gone fails as revoked and sends nothing`() = runTest {
+        val mac = Mac { HttpResponse(404, emptyMap(), ByteArray(0)) }
+        val failure = runCatching { MacApi(mac, lostKeys).signed(Fixtures.ORIGIN, "dev_1", "c", "POST", "/api/messages", "{}".toByteArray()) }.exceptionOrNull()
+        assertTrue(failure is TransportFailure && failure.reason == "revoked" && !failure.retryable, "got $failure")
+        assertTrue(mac.seen.isEmpty(), "nothing unsigned was sent")
     }
 
     @Test

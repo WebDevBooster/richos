@@ -32,10 +32,17 @@ interface DeviceKeys {
     /** The 65-byte uncompressed public point, creating the key if there is none for [origin]. */
     suspend fun publicPoint(origin: String): ByteArray
 
+    /** Throws [MissingIdentity] when this phone holds no key for [origin]. */
     suspend fun sign(origin: String, data: ByteArray): ByteArray
 
     suspend fun delete(origin: String)
 }
+
+/**
+ * This phone has no identity for [origin] any more (the key is gone from the Keystore, or can no
+ * longer be used): it cannot prove who it is, so it must pair again.
+ */
+class MissingIdentity(origin: String) : IOException("no identity for $origin; pair again")
 
 /** The 200 answer to a pairing code (contract §2.3). Unknown keys are ignored. */
 @Serializable
@@ -103,7 +110,7 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
     suspend fun signed(apiBase: String, deviceId: String, challenge: String, method: String, pathWithQuery: String, body: ByteArray?, contentType: String? = null): Signed {
         var current = challenge
         repeat(2) { attempt ->
-            val raw = Signing.derToRaw(keys.sign(apiBase, Signing.signingString(current, method, pathWithQuery, body).toByteArray(Charsets.UTF_8)))
+            val raw = Signing.derToRaw(signature(apiBase, Signing.signingString(current, method, pathWithQuery, body).toByteArray(Charsets.UTF_8)))
             val headers = buildMap {
                 put("Authorization", Signing.authorization(deviceId, current, raw))
                 if (contentType != null) put("Content-Type", contentType)
@@ -133,7 +140,7 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
     suspend fun signedQuery(apiBase: String, deviceId: String, challenge: String, pathWithQuery: String): Signed {
         var current = challenge
         repeat(2) { attempt ->
-            val raw = Signing.derToRaw(keys.sign(apiBase, Signing.signingString(current, "GET", pathWithQuery, null).toByteArray(Charsets.UTF_8)))
+            val raw = Signing.derToRaw(signature(apiBase, Signing.signingString(current, "GET", pathWithQuery, null).toByteArray(Charsets.UTF_8)))
             val target = Signing.withAuthQuery(pathWithQuery, Signing.authorization(deviceId, current, raw))
             val response = exchange(HttpRequest("GET", apiBase + target, emptyMap(), null))
             val fresh = response.headers["x-richos-challenge"]
@@ -156,7 +163,25 @@ class MacApi(private val http: Http, private val keys: DeviceKeys) {
     }
 
     /** The device key's signature over [data] (ASN.1 DER, as the platform returns it). */
-    suspend fun sign(apiBase: String, data: ByteArray): ByteArray = keys.sign(apiBase, data)
+    suspend fun sign(apiBase: String, data: ByteArray): ByteArray = signature(apiBase, data)
+
+    /**
+     * Every signature goes through here, so no signing failure escapes as anything but a
+     * [TransportFailure]. A phone with no identity for the Mac cannot prove who it is: that is the
+     * Mac's `revoked` (final: pair again, the removed-from-Mac path), never a crash. Any other
+     * failure of the key store is a fault, retried like one.
+     */
+    private suspend fun signature(apiBase: String, data: ByteArray): ByteArray = try {
+        keys.sign(apiBase, data)
+    } catch (e: MissingIdentity) {
+        throw TransportFailure("revoked", retryable = false)
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: TransportFailure) {
+        throw e
+    } catch (e: Exception) {
+        throw TransportFailure("fault", retryable = true)
+    }
 
     /**
      * A fresh challenge without a credential: `GET /api/challenge` is not a route, and it answers
