@@ -12,6 +12,17 @@ enum PlatformIdentity {
     static var appGroup: String? { value("RichOSAppGroup") }
     /// `<team prefix>.<bundle id>.shared`: the Keychain group holding the reply-preview key.
     static var keychainGroup: String? { value("RichOSKeychainGroup") }
+    /// `<team prefix>.<bundle id>`: the app's own application identifier, which is always one of its
+    /// Keychain groups and is no extension's (each extension's application identifier is its own).
+    /// The device signing key lives here, where only the app can read it (security review I-4).
+    /// Derived from the shared group, which `Release/platform.yml` builds from the app's identifier
+    /// (`$(AppIdentifierPrefix)$(RICHOS_BUNDLE_ID).shared`; the share suite's S4 checks that
+    /// RICHOS_BUNDLE_ID is the app's). `nil` in an extension or wherever the names do not agree.
+    static var appOnlyKeychainGroup: String? {
+        guard let shared = keychainGroup, let bundleID = Bundle.main.bundleIdentifier,
+              shared.hasSuffix(".\(bundleID).shared") || shared == "\(bundleID).shared" else { return nil }
+        return String(shared.dropLast(".shared".count))
+    }
 
     /// The shared container, or `nil` when this build has no App Group (a unit test, or signing
     /// that dropped the entitlement). Callers say so in plain words; they never fall back to a

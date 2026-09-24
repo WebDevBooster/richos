@@ -36,6 +36,15 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
     /// The courier's source of voice-message bytes (the same files the recorder writes).
     var recordings: any RecordingStore { FileRecordingStore(directory: VoiceRecorder.defaultDirectory()) }
 
+    /// The device signing keys, in the app's own Keychain group (security review I-4). Only the app
+    /// signs: the Share extension passes no signed connection (`ShareViewController`, `transport:
+    /// nil`) and leaves every share for the app to send, and the notification extension reads only
+    /// the reply-preview key, which stays in the shared group. A key an earlier build left in the
+    /// shared group (the default then) is moved on first use.
+    static func identityStore() -> KeychainIdentityStore {
+        KeychainIdentityStore(accessGroup: PlatformIdentity.appOnlyKeychainGroup, legacyAccessGroup: PlatformIdentity.keychainGroup)
+    }
+
     /// What the app sends on launch and every time it becomes active, so the core's microphone state
     /// is always the OS's (PRD §3: no parallel permission state). Wired in `App/App` (stream I1).
     static func permissionMirror() -> [Action] {

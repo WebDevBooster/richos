@@ -29,7 +29,7 @@ extension AppStore: CommandHost {
         // relaunch that resumes effects shows "Pair again", which is right for a phone whose key is
         // gone (security review I-2) and wrong for a fixture.
         if newState.pairing == .paired, let origin = newState.mac?.origin {
-            _ = try? await KeychainIdentityStore().signer(for: origin)
+            _ = try? await PlatformEffects.identityStore().signer(for: origin)
         }
         await replaceOverwritingUnreadable(newState).value
         try check()
