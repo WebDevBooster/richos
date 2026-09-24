@@ -104,6 +104,21 @@
            screen at exactly the moment he needed it. They go away once he has answered: a
            fingerprint nobody is checking is chrome. -->
       <p class="phone-words" id="phone-paired-words" hidden></p>
+      <!-- THE PRESS ON THIS MAC, AND IT IS THE ONLY THING THAT LETS THE PHONE IN — Sage's pairing
+           review F1 (High), richos-hq docs/research/2026-09-24-richconnect-pairing-protocol-review.md.
+           The phone's own "They match" was the only confirmation the Mac ever recorded, and the
+           device being judged performed the judgment: anybody who saw the code on this screen
+           could pair first and confirm themselves. Until one of these two is pressed the phone's
+           key can answer the six words and do nothing else. "They do not match" is the same
+           teardown the phone's own answer runs. Both are kept out of the sheet's first focus
+           (data-no-autofocus): a pairing is not something a reflexive Return may settle. -->
+      <div class="desk-card-actions" id="phone-mac-answer" hidden>
+        <button id="phone-mac-match" class="desk-btn desk-btn--confirm" type="button" data-no-autofocus>They match</button>
+        <button id="phone-mac-mismatch" class="desk-btn" type="button" data-no-autofocus>They do not match</button>
+      </div>
+      <!-- THE SPENT-CODE ALARM, AFTER HE HAD ALREADY CONFIRMED (Sage F1 item 4, "keep it and
+           warn"): the phone stays, and he is told somebody else used its code. -->
+      <p class="overlay-note" id="phone-code-reused" role="status" hidden></p>
       <!-- THE ONE LINE ON THIS CARD WITH AN ERRAND IN IT. Either it says the phone can reach him
            — which is the finish — or it names the thing on the phone that has not been done yet,
            in that phone's own menu names. Both are the point of the card, and both were set in
@@ -149,7 +164,9 @@
          subtree that is re-inserted on every two-second poll is a subtree that can take the focus
          out of itself. -->
     <div id="phone-pairing" hidden>
-      <p id="phone-connect-pair-help" class="overlay-note" hidden>In the RichOS iPhone app, scan this code. On Android, scan the code to open the web app. Compare the six words before confirming.</p>
+      <!-- Sage's F9: Android has its own RichOS app now (CEO 76), so the line no longer sends
+           Android to the web app. -->
+      <p id="phone-connect-pair-help" class="overlay-note" hidden>In the RichOS app on your phone, scan this code. Then compare the six words on both screens.</p>
       <!-- IT IS HIDDEN AS A WHOLE WHEN THERE IS NO CODE. Every one of its children was already
            emptied on expiry (Ray's defect 3.3, and his defect B for the last of them); with the
            block at the top of the screen an empty wrapper is a gap where the thing he came for
@@ -173,10 +190,15 @@
            with the code; this one was missed, so it is now hidden by the same live test they
            are — and the control it names is Close, which is the button this sheet actually has
            (id phone-close, and the sheet's own data-dismiss). -->
-      <p class="overlay-note" id="phone-words-note">Your phone will show six words. They have to
-        be these six, in this order. If they are not, something other than this Mac answered —
-        press Close and tell me.</p>
-      <p class="phone-words" id="phone-words"></p>
+      <!-- AND THE WORDS ARE NOT HERE ANY MORE — Sage's review 3.1 steps 1 and 4. They used to be
+           printed beside the code before any phone had arrived, which made them carry nothing
+           the code itself does not: anybody who could see the code could see the words. They are
+           now derived over the key the phone actually registered, so they can only exist once a
+           phone has reached this Mac, and they appear on the paired card beside the two buttons
+           that answer them. -->
+      <p class="overlay-note" id="phone-words-note">Once your phone opens this code, six words
+        appear on it and on this Mac. If they are the same six, press They match here. If they are
+        not, press They do not match.</p>
       </div>
 
       <!-- THESE FOUR STEPS ARE THE CEO'S OWN, AND THEY OVERRIDE URBAN'S THREE.
@@ -599,10 +621,25 @@
   /// So the first of these is what is true at that moment, and it says what he is being asked
   /// to do rather than leaving him to infer it. The second is the finish, and it is reached
   /// only when the phone comes back over `POST /api/pair` with `fingerprint_confirmed: true`.
+  ///
+  /// **AND THE ANSWER THAT COUNTS IS NOW GIVEN HERE** — Sage's pairing review F1. The first
+  /// sentence used to end "then answer on the phone", and the phone's answer was the only one the
+  /// Mac recorded; a device that paired first with a code seen on a screen share answered for
+  /// itself. So the question is put on this Mac, beside the words and the two buttons. The third
+  /// sentence is the state after this Mac's press and before the phone's own answer arrives.
   const PAIRED_AWAITING_WORDS =
     "It has reached this Mac. Check that the six words on it are the six words below, then " +
-    "answer on the phone.";
+    "press They match.";
+  const PAIRED_AWAITING_PHONE =
+    "This Mac accepted it. Finish on your phone by pressing They match there too.";
   const PAIRED_CONFIRMED = "It is paired. Open Rich on it and keep talking.";
+
+  /// **THE SPENT-CODE ALARM, AFTER THE PRESS** (Sage F1 item 4): somebody used this phone's code
+  /// again after he had confirmed it here. The phone is kept; he is told, and pointed at the one
+  /// control that undoes it.
+  const CODE_REUSED_NOTE =
+    "Someone used this phone's pairing code again after you paired it. If you did not expect " +
+    "that, press Forget this phone and pair again where nobody else can see this screen.";
 
   /// **WHAT THE MAC SAYS WHEN THE PERSON PRESSES THE ALARM BUTTON** — Ray's nightly `.8` walk,
   /// defect 1.
@@ -614,12 +651,36 @@
   /// the phone.
   ///
   /// **It claims nothing the Mac has not finished doing.** `PhoneStatus.rejected` is set by
-  /// `PhoneRuntime::stop_because_the_phone_rejected_the_words`, after the device record is
+  /// `PhoneRuntime::stop_because_the_words_were_refused`, after the device record is
   /// already gone, and the port is closed within milliseconds of it (measured at 1 ms in
   /// `phone::listen::tests::they_do_not_match_over_the_wire_stops_the_listener`).
   const REJECTED_NOTE =
     "Your phone said the six words did not match, so I stopped answering, forgot the phone, " +
     "and deleted the certificate this Mac was serving.";
+
+  /// **WHO STOPPED IT DECIDES THE SENTENCE, AND NOTHING ELSE.** `status.rejectedBy`
+  /// (`device::StoppedBy`) since Sage's pairing review: the person can now refuse the words on
+  /// this Mac (F1), a second phone can use the same code (the spent-code alarm), and a pairing
+  /// nobody pressed before the window closed is forgotten (§3.1 step 6). Each is one sentence in
+  /// the same shape as the phone's — what happened, then the three things this Mac did — so the
+  /// screen, its heading and its one control are the same for all four. An unknown reason (a
+  /// record from an older build) gets the sentence that was the only one before.
+  const STOPPED_NOTES = {
+    phone: REJECTED_NOTE,
+    mac:
+      "You said the six words did not match, so I stopped answering, forgot the phone, and " +
+      "deleted the certificate this Mac was serving.",
+    "code-used-twice":
+      "A second phone used the same code, which means someone else may have seen it, so I " +
+      "stopped answering, forgot the phone that used it first, and deleted the certificate this " +
+      "Mac was serving.",
+    expired:
+      "Nobody pressed They match on this Mac within five minutes, so I stopped answering, forgot " +
+      "the phone, and deleted the certificate this Mac was serving.",
+  };
+  function stoppedNoteFor(by) {
+    return Object.prototype.hasOwnProperty.call(STOPPED_NOTES, by) ? STOPPED_NOTES[by] : REJECTED_NOTE;
+  }
 
   /// Which of the two the record selects. `via` is the token `device.rs` writes; anything that
   /// is not this build's own path — including an empty string from a record written before the
@@ -853,7 +914,7 @@
     // only thing that leaves it is the button on it, which is `phone_begin_pairing` — the same
     // call that clears the flag on the Mac.
     if (status.rejected) {
-      field("phone-rejected-note").textContent = REJECTED_NOTE;
+      field("phone-rejected-note").textContent = stoppedNoteFor(status.rejectedBy);
       field("phone-rejected").hidden = false;
       for (const id of [
         "phone-identity",
@@ -925,7 +986,13 @@
     // phone and set `rejected`, and the card would sit there reading `It has reached this Mac`
     // until he closed it by hand. It moves the confirming case too — `It is paired` now arrives
     // by itself rather than on the next open.
-    const askingAboutTheWords = status.paired && !status.fingerprintConfirmed;
+    //
+    // AND WHILE THIS MAC IS WAITING FOR ITS OWN PRESS (Sage F1): the window's timer keeps running
+    // on the Mac, and a pairing nobody answers in time is forgotten there, so the card has to move
+    // to the screen that says so by itself rather than keep offering two buttons that no longer do
+    // anything. It stops the moment the answer is in.
+    const askingAboutTheWords =
+      status.paired && (!status.fingerprintConfirmed || status.macConfirmed === false);
     setPolling(onConnect || waiting || ready || (pairing && !status.paired) || askingAboutTheWords);
 
     // **THE WATCH STARTS WHEN THE USER IS FIRST TOLD TO GO TO THEIR PHONE**, which is Screen 4 as
@@ -945,12 +1012,28 @@
       // so it waits for him to settle it. What is true before that is that the phone reached
       // this Mac and is asking him the question — so that is what the line says, and it names
       // the thing he is being asked to do rather than leaving him to work it out.
+      // SAGE F1: THE ANSWER THAT COUNTS IS GIVEN HERE. `macConfirmed === false` is a phone that
+      // reached this Mac and can do nothing until one of the two buttons below is pressed; the
+      // Mac sends the words for the key that phone registered, and only in this state. A status
+      // from a Mac that predates the field (`undefined`) is treated as confirmed, which is what
+      // that Mac did.
+      const awaitingMac = status.macConfirmed === false;
+      const words = (status.fingerprintWords || []).join("  ");
       field("phone-paired-state").textContent = status.listening === false
         ? "Your phone's pairing is saved. RichOS is trying to restore its connection."
+        : awaitingMac ? PAIRED_AWAITING_WORDS
         : status.fingerprintConfirmed ? PAIRED_CONFIRMED
-        : PAIRED_AWAITING_WORDS;
-      field("phone-paired-words").textContent = (status.fingerprintWords || []).join("  ");
-      field("phone-paired-words").hidden = status.fingerprintConfirmed;
+        : PAIRED_AWAITING_PHONE;
+      field("phone-paired-words").textContent = words;
+      field("phone-paired-words").hidden = !awaitingMac || !words;
+      field("phone-mac-answer").hidden = !awaitingMac || status.listening === false;
+      field("phone-code-reused").textContent = status.codeReused ? CODE_REUSED_NOTE : "";
+      field("phone-code-reused").hidden = !status.codeReused;
+      // Nothing about notifications, limits or forgetting while the pairing itself is still a
+      // question: those are about a phone that is paired, and "They do not match" is the way out.
+      for (const id of ["phone-push-state", "phone-ts-limit", "phone-forget-note", "phone-forget"]) {
+        field(id).hidden = awaitingMac;
+      }
       field("phone-push-state").textContent = status.pushTransport === "apns"
         ? "Manage reply notifications in the RichOS iPhone app under Settings."
         : status.pushReady
@@ -963,7 +1046,7 @@
       // defect 3.2.
       const pairedOverTailnet = status.pairedVia === "tailnet";
       field("phone-ts-limit").textContent = PAIRED_TAILNET_LIMIT;
-      field("phone-ts-limit").hidden = !pairedOverTailnet;
+      field("phone-ts-limit").hidden = awaitingMac || !pairedOverTailnet;
       field("phone-forget-note").textContent = onConnect ? "Forgetting this phone removes its access immediately. You can pair it again with a new code." : forgetNoteFor(status.pairedVia);
       return;
     }
@@ -1070,7 +1153,6 @@
     // the page that served the profile — and so is the address printed beside it.
     paint(field("phone-qr-pair"), live ? status.pairUrl : "");
     field("phone-pair-url").textContent = live ? status.pairUrl || "" : "";
-    field("phone-words").textContent = live ? (status.fingerprintWords || []).join("  ") : "";
     // The headings above those blocks go with them: a numbered step over an empty space is a
     // screen telling him to do something that is not there.
     field("phone-code-title").hidden = !live;
@@ -1224,8 +1306,10 @@
     // The PRIMARY control first — `Show me another code` on the pairing screen, `Set my phone up`
     // on "This Mac is ready", `I understand` on the identity trap — and Close when a screen has
     // no primary, which is the one every screen has.
+    // `data-no-autofocus` keeps the two answers to the six words out of it (Sage F1): a pairing
+    // is settled by a person who read the words, never by a Return pressed on arrival.
     const shown = [...sheet.querySelectorAll("button")].filter(
-      (node) => !node.disabled && node.offsetParent !== null
+      (node) => !node.disabled && node.offsetParent !== null && !node.hasAttribute("data-no-autofocus")
     );
     const first = shown.find((node) => node.classList.contains("desk-btn--confirm")) || shown[0];
     if (first) first.focus();
@@ -1391,6 +1475,30 @@
       busy = false;
     }
   });
+  // **THE TWO ANSWERS TO THE SIX WORDS, GIVEN ON THIS MAC** — Sage F1. "They match" is the only
+  // act that lets the phone reach Rich; "They do not match" is the same teardown the phone's own
+  // answer runs, and the screen that follows says who stopped it. Each renders the status the
+  // Mac returns, so the card never shows a state the Mac is not in.
+  async function answerTheWords(command) {
+    if (busy) return;
+    busy = true;
+    field("phone-message").textContent = "";
+    field("phone-mac-match").disabled = true;
+    field("phone-mac-mismatch").disabled = true;
+    try {
+      render(await bridge.invoke(command));
+    } catch (error) {
+      field("phone-message").textContent = String(error);
+      await refresh();
+    } finally {
+      busy = false;
+      field("phone-mac-match").disabled = false;
+      field("phone-mac-mismatch").disabled = false;
+    }
+  }
+  field("phone-mac-match").addEventListener("click", () => answerTheWords("phone_confirm_on_mac"));
+  field("phone-mac-mismatch").addEventListener("click", () => answerTheWords("phone_reject_on_mac"));
+
   // `Check again` — the button for the impatient and for the failure. The poll is invisible, and a
   // detection path with no manual retry is a dead end the moment detection is wrong once.
   field("phone-ts-recheck").addEventListener("click", refresh);
