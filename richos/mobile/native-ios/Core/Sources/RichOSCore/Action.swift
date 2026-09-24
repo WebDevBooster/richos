@@ -32,6 +32,9 @@ public enum Action: Equatable, Sendable {
     /// Continue on the consent screen (`pair-consent`).
     case acceptConsent
     case dismissPairingProblem
+    /// `pair-blocked`'s "Discard and pair": the unsent messages go (never to whichever Mac is paired
+    /// next), then the way to pair opens again.
+    case discardUnsentAndPair
     // sheets
     case openSheet(Sheet)
     case closeSheet
@@ -243,7 +246,8 @@ public enum Reducer {
         case .closeSheet:
             next.sheet = nil
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
-             .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem:
+             .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem,
+             .discardUnsentAndPair:
             PairingReducer.reduce(&next, action, &effects)
         case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked,
              .macAttachmentLimits, .pushRegistered:

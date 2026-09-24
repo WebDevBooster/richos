@@ -56,6 +56,8 @@ public enum ConversationReducer {
             pump(&s, at: at, &effects)
         case .retryNow(let at):
             for i in s.outbox.indices where s.outbox[i].state == .waiting { s.outbox[i].notBefore = 0 }
+            // "Send it first" in `pair-blocked` is this action: the choice is made, the dialog goes.
+            if case .blockedByUnsentWork = s.pairingProblem { s.pairingProblem = nil }
             pump(&s, at: at, &effects)
         case .discardMessage(let id):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == id }), s.outbox[i].state != .sending else { return }

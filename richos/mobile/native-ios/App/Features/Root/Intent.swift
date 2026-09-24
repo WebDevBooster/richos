@@ -119,6 +119,8 @@ enum Intent: Equatable, Sendable {
         case .rejectWords: return .rejectWords
         case .acceptConsent: return .acceptConsent
         case .keepPairing: return .dismissPairingProblem
+        case .discardAndPair: return .discardUnsentAndPair
+        case .sendWaitingFirst: return .retryNow(at: now)
         case .openSettings: return .openSheet(.settings)
         case .closeSheet, .closeDialog, .showWaiting: return .closeSheet
         case .openWhereMessagesGo, .learnMore: return .openSheet(.whereMessagesGo)

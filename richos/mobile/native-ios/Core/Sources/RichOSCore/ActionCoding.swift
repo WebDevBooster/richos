@@ -57,7 +57,7 @@ extension Action: Codable {
     public static let knownTypes = [
         "compose", "set-appearance",
         "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused", "pairing-unreachable",
-        "confirm-pair", "accept-consent", "dismiss-pairing-problem", "open-sheet", "close-sheet",
+        "confirm-pair", "accept-consent", "dismiss-pairing-problem", "discard-and-pair", "open-sheet", "close-sheet",
         "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
@@ -95,6 +95,7 @@ extension Action: Codable {
         case "confirm-pair": self = try need(w.matched, "matched") ? .confirmWords : .rejectWords
         case "accept-consent": self = .acceptConsent
         case "dismiss-pairing-problem": self = .dismissPairingProblem
+        case "discard-and-pair": self = .discardUnsentAndPair
         case "open-sheet": self = .openSheet(try need(w.sheet, "sheet"))
         case "close-sheet": self = .closeSheet
         case "send": self = .sendDraft(clientID: w.clientId ?? UUID().uuidString.lowercased(), at: now)
@@ -189,6 +190,7 @@ extension Action: Codable {
         case .rejectWords: w = Wire("confirm-pair"); w.matched = false
         case .acceptConsent: w = Wire("accept-consent")
         case .dismissPairingProblem: w = Wire("dismiss-pairing-problem")
+        case .discardUnsentAndPair: w = Wire("discard-and-pair")
         case .openSheet(let s): w = Wire("open-sheet"); w.sheet = s
         case .closeSheet: w = Wire("close-sheet")
         case .sendDraft(let c, let at): w = Wire("send"); w.clientId = c; w.at = at

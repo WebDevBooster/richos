@@ -47,7 +47,8 @@ struct ScreenModel: Equatable, Sendable {
 
     enum Dialog: Equatable, Sendable {
         case cameraDenied
-        case pairBlocked(waiting: Int)
+        /// `removed`: the Mac removed this phone, so the waiting messages can never be sent (Urban G2).
+        case pairBlocked(waiting: Int, removed: Bool)
         case forget
         case forgetBlocked(waiting: Int)
         case update(version: String, message: String)
@@ -280,7 +281,9 @@ extension ScreenModel {
         case .microphonePrompt?, nil:
             break  // the microphone question is the system's own alert, not ours to draw
         }
-        if case .blockedByUnsentWork(let count)? = s.pairingProblem { dialog = .pairBlocked(waiting: count) }
+        if case .blockedByUnsentWork(let count)? = s.pairingProblem {
+            dialog = .pairBlocked(waiting: count, removed: s.pairing == .revoked)
+        }
         if let update = s.update {
             switch update.prominence {
             case .banner: banner = UpdateBanner(version: update.version, message: update.message)

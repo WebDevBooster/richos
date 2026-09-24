@@ -103,7 +103,8 @@ public struct AppState: Codable, Equatable, Sendable {
         // The viewfinder flashes closed on the code it found, then the progress screen follows.
         case .connecting: return scanner == .found ? .pairScanner : .pairProgress
         case .confirming: return .pairWords
-        case .revoked: return .connectionRevoked
+        // "Pair again" opens the scanner over the removed screen; closing it comes back here.
+        case .revoked: return scanner == nil ? .connectionRevoked : .pairScanner
         case .paired:
             if !consentGiven { return .pairConsent }
             return messages.isEmpty && voice == nil && keptRecordings.isEmpty ? .conversationEmpty : .conversation

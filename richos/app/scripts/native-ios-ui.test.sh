@@ -107,7 +107,7 @@ let expect: [String: (M) -> Bool] = [
     "pair-progress": { $0.takeover == .pairProgress },
     "pair-words": { if case .pairWords(let w)? = $0.takeover { return w.count == 6 } else { return false } },
     "pair-refused": { $0.takeover == .pairIntro(problem: .refused) },
-    "pair-blocked": { if case .pairBlocked(let n)? = $0.dialog { return n >= 1 } else { return false } },
+    "pair-blocked": { if case .pairBlocked(let n, false)? = $0.dialog { return n >= 1 } else { return false } },
     "pair-stale": { $0.takeover == .pairStale },
     "pair-consent": { $0.takeover == .consent },
     "conv-empty": { $0.takeover == nil && $0.thread.isEmpty && $0.cards.isEmpty },
@@ -296,6 +296,19 @@ MainActor.assumeIsolated {
     let live = AppStore(state: retry, runner: EffectRunner(storage: MemoryStorage()))
     live.becameActive(at: Fixture.now + 1_000)
     check(live.state.messages.last?.delivery == .sending, "G11 a live app coming to the front tries the waiting message at once")
+}
+
+// G2 (Urban's audit §4.1): after the Mac removed this phone, "Pair again" with a message waiting asks
+// the removed-state question, which never offers Send.
+do {
+    var removed = try! Fixture.named("pair-blocked").state
+    removed.pairingProblem = nil
+    removed.pairing = .revoked
+    let asked = Reducer.reduce(removed, .openScanner).state
+    check(ScreenModel(state: asked).dialog == .pairBlocked(waiting: 1, removed: true), "G2 removed + Pair again: the removed-state dialog")
+    check(ScreenModel(state: asked).takeover == .removedFromMac, "G2 the removed screen stays under the dialog")
+    let paired = try! Fixture.named("pair-blocked").state
+    check(ScreenModel(state: paired).dialog == .pairBlocked(waiting: 1, removed: false), "G2 still paired: pair-blocked unchanged")
 }
 
 if failures > 0 { print("  \(failures) headless check(s) failed"); exit(1) }
