@@ -18,6 +18,8 @@
     phone-ios.py apps                              which RichConnect builds and test runners are installed
     phone-ios.py lock                              the phone's lock state
     phone-ios.py battery                           level, charging and external power
+    phone-ios.py syslog --seconds S --out FILE     the phone's log for S seconds, keeping ONLY lines that
+                                                   name RichOSNative or dev.richos.connect
 
 The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
 type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
@@ -31,15 +33,20 @@ Steps are JSON objects with "do" and, where needed, "id" (accessibility identifi
 true (a failure is logged, the list continues). A list that touches Tailscale may not take a shot,
 tree or audit: that screen is the person's own account.
 
-    launch{textSize} activate terminate home lock unlock sleep{seconds} mark{label} state audit
+    launch{textSize} activate terminate home lock{person: true} sleep{seconds} mark{label} state audit
     waitState{state: background|suspended|foreground|notRunning}
     wait tap exists gone value{equals} type{text, delete, focus} press{seconds, drag:[dx,dy]}
     swipe{direction} count{label, equals} alert{button} shot{name, screen} tree{name}
 
 `launch` may carry Apple's own text-size override (`textSize`, a UIContentSizeCategory name) and
 nothing else: the app under test stays the Release app. `audit` records XCTest's accessibility
-audit of the screen as it is. `unlock` presses Home twice and is only for a phone without a passcode; `lock` uses XCTest's lock
-button. `shot` keeps only the app unless "screen": true, so nothing else on a person's phone lands
+audit of the screen as it is.
+
+`lock` presses XCTest's lock button, and NOTHING in a script can open the phone again: measured on
+an iPhone SE, iOS 26.3.1, with no passcode set (2026-09-24), XCTest's Home press wakes the lock
+screen but does not open it, and XCTest cannot start its runner on a locked phone at all ("Device
+test exceeded its time limit"). So a `lock` step must say `"person": true` (a person is at the
+phone to press Home), and there is no `unlock` step. `shot` keeps only the app unless "screen": true, so nothing else on a person's phone lands
 in a record by accident; run `ocr-gate.sh` on any frame before it enters a record.
 
 Environment for `run`: RICHOS_IOS_DEVICE (the hardware UDID xcodebuild accepts) and
@@ -55,6 +62,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]  # the richos repository root
@@ -62,8 +70,8 @@ RIOS = ROOT / "richos/mobile/native-ios/bin/rios"
 OURS = ("dev.richos.connect", "dev.richos.native.ios", "dev.richos.mobile.integration")
 
 ACTIONS = {
-    "launch": {"textSize"}, "audit": set(), "activate": set(), "terminate": set(), "home": set(), "lock": set(),
-    "unlock": set(), "sleep": {"seconds"}, "mark": {"label"}, "state": set(),
+    "launch": {"textSize"}, "audit": set(), "activate": set(), "terminate": set(), "home": set(), "lock": {"person"},
+    "sleep": {"seconds"}, "mark": {"label"}, "state": set(),
     "waitState": {"state"}, "wait": set(), "tap": set(), "exists": set(), "gone": set(),
     "value": {"equals"}, "type": {"text", "delete", "focus"}, "press": {"seconds", "drag"},
     "swipe": {"direction"}, "count": {"label", "equals"}, "alert": {"button"},
@@ -112,6 +120,8 @@ def validate(steps):
             raise CannotAnswer(f"step {i} (swipe) needs direction up, down, left or right")
         if action == "waitState" and step.get("state") not in ("background", "suspended", "foreground", "notRunning"):
             raise CannotAnswer(f"step {i} (waitState) needs a state")
+        if action == "lock" and step.get("person") is not True:
+            raise CannotAnswer(f"step {i} (lock) needs \"person\": true: only a person can open the phone again")
         if action == "sleep" and not (isinstance(step.get("seconds"), (int, float)) and 0 < step["seconds"] <= 1800):
             raise CannotAnswer(f"step {i} (sleep) needs seconds between 0 and 1800")
         if "in" in step and step["in"] not in PLACES:
@@ -279,6 +289,50 @@ def battery(args):
                  "externalPower": values.get("ExternalConnected") == "true", "full": values.get("FullyCharged") == "true"})
 
 
+SYSLOG_KEEP = ("RichOSNative", "dev.richos.connect")
+
+
+def syslog(args):
+    """The phone's own log for RichConnect only, for a bounded interval. Every other line on a
+    person's phone is dropped before it reaches disk; the relay process is owned and stopped here."""
+    if not 1 <= args.seconds <= 3600:
+        raise CannotAnswer("--seconds must be 1 to 3600")
+    out = Path(args.out)
+    if not str(out.resolve()).startswith("/Volumes/E1TB/"):
+        raise CannotAnswer("--out must be on /Volumes/E1TB")
+    relay = subprocess.Popen(["idevicesyslog", "-u", args.device, "--no-colors"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, errors="replace")
+    kept = total = 0
+    deadline = time.monotonic() + args.seconds
+    try:
+        import selectors
+        sel = selectors.DefaultSelector()
+        sel.register(relay.stdout, selectors.EVENT_READ)
+        with open(out, "w") as f:
+            while time.monotonic() < deadline:
+                if not sel.select(timeout=max(0.0, min(1.0, deadline - time.monotonic()))):
+                    if relay.poll() is not None:
+                        break
+                    continue
+                line = relay.stdout.readline()
+                if not line:
+                    break
+                total += 1
+                if any(key in line for key in SYSLOG_KEEP):
+                    f.write(line)
+                    kept += 1
+    finally:
+        relay.terminate()
+        try:
+            relay.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            relay.kill()
+            relay.wait()
+    if total == 0:
+        raise CannotAnswer("the phone's log relay produced nothing (is the hardware UDID attached?)")
+    return emit({"out": str(out), "kept": kept, "read": total, "relayPid": relay.pid, "relayExit": relay.returncode})
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -291,11 +345,14 @@ def main(argv):
     r.add_argument("--stamp")
     sub.add_parser("parse-log").add_argument("log")
     sub.add_parser("pair-steps").add_argument("config")
-    for name in ("procs", "apps", "lock", "battery"):
+    for name in ("procs", "apps", "lock", "battery", "syslog"):
         s = sub.add_parser(name)
         s.add_argument("--device", required=True)
         if name == "procs":
             s.add_argument("--name", default="RichOSNative")
+        if name == "syslog":
+            s.add_argument("--seconds", type=float, required=True)
+            s.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
@@ -308,7 +365,8 @@ def main(argv):
                 return emit({"steps": parse_log(Path(args.log).read_text(errors="replace"))})
             except FileNotFoundError:
                 raise CannotAnswer(f"no log at {args.log}")
-        return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery}[args.command](args)
+        return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery,
+                "syslog": syslog}[args.command](args)
     except CannotAnswer as error:
         return emit({"error": str(error)}, 2)
     except subprocess.TimeoutExpired as error:

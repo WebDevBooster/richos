@@ -37,9 +37,10 @@
 #   N1-N5   phone-client: a foreign Mac that refuses the credential is the
 #           answer, one that ACCEPTS it exits non-zero; argument refusals
 #   K1-K5   flake-rate: counts, interleaving, a kept failing log, refusals
-#   I1-I11  phone-ios: a step list validated before any build, refusals, the
+#   I1-I15  phone-ios: a step list validated before any build, refusals, the
 #           per-step log read once each, no picture of the person's account,
-#           a reused build trusted only against its stamp
+#           a reused build trusted only against its stamp, no lock without a
+#           person to open it, a bounded log capture kept on the SSD
 #   X1      the committed fixtures still match their generator
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
@@ -555,6 +556,20 @@ mkdir -p "$TMP/Fake.app" && printf 'bytes' > "$TMP/Fake.app/RichOSNative"
 printf '{"artifact":"%s","sha256":"0000000000000000","commit":"abc","dirty":false}' "$TMP/Fake.app" > "$TMP/fake-stamp.json"
 run env RICHOS_IOS_DEVICE=x RICHOS_APPLE_TEAM=y python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test --prebuilt --stamp "$TMP/fake-stamp.json"
 expect "I11 a reused app whose bytes differ from its stamp is refused: identity or refuse" 2 "freshness mismatch"
+
+printf '%s' '[{"do":"launch"},{"do":"lock"}]' > "$TMP/ios-lock.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-lock.json"
+expect "I12 locking the phone without a person there to open it is refused" 2 "only a person can open the phone again"
+
+printf '%s' '[{"do":"unlock"}]' > "$TMP/ios-unlock.json"
+run python3 "$QA/phone-ios.py" check "$TMP/ios-unlock.json"
+expect "I13 there is no scripted unlock: XCTest's Home press does not open an iOS 26 lock screen" 2 "unknown step 'unlock'"
+
+run python3 "$QA/phone-ios.py" syslog --device x --seconds 0 --out /Volumes/E1TB/nonexistent-qa-test.txt
+expect "I14 a log capture with no interval is refused" 2 "--seconds must be 1 to 3600"
+
+run python3 "$QA/phone-ios.py" syslog --device x --seconds 5 --out "$TMP/syslog.txt"
+expect "I15 a log capture off the external SSD is refused before the relay starts" 2 "--out must be on /Volumes/E1TB"
 
 run env -u RICHOS_IOS_DEVICE python3 "$QA/phone-ios.py" run "$TMP/ios-ok.json" --out /Volumes/E1TB/nonexistent-qa-test
 expect "I5 run refuses without a named phone" 2 "set RICHOS_IOS_DEVICE"
