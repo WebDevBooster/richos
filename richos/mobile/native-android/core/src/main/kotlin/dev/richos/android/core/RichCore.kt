@@ -231,6 +231,7 @@ class RichCore private constructor(
             // The preserved core's rule: a protocol_version other than 1 means "use compatible
             // versions"; none at all is a Mac that predates the field and speaks version 1.
             unsupported = h.protocolVersion != null && h.protocolVersion != 1L
+            resnapshotRequested = unsupported
             val thread = h.threadId ?: s.selectedThreadId
             s.copy(
                 threads = h.threads.ifEmpty { s.threads },

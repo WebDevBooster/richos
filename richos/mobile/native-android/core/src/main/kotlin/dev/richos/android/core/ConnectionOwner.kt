@@ -120,7 +120,10 @@ class ConnectionOwner(
                                     core.dispatch(Action.Link(LinkStatus.OPEN))
                                 }
                             },
-                            onBytes = { core.receive(it) },
+                            onBytes = {
+                                core.receive(it)
+                                if (core.state.connection.reason == ConnectionReason.INCOMPATIBLE) throw IOException("incompatible protocol")
+                            },
                         )
                     } catch (e: IOException) {
                         // A dropped or refused stream: what it means is decided below.
@@ -128,10 +131,10 @@ class ConnectionOwner(
                 }
             }
             core.dispatch(Action.Link(LinkStatus.AWAY))
-            if (!opened) probeRevocation(apiBase, deviceId)
-            if (core.state.connection.reason == ConnectionReason.REVOKED) {
+            if (!opened && core.state.connection.reason != ConnectionReason.INCOMPATIBLE) probeRevocation(apiBase, deviceId)
+            if (core.state.connection.reason in setOf(ConnectionReason.REVOKED, ConnectionReason.INCOMPATIBLE)) {
                 // Terminal until paired again: wait for a new pairing rather than knocking forever.
-                core.states.first { it.connection.reason != ConnectionReason.REVOKED && it.paired }
+                core.states.first { it.connection.reason !in setOf(ConnectionReason.REVOKED, ConnectionReason.INCOMPATIBLE) && it.paired }
                 attempt = 0
                 continue
             }

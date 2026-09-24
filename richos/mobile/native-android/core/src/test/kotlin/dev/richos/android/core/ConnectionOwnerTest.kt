@@ -72,6 +72,24 @@ class ConnectionOwnerTest {
 
     private val hello = "id: 2\nevent: hello\ndata: {\"challenge\":\"from-hello\",\"thread_id\":\"general\",\"capabilities\":[\"text\"],\"messages\":[]}\n\n"
 
+    @Test fun incompatibleProtocolStopsRetryingAndReturnRequestsAFreshSnapshot() = runTest {
+        val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }
+        val core = core(mac)
+        val incompatible = hello.replace("\"capabilities\"", "\"protocol_version\":2,\"capabilities\"")
+        val streams = Streams({ open, bytes -> open(200); bytes(incompatible.toByteArray()) },
+            { open, bytes -> open(200); bytes(hello.toByteArray()); kotlinx.coroutines.awaitCancellation() })
+        val owner = ConnectionOwner(core, MacApi(mac, keys), streams)
+        val job = backgroundScope.launch { owner.run() }
+        runCurrent(); advanceTimeBy(3_600_000); runCurrent()
+        assertEquals(1, streams.opened.size)
+        assertEquals(ConnectionReason.INCOMPATIBLE, core.state.connection.reason)
+        owner.backgrounded(); runCurrent(); owner.foregrounded(); runCurrent()
+        assertEquals(2, streams.opened.size)
+        assertTrue("since=" !in streams.opened.last())
+        assertEquals(ConnectionReason.CONNECTED, core.state.connection.reason)
+        job.cancel()
+    }
+
     @Test
     fun `offline cancels attempts until a single foreground network return`() = runTest {
         val mac = Mac { HttpResponse(404, mapOf("x-richos-challenge" to "c"), ByteArray(0)) }

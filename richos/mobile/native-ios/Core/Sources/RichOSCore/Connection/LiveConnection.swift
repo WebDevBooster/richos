@@ -36,6 +36,7 @@ public actor LiveConnection {
     /// this actor before the `start` it followed (the app left the screen while the owner was being
     /// made) must still win.
     private var stopped = false
+    private struct IncompatibleProtocol: Error {}
     public private(set) var attempts = 0
 
     public static let firstRetryMs: Int64 = 1000
@@ -138,6 +139,8 @@ public actor LiveConnection {
                     }
                     if comments.contains(where: { $0.hasPrefix("re-snapshot") }) { resnapshot = true; break }
                 }
+            } catch is IncompatibleProtocol {
+                return
             } catch {
                 // fall through to the retry below
             }
@@ -200,6 +203,11 @@ public actor LiveConnection {
         if let id = event.id { lastFrameID = id }
         if event.event == "hello" {
             let hello = try CoreJSON.decode(StreamHello.self, from: Data(event.data.utf8))
+            if let version = hello.protocolVersion, version != 1 {
+                lastFrameID = nil
+                await sink(.macCapabilities(text: false, voice: false))
+                throw IncompatibleProtocol()
+            }
             if let challenge = hello.challenge { await api.adopt(challenge: challenge) }
             if threadID == nil, let thread = hello.threadID { threadID = thread; model.selectedThread = thread }
             // An older Mac advertises nothing; only an explicit list without "text" means it cannot

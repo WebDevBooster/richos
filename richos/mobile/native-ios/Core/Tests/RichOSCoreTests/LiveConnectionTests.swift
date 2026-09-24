@@ -37,6 +37,22 @@ actor Collected {
         return Data((cases[index]["wire_utf8"] as? String ?? "").utf8)
     }
 
+    @Test func incompatibleProtocolEndsWithoutAnyRetryAndDoesNotCheckpointItsCursor() async throws {
+        let stream = ScriptedStream([.init(response: HTTPResponse(status: 200), chunks: [
+            Data("id: 2\nevent: hello\ndata: {\"protocol_version\":2,\"messages\":[]}\n\n".utf8)
+        ])])
+        let api = APIClient(origin: "https://mac.example", deviceID: "device", challenge: "c",
+                            signer: SoftwareSigner(key: Corpus.testKey), transport: ScriptedMac([]))
+        let seen = Collected()
+        let connection = LiveConnection(api: api, stream: stream, threadID: "t",
+                                        sleep: { await seen.slept($0) }, sink: { await seen.add($0) })
+        await connection.start(); await connection.finished()
+        #expect(await stream.opened.count == 1)
+        #expect(await seen.sleeps.isEmpty)
+        #expect(await seen.actions.contains(.macCapabilities(text: false, voice: false)))
+        #expect(await connection.stopAndCheckpoint().lastFrameID == nil)
+    }
+
     @Test func aWholeTurnReachesTheStoreAsActionsThenARevocationStops() async throws {
         let turn = try wire(0)
         let bytes = [UInt8](turn)
