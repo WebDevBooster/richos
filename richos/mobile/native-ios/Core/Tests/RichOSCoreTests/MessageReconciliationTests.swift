@@ -35,6 +35,20 @@ import Testing
         #expect(restored.messages.last?.id == reply.id, "the final reply must not wait for another action to enter the cache")
     }
 
+    @Test func replayCanRenumberHistoryWithoutDuplicatingANewSend() throws {
+        var s = try Fixture.named("conv-empty").state
+        s.messages = [Message(id: "old:user", author: .me, text: "again", sentAt: 0, cursor: 10)]
+        s.draft = "again"
+        s = Reducer.reduce(s, .sendDraft(clientID: "c1", at: 1)).state
+        s = Reducer.reduce(s, .deliveryAccepted(clientID: "c1", at: 2)).state
+        // History positions differ from live positions and can restart at one.
+        s = Reducer.reduce(s, .messagesArrived([
+            Message(id: "old:user", author: .me, text: "again", sentAt: 0, cursor: 1),
+            Message(id: "new:user", author: .me, text: "again", sentAt: 2, cursor: 2)
+        ])).state
+        #expect(s.messages.map(\.id) == ["old:user", "new:user"])
+    }
+
     @Test func repeatedWordsRemainSeparateThroughReplayedRowsAndRelaunch() throws {
         var s = try Fixture.named("conv-empty").state
         let old = Message(id: "old:user", author: .me, text: "again", sentAt: 0, cursor: 1)

@@ -160,7 +160,8 @@ public enum ConversationReducer {
         s.outbox.append(OutboxItem(clientID: clientID, kind: .text,
                                    body: textBody(clientID: clientID, threadID: s.mac?.threadID, text: text, sentAt: at),
                                    queuedAt: at))
-        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting, clientID: clientID, echoAfterCursor: s.messages.compactMap(\.cursor).max() ?? 0))
+        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting, clientID: clientID, echoAfterCursor: s.messages.compactMap(\.cursor).max() ?? 0,
+                                      echoAfterMessageID: s.messages.last(where: { $0.cursor != nil })?.id))
         s.draft = ""
         s.toast = nil
         // Both send gestures resume following immediately (PRD §5).
@@ -217,7 +218,8 @@ public enum ConversationReducer {
                 let row = s.messages[index]
                 guard row.author == .me, row.id != local.id, row.clientID != row.id else { return false }
                 if let clientID = row.clientID { return clientID == local.id }
-                if let floor = local.echoAfterCursor, (row.cursor ?? 0) <= floor { return false }
+                let boundary = local.echoAfterMessageID.flatMap { id in s.messages.first(where: { $0.id == id })?.cursor }
+                if let floor = boundary ?? local.echoAfterCursor, (row.cursor ?? 0) <= floor { return false }
                 return row.text == local.text && row.kind == local.kind
                     && (row.attachments?.count ?? 0) == (local.attachments?.count ?? 0)
             }
