@@ -470,6 +470,26 @@ def _():
     assert ios.parse_xctrace_signposts(xml, "useful-content") == [812000000, 900000000]
 
 
+@case("P1 pacing waits until the emulator's host process is under 1.5 cores, gives up at 30 s, and says so")
+def _():
+    with tempfile.TemporaryDirectory() as cache:
+        assert perf.emulator_pacer(cache) == (None, [])  # no emulator record: no pacing, no guess
+        with open(os.path.join(cache, "emulator.json"), "w") as f:
+            json.dump({"pid": 4242, "serial": "emulator-5580"}, f)
+        now = [0.0]
+
+        def sleep(s):
+            now[0] += s
+        cpu = iter([0.0, 6.5, 6.5, 9.0, 9.0, 9.4])  # 6.5 cores, then 2.5, then 0.4 over one second
+        pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(cpu))
+        pace()
+        assert waits == [{"waitedSeconds": 3.0, "cores": 0.4, "quiet": True}], waits
+        busy = iter([float(i * 5) for i in range(100)])  # always 5 cores
+        pace, waits = perf.emulator_pacer(cache, sleep=sleep, clock=lambda: now[0], cpu_seconds=lambda: next(busy))
+        pace()
+        assert waits[0]["quiet"] is False and waits[0]["waitedSeconds"] >= 30, waits
+
+
 # ---------------------------------------------------------------------------------------------
 # the mobile CLIs hand the tool what makes a measurement trustworthy
 # ---------------------------------------------------------------------------------------------

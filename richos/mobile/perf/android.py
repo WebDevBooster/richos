@@ -426,11 +426,15 @@ class Measure:
     """One run's measurements against one device. Each method returns what it measured, with
     rejected trials and their reasons, or raises Unmeasurable with its sentence."""
 
-    def __init__(self, device, log=lambda s: None, settle_s=2.0):
+    def __init__(self, device, log=lambda s: None, settle_s=2.0, pace=None):
         self.d = device
         self.bridge = Bridge(device)
         self.log = log
         self.settle_s = settle_s
+        # Before each trial and window: wait until the device is quiet (an emulator's host process
+        # below the pacing limit). Also what keeps back-to-back launches under the Mac's CPU circuit
+        # breaker, which stops an emulator above 3 cores for 10 s (engine cpu_guard.py).
+        self.pace = pace or (lambda: None)
         self.rooted = False
         self.rooted_by_us = False
 
@@ -536,6 +540,7 @@ class Measure:
     def cold(self, trials, newest_text=None):
         first, useful, rejected = [], [], []
         for i in range(trials):
+            self.pace()
             self.d.sh(f"am force-stop {PACKAGE}")
             self.d.sleep(1.0)
             since = self.d.uptime_epoch()
@@ -570,6 +575,7 @@ class Measure:
         self.foreground()
         self.d.sleep(self.settle_s)
         for i in range(trials):
+            self.pace()
             pid = self.d.pid()
             self.home()
             self.d.sleep(away_s)
@@ -592,6 +598,7 @@ class Measure:
         samples, settled, rejected, frames = [], [], [], []
         pid = self.d.pid()
         for i in range(trials):
+            self.pace()
             probe = f"perf probe {i + 1}"
             self.bridge.action({"type": "compose", "text": probe})
             self.d.sleep(1.0)
@@ -619,6 +626,7 @@ class Measure:
 
     # -- idle frames -------------------------------------------------------------------------------
     def idle(self, seconds):
+        self.pace()
         self.gfx_reset()
         self.d.sleep(seconds)
         window = self.gfx()

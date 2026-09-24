@@ -134,6 +134,43 @@ def lease_toucher(cache):
     return touch
 
 
+def emulator_pacer(cache, sleep=time.sleep, limit_cores=1.5, timeout_s=30.0, clock=time.monotonic, cpu_seconds=None):
+    """Wait until the emulator's host process (its pid in <cache>/emulator.json, written by
+    randroid) has used under `limit_cores` over a one-second sample, at most `timeout_s`. Returns
+    (pace, waits): pace() blocks, waits lists each wait. (None, []) with no emulator record."""
+    try:
+        with open(os.path.join(cache, "emulator.json")) as f:
+            pid = int(json.load(f)["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, []
+    waits = []
+
+    def read_cpu():
+        out = subprocess.run(["ps", "-o", "time=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+        if not out:
+            return None
+        seconds = 0.0
+        for part in out.replace("-", ":").split(":"):
+            seconds = seconds * 60 + float(part)
+        return seconds
+    read = cpu_seconds or read_cpu
+
+    def pace():
+        start = clock()
+        while True:
+            a = read()
+            sleep(1.0)
+            b = read()
+            if a is None or b is None:
+                waits.append({"waitedSeconds": round(clock() - start, 1), "cores": None, "note": "emulator process not readable"})
+                return
+            cores = max(0.0, b - a)
+            if cores < limit_cores or clock() - start >= timeout_s:
+                waits.append({"waitedSeconds": round(clock() - start, 1), "cores": round(cores, 2), "quiet": cores < limit_cores})
+                return
+    return pace, waits
+
+
 def metric(method, samples=None, budget=None, **extra):
     m = {"method": method}
     if samples is not None:
@@ -195,7 +232,10 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
     build, device, uid = android_identity(dev, stamp, args.kind)
     if host is None and args.kind == "emulator":
         host = host_sampler()
-    m = android.Measure(dev, log=log, settle_s=args.settle)
+    pace, waits = (None, [])
+    if args.kind == "emulator" and args.lease and not runner:
+        pace, waits = emulator_pacer(args.lease)
+    m = android.Measure(dev, log=log, settle_s=args.settle, pace=pace)
     record = {"schema": perfcore.SCHEMA, "platform": "android", "startedAt": now_iso(),
               "tool": {"path": "richos/mobile/perf/perf.py", **perfcore.source_identity(REPO, ["richos/mobile/perf"])},
               "build": build, "device": device, "metrics": {}, "phases": {}, "notMeasured": []}
@@ -357,6 +397,12 @@ def run_android(args, runner=None, sleep=None, host=None, touch=None, log=None):
         if args.theme != "device":
             restore = "yes" if "yes" in night else ("auto" if "auto" in night else "no")
             dev.sh(f"cmd uimode night {restore}", check=False)
+    if waits:
+        record["device"].setdefault("host", {})["pacing"] = {
+            "rule": "before each trial and window, wait until the emulator's host process used under 1.5 cores "
+                    "over one second (at most 30 s); keeps the run under the Mac's CPU circuit breaker",
+            "waits": len(waits), "totalWaitSeconds": round(sum(w["waitedSeconds"] for w in waits), 1),
+            "notQuiet": sum(1 for w in waits if w.get("quiet") is False)}
     record["notMeasured"].extend(android_gaps(record, args))
     samples = len((record["metrics"].get("coldLaunch") or {}).get("samplesMs") or [])
     record["acceptance"] = perfcore.acceptance(args.kind, not build["debuggable"], samples)

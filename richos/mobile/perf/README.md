@@ -41,8 +41,13 @@ uncommitted changes. An emulator is measured only through `randroid emu perf` (i
 serial and its device lease); `emu adb <args>` is the same passthrough for one-off QA reads.
 
 **The emulator lease is 15 minutes** (`engine/scripts/lib/testdevices.py`: 900 s lifetime, 300 s
-idle). The tool renews the idle lease as it works; a default run takes about 9 minutes after
-`emu prepare`. Use `--only` to split a larger run across boots.
+idle). The tool renews the idle lease as it works. **The Mac's CPU circuit breaker**
+(`engine/scripts/lib/cpu_guard.py`) stops an emulator whose host process stays above 3 cores for
+10 s, and back-to-back cold launches did exactly that on 2026-09-24 (qemu at 5.9–7.0 cores, three
+runs stopped at the third launch). So before every trial and window the tool waits until the
+emulator's host process used under 1.5 cores over one second (at most 30 s), and the record's
+`device.host.pacing` says how long it waited. Use `--only` to split a run that would outlive the
+lease across boots.
 
 ## What each number is
 
