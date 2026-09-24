@@ -381,7 +381,7 @@ if [ -f "$MARKER" ]; then
     fi
     UNPACK=1
   fi
-elif [ -d "$FOLDER" ] && [ -n "$(ls -A "$FOLDER" 2>/dev/null)" ]; then
+elif [ -d "$FOLDER" ] && [ -n "$(find "$FOLDER" -mindepth 1 -maxdepth 1 -print 2>/dev/null | head -1)" ]; then
   die "refusing: $FOLDER holds files this launcher did not put there (no $MARKER_NAME). It is not replaced by anything; move it aside yourself."
 else
   [ "$AGAIN" -eq 0 ] || die "refusing: folder $SLOT holds no nightly yet; name the ZIP to install one."
@@ -410,7 +410,8 @@ if [ "$UNPACK" -eq 1 ]; then
     echo "zip=$(basename "$ZIP")"
     echo "zip_sha256=$ZIP_SHA"
     echo "unpacked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  } > "$MARKER.tmp" && mv "$MARKER.tmp" "$MARKER" || die "could not record what was unpacked in $MARKER."
+  } > "$MARKER.tmp" || die "could not write $MARKER.tmp."
+  mv "$MARKER.tmp" "$MARKER" || die "could not record what was unpacked in $MARKER."
   UPDATED="$(plist_value "$NHOME/Applications/RichOS.app/Contents/Info.plist" CFBundleShortVersionString)"
   if [ -n "$UPDATED" ] && [ "$UPDATED" != "$ZIP_VERSION" ]; then
     warn "this folder updated itself to $UPDATED earlier ($NHOME/Applications/RichOS.app). The app starts that copy instead when it is newer than $ZIP_VERSION."
@@ -438,8 +439,8 @@ link "$NHOME/.local/bin/claude"  "$REAL_HOME/.local/bin/claude"
 # Copied on every start, so a change to your sign-in reaches the nightly; whatever the
 # nightly's claude wrote into its copy is disposable.
 ( umask 077; cp "$REAL_HOME/.claude.json" "$NHOME/.claude.json.tmp" ) \
-  && mv "$NHOME/.claude.json.tmp" "$NHOME/.claude.json" \
   || die "could not copy $REAL_HOME/.claude.json into $NHOME."
+mv "$NHOME/.claude.json.tmp" "$NHOME/.claude.json" || die "could not put the copy of .claude.json in place in $NHOME."
 
 # ---------------------------------------------------------------------------------------
 # Folder b: a small memory folder carrying the roster page
@@ -462,9 +463,9 @@ if [ "$SLOT" = "b" ]; then
     fi
   else
     ( umask 077; mkdir -p "$FOLDER/memory/wiki" "$FOLDER/memory/loro" ) || die "cannot create $FOLDER/memory."
-    cp "$ROSTER" "$FOLDER/memory/$ROSTER_RELATIVE.tmp" \
-      && mv "$FOLDER/memory/$ROSTER_RELATIVE.tmp" "$FOLDER/memory/$ROSTER_RELATIVE" \
-      || die "could not copy the roster page into $FOLDER/memory."
+    cp "$ROSTER" "$FOLDER/memory/$ROSTER_RELATIVE.tmp" || die "could not copy the roster page into $FOLDER/memory."
+    mv "$FOLDER/memory/$ROSTER_RELATIVE.tmp" "$FOLDER/memory/$ROSTER_RELATIVE" \
+      || die "could not put the roster page in place in $FOLDER/memory."
   fi
   ( umask 077; mkdir -p "$NHOME/Library/Application Support/RichOS" ) || die "cannot create the memory pointer's folder."
   link "$NHOME/Library/Application Support/RichOS/loro-root" "$FOLDER/memory"

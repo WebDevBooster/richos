@@ -124,21 +124,31 @@ tmp_clean() {  # <case>
 H="$(new_home h1)"; F="$H/myrichos-nightly-a"
 run "$H" a "$ZIPS/v1.zip"
 if [ "$RC" -ne 0 ]; then bad "L1 folder a starts from a ZIP" "exit $RC: $OUT"; else ok "L1 folder a starts from a ZIP"; fi
-grep -q '^slot=a version=1.2.0-nightly.20260921.25 commit=c0ffee1.2.0-nightly.20260921.25 pid=4242$' <<<"$OUT" \
-  && ok "L1 prints the slot, the version, the commit and the pid of the started app" \
-  || bad "L1 prints the slot, the version, the commit and the pid of the started app" "$OUT"
-[ ! -e "$F/RichOS.app" ] && [ ! -e "$F/home" ] \
-  && ok "L1 the app and its home sit in .noindex folders, so Spotlight never offers this copy beside his own" \
-  || bad "L1 the app and its home sit in .noindex folders" "$(ls -la "$F")"
-[ -d "$F/app.noindex/RichOS.app/Contents/MacOS" ] && ok "L1 the app is unpacked into the folder" || bad "L1 the app is unpacked into the folder" "$(ls -la "$F")"
+if grep -q '^slot=a version=1.2.0-nightly.20260921.25 commit=c0ffee1.2.0-nightly.20260921.25 pid=4242$' <<<"$OUT"; then
+  ok "L1 prints the slot, the version, the commit and the pid of the started app"
+else
+  bad "L1 prints the slot, the version, the commit and the pid of the started app" "$OUT"
+fi
+if [ ! -e "$F/RichOS.app" ] && [ ! -e "$F/home" ]; then
+  ok "L1 the app and its home sit in .noindex folders, so Spotlight never offers this copy beside his own"
+else
+  bad "L1 the app and its home sit in .noindex folders" "$(ls -la "$F")"
+fi
+if [ -d "$F/app.noindex/RichOS.app/Contents/MacOS" ]; then
+  ok "L1 the app is unpacked into the folder"
+else
+  bad "L1 the app is unpacked into the folder" "$(ls -la "$F")"
+fi
 M="$F/nightly-launch.txt"
 if grep -qx 'version=1.2.0-nightly.20260921.25' "$M" 2>/dev/null \
    && grep -qx "zip_sha256=$(shasum -a 256 "$ZIPS/v1.zip" | cut -d' ' -f1)" "$M"; then
   ok "L1 the folder records the version and the ZIP's digest"
 else bad "L1 the folder records the version and the ZIP's digest" "$(cat "$M" 2>&1)"; fi
-[ "$(stat -f %Lp "$F")" = "700" ] && [ "$(stat -f %Lp "$F/home.noindex")" = "700" ] \
-  && ok "L1 the folder and its home are private (0700), as the updater's ancestor check wants" \
-  || bad "L1 the folder and its home are private (0700)" "$(stat -f '%Lp %N' "$F" "$F/home.noindex")"
+if [ "$(stat -f %Lp "$F")" = "700" ] && [ "$(stat -f %Lp "$F/home.noindex")" = "700" ]; then
+  ok "L1 the folder and its home are private (0700), as the updater's ancestor check wants"
+else
+  bad "L1 the folder and its home are private (0700)" "$(stat -f '%Lp %N' "$F" "$F/home.noindex")"
+fi
 LINKS_OK=1
 for pair in ".claude:$H/.claude" "Library/Keychains:$H/Library/Keychains" ".local/bin/claude:$H/.local/bin/claude"; do
   l="${pair%%:*}"; t="${pair#*:}"
@@ -148,9 +158,11 @@ done
 if [ -f "$F/home.noindex/.claude.json" ] && [ ! -L "$F/home.noindex/.claude.json" ] && cmp -s "$F/home.noindex/.claude.json" "$H/.claude.json"; then
   ok "L1 ~/.claude.json is COPIED, not linked"
 else bad "L1 ~/.claude.json is COPIED, not linked" "$(ls -la "$F/home.noindex/.claude.json" 2>&1)"; fi
-[ ! -e "$F/memory" ] && [ ! -e "$F/home.noindex/Library/Application Support/RichOS/loro-root" ] \
-  && ok "L1 folder a is a newborn: no memory folder, no memory pointer" \
-  || bad "L1 folder a is a newborn" "$(ls -la "$F" "$F/home.noindex/Library/Application Support/RichOS" 2>&1)"
+if [ ! -e "$F/memory" ] && [ ! -e "$F/home.noindex/Library/Application Support/RichOS/loro-root" ]; then
+  ok "L1 folder a is a newborn: no memory folder, no memory pointer"
+else
+  bad "L1 folder a is a newborn" "$(ls -la "$F" "$F/home.noindex/Library/Application Support/RichOS" 2>&1)"
+fi
 A="$H.state/open.args"
 if [ "$(sed -n 1p "$A")" = "-n" ] && [ "$(sed -n 2p "$A")" = "-a" ] && [ "$(sed -n 3p "$A")" = "$F/app.noindex/RichOS.app" ]; then
   ok "L1 opens a NEW instance of the folder's own app through LaunchServices"
@@ -170,15 +182,26 @@ elif grep -q 'NIGHTLY_TEST_CANARY' "$E"; then bad "L1 nothing from the calling s
 elif ! grep -qx 'PATH=/usr/bin:/bin:/usr/sbin:/sbin' "$E"; then bad "L1 open gets launchd's PATH, not the shell's" "$(grep '^PATH=' "$E")"
 elif ! grep -qx "TMPDIR=$F/home.noindex/tmp/" "$E"; then bad "L1 open's TMPDIR is the folder's own" "$(grep '^TMPDIR=' "$E")"
 else ok "L1 open runs under env -i: launchd's PATH, the folder's TMPDIR, and no variable from the calling shell"; fi
-[ -d "$F/home.noindex/tmp" ] && [ "$(stat -f %Lp "$F/home.noindex/tmp")" = "700" ] \
-  && ok "L1 the folder's own TMPDIR exists and is private" || bad "L1 the folder's own TMPDIR exists and is private" "$(ls -la "$F/home.noindex")"
-grep -q '^CLAUDE_CONFIG_DIR' "$A" && bad "L1 CLAUDE_CONFIG_DIR is never passed" "$(grep CLAUDE_CONFIG_DIR "$A")" \
-  || ok "L1 CLAUDE_CONFIG_DIR is never passed"
-grep -qx -- "--stdout" "$A" && grep -q "^$F/logs/" "$A" && ok "L1 the app's output goes to the folder's own logs/" \
-  || bad "L1 the app's output goes to the folder's own logs/" "$(tr '\n' ' ' < "$A")"
-[ "$(cat "$H/myrichos/keep.txt")" = "daily driver data" ] && [ "$(ls -A "$H/myrichos")" = "keep.txt" ] \
-  && ok "L1 ~/myrichos beside it is untouched (a sibling name is not inside it)" \
-  || bad "L1 ~/myrichos beside it is untouched" "$(ls -la "$H/myrichos")"
+if [ -d "$F/home.noindex/tmp" ] && [ "$(stat -f %Lp "$F/home.noindex/tmp")" = "700" ]; then
+  ok "L1 the folder's own TMPDIR exists and is private"
+else
+  bad "L1 the folder's own TMPDIR exists and is private" "$(ls -la "$F/home.noindex")"
+fi
+if grep -q '^CLAUDE_CONFIG_DIR' "$A"; then
+  bad "L1 CLAUDE_CONFIG_DIR is never passed" "$(grep CLAUDE_CONFIG_DIR "$A")"
+else
+  ok "L1 CLAUDE_CONFIG_DIR is never passed"
+fi
+if grep -qx -- "--stdout" "$A" && grep -q "^$F/logs/" "$A"; then
+  ok "L1 the app's output goes to the folder's own logs/"
+else
+  bad "L1 the app's output goes to the folder's own logs/" "$(tr '\n' ' ' < "$A")"
+fi
+if [ "$(cat "$H/myrichos/keep.txt")" = "daily driver data" ] && [ "$(ls -A "$H/myrichos")" = "keep.txt" ]; then
+  ok "L1 ~/myrichos beside it is untouched (a sibling name is not inside it)"
+else
+  bad "L1 ~/myrichos beside it is untouched" "$(ls -la "$H/myrichos")"
+fi
 tmp_clean "L1 the launcher's scratch is gone after it exits"
 
 # ---------------------------------------------------------------------------------------
@@ -193,8 +216,11 @@ run "$H" a "$ZIPS/v1.zip"
 if [ "$RC" -eq 0 ] && [ -e "$F/app.noindex/RichOS.app/sentinel" ]; then
   ok "L2 the same ZIP again starts the app already there, without unpacking it again"
 else bad "L2 the same ZIP again starts the app already there" "exit $RC, sentinel $( [ -e "$F/app.noindex/RichOS.app/sentinel" ] && echo kept || echo gone): $OUT"; fi
-grep -qx changed "$F/home.noindex/.claude.json" && ok "L2 ~/.claude.json is copied afresh at every start" \
-  || bad "L2 ~/.claude.json is copied afresh at every start" "$(cat "$F/home.noindex/.claude.json")"
+if grep -qx changed "$F/home.noindex/.claude.json"; then
+  ok "L2 ~/.claude.json is copied afresh at every start"
+else
+  bad "L2 ~/.claude.json is copied afresh at every start" "$(cat "$F/home.noindex/.claude.json")"
+fi
 quit_app "$H"
 
 # ---------------------------------------------------------------------------------------
@@ -203,23 +229,31 @@ quit_app "$H"
 BEFORE_MARKER="$(cat "$M")"
 run "$H" a "$ZIPS/v2.zip"
 expect_refusal "L3 a folder holding another version is refused without --replace" "holds 1.2.0-nightly.20260921.25"
-[ "$(cat "$M")" = "$BEFORE_MARKER" ] && [ -e "$F/app.noindex/RichOS.app/sentinel" ] \
-  && ok "L3 the refusal changed nothing: same app, same record" || bad "L3 the refusal changed nothing" "$(cat "$M")"
+if [ "$(cat "$M")" = "$BEFORE_MARKER" ] && [ -e "$F/app.noindex/RichOS.app/sentinel" ]; then
+  ok "L3 the refusal changed nothing: same app, same record"
+else
+  bad "L3 the refusal changed nothing" "$(cat "$M")"
+fi
 mkdir -p "$F/home.noindex/Library/Application Support/com.richos.app"
 printf 'conversation\n' > "$F/home.noindex/Library/Application Support/com.richos.app/data.txt"
 run "$H" a "$ZIPS/v2.zip" --replace
 if [ "$RC" -eq 0 ] && grep -qx 'version=1.2.0-nightly.20260924.1' "$M" && [ ! -e "$F/app.noindex/RichOS.app/sentinel" ]; then
   ok "L4 --replace swaps the app and records the new version"
 else bad "L4 --replace swaps the app and records the new version" "exit $RC: $OUT / $(cat "$M")"; fi
-[ "$(cat "$F/home.noindex/Library/Application Support/com.richos.app/data.txt" 2>/dev/null)" = "conversation" ] \
-  && ok "L4 --replace keeps the folder's data" || bad "L4 --replace keeps the folder's data" "data gone"
+if [ "$(cat "$F/home.noindex/Library/Application Support/com.richos.app/data.txt" 2>/dev/null)" = "conversation" ]; then
+  ok "L4 --replace keeps the folder's data"
+else
+  bad "L4 --replace keeps the folder's data" "data gone"
+fi
 quit_app "$H"
 mkdir -p "$F/home.noindex/Applications/RichOS.app/Contents"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.2.0-nightly.20260930.1" "$F/home.noindex/Applications/RichOS.app/Contents/Info.plist" >/dev/null
 run "$H" a "$ZIPS/v1.zip" --replace
-grep -q 'updated itself to 1.2.0-nightly.20260930.1' <<<"$OUT" \
-  && ok "L4 --replace says so when the folder's own updater installed a different version" \
-  || bad "L4 --replace warns about the updater's copy" "$OUT"
+if grep -q 'updated itself to 1.2.0-nightly.20260930.1' <<<"$OUT"; then
+  ok "L4 --replace says so when the folder's own updater installed a different version"
+else
+  bad "L4 --replace warns about the updater's copy" "$OUT"
+fi
 quit_app "$H"
 run "$H" status
 if grep -q 'unpacked: 1.2.0-nightly.20260921.25' <<<"$OUT" && grep -q 'updated in place to: 1.2.0-nightly.20260930.1' <<<"$OUT" \
@@ -233,7 +267,11 @@ else bad "L4 status shows what folder a holds" "$OUT"; fi
 H="$(new_home h5)"
 run "$H" a "$ZIPS/nope.zip"
 expect_refusal "L5 a missing ZIP is refused" "no such ZIP"
-[ ! -e "$H/myrichos-nightly-a" ] && ok "L5 ...and nothing was created" || bad "L5 nothing was created" "$(ls -la "$H")"
+if [ ! -e "$H/myrichos-nightly-a" ]; then
+  ok "L5 ...and nothing was created"
+else
+  bad "L5 nothing was created" "$(ls -la "$H")"
+fi
 run "$H" a
 expect_refusal "L5 no ZIP at all is refused" "name the nightly ZIP"
 run "$H" a "$ZIPS/notzip.zip"
@@ -242,7 +280,11 @@ run "$H" a "$ZIPS/extra.zip"
 expect_refusal "L6 a zip holding more than RichOS.app is refused" "holds more than RichOS.app"
 run "$H" a "$ZIPS/wrongid.zip"
 expect_refusal "L6 an app that is not com.richos.app is refused" "com.example.other"
-[ ! -e "$H/myrichos-nightly-a" ] && ok "L6 ...and none of them created the folder" || bad "L6 none created the folder" "$(ls -la "$H")"
+if [ ! -e "$H/myrichos-nightly-a" ]; then
+  ok "L6 ...and none of them created the folder"
+else
+  bad "L6 none created the folder" "$(ls -la "$H")"
+fi
 run "$H" c "$ZIPS/v1.zip"
 expect_refusal "L6 a folder other than a or b is refused" "a or b"
 tmp_clean "L6 refusals leave no scratch behind"
@@ -253,7 +295,11 @@ tmp_clean "L6 refusals leave no scratch behind"
 H="$(new_home h7)"; mkdir -p "$H/myrichos-nightly-a"; printf 'his\n' > "$H/myrichos-nightly-a/notes.txt"
 run "$H" a "$ZIPS/v1.zip" --replace
 expect_refusal "L7 a folder holding files this launcher did not put there is refused, even with --replace" "did not put there"
-[ "$(ls -A "$H/myrichos-nightly-a")" = "notes.txt" ] && ok "L7 ...and its contents are untouched" || bad "L7 contents untouched" "$(ls -A "$H/myrichos-nightly-a")"
+if [ "$(ls -A "$H/myrichos-nightly-a")" = "notes.txt" ]; then
+  ok "L7 ...and its contents are untouched"
+else
+  bad "L7 contents untouched" "$(ls -A "$H/myrichos-nightly-a")"
+fi
 
 # ---------------------------------------------------------------------------------------
 # L8 — anything under ~/myrichos
@@ -265,7 +311,11 @@ expect_refusal "L8 a ZIP under ~/myrichos is refused" "under ~/myrichos"
 mkdir -p "$H/myrichos/nightly"; ln -s "$H/myrichos/nightly" "$H/myrichos-nightly-a"
 run "$H" a "$ZIPS/v1.zip"
 expect_refusal "L8 a folder that is a symlink into ~/myrichos is refused" "under ~/myrichos"
-[ -z "$(ls -A "$H/myrichos/nightly")" ] && ok "L8 ...and nothing was written into ~/myrichos" || bad "L8 nothing written into ~/myrichos" "$(ls -A "$H/myrichos/nightly")"
+if [ -z "$(ls -A "$H/myrichos/nightly")" ]; then
+  ok "L8 ...and nothing was written into ~/myrichos"
+else
+  bad "L8 nothing written into ~/myrichos" "$(ls -A "$H/myrichos/nightly")"
+fi
 rm "$H/myrichos-nightly-a"
 ln -s "$H/myrichos" "$H/linked-daily"
 run "$H" a "$H/linked-daily/v1.zip"
@@ -273,8 +323,11 @@ expect_refusal "L8 a ZIP reached through a symlink to ~/myrichos is refused" "un
 printf '# roster\n' > "$H/myrichos/roster.md"
 run "$H" b "$ZIPS/v1.zip" --roster "$H/myrichos/roster.md"
 expect_refusal "L8 a roster page under ~/myrichos is refused" "under ~/myrichos"
-[ "$(cat "$H/myrichos/keep.txt")" = "daily driver data" ] && ok "L8 the daily driver's folder still holds exactly its own file" \
-  || bad "L8 the daily driver's folder is untouched" "$(ls -la "$H/myrichos")"
+if [ "$(cat "$H/myrichos/keep.txt")" = "daily driver data" ]; then
+  ok "L8 the daily driver's folder still holds exactly its own file"
+else
+  bad "L8 the daily driver's folder is untouched" "$(ls -la "$H/myrichos")"
+fi
 
 # ---------------------------------------------------------------------------------------
 # L9 — folder b and the roster page
@@ -282,22 +335,35 @@ expect_refusal "L8 a roster page under ~/myrichos is refused" "under ~/myrichos"
 H="$(new_home h9)"; F="$H/myrichos-nightly-b"
 run "$H" b "$ZIPS/v1.zip"
 expect_refusal "L9 folder b without a roster page in the record is refused, naming the page" "wiki/team-roster.md"
-[ ! -e "$H.state/open.args" ] && ok "L9 ...and nothing was started" || bad "L9 nothing was started" "$(cat "$H.state/open.args")"
+if [ ! -e "$H.state/open.args" ]; then
+  ok "L9 ...and nothing was started"
+else
+  bad "L9 nothing was started" "$(cat "$H.state/open.args")"
+fi
 printf '# Team roster\nFrank: devil'"'"'s advocate.\n' > "$H/record/wiki/team-roster.md"
 run "$H" b "$ZIPS/v1.zip"
 if [ "$RC" -eq 0 ] && cmp -s "$F/memory/wiki/team-roster.md" "$H/record/wiki/team-roster.md" && [ -d "$F/memory/loro" ]; then
   ok "L9 folder b carries the roster page from the record the daily driver reads, in a record-shaped memory folder"
-else bad "L9 folder b carries the roster page" "exit $RC: $OUT / $(ls -laR "$F/memory" 2>&1 | head)"; fi
+else bad "L9 folder b carries the roster page" "exit $RC: $OUT / $(find "$F/memory" 2>&1 | head)"; fi
 P="$F/home.noindex/Library/Application Support/RichOS/loro-root"
-[ -L "$P" ] && [ "$(readlink "$P")" = "$F/memory" ] && ok "L9 folder b's memory pointer names its own memory folder, never the record" \
-  || bad "L9 folder b's memory pointer names its own memory folder" "$(ls -la "$P" 2>&1)"
-[ "$(readlink "$H/Library/Application Support/RichOS/loro-root")" = "$H/record" ] \
-  && ok "L9 the daily driver's own pointer is unchanged" || bad "L9 the daily driver's pointer is unchanged" "$(ls -la "$H/Library/Application Support/RichOS")"
+if [ -L "$P" ] && [ "$(readlink "$P")" = "$F/memory" ]; then
+  ok "L9 folder b's memory pointer names its own memory folder, never the record"
+else
+  bad "L9 folder b's memory pointer names its own memory folder" "$(ls -la "$P" 2>&1)"
+fi
+if [ "$(readlink "$H/Library/Application Support/RichOS/loro-root")" = "$H/record" ]; then
+  ok "L9 the daily driver's own pointer is unchanged"
+else
+  bad "L9 the daily driver's pointer is unchanged" "$(ls -la "$H/Library/Application Support/RichOS")"
+fi
 quit_app "$H"
 printf '# other roster\n' > "$SBOX/other-roster.md"
 run "$H" b --again --roster "$SBOX/other-roster.md"
-[ "$RC" -eq 0 ] && cmp -s "$F/memory/wiki/team-roster.md" "$SBOX/other-roster.md" \
-  && ok "L9 --roster names another page, and --again restarts folder b without a ZIP" || bad "L9 --roster and --again" "exit $RC: $OUT"
+if [ "$RC" -eq 0 ] && cmp -s "$F/memory/wiki/team-roster.md" "$SBOX/other-roster.md"; then
+  ok "L9 --roster names another page, and --again restarts folder b without a ZIP"
+else
+  bad "L9 --roster and --again" "exit $RC: $OUT"
+fi
 quit_app "$H"
 run "$H" a "$ZIPS/v1.zip" --roster "$SBOX/other-roster.md"
 expect_refusal "L9 --roster on folder a is refused (a newborn carries no memory)" "folder a is a newborn"
@@ -317,7 +383,7 @@ unset STUB_LAUNCHD_CCD
 expect_refusal "L10 CLAUDE_CONFIG_DIR in launchd's environment is refused" "launchctl getenv"
 for piece in .claude.json Library/Keychains .local/bin/claude .claude; do
   H="$(new_home "h11-$(echo "$piece" | tr '/.' '__')")"
-  rm -rf "$H/$piece"
+  rm -rf "${H:?}/${piece:?}"
   run "$H" a "$ZIPS/v1.zip"
   expect_refusal "L11 a missing ~/$piece is refused by name" "$H/$piece does not exist"
 done
