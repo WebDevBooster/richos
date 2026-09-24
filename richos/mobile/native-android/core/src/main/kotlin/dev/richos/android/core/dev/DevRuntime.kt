@@ -363,6 +363,29 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.Receive(frame(2, "message", row("t1:text:0", 2, "rich", "On it! Done.", "complete")))))
                 check(s.messages.size == 2 && s.messages.last().text == "On it! Done." && s.messages.last().complete, "the Mac's final row wins")
             }
+            // D02: a reconnect replays the last reply whole (one frame id for its opening row, deltas
+            // and completion; `since` is inclusive). The finished reply stays finished at every step,
+            // and a restart restores it finished.
+            "reply-replay" -> {
+                step(DevRequest.Fixture("online"))
+                fun row(text: String, state: String) =
+                    """{"id":"t1:text:0","thread_id":"general","cursor":2,"role":"rich","kind":"text","text":"$text",""" +
+                        """"created_at":"2023-11-14T22:13:20.000Z","has_audio":false,"from_microphone":false,""" +
+                        """"state":"$state","complete":${state != "streaming"}}"""
+                fun frame(event: String, data: String) = "id: 2\nevent: $event\ndata: $data\n\n"
+                fun delta(text: String) = frame("delta", """{"message_id":"t1:text:0","thread_id":"general","cursor":2,"text":"$text"}""")
+                val finished = "On it! Done."
+                var s = step(DevRequest.Dispatch(Action.Receive(frame("hello",
+                    """{"challenge":"${Fixtures.CHALLENGE}","thread_id":"general","latest_cursor":2,"threads":[{"id":"general","title":"General"}],""" +
+                        """"capabilities":["text"],"build":"1.2.0","messages":[${row(finished, "complete")}]}"""))))
+                check(s.messages.single().complete, "hello brings the finished reply")
+                for (wire in listOf(frame("message", row("", "streaming")), delta("On it! "), delta("Done."), frame("message", row(finished, "complete")))) {
+                    s = step(DevRequest.Dispatch(Action.Receive(wire)))
+                    check(s.messages.single().text == finished && s.messages.single().complete, "a replayed reply never shows as arriving again")
+                }
+                s = step(DevRequest.Restart)
+                check(s.messages.single().text == finished && s.messages.single().complete, "a restart restores the finished reply")
+            }
             // Mode 1, hold to record: the 200 ms press, the hold, the release that sends; then a tap
             // that is too short to be a message.
             "voice-hold-send" -> {
@@ -552,7 +575,7 @@ class DevRuntime private constructor(
     companion object {
         val SCENARIOS: List<String> =
             listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused",
-                "pair-v1-mac-refused", "pair-wait-expires", "pair-mac-declined", "stream-turn", "reconnect-notice", "voice-hold-send",
+                "pair-v1-mac-refused", "pair-wait-expires", "pair-mac-declined", "stream-turn", "reply-replay", "reconnect-notice", "voice-hold-send",
                 "voice-lock-interrupt", "settings-forget", "update-policy", "load-older")
 
         suspend fun create(
