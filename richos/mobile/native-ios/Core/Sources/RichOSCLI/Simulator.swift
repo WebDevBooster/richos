@@ -6,7 +6,7 @@
 //     uses `booted`, which resolves to whichever device happens to be running — another agent's.
 //   * It boots with `simctl boot`, which starts no Simulator window; nothing appears on the Mac's
 //     screen (ceo-decisions §65).
-//   * `sim stop` shuts that simulator down AND deletes it: a leftover simulator is garbage (§54).
+//   * `sim stop` releases the exclusive lease and shuts it down, retaining the prepared OS.
 //   * Device data uses Apple's default simulator storage, the exception the owner approved for the
 //     preserved app when an external device set failed with EPERM (richos/mobile/DEVELOPMENT.md,
 //     "Registered repository proofs"); build output stays in the external cache.
@@ -32,6 +32,7 @@ struct SimReport: Encodable {
     var markersPresentInDebug: [String]?
     var tools: [String: String]?
     var deleted: String?
+    var retained: String?
     var note: String?
     /// Wall milliseconds per step, so every run reports its own L2 cost.
     var timingsMs: [String: Double]?
@@ -76,7 +77,7 @@ final class Simulator {
 
     func run(_ command: String, _ arg: String?) async throws -> SimReport {
         var report: SimReport
-        if !["stop", "doctor", "build", "check-release"].contains(command), let udid = recordedDevice(),
+        if !["prepare", "ui-test", "stop", "doctor", "build", "check-release"].contains(command), let udid = recordedDevice(),
            try allDevices().contains(where: { $0["udid"] as? String == udid }) {
             try registerOwner(udid)
         }
@@ -152,11 +153,8 @@ final class Simulator {
         return groups.values.flatMap { $0 }
     }
 
-    /// The recorded simulator if it still exists; otherwise a new one, recorded.
+    /// Lease the shared prepared simulator for this device type and runtime.
     func device() throws -> String {
-        if let udid = recordedDevice(), try allDevices().contains(where: { $0["udid"] as? String == udid }) {
-            return udid
-        }
         let runtimesJSON = try Tool.run("xcrun", ["simctl", "list", "runtimes", "--json"]).stdout
         let runtimes = ((try JSONSerialization.jsonObject(with: Data(runtimesJSON.utf8)) as? [String: Any])?["runtimes"] as? [[String: Any]] ?? [])
             .filter { ($0["isAvailable"] as? Bool) == true && (($0["name"] as? String)?.hasPrefix("iOS") ?? false) }
@@ -168,8 +166,10 @@ final class Simulator {
         guard let type = types.first(where: { $0["name"] as? String == Self.deviceTypeName })?["identifier"] as? String else {
             throw CoreError("device type '\(Self.deviceTypeName)' is not installed")
         }
-        let key = cache.lastPathComponent
-        let udid = try Tool.run("xcrun", ["simctl", "create", "RichOS native-ios \(key)", type, runtime]).stdout
+        let collector = root.appendingPathComponent("../../engine/scripts/lib/testdevices.py").standardizedFileURL
+        let checkout = root.appendingPathComponent("../../..").standardizedFileURL
+        let udid = try Tool.run("python3", [collector.path, "acquire-ios", "--type", type, "--runtime", runtime,
+                                          "--checkout", checkout.path]).stdout
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         try CoreJSON.encode(["udid": udid, "runtime": runtime, "type": type]).write(to: deviceRecord, options: .atomic)
@@ -179,8 +179,7 @@ final class Simulator {
     private func registerOwner(_ udid: String) throws {
         let collector = root.appendingPathComponent("../../engine/scripts/lib/testdevices.py").standardizedFileURL
         let checkout = root.appendingPathComponent("../../..").standardizedFileURL
-        try Tool.run("python3", [collector.path, "register", "--kind", "ios-simulator", "--id", udid,
-                                 "--checkout", checkout.path, "--script", "rios"])
+        try Tool.run("python3", [collector.path, "use-ios", "--id", udid, "--checkout", checkout.path])
     }
 
     func boot() throws -> String {
@@ -314,7 +313,7 @@ final class Simulator {
                                         "-destination", "platform=iOS Simulator,id=\(udid)",
                                         "-derivedDataPath", derivedData.path,
                                         "-clonedSourcePackagesDirPath", cache.appendingPathComponent("SourcePackages").path,
-                                        "-resultBundlePath", bundle.path, "-parallel-testing-enabled", "NO",
+                                        "-resultBundlePath", bundle.path,
                                         "CODE_SIGN_IDENTITY=-", "test"], log: log("ui-test"))
         }
         let summary = try Tool.run("xcrun", ["xcresulttool", "get", "test-results", "summary", "--path", bundle.path]).stdout
@@ -358,17 +357,14 @@ final class Simulator {
                          markersAbsentFromRelease: Self.developmentMarkers, markersPresentInDebug: present)
     }
 
-    /// Terminates the app, shuts the simulator down and deletes it.
+    /// Ends the lease and shuts down the device, retaining its prepared OS.
     func stop() throws -> SimReport {
         guard let udid = recordedDevice() else { return SimReport(note: "no simulator recorded; nothing to stop") }
-        if try allDevices().contains(where: { $0["udid"] as? String == udid }) {
-            _ = try? Tool.run("xcrun", ["simctl", "terminate", udid, Self.bundleID])
-            let state = try allDevices().first(where: { $0["udid"] as? String == udid })?["state"] as? String
-            if state != "Shutdown" { try Tool.run("xcrun", ["simctl", "shutdown", udid]) }
-            try Tool.run("xcrun", ["simctl", "delete", udid])
-        }
+        let collector = root.appendingPathComponent("../../engine/scripts/lib/testdevices.py").standardizedFileURL
+        let checkout = root.appendingPathComponent("../../..").standardizedFileURL
+        try Tool.run("python3", [collector.path, "release-ios", "--id", udid, "--checkout", checkout.path])
         try FileManager.default.removeItem(at: deviceRecord)
-        return SimReport(deleted: udid)
+        return SimReport(retained: udid, note: "shut down; prepared OS retained for the next run")
     }
 
     func doctor() throws -> SimReport {
