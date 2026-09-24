@@ -105,7 +105,8 @@ class RichApplication : Application() {
                         core.dispatch(Action.MicrophonePermission(os))
                     }
                     // A process a push started has nothing on screen: no stream until an activity starts.
-                    val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire, foreground = started > 0)
+                    val connection = ConnectionOwner(core, MacApi(ports.http, ports.keys), wire, foreground = started > 0,
+                        onStorageFailure = { store.reportStorageFailure() })
                     owner = connection
                     scope.launch { connection.run() }
                     // The network came back: reconnect now, not at the end of a back-off.

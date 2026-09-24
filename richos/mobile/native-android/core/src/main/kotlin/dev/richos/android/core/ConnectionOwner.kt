@@ -38,6 +38,7 @@ class ConnectionOwner(
     private val stream: EventStream,
     /** Whether the app is on screen when the owner starts (a process started by a push is not). */
     foreground: Boolean = true,
+    private val onStorageFailure: (IOException) -> Unit = {},
 ) {
     private val wakeups = Channel<Unit>(Channel.CONFLATED)
     private val visible = MutableStateFlow(foreground)
@@ -74,6 +75,7 @@ class ConnectionOwner(
     suspend fun run() {
         combine(visible, available) { shown, online -> shown to online }.collectLatest { (shown, online) ->
             // collectLatest cancels the old socket/backoff before entering a new lifecycle state.
+            try {
             if (!shown) {
                 core.backgrounded()
             } else if (!online) {
@@ -82,6 +84,10 @@ class ConnectionOwner(
             } else {
                 core.dispatch(Action.Health(phoneOnline = true))
                 connect()
+            }
+            } catch (failure: IOException) {
+                onStorageFailure(failure)
+                // Await a new lifecycle/network event. A failed disk is not a timed retry loop.
             }
         }
     }

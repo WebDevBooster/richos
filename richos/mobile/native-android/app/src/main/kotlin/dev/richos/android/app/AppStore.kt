@@ -120,6 +120,11 @@ class AppStore(private val scope: CoroutineScope) {
         core.value = replacement
     }
 
+    fun reportStorageFailure() {
+        storageFailed = true
+        refusal.value = "Could not save your changes. Your work has been kept; free storage and try again."
+    }
+
     fun dispatch(action: Action) = dispatchThen(action, null)
 
     /**

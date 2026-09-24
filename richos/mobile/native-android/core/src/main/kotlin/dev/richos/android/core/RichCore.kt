@@ -194,7 +194,9 @@ class RichCore private constructor(
      * the outbox is owed a timed try, so nothing wakes the app until it returns or a person sends.
      */
     suspend fun backgrounded(): AppState = mutex.withLock {
-        voiceLocked(Action.VoiceInterrupted(ports.clock.now()))
+        // Lifecycle shutdown must take effect even when disk is full. An online flag is never a
+        // reason to keep an outbox timer or network drain alive behind a hidden interface.
+        session = session.copy(online = false)
         val keep = connection.reason == ConnectionReason.PHONE_OFFLINE || connection.reason == ConnectionReason.SERVICE_UNAVAILABLE
         val reason = when {
             keep -> connection.reason
@@ -202,7 +204,21 @@ class RichCore private constructor(
             else -> ConnectionReason.CONNECTING
         }
         connection = connection.copy(reason = reason, troubleSince = null)
-        commit(session.copy(online = false))
+        val action = Action.VoiceInterrupted(ports.clock.now())
+        val recoverable = VoiceMachine.reduce(
+            VoiceWorld(voiceSession, session.microphone, session.keptRecordings, toast, microphonePrompt, canRecord()),
+            action, ports.clock.now(),
+        ).first.kept
+        try {
+            voiceLocked(action)
+            ports.session.write(session)
+        } catch (failure: java.io.IOException) {
+            // Capture has already been asked to stop. Retain its recovery card in memory as well
+            // as the audio file; the app reports the failed save instead of losing the work silently.
+            session = session.copy(keptRecordings = recoverable)
+            throw failure
+        } finally { emit() }
+        flow.value
     }
 
     private suspend fun receive(wire: String): AppState = apply(sse.feed(wire))
@@ -776,7 +792,7 @@ class RichCore private constructor(
                 is VoiceEffect.StartRecording -> try {
                     ports.recorder.start(effect.id)
                 } catch (failure: Throwable) {
-                    voiceSession = world.voice
+                    voiceSession = null
                     emit()
                     throw failure
                 }

@@ -5,6 +5,22 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 
 class RecordingLifecycleTest {
+    @Test fun failedBackgroundSaveStillStopsOnlineWorkAndKeepsCapturedAudio() = runTest {
+        var fail = false
+        val runtime = DevRuntime.create(Fixtures.fixture("online"), save = {
+            if (fail) throw java.io.IOException("disk full")
+        })
+        runtime.core.dispatch(Action.MicrophonePermission(Microphone.GRANTED))
+        runtime.core.dispatch(Action.VoiceStartLocked("recording", 386.0, runtime.export().now))
+        fail = true
+        assertFailsWith<java.io.IOException> { runtime.core.backgrounded() }
+        assertFalse(runtime.core.state.online)
+        assertNull(runtime.core.state.voice)
+        assertNull(runtime.core.state.connection.noticeDueInMs)
+        assertEquals("recording", runtime.core.state.keptRecordings.single().id)
+        assertTrue(runtime.export().recorder.any { it.contains("stop") })
+    }
+
     @Test fun recorderStartupFailureNeverPublishesARecordingThatDidNotStart() = runTest {
         var fail = false
         val runtime = DevRuntime.create(Fixtures.fixture("online"), save = {
