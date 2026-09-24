@@ -503,7 +503,7 @@ let repositoryRoot: URL = {
         var s = try Fixture.named("rec-card").state
         s = Reducer.reduce(s, .forgetPairing).state
         let (forgotten, effects) = Reducer.reduce(s, .confirmForget)
-        #expect(effects == [.persist, .unregisterNotifications, .disconnect, .forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")])
+        #expect(effects == [.persist, .unregisterNotifications, .withdrawNotifications, .disconnect, .forgetIdentity(origin: "https://mm1.tail1a2b3c.ts.net:8443")])
         #expect(forgotten.screen == .pairIntro && forgotten.messages.isEmpty && forgotten.mac == nil && !forgotten.consentGiven)
         #expect(forgotten.keptRecordings.count == 1)
     }

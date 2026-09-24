@@ -20,6 +20,8 @@ enum SettingsReducer {
             guard s.notifications.status == .on || s.notifications.status == .turningOn else { return }
             s.notifications.status = .off
             effects.append(.unregisterNotifications)
+            // What is already delivered goes too, the Telegram way (D04).
+            effects.append(.withdrawNotifications)
         case .dismissNotificationOffer:
             s.notifications.offerDismissed = true
         case .setPreviews(let on):
@@ -32,6 +34,8 @@ enum SettingsReducer {
         case .confirmForget:
             guard s.sheet == .forget, s.outbox.isEmpty else { return }
             if s.notifications.status == .on || s.notifications.status == .turningOn { effects.append(.unregisterNotifications) }
+            // Whatever the setting says now, nothing about a forgotten Mac stays on this phone (D04).
+            effects.append(.withdrawNotifications)
             effects.append(.disconnect)
             if let origin = s.mac?.origin { effects.append(.forgetIdentity(origin: origin)) }
             // His recordings are kept: nothing unsent is ever discarded silently.

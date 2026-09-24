@@ -263,6 +263,9 @@ public enum Effect: Equatable, Sendable {
     /// Ask the OS for notification permission and register with the Mac (native push, contract §7.2).
     case requestNotifications(previews: Bool)
     case unregisterNotifications
+    /// Remove every RichOS reply notification still in Notification Center: notifications were turned
+    /// off, or the Mac was forgotten (D04).
+    case withdrawNotifications
     case openAppStore
     case openSupport
     case openPrivacyPolicy
