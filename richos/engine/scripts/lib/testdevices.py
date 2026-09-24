@@ -578,11 +578,11 @@ class Checkouts(object):
 # iOS simulators
 # ---------------------------------------------------------------------------
 
-def simctl(*args):
+def simctl(*args, timeout=120):
     base = (os.environ.get("RICHOS_SIMCTL") or "").strip()
     cmd = [base] if base else ["xcrun", "simctl"]
     try:
-        r = subprocess.run(cmd + list(args), capture_output=True, text=True, timeout=_timeout(120), env=_env())
+        r = subprocess.run(cmd + list(args), capture_output=True, text=True, timeout=_timeout(timeout), env=_env())
     except BudgetExpired:
         raise
     except FileNotFoundError:
@@ -1105,17 +1105,30 @@ def boot_ios(udid):
     if not _read_json(_record_path("ios-simulator", udid)):
         raise ValueError("register the exact simulator before booting it")
     tokens = _device_admission()
+    deadline_token = None
     try:
         cpu_guard.require_ios()
-        rc, _out, err = simctl("boot", udid)
-        if rc:
-            raise RuntimeError("simulator boot failed: " + err)
+        with registry_lock():
+            rec = _read_json(_record_path("ios-simulator", udid))
+            if not rec:
+                raise RuntimeError("simulator lease ended during admission")
+            if (rec.get("boot") or {}).get("phase") in ("starting", "ready"):
+                raise RuntimeError("simulator already starting or ready; release its lease before another boot")
+            manifest_path = os.path.join(prepared_dir(), rec["prepared"] + ".json") if rec.get("prepared") else None
+            manifest = (_read_json(manifest_path) or {}) if manifest_path else {}
+            seconds = (cpu_guard.IOS_WARM_BOOT_SECONDS if manifest.get("boot_completed_at")
+                       else cpu_guard.IOS_FIRST_BOOT_SECONDS)
+            started = time.time()
+            boot = dict(phase="starting", started=started, deadline=started + seconds)
+            rec["boot"] = boot
+            _write_json(_record_path("ios-simulator", udid), rec)
+        deadline_token = _DEADLINE.set(boot["deadline"])
         try:
+            checked_simctl("boot", udid)
             with registry_lock():
                 _transfer_device_leases(tokens, "ios-simulator", udid)
-            rec = _read_json(_record_path("ios-simulator", udid)) or {}
+            checked_simctl("bootstatus", udid, "-b", timeout=seconds)
             if rec.get("prepared"):
-                checked_simctl("bootstatus", udid, "-b")
                 # Reset app data, keychain and permissions, retaining the OS's
                 # completed first boot. Never simctl erase a prepared device.
                 apps = simulator_apps(checked_simctl("listapps", udid))
@@ -1124,16 +1137,40 @@ def boot_ios(udid):
                         checked_simctl("uninstall", udid, bundle)
                 checked_simctl("keychain", udid, "reset")
                 checked_simctl("privacy", udid, "reset", "all")
+            with registry_lock():
+                current = _read_json(_record_path("ios-simulator", udid)) or {}
+                if current.get("boot") != boot:
+                    raise RuntimeError("simulator lease ended during startup")
+                current["boot"] = dict(boot, phase="ready", completed=time.time())
+                _write_json(_record_path("ios-simulator", udid), current)
+                if manifest_path:
+                    _write_json(manifest_path, dict(manifest, boot_completed_at=time.time()))
         except BaseException:
-            simctl("shutdown", udid)
+            if time.time() >= boot["deadline"]:
+                cpu_guard.block_ios("Simulator startup deadline exceeded: " + udid, automatic=True)
+            cleanup_token = _DEADLINE.set(time.time() + 12)
+            try:
+                rc, _, err = simctl("shutdown", udid)
+                if rc:
+                    cpu_guard.block_ios("Failed startup cleanup for %s: %s" % (udid, err), automatic=True)
+                else:
+                    with registry_lock():
+                        current = _read_json(_record_path("ios-simulator", udid)) or {}
+                        if current.get("boot") == boot:
+                            current["boot"] = dict(boot, phase="failed", completed=time.time())
+                            _write_json(_record_path("ios-simulator", udid), current)
+            finally:
+                _DEADLINE.reset(cleanup_token)
             raise
     finally:
+        if deadline_token is not None:
+            _DEADLINE.reset(deadline_token)
         for token in tokens:
             token.release()
 
 
-def checked_simctl(*args):
-    rc, out, err = simctl(*args)
+def checked_simctl(*args, timeout=120):
+    rc, out, err = simctl(*args, timeout=timeout)
     if rc:
         raise RuntimeError("simctl %s: %s" % (args[0], err))
     return out

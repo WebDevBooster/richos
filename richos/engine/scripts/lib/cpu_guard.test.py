@@ -154,6 +154,116 @@ class GuardTests(unittest.TestCase):
         self.assertIsNone(G.forbidden('rios headless state'))
         self.assertIsNone(G.forbidden('rios sim stop'))
 
+    def simulator(self, boot=None):
+        G.write_json(Path(os.environ['RICHOS_TEST_DEVICES_DIR']) / 'ios.json',
+                     dict(kind='ios-simulator', id='owned-udid', boot=boot or {}))
+
+    def healthy_cpu(self, at=100, busy=20):
+        G.write_json(G.STATE / 'heartbeat.json', dict(at=at, ok=True, host_busy=busy))
+        G.write_json(G.STATE / 'devices-heartbeat.json', dict(at=at, ok=True))
+
+    def test_productive_full_cpu_startup_and_running_device_are_not_stopped(self):
+        self.simulator(dict(phase='starting', started=100, deadline=280))
+        watcher = G.IOSWatch()
+        for now in range(0, 160, 2):
+            self.healthy_cpu(at=100 + now, busy=100)
+            watcher.sample(100, now, 100 + now)
+        self.assertIsNone(G.ios_block())
+        self.simulator(dict(phase='ready', started=100, deadline=280, completed=260))
+        for now in range(160, 400, 2):
+            self.healthy_cpu(at=100 + now, busy=100)
+            watcher.sample(100, now, 100 + now)
+        self.assertIsNone(G.ios_block())
+
+    def test_startup_deadline_is_enforced_even_on_idle_host(self):
+        self.simulator(dict(phase='starting', started=100, deadline=280))
+        watcher = G.IOSWatch()
+        watcher.sample(0, 0, 279)
+        self.assertIsNone(G.ios_block())
+        watcher.sample(0, 1, 280)
+        self.assertEqual(G.ios_block()['mode'], 'cooldown')
+        self.assertIn('owned-udid', G.ios_block()['reason'])
+
+    def test_pressure_with_failed_monitor_sheds_registered_device_without_ps(self):
+        self.simulator()
+        watcher = G.IOSWatch()
+        with patch.object(G, 'processes', side_effect=AssertionError('must not call ps')):
+            for now in (0, 2, 4, 6, 8):
+                watcher.sample(100, now, 100 + now)
+                self.assertIsNone(G.ios_block())
+            watcher.sample(100, 10, 110)
+        self.assertEqual(G.ios_block()['mode'], 'cooldown')
+
+    def test_short_monitor_failure_recovers_and_stale_success_is_not_healthy(self):
+        self.simulator()
+        watcher = G.IOSWatch()
+        watcher.sample(100, 0, 100)
+        self.healthy_cpu(at=108)
+        watcher.sample(100, 8, 108)
+        self.assertIsNone(watcher.distress_since)
+        watcher.sample(100, 20, 120)
+        self.assertEqual(watcher.distress_since, 20)
+        watcher.sample(100, 28, 128)
+        self.assertIsNone(G.ios_block())
+        watcher.sample(100, 30, 130)
+        self.assertIsNotNone(G.ios_block())
+
+    def test_unrelated_pressure_or_idle_failed_monitor_does_not_stop_devices(self):
+        watcher = G.IOSWatch()
+        watcher.sample(100, 0, 100)
+        watcher.sample(100, 100, 200)
+        self.assertIsNone(G.ios_block())
+        self.simulator()
+        watcher.sample(0, 102, 202)
+        watcher.sample(0, 200, 300)
+        self.assertIsNone(G.ios_block())
+
+    def test_automatic_cooldown_recovers_only_after_cleanup_health_and_headroom(self):
+        with patch.object(G.time, 'time', return_value=100):
+            G.block_ios('automatic incident', automatic=True)
+            with self.assertRaisesRegex(RuntimeError, 'cooldown'): G.require_ios()
+        with patch.object(G.time, 'time', return_value=131):
+            with self.assertRaisesRegex(RuntimeError, 'healthy'): G.require_ios()
+            self.healthy_cpu(at=131, busy=95)
+            with self.assertRaisesRegex(RuntimeError, 'headroom'): G.require_ios()
+            self.healthy_cpu(at=131)
+            self.simulator()
+            with self.assertRaisesRegex(RuntimeError, 'cleanup'): G.require_ios()
+            (Path(os.environ['RICHOS_TEST_DEVICES_DIR']) / 'ios.json').unlink()
+            self.assertIsNone(G.forbidden('rios sim prepare'))
+            G.require_ios()
+        self.assertIsNone(G.ios_block())
+        self.assertEqual(G.read_json(G.STATE / 'ios-last-incident.json')['reason'], 'automatic incident')
+
+    def test_repeated_incidents_back_off_without_creating_a_boot_retry_loop(self):
+        for now, delay in ((100, 30), (140, 120), (270, 600)):
+            with patch.object(G.time, 'time', return_value=now):
+                G.block_ios('incident', automatic=True)
+                self.assertEqual(G.ios_block()['retry_after'], now + delay)
+                # Repeated samples of this same incident do not increase count.
+                G.block_ios('same incident', automatic=True)
+            with patch.object(G.time, 'time', return_value=now + delay + 1):
+                self.healthy_cpu(at=now + delay + 1)
+                G.require_ios()
+        self.assertEqual(len(G.read_json(G.STATE / 'ios-incidents.json')), 3)
+
+    def test_operator_and_legacy_stops_require_explicit_healthy_recovery(self):
+        G.block_ios('automatic', automatic=True)
+        G.block_ios('operator stop')
+        G.block_ios('automatic cannot weaken operator', automatic=True)
+        self.assertEqual(G.ios_block()['mode'], 'manual')
+        with patch.object(G.time, 'time', return_value=10000):
+            with self.assertRaisesRegex(RuntimeError, 'Explicit recovery'): G.require_ios()
+            with self.assertRaisesRegex(RuntimeError, 'healthy'): G.recover_ios('repair verified')
+            self.healthy_cpu(at=10000)
+            self.simulator()
+            with self.assertRaisesRegex(RuntimeError, 'cleanup'): G.recover_ios('repair verified')
+            (Path(os.environ['RICHOS_TEST_DEVICES_DIR']) / 'ios.json').unlink()
+            G.recover_ios('policy repaired')
+            self.assertIsNone(G.ios_block())
+            G.write_json(G.STATE / 'ios-block.json', dict(at=1, reason='legacy'))
+            with self.assertRaisesRegex(RuntimeError, 'Explicit recovery'): G.require_ios()
+
     def test_xcode_diagnostics_are_disabled_and_cannot_be_overridden(self):
         command=N.capped(['xcodebuild','test'])
         self.assertEqual(command[command.index('-collect-test-diagnostics')+1], 'never')

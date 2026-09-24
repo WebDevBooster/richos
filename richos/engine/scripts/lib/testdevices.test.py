@@ -700,10 +700,18 @@ class Collector(Base):
 
     def test_prepared_os_is_reused_and_app_state_reset_without_erase(self):
         first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        path = os.path.join(T.prepared_dir(), T.records()[0]['prepared'] + '.json')
+        self.assertNotIn('boot_completed_at', T._read_json(path))
         T.boot_ios(first)
+        first_boot = T.records()[0]['boot']
+        self.assertEqual(first_boot['phase'], 'ready')
+        self.assertEqual(first_boot['deadline'] - first_boot['started'], 180)
+        self.assertIn('boot_completed_at', T._read_json(path))
         T.release_ios(first, os.getpid())
         second = T.acquire_ios("iPhone", "runtime", os.getpid())
         T.boot_ios(second)
+        warm_boot = T.records()[0]['boot']
+        self.assertEqual(warm_boot['deadline'] - warm_boot['started'], 120)
         T.release_ios(second, os.getpid())
         self.assertEqual(first, second)
         self.assertEqual(self.devices()[0]["state"], "Shutdown")
@@ -713,6 +721,46 @@ class Collector(Base):
         self.assertEqual(sum(x == "keychain " + first + " reset" for x in log), 2)
         self.assertFalse(any(x.startswith(("erase ", "delete ")) for x in log))
         self.assertFalse(any("uninstall " + first + " com.apple" in x for x in log))
+
+    def test_failed_first_boot_does_not_claim_prepared_os_or_reset_deadline(self):
+        first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        path = os.path.join(T.prepared_dir(), T.records()[0]['prepared'] + '.json')
+        original = T.checked_simctl
+        def fail_bootstatus(*args, **kwargs):
+            if args[0] == 'bootstatus':
+                rec = T.records()[0]
+                self.assertEqual(rec['boot']['phase'], 'starting')
+                self.assertEqual(T._DEADLINE.get(), rec['boot']['deadline'])
+                raise RuntimeError('boot did not complete')
+            return original(*args, **kwargs)
+        with patch.object(T, 'checked_simctl', side_effect=fail_bootstatus):
+            with self.assertRaisesRegex(RuntimeError, 'did not complete'): T.boot_ios(first)
+        self.assertNotIn('boot_completed_at', T._read_json(path))
+        self.assertEqual(self.devices()[0]['state'], 'Shutdown')
+        self.assertEqual(T.records()[0]['boot']['phase'], 'failed')
+        self.assertIsNone(T._DEADLINE.get())
+
+    def test_duplicate_boot_cannot_extend_startup_deadline(self):
+        first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        path = T._record_path('ios-simulator', first)
+        rec = T._read_json(path)
+        rec['boot'] = dict(phase='starting', started=100, deadline=280)
+        T._write_json(path, rec)
+        with self.assertRaisesRegex(RuntimeError, 'already starting'): T.boot_ios(first)
+        self.assertEqual(T._read_json(path)['boot']['deadline'], 280)
+
+    def test_collected_boot_cannot_resurrect_its_lease(self):
+        first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        original = T.checked_simctl
+        def collected(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if args[0] == 'bootstatus':
+                os.unlink(T._record_path('ios-simulator', first))
+            return result
+        with patch.object(T, 'checked_simctl', side_effect=collected):
+            with self.assertRaisesRegex(RuntimeError, 'lease ended'): T.boot_ios(first)
+        self.assertEqual(T.records(), [])
+        self.assertEqual(self.devices()[0]['state'], 'Shutdown')
 
     def test_prepared_lease_excludes_other_owner_and_other_device_type(self):
         first = T.acquire_ios("iPhone", "runtime", os.getpid())

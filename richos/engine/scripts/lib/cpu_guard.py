@@ -6,6 +6,7 @@ reparenting. Names never authorize signals. Sample CPU *time deltas*, not ps's
 smoothed %cpu. Never signal a registered session, an unrelated process or a reused PID.
 """
 import argparse
+import contextlib
 import ctypes
 import fcntl
 import json
@@ -27,6 +28,8 @@ INTERVAL = 2.0
 WINDOW = 10.0
 JOB_CORES = 3.0
 LABEL = 'com.richos.cpu-guard'
+IOS_FIRST_BOOT_SECONDS = 180
+IOS_WARM_BOOT_SECONDS = 120
 
 
 def write_json(path, value):
@@ -96,22 +99,110 @@ def ios_block():
     return read_json(STATE / 'ios-block.json')
 
 
-def registered_ios():
+def ios_records():
     registry = Path(os.environ.get('RICHOS_TEST_DEVICES_DIR', str(Path.home() / '.claude/state/test-devices')))
-    return any(read_json(path, {}).get('kind') == 'ios-simulator' for path in registry.glob('*.json'))
+    return [rec for path in registry.glob('*.json')
+            if (rec := read_json(path, {})).get('kind') == 'ios-simulator']
 
 
-def block_ios(reason):
-    if not ios_block():
-        write_json(STATE / 'ios-block.json', dict(at=time.time(), reason=reason))
-        event('Local iOS simulator boots stopped until explicit recovery', reason=reason)
+def registered_ios():
+    return bool(ios_records())
+
+
+@contextlib.contextmanager
+def ios_policy_lock():
+    STATE.mkdir(parents=True, exist_ok=True)
+    with (STATE / 'ios-policy.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def block_ios(reason, automatic=False):
+    with ios_policy_lock():
+        old = ios_block()
+        # An operator stop may strengthen an automatic cooldown, never the reverse.
+        if old and (automatic or old.get('mode') != 'cooldown'):
+            return
+        now = time.time()
+        record = dict(at=now, reason=reason, mode='manual')
+        if automatic:
+            incidents = [t for t in read_json(STATE / 'ios-incidents.json', []) if now - t < 3600]
+            incidents.append(now)
+            delay = (30, 120, 600)[min(len(incidents) - 1, 2)]
+            write_json(STATE / 'ios-incidents.json', incidents)
+            record.update(mode='cooldown', retry_after=now + delay, incidents_last_hour=len(incidents))
+        write_json(STATE / 'ios-block.json', record)
+        event('Local iOS simulator stopped', incident=record)
+
+
+def ios_refusal():
+    """Read-only admission explanation, including old incident files."""
+    blocked = ios_block()
+    if not blocked:
+        return None
+    reason = blocked['reason']
+    if blocked.get('mode') != 'cooldown':
+        return reason + '. Explicit recovery required: cpu_guard.py recover-ios REASON'
+    remaining = blocked['retry_after'] - time.time()
+    if remaining > 0:
+        return reason + '. Automatic cooldown: %s seconds remaining' % int(remaining + 1)
+    if not healthy() or not admission_open(read_json(STATE / 'heartbeat.json', {}).get('host_busy', float('nan'))):
+        return reason + '. Cooldown elapsed; waiting for healthy monitoring and CPU headroom'
+    if registered_ios():
+        return reason + '. Cooldown elapsed; waiting for exact-device cleanup'
+    return None
+
+
+def clear_ios_block(reason):
+    blocked = ios_block()
+    if blocked:
+        write_json(STATE / 'ios-last-incident.json', blocked)
+        (STATE / 'ios-block.json').unlink()
+        event('Local iOS simulator admission recovered; no device booted', reason=reason)
+
+
+def recover_ios(reason):
+    if not reason.strip():
+        raise ValueError('recovery requires a reason')
+    with ios_policy_lock():
+        if not healthy() or not admission_open(read_json(STATE / 'heartbeat.json', {}).get('host_busy', float('nan'))):
+            raise RuntimeError('recovery requires healthy monitoring and current CPU headroom')
+        if registered_ios():
+            raise RuntimeError('finish exact-device cleanup before recovery')
+        clear_ios_block(reason)
 
 
 def require_ios():
-    blocked = ios_block()
-    if blocked:
-        raise RuntimeError('Local iOS simulators are stopped: ' + blocked['reason'] +
-                           '. Use headless tests or a physical device; do not retry simulator tests.')
+    with ios_policy_lock():
+        reason = ios_refusal()
+        if reason:
+            raise RuntimeError('Local iOS simulator admission is closed: ' + reason)
+        clear_ios_block('Cooldown elapsed with healthy monitoring, CPU headroom and completed cleanup')
+
+
+class IOSWatch:
+    """Busy CPU alone is not a failed simulator. No process enumeration here."""
+    def __init__(self):
+        self.distress_since = None
+
+    def sample(self, busy, now, wall):
+        records = ios_records()
+        for rec in records:
+            boot = rec.get('boot', {})
+            if boot.get('phase') == 'starting' and wall >= boot['deadline']:
+                block_ios('Simulator startup exceeded its %ss deadline: %s' %
+                          (boot['deadline'] - boot['started'], rec['id']), automatic=True)
+                return
+        heartbeat = read_json(STATE / 'heartbeat.json', {})
+        degraded = heartbeat.get('ok') is not True or wall - heartbeat.get('at', 0) >= 12
+        # The independent worker remains able to shed exact registered devices
+        # when host pressure actually prevents the CPU sampler from functioning.
+        if records and busy >= 85 and degraded:
+            self.distress_since = now if self.distress_since is None else self.distress_since
+            if now - self.distress_since >= WINDOW:
+                block_ios('Host CPU >=85% with failed/stale process monitoring for >=10s', automatic=True)
+        else:
+            self.distress_since = None
 
 
 def device_cycle(engine):
@@ -133,7 +224,7 @@ def watch_devices(engine):
     STATE.mkdir(parents=True, exist_ok=True)
     with (STATE / 'devices.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        before, high_since = host_ticks(), None
+        before, watcher = host_ticks(), IOSWatch()
         while True:
             # Mach host counters do not enumerate processes. Pressure detection
             # remains available even if ps and the CPU worker are stalled.
@@ -142,9 +233,9 @@ def watch_devices(engine):
             if ticks is not None and before is not None:
                 delta = [(b-a) % 2**32 for a,b in zip(before, ticks)]
                 busy = 100 * (1 - delta[2]/sum(delta)) if sum(delta) else 0
-                high_since = (high_since if high_since is not None else now) if busy >= 85 else None
-                if high_since is not None and now-high_since >= WINDOW and registered_ios():
-                    block_ios('Sustained host CPU overload detected by independent Mach counters')
+                watcher.sample(busy, now, time.time())
+            else:
+                watcher.sample(0, now, time.time())
             before = ticks
             device_cycle(engine)
             time.sleep(INTERVAL)
@@ -344,8 +435,6 @@ def watch(engine):
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=True,
                            pid=os.getpid(), owned=len(watcher.owned), host_busy=round(busy, 1),
                            admission_open=admission_open(busy), admission_limit=DEFAULT_MAX_CPU))
-                if watcher.host_since is not None and now-watcher.host_since >= WINDOW and registered_ios():
-                    block_ios('Sustained host CPU overload. Simulator recovery must be explicitly scheduled.')
             except Exception as exc:
                 event('CPU watchdog sampling failed', error=str(exc))
                 write_json(STATE / 'heartbeat.json', dict(at=time.time(), ok=False, error=str(exc)))
@@ -466,7 +555,7 @@ def forbidden(command, cwd=None):
                     if 'def acquire_ios(' not in policy.read_text() or not policy.with_name('cpu_policy.py').is_file():
                         return 'outdated native/proof entrypoint; update this checkout from main before running it'
                     break
-        if ios_block():
+        if ios_refusal():
             if entry in ('native-ios-app.test.sh', 'native-ios-ui.test.sh', 'native-ios-share.test.sh', 'simulator-tests.sh'):
                 if not (entry == 'native-ios-ui.test.sh' and '--headless' in part):
                     return 'local iOS simulator suite (incident stop is active)'
@@ -521,7 +610,7 @@ def hook():
         elif 'diagnose' in reason:
             remedy = 'Automatic simulator diagnostic dumps are disabled after the overload incident.'
         elif ios_block() and 'simulator' in reason:
-            remedy = 'Local iOS simulator runs are stopped after repeated host overload. Use headless tests or a physical device; do not retry.'
+            remedy = ios_refusal() or 'Inspect cpu_guard.py status.'
         else:
             remedy = 'Use randroid, rios or native-work.py -- COMMAND so admission and cleanup apply.'
         print('CPU guard: %s is refused. %s' % (reason, remedy), file=sys.stderr)
@@ -557,18 +646,19 @@ def notice_payload(payload):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['watch', 'watch-devices', 'block-ios', 'check-ios', 'install', 'register', 'hook', 'status', 'notice', 'notice-json'])
+    parser.add_argument('action', choices=['watch', 'watch-devices', 'block-ios', 'recover-ios', 'check-ios', 'install', 'register', 'hook', 'status', 'notice', 'notice-json'])
     parser.add_argument('args', nargs='*')
     a = parser.parse_args()
     if a.action == 'watch': return watch(a.args[0])
     if a.action == 'watch-devices': return watch_devices(a.args[0])
     if a.action == 'block-ios': return block_ios(' '.join(a.args) or 'Operator stopped local iOS simulators')
+    if a.action == 'recover-ios': return recover_ios(' '.join(a.args))
     if a.action == 'check-ios': return require_ios()
     if a.action == 'install': return install(a.args[0])
     if a.action == 'register': print(json.dumps(register(int(a.args[0]), a.args[1], a.args[2] if len(a.args)>2 else 'session')))
     if a.action == 'hook': return hook()
     if a.action == 'status':
-        print(json.dumps(dict(healthy=healthy(), heartbeat=read_json(STATE/'heartbeat.json'), devices=read_json(STATE/'devices-heartbeat.json'), ios_block=ios_block(), alert=read_json(STATE/'alert.json'))))
+        print(json.dumps(dict(healthy=healthy(), heartbeat=read_json(STATE/'heartbeat.json'), devices=read_json(STATE/'devices-heartbeat.json'), ios_block=ios_block(), ios_admission_reason=ios_refusal(), ios_startups=[dict(id=r['id'], boot=r.get('boot')) for r in ios_records()], alert=read_json(STATE/'alert.json'))))
         return 0 if healthy() else 1
     if a.action == 'notice-json':
         result = notice_payload(json.load(sys.stdin))
