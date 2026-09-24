@@ -584,7 +584,10 @@
                the window. The refusal line is `role="status"` because it answers something
                he just did (a paste or a drop) without him having to look for it. -->
           <div id="attach-tray" hidden>
-            <p id="attach-drop" class="attach-drop" hidden>Drop to attach to your message</p>
+            <!-- Empty until a drag is over the window: `attachments.js` writes its words then,
+                 so the shell as it opens carries no text node it did not carry before
+                 (`tests/contrast.js` 9z measures the bare shell's node count). -->
+            <p id="attach-drop" class="attach-drop" hidden></p>
             <ul id="attach-list" class="attach-list" hidden></ul>
           </div>
           <p id="attach-note" class="attach-note" hidden role="status"></p>

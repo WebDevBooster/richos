@@ -598,6 +598,38 @@ const SURFACES = [
     },
   },
   {
+    // SCREENSHOTS AND FILES ON THE COMPOSER (CEO §86, `ui/attachments.js`). Everything the
+    // tray can put on screen at once: a pasted-style chip, a file chip, the refusal line for a
+    // file that was not taken, and the drop target a drag over the window raises. The drop goes
+    // through the mock's `dropFiles`, which emits the same `rich://file-drag` / `rich://file-drop`
+    // pair the shell emits, so the chips are drawn by the shipping renderer from the shipping
+    // commands' answers.
+    name: "composer-attachments",
+    what: "files on the composer: two chips, the refusal line and the drop target (CEO §86)",
+    drive: async (p) => {
+      await p.click('.nav-thread[data-thread-id="hiring"]');
+      await atHiringThread(p);
+      await pageSettled(p);
+      await p.evaluate(() => {
+        const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+        const pdf = [0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a];
+        window.__RICHOS_MOCK__.dropFiles([
+          { name: "Screenshot invoice 4471.png", bytes: png },
+          { name: "board-memo-lisbon-lease.pdf", bytes: pdf },
+          { name: "archive.zip", bytes: [0x50, 0x4b, 3, 4] },
+        ]);
+      });
+      await p.waitForFunction(
+        () =>
+          document.querySelectorAll("#attach-list .attach-chip:not(.is-adding)").length === 2 &&
+          document.getElementById("attach-note").textContent.includes("archive.zip")
+      );
+      await p.evaluate(() => window.__RICHOS_MOCK__.dragOver(true));
+      await p.waitForSelector("#attach-drop:not([hidden])");
+      await pageSettled(p);
+    },
+  },
+  {
     name: "corrections",
     what: "the correction desk, both families, with two asks waiting",
     drive: async (p) => {

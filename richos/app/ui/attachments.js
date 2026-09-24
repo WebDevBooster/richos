@@ -30,6 +30,7 @@
   const TOO_LARGE = "This file is larger than 25 MB, the most RichOS takes in one file. Nothing was attached.";
   const TOO_MANY = "A message can carry at most 10 files.";
   const STILL_ADDING = "A file is still being added. Press Send again in a moment.";
+  const DROP_HINT = "Drop to attach to your message";
   const GONE = " is no longer waiting to be sent. Attach it again; your words are still in the box.";
 
   let bridge = null;
@@ -170,7 +171,10 @@
     list.replaceChildren(...items.map(chip));
     list.hidden = items.length === 0;
     list.setAttribute("aria-label", items.length === 1 ? "1 file attached" : items.length + " files attached");
-    if (hint) hint.hidden = !(dragging && key);
+    if (hint) {
+      hint.hidden = !(dragging && key);
+      hint.textContent = hint.hidden ? "" : DROP_HINT;
+    }
     zone.hidden = items.length === 0 && !(dragging && key);
   }
 
