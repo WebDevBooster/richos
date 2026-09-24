@@ -59,6 +59,7 @@ enum Intent: Equatable, Sendable {
     case openSystemSettings
     case checkForUpdates
     case openSupport
+    case openPrivacyPolicy
     case forget
     case confirmForget
     case showWaiting
@@ -130,6 +131,9 @@ enum Intent: Equatable, Sendable {
         case .setPreviews(let on): return .setPreviews(on)
         case .openAppStore: return .openAppStore
         case .openSupport: return .openSupport
+        // On iPhone updates come from the App Store: both ask it (App Store listing drafts, blocker 4).
+        case .checkForUpdates, .checkAgain: return .checkForUpdates
+        case .openPrivacyPolicy: return .openPrivacyPolicy
         case .updateLater: return .dismissUpdate
         case .setAppearance(let appearance): return .setAppearance(appearance)
         default: return nil

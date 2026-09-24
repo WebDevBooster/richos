@@ -139,6 +139,10 @@ public enum Action: Equatable, Sendable {
     case dismissUpdate
     case openAppStore
     case openSupport
+    /// Settings, "Check for updates": on iPhone updates come from the App Store, so it opens the listing.
+    case checkForUpdates
+    /// Settings, "Privacy policy" (Apple 5.1.1(i): a link inside the app).
+    case openPrivacyPolicy
 }
 
 /// How a delivery attempt ended when it did not succeed (contract §4.2, the reference classification).
@@ -220,6 +224,7 @@ public enum Effect: Equatable, Sendable {
     case unregisterNotifications
     case openAppStore
     case openSupport
+    case openPrivacyPolicy
 }
 
 /// The one place state changes. Pure: the same state and action always give the same result, so a
@@ -256,7 +261,7 @@ public enum Reducer {
         case .turnOnNotifications, .notificationsResult, .turnOffNotifications, .dismissNotificationOffer, .setPreviews,
              .forgetPairing, .confirmForget, .openSystemSettings:
             SettingsReducer.reduce(&next, action, &effects)
-        case .updatePolicy, .dismissUpdate, .openAppStore, .openSupport:
+        case .updatePolicy, .dismissUpdate, .openAppStore, .openSupport, .checkForUpdates, .openPrivacyPolicy:
             UpdateReducer.reduce(&next, action, &effects)
         default:
             ConversationReducer.reduce(&next, action, &effects)

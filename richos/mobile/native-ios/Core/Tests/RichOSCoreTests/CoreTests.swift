@@ -116,6 +116,7 @@ let repositoryRoot: URL = {
             .setPreviews(false), .forgetPairing, .confirmForget, .openSystemSettings,
             .updatePolicy(UpdateNotice(prominence: .banner, version: "1.1", message: "x"), voicePaused: true),
             .updatePolicy(nil, voicePaused: false), .dismissUpdate, .openAppStore, .openSupport,
+            .checkForUpdates, .openPrivacyPolicy,
         ]
         #expect(Set(try all.map { try #require(JSONSerialization.jsonObject(with: CoreJSON.encode($0)) as? [String: Any])["type"] as? String })
                 == Set(Action.knownTypes))

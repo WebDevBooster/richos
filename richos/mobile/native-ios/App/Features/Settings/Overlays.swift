@@ -177,15 +177,22 @@ struct SettingsSheet: View {
                 }
                 .onTapGesture { send(.checkForUpdates) }
                 .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("settings.updates")
                 row(icon: .life, title: "Support", detail: nil, chevron: true) { EmptyView() }
                     .onTapGesture { send(.openSupport) }
                     .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("settings.support")
                 section("Connection and privacy")
                 row(icon: .mac, title: "Paired with \(settings.macName)",
                     detail: "Messages go to your Mac. Rich on your Mac writes the replies with its AI provider.") { EmptyView() }
                 row(icon: .cloud, title: "Where your messages go", detail: nil, chevron: true) { EmptyView() }
                     .onTapGesture { send(.openWhereMessagesGo) }
                     .accessibilityAddTraits(.isButton)
+                // Not in round 12.1: Apple 5.1.1(i) requires the policy to be reachable inside the app.
+                row(icon: .lock, title: "Privacy policy", detail: nil, chevron: true) { EmptyView() }
+                    .onTapGesture { send(.openPrivacyPolicy) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("settings.privacy")
                 Button { send(.forget) } label: {
                     HStack(spacing: 12) {
                         IconView(.close, size: 22).foregroundStyle(palette.danger)

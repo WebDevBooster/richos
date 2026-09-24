@@ -68,7 +68,7 @@ extension Action: Codable {
         "send-kept", "discard-kept", "record-play",
         "notifications-enable", "notifications-result", "notifications-disable", "dismiss-notification-offer",
         "notifications-previews", "forget-request", "forget-pair", "settings",
-        "update-policy", "update-dismiss", "update-open", "support",
+        "update-policy", "update-dismiss", "update-open", "support", "check-updates", "privacy-policy",
     ]
 
     public init(from decoder: Decoder) throws {
@@ -164,6 +164,8 @@ extension Action: Codable {
         case "update-dismiss": self = .dismissUpdate
         case "update-open": self = .openAppStore
         case "support": self = .openSupport
+        case "check-updates": self = .checkForUpdates
+        case "privacy-policy": self = .openPrivacyPolicy
         default:
             throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription:
                 "unknown action '\(w.type)'; known: \(Self.knownTypes.joined(separator: ", "))"))
@@ -249,6 +251,8 @@ extension Action: Codable {
         case .dismissUpdate: w = Wire("update-dismiss")
         case .openAppStore: w = Wire("update-open")
         case .openSupport: w = Wire("support")
+        case .checkForUpdates: w = Wire("check-updates")
+        case .openPrivacyPolicy: w = Wire("privacy-policy")
         }
         try w.encode(to: encoder)
     }
