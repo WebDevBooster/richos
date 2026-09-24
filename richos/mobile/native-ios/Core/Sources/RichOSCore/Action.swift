@@ -25,10 +25,17 @@ public enum Action: Equatable, Sendable {
     case pairingRefused
     /// No Mac answered the pairing request.
     case pairingUnreachable
-    /// "They match" on the six-word check.
+    /// The Mac answered 200 without `pair-v2`: refused, never fallen back to. The phone has already
+    /// signed one "They do not match" so that Mac forgets the key; it now forgets it too.
+    case pairingNeedsMacUpdate
+    /// "They match" on the six-word check. Pairing v2: the phone then waits for the same press on the Mac.
     case confirmWords
-    /// "They do not match": the Mac forgets this phone and the phone discards its key (§2.5).
+    /// "They do not match" (on the words, or while waiting for the Mac): the Mac forgets this phone
+    /// and the phone discards its key (§2.5).
     case rejectWords
+    /// What the Mac said about the press ON THE MAC: its answer to the phone's own "They match", or
+    /// to one probe of the wait (`MacWait`). `at` is when the answer arrived.
+    case macConfirmation(MacConfirmation, at: Int64)
     /// Continue on the consent screen (`pair-consent`).
     case acceptConsent
     case dismissPairingProblem
@@ -193,12 +200,20 @@ extension Action {
 /// What `POST /api/pair` answers with (contract §2.3), in the core's terms.
 public struct PairAnswer: Codable, Equatable, Sendable {
     public var deviceID: String
-    /// The Mac's root certificate SHA-256, as the Mac sends it (uppercase hex pairs joined by `:`).
+    /// The Mac's `ca_fingerprint_sha256`, byte for byte as the Mac sent it (the v2 words hash it as
+    /// text, so it is never reformatted).
     public var fingerprintHex: String
     public var threadID: String?
     public var macName: String?
-    public init(deviceID: String, fingerprintHex: String, threadID: String? = nil, macName: String? = nil) {
+    /// This phone's own public key for the pairing: the 65-byte uncompressed point, base64url without
+    /// padding. The v2 words hash it; without it no words can be shown, and nothing is paired.
+    public var devicePoint: String?
+    /// The Mac's `confirm_within_seconds`: how long the person has to press "They match" on the Mac.
+    public var confirmWithinSeconds: Double?
+    public init(deviceID: String, fingerprintHex: String, threadID: String? = nil, macName: String? = nil,
+                devicePoint: String? = nil, confirmWithinSeconds: Double? = nil) {
         self.deviceID = deviceID; self.fingerprintHex = fingerprintHex; self.threadID = threadID; self.macName = macName
+        self.devicePoint = devicePoint; self.confirmWithinSeconds = confirmWithinSeconds
     }
 }
 
@@ -210,8 +225,12 @@ public enum Effect: Equatable, Sendable {
     case persist
     /// Generate (or reuse) this origin's device key and send `POST /api/pair` with the code.
     case pair(PairLink)
-    /// Send the signed six-word answer (contract §2.5).
+    /// Send the signed six-word answer (contract §2.5). For "They match" the Mac's answer comes back
+    /// as `macConfirmation`.
     case confirmFingerprint(matches: Bool)
+    /// One probe of the wait for the press on the Mac: a signed read of one backfill row, which the
+    /// Mac answers with the awaiting 409 until the press (`MacWait`). Only ever sent on screen.
+    case checkMacConfirmation
     /// Discard this phone's key for that origin.
     case forgetIdentity(origin: String)
     /// Open this app's page in iPhone Settings (camera or microphone turned off).
@@ -264,17 +283,19 @@ public enum Reducer {
         case .closeSheet:
             next.sheet = nil
         case .openScanner, .closeScanner, .scanned, .submitPairingLink, .cameraPermission, .pairingAnswered,
-             .pairingRefused, .pairingUnreachable, .confirmWords, .rejectWords, .acceptConsent, .dismissPairingProblem,
-             .discardUnsentAndPair:
+             .pairingRefused, .pairingUnreachable, .pairingNeedsMacUpdate, .confirmWords, .rejectWords, .macConfirmation,
+             .acceptConsent, .dismissPairingProblem, .discardUnsentAndPair:
             PairingReducer.reduce(&next, action, &effects)
         case .networkChanged, .connectionLost, .connected, .connectionDiagnosed, .macCapabilities, .pairingRevoked,
              .macAttachmentLimits, .pushRegistered:
             ConnectionReducer.reduce(&next, action, &effects)
         case .foregrounded, .backgrounded:
+            PairingReducer.reduce(&next, action, &effects)
             ConnectionReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)
         case .tick:
+            PairingReducer.reduce(&next, action, &effects)
             ConnectionReducer.reduce(&next, action, &effects)
             ConversationReducer.reduce(&next, action, &effects)
             VoiceReducer.reduce(&next, action, &effects)

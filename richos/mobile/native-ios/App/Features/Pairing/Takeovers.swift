@@ -28,6 +28,7 @@ struct TakeoverView: View {
         case .pairIntro: return "pair-intro"
         case .pairProgress: return "pair-progress"
         case .pairWords: return "pair-words"
+        case .pairAwaitingMac: return "pair-awaiting-mac"
         case .pairStale: return "pair-stale"
         case .consent: return "pair-consent"
         case .removedFromMac: return "conn-revoked"
@@ -49,6 +50,20 @@ struct TakeoverView: View {
                     .padding(.top, 18)
             case .invalidLink(let why)?:
                 ErrorCard(title: "That is not a pairing code", detail: why)
+                    .padding(.top, 18)
+            // Pairing v2's endings, in the PWA's words (`web/web-app/app.js`); "open it on this
+            // phone" becomes "scan it", which is how this app pairs.
+            case .macNeedsUpdate?:
+                ErrorCard(title: "Your Mac needs an update before this phone can pair with it",
+                          detail: "Update RichOS on your Mac, then show a fresh code there and scan it again.")
+                    .padding(.top, 18)
+            case .notAcceptedByMac?:
+                ErrorCard(title: "Your Mac did not accept this phone",
+                          detail: "If They do not match was pressed on your Mac, that is why. Otherwise show a fresh code on your Mac and scan it again.")
+                    .padding(.top, 18)
+            case .macAnswerExpired?:
+                ErrorCard(title: "Your Mac did not get an answer in time",
+                          detail: "Nothing was paired. Show a fresh code on your Mac and scan it again.")
                     .padding(.top, 18)
             case nil:
                 EmptyView()
@@ -74,6 +89,13 @@ struct TakeoverView: View {
             Eyebrow("Check these words")
             Heading("Do they match your Mac?", small: smallDevice)
             Lede("Your Mac shows the same six words. If they match, this connection is private to you.")
+            SixWords(words: words, small: smallDevice).padding(.top, 26)
+        case .pairAwaitingMac(let words):
+            // The PWA's waiting screen (`showWaitingForMac`): which press is missing, the words still
+            // up to compare, and "They do not match" as the way out. Nothing animates while it waits.
+            Eyebrow("One more step")
+            Heading("Now press They match on your Mac", small: smallDevice)
+            Lede("This phone connects as soon as you do. If the words on your Mac are different, press They do not match here or there.")
             SixWords(words: words, small: smallDevice).padding(.top, 26)
         case .pairStale:
             BigMark()
@@ -106,10 +128,16 @@ struct TakeoverView: View {
 
     @ViewBuilder private var actions: some View {
         switch takeover {
-        case .pairIntro:
-            Button { send(.scan) } label: { IconLabel(icon: .qr, text: "Scan your Mac’s code") }
-                .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
-                .accessibilityIdentifier("pair.scan")
+        case .pairIntro(let problem):
+            if problem?.offersPairAgain == true {
+                Button { send(.pairAgain) } label: { IconLabel(icon: .qr, text: "Pair again") }
+                    .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                    .accessibilityIdentifier("pair.again")
+            } else {
+                Button { send(.scan) } label: { IconLabel(icon: .qr, text: "Scan your Mac’s code") }
+                    .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
+                    .accessibilityIdentifier("pair.scan")
+            }
             Button { send(.usePairingLink) } label: { QuietLabel(text: "Use a pairing link instead") }
                 .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
                 .accessibilityIdentifier("pair.link")
@@ -119,6 +147,11 @@ struct TakeoverView: View {
             Button { send(.confirmWords) } label: { IconLabel(icon: .check, text: "They match") }
                 .buttonStyle(RButtonStyle(kind: .primary, tall: true, wide: true))
                 .accessibilityIdentifier("pair.match")
+            Button { send(.rejectWords) } label: { QuietLabel(text: "They do not match") }
+                .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
+                .accessibilityIdentifier("pair.noMatch")
+        case .pairAwaitingMac:
+            // "They match" was pressed here once; the one way out is the same "They do not match".
             Button { send(.rejectWords) } label: { QuietLabel(text: "They do not match") }
                 .buttonStyle(RButtonStyle(kind: .quiet, wide: true))
                 .accessibilityIdentifier("pair.noMatch")

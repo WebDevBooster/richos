@@ -38,6 +38,9 @@ public final class AppStore {
     @ObservationIgnored private var delivering: OutboxItem?
     @ObservationIgnored private var historyTask: Task<[Action], Never>?
     @ObservationIgnored private var historyGeneration = 0
+    /// Pairing v2's probe for the press on the Mac, while one is in flight. Leaving the screen
+    /// cancels it, and its answer is then dropped: nothing about the wait runs off screen.
+    @ObservationIgnored private var macWaitTask: Task<[Action], Never>?
 
 
     #if DEBUG
@@ -134,6 +137,8 @@ public final class AppStore {
             historyGeneration &+= 1
             historyTask?.cancel()
             historyTask = nil
+            macWaitTask?.cancel()
+            macWaitTask = nil
             startCompletionDeadline()
         case .foregrounded: foreground = true
         default: break
@@ -344,12 +349,18 @@ public final class AppStore {
                 return false
             }
             if !foreground {
-                eligible.removeAll { switch $0 { case .connect, .loadOlder: return true; default: return false } }
+                eligible.removeAll { switch $0 { case .connect, .loadOlder, .checkMacConfirmation: return true; default: return false } }
             }
             for effect in eligible {
                 let followUps: [Action]
                 if case .deliver(let id) = effect {
                     followUps = await deliver(id, snapshot: snapshot)
+                } else if case .checkMacConfirmation = effect {
+                    let task = Task { [runner] in (try? await runner.run([effect], state: snapshot)) ?? [] }
+                    macWaitTask = task
+                    let actions = await task.value
+                    if macWaitTask == task { macWaitTask = nil }
+                    followUps = !task.isCancelled && foreground ? actions : []
                 } else if case .loadOlder = effect {
                     historyGeneration &+= 1
                     let generation = historyGeneration

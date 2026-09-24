@@ -35,13 +35,26 @@ struct ScreenModel: Equatable, Sendable {
         case pairIntro(problem: PairProblem?)
         case pairProgress
         case pairWords([String])
+        /// Pairing v2: "They match" was pressed here; the words stay up while the Mac waits for its own press.
+        case pairAwaitingMac([String])
         case pairStale
         case consent
         case removedFromMac
         case updateRequired(version: String, message: String)
     }
 
-    enum PairProblem: Equatable, Sendable { case refused, invalidLink(String) }
+    enum PairProblem: Equatable, Sendable {
+        case refused, invalidLink(String)
+        /// Pairing v2's three endings without a pairing; each offers "Pair again".
+        case macNeedsUpdate, notAcceptedByMac, macAnswerExpired
+        /// A v2 pairing ended after the person had already started it: the way on is to pair again.
+        var offersPairAgain: Bool {
+            switch self {
+            case .macNeedsUpdate, .notAcceptedByMac, .macAnswerExpired: return true
+            case .refused, .invalidLink: return false
+            }
+        }
+    }
 
     enum Scanner: Equatable, Sendable { case looking, found }
 
@@ -214,6 +227,9 @@ extension ScreenModel {
             switch s.pairingProblem {
             case .refused?: takeover = .pairIntro(problem: .refused)
             case .invalidLink(let why)? where s.sheet != .pairingLink: takeover = .pairIntro(problem: .invalidLink(why))
+            case .macNeedsUpdate?: takeover = .pairIntro(problem: .macNeedsUpdate)
+            case .notAcceptedByMac?: takeover = .pairIntro(problem: .notAcceptedByMac)
+            case .macAnswerExpired?: takeover = .pairIntro(problem: .macAnswerExpired)
             default: takeover = .pairIntro(problem: nil)
             }
         case .pairScanner:
@@ -221,6 +237,7 @@ extension ScreenModel {
             scanner = s.scanner == .found ? .found : .looking
         case .pairProgress: takeover = .pairProgress
         case .pairWords: takeover = .pairWords(s.fingerprintWords)
+        case .pairAwaitingMac: takeover = .pairAwaitingMac(s.fingerprintWords)
         case .pairConsent: takeover = .consent
         case .pairStale: takeover = .pairStale
         case .connectionRevoked: takeover = .removedFromMac

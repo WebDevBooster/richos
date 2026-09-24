@@ -7,7 +7,9 @@ import RichOSCore
 /// app straight onto that design with no navigation, and a screenshot can be compared to the mockup
 /// of the same name. All 67 round-12 ids are here except four that are not app screens on iPhone:
 /// `pair-pwa-storage`, `notif-pwa-install` (web app only) and `notif-lock-preview`,
-/// `notif-lock-generic` (Apple's lock screen; the card is the notification extension's).
+/// `notif-lock-generic` (Apple's lock screen; the card is the notification extension's). Pairing v2
+/// adds four that round 12 predates: `pair-awaiting-mac`, `pair-mac-update`, `pair-mac-refused`
+/// and `pair-mac-expired`.
 ///
 /// The words are round 12's own synthetic conversation — one person and Rich, nothing real.
 public struct Fixture: Sendable {
@@ -102,6 +104,19 @@ public struct Fixture: Sendable {
         }),
         Fixture(name: "pair-stale", state: make { $0.pairingProblem = .sessionNeedsNewerApp }),
         Fixture(name: "pair-consent", state: paired { $0.consentGiven = false }),
+        // Pairing v2, not in round 12 (the PWA's wording, `web/web-app/app.js`): the words stay up
+        // while the phone waits for "They match" on the Mac, and the three ways a v2 pairing ends
+        // without one. The wait is posed mid-schedule: three probes asked, the fourth due in 8 s.
+        Fixture(name: "pair-awaiting-mac", state: make {
+            $0.pairing = .awaitingMac
+            $0.mac = MacLink(origin: tailnet.origin, route: .tailnet, deviceID: "dev_8d4c57b7ff82", threadID: "thr_5c1e")
+            $0.fingerprintWords = ["harbor", "velvet", "copper", "meadow", "lantern", "quartz"]
+            $0.macWait = MacWait(boundMs: MacWait.windowMs, deadlineMs: now - 10_000 + MacWait.windowMs, requests: 3,
+                                 nextAskAtMs: now + 8_000)
+        }),
+        Fixture(name: "pair-mac-update", state: make { $0.pairingProblem = .macNeedsUpdate }),
+        Fixture(name: "pair-mac-refused", state: make { $0.pairingProblem = .notAcceptedByMac }),
+        Fixture(name: "pair-mac-expired", state: make { $0.pairingProblem = .macAnswerExpired }),
     ]
 
     // MARK: 2 · the conversation
@@ -298,9 +313,14 @@ public struct Scenario: Sendable {
     static func require(_ ok: Bool, _ why: String) throws { if !ok { throw CoreError("Scenario failed: \(why)") } }
 
     static let link = "https://mm1.tail1a2b3c.ts.net:8443/#pair=K7M2QX9H"
+    /// The corpus's pair answer and test key (`conformance/vectors/pairing.json`, `keys.json`): over
+    /// this link's origin they give `fingerprint.json` v2's "tailnet origin, the corpus key" words.
     static let answer = PairAnswer(deviceID: "dev_8d4c57b7ff82",
-                                   fingerprintHex: "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B",
-                                   threadID: "thr_5c1e")
+                                   fingerprintHex: "55:A7:F7:36:2C:07:CD:F4:EE:17:5B:6A:47:D1:0A:0D:62:9B:E7:AF:5F:99:0C:15:B6:5A:88:D1:33:2D:63:87",
+                                   threadID: "thr_5c1e",
+                                   devicePoint: "BHeD5OMhLyZtmo_jItzPIy19OQHRTz-GzSkelcn1CcsBLXff5lTM1wQ1t7Qk_lxDP4s_Z_YF0lCzliqloS3zmdw",
+                                   confirmWithinSeconds: 240)
+    static let answerWords = "gazelle coral lettuce grape kayak camera"
 
     static let t0 = Conversation.at(9, 41)
 
@@ -450,7 +470,8 @@ public struct Scenario: Sendable {
             try require(s[3] == s[2], "restart restores the persisted draft and theme")
             try require(s[5] == s[0], "clearing the draft and theme returns to the fixture")
         }),
-        // Scan → found → progress → six words (computed on the phone) → match → consent → empty chat.
+        // Scan → found → progress → six v2 words (computed on the phone) → match → the press on the
+        // Mac → consent → empty chat.
         Scenario(name: "pair-by-scan", steps: [
             Command(.reset),
             Command(.action, action: .cameraPermission(.granted)),
@@ -460,6 +481,9 @@ public struct Scenario: Sendable {
             Command(.action, action: .closeScanner),
             Command(.action, action: .pairingAnswered(answer)),
             Command(.action, action: .confirmWords),
+            Command(.action, action: .macConfirmation(.awaiting, at: t0)),
+            Command(.action, action: .tick(at: t0 + 2_000)),
+            Command(.action, action: .macConfirmation(.confirmed, at: t0 + 2_150)),
             Command(.restart),
             Command(.action, action: .acceptConsent),
         ], check: { s in
@@ -467,11 +491,57 @@ public struct Scenario: Sendable {
             try require(s[3] == s[2], "a code that is not a pairing link keeps the camera looking")
             try require(s[4].screen == .pairScanner && s[4].scanner == .found && s[4].pairing == .connecting, "a pairing link is found")
             try require(s[5].screen == .pairProgress, "then pairing is in progress")
-            try require(s[6].screen == .pairWords && s[6].fingerprintWords.joined(separator: " ") == "cobra morning cargo moose grape bonus",
-                        "the six words are computed on the phone from the Mac's hex (contract fixture)")
-            try require(s[7].screen == .pairConsent && s[7].mac?.deviceID == "dev_8d4c57b7ff82", "they match; consent comes before the first message")
-            try require(s[8].screen == .pairConsent, "the pairing survives a restart")
-            try require(s[9].screen == .conversationEmpty, "Continue opens the conversation")
+            try require(s[6].screen == .pairWords && s[6].fingerprintWords.joined(separator: " ") == answerWords,
+                        "the six v2 words are computed on the phone over the dialed origin, the Mac's value and its own key")
+            try require(s[7].screen == .pairAwaitingMac && s[7].fingerprintWords == s[6].fingerprintWords,
+                        "they match on the phone; the words stay up while it waits for the press on the Mac")
+            try require(s[8].macWait?.deadlineMs == t0 + 240_000 && s[8].macWait?.nextAskAtMs == t0 + 2_000,
+                        "the Mac's answer starts its 240 s bound; the first probe is owed 2 s later")
+            try require(s[9].macWait?.asking == true && s[9].macWait?.requests == 1, "the tick asks once")
+            try require(s[10].screen == .pairConsent && s[10].mac?.deviceID == "dev_8d4c57b7ff82" && s[10].macWait == nil,
+                        "pressed on the Mac: paired, and consent comes before the first message")
+            try require(s[11].screen == .pairConsent, "the pairing survives a restart")
+            try require(s[12].screen == .conversationEmpty, "Continue opens the conversation")
+        }),
+        // Pairing v2's wait for the press on the Mac, foreground only: off screen nothing is owed, a
+        // late answer is dropped, the return asks at once, a relaunch resumes it, and past the bound it
+        // ends truthfully. Then a Mac that refuses this phone, and "They do not match" while waiting.
+        Scenario(name: "pair-mac-wait", steps: [
+            Command(.reset),
+            Command(.action, action: .submitPairingLink(text: link)),
+            Command(.action, action: .pairingAnswered(answer)),
+            Command(.action, action: .confirmWords),
+            Command(.action, action: .macConfirmation(.awaiting, at: t0)),
+            Command(.action, action: .backgrounded(at: t0 + 1_000)),
+            Command(.action, action: .tick(at: t0 + 60_000)),
+            Command(.action, action: .foregrounded(at: t0 + 60_000)),
+            Command(.action, action: .macConfirmation(.awaiting, at: t0 + 60_200)),
+            Command(.restart),
+            Command(.action, action: .foregrounded(at: t0 + 240_000)),
+            Command(.action, action: .submitPairingLink(text: link)),
+            Command(.action, action: .pairingAnswered(answer)),
+            Command(.action, action: .confirmWords),
+            Command(.action, action: .macConfirmation(.refused, at: t0 + 300_000)),
+            Command(.action, action: .submitPairingLink(text: link)),
+            Command(.action, action: .pairingAnswered(answer)),
+            Command(.action, action: .confirmWords),
+            Command(.action, action: .rejectWords),
+        ], check: { s in
+            try require(s[4].macWait?.nextAskAtMs == t0 + 2_000, "waiting on screen: the first probe is owed at 2 s")
+            try require(s[5].macWait?.paused == true && s[5].macWait?.nextAskAtMs == nil && TickSchedule.nextTick(s[5]) == nil,
+                        "off screen: nothing is scheduled")
+            try require(s[6] == s[5], "a tick off screen changes nothing")
+            try require(s[7].macWait?.asking == true && s[7].macWait?.requests == 1, "back on screen: one probe at once")
+            try require(s[8].macWait?.nextAskAtMs == t0 + 63_200, "not yet: the next probe on the schedule (3 s)")
+            try require(s[9].screen == .pairAwaitingMac && s[9].macWait?.deadlineMs == t0 + 240_000 && s[9].macWait?.paused == true,
+                        "a relaunch keeps the wait and its deadline, paused until the app is on screen")
+            try require(s[10].screen == .pairIntro && s[10].pairingProblem == .macAnswerExpired && s[10].mac == nil && s[10].macWait == nil,
+                        "past the bound the wait ends truthfully and nothing is kept")
+            try require(s[14].screen == .pairIntro && s[14].pairingProblem == .notAcceptedByMac && s[14].mac == nil,
+                        "the Mac refused this phone: nothing is kept")
+            try require(s[17].screen == .pairAwaitingMac, "waiting again")
+            try require(s[18].screen == .pairIntro && s[18].pairingProblem == nil && s[18].mac == nil && s[18].macWait == nil,
+                        "They do not match while waiting: nothing is kept")
         }),
         // A refused code, a bad pasted link, and "they do not match" each leave nothing paired.
         Scenario(name: "pair-refused-and-rejected", steps: [

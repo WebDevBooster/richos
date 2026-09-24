@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A pairing link from the Mac: `<origin>/#pair=<code>` (phone protocol contract §2.1).
@@ -58,37 +59,55 @@ public struct PairLink: Equatable, Codable, Sendable {
     }
 }
 
-/// The six-word fingerprint check (contract §2.4): the PHONE computes the words from the hex the Mac
-/// sends, so a Mac can never send words that do not belong to its certificate. The rule is the
-/// reference's (`richos/web/web-app/lib/fingerprint.js`): the first six digest bytes index `WordList`.
+/// The six-word check, v2 (`pair-v2`; contract §2.4, Sage's pairing review F2). The PHONE computes
+/// the words, so a Mac can never send words that do not belong to it, and they bind three things
+/// behind a label:
+///
+///     SHA-256("RICHCONNECT-PAIR-V2\n" + origin + "\n" + ca_fingerprint_sha256 + "\n" + point)
+///
+/// - `origin`: the origin THIS PHONE DIALED, never one the Mac advertised. A relay is a different
+///   origin, so the two screens show different words (`pairing.json` `relay_scenario`).
+/// - `ca_fingerprint_sha256`: the pair answer's field, byte for byte as the Mac sent it.
+/// - `point`: this phone's own public key, the 65-byte uncompressed P-256 point, base64url without
+///   padding. The Mac hashes the key IT registered, so a device that redeemed the code first makes
+///   the two screens differ.
+///
+/// The first six digest bytes index `WordList`. The rule is the reference's
+/// (`richos/web/web-app/lib/fingerprint.js` `wordsV2`) and the Mac's (`phone/words.rs`); the corpus's
+/// `fingerprint.json` `v2.cases` pin it. A v2 phone NEVER shows the old words over the hash alone,
+/// which bind nothing about the connection, and never falls back to them.
 public enum Fingerprint {
     public static let wordCount = 6
+    public static let label = "RICHCONNECT-PAIR-V2"
 
     public struct Invalid: Error, Equatable, CustomStringConvertible, Sendable {
         public var description: String
     }
 
-    /// Accepts bare or colon/space/dash-separated hex, any case, with or without a `SHA-256` label.
-    public static func bytes(fromHex text: String) throws -> [UInt8] {
-        var cleaned = text.trimmingCharacters(in: .whitespaces)
-        if let label = cleaned.range(of: #"^sha-?256\s*[:=]?\s*"#, options: [.regularExpression, .caseInsensitive]) {
-            cleaned.removeSubrange(label)
+    /// `https://host[:port]`, lowercase, default port omitted, no path — `URL.origin`'s rule, which
+    /// the Mac's `normalize_origin` mirrors. Anything that is not an https origin is refused rather
+    /// than hashed: a phrase over a malformed origin is a phrase nobody can reproduce.
+    public static func normalizeOrigin(_ text: String) throws -> String {
+        guard let url = URLComponents(string: text), url.scheme?.lowercased() == "https",
+              var host = url.host?.lowercased(), !host.isEmpty else {
+            throw Invalid(description: "pairing needs an https address")
         }
-        cleaned = cleaned.filter { !$0.isWhitespace && $0 != ":" && $0 != "-" }
-        guard !cleaned.isEmpty, cleaned.allSatisfy(\.isHexDigit) else { throw Invalid(description: "that is not a hexadecimal fingerprint") }
-        guard cleaned.count % 2 == 0 else { throw Invalid(description: "a hexadecimal fingerprint has an even number of characters") }
-        guard cleaned.count >= wordCount * 2 else { throw Invalid(description: "a fingerprint needs at least \(wordCount) bytes") }
-        var out: [UInt8] = []
-        var index = cleaned.startIndex
-        while index < cleaned.endIndex {
-            let next = cleaned.index(index, offsetBy: 2)
-            out.append(UInt8(cleaned[index..<next], radix: 16)!)
-            index = next
-        }
-        return out
+        if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
+        var origin = "https://\(host)"
+        if let port = url.port, port != 443 { origin += ":\(port)" }
+        return origin
     }
 
-    public static func words(fromHex text: String) throws -> [String] {
-        try bytes(fromHex: text).prefix(wordCount).map { WordList.words[Int($0)] }
+    /// The exact text the words are the hash of.
+    public static func input(origin: String, caFingerprintSHA256: String, devicePoint: String) throws -> String {
+        guard !caFingerprintSHA256.isEmpty else { throw Invalid(description: "the Mac sent no fingerprint") }
+        guard !devicePoint.isEmpty else { throw Invalid(description: "this phone has no key to name") }
+        return "\(label)\n\(try normalizeOrigin(origin))\n\(caFingerprintSHA256)\n\(devicePoint)"
+    }
+
+    /// The six words this phone shows.
+    public static func words(origin: String, caFingerprintSHA256: String, devicePoint: String) throws -> [String] {
+        let text = try input(origin: origin, caFingerprintSHA256: caFingerprintSHA256, devicePoint: devicePoint)
+        return SHA256.hash(data: Data(text.utf8)).prefix(wordCount).map { WordList.words[Int($0)] }
     }
 }

@@ -10,7 +10,9 @@ import Foundation
 /// `update-open`, `support`, `settings` — so QA's habits and the Android core (Rich's decision,
 /// build plan §9 item 4) share one grammar. The voice gesture is new; its names are the standard.
 /// Also new: `share-take` (`intake`, a share from the Share extension) and `notification-open` with
-/// `event` instead of `id` (the reply's SHA-256 reference, for a reply not loaded yet).
+/// `event` instead of `id` (the reply's SHA-256 reference, for a reply not loaded yet). Pairing v2
+/// adds `pairing-needs-mac-update` and `mac-confirmation` (`confirmation`: `confirmed`, `awaiting` or
+/// `refused`, with `at`), the Mac's word on the press ON THE MAC.
 ///
 /// Time and idempotency stamps (`at`, `clientId` on `send`) are optional on the wire: omitted, they
 /// are stamped from the clock when the command arrives; given, a scenario replays exactly.
@@ -57,6 +59,7 @@ extension Action: Codable {
         var name: String?
         var bytes: Int?
         var tooLarge: Bool?
+        var confirmation: MacConfirmation?
 
         init(_ type: String) { self.type = type }
     }
@@ -64,7 +67,7 @@ extension Action: Codable {
     public static let knownTypes = [
         "compose", "set-appearance",
         "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused", "pairing-unreachable",
-        "confirm-pair", "accept-consent", "dismiss-pairing-problem", "discard-and-pair", "open-sheet", "close-sheet",
+        "pairing-needs-mac-update", "confirm-pair", "mac-confirmation", "accept-consent", "dismiss-pairing-problem", "discard-and-pair", "open-sheet", "close-sheet",
         "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
         "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "remember-reading", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
@@ -101,7 +104,9 @@ extension Action: Codable {
         case "pairing-answered": self = .pairingAnswered(try need(w.answer, "answer"))
         case "pairing-refused": self = .pairingRefused
         case "pairing-unreachable": self = .pairingUnreachable
+        case "pairing-needs-mac-update": self = .pairingNeedsMacUpdate
         case "confirm-pair": self = try need(w.matched, "matched") ? .confirmWords : .rejectWords
+        case "mac-confirmation": self = .macConfirmation(try need(w.confirmation, "confirmation"), at: now)
         case "accept-consent": self = .acceptConsent
         case "dismiss-pairing-problem": self = .dismissPairingProblem
         case "discard-and-pair": self = .discardUnsentAndPair
@@ -205,8 +210,10 @@ extension Action: Codable {
         case .pairingAnswered(let a): w = Wire("pairing-answered"); w.answer = a
         case .pairingRefused: w = Wire("pairing-refused")
         case .pairingUnreachable: w = Wire("pairing-unreachable")
+        case .pairingNeedsMacUpdate: w = Wire("pairing-needs-mac-update")
         case .confirmWords: w = Wire("confirm-pair"); w.matched = true
         case .rejectWords: w = Wire("confirm-pair"); w.matched = false
+        case .macConfirmation(let c, let at): w = Wire("mac-confirmation"); w.confirmation = c; w.at = at
         case .acceptConsent: w = Wire("accept-consent")
         case .dismissPairingProblem: w = Wire("dismiss-pairing-problem")
         case .discardUnsentAndPair: w = Wire("discard-and-pair")

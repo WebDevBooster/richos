@@ -28,10 +28,12 @@ enum Screen {
     }
 
     /// Round 12's catalog, grouped as in `shared/screens.js`: the 63 in-app ids (the four that are not
-    /// app screens on iPhone — two web-app-only, two on Apple's lock screen — have no fixture).
+    /// app screens on iPhone — two web-app-only, two on Apple's lock screen — have no fixture), plus
+    /// pairing v2's four, which round 12 predates (the wait for the press on the Mac and its endings).
     static let groups: [String: [String]] = [
         "pairing": ["pair-intro", "pair-scanner", "pair-scanner-found", "pair-camera-denied", "pair-progress",
-                    "pair-words", "pair-refused", "pair-blocked", "pair-stale", "pair-consent"],
+                    "pair-words", "pair-refused", "pair-blocked", "pair-stale", "pair-consent",
+                    "pair-awaiting-mac", "pair-mac-update", "pair-mac-refused", "pair-mac-expired"],
         "conversation": ["conv-empty", "conv-populated", "conv-pending", "conv-replying", "conv-streaming",
                          "conv-playing-reply", "conv-preparing-reply", "conv-older-loading", "conv-beginning",
                          "conv-scrolled", "conv-focused", "conv-retry"],

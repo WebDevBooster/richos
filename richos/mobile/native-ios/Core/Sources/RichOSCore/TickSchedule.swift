@@ -3,8 +3,9 @@ import Foundation
 /// THE APP'S ONE TIMER, as a rule the core owns (the Android `AppStore`'s one timer, richos main
 /// `c5f04574`; the reference queue's rule 5: the core sets no timer, it says when time is owed).
 ///
-/// `tick` moves three things and nothing else: a recording that is running (the press delay and the
-/// ceiling), the quiet period before "Reconnecting…", and an outbox item's retry. `nextTick` says
+/// `tick` moves four things and nothing else: a recording that is running (the press delay and the
+/// ceiling), the quiet period before "Reconnecting…", an outbox item's retry, and pairing v2's next
+/// probe for the press on the Mac (`MacWait`). `nextTick` says
 /// when the next tick would change one of them, or `nil` when nothing needs time. An idle app is
 /// owed nothing, so the app sleeps: no periodic wakeup, no new state, no frame (the CEO's battery
 /// rule, 2026-09-24, `richos/mobile/AGENTS.md` "Wakeups and timers").
@@ -18,7 +19,14 @@ public enum TickSchedule {
 
     /// When the next `tick` is owed (milliseconds since 1970), or `nil` when nothing in `s` needs time.
     public static func nextTick(_ s: AppState) -> Int64? {
-        [voice(s), notice(s), outbox(s)].compactMap { $0 }.min()
+        [voice(s), notice(s), outbox(s), macWait(s)].compactMap { $0 }.min()
+    }
+
+    /// Pairing v2's next probe for the press on the Mac (`MacWait`): owed only while the phone waits
+    /// on screen with no probe in flight. Off screen (`paused`) nothing is owed, so nothing wakes.
+    static func macWait(_ s: AppState) -> Int64? {
+        guard s.pairing == .awaitingMac, let w = s.macWait, !w.paused, !w.asking else { return nil }
+        return w.nextAskAtMs
     }
 
     /// A recording that is running: pressed, held or locked. One that has ENDED is not running — its

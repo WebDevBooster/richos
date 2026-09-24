@@ -185,6 +185,62 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(newest.isHittable, "Latest did not return to the newest message")
     }
 
+    // MARK: pairing v2 — the press on the phone, then the wait for the press on the Mac
+
+    /// "They match" is a real tap into the production core: the words stay up, the button that was
+    /// pressed goes, the screen names the press still missing, and "They do not match" is the way out.
+    func testTheyMatchWaitsForTheMacAndTheyDoNotMatchLeaves() {
+        let app = Screen.launch("pair-words", interactive: true)
+        let match = app.buttons["pair.match"]
+        assertOnScreenAndHittable(match, in: app, "They match")
+        match.tap()
+        let waiting = app.descendants(matching: .any)["takeover.pair-awaiting-mac"]
+        XCTAssertTrue(waiting.waitForExistence(timeout: 3), "They match did not lead to the wait for the Mac")
+        XCTAssertTrue(app.staticTexts["Now press They match on your Mac"].exists, "the screen does not name the missing press")
+        XCTAssertTrue(app.descendants(matching: .any)["pair.words"].exists, "the words left the screen while waiting")
+        XCTAssertFalse(app.buttons["pair.match"].exists, "They match can be pressed twice")
+        assertEveryButtonNamed(app)
+        let noMatch = app.buttons["pair.noMatch"]
+        assertOnScreenAndHittable(noMatch, in: app, "They do not match while waiting")
+        noMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["takeover.pair-intro"].waitForExistence(timeout: 3),
+                      "They do not match did not end the pairing")
+        XCTAssertFalse(app.descendants(matching: .any)["pair.words"].exists, "the words outlived the pairing")
+        XCTAssertTrue(app.buttons["pair.scan"].exists, "pairing afresh is not offered")
+    }
+
+    /// Coming to the front is what resumes the wait, so it is where a wait whose bound has passed
+    /// ends. Interactive fixtures run the real clock; the fixture's deadline is the fixtures' morning
+    /// (2026-09-22), long past, so the launch's return to the front ends it truthfully, and
+    /// "Pair again" is a real tap that opens the scanner.
+    func testAWaitPastItsBoundSaysSoAndPairAgainOpensTheScanner() {
+        let app = Screen.launch("pair-awaiting-mac", interactive: true)
+        let card = app.descendants(matching: .any)["pair.error"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "the ended wait is not explained")
+        XCTAssertTrue(card.label.contains("Your Mac did not get an answer in time"), "unexpected explanation: \(card.label)")
+        XCTAssertFalse(app.descendants(matching: .any)["takeover.pair-awaiting-mac"].exists, "still claims to be waiting")
+        let again = app.buttons["pair.again"]
+        assertOnScreenAndHittable(again, in: app, "Pair again")
+        again.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["scanner"].waitForExistence(timeout: 3), "Pair again did not open the scanner")
+    }
+
+    /// Leaving for the Home Screen and coming back is a real round trip through the app's lifecycle:
+    /// the return ends a wait whose bound has passed, and nothing is left saying "waiting".
+    func testLeavingAndReturningWhileWaitingIsTruthful() {
+        let app = Screen.launch("pair-words", interactive: true)
+        app.buttons["pair.match"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["takeover.pair-awaiting-mac"].waitForExistence(timeout: 3))
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5))
+        app.activate()
+        // No Mac answers in an interactive fixture, so the wait is still inside its bound: it resumes
+        // and still says which press is missing.
+        XCTAssertTrue(app.descendants(matching: .any)["takeover.pair-awaiting-mac"].waitForExistence(timeout: 3),
+                      "the wait did not resume on return")
+        XCTAssertTrue(app.buttons["pair.noMatch"].isHittable)
+    }
+
     func testSettingsOpensAndForgetAsksFirst() {
         let app = Screen.launch("comp-idle")
         app.buttons["header.settings"].tap()

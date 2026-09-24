@@ -5,7 +5,8 @@
 #
 # Two parts, fastest first:
 #   1. HEADLESS (seconds, this Mac, no simulator), compiled from the app's own sources:
-#      * every one of the core's 63 round-12 fixtures derives the screen round 12 names (ScreenModel);
+#      * every one of the core's 63 round-12 fixtures derives the screen round 12 names (ScreenModel),
+#        and pairing v2's 4 (the wait for the press on the Mac and its endings) theirs;
 #      * the adopted T3 viewport geometry, with round 12's 80-point threshold;
 #      * WCAG contrast of every text and indicator pairing, from the app's own Palette values.
 #   2. SIMULATOR (minutes): builds the app and its UI tests from `native-ios/project.yml`, then runs
@@ -115,6 +116,12 @@ let expect: [String: (M) -> Bool] = [
     "pair-blocked": { if case .pairBlocked(let n, false)? = $0.dialog { return n >= 1 } else { return false } },
     "pair-stale": { $0.takeover == .pairStale },
     "pair-consent": { $0.takeover == .consent },
+    // Pairing v2, which round 12 predates: the wait for the press on the Mac keeps the six words up,
+    // and each ending explains itself and offers "Pair again".
+    "pair-awaiting-mac": { if case .pairAwaitingMac(let w)? = $0.takeover { return w.count == 6 } else { return false } },
+    "pair-mac-update": { $0.takeover == .pairIntro(problem: .macNeedsUpdate) && ScreenModel.PairProblem.macNeedsUpdate.offersPairAgain },
+    "pair-mac-refused": { $0.takeover == .pairIntro(problem: .notAcceptedByMac) && ScreenModel.PairProblem.notAcceptedByMac.offersPairAgain },
+    "pair-mac-expired": { $0.takeover == .pairIntro(problem: .macAnswerExpired) && ScreenModel.PairProblem.macAnswerExpired.offersPairAgain },
     "conv-empty": { $0.takeover == nil && $0.thread.isEmpty && $0.cards.isEmpty },
     "conv-populated": { $0.takeover == nil && $0.thread.rows.count == 10 && $0.thread.following },
     "conv-pending": { m in
@@ -171,7 +178,7 @@ let expect: [String: (M) -> Bool] = [
     "upd-feature-off": { $0.connection?.kind == .voicePaused && !$0.composer.voiceAvailable },
     "launch-cached": { $0.thread.cached && $0.thread.rows.count == 10 },
 ]
-check(Fixture.all.count == 63, "the core has all 63 in-app round-12 fixtures (it has \(Fixture.all.count))")
+check(Fixture.all.count == 63 + 4, "the core has all 63 in-app round-12 fixtures and pairing v2's 4 (it has \(Fixture.all.count))")
 for f in Fixture.all {
     guard let rule = expect[f.name] else { check(false, "\(f.name): no expectation for this fixture"); continue }
     check(rule(ScreenModel(state: f.state)), "\(f.name) draws its round-12 screen")
