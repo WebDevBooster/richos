@@ -1379,6 +1379,24 @@ def use_ios(udid, owner_pid=None, checkout=""):
         touch_lease("ios-simulator", udid)
 
 
+def lease_report(now=None):
+    """Read-only: every registered device lease, its age and its inactivity, for status."""
+    now = time.time() if now is None else now
+    rows = []
+    for rec in records():
+        lease = rec.get("lease")
+        if not lease:
+            continue
+        owner = rec.get("owner") or {}
+        rows.append({"kind": rec.get("kind"), "id": rec.get("id"), "script": owner.get("script"),
+                     "owner_pid": owner.get("pid"), "purpose": lease.get("purpose"),
+                     "max_seconds": lease.get("max_seconds"), "idle_seconds": lease.get("idle_seconds"),
+                     "age": round(now - lease.get("created", now), 1),
+                     "idle": round(now - lease.get("last_use", now), 1),
+                     "activity": lease.get("activity"), "expired": lease_expired(rec, now)})
+    return rows
+
+
 def expire_leases(pressure=False):
     """Bounded collection of exact registered devices, without workspace discovery."""
     token = _DEADLINE.set(time.time() + 12)
@@ -1542,6 +1560,7 @@ def _main(argv):
     use.add_argument("--checkout", default="")
     expire = sub.add_parser("expire-leases")
     expire.add_argument("--pressure", action="store_true")
+    sub.add_parser("leases", help="print every registered device lease as JSON (read-only)")
     touch = sub.add_parser("touch-lease")
     touch.add_argument("--kind", required=True, choices=["android-emulator", "ios-simulator"])
     touch.add_argument("--id", required=True)
@@ -1591,6 +1610,9 @@ def _main(argv):
         return 0
     if a.cmd == "use-ios":
         use_ios(a.id, a.owner_pid, a.checkout)
+        return 0
+    if a.cmd == "leases":
+        print(json.dumps({"at": time.time(), "leases": lease_report()}, sort_keys=True))
         return 0
     if a.cmd == "touch-lease":
         touch_lease(a.kind, a.id)

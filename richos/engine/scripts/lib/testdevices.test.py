@@ -983,6 +983,19 @@ class Collector(Base):
         with self.assertRaisesRegex(ValueError, "unknown lease purpose"):
             T.acquire_ios("iPhone", "runtime", os.getpid(), purpose="forever")
 
+    def test_T52_the_lease_report_shows_age_inactivity_and_activity_without_changing_anything(self):
+        udid = self.device("rios-ui-report")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["last_use"] = rec["lease"]["created"]
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        before = open(T._record_path("ios-simulator", udid)).read()
+        [row] = T.lease_report(now=rec["lease"]["created"] + 10)
+        self.assertEqual((row["id"], row["age"], row["idle"], row["expired"]), (udid, 10, 10, False))
+        self.assertEqual(row["max_seconds"], T.LEASE_MAX_SECONDS)
+        self.assertEqual(open(T._record_path("ios-simulator", udid)).read(), before)
+        [late] = T.lease_report(now=rec["lease"]["created"] + T.LEASE_IDLE_SECONDS)
+        self.assertTrue(late["expired"])
+
     def test_T51_renewal_stops_when_the_owned_run_ends(self):
         udid = self.device("rios-ui-run-ended")
         rec = T.register("ios-simulator", udid, os.getpid())
