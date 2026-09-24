@@ -4,6 +4,9 @@ import dev.richos.android.core.protocol.HttpRequest
 import dev.richos.android.core.protocol.MacApi
 import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
@@ -72,18 +75,21 @@ class ConnectionOwner(
     }
 
     /** Runs until its coroutine is stopped (the app's process scope owns it). */
-    suspend fun run() {
+    suspend fun run() = coroutineScope {
+        val deliveryScope = this
         combine(visible, available) { shown, online -> shown to online }.collectLatest { (shown, online) ->
             // collectLatest cancels the old socket/backoff before entering a new lifecycle state.
             try {
             if (!shown) {
                 core.backgrounded()
             } else if (!online) {
+                core.foregrounded()
                 core.dispatch(Action.Network(false))
                 core.dispatch(Action.Health(phoneOnline = false))
             } else {
+                core.foregrounded()
                 core.dispatch(Action.Health(phoneOnline = true))
-                connect()
+                connect(deliveryScope)
             }
             } catch (failure: IOException) {
                 onStorageFailure(failure)
@@ -93,7 +99,7 @@ class ConnectionOwner(
     }
 
     /** Connects and reconnects while the app is on screen; stopped when it leaves. */
-    private suspend fun connect() {
+    private suspend fun connect(deliveryScope: CoroutineScope) {
         // A wake that arrived while nothing listened (the network changed in the background) is
         // spent: this is already the immediate attempt.
         wakeups.tryReceive()
@@ -123,7 +129,13 @@ class ConnectionOwner(
                                 if (status == 200) {
                                     opened = true
                                     attempt = 0
-                                    core.dispatch(Action.Link(LinkStatus.OPEN))
+                                    // A finite send batch belongs to the application, not the SSE
+                                    // socket. Closing the stream must not cancel useful delivery.
+                                    core.openedWithoutDraining()
+                                    deliveryScope.launch {
+                                        try { core.dispatch(Action.Sync) }
+                                        catch (failure: IOException) { onStorageFailure(failure) }
+                                    }
                                 }
                             },
                             onBytes = {

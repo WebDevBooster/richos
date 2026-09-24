@@ -193,7 +193,11 @@ class RichCore private constructor(
      * foreground reconciles). Not trouble: no notice falls due, and with the link closed nothing in
      * the outbox is owed a timed try, so nothing wakes the app until it returns or a person sends.
      */
-    suspend fun backgrounded(): AppState = mutex.withLock {
+    fun foregrounded() { outbox.foregrounded() }
+
+    suspend fun backgrounded(): AppState {
+        outbox.backgrounded()
+        return mutex.withLock {
         // Lifecycle shutdown must take effect even when disk is full. An online flag is never a
         // reason to keep an outbox timer or network drain alive behind a hidden interface.
         session = session.copy(online = false)
@@ -219,6 +223,7 @@ class RichCore private constructor(
             throw failure
         } finally { emit() }
         flow.value
+        }
     }
 
     private suspend fun receive(wire: String): AppState = apply(sse.feed(wire))
@@ -338,7 +343,7 @@ class RichCore private constructor(
     private suspend fun flush(): AppState {
         if (!session.online) return flow.value
         val before = outbox.all()
-        val report = outbox.flush(shouldContinue = { session.online }) { item ->
+        val report = outbox.flush(lease = { reserveCompletion() }) { item ->
             when (item.kind) {
                 "voice" -> transport.sendVoice(item)
                 "attachments" -> transport.sendAttachments(item)
@@ -360,6 +365,25 @@ class RichCore private constructor(
                 commit(session.copy(pairing = pairing))
             } else {
                 emit()
+            }
+        }
+    }
+
+    /** Five seconds / three small text requests per used lease; six leases/hour, 24/day.
+     * Reserve before network I/O. A crash spends the reservation; clock rollback cannot refill it.
+     */
+    private suspend fun reserveCompletion(): Outbox.CompletionLease = mutex.withLock {
+        val now = ports.clock.now()
+        val retained = session.completionReservations.filter { now - it < 86_400_000L }
+        if (retained.size >= 24 || retained.count { now - it < 3_600_000L } >= 6)
+            return@withLock Outbox.CompletionLease(false)
+        val token = maxOf(now, (retained.maxOrNull() ?: (now - 1)) + 1)
+        try { commit(session.copy(completionReservations = retained + token)) }
+        catch (_: java.io.IOException) { return@withLock Outbox.CompletionLease(false) }
+        Outbox.CompletionLease(true) { used ->
+            if (!used) mutex.withLock {
+                try { commit(session.copy(completionReservations = session.completionReservations - token)) }
+                catch (_: java.io.IOException) { /* Keep the reservation. Never retry optional accounting on a timer. */ }
             }
         }
     }
@@ -848,7 +872,9 @@ class RichCore private constructor(
 
     // --- the connection (connection.js + client.js onState) --------------------------------------
 
-    private suspend fun link(status: LinkStatus): AppState {
+    suspend fun openedWithoutDraining(): AppState = link(LinkStatus.OPEN, drain = false)
+
+    private suspend fun link(status: LinkStatus, drain: Boolean = true): AppState {
         mutex.withLock {
             val now = ports.clock.now()
             connection = if (status == LinkStatus.OPEN) {
@@ -864,7 +890,7 @@ class RichCore private constructor(
             }
             commit(session.copy(online = status == LinkStatus.OPEN))
         }
-        return if (status == LinkStatus.OPEN && session.paired) flush() else flow.value
+        return if (drain && status == LinkStatus.OPEN && session.paired) flush() else flow.value
     }
 
     companion object {

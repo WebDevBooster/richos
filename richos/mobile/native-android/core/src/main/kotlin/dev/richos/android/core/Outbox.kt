@@ -1,6 +1,8 @@
 package dev.richos.android.core
 
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.max
@@ -27,6 +29,13 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
     private val revisions = HashMap<String, Int>()
     private val flushLock = Mutex()
     private var flushing: CompletableDeferred<SendReport>? = null
+
+    private val visible = MutableStateFlow(true)
+    fun foregrounded() { visible.value = true }
+    fun backgrounded() { visible.value = false }
+
+    /** A reservation is durable before requests start; refund only if no work crossed background. */
+    class CompletionLease(val allowed: Boolean, val finish: suspend (used: Boolean) -> Unit = {})
 
     private fun bump(clientId: String) {
         revisions[clientId] = (revisions[clientId] ?: 0) + 1
@@ -83,28 +92,75 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
     }
 
     /** Try to hand the queue to the Mac. Concurrent calls collapse into the one in flight. */
-    suspend fun flush(shouldContinue: () -> Boolean = { true }, send: suspend (OutboxItem) -> Receipt): SendReport {
+    suspend fun flush(lease: suspend () -> CompletionLease = { CompletionLease(false) }, send: suspend (OutboxItem) -> Receipt): SendReport {
         val (mine, owner) = flushLock.withLock {
             flushing?.let { it to false } ?: CompletableDeferred<SendReport>().also { flushing = it }.let { it to true }
         }
         if (!owner) return mine.await()
+        var reserved: CompletionLease? = null
+        var used = false
         try {
-            val report = drain(shouldContinue, send)
+            reserved = lease()
+            val report = supervisorScope {
+                var backgroundRequests = 0
+                var backgroundBytes = 0
+                var expired = false
+                var inFlight: Job? = null
+                var current: OutboxItem? = null
+                val deadline = launch(start = CoroutineStart.UNDISPATCHED) {
+                    visible.first { !it }
+                    used = true
+                    val item = current
+                    if (item != null) {
+                        backgroundRequests++
+                        backgroundBytes += completionBytes(item)
+                    }
+                    if (reserved.allowed && backgroundBytes <= COMPLETION_BYTES) delay(COMPLETION_MS)
+                    expired = true
+                    visible.first { !it }
+                    inFlight?.cancel(CancellationException("background completion budget"))
+                }
+                try {
+                    drain(canStart = { item ->
+                        if (visible.value) true
+                        else if (!reserved.allowed || expired || backgroundRequests >= COMPLETION_MESSAGES ||
+                            completionBytes(item) > COMPLETION_BYTES - backgroundBytes) false
+                        else {
+                            used = true
+                            backgroundRequests++
+                            backgroundBytes += completionBytes(item)
+                            true
+                        }
+                    }) { item ->
+                        current = item
+                        val request = async(start = CoroutineStart.LAZY) { send(item) }
+                        inFlight = request
+                        try { request.await() }
+                        catch (cancelled: CancellationException) {
+                            currentCoroutineContext().ensureActive()
+                            throw TransportFailure("background-budget", retryable = true)
+                        } finally { current = null; inFlight = null }
+                    }
+                } finally { deadline.cancel() }
+            }
             mine.complete(report)
             return report
         } catch (e: Throwable) {
             mine.completeExceptionally(e)
             throw e
         } finally {
-            flushLock.withLock { flushing = null }
+            withContext(NonCancellable) {
+                try { reserved?.finish?.invoke(used || !visible.value) }
+                finally { flushLock.withLock { flushing = null } }
+            }
         }
     }
 
-    private suspend fun drain(shouldContinue: () -> Boolean, send: suspend (OutboxItem) -> Receipt): SendReport {
+    private suspend fun drain(canStart: (OutboxItem) -> Boolean, send: suspend (OutboxItem) -> Receipt): SendReport {
         var report = SendReport()
         val at = clock.now()
         for (queued in all()) {
-            if (!shouldContinue()) return report.copy(waiting = items.count { it.state == OutboxState.WAITING })
+            if (!canStart(queued)) return report.copy(waiting = items.count { it.state == OutboxState.WAITING })
             if (queued.state == OutboxState.BLOCKED) {
                 report = report.copy(blocked = report.blocked + 1)
                 continue
@@ -124,6 +180,12 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                 items = items.filter { it.clientId != sending.clientId }
                 bump(sending.clientId)
                 report = report.copy(sent = report.sent + 1)
+            } catch (e: CancellationException) {
+                // Closing a socket/owner must never strand a live process with a SENDING item.
+                withContext(NonCancellable) {
+                    write(sending.copy(state = OutboxState.WAITING, notBefore = 0), mine)
+                }
+                throw e
             } catch (e: TransportFailure) {
                 val failed = sending.copy(
                     state = if (e.retryable) OutboxState.WAITING else OutboxState.BLOCKED,
@@ -162,6 +224,14 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
     }
 
     companion object {
+        const val COMPLETION_MS = 5_000L
+        const val COMPLETION_MESSAGES = 3
+        const val COMPLETION_BYTES = 256 * 1024
+        // Media requires a separately costed transfer policy. Never guess its remaining size.
+        private fun completionBytes(item: OutboxItem): Int =
+            if (item.kind == "text") (item.wire ?: item.text).toByteArray(Charsets.UTF_8).size + 4096
+            else COMPLETION_BYTES + 1
+
         const val FIRST_RETRY_MS = 1_000L
         const val MAX_RETRY_MS = 16_000L
 

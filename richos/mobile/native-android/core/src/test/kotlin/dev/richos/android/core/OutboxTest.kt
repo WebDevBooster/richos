@@ -15,19 +15,80 @@ import kotlin.test.assertTrue
 
 /** The durable outbox: the `queue.js` rules, and the three `runtime.js` scenarios. */
 class OutboxTest {
-    @Test fun leavingTheForegroundStopsTheRestOfAnAlreadyRunningDrain() = runTest {
+    @Test fun backgroundWithoutACompletionReservationPreservesTheRemainingQueue() = runTest {
         val box = Outbox(Store(), Clock { 0 })
         for (id in listOf("a", "b", "c")) box.enqueue(item(id))
-        var online = true
         val delivered = mutableListOf<String>()
-        box.flush(shouldContinue = { online }) {
+        box.flush() {
             delivered += it.clientId
-            online = false
+            box.backgrounded()
             Receipt("accepted", false, 1)
         }
         assertEquals(listOf("a"), delivered)
         assertEquals(listOf("b", "c"), box.all().map { it.clientId })
         assertTrue(box.all().all { it.state == OutboxState.WAITING && it.attempts == 0 })
+    }
+
+    @Test fun aReservedBatchFinishesAlreadySubmittedMessagesAfterBackgrounding() = runTest {
+        val box = Outbox(Store(), Clock { testScheduler.currentTime })
+        for (id in listOf("a", "b", "c", "d", "e")) box.enqueue(item(id))
+        var spent = false
+        val delivered = mutableListOf<String>()
+        box.flush(lease = { Outbox.CompletionLease(true) { spent = it } }) {
+            delivered += it.clientId
+            box.backgrounded()
+            kotlinx.coroutines.delay(100)
+            Receipt("accepted", false, 1)
+        }
+        assertEquals(listOf("a", "b", "c"), delivered)
+        assertEquals(listOf("d", "e"), box.all().map { it.clientId })
+        assertTrue(spent)
+    }
+
+    @Test fun aBackgroundDeadlineCancelsTheRequestAndLeavesDurableWorkWaiting() = runTest {
+        val storage = Store()
+        val box = Outbox(storage, Clock { testScheduler.currentTime })
+        box.enqueue(item("a")); box.enqueue(item("b"))
+        var released = false
+        val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
+            box.backgrounded()
+            try { kotlinx.coroutines.awaitCancellation() } finally { released = true }
+        }
+        assertTrue(released)
+        assertEquals(5_000, testScheduler.currentTime)
+        assertEquals(2, report.waiting)
+        assertTrue(storage.saved.values.all { it.state == OutboxState.WAITING })
+    }
+
+    @Test fun cancelledOwnerNeverStrandsSendingState() = runTest {
+        val storage = Store()
+        val box = Outbox(storage, Clock { 0 })
+        box.enqueue(item("a"))
+        val started = CompletableDeferred<Unit>()
+        val request = async { box.flush { started.complete(Unit); kotlinx.coroutines.awaitCancellation() } }
+        started.await(); request.cancel(); request.join()
+        assertEquals(OutboxState.WAITING, storage.saved.getValue("a").state)
+        assertEquals(OutboxState.WAITING, box.all().single().state)
+    }
+
+    @Test fun aForegroundOnlyBatchRefundsItsReservation() = runTest {
+        val box = Outbox(Store(), Clock { 0 })
+        box.enqueue(item("a"))
+        var spent: Boolean? = null
+        box.flush(lease = { Outbox.CompletionLease(true) { spent = it } }) { Receipt("accepted", false, 1) }
+        assertEquals(false, spent)
+    }
+
+    @Test fun aLargeNextMessageCannotConsumeTheBackgroundByteBudget() = runTest {
+        val box = Outbox(Store(), Clock { 0 })
+        box.enqueue(item("a")); box.enqueue(item("b").copy(text = "x".repeat(Outbox.COMPLETION_BYTES)))
+        val delivered = mutableListOf<String>()
+        box.flush(lease = { Outbox.CompletionLease(true) }) {
+            delivered += it.clientId; box.backgrounded(); kotlinx.coroutines.yield()
+            Receipt("accepted", false, 1)
+        }
+        assertEquals(listOf("a"), delivered)
+        assertEquals("b", box.all().single().clientId)
     }
 
     @Test

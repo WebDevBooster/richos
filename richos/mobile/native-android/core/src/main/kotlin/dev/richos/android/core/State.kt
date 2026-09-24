@@ -104,6 +104,8 @@ data class Session(
     val pendingEnqueues: List<OutboxItem> = emptyList(),
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val readingAnchor: ReadingAnchor? = null,
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val completionReservations: List<Long> = emptyList(),
 ) {
     companion object {
         const val CACHE_ROWS = 100
