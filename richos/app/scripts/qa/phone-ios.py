@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Drive a PHYSICAL iPhone through its real controls, and read what an app leaves running.
+
+    phone-ios.py check STEPS.json                  validate a step list; touches no device
+    phone-ios.py run STEPS.json --out DIR [--allowance S]
+                                                   run the steps through XCUITest on the phone
+                                                   (`rios device verify script`), then write
+                                                   DIR/steps.jsonl (one line per step, phone clock)
+                                                   and DIR/attachments/ (the steps' shots and trees)
+    phone-ios.py parse-log TEST.log                the PHONE_STEP lines of a finished run
+    phone-ios.py procs [--name NAME]               the phone's processes whose executable ends in
+                                                   NAME (default RichOSNative): pid and path only
+    phone-ios.py apps                              which RichConnect builds and test runners are installed
+    phone-ios.py lock                              the phone's lock state
+    phone-ios.py battery                           level, charging and external power
+
+The iPhone counterpart of phone-android.py. iOS 26 offers no shell on the phone, so every tap,
+type, Home, lock and screenshot goes through one XCUITest check that executes a list of steps
+(`PhysicalDeviceTests.testScript`). Each step prints one `PHONE_STEP` JSON line with its start and
+end on the phone's clock, which this tool collects. A failed step stops the list; nothing is
+retried. Validation happens here, before anything is built, so a typo costs a second, not a build.
+
+Steps are JSON objects with "do" and, where needed, "id" (accessibility identifier) or "label"
+(substring of the accessibility label), "in": "springboard" for system UI, "timeout" (s) and
+"optional": true (a failure is logged, the list continues):
+
+    launch{textSize} activate terminate home lock unlock sleep{seconds} mark{label} state audit
+    waitState{state: background|suspended|foreground|notRunning}
+    wait tap exists gone value{equals} type{text, delete, focus} press{seconds, drag:[dx,dy]}
+    swipe{direction} count{label, equals} alert{button} shot{name, screen} tree{name}
+
+`launch` may carry Apple's own text-size override (`textSize`, a UIContentSizeCategory name) and
+nothing else: the app under test stays the Release app. `audit` records XCTest's accessibility
+audit of the screen as it is. `unlock` presses Home twice and is only for a phone without a passcode; `lock` uses XCTest's lock
+button. `shot` keeps only the app unless "screen": true, so nothing else on a person's phone lands
+in a record by accident; run `ocr-gate.sh` on any frame before it enters a record.
+
+Environment for `run`: RICHOS_IOS_DEVICE (the hardware UDID xcodebuild accepts) and
+RICHOS_APPLE_TEAM. `procs`, `apps`, `lock` and `battery` take --device (devicectl identifier or
+UDID). Prints one JSON document; exits 1 when the phone answered "no" (a step failed) and 2 when
+it cannot answer at all, with the sentence in `error`.
+"""
+import argparse
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[4]  # the richos repository root
+RIOS = ROOT / "richos/mobile/native-ios/bin/rios"
+OURS = ("dev.richos.connect", "dev.richos.native.ios", "dev.richos.mobile.integration")
+
+ACTIONS = {
+    "launch": {"textSize"}, "audit": set(), "activate": set(), "terminate": set(), "home": set(), "lock": set(),
+    "unlock": set(), "sleep": {"seconds"}, "mark": {"label"}, "state": set(),
+    "waitState": {"state"}, "wait": set(), "tap": set(), "exists": set(), "gone": set(),
+    "value": {"equals"}, "type": {"text", "delete", "focus"}, "press": {"seconds", "drag"},
+    "swipe": {"direction"}, "count": {"label", "equals"}, "alert": {"button"},
+    "shot": {"name", "screen"}, "tree": {"name"},
+}
+NEEDS_TARGET = {"wait", "tap", "exists", "gone", "value", "type", "press", "swipe"}
+COMMON = {"do", "id", "label", "in", "timeout", "optional"}
+
+
+class CannotAnswer(Exception):
+    pass
+
+
+def emit(obj, code=0):
+    print(json.dumps(obj, indent=2))
+    return code
+
+
+def validate(steps):
+    """The whole list, or the first reason it cannot run. Nothing partial reaches the phone."""
+    if not isinstance(steps, list) or not steps:
+        raise CannotAnswer("steps must be a non-empty JSON list")
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise CannotAnswer(f"step {i} is not an object")
+        action = step.get("do")
+        if action not in ACTIONS:
+            raise CannotAnswer(f"step {i}: unknown step {action!r}")
+        extra = set(step) - COMMON - ACTIONS[action]
+        if extra:
+            raise CannotAnswer(f"step {i} ({action}): unexpected keys {sorted(extra)}")
+        if action in NEEDS_TARGET and not (isinstance(step.get("id"), str) or isinstance(step.get("label"), str)):
+            raise CannotAnswer(f"step {i} ({action}) names no id or label")
+        if action == "count" and not isinstance(step.get("label"), str):
+            raise CannotAnswer(f"step {i} (count) needs a label")
+        if action == "type" and not isinstance(step.get("text"), str):
+            raise CannotAnswer(f"step {i} (type) needs text")
+        if action == "swipe" and step.get("direction") not in ("up", "down", "left", "right"):
+            raise CannotAnswer(f"step {i} (swipe) needs direction up, down, left or right")
+        if action == "waitState" and step.get("state") not in ("background", "suspended", "foreground", "notRunning"):
+            raise CannotAnswer(f"step {i} (waitState) needs a state")
+        if action == "sleep" and not (isinstance(step.get("seconds"), (int, float)) and 0 < step["seconds"] <= 1800):
+            raise CannotAnswer(f"step {i} (sleep) needs seconds between 0 and 1800")
+        if "in" in step and step["in"] != "springboard":
+            raise CannotAnswer(f"step {i}: 'in' may only be 'springboard'")
+    return steps
+
+
+def parse_log(text):
+    rows = []
+    for line in text.splitlines():
+        at = line.find("PHONE_STEP ")
+        if at < 0:
+            continue
+        try:
+            rows.append(json.loads(line[at + len("PHONE_STEP "):]))
+        except json.JSONDecodeError:
+            continue  # xcodebuild echoes the print once more inside a quoted line; the clean one counts
+    seen, unique = set(), []
+    for row in rows:
+        if row.get("i") in seen:
+            continue
+        seen.add(row.get("i"))
+        unique.append(row)
+    return unique
+
+
+def load_steps(path):
+    try:
+        return validate(json.loads(Path(path).read_text()))
+    except FileNotFoundError:
+        raise CannotAnswer(f"no step file at {path}")
+    except json.JSONDecodeError as error:
+        raise CannotAnswer(f"{path} is not JSON: {error}")
+
+
+def run(args):
+    steps = load_steps(args.steps)
+    for name in ("RICHOS_IOS_DEVICE", "RICHOS_APPLE_TEAM"):
+        if not os.environ.get(name):
+            raise CannotAnswer(f"set {name}")
+    out = Path(args.out).resolve()
+    if not str(out).startswith("/Volumes/E1TB/"):
+        raise CannotAnswer("--out must be on /Volumes/E1TB (the physical check refuses anything else)")
+    out.mkdir(parents=True, exist_ok=True)
+    if not 60 <= args.allowance <= 1800:
+        raise CannotAnswer("--allowance must be 60 to 1800 seconds")
+    config = out / "script-config.json"
+    config.unlink(missing_ok=True)
+    fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"isolatedLab": "true", "steps": json.dumps(steps), "allowanceSeconds": str(args.allowance)}, f)
+    env = {**os.environ, "RICHOS_MOBILE_TEST_CONFIG": str(config)}
+    p = subprocess.run([str(RIOS), "device", "verify", "script"], capture_output=True, text=True, env=env)
+    config.unlink(missing_ok=True)
+    (out / "rios.stdout").write_text(p.stdout)
+    (out / "rios.stderr").write_text(p.stderr)
+    text = p.stdout + p.stderr
+    found = re.search(r"(/Volumes/E1TB/\S+?/physical/script-(\d+)\.xcresult)", text)
+    if not found:
+        raise CannotAnswer(f"the check produced no result bundle (exit {p.returncode}); see {out}/rios.stderr")
+    result, stamp = found.group(1), found.group(2)
+    log = Path(result).parent / f"verify-script-{stamp}-test.log"
+    rows = parse_log(log.read_text(errors="replace")) if log.exists() else []
+    with open(out / "steps.jsonl", "w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+    attachments = out / "attachments"
+    exported = subprocess.run(["xcrun", "xcresulttool", "export", "attachments", "--path", result,
+                               "--output-path", str(attachments)], capture_output=True, text=True)
+    failed = [r for r in rows if not r.get("ok") and not steps[r["i"]].get("optional")]
+    summary = {"passed": p.returncode == 0 and not failed and len(rows) == len(steps),
+               "steps": len(steps), "logged": len(rows), "failed": failed[:1],
+               "result": result, "testLog": str(log), "out": str(out),
+               "attachments": str(attachments) if exported.returncode == 0 else None,
+               "attachmentsError": None if exported.returncode == 0 else exported.stderr.strip()[-300:]}
+    return emit(summary, 0 if summary["passed"] else 1)
+
+
+def devicectl(args, device):
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "out.json"
+        p = subprocess.run(["xcrun", "devicectl", *args, "--device", device, "--json-output", str(target)],
+                           capture_output=True, text=True, timeout=120)
+        if p.returncode != 0 or not target.exists():
+            raise CannotAnswer(f"devicectl {' '.join(args)} failed: {(p.stderr or p.stdout).strip()[-200:]}")
+        return json.loads(target.read_text()).get("result", {})
+
+
+def procs(args):
+    rows = devicectl(["device", "info", "processes"], args.device).get("runningProcesses", [])
+    mine = [{"pid": r.get("processIdentifier"), "executable": r.get("executable")}
+            for r in rows if str(r.get("executable", "")).rstrip("/").endswith("/" + args.name)]
+    return emit({"name": args.name, "running": mine, "count": len(mine)})
+
+
+def apps(args):
+    rows = devicectl(["device", "info", "apps"], args.device).get("apps", [])
+    ours = [{"bundle": r.get("bundleIdentifier"), "version": r.get("version"), "build": r.get("bundleVersion")}
+            for r in rows if str(r.get("bundleIdentifier", "")).startswith(OURS)]
+    return emit({"installed": ours})
+
+
+def lock(args):
+    p = subprocess.run(["xcrun", "devicectl", "device", "info", "lockState", "--device", args.device],
+                       capture_output=True, text=True, timeout=60)
+    required = re.search(r"passcodeRequired:\s*(\w+)", p.stdout)
+    if p.returncode != 0 or not required:
+        raise CannotAnswer("devicectl did not report a lock state")
+    return emit({"passcodeRequired": required.group(1) == "true",
+                 "unlockedSinceBoot": "unlockedSinceBoot: true" in p.stdout})
+
+
+def battery(args):
+    p = subprocess.run(["ideviceinfo", "-u", args.device, "-q", "com.apple.mobile.battery"],
+                       capture_output=True, text=True, timeout=60)
+    values = dict(line.split(": ", 1) for line in p.stdout.splitlines() if ": " in line)
+    if p.returncode != 0 or "BatteryCurrentCapacity" not in values:
+        raise CannotAnswer("ideviceinfo did not report the battery (it needs the hardware UDID)")
+    return emit({"percent": int(values["BatteryCurrentCapacity"]), "charging": values.get("BatteryIsCharging") == "true",
+                 "externalPower": values.get("ExternalConnected") == "true", "full": values.get("FullyCharged") == "true"})
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("check").add_argument("steps")
+    r = sub.add_parser("run")
+    r.add_argument("steps")
+    r.add_argument("--out", required=True)
+    r.add_argument("--allowance", type=int, default=240)
+    sub.add_parser("parse-log").add_argument("log")
+    for name in ("procs", "apps", "lock", "battery"):
+        s = sub.add_parser(name)
+        s.add_argument("--device", required=True)
+        if name == "procs":
+            s.add_argument("--name", default="RichOSNative")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "check":
+            return emit({"valid": True, "steps": len(load_steps(args.steps))})
+        if args.command == "parse-log":
+            try:
+                return emit({"steps": parse_log(Path(args.log).read_text(errors="replace"))})
+            except FileNotFoundError:
+                raise CannotAnswer(f"no log at {args.log}")
+        return {"run": run, "procs": procs, "apps": apps, "lock": lock, "battery": battery}[args.command](args)
+    except CannotAnswer as error:
+        return emit({"error": str(error)}, 2)
+    except subprocess.TimeoutExpired as error:
+        return emit({"error": f"{error.cmd[0]} did not answer in {error.timeout} s"}, 2)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
