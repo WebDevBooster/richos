@@ -15,6 +15,49 @@ import kotlin.test.assertTrue
 
 /** The durable outbox: the `queue.js` rules, and the three `runtime.js` scenarios. */
 class OutboxTest {
+    @Test fun slowSendingWriteCannotStartTransportAfterTheBackgroundDeadline() = runTest {
+        val saved = Store()
+        lateinit var box: Outbox
+        val storage = object : OutboxStorage by saved {
+            override suspend fun put(item: OutboxItem) {
+                if (item.state == OutboxState.SENDING) {
+                    box.backgrounded()
+                    kotlinx.coroutines.delay(6_000)
+                }
+                saved.put(item)
+            }
+        }
+        box = Outbox(storage, Clock { testScheduler.currentTime })
+        val original = item("a")
+        box.enqueue(original)
+        val report = box.flush(lease = { Outbox.CompletionLease(true) }) {
+            error("the five-second background opportunity expired during storage")
+        }
+        assertEquals(1, report.waiting)
+        assertEquals(original, saved.saved.getValue("a"))
+    }
+
+    @Test fun backgroundingDuringSendingWriteCannotAdmitUncostedMedia() = runTest {
+        val saved = Store()
+        lateinit var box: Outbox
+        val storage = object : OutboxStorage by saved {
+            override suspend fun put(item: OutboxItem) {
+                if (item.state == OutboxState.SENDING) {
+                    box.backgrounded()
+                    kotlinx.coroutines.yield()
+                }
+                saved.put(item)
+            }
+        }
+        box = Outbox(storage, Clock { 0 })
+        val original = item("voice").copy(kind = "voice")
+        box.enqueue(original)
+        box.flush(lease = { Outbox.CompletionLease(true) }) {
+            error("media has no admitted background transfer budget")
+        }
+        assertEquals(original, saved.saved.getValue("voice"))
+    }
+
     @Test fun backgroundWithoutACompletionReservationPreservesTheRemainingQueue() = runTest {
         val box = Outbox(Store(), Clock { 0 })
         for (id in listOf("a", "b", "c")) box.enqueue(item(id))

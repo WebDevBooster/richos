@@ -122,7 +122,7 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                     inFlight?.cancel(CancellationException("background completion budget"))
                 }
                 try {
-                    drain(canStart = { item ->
+                    fun admit(item: OutboxItem): Boolean =
                         if (visible.value) true
                         else if (!reserved.allowed || expired || backgroundRequests >= COMPLETION_MESSAGES ||
                             completionBytes(item) > COMPLETION_BYTES - backgroundBytes) false
@@ -132,9 +132,14 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                             backgroundBytes += completionBytes(item)
                             true
                         }
-                    }) { item ->
-                        current = item
-                        val request = async(start = CoroutineStart.LAZY) { send(item) }
+                    drain { item ->
+                        // Storage may suspend across backgrounding or the deadline. Admission
+                        // belongs immediately before transport, after the durable sending write.
+                        val request = async(start = CoroutineStart.UNDISPATCHED) {
+                            if (!admit(item)) throw CompletionDeferred()
+                            current = item
+                            send(item)
+                        }
                         inFlight = request
                         try { request.await() }
                         catch (cancelled: CancellationException) {
@@ -157,11 +162,12 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
         }
     }
 
-    private suspend fun drain(canStart: (OutboxItem) -> Boolean, send: suspend (OutboxItem) -> Receipt): SendReport {
+    private class CompletionDeferred : Exception()
+
+    private suspend fun drain(send: suspend (OutboxItem) -> Receipt): SendReport {
         var report = SendReport()
         val at = clock.now()
         for (queued in all()) {
-            if (!canStart(queued)) return report.copy(waiting = items.count { it.state == OutboxState.WAITING })
             if (queued.state == OutboxState.BLOCKED) {
                 report = report.copy(blocked = report.blocked + 1)
                 continue
@@ -181,6 +187,10 @@ class Outbox(private val storage: OutboxStorage, private val clock: Clock) {
                 items = items.filter { it.clientId != sending.clientId }
                 bump(sending.clientId)
                 report = report.copy(sent = report.sent + 1)
+            } catch (_: CompletionDeferred) {
+                // No request started. Preserve its original attempt count and due time.
+                write(queued, mine)
+                return report.copy(waiting = items.count { it.state == OutboxState.WAITING })
             } catch (e: CancellationException) {
                 // Closing a socket/owner must never strand a live process with a SENDING item.
                 withContext(NonCancellable) {
