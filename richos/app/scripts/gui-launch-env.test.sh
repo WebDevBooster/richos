@@ -20,7 +20,7 @@
 #   E4  the process gui_boot started is gone when it returns
 #
 # run-tests: inputs richos/app/scripts/gui-launch-env.test.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/lib/home-probe.sh
-# run-tests: covers richos/app/scripts/lib/gui-launch.sh
+# run-tests: covers richos/app/scripts/lib/gui-launch.sh richos/app/scripts/lib/home-probe.sh
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
