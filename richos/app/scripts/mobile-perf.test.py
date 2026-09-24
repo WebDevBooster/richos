@@ -283,7 +283,7 @@ def _():
 
 @case("A8 /proc stat, io, fsync trace and socket tables")
 def _():
-    assert android.parse_proc_stat_ticks("5911 (.richos connect) S 1 2 3 4 5 6 7 8 9 10 142 86 0 0") == 228
+    assert android.parse_proc_stat_ticks("5911 (.richos connect) S 1 2 3 4 5 6 7 8 9 10 142 86 0 0 0 0 1 0 123 0") == 228
     io = android.parse_proc_io("rchar: 10\nwchar: 7020735\nsyscr: 3\nsyscw: 28108\nread_bytes: 0\nwrite_bytes: 180224\n")
     assert android.io_delta(io, dict(io, wchar=io["wchar"] + 500, syscw=io["syscw"] + 2))["wchar"] == 500
     raises(perfcore.Unmeasurable, android.parse_proc_io, "Permission denied")
@@ -388,7 +388,7 @@ class FakeAdb:
         elif cmd.startswith("for t in"):
             out = f"{self.pid}|.richos.connect|voluntary_ctxt_switches: 386 nonvoluntary_ctxt_switches: 931\n"
         elif cmd.startswith("cat /proc/") and cmd.endswith("/stat"):
-            out = f"{self.pid} (.richos.connect) S 1 2 3 4 5 6 7 8 9 10 142 86 0 0"
+            out = f"{self.pid} (.richos.connect) S 1 2 3 4 5 6 7 8 9 10 142 86 0 0 0 0 1 0 123 0"
         elif cmd.startswith("dumpsys batterystats --checkin"):
             out = fixture("batterystats-checkin.txt")
         elif cmd.startswith("cmd uimode night") and cmd.strip() == "cmd uimode night":
@@ -467,6 +467,7 @@ def _():
             runner=fake, sleep=lambda s: None, log=quiet, host=lambda: {})
         assert failures_ == 0, record["phases"]
         assert record["metrics"]["backgroundQuiet"]["zeroWork"] is None
+        assert record["metrics"]["backgroundQuiet"]["cpuTicks"] == 0
         assert not any("batterystats --reset" in c or "battery unplug" in c or "battery reset" in c for c in fake.calls)
 
 

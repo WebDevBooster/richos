@@ -930,9 +930,22 @@ class Measure:
             raise Unmeasurable("the app is not running")
         self.home()
         self.d.sleep(settle_s)
+        def process_sample():
+            try:
+                raw = self.d.sh(f"cat /proc/{pid}/stat", check=False)
+                fields = raw[raw.rfind(")") + 2:].split()
+                return {"ticks": parse_proc_stat_ticks(raw), "started": fields[19]}
+            except (Unmeasurable, ValueError, IndexError): return None
+        process_before = process_sample()
         power_before = self.d.sh("dumpsys battery", check=False)
         before = parse_checkin(self.d.sh("dumpsys batterystats --checkin"), uid)
         self.d.sleep(seconds)
+        alive = self.d.pid() == pid
+        process_after = process_sample() if alive else None
+        ticks = None
+        if process_before and process_after and process_before["started"] == process_after["started"]:
+            value = process_after["ticks"] - process_before["ticks"]
+            if value >= 0: ticks = value
         after = parse_checkin(self.d.sh("dumpsys batterystats --checkin"), uid)
         delta = {"uidSeen": before["uidSeen"] and after["uidSeen"], "cpuMs": None, "networkBytes": None,
                  "wakeupAlarms": [], "wakelocks": [], "jobs": [], "syncs": [], "partialWakelockMs": None, "processes": []}
@@ -947,12 +960,13 @@ class Measure:
             if value >= 0: delta["partialWakelockMs"] = value
         locks = [line.strip() for line in self.d.sh("dumpsys power", check=False).splitlines()
                  if "WAKE_LOCK" in line and (f"uid={uid}" in line or PACKAGE in line)]
-        return {"seconds": seconds, "settleSeconds": settle_s, "processAliveAtEnd": self.d.pid() == pid,
-                "settleWindowWakeups": None, "threadWakeups": None, "cpuTicks": None,
+        return {"seconds": seconds, "settleSeconds": settle_s, "processAliveAtEnd": alive,
+                "settleWindowWakeups": None, "threadWakeups": None, "cpuTicks": ticks,
+                "processBefore": process_before, "processAfter": process_after,
                 "batterystats": delta, "accountingBefore": before, "accountingAfter": after,
                 "heldWakeLocks": locks, "pendingAlarms": None, "scheduledJobs": None, "openSockets": None,
                 "readOnlyPhysicalObservation": True, "powerBefore": power_before.strip(),
-                "measurementLimits": "UID accounting deltas only. Charging can pause battery accounting; inaccessible thread/socket counters are unknown. "
+                "measurementLimits": "Read-only UID accounting and available process CPU ticks. Charging can pause battery accounting; inaccessible thread/socket counters are unknown. "
                                      "No zero-work or no-warning verdict is inferred, even if the process exited. Battery history and power state were preserved."}
 
     def background(self, seconds, settle_s, uid, physical=False):
