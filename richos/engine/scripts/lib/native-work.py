@@ -32,6 +32,14 @@ def capped(command):
     elif name == 'xcodebuild':
         if any(a in command for a in ('-jobs', '-parallel-testing-enabled', '-collect-test-diagnostics', '-enablePerformanceTestsDiagnostics')):
             raise ValueError('parallelism is owned by native admission')
+        # Plain repetition otherwise continues after a crash, accumulating macOS
+        # crash dialogs. Reliability checks should stop at their first failure.
+        # Keep an explicitly chosen Xcode repetition mode intact.
+        if '-test-iterations' in command and not any(a in command for a in (
+                '-retry-tests-on-failure', '-run-tests-until-failure')):
+            index = command.index('-test-iterations')
+            if index + 1 < len(command) and command[index + 1].isdigit() and int(command[index + 1]) > 1:
+                command.append('-run-tests-until-failure')
         command += ['-jobs', '1', '-parallel-testing-enabled', 'NO',
                     '-collect-test-diagnostics', 'never', '-enablePerformanceTestsDiagnostics', 'NO']
     return command

@@ -298,6 +298,17 @@ class GuardTests(unittest.TestCase):
         for command in (['xcrun','simctl','diagnose','-l'], ['xcrun','simctl','boot','UUID'], ['emulator','-avd','foo']):
             with self.assertRaises(ValueError): N.capped(command)
 
+    def test_xcode_reliability_repetitions_stop_on_first_failure_by_default(self):
+        command = N.capped(['xcodebuild', 'test-without-building', '-test-iterations', '10'])
+        self.assertIn('-run-tests-until-failure', command)
+        self.assertNotIn('-retry-tests-on-failure', command)
+        for arguments in ([], ['-test-iterations', '1']):
+            self.assertNotIn('-run-tests-until-failure', N.capped(['xcodebuild', 'test'] + arguments))
+        for mode in ('-run-tests-until-failure', '-retry-tests-on-failure'):
+            command = N.capped(['xcodebuild', 'test', '-test-iterations', '10', mode])
+            self.assertEqual(command.count(mode), 1)
+            self.assertFalse('-run-tests-until-failure' in command and '-retry-tests-on-failure' in command)
+
     def test_unavailable_cpu_sample_retries_using_full_interval(self):
         reserve=Mock()
         reserve.host_sample.side_effect=[BlockingIOError('counters did not advance'), {'cpu_idle_percent':80}]
