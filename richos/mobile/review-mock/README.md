@@ -177,7 +177,8 @@ its `worker-secrets.json`, which also signs every reviewer out.
 cd richos/mobile/review-mock && node --test test/*.test.mjs
 ```
 
-About 3 seconds, no network. `runtime.test.mjs` skips with the reason where no Wrangler is installed.
+160 tests in 1.2 s on 2026-09-24, no network. `runtime.test.mjs` skips with the reason where no Wrangler is installed.
+The registered suite is `richos/app/scripts/review-mock.test.sh`, so `proof-for.sh` selects it.
 
 | File | Covers |
 |---|---|
@@ -189,8 +190,6 @@ About 3 seconds, no network. `runtime.test.mjs` skips with the reason where no W
 | `runtime.test.mjs` | The bundled Worker in workerd: sign-in, link, pairing, the press, a signed message and the stream. |
 | `secrets.test.mjs`, `template.test.mjs` | The CLI and the deploy template. |
 
-The suite is not yet registered with `richos/app/scripts/proof-for.sh`. Doing that is a script in
-`richos/app/scripts/`, outside this folder.
 
 ## What this cannot prove without deploying it and using a real phone
 
