@@ -194,6 +194,12 @@ struct ShareInbox: Sendable {
                 guard limits.mediaTypes.contains(file.mediaType) else {
                     throw ShareInboxError.unsupported(fileName: name)
                 }
+                // The limit before the read, from the file itself (security review I-3): a Share
+                // extension's memory is small, and a file is never read whole to learn its size.
+                guard let size = (try? fm.attributesOfItem(atPath: file.url.path))?[.size] as? Int else {
+                    throw ShareInboxError.unsupported(fileName: name)
+                }
+                guard size <= limits.maxFileBytes else { throw ShareInboxError.tooLarge(fileName: name, bytes: size) }
                 let data = try Data(contentsOf: file.url)
                 guard !data.isEmpty else { throw ShareInboxError.unsupported(fileName: name) }
                 guard data.count <= limits.maxFileBytes else {
