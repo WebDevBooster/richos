@@ -133,7 +133,7 @@ extension ConversationReducer {
                                                         files: group.map { (id: $0.id, sha256Hex: $0.sha256) }, sentAtISO: isoMillis(at))
             s.outbox.append(OutboxItem(clientID: id, kind: .text, body: String(decoding: body, as: UTF8.self), queuedAt: at, files: group))
             let refs = group.map { AttachmentRef(id: $0.id, name: $0.name, mediaType: $0.mediaType, byteCount: $0.byteCount) }
-            s.messages.append(Message(id: id, author: .me, text: words, sentAt: at, delivery: .waiting, clientID: id, attachments: refs))
+            s.messages.append(Message(id: id, author: .me, text: words, sentAt: at, delivery: .waiting, clientID: id, attachments: refs, echoAfterCursor: s.messages.compactMap(\.cursor).max() ?? 0))
         }
         s.pendingAttachments = []
         s.draft = ""

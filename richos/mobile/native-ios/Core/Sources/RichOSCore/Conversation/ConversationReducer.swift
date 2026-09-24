@@ -26,6 +26,7 @@ public enum ConversationReducer {
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
             releaseFiles(of: s.outbox.remove(at: i), &effects)
             setDelivery(&s, clientID, nil)
+            reconcile(&s)
             pump(&s, at: at, &effects)
         case .deliveryFailed(let clientID, let failure, let at):
             guard let i = s.outbox.firstIndex(where: { $0.clientID == clientID }) else { return }
@@ -159,7 +160,7 @@ public enum ConversationReducer {
         s.outbox.append(OutboxItem(clientID: clientID, kind: .text,
                                    body: textBody(clientID: clientID, threadID: s.mac?.threadID, text: text, sentAt: at),
                                    queuedAt: at))
-        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting, clientID: clientID))
+        s.messages.append(Message(id: clientID, author: .me, text: text, sentAt: at, delivery: .waiting, clientID: clientID, echoAfterCursor: s.messages.compactMap(\.cursor).max() ?? 0))
         s.draft = ""
         s.toast = nil
         // Both send gestures resume following immediately (PRD §5).
@@ -205,33 +206,42 @@ public enum ConversationReducer {
         if let i = s.messages.firstIndex(where: { $0.id == id }) { s.messages[i].delivery = delivery }
     }
 
-    /// Adds or replaces by id, keeping the conversation ordered by time (stable for equal times). The
-    /// Mac's row for one of your messages retires the phone's own bubble for it: by `clientID` when
-    /// the row carries it, else by the same text on a bubble the Mac has already accepted (the
-    /// reference thread model's rule).
-    private static func merge(_ s: inout AppState, _ arrived: [Message]) {
-        var incoming = arrived
-        for index in incoming.indices where incoming[index].author == .me {
-            let message = incoming[index]
-            let retired = s.messages.filter { local in
-                guard local.id != message.id, local.author == .me, local.delivery == nil,
-                      !s.outbox.contains(where: { $0.clientID == local.id }) else { return false }
-                if let clientID = message.clientID { return local.id == clientID }
-                // Same words and the same number of files: the Mac's row for this bubble.
-                return local.clientID == local.id && local.text == message.text
-                    && (local.attachments?.count ?? 0) == (message.attachments?.count ?? 0)
+    /// Reconcile accepted local messages one-to-one, regardless of whether the HTTP receipt or
+    /// stream echo arrived first. Remember the association on the server row so a replay cannot
+    /// consume another Send with identical words. The outbox remains authoritative until accepted.
+    private static func reconcile(_ s: inout AppState) {
+        let locals = s.messages.filter { local in local.author == .me && local.clientID == local.id && local.cursor == nil
+            && local.delivery == nil && !s.outbox.contains(where: { $0.clientID == local.id }) }
+        for local in locals {
+            let candidates = s.messages.indices.filter { index in
+                let row = s.messages[index]
+                guard row.author == .me, row.id != local.id, row.clientID != row.id else { return false }
+                if let clientID = row.clientID { return clientID == local.id }
+                if let floor = local.echoAfterCursor, (row.cursor ?? 0) <= floor { return false }
+                return row.text == local.text && row.kind == local.kind
+                    && (row.attachments?.count ?? 0) == (local.attachments?.count ?? 0)
             }
-            s.messages.removeAll { local in retired.contains { $0.id == local.id } }
-            // The phone's own references (its file ids and names) outlive the bubble they replace.
-            if let local = retired.first(where: { $0.attachments != nil }) { incoming[index].attachments = local.attachments }
+            guard let index = candidates.min(by: { (s.messages[$0].cursor ?? 0) < (s.messages[$1].cursor ?? 0) }) else { continue }
+            s.messages[index].clientID = local.id
+            if let files = local.attachments { s.messages[index].attachments = files }
+            s.messages.removeAll { $0.id == local.id }
         }
-        for message in incoming {
+    }
+
+    private static func merge(_ s: inout AppState, _ arrived: [Message]) {
+        for var message in arrived {
             if let i = s.messages.firstIndex(where: { $0.id == message.id }) {
+                // The wire may omit the client ID and use server file references on a replay.
+                if let clientID = s.messages[i].clientID, clientID != message.id {
+                    message.clientID = clientID
+                    if let files = s.messages[i].attachments { message.attachments = files }
+                }
                 s.messages[i] = message
             } else {
                 s.messages.append(message)
             }
         }
+        reconcile(&s)
         // The Mac's rows in history-cursor order; the phone's own bubbles (no cursor yet) after them
         // in the order they were sent.
         s.messages = s.messages.enumerated().sorted { a, b in
