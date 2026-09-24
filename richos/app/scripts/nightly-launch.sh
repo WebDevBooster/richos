@@ -109,10 +109,12 @@
 #   * CLAUDE_CONFIG_DIR set anywhere the app would inherit it;
 #   * a missing piece of the sign-in, named, rather than a window that says "Not logged in".
 #
-# THE ONE WAY TO DEFEAT IT, stated so nobody has to find it: opening
-# `~/myrichos-nightly-*/app.noindex/RichOS.app` from Finder or the Dock starts it on your
-# REAL HOME, against your daily driver's data. This script cannot prevent that; it can
-# only be the one way you start a nightly. `status` says what each folder holds.
+# THE WAYS TO DEFEAT IT, stated so nobody has to find them: opening
+# `~/myrichos-nightly-*/app.noindex/RichOS.app` from Finder, from the Dock, or from the
+# Apple menu's Recent Items (macOS adds it there on every start; measured in a guest)
+# starts it on your REAL HOME, against your daily driver's data. Spotlight is closed by
+# the .noindex folders; the rest this script cannot prevent. It can only be the one way
+# you start a nightly. `status` says what each folder holds.
 #
 # THE WAY OUT: quit the nightly as you quit any app. To start a folder over as a newborn,
 # quit it and move the whole folder to the Trash; nothing outside it refers to it.

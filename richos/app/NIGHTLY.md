@@ -428,10 +428,100 @@ further nightly through the updater.** An endpoint is compiled into the binary,
 so it cannot be changed by an update that copy can no longer fetch. Replace those
 copies by hand, once, with any nightly published from this change onward.
 
-Stable builds keep their stable endpoint. Nightlies replace the same app and use
-the same data; there is no separate side-by-side application or settings toggle.
+Stable builds keep their stable endpoint. For a user, a nightly replaces the same
+app and uses the same data; there is no settings toggle and no second copy. The one
+exception is a developer who has to keep his own copy untouched while he tests a
+nightly beside it, and that is the next section, not a product feature.
 To leave the channel, install a stable version at least as new as the nightly.
 Stable `1.2.0` supersedes `1.2.0-nightly.*`; stable `1.1.0` does not.
+
+### Running a nightly beside your own copy: `scripts/nightly-launch.sh`
+
+```sh
+richos/app/scripts/nightly-launch.sh a ~/Downloads/RichOS-<version>-macos-aarch64.zip
+richos/app/scripts/nightly-launch.sh b ~/Downloads/RichOS-<version>-macos-aarch64.zip
+richos/app/scripts/nightly-launch.sh status
+```
+
+It unpacks the ZIP into `~/myrichos-nightly-a` (a newborn: empty data, what a
+customer gets) or `~/myrichos-nightly-b` (the same nightly on data carrying the
+team roster page), records the version and the ZIP's digest, and opens that
+folder's own app. Your own copy keeps your real `HOME` and `~/myrichos`. The
+terminal can be closed once it prints the pid.
+
+```text
+~/myrichos-nightly-a/
+  app.noindex/RichOS.app   the app, from the ZIP
+  home.noindex/            the app's HOME: its data, engine, updates, temporary files
+  memory/                  folder b only: wiki/team-roster.md
+  logs/                    the app's output, one file per start
+  nightly-launch.txt       version, commit and digest of the ZIP it came from
+```
+
+What makes it separate, all set by the script:
+
+* **`HOME` and `CFFIXED_USER_HOME` are `<folder>/home.noindex`.** The app's
+  data, its engine, its updater and its memory pointer all follow `HOME`. `HOME`
+  alone is not enough: macOS's own frameworks still resolve the real home under
+  it, so WebKit's store and the app's caches land in your `~/Library` under the
+  same bundle identifier as your own copy. That was measured, not assumed: in a
+  test guest an instance started with `HOME` alone wrote
+  `~/Library/WebKit/com.richos.app` and `~/Library/Caches/com.richos.app` in the
+  real home, and instances started by this script wrote neither.
+* **Nothing from the terminal it was started in.** `open` passes the caller's
+  environment on to the app (also measured), so the script runs it under `env -i`
+  with only what an app opened from Finder gets: launchd's `PATH`, who you are,
+  your shell and ssh agent, and a `TMPDIR` inside the folder.
+* **The engine is the nightly's own.** `RICHOS_ENGINE_DIR` and
+  `RICHOS_ENGINE_ROOT` are passed empty, never set: a published nightly boots only
+  the engine installed from its own pinned asset, and an explicit engine would
+  outrank that pin. The first start installs it through the ordinary setup sheet.
+* **Your Claude sign-in reaches it** through three things from your home: a link
+  to `~/.claude`, a copy of `~/.claude.json` (refreshed at every start), and a
+  link to `~/Library/Keychains`; plus a link to `~/.local/bin/claude`, which is
+  where an app opened from Finder looks for `claude`. The cost is plain:
+  `~/.claude` is your whole Claude configuration and history, shared with the
+  terminal on purpose.
+* `RICHOS_ACTIVATION=regular`, so the window comes to the front; `LORO_CORPUS`
+  and `LORO_ROOT` empty, so the only memory is the folder's own.
+
+Folder `b` gets `<folder>/memory/wiki/team-roster.md`, pointed at by its own
+memory pointer. The page is read from `wiki/team-roster.md` in the record your
+own copy already reads; `--roster <file>` names another. Until that page exists,
+folder `b` refuses and says so.
+
+It refuses a missing ZIP; a folder that holds another version unless you pass
+`--replace` (which swaps the app and keeps the folder's data); a folder it did
+not make; any path under `~/myrichos`, after following links; a second start
+while that folder's nightly is running; and a `CLAUDE_CONFIG_DIR` anywhere the
+app would inherit it.
+
+* **To open it again**, run the same line, or `nightly-launch.sh a --again`.
+  A nightly that updated itself runs its updated copy from inside the folder.
+* **To see what each folder holds**, `nightly-launch.sh status`: version,
+  commit, what it updated itself to, whether it is running.
+* **To get rid of one**, quit it and move the folder to the Trash. Nothing
+  outside the folder refers to it.
+* **Never open the nightly any other way.** Opened from Finder, from the Dock
+  (keeping it there is the trap) or from the Apple menu's Recent Items, it runs
+  on your real `HOME`, against your own copy's data, and its updater installs
+  into your real `~/Applications`. Both folders end in `.noindex` so Spotlight
+  never offers it; the other ways in cannot be closed from here.
+* **Only one of the two can serve your phone.** The phone listener binds fixed
+  ports, so turning on phone pairing in a nightly collides with your own copy's.
+
+What still leaves the folder, on purpose or because nothing can stop it:
+
+* `~/.claude`, through its link: `claude` keeps its history and backups there,
+  shared with your terminal. That is the price of the sign-in.
+* WebKit's GPU and networking helpers keep a shader cache and blob files under
+  macOS's own per-user folders (`getconf DARWIN_USER_CACHE_DIR` and
+  `DARWIN_USER_TEMP_DIR`), in directories named for `com.richos.app`, which your
+  own copy uses too. macOS starts those helpers itself, outside the app's
+  environment, so no setting in this script reaches them. They hold caches, not
+  your data.
+* macOS's own bookkeeping of any app you open: the Recent Items list, Launch
+  Services' registry.
 
 ## Going back when a nightly is bad
 
