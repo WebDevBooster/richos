@@ -230,6 +230,21 @@ pub struct Device {
     /// always carries the value outright, `false` at pairing.
     #[serde(default = "confirmed_by_default")]
     pub mac_confirmed: bool,
+
+    /// **WHICH SIX WORDS THIS PHONE IS SHOWING** — `2` when its pairing request announced
+    /// `"pairing_version": 2` (Sage §3, `pair-v2`), `1` otherwise, and `1` for a record written
+    /// before the field existed. The Mac shows the person the words the phone will show, so the
+    /// two can be compared at all; see [`Device::words_to_compare`].
+    ///
+    /// **Stripping it is not a downgrade anybody can use.** A relay that removes the phone's field
+    /// makes this Mac show v1 words while the v2 phone, which never falls back, shows v2 words —
+    /// two different lines in front of the person, which is the check working.
+    #[serde(default = "pairing_version_one")]
+    pub pairing_version: u8,
+}
+
+fn pairing_version_one() -> u8 {
+    1
 }
 
 fn confirmed_by_default() -> bool {
@@ -243,6 +258,20 @@ impl Device {
     /// pushed to.
     pub fn trusted(&self) -> bool {
         self.fingerprint_confirmed && self.mac_confirmed
+    }
+
+    /// **The six words this Mac shows beside "They match"** — the ones this phone will show.
+    ///
+    /// For a v2 phone: [`super::words::v2`] over this Mac's own serving `origin`, its pairing
+    /// value `ca_fingerprint_sha256` and the key it REGISTERED — never the key a phone says it
+    /// has. For a phone that did not announce v2 (the preserved iPhone app, for one release):
+    /// `v1`, the root's words, which the caller already holds.
+    pub fn words_to_compare(&self, origin: &str, ca_fingerprint_sha256: &str, v1: &[&'static str]) -> Vec<&'static str> {
+        if self.pairing_version >= 2 {
+            super::words::v2(origin, ca_fingerprint_sha256, &self.public_key)
+        } else {
+            v1.to_vec()
+        }
     }
 }
 
@@ -688,6 +717,20 @@ impl DeviceDesk {
         via: &str,
         platform: &str,
     ) -> Result<Device, Refusal> {
+        self.complete_pairing_announcing(code, public_key, name, via, platform, 1)
+    }
+
+    /// [`DeviceDesk::complete_pairing`], recording which six words the phone said it will show
+    /// ([`Device::pairing_version`]): `2` for a phone that announced `pair-v2`, anything else is `1`.
+    pub fn complete_pairing_announcing(
+        &self,
+        code: &str,
+        public_key: &PublicKeyForm,
+        name: &str,
+        via: &str,
+        platform: &str,
+        pairing_version: u8,
+    ) -> Result<Device, Refusal> {
         let point = public_key.to_point().map_err(|e| Refusal::MalformedCredential(e.to_string()))?;
         let mut state = self.state.lock().unwrap();
         let now = super::now_millis();
@@ -723,6 +766,7 @@ impl DeviceDesk {
             // AND NOBODY AT THIS MAC HAS ANSWERED EITHER (Sage F1). Until somebody does, this
             // key can confirm itself and nothing else.
             mac_confirmed: false,
+            pairing_version: if pairing_version == 2 { 2 } else { 1 },
         };
         // Pairing is explicit authorization to use this key again. Device IDs are key-derived.
         if state.revoked.contains(&device.id) {
@@ -1260,6 +1304,45 @@ pub(crate) mod tests {
         assert!(desk.verify(&p).is_ok(), "a confirmed device was still refused");
         let again = DeviceDesk::open(&dir.0).unwrap();
         assert!(again.paired().unwrap().mac_confirmed, "the press on the Mac did not survive a relaunch");
+    }
+
+    /// **SAGE F2 AT THE DESK: the Mac shows words over the key it REGISTERED.** A v2 phone's words
+    /// are over the origin it dialed and its own key; the Mac's are over its own origin and the key
+    /// that actually redeemed the code. An intruder who paired first registered a different key,
+    /// so the person sees two different lines. A phone that did not announce v2 is shown the v1
+    /// words for one release, and the choice survives a relaunch.
+    #[test]
+    fn the_mac_shows_the_words_for_the_key_it_registered_in_the_version_the_phone_announced() {
+        let dir = TempDir::new("f2-words");
+        let desk = DeviceDesk::open(&dir.0).unwrap();
+        let phone = Phone::new();
+        let w = desk.open_pairing().unwrap();
+        let device = desk
+            .complete_pairing_announcing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "Android phone", PairedVia::CONNECT, Platform::ANDROID, 2)
+            .unwrap();
+        assert_eq!(device.pairing_version, 2);
+        let (origin, ca) = ("https://c-5de0dbe0862dd461ae305af5cef35202-g2.richos.ceo", "3D:9C:A1:00:FF:12");
+        let v1 = ["anchor"; 6];
+        let shown = device.words_to_compare(origin, ca, &v1);
+        assert_eq!(shown, super::super::words::v2(origin, ca, &super::super::b64url(&phone.point)));
+        assert_ne!(shown, v1.to_vec(), "a v2 phone was shown the v1 words");
+
+        // The person's phone, which did NOT redeem the code, would show words over its own key.
+        let persons_phone = Phone::new();
+        assert_ne!(shown, super::super::words::v2(origin, ca, &super::super::b64url(&persons_phone.point)));
+
+        assert_eq!(DeviceDesk::open(&dir.0).unwrap().paired().unwrap().pairing_version, 2, "the version did not survive a relaunch");
+
+        // A phone that announced nothing (or anything but 2) is a v1 phone.
+        desk.forget().unwrap();
+        let w = desk.open_pairing().unwrap();
+        let old = desk.complete_pairing(&w.code, &PublicKeyForm::Jwk(phone.jwk()), "iPhone", PairedVia::CONNECT, Platform::IOS).unwrap();
+        assert_eq!(old.pairing_version, 1);
+        assert_eq!(old.words_to_compare(origin, ca, &v1), v1.to_vec());
+        let legacy: Device = serde_json::from_value(serde_json::json!({
+            "id": "dev_abc123", "name": "iPhone", "public_key": "BA", "paired_at": 1, "push": null, "delivered_cursor": null
+        })).unwrap();
+        assert_eq!(legacy.pairing_version, 1);
     }
 
     /// The awaiting answer is a statement about a pairing, so only the key's holder may learn it:

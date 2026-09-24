@@ -97,6 +97,9 @@ const PAIR_ANSWER = {
 	// Additive on a Mac with the native-app additions (194fcb75); the hello repeats all four.
 	protocol_version: PROTOCOL_VERSION,
 	capabilities: CAPABILITIES_FULL,
+	// Sage's pairing review section 3.1 step 3: the answer is unchanged, plus the derivation the Mac
+	// uses (phone/routes.rs complete_pairing).
+	pairing_version: 2,
 	attachment_limits: ATTACHMENT_LIMITS,
 	build: '1.2.0'
 };

@@ -174,15 +174,16 @@ impl PhoneCa {
             .join(":")
     }
 
-    /// **The six words both screens show** (plan §4.1).
+    /// **The v1 six words** (plan §4.1): six bytes of the root's SHA-256, each indexing
+    /// [`WORDS`], and nothing else.
     ///
-    /// Six bytes of the root's SHA-256, each indexing [`WORDS`]. That is 48 bits of the
-    /// fingerprint compared by a person — ample for what it defends, which is not a
-    /// brute-force search but somebody getting the CEO to nod at a different Mac inside a
-    /// sixty-second window.
+    /// **Kept for one release and for one kind of phone** — one that did not announce
+    /// `pairing_version: 2` (Sage's review §3.5, the preserved iPhone app). It binds a hash the
+    /// server states and nothing about the connection (F2), which is why a v2 phone never falls
+    /// back to it. The words a v2 phone is shown are [`super::words::v2`], over this Mac's origin
+    /// and the key it registered.
     pub fn fingerprint_words(&self) -> Vec<&'static str> {
-        let digest = sha256(&self.ca_der);
-        digest.iter().take(6).map(|b| WORDS[*b as usize]).collect()
+        super::words::from_digest(&sha256(&self.ca_der))
     }
 
     /// Everything "Forget this phone" and uninstall destroy on the Mac side (plan §4.1).
@@ -546,62 +547,14 @@ pub fn pem_body(text: &str, label: &str) -> Result<Vec<u8>, PhoneError> {
 // to do with a phone installing anything.
 
 // -------------------------------------------------------------------------------------
-// The word list
+// The word list — MOVED to `words.rs`, with both derivations
 // -------------------------------------------------------------------------------------
-
-/// **256 words, one per byte — and it is NOT this file's list.** It is
-/// `richos/web/web-app/lib/wordlist.js`, copied in order, because the whole point of the six
-/// words is that the Mac's screen and the phone's screen show **the same six**, and two lists
-/// that merely look similar is the one way this feature can be wrong in a way nobody notices.
-///
-/// The phone landed first (`dfa7ed27`), so the phone's list is the one. It also carries a
-/// stronger property than an earlier draft of this file did: its own test computes the edit
-/// distance between all 32,640 pairs and fails under two, so *"did you say cobalt or cobra?"*
-/// cannot happen. That test lives with the list, on the phone side, and is not duplicated here.
-///
-/// What IS tested here is the only thing a second copy can usefully assert:
-/// [`tests::the_word_list_is_the_phones_word_list_in_the_same_order`] reads
-/// `web/web-app/lib/wordlist.js` off disk and compares it entry by entry. A drift on either side
-/// fails the Mac's own test suite.
-///
-/// **And the derivation runs on the PHONE, from the hex the Mac sends.** `lib/fingerprint.js`
-/// is explicit about why: *"if the Mac sent pretty words, a Mac that wanted to could send words
-/// that do not belong to the certificate it is actually serving."* So the Mac sends
-/// `ca_fingerprint_sha256` and computes these words only for its OWN screen.
-pub const WORDS: [&str; 256] = [
-    "anchor", "apple", "april", "arrow", "artist", "aspen", "autumn", "avenue",
-    "bacon", "badge", "basket", "beard", "beetle", "bench", "berry", "bishop",
-    "blanket", "blossom", "bonus", "border", "bottle", "boulder", "branch", "bridge",
-    "bronze", "brush", "bucket", "buffalo", "bundle", "butler", "cabin", "cactus",
-    "camera", "candle", "canyon", "carbon", "cargo", "carpet", "castle", "cavern",
-    "cedar", "cement", "census", "chapel", "cherry", "chimney", "circus", "clover",
-    "cobalt", "cobra", "coffee", "collar", "column", "comet", "compass", "copper",
-    "coral", "cotton", "cousin", "cowboy", "crayon", "cricket", "crystal", "cushion",
-    "dagger", "dairy", "dancer", "decade", "denim", "desert", "diamond", "diesel",
-    "dinner", "doctor", "dolphin", "domain", "donkey", "dragon", "drawer", "drummer",
-    "eagle", "elbow", "elder", "ember", "engine", "estate", "expert", "fabric",
-    "falcon", "farmer", "feather", "fiber", "fiddle", "figure", "filter", "finger",
-    "flame", "flute", "forest", "fortune", "fossil", "freezer", "friend", "frozen",
-    "gadget", "galaxy", "gallon", "garden", "garlic", "gazelle", "giant", "glacier",
-    "glass", "glove", "granite", "grape", "gravel", "guitar", "gutter", "hammer",
-    "harbor", "harvest", "helmet", "hermit", "hockey", "honey", "horizon", "hornet",
-    "hotel", "hunter", "iceberg", "igloo", "indigo", "island", "ivory", "jacket",
-    "jaguar", "jasmine", "jelly", "journal", "jungle", "junior", "kayak", "kernel",
-    "kettle", "kitchen", "kitten", "koala", "ladder", "lagoon", "lantern", "laptop",
-    "laser", "lawyer", "leader", "legend", "lemon", "leopard", "letter", "lettuce",
-    "lily", "lizard", "lobster", "locker", "lotus", "lumber", "lunar", "magnet",
-    "mammal", "mango", "manor", "maple", "marble", "margin", "marine", "market",
-    "mason", "meadow", "medal", "melody", "mentor", "mermaid", "meteor", "mirror",
-    "mixer", "model", "monarch", "monsoon", "moose", "morning", "mosaic", "motor",
-    "muffin", "mural", "museum", "music", "mustang", "mustard", "napkin", "nectar",
-    "needle", "neon", "nephew", "nickel", "noodle", "nugget", "nurse", "nutmeg",
-    "oasis", "ocean", "octopus", "office", "olive", "onion", "orange", "orbit",
-    "orchid", "organ", "otter", "outlaw", "oxygen", "oyster", "pajama", "palace",
-    "pancake", "panda", "panther", "papaya", "parade", "parcel", "parlor", "parrot",
-    "pasta", "pastry", "patio", "peanut", "pebble", "pelican", "pencil", "penguin",
-    "pepper", "petal", "phantom", "pianist", "picnic", "pigeon", "pillow", "pilot",
-    "pirate", "pistol", "planet", "plaza", "pocket", "poet", "polar", "pony",
-];
+//
+// Sage's pairing review F2 binds the six words to the origin the phone dialed and the key it
+// registered (`pair-v2`). That derivation has to be compiled by `mobile/conformance/verifier`
+// without the certificate authority and its `openssl` shelling, so the list lives beside it and is
+// re-exported here for the root's own (v1) words.
+pub use super::words::WORDS;
 
 #[cfg(test)]
 mod tests {
@@ -890,8 +843,13 @@ tkBoN79R9Q==
         );
     }
 
+    /// **RENAMED, because its old name stated the property Sage's F2 removes**: *"the six words
+    /// are derived from the root and not from anything else"* is exactly why a relay passed the
+    /// check. That is now true of the v1 words alone, kept for one release for a phone that does
+    /// not announce `pairing_version: 2`; the v2 words bind the origin and the key
+    /// (`words.rs`'s `a_relay_changes_the_origin_and_so_the_words`).
     #[test]
-    fn the_six_words_are_derived_from_the_root_and_not_from_anything_else() {
+    fn the_v1_words_kept_for_old_phones_are_the_roots_and_nothing_else() {
         let dir = TempDir::new("words");
         let secrets = MemorySecrets::default();
         let ca = PhoneCa::open(&dir.0, &secrets, test_names()).unwrap();

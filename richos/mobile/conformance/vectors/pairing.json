@@ -237,8 +237,10 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
+            "pairing_version": 2,
             "attachment_limits": {
               "max_file_bytes": 26214400,
               "max_files_per_message": 10,
@@ -310,8 +312,10 @@
             "audio",
             "native-push",
             "attachments",
-            "native-push-fcm"
+            "native-push-fcm",
+            "pair-v2"
           ],
+          "pairing_version": 2,
           "attachment_limits": {
             "max_file_bytes": 26214400,
             "max_files_per_message": 10,
@@ -373,8 +377,10 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
+            "pairing_version": 2,
             "attachment_limits": {
               "max_file_bytes": 26214400,
               "max_files_per_message": 10,
@@ -443,8 +449,10 @@
             "audio",
             "native-push",
             "attachments",
-            "native-push-fcm"
+            "native-push-fcm",
+            "pair-v2"
           ],
+          "pairing_version": 2,
           "attachment_limits": {
             "max_file_bytes": 26214400,
             "max_files_per_message": 10,

@@ -33,7 +33,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -168,8 +169,8 @@
           "comment": "keep-alive 1790000000000"
         }
       ],
-      "wire_utf8": "id: 2\nevent: hello\ndata: {\"challenge\":\"UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08\",\"api_base\":\"https://mm1.tail1a2b3c.ts.net:8443\",\"thread_id\":\"thr_5c1e\",\"latest_cursor\":2,\"threads\":[{\"id\":\"thr_5c1e\",\"title\":\"the proposal\"},{\"id\":\"thr_77aa\",\"title\":\"hiring\"}],\"vapid_public_key\":\"BExampleVapidKeyOnlyTheWebPushClientUsesIt\",\"capabilities\":[\"text\",\"voice\",\"audio\",\"native-push\",\"attachments\",\"native-push-fcm\"],\"protocol_version\":1,\"attachment_limits\":{\"max_file_bytes\":26214400,\"max_files_per_message\":10,\"max_message_bytes\":104857600,\"upload_seconds\":300,\"media_types\":[\"image/jpeg\",\"image/png\",\"image/heic\",\"image/heif\",\"image/gif\",\"image/webp\",\"application/pdf\",\"text/plain\",\"text/markdown\",\"text/csv\",\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",\"application/vnd.openxmlformats-officedocument.presentationml.presentation\"]},\"build\":\"1.2.0\",\"messages\":[{\"id\":\"turn_8:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":1,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"created_at\":\"2026-09-22T13:01:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true},{\"id\":\"turn_8:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":2,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"On it! The proposal is with legal.\",\"created_at\":\"2026-09-22T13:02:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}]}\n\nid: 3\nevent: message\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"The numbers \"}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"are in.\"}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"The numbers are in.\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}\n\n: keep-alive 1790000000000\n\n",
-      "wire_bytes": 2510,
+      "wire_utf8": "id: 2\nevent: hello\ndata: {\"challenge\":\"UN9Q0P7XJNv-dUo3uKISPyJA8JBkgp08\",\"api_base\":\"https://mm1.tail1a2b3c.ts.net:8443\",\"thread_id\":\"thr_5c1e\",\"latest_cursor\":2,\"threads\":[{\"id\":\"thr_5c1e\",\"title\":\"the proposal\"},{\"id\":\"thr_77aa\",\"title\":\"hiring\"}],\"vapid_public_key\":\"BExampleVapidKeyOnlyTheWebPushClientUsesIt\",\"capabilities\":[\"text\",\"voice\",\"audio\",\"native-push\",\"attachments\",\"native-push-fcm\",\"pair-v2\"],\"protocol_version\":1,\"attachment_limits\":{\"max_file_bytes\":26214400,\"max_files_per_message\":10,\"max_message_bytes\":104857600,\"upload_seconds\":300,\"media_types\":[\"image/jpeg\",\"image/png\",\"image/heic\",\"image/heif\",\"image/gif\",\"image/webp\",\"application/pdf\",\"text/plain\",\"text/markdown\",\"text/csv\",\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",\"application/vnd.openxmlformats-officedocument.presentationml.presentation\"]},\"build\":\"1.2.0\",\"messages\":[{\"id\":\"turn_8:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":1,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"where are we on the proposal?\",\"created_at\":\"2026-09-22T13:01:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true},{\"id\":\"turn_8:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":2,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"On it! The proposal is with legal.\",\"created_at\":\"2026-09-22T13:02:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}]}\n\nid: 3\nevent: message\ndata: {\"id\":\"turn_9:user\",\"thread_id\":\"thr_5c1e\",\"cursor\":3,\"role\":\"ceo\",\"kind\":\"text\",\"text\":\"and the numbers?\",\"created_at\":\"2026-09-22T13:03:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"sent\",\"complete\":true}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"streaming\",\"complete\":false}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"The numbers \"}\n\nid: 4\nevent: delta\ndata: {\"message_id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"text\":\"are in.\"}\n\nid: 4\nevent: message\ndata: {\"id\":\"turn_9:text:0\",\"thread_id\":\"thr_5c1e\",\"cursor\":4,\"role\":\"rich\",\"kind\":\"text\",\"text\":\"The numbers are in.\",\"created_at\":\"2026-09-22T13:04:00.000Z\",\"client_id\":null,\"has_audio\":false,\"from_microphone\":false,\"state\":\"complete\",\"complete\":true}\n\n: keep-alive 1790000000000\n\n",
+      "wire_bytes": 2520,
       "chunkings": {
         "whole": {
           "cut_at": []
@@ -182,7 +183,7 @@
         },
         "between_the_two_newlines_of_a_frame_end": {
           "cut_at": [
-            1459
+            1469
           ]
         },
         "inside_the_data_field_name": {
@@ -216,7 +217,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -686,7 +688,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -912,7 +915,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -1167,7 +1171,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -1415,7 +1420,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -1667,7 +1673,8 @@
               "audio",
               "native-push",
               "attachments",
-              "native-push-fcm"
+              "native-push-fcm",
+              "pair-v2"
             ],
             "protocol_version": 1,
             "attachment_limits": {
@@ -2103,7 +2110,8 @@
           "audio",
           "native-push",
           "attachments",
-          "native-push-fcm"
+          "native-push-fcm",
+          "pair-v2"
         ],
         "protocol_version": 1,
         "attachment_limits": {
@@ -2140,7 +2148,8 @@
           "audio",
           "native-push",
           "attachments",
-          "native-push-fcm"
+          "native-push-fcm",
+          "pair-v2"
         ],
         "build": "1.2.0",
         "offers_voice": true,
@@ -2223,7 +2232,8 @@
           "audio",
           "native-push",
           "attachments",
-          "native-push-fcm"
+          "native-push-fcm",
+          "pair-v2"
         ],
         "protocol_version": 1,
         "attachment_limits": {
@@ -2260,7 +2270,8 @@
           "audio",
           "native-push",
           "attachments",
-          "native-push-fcm"
+          "native-push-fcm",
+          "pair-v2"
         ],
         "build": "1.2.0",
         "offers_voice": true,

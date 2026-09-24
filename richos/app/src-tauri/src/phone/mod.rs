@@ -55,6 +55,7 @@ pub mod tailnet;
 pub mod voice;
 pub mod voice_notes;
 pub mod notifications;
+pub mod words;
 
 use std::fmt;
 
@@ -544,7 +545,10 @@ pub struct PhoneStatus {
     /// **THERE WAS A FIRST ONE, AND IT IS GONE** — CEO §61. It carried the trust endpoint, which
     /// served the profile the phone had to install before this address would open at all.
     pub pair_url: Option<String>,
-    /// The six words the screen shows.
+    /// The six words the screen shows **beside "They match"**: present only while a phone has
+    /// reached this Mac and nobody here has pressed yet (Sage §3.1), derived over this Mac's
+    /// origin and the key that phone registered ([`device::Device::words_to_compare`]). Empty
+    /// while a code is waiting for a phone, and empty once the press is made.
     pub fingerprint_words: Vec<String>,
     pub fingerprint_hex: Option<String>,
     /// Every address and port actually bound, read off the sockets.
@@ -1019,7 +1023,18 @@ impl PhoneRuntime {
             pair_url: window
                 .as_ref()
                 .map(|w| format!("{}/#pair={}", running.origin, w.code)),
-            fingerprint_words: running.fingerprint_words.iter().map(|w| w.to_string()).collect(),
+            // SAGE §3.1 steps 1 and 4: NO WORDS UNTIL A PHONE HAS REACHED THIS MAC, and then the
+            // words for the key it actually registered, in the version it announced. Before a
+            // phone arrives the words would carry nothing the QR code does not (F1's evidence),
+            // and after the press there is nothing left to compare.
+            fingerprint_words: device
+                .as_ref()
+                .filter(|d| !d.mac_confirmed)
+                .map(|d| d.words_to_compare(&running.origin, &running.fingerprint_hex, &running.fingerprint_words))
+                .unwrap_or_default()
+                .iter()
+                .map(|w| w.to_string())
+                .collect(),
             fingerprint_hex: Some(running.fingerprint_hex.clone()),
             bound: running.listener.bound.iter().map(|a| a.to_string()).collect(),
             pairing_seconds_left: window.map(|w| {

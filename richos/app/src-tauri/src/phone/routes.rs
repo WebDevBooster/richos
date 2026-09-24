@@ -488,7 +488,11 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
     // Which path the code being redeemed went out under. Read once, here, because this is the
     // last moment at which it is a fact rather than a recomputation (Ray's defect 3.2).
     let via = *channel.pairing_path.lock().unwrap();
-    let device = match channel.devices.complete_pairing(code, &form, name, via, platform) {
+    // WHICH SIX WORDS THE PHONE WILL SHOW (Sage §3, `pair-v2`). A phone that announces 2 derives
+    // them over the origin it dialed and its own key; anything else is a v1 phone, kept for one
+    // release. The Mac shows the matching line, so stripping this field only makes two lines differ.
+    let pairing_version = if body.get("pairing_version").and_then(Value::as_u64) == Some(2) { 2 } else { 1 };
+    let device = match channel.devices.complete_pairing_announcing(code, &form, name, via, platform, pairing_version) {
         Ok(d) => d,
         Err(refusal) => {
             log_refusal(&refusal);
@@ -520,6 +524,9 @@ fn complete_pairing(channel: &Channel, body: &Value, code: &str) -> Outcome {
             // first stream. The `hello` repeats all three and is the one clients replace from.
             "protocol_version": PROTOCOL_VERSION,
             "capabilities": capabilities(channel.bridge.voice_available(), channel.bridge.native_notifications_available()),
+            // Sage §3.1 step 3: "The answer is unchanged, plus pairing_version: 2" — what this Mac
+            // derives. `pair-v2` in `capabilities` is the name a v2 phone requires (§3.5).
+            "pairing_version": 2,
             "attachment_limits": attachment_limits(),
             "build": BUILD,
         })
@@ -575,6 +582,9 @@ pub fn capabilities(voice: bool, native_push: bool) -> Vec<&'static str> {
     if native_push {
         caps.push("native-push-fcm");
     }
+    // Always: every build from this one derives the v2 six words and requires the press on the Mac
+    // (Sage §3.5, ledger row S3). A v2 phone refuses a Mac that does not name it.
+    caps.push(super::words::PAIR_V2_CAPABILITY);
     caps
 }
 
@@ -1819,7 +1829,7 @@ mod tests {
                 // so an absent or renamed key is a button that disappears from his screen.
                 // `attachments` is appended, never inserted: the long-standing entries keep their
                 // place for any client that ever read them positionally.
-                assert_eq!(data["capabilities"], json!(["text", "attachments"]));
+                assert_eq!(data["capabilities"], json!(["text", "attachments", "pair-v2"]));
                 // The preserved iPhone core accepts exactly 1 (`mobile/core/client.js:147`).
                 assert_eq!(data["protocol_version"], 1);
                 assert_eq!(data["attachment_limits"]["max_file_bytes"], 26_214_400);
@@ -2268,8 +2278,36 @@ mod tests {
         let taken = dispatch(&f.channel, &upload(&f, "msg-7", "p1", "a.jpg", "image/jpeg", JPEG)).status() == 200;
         assert_eq!(capabilities(false, false).contains(&"attachments"), taken);
         // And the old Mac's list is still a prefix of the new one in every combination.
-        assert_eq!(capabilities(false, false), ["text", "attachments"]);
-        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm"]);
+        // `pair-v2` (Sage §3.5) is appended, never inserted, like every addition before it.
+        assert_eq!(capabilities(false, false), ["text", "attachments", "pair-v2"]);
+        assert_eq!(capabilities(true, true), ["text", "voice", "audio", "native-push", "attachments", "native-push-fcm", "pair-v2"]);
+    }
+
+    /// **SAGE §3.5: `pair-v2` IS ANNOUNCED IN BOTH PLACES A PHONE READS IT**, and the pairing answer
+    /// says which derivation this Mac uses. A v2 phone refuses a Mac without it rather than falling
+    /// back, so a Mac that stopped announcing it would stop pairing every v2 phone — this holds it.
+    /// On `main` before this change neither place named it.
+    #[test]
+    fn pair_v2_is_announced_in_the_pairing_answer_and_in_every_hello_and_recorded_from_the_phone() {
+        let f = fixture_with("pair-v2", false, false, 4);
+        let window = f.channel.devices.open_pairing().unwrap();
+        let mut request = plain("POST", "/api/pair");
+        request.body = json!({"code": window.code, "public_key_jwk": Phone::new().jwk(), "device_name": "Pixel", "platform": "android", "pairing_version": 2}).to_string().into_bytes();
+        let (status, v) = json_of(dispatch(&f.channel, &request));
+        assert_eq!(status, 200);
+        assert!(v["capabilities"].as_array().unwrap().contains(&json!("pair-v2")), "{v}");
+        assert_eq!(v["pairing_version"], 2);
+        assert_eq!(f.channel.devices.paired().unwrap().pairing_version, 2, "the phone's announcement was not recorded");
+
+        // A phone that says nothing, or anything but the number 2, is a v1 phone.
+        for said in [json!(null), json!("2"), json!(3), json!(1)] {
+            let f = fixture_with("pair-v1", false, false, 4);
+            let window = f.channel.devices.open_pairing().unwrap();
+            let mut request = plain("POST", "/api/pair");
+            request.body = json!({"code": window.code, "public_key_jwk": Phone::new().jwk(), "pairing_version": said}).to_string().into_bytes();
+            assert_eq!(dispatch(&f.channel, &request).status(), 200);
+            assert_eq!(f.channel.devices.paired().unwrap().pairing_version, 1, "{said}");
+        }
     }
 
     #[test]
