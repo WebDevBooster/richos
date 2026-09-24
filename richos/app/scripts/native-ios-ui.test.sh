@@ -17,14 +17,15 @@
 #   native-ios-ui.test.sh                        both parts
 #   native-ios-ui.test.sh --headless             part 1 only
 #   native-ios-ui.test.sh --only <Class/test>    part 2 scoped (xcodebuild -only-testing), repeatable,
-#                                                e.g. --only ScreenshotTests/testComposerDark
+#                                                e.g. --only ScreenshotTests/testComposerDark; the unit
+#                                                bundle is named whole, --only RichOSNativeTests[/Suite]
 #   native-ios-ui.test.sh --device se|pm         part 2 on one device
 #
 # Missing Xcode, the iOS runtime, xcodegen or `native-ios/project.yml` exits 2 with NOT RUN; a failure
 # on a capable host is red.
 # run-tests: no-host-screen: simctl and XCUITest run on simulators this suite creates, booted headless without Simulator.app
-# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift
-# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift
+# run-tests: inputs richos/app/scripts/lib/simulator_budget.py richos/app/scripts/native-ios-ui.test.sh richos/app/scripts/lib/ios_ui_shards.py richos/engine/scripts/lib/worker_tokens.py richos/mobile/native-ios/App/Design richos/mobile/native-ios/App/Features richos/mobile/native-ios/UITests richos/mobile/native-ios/UnitTests richos/mobile/native-ios/Core/Sources/RichOSCore richos/mobile/native-ios/Core/Sources/RichOSFixtures richos/mobile/native-ios/project.yml richos/engine/scripts/lib/proc_tree.py richos/engine/scripts/lib/testdevices.py richos/app/scripts/testvm/reserve.py richos/mobile/native-ios/App/App/ShareIntake.swift richos/mobile/native-ios/App/Platform/Shared/PlatformIdentity.swift
+# run-tests: covers richos/app/scripts/lib/ios_ui_shards.py richos/mobile/native-ios/App/Design/Palette.swift richos/mobile/native-ios/App/Design/RoundSpec.swift richos/mobile/native-ios/App/Features/Conversation/PulseSchedule.swift richos/mobile/native-ios/App/Design/Typography.swift richos/mobile/native-ios/App/Design/Motion.swift richos/mobile/native-ios/App/Design/SVGPath.swift richos/mobile/native-ios/App/Design/Icons.swift richos/mobile/native-ios/App/Design/Mark.swift richos/mobile/native-ios/App/Design/Components.swift richos/mobile/native-ios/App/Features/Root/ScreenModel.swift richos/mobile/native-ios/App/Features/Root/Intent.swift richos/mobile/native-ios/App/Features/Root/RootView.swift richos/mobile/native-ios/App/Features/Conversation/Rows.swift richos/mobile/native-ios/App/Features/Conversation/VoiceBubble.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptView.swift richos/mobile/native-ios/App/Features/Conversation/TranscriptViewportGeometry.swift richos/mobile/native-ios/App/Features/Conversation/ConversationChrome.swift richos/mobile/native-ios/App/Features/Composer/ComposerView.swift richos/mobile/native-ios/App/Features/Voice/VoiceChrome.swift richos/mobile/native-ios/App/Features/Voice/TooShortLine.swift richos/mobile/native-ios/App/Features/Pairing/Takeovers.swift richos/mobile/native-ios/App/Features/Pairing/Scanner.swift richos/mobile/native-ios/App/Features/Pairing/PairingLinkSheet.swift richos/mobile/native-ios/App/Features/Settings/Overlays.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentModel.swift richos/mobile/native-ios/App/Features/Attachments/AttachmentViews.swift richos/mobile/native-ios/App/Features/Attachments/PhotoScene.swift richos/mobile/native-ios/UITests/Support.swift richos/mobile/native-ios/UITests/ScreenshotTests.swift richos/mobile/native-ios/UITests/InteractionTests.swift richos/mobile/native-ios/UITests/AccessibilityLayoutTests.swift richos/mobile/native-ios/UnitTests/TranscriptViewportGeometryTests.swift richos/mobile/native-ios/UnitTests/ShareIntakeTests.swift richos/mobile/native-ios/UnitTests/TooShortLineTests.swift richos/mobile/native-ios/App/App/ShareIntake.swift
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,7 +43,14 @@ DEVICES=("iPhone SE (3rd generation)" "iPhone 16 Pro Max")
 while [ $# -gt 0 ]; do
   case "$1" in
     --headless) MODE=headless; shift ;;
-    --only) ONLY+=("-only-testing:RichOSNativeUITests/$2"); shift 2 ;;
+    --only)
+      # The UI bundle is implied; the unit bundle (UnitTests/) is named in full, so a scoped run can
+      # still reach it (a full device run is longer than one foreground call).
+      case "$2" in
+        RichOSNativeTests|RichOSNativeTests/*) ONLY+=("-only-testing:$2") ;;
+        *) ONLY+=("-only-testing:RichOSNativeUITests/$2") ;;
+      esac
+      shift 2 ;;
     --device)
       case "$2" in
         se) DEVICES=("iPhone SE (3rd generation)") ;;
@@ -323,6 +331,25 @@ MainActor.assumeIsolated {
     frozen.followPhone(.dark)
     check(frozen.state.appearance == .light, "G9 a fixture keeps its -rios-appearance theme")
 }
+// The too-short line (Android `withTooShortLine`): the core clears its toast when the ending
+// settles, 150 ms in, so the screen holds "Hold the button while you speak." its full 1.8 s.
+do {
+    var ending = try! Fixture.named("comp-idle").state
+    ending.voice = VoiceSession(id: "v1", phase: .ending(.tooShort), startedAtMs: 0, nowMs: 100, recordingStartedAtMs: nil, width: 386)
+    ending.toast = .tooShort
+    let settled = Reducer.reduce(ending, .voiceSettled).state
+    check(settled.voice == nil && settled.toast == nil, "too short: the settle frees the microphone and clears the core's toast")
+    check(TooShortLine.ending(ending.voice, posed: false) == "v1", "too short: a live too-short ending latches the line")
+    check(TooShortLine.ending(ending.voice, posed: true) == nil, "too short: a posed fixture never latches")
+    check(TooShortLine.apply("v1", to: ScreenModel(state: settled)).toast == .tooShort, "too short: the line stays after the settle while latched")
+    check(TooShortLine.apply(nil, to: ScreenModel(state: settled)).toast == nil, "too short: the line goes when the latch ends")
+    var next = settled
+    next.voice = VoiceSession(id: "v2", phase: .held, startedAtMs: 0, nowMs: 300, recordingStartedAtMs: 200, width: 386)
+    check(TooShortLine.apply("v1", to: ScreenModel(state: next)).toast == nil, "too short: a new recording takes the line's place")
+    var warned = settled
+    warned.toast = .ceilingWarning
+    check(TooShortLine.apply("v1", to: ScreenModel(state: warned)).toast == .ceilingWarning, "too short: another notice is never covered")
+}
 // G9: the Settings sheet has no appearance control (round 12.1 has none).
 do {
     let source = (try? String(contentsOfFile: CommandLine.arguments[1] + "/App/Features/Settings/Overlays.swift", encoding: .utf8)) ?? "unreadable"
@@ -399,7 +426,9 @@ if ! xcrun swiftc -Onone -D DEBUG -module-name RichOSCore -target "$(uname -m)-a
     "$NATIVE/App/Features/Attachments/AttachmentModel.swift" \
     "$NATIVE/App/Features/Conversation/TranscriptViewportGeometry.swift" \
     "$NATIVE/App/Features/Conversation/PulseSchedule.swift" \
+    "$NATIVE/App/Features/Voice/TooShortLine.swift" \
     "$NATIVE/App/App/AppStore.swift" \
+    "$NATIVE/App/Platform/Shared/PlatformIdentity.swift" \
     "$WORK/main.swift" -o "$HEADLESS_BIN" > "$WORK/headless-build.log" 2>&1; then
   tail -30 "$WORK/headless-build.log"
   echo "  FAIL  native-ios-ui: the headless checks did not compile"

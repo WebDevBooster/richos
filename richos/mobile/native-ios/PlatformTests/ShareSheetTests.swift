@@ -132,6 +132,74 @@ final class ShareSheetTests: XCTestCase {
         try snapshot(model, "share-too-large")
     }
 
+    /// The sheet's staging directories (`share-<uuid>` under this process's temporary directory;
+    /// the test's own container is `share-tests-<uuid>`).
+    private func stagingDirectories() -> [URL] {
+        let tmp = FileManager.default.temporaryDirectory
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: tmp.path)) ?? []
+        return names.filter { $0.hasPrefix("share-") && !$0.hasPrefix("share-tests-") }.map { tmp.appendingPathComponent($0) }
+    }
+
+    /// Every entry the loader kept in its staging directories. Links are counted, never followed.
+    private func stagedEntries() -> [String] {
+        stagingDirectories().flatMap { directory in
+            ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).map { "\(directory.lastPathComponent)/\($0)" }
+        }
+    }
+
+    private func clearStaging() {
+        stagingDirectories().forEach { try? FileManager.default.removeItem(at: $0) }
+    }
+
+    /// Security review I-3: a provider whose item reports no size (here a package directory posing
+    /// as a PDF, which `NSItemProvider` hands over as it is, with no file size) is never counted as
+    /// zero bytes and copied whole. It cannot be sent and nothing of it is kept.
+    func testAnItemThatReportsNoSizeIsNotCopied() async throws {
+        try pair()
+        clearStaging()
+        let package = container.appendingPathComponent("Board deck.pdf", isDirectory: true)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        let inner = try file("inner.bin", bytes: AttachmentLimits.macDefault.maxFileBytes + 1)
+        try FileManager.default.moveItem(at: inner, to: package.appendingPathComponent("inner.bin"))
+        XCTAssertNil(try package.resourceValues(forKeys: [.fileSizeKey]).fileSize, "the item reports no size")
+        let model = model(transport: nil)
+        await model.load([provider(package, type: .pdf)])
+        XCTAssertFalse(model.canSend, "nothing that was not measured can be sent")
+        XCTAssertEqual(stagedEntries(), [], "nothing was copied")
+        clearStaging()
+    }
+
+    /// Security review I-3: the size a provider reports is not what gets read. A link reports its
+    /// own few bytes and leads to a file over the Mac's limit; it is never followed, so it cannot be
+    /// sent and nothing of it is kept.
+    func testAReportedSizeThatIsNotWhatWouldBeReadIsNotTrusted() async throws {
+        try pair()
+        clearStaging()
+        let limit = AttachmentLimits.macDefault.maxFileBytes
+        let target = try file("target.bin", bytes: limit + 1)
+        let link = container.appendingPathComponent("Board deck.pdf")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        XCTAssertLessThan(try XCTUnwrap(link.resourceValues(forKeys: [.fileSizeKey]).fileSize), limit, "the reported size is small")
+        let model = model(transport: nil)
+        await model.load([provider(link, type: .pdf)])
+        XCTAssertFalse(model.canSend, "what was not measured cannot be sent")
+        XCTAssertEqual(stagedEntries(), [], "nothing was kept")
+        clearStaging()
+    }
+
+    /// The limit is the size of what is opened and read, and a file just under it still goes.
+    func testAFileAtTheMacsLimitIsKept() async throws {
+        try pair()
+        clearStaging()
+        let limit = AttachmentLimits.macDefault.maxFileBytes
+        let model = model(transport: nil)
+        await model.load([provider(try file("Exactly the limit.pdf", bytes: limit), type: .pdf)])
+        XCTAssertTrue(model.canSend)
+        XCTAssertNil(model.tooLarge)
+        XCTAssertEqual(model.previews.first?.bytes, limit)
+        clearStaging()
+    }
+
     func testWithoutASignedConnectionTheShareIsSavedNeverSent() async throws {
         try pair()
         let finished = expectation(description: "the sheet leaves")

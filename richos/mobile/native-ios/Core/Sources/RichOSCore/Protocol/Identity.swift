@@ -5,11 +5,17 @@ import Security
 #endif
 
 /// This phone's signing key for one paired origin (contract §2.2: one key per origin, never
-/// exported). The app, the Share extension and the notification service reach the same key through
-/// one Keychain access group, which is why it lives in the core rather than in the app target.
+/// exported). Only the app signs: the Share extension hands its shares to the app, and the
+/// notification service needs only the reply-preview key, so on iPhone the key is kept in the app's
+/// own Keychain group, which neither extension holds (security review I-4).
 public protocol IdentityStore: Sendable {
-    /// The key for `origin`, created on first use.
+    /// The key for `origin`, created on first use. Pairing is the only caller that may create one.
     func signer(for origin: String) async throws -> any Signer
+    /// The key for `origin` only when this phone already holds it; `nil` when it does not. A paired
+    /// origin whose key is gone (the app's files restored from a backup onto a phone whose Keychain
+    /// never held it, or the item erased) must be paired again, visibly: a new key the Mac has never
+    /// seen would sign every request as a stranger (security review I-2).
+    func existingSigner(for origin: String) async throws -> (any Signer)?
     /// Discards the key for `origin` ("They do not match", Forget this phone).
     func forget(origin: String) async throws
 }
@@ -24,6 +30,7 @@ public actor MemoryIdentityStore: IdentityStore {
         keys[origin] = key
         return key
     }
+    public func existingSigner(for origin: String) -> (any Signer)? { keys[origin] }
     public func forget(origin: String) { keys[origin] = nil }
 }
 
@@ -35,12 +42,19 @@ public actor MemoryIdentityStore: IdentityStore {
 public struct KeychainIdentityStore: IdentityStore {
     /// `dev.richos.native.ios.identity.<origin>`.
     public let service: String
-    /// The shared access group, when the entitlement is present (I3's extensions); `nil` otherwise.
+    /// The Keychain group the key is kept in; `nil` means this process's default group, which on an
+    /// app holding `keychain-access-groups` is the FIRST of them. The app passes its own application
+    /// identifier, so neither extension can read the key (security review I-4).
     public let accessGroup: String?
+    /// Where an earlier build left keys (the default group, which was the shared one). A key found
+    /// only there is moved into `accessGroup` the first time it is read, so an existing pairing
+    /// keeps working. `nil`: nothing to move.
+    public let legacyAccessGroup: String?
 
-    public init(service: String = "dev.richos.native.ios.identity", accessGroup: String? = nil) {
+    public init(service: String = "dev.richos.native.ios.identity", accessGroup: String? = nil, legacyAccessGroup: String? = nil) {
         self.service = service
         self.accessGroup = accessGroup
+        self.legacyAccessGroup = legacyAccessGroup
     }
 
     public func signer(for origin: String) async throws -> any Signer {
@@ -50,11 +64,21 @@ public struct KeychainIdentityStore: IdentityStore {
         return signer
     }
 
+    public func existingSigner(for origin: String) async throws -> (any Signer)? {
+        try read(origin).map(Self.signer(from:))
+    }
+
     public func forget(origin: String) async throws {
-        var query = base(origin)
-        query.removeValue(forKey: kSecReturnData as String)
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw CoreError("could not remove the key (\(status))") }
+        for group in groups {
+            let status = SecItemDelete(base(origin, group: group) as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw CoreError("could not remove the key (\(status))") }
+        }
+    }
+
+    /// The group the key belongs in, then the one an earlier build may have left it in.
+    private var groups: [String?] {
+        guard let legacyAccessGroup, accessGroup != nil, legacyAccessGroup != accessGroup else { return [accessGroup] }
+        return [accessGroup, legacyAccessGroup]
     }
 
     // A one-byte prefix says which kind of key the stored bytes are.
@@ -80,18 +104,27 @@ public struct KeychainIdentityStore: IdentityStore {
         }
     }
 
-    private func base(_ origin: String) -> [String: Any] {
+    private func base(_ origin: String, group: String?) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: origin,
         ]
-        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        if let group { query[kSecAttrAccessGroup as String] = group }
         return query
     }
 
     private func read(_ origin: String) throws -> Data? {
-        var query = base(origin)
+        if let data = try read(origin, group: accessGroup) { return data }
+        guard groups.count > 1, let legacy = legacyAccessGroup, let data = try read(origin, group: legacy) else { return nil }
+        // Moved, not copied: once it is in the app's own group the shared group no longer holds it.
+        try write(origin, data)
+        _ = SecItemDelete(base(origin, group: legacy) as CFDictionary)
+        return data
+    }
+
+    private func read(_ origin: String, group: String?) throws -> Data? {
+        var query = base(origin, group: group)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
@@ -102,7 +135,7 @@ public struct KeychainIdentityStore: IdentityStore {
     }
 
     private func write(_ origin: String, _ data: Data) throws {
-        var query = base(origin)
+        var query = base(origin, group: accessGroup)
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let status = SecItemAdd(query as CFDictionary, nil)

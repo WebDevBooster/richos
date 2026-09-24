@@ -21,6 +21,8 @@ enum Motion {
     /// Cards above the composer: 320 ms (toasts 280 ms).
     static let card = outQuint(320)
     static let toast = outQuint(280)
+    /// "Hold the button while you speak." stays 1.8 s (Android `RichMotion.TOO_SHORT_LINE_MS`).
+    static let tooShortLineMs: Double = 1_800
     /// The Latest pill: 280 ms.
     static let latest = outQuint(280)
     /// The mic → send arrow cross-fade while typing, and at the lock (70 ms).

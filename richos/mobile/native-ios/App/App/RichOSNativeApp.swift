@@ -31,7 +31,7 @@ struct RichOSNativeApp: App {
                 guard store == nil else { return }
                 let transport = URLSessionTransport()
                 // The courier reads voice messages from the same files the recorder writes.
-                let network = NetworkEffects(transport: transport, stream: transport, identities: KeychainIdentityStore(),
+                let network = NetworkEffects(transport: transport, stream: transport, identities: PlatformEffects.identityStore(),
                                              recordings: FileRecordingStore(directory: VoiceRecorder.defaultDirectory()),
                                              attachments: FileAttachmentStore(directory: ShareIntake.attachmentsDirectory()))
                 let platform = PlatformEffects(network: network, attachments: ShareIntake.attachmentsDirectory())

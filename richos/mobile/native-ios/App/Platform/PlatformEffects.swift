@@ -12,6 +12,8 @@ import UIKit
 final class PlatformEffects: EffectHandler, @unchecked Sendable {
     private let network: (any EffectHandler)?
     private let clock: any Clock
+    /// The reply-preview key the notification extension opens sealed previews with.
+    private let previewKeys: PreviewKeyStore
     @MainActor let recorder: VoiceRecorder
     /// Where actions that were not asked for go (the store's `send`). Set once the store exists.
     @MainActor var dispatch: ((Action) -> Void)?
@@ -24,9 +26,11 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
 
     @MainActor
     init(network: (any EffectHandler)? = nil, clock: any Clock = SystemClock(), recorder: VoiceRecorder = VoiceRecorder(),
+         previewKeys: PreviewKeyStore = .shared,
          openURL: @escaping @MainActor (URL) -> Void = { UIApplication.shared.open($0) }, attachments: URL? = nil) {
         self.network = network
         self.clock = clock
+        self.previewKeys = previewKeys
         self.recorder = recorder
         self.openURL = openURL
         if let attachments {
@@ -42,6 +46,15 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
 
     /// The courier's source of voice-message bytes (the same files the recorder writes).
     var recordings: any RecordingStore { FileRecordingStore(directory: VoiceRecorder.defaultDirectory()) }
+
+    /// The device signing keys, in the app's own Keychain group (security review I-4). Only the app
+    /// signs: the Share extension passes no signed connection (`ShareViewController`, `transport:
+    /// nil`) and leaves every share for the app to send, and the notification extension reads only
+    /// the reply-preview key, which stays in the shared group. A key an earlier build left in the
+    /// shared group (the default then) is moved on first use.
+    static func identityStore() -> KeychainIdentityStore {
+        KeychainIdentityStore(accessGroup: PlatformIdentity.appOnlyKeychainGroup, legacyAccessGroup: PlatformIdentity.keychainGroup)
+    }
 
     /// What the app sends on launch and every time it becomes active, so the core's microphone state
     /// is always the OS's (PRD §3: no parallel permission state). Wired in `App/App` (stream I1).
@@ -116,7 +129,15 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             await MainActor.run { picker?.present(source, maxCount: maxCount, limits: state.attachmentLimits) }
             return []
 
-        case .persist, .pair, .confirmFingerprint, .forgetIdentity, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,
+        case .forgetIdentity:
+            // "Forget this phone": the preview key goes with the pairing, here on the phone. The
+            // unregistration that would stop the Mac sealing previews is best effort (sent only while
+            // a connection exists), so without this a phone showing no pairing would keep opening
+            // them (security review I-1). The signing key is the core's to remove.
+            try? previewKeys.erase()
+            return await network?.handle(effect, state: state) ?? []
+
+        case .persist, .pair, .confirmFingerprint, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,
              .unregisterNotifications:
             return await network?.handle(effect, state: state) ?? []
         }

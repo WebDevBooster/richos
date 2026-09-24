@@ -61,8 +61,14 @@ final class InteractionTests: XCTestCase {
         try requireMicrophoneKnownToCore(app)
         let before = rows(app)
         orb(app).tap()
-        XCTAssertTrue(app.staticTexts["composer.toast"].waitForExistence(timeout: 2), "no hint after a tap")
+        let line = app.staticTexts["composer.toast"]
+        XCTAssertTrue(line.waitForExistence(timeout: 2), "no hint after a tap")
         XCTAssertEqual(rows(app), before, "a tap sent something")
+        // The line is one calm 1.8 s, not the 150 ms settle that clears the core's toast.
+        Thread.sleep(forTimeInterval: 1.0)
+        XCTAssertTrue(line.exists, "the too-short line left before its 1.8 s")
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: line)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 3), .completed, "the too-short line never left")
     }
 
     func testSlideLeftCancelsAndSendsNothing() throws {

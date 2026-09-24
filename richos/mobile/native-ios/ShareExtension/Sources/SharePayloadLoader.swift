@@ -5,8 +5,10 @@ import UniformTypeIdentifiers
 /// Reads what the host app shared into files this extension owns.
 ///
 /// A provider's file URL is valid only inside its callback, so each file is copied into the
-/// extension's own temporary directory there. Size is read from the provider's file before copying,
-/// so a file the Mac would refuse (over 25 MiB) is reported by name and size without being copied.
+/// extension's own temporary directory there. The Mac's limits hold while reading (`stage`): the size
+/// of the opened file, never a size the provider reports, so a file the Mac would refuse (over
+/// 25 MiB) is reported by name and size without being copied, and no more than the Mac's count of
+/// files (10) is ever read.
 struct SharePayloadLoader: Sendable {
     struct Loaded: Sendable {
         var files: [StagedShareFile] = []
@@ -81,19 +83,67 @@ struct SharePayloadLoader: Sendable {
                     URL(fileURLWithPath: name).pathExtension.isEmpty && !url.pathExtension.isEmpty
                         ? "\(name).\(url.pathExtension)" : name
                 } ?? url.lastPathComponent
-                let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                guard bytes <= maxFileBytes else {
-                    continuation.resume(returning: .tooLarge(name, bytes))
-                    return
-                }
                 let target = directory.appendingPathComponent("\(UUID().uuidString.lowercased())-\(url.lastPathComponent)")
-                do {
-                    try FileManager.default.copyItem(at: url, to: target)
-                    continuation.resume(returning: .copied(target, name))
-                } catch {
-                    continuation.resume(returning: .failed)
+                switch Self.stage(url, to: target, maxBytes: maxFileBytes) {
+                case .copied: continuation.resume(returning: .copied(target, name))
+                case .tooLarge(let bytes): continuation.resume(returning: .tooLarge(name, bytes))
+                case .refused: continuation.resume(returning: .failed)
                 }
             }
         }
+    }
+
+    enum Staged: Equatable {
+        case copied
+        /// Over `maxBytes`: the size of the file that was opened, or the bytes read before the read
+        /// passed the limit. Nothing is kept.
+        case tooLarge(Int)
+        /// Not a regular file (a folder, a link, a pipe), or it could not be read. Nothing is kept.
+        case refused
+    }
+
+    /// Copies `source` to `target` only if it is a regular file of at most `maxBytes`, enforcing the
+    /// limit on what is opened and read, never on a size the provider reports (security review I-3:
+    /// a provider that reports no size used to count as zero bytes, and was copied whole). A link is
+    /// not followed and a folder is not copied. The size comes from the open file itself, and the copy
+    /// stops as soon as more than `maxBytes` have been read, so a file that grows while it is read is
+    /// refused too. At most one 1 MiB buffer is held: a Share extension's memory is small.
+    static func stage(_ source: URL, to target: URL, maxBytes: Int) -> Staged {
+        // A regular file only: not a folder, a link or a pipe (a link is not followed).
+        guard (try? source.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { return .refused }
+        // Non-blocking, so a pipe swapped in cannot hold the extension open; O_NOFOLLOW refuses a
+        // link swapped in after the check above.
+        let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return .refused }
+        let input = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        // The size of the open file, by seeking to its end (not stat/fstat: those are file-timestamp
+        // required-reason APIs, and the privacy manifest declares none; Release/check-release.sh R6).
+        let end = lseek(descriptor, 0, SEEK_END)
+        guard end >= 0, lseek(descriptor, 0, SEEK_SET) == 0 else { return .refused }
+        let size = Int(end)
+        guard size <= maxBytes else { return .tooLarge(size) }
+        guard FileManager.default.createFile(atPath: target.path, contents: nil),
+              let output = try? FileHandle(forWritingTo: target) else { return .refused }
+        var read = 0
+        let outcome: Staged
+        do {
+            while true {
+                guard let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty else {
+                    outcome = .copied
+                    break
+                }
+                read += chunk.count
+                if read > maxBytes {
+                    outcome = .tooLarge(read)
+                    break
+                }
+                try output.write(contentsOf: chunk)
+            }
+        } catch {
+            outcome = .refused
+        }
+        try? output.close()
+        if outcome != .copied { try? FileManager.default.removeItem(at: target) }
+        return outcome
     }
 }

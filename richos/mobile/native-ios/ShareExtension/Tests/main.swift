@@ -30,6 +30,10 @@ func staged(_ name: String, _ mediaType: String, bytes: Int = 64, fill: UInt8 = 
     try Data(repeating: fill, count: bytes).write(to: url)
     return StagedShareFile(url: url, suggestedName: name, mediaType: mediaType)
 }
+/// Read straight from the file system, not through the code under test.
+func excludedFromBackup(_ url: URL) -> Bool {
+    (try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) == true
+}
 @MainActor
 func checkAsync(_ name: String, _ condition: @autoclosure () async throws -> Bool) async {
     do {
@@ -86,6 +90,8 @@ let captionOnFile = try inbox.write(caption: "Read this", files: [try staged("a.
 check("I7 with no photos the caption rides on the last file",
       captionOnFile.messages.map { (try? JSONSerialization.jsonObject(with: Data($0.commitBody.utf8)) as? [String: Any])?["text"] as? String }
           == [nil, "Read this"])
+check("I19 waiting shares stay out of iCloud and Finder backups (security review I-2)",
+      inbox.root.deletingLastPathComponent().lastPathComponent == "RichOS" && excludedFromBackup(inbox.root.deletingLastPathComponent()))
 check("I8 a file name cannot become a path", ShareInbox.safeFileName("../../etc/passwd", fallback: "x") == "passwd"
       && ShareInbox.safeFileName("..", fallback: "x") == "x" && ShareInbox.safeFileName(".hidden", fallback: "x") == "x")
 var escaping = envelope.items[0]
@@ -133,6 +139,8 @@ noConsent.consentGiven = false
 check("C3 paired but the disclosure not yet accepted: nothing is sent from Share", !SharePlatform.context(for: noConsent, macAcceptsAttachments: true).paired)
 try context.write(container: container)
 check("C4 the context round-trips through the App Group", ShareContext.read(container: container) == context)
+check("C6 the pairing context stays out of backups (security review I-2)",
+      excludedFromBackup(container.appendingPathComponent(ShareContext.fileName)))
 check("C5 no context file reads as unpaired", ShareContext.read(container: scratch.appendingPathComponent("none")) == .unpaired)
 
 // --- delivery against a fake Mac -----------------------------------------------------------------

@@ -82,7 +82,10 @@ actor RoutedMac: HTTPTransport {
             }
         }
         let mac = PushMac()
-        let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: MemoryIdentityStore())
+        // The phone that paired with the fixture's Mac holds its key.
+        let identities = MemoryIdentityStore()
+        _ = await identities.signer(for: try #require(try Fixture.named("notif-offer").state.mac?.origin))
+        let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: identities)
         await network.setPreviewKeyProvider { _, _ in Data(repeating: 7, count: 32) }
         let host = try await HeadlessHost(storage: MemoryStorage(), handler: network)
         _ = try await CommandRunner.execute(Command(.fixture, name: "notif-offer"), on: host)
@@ -115,5 +118,32 @@ actor RoutedMac: HTTPTransport {
         let s = try await host.dispatch(.rejectWords)
         let after = try await identities.signer(for: "https://mm1.tail1a2b3c.ts.net:8443").publicPoint()
         #expect(s.screen == .pairIntro && before != after, "the key was discarded; a new pairing gets a new one")
+    }
+
+    /// Security review I-2: the app's files came back from a backup, the Keychain item did not
+    /// (`…ThisDeviceOnly`). The phone is paired to a Mac it holds no key for. It shows "Pair again";
+    /// it never mints a new key and signs as a stranger, and nothing unsent is dropped.
+    @Test func aPairedPhoneWhoseKeyIsGoneIsToldToPairAgain() async throws {
+        let origin = "https://mm1.tail1a2b3c.ts.net:8443"
+        let mac = RoutedMac(pairAnswer: Data())
+        let network = NetworkEffects(transport: mac, stream: ScriptedStream([]), identities: MemoryIdentityStore(),
+                                     clock: FixedClock(ms: 100), sleep: { _ in throw CancellationError() })
+        await network.setSink { _ in }
+        var restored = AppState()
+        restored.pairing = .paired
+        restored.consentGiven = true
+        restored.mac = MacLink(origin: origin, route: .connect, deviceID: "dev_7", threadID: "thr_5c1e", name: "Alex’s Mac")
+        var (state, effects) = Reducer.reduce(restored, .compose(text: "Still here after the restore"))
+        (state, effects) = Reducer.reduce(state, .sendDraft(clientID: "c_restored", at: 900))
+        let queued = try #require(state.outbox.first?.clientID)
+        (state, effects) = Reducer.reduce(state, .foregrounded(at: 1_000))
+        #expect(effects.contains(.connect))
+        var answers: [Action] = []
+        for effect in effects where effect != .persist { answers += await network.handle(effect, state: state) }
+        answers += await network.handle(.deliver(clientID: queued), state: state)
+        for action in answers { state = Reducer.reduce(state, action).state }
+        #expect(state.pairing == .revoked && state.screen == .connectionRevoked, "the person is told to pair again")
+        #expect(state.outbox.map(\.clientID) == [queued], "his unsent message is kept for after pairing")
+        #expect(await mac.requests.isEmpty, "nothing was signed with a key the Mac has never seen")
     }
 }

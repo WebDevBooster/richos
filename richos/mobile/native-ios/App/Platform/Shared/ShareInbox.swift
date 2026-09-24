@@ -180,6 +180,9 @@ struct ShareInbox: Sendable {
         let directory = root.appendingPathComponent(id, isDirectory: true)
         let fm = FileManager.default
         do {
+            // The App Group's `…/RichOS` stays out of backups, as the app's own does (security review
+            // I-2). A share is never refused over the mark.
+            _ = try? LocalOnlyStorage.prepare(root.deletingLastPathComponent())
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             // When this share began, so the app can tell a share still being written from one whose
             // writer died (`sweepIncomplete`) without reading file dates (a required-reason API).
@@ -191,6 +194,12 @@ struct ShareInbox: Sendable {
                 guard limits.mediaTypes.contains(file.mediaType) else {
                     throw ShareInboxError.unsupported(fileName: name)
                 }
+                // The limit before the read, from the file itself (security review I-3): a Share
+                // extension's memory is small, and a file is never read whole to learn its size.
+                guard let size = (try? fm.attributesOfItem(atPath: file.url.path))?[.size] as? Int else {
+                    throw ShareInboxError.unsupported(fileName: name)
+                }
+                guard size <= limits.maxFileBytes else { throw ShareInboxError.tooLarge(fileName: name, bytes: size) }
                 let data = try Data(contentsOf: file.url)
                 guard !data.isEmpty else { throw ShareInboxError.unsupported(fileName: name) }
                 guard data.count <= limits.maxFileBytes else {
@@ -367,6 +376,10 @@ struct ShareContext: Codable, Equatable, Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
-        try encoder.encode(self).write(to: container.appendingPathComponent(Self.fileName), options: .atomic)
+        let url = container.appendingPathComponent(Self.fileName)
+        try encoder.encode(self).write(to: url, options: .atomic)
+        // Rewritten atomically each time, so the mark is set each time (security review I-2): a
+        // restored phone must not show the share sheet as paired before the app has run.
+        try? LocalOnlyStorage.exclude(url)
     }
 }
