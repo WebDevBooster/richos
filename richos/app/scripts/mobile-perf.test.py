@@ -484,6 +484,27 @@ def _():
     assert not any("input text" in c for c in fake.calls)
 
 
+@case("R11b probe preparation delivers each ASCII character through a separate input invocation")
+def _():
+    from unittest.mock import patch
+    nodes = android.ui_nodes('<hierarchy><node class="android.widget.EditText" text="" bounds="[0,0][100,50]"/>'
+                             '<node class="android.view.View" content-desc="Message Rich" text="" bounds="[0,0][100,50]"/></hierarchy>')
+    measure = android.Measure(android.Device("/fake/adb", "phone", runner=FakeAdb(), sleep=lambda s: None), log=quiet)
+    commands = []
+    with patch.object(measure, "dump_ui", return_value=nodes), patch.object(measure.d, "sh", side_effect=commands.append):
+        measure.enter_empty_composer("Probe 190007")
+    # Execute the generated device shell loop with a recording input command. No
+    # Android device is touched. This catches grouping and whitespace mistakes.
+    record_input = 'input() { [ "$1" = text ] || exit 9; printf "%s\\n" "$2"; }; '
+    calls = subprocess.check_output(["/bin/sh", "-c", record_input + commands[-1]], text=True).splitlines()
+    assert calls == list("Probe") + ["%s"] + list("190007"), calls
+    for unsafe in ("probe;echo", "$(probe)", "é"):
+        commands.clear()
+        with patch.object(measure, "dump_ui", return_value=nodes), patch.object(measure.d, "sh", side_effect=commands.append):
+            raises(perfcore.Unmeasurable, measure.enter_empty_composer, unsafe)
+        assert not commands, "invalid probe must not tap or inject anything"
+
+
 @case("R12 stopped Send setup retains completed trials and their raw evidence")
 def _():
     from unittest.mock import patch

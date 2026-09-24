@@ -901,7 +901,13 @@ class Measure:
             raise Unmeasurable("probe text must contain only letters, digits and spaces")
         x, y = center(field)
         self.d.sh(f"input tap {x} {y}")
-        self.d.sh("input text " + text.replace(" ", "%s"))
+        # A whole `input text` burst can give its generated keys one event timestamp.
+        # Prepare ASCII probes through separate input calls instead. This is outside
+        # the measured Send interval; the exact pre-Send readback still decides
+        # whether the probe may be sent. Never repair a mismatched draft silently.
+        characters = " ".join("%s" if character == " " else character for character in text)
+        self.d.sh('for richconnect_probe_character in ' + characters
+                  + '; do input text "$richconnect_probe_character"; done')
 
     def typing(self, text, production=False):
         pid = self.d.pid()

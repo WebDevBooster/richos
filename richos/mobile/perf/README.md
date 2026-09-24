@@ -60,6 +60,10 @@ Use `--production --route managed` or `--production --route tailnet` on a paired
 The route label is an operator declaration; validate the actual route separately. Add
 `--exercise-sends` only for a synthetic conversation where test messages are authorized.
 Production typing refuses an occupied composer. No debug bridge or fixture is used.
+ASCII Send probes are prepared one character per Android `input text` invocation so a whole
+burst does not share one key-event timestamp. Probe entry is outside the Send timing interval.
+The composer must still match the intended string exactly before Send; a mismatch stops the
+series with the draft retained. This automation path does not certify normal IME typing.
 
 Physical cold and warm timings use the system launch trace, the useful-content draw marker and
 that frame's `DisplayPresentTime`. A monotonic-clock counter joins the OEM trace clock to the
