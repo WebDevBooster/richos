@@ -1,8 +1,8 @@
 package dev.richos.android.ui
 
 import dev.richos.android.core.Action
+import dev.richos.android.core.AttachSource
 import dev.richos.android.core.Sheet
-import dev.richos.android.core.Theme
 
 /**
  * Everything a person can do on a screen. The screens emit these and nothing else; [toAction]
@@ -20,9 +20,6 @@ sealed interface UiEvent {
     // --- the outbox ---------------------------------------------------------------------------
     data object TryNow : UiEvent
     data class Discard(val clientId: String) : UiEvent
-
-    // --- appearance ---------------------------------------------------------------------------
-    data class ChooseTheme(val theme: Theme) : UiEvent
 
     // --- voice: raw finger events; core owns every threshold and decides what they mean ----------
     /** Touch-down: [id] names the new recording, [widthDp] is the composer's, [at] epoch ms. */
@@ -94,6 +91,7 @@ sealed interface UiEvent {
     data object UpdateInStore : UiEvent
     data object UpdateLater : UiEvent
     data object Support : UiEvent
+    data object PrivacyPolicy : UiEvent
     data object WhereMessagesGo : UiEvent
     data object ForgetPairing : UiEvent
     data object ForgetConfirmed : UiEvent
@@ -107,7 +105,6 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.SendText -> Action.Send
     UiEvent.TryNow -> Action.Retry
     is UiEvent.Discard -> Action.Discard(clientId)
-    is UiEvent.ChooseTheme -> Action.SetTheme(theme)
     is UiEvent.PairWithLink -> Action.Pair(link)
     UiEvent.WordsMatch -> Action.ConfirmWords(true)
     // The dialog about unsent work in the way of pairing: send what waits (core's retry), or keep
@@ -131,6 +128,8 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.CloseOverlay -> Action.CloseSheet
     UiEvent.ShowWaiting -> Action.CloseSheet
     UiEvent.WhereMessagesGo -> Action.OpenSheet(Sheet.WHERE_MESSAGES_GO)
+    // Settings' "Where your messages go" is the consent screen again: its Continue is the way back out.
+    UiEvent.ConsentContinue -> Action.CloseSheet
     UiEvent.UsePairingLink -> Action.OpenSheet(Sheet.PAIRING_LINK)
     UiEvent.ForgetPairing -> Action.ForgetPairing
     UiEvent.ForgetConfirmed -> Action.ConfirmForget
@@ -141,6 +140,19 @@ fun UiEvent.toAction(): Action? = when (this) {
     UiEvent.UpdateInStore -> Action.OpenAppStore
     UiEvent.UpdateLater -> Action.DismissUpdate
     UiEvent.Support -> Action.OpenSupport
+    UiEvent.PrivacyPolicy -> Action.OpenPrivacyPolicy
+    // Photos and files (core `Attach.kt`): the + menu's three sources, the tray, the cards.
+    is UiEvent.AttachPick -> AttachSource.entries.firstOrNull { it.name.equals(source, ignoreCase = true) }?.let { Action.PickAttachments(it) }
+    is UiEvent.AttachRemove -> Action.RemoveAttachment(id)
+    UiEvent.SendAttachments -> Action.Send
+    UiEvent.ChooseAnotherFile -> Action.PickAttachments(AttachSource.FILES)
+    UiEvent.AttachCardNotNow -> Action.DismissAttachNotice
+    // "Try again" on a photo or file message: the outbox's retry, which resumes every waiting message.
+    is UiEvent.UploadRetry -> Action.Retry
+    // On Android updates come from Google Play: the Settings row and the dialog's "Check again" open the listing.
+    UiEvent.CheckForUpdates -> Action.CheckForUpdates
+    // The consent screen's "Learn more" is the whole policy (privacy evidence E1).
+    UiEvent.ConsentLearnMore -> Action.OpenPrivacyPolicy
     else -> null
 }
 
@@ -152,7 +164,7 @@ val NOT_YET_IN_CORE: List<String> = listOf(
     "load older history on reaching the oldest message",
     "pairing surfaces core does not model: consent",
     "(built: pair with a link, words match / do not match, forget — core c2a1a20a; the scanner, the camera, the link sheet, pair again and the blocked-by-unsent choices — ui/pairing)",
-    "check for updates (the Settings row)",
     "show the waiting messages (from the forget refusal)",
-    "photos and files: pick, tray, send, stop, retry, the Mac's limits and types; Share to Rich",
+    "(built: photos and files — the + menu's Photos, Camera and Files, the tray, the Mac's limits, the cards, retry — core Attach.kt)",
+    "stop an upload mid-way (core has no byte progress or cancel yet)",
 )

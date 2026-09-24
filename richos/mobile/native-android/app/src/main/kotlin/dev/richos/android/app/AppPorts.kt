@@ -2,6 +2,7 @@ package dev.richos.android.app
 
 import android.content.Context
 import android.util.AtomicFile
+import dev.richos.android.core.AttachPicker
 import dev.richos.android.core.Clock
 import dev.richos.android.core.CoreJson
 import dev.richos.android.core.IdSource
@@ -34,7 +35,7 @@ object AppPorts {
      * [wire] is the HTTPS connection to the Mac (requests and the event stream); the caller keeps
      * it to hand the same instance to the connection owner.
      */
-    fun create(context: Context, wire: HttpsMac = HttpsMac(), recorder: Recorder = Recorder.NONE, platform: Platform = Platform.NONE): Ports {
+    fun create(context: Context, wire: HttpsMac = HttpsMac(), recorder: Recorder = Recorder.NONE, platform: Platform = Platform.NONE, picker: AttachPicker = AttachPicker.NONE): Ports {
         val dir = File(context.filesDir, "core")
         val outboxFile = JsonFile(File(dir, "outbox.json"), ListSerializer(OutboxItem.serializer())) { emptyList() }
         val sessionFile = JsonFile(File(dir, "session.json"), Session.serializer()) { Session() }
@@ -59,6 +60,7 @@ object AppPorts {
             files = StagedFiles(stagedDir(context)),
             recorder = recorder,
             platform = platform,
+            picker = picker,
         )
     }
 
@@ -73,9 +75,16 @@ object AppPorts {
  */
 class StagedFiles(private val dir: File) : FileStore {
     override suspend fun bytes(id: String): ByteArray? = withContext(Dispatchers.IO) {
-        if (id.isEmpty() || id.contains('/') || id.contains('\\') || id == "." || id == "..") return@withContext null
+        if (!safe(id)) return@withContext null
         File(dir, id).takeIf { it.isFile }?.readBytes()
     }
+
+    /** A photo or file removed from the tray, discarded, or accepted by the Mac: gone from the phone. */
+    override suspend fun delete(id: String) {
+        withContext(Dispatchers.IO) { if (safe(id)) File(dir, id).delete() }
+    }
+
+    private fun safe(id: String) = id.isNotEmpty() && !id.contains('/') && !id.contains('\\') && id != "." && id != ".."
 }
 
 /**

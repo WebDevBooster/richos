@@ -182,6 +182,14 @@ sealed interface Action {
     @Serializable @SerialName("open-support")
     data object OpenSupport : Action
 
+    /** Settings, "Check for updates": on Android updates come from Google Play, so it opens the listing. */
+    @Serializable @SerialName("check-for-updates")
+    data object CheckForUpdates : Action
+
+    /** Settings, "Privacy policy", and the consent screen's "Learn more" (Google Play: a link inside the app). */
+    @Serializable @SerialName("open-privacy-policy")
+    data object OpenPrivacyPolicy : Action
+
     /** The platform's push token arrived (after `turn-on-notifications`): register it with the Mac. */
     @Serializable @SerialName("push-token")
     data class PushToken(val token: String, val previewKey: String? = null) : Action
@@ -197,6 +205,22 @@ sealed interface Action {
     /** Take one picked file back out of the composer. */
     @Serializable @SerialName("remove-attachment")
     data class RemoveAttachment(val id: String) : Action
+
+    /** The + menu's Photos, Camera or Files (`att-menu`): the Mac's limits decide, then the platform's picker. */
+    @Serializable @SerialName("pick-attachments")
+    data class PickAttachments(val source: AttachSource) : Action
+
+    /** The platform refused an item before staging it (over the Mac's per-file limit while copying). */
+    @Serializable @SerialName("attach-refused")
+    data class AttachRefused(val name: String, val bytes: Long? = null, val tooLarge: Boolean = true) : Action
+
+    /** The camera permission was refused, or no camera app can take the photo (`att-denied-camera`). */
+    @Serializable @SerialName("attach-permission-denied")
+    data class AttachPermissionDenied(val source: AttachSource) : Action
+
+    /** "Not now" / "Got it" on a photos-and-files card. */
+    @Serializable @SerialName("dismiss-attach-notice")
+    data object DismissAttachNotice : Action
 
     /**
      * Share to Rich from another app (CEO §75): words and/or staged files, sent as one message

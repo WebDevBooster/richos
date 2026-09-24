@@ -77,11 +77,46 @@ class SettingsTest {
     }
 
     @Test
+    fun `forget removes the push provider's installation, whether or not notifications were ever on`() = runTest {
+        val on = online()
+        on.core.dispatch(Action.TurnOnNotifications)
+        on.core.dispatch(Action.NotificationsResult(NotificationStatus.ON))
+        on.core.dispatch(Action.ForgetPairing)
+        on.core.dispatch(Action.ConfirmForget)
+        assertEquals(listOf("register:previews", "unregister", "forget-installation"), on.export().platform)
+
+        val never = online()
+        never.core.dispatch(Action.ForgetPairing)
+        never.core.dispatch(Action.ConfirmForget)
+        assertEquals(listOf("forget-installation"), never.export().platform)
+    }
+
+    @Test
     fun `the platform screens are asked for, not opened by the core`() = runTest {
         val runtime = online()
         runtime.core.dispatch(Action.OpenSystemSettings)
         runtime.core.dispatch(Action.OpenAppStore)
         runtime.core.dispatch(Action.OpenSupport)
         assertEquals(listOf("open:system-settings", "open:app-store", "open:support"), runtime.export().platform)
+    }
+
+    @Test
+    fun `check for updates opens the Play listing, and the privacy policy is one tap from Settings`() = runTest {
+        val runtime = online()
+        runtime.core.dispatch(Action.CheckForUpdates)
+        runtime.core.dispatch(Action.OpenPrivacyPolicy)
+        assertEquals(listOf("open:app-store", "open:privacy-policy"), runtime.export().platform)
+        // Unpaired too: the policy must be reachable before anyone pairs (store review starts there).
+        val unpaired = DevRuntime.create().also { it.execute(DevRequest.Fixture("unpaired")) }
+        unpaired.core.dispatch(Action.OpenPrivacyPolicy)
+        assertEquals(listOf("open:privacy-policy"), unpaired.export().platform)
+    }
+
+    @Test
+    fun `every outside address lives in AppLinks, and the placeholders are named for the CEO`() {
+        assertEquals(listOf("privacyPolicy", "support"), AppLinks.placeholders)
+        for (url in listOf(AppLinks.privacyPolicy, AppLinks.support)) assertTrue(url.startsWith("https://"), url)
+        assertEquals("market://details?id=dev.richos.connect", AppLinks.playStore("dev.richos.connect"))
+        assertEquals("https://play.google.com/store/apps/details?id=dev.richos.connect", AppLinks.playStoreWeb("dev.richos.connect"))
     }
 }

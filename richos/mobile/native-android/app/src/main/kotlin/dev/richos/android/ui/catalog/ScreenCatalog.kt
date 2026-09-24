@@ -360,7 +360,7 @@ object ScreenCatalog {
         },
 
         // ---- 9 · Settings -----------------------------------------------------------------------
-        ScreenSpec("settings", 9, "59", "Settings sheet", Applies.Adapted("“This phone” and “App permissions”; adds the Appearance row, declared")) { with(convo) { it.copy(sheet = Sheet.SETTINGS) } },
+        ScreenSpec("settings", 9, "59", "Settings sheet", Applies.Adapted("“This phone” and “App permissions”; adds the Privacy policy row, declared; “Check for updates” shows a chevron, not “Up to date”, because nothing has checked")) { with(convo) { it.copy(sheet = Sheet.SETTINGS) } },
         ScreenSpec("settings-forget", 9, "60", "Forget pairing?") { with(convo) { it.copy(sheet = Sheet.FORGET) } },
         ScreenSpec("settings-forget-blocked", 9, "60", "Forget refused: unsent work") {
             with(convo) {

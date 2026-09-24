@@ -1,6 +1,8 @@
 package dev.richos.android.core.dev
 
 import dev.richos.android.core.Action
+import dev.richos.android.core.AttachPicker
+import dev.richos.android.core.AttachSource
 import dev.richos.android.core.AppState
 import dev.richos.android.core.Clock
 import dev.richos.android.core.ComposerAction
@@ -168,9 +170,17 @@ class DevRuntime private constructor(
                 }
                 override suspend fun requestNotifications(previews: Boolean) = log("register:${if (previews) "previews" else "no-previews"}")
                 override suspend fun unregisterNotifications() = log("unregister")
+                override suspend fun forgetInstallation() = log("forget-installation")
                 override suspend fun openSystemSettings() = log("open:system-settings")
                 override suspend fun openAppStore() = log("open:app-store")
                 override suspend fun openSupport() = log("open:support")
+                override suspend fun openPrivacyPolicy() = log("open:privacy-policy")
+            },
+            picker = object : AttachPicker {
+                override suspend fun present(source: AttachSource, maxCount: Int) {
+                    doc = doc.copy(platform = doc.platform + "pick:${source.name.lowercase()}:$maxCount")
+                    persist()
+                }
             },
             clock = Clock { doc.now },
             ids = IdSource {
@@ -385,8 +395,9 @@ class DevRuntime private constructor(
                 check(s.notifications.status == NotificationStatus.ON && s.notifications.offerDismissed, "on answers the offer for good")
                 step(DevRequest.Dispatch(Action.ForgetPairing))
                 s = step(DevRequest.Dispatch(Action.ConfirmForget))
-                check(!s.paired && s.pairing.phase == PairingPhase.UNPAIRED && doc.platform.last() == "unregister" && Fixtures.ORIGIN !in doc.keys,
-                    "forget turns notifications off, then discards the key and the pairing")
+                check(!s.paired && s.pairing.phase == PairingPhase.UNPAIRED && doc.platform.takeLast(2) == listOf("unregister", "forget-installation") &&
+                    Fixtures.ORIGIN !in doc.keys,
+                    "forget turns notifications off, removes the push installation, then discards the key and the pairing")
             }
             // Update notices: a banner can be dismissed, a required update cannot; voice paused by
             // policy stops recording and leaves text working.

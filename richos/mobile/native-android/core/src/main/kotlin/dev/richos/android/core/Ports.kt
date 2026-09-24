@@ -106,6 +106,8 @@ class Ports(
     val recorder: Recorder = Recorder.NONE,
     val platform: Platform = Platform.NONE,
     val files: FileStore = FileStore.NONE,
+    /** Android's photo picker, camera and document picker (the + menu). */
+    val picker: AttachPicker = AttachPicker.NONE,
     /** The id the Mac registers push for (Echo 65952d16: `dev.richos.native.android` in development). */
     val applicationId: String = "dev.richos.native.android",
 )
