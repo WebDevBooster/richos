@@ -45,6 +45,7 @@ public struct AppState: Codable, Equatable, Sendable {
     public var history = History()
     /// TRANSIENT. The conversation follows the newest message unless the person scrolled up.
     public var following = true
+    public var readingAnchor: ReadingAnchor?
     /// TRANSIENT. A message opened from a notification, glowing once.
     public var focusedMessageID: String?
     /// A tapped notification's reply that is not loaded yet: the SHA-256 (lowercase hex) of its id,
@@ -129,7 +130,7 @@ extension AppState {
     /// Every field, plus the derived `screen`, so a CLI reader sees the surface directly. Absent
     /// fields decode to a new install's values; `screen` is ignored on the way in.
     private enum CodingKeys: String, CodingKey {
-        case schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
+        case readingAnchor, schema, pairing, mac, fingerprintWords, consentGiven, scanner, pairingProblem, messages, draft, outbox, reply, history, following, focusedMessageID, notifiedReply, composerFocused, playback, voice, keptRecordings, voiceAvailability, microphone, camera, connectionNotice, troubleSinceMs, notifications, sheet, update, attachmentLimits, toast, appearance, screen
     }
 
     public init(from decoder: Decoder) throws {
@@ -148,6 +149,7 @@ extension AppState {
         outbox = try c.decodeIfPresent([OutboxItem].self, forKey: .outbox) ?? d.outbox
         reply = try c.decodeIfPresent(ReplyActivity.self, forKey: .reply)
         history = try c.decodeIfPresent(History.self, forKey: .history) ?? d.history
+        readingAnchor = try c.decodeIfPresent(ReadingAnchor.self, forKey: .readingAnchor)
         following = try c.decodeIfPresent(Bool.self, forKey: .following) ?? d.following
         focusedMessageID = try c.decodeIfPresent(String.self, forKey: .focusedMessageID)
         notifiedReply = try c.decodeIfPresent(String.self, forKey: .notifiedReply)
@@ -182,6 +184,7 @@ extension AppState {
         try c.encode(outbox, forKey: .outbox)
         try c.encode(reply, forKey: .reply)
         try c.encode(history, forKey: .history)
+        try c.encodeIfPresent(readingAnchor, forKey: .readingAnchor)
         try c.encode(following, forKey: .following)
         try c.encode(focusedMessageID, forKey: .focusedMessageID)
         try c.encode(notifiedReply, forKey: .notifiedReply)
@@ -225,6 +228,8 @@ extension AppState {
         public var pendingAttachments: [OutboxFile]?
         /// New writers keep reconstructable transcript history outside the durable user-work file.
         public var separateHistory: Bool? = nil
+        public var following: Bool? = nil
+        public var readingAnchor: ReadingAnchor? = nil
     }
 
     public var persisted: Persisted {
@@ -232,7 +237,8 @@ extension AppState {
         Persisted(schema: schema, pairing: pairing == .connecting ? .unpaired : pairing, mac: pairing == .connecting ? nil : mac,
                   fingerprintWords: fingerprintWords, consentGiven: consentGiven, messages: messages, draft: draft,
                   outbox: outbox, keptRecordings: keptRecordings, notifications: notifications, appearance: appearance,
-                  notifiedReply: notifiedReply, pendingAttachments: pendingAttachments.isEmpty ? nil : pendingAttachments)
+                  notifiedReply: notifiedReply, pendingAttachments: pendingAttachments.isEmpty ? nil : pendingAttachments,
+                  following: following, readingAnchor: following ? nil : readingAnchor)
     }
 
     public init(restoring p: Persisted) throws {
@@ -242,6 +248,8 @@ extension AppState {
         messages = p.messages; draft = p.draft; outbox = p.outbox; keptRecordings = p.keptRecordings
         notifications = p.notifications; appearance = p.appearance; notifiedReply = p.notifiedReply
         pendingAttachments = p.pendingAttachments ?? []
+        following = p.following ?? true
+        readingAnchor = p.readingAnchor
         // A message that was mid-send when the app stopped is re-sent at once on this launch: the
         // Mac's `client_id` receipt makes that free (the reference queue's rule 3).
         for i in outbox.indices where outbox[i].state == .sending {
@@ -626,4 +634,11 @@ public enum Limits {
     /// A voice message's ceiling (30:00) and the warning one minute before it.
     public static let voiceCeilingMs: Int64 = 30 * 60 * 1000
     public static let voiceWarningMs: Int64 = 29 * 60 * 1000
+}
+
+/// A settled viewport, saved with user state without saving on every scrolling frame.
+public struct ReadingAnchor: Codable, Equatable, Sendable {
+    public var messageID: String
+    public var offset: Double
+    public init(messageID: String, offset: Double) { self.messageID = messageID; self.offset = offset }
 }

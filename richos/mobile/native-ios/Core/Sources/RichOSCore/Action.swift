@@ -61,6 +61,7 @@ public enum Action: Equatable, Sendable {
     case loadOlder
     case olderLoaded([Message], reachedBeginning: Bool)
     case setFollowing(Bool)
+    case rememberReading(ReadingAnchor)
     case setComposerFocus(Bool)
     case openedFromNotification(messageID: String)
     /// A tapped notification for this Mac and conversation, by its reply's reference (SHA-256 hex of

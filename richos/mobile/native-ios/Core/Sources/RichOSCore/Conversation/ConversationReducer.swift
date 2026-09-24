@@ -90,8 +90,12 @@ public enum ConversationReducer {
             // A page that brought nothing new ends this search (a failed or stale page must not loop);
             // the next messages from the Mac start it again.
             seekNotified(&s, &effects, progressed: older.contains { !known.contains($0.id) })
+        case .rememberReading(let anchor):
+            s.readingAnchor = anchor
+            s.following = false
         case .setFollowing(let following):
             s.following = following
+            if following { s.readingAnchor = nil }
         case .setComposerFocus(let focused):
             s.composerFocused = focused
         case .openedFromNotification(let messageID):

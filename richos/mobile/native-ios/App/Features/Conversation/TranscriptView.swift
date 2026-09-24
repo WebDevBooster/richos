@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import RichOSCore
 
 /// The conversation list. It follows the newest message unless the reader scrolls up, keeps
 /// following through growing replies, keyboard and composer changes, and resumes following on every
@@ -75,6 +76,7 @@ struct TranscriptView: UIViewRepresentable {
         private var freshIDs: Set<String> = []
         private var askedForOlderAt: Int?
         private var lastPalette: Palette?
+        private var restoredAnchor = false
 
         func attach(to view: UICollectionView) {
             let registration = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
@@ -131,7 +133,12 @@ struct TranscriptView: UIViewRepresentable {
             } else {
                 shouldFollow = sentByMe || wasNearBottom || view.maintainsBottomAnchor
             }
-            let anchor = !shouldFollow && prepended ? visibleAnchor(in: view) : nil
+            let remembered = parent?.transcript.readingAnchor
+            let savedAnchor = !restoredAnchor && !wantsFollowing ? remembered.flatMap { value in
+                newIDs.contains(value.messageID) ? VisibleAnchor(id: value.messageID, offsetFromViewportTop: value.offset) : nil
+            } : nil
+            if savedAnchor != nil { restoredAnchor = true }
+            let anchor = savedAnchor ?? (!shouldFollow && prepended ? visibleAnchor(in: view) : nil)
 
             if !isInitialLoad {
                 for id in newIDs where !previousIDs.contains(id) && !id.hasPrefix("~") { freshIDs.insert(id) }
@@ -237,6 +244,10 @@ struct TranscriptView: UIViewRepresentable {
             guard let view = scrollView as? BottomAnchoredTranscriptCollectionView else { return }
             view.maintainsBottomAnchor = isNearBottom(view)
             parent?.send(.setFollowing(view.maintainsBottomAnchor))
+            if !view.maintainsBottomAnchor, let anchor = visibleAnchor(in: view) {
+                restoredAnchor = true
+                parent?.send(.rememberReading(ReadingAnchor(messageID: anchor.id, offset: anchor.offsetFromViewportTop)))
+            }
         }
     }
 }

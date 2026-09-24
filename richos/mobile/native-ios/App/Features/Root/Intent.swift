@@ -27,6 +27,7 @@ enum Intent: Equatable, Sendable {
     case playVoice(id: String)
     // Conversation
     case setFollowing(Bool)
+    case rememberReading(ReadingAnchor)
     case loadOlder
     case hearReply(id: String)
     case stopReply
@@ -102,6 +103,7 @@ enum Intent: Equatable, Sendable {
         case .playVoice(let id): return .playRecording(id: id)
         case .setComposerFocus(let focused): return .setComposerFocus(focused)
         case .setFollowing(let following): return .setFollowing(following)
+        case .rememberReading(let anchor): return .rememberReading(anchor)
         case .loadOlder: return .loadOlder
         case .hearReply(let id): return .hearReply(id: id)
         case .stopReply: return .stopPlayback

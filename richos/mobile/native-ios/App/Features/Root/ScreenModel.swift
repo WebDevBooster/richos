@@ -86,6 +86,7 @@ struct ScreenModel: Equatable, Sendable {
         var cached = false
         /// `false` while the reader has scrolled up to older messages.
         var following = true
+        var readingAnchor: ReadingAnchor?
         /// The reply a notification opened; it glows once.
         var focusedID: String?
         var isEmpty: Bool { rows.isEmpty }
@@ -248,6 +249,7 @@ extension ScreenModel {
         thread.reachedBeginning = s.history.reachedBeginning
         thread.cached = s.history.cached
         thread.following = s.following
+        thread.readingAnchor = s.readingAnchor
         thread.focusedID = s.focusedMessageID
 
         // The nameplate's line: a persistent interruption first, then what voice cannot do now.

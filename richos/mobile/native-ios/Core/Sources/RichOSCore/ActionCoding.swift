@@ -17,6 +17,7 @@ import Foundation
 extension Action: Codable {
     private struct Wire: Codable {
         var type: String
+        var anchor: ReadingAnchor?
         var text: String?
         var link: String?
         var appearance: Appearance?
@@ -64,7 +65,7 @@ extension Action: Codable {
         "scan-pair", "close-scanner", "scanned", "pair", "camera-permission", "pairing-answered", "pairing-refused", "pairing-unreachable",
         "confirm-pair", "accept-consent", "dismiss-pairing-problem", "discard-and-pair", "open-sheet", "close-sheet",
         "send", "delivery-accepted", "delivery-failed", "tick", "retry", "discard", "messages-arrived",
-        "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "set-following", "set-composer-focus",
+        "reply-started", "reply-delta", "reply-finished", "older", "older-loaded", "remember-reading", "set-following", "set-composer-focus",
         "notification-open", "notification-focused", "share-take", "reply-play", "playback-started", "playback-progress",
         "playback-ended", "playback-stop", "dismiss-toast",
         "network", "connection-lost", "connected", "connection-diagnosed", "mac-capabilities", "pairing-revoked", "foregrounded", "backgrounded", "mac-attachment-limits", "push-registered",
@@ -117,6 +118,7 @@ extension Action: Codable {
         case "reply-finished": self = .replyFinished(try need(w.message, "message"))
         case "older": self = .loadOlder
         case "older-loaded": self = .olderLoaded(try need(w.messages, "messages"), reachedBeginning: try need(w.reachedBeginning, "reachedBeginning"))
+        case "remember-reading": self = .rememberReading(try need(w.anchor, "anchor"))
         case "set-following": self = .setFollowing(try need(w.value, "value"))
         case "set-composer-focus": self = .setComposerFocus(try need(w.value, "value"))
         case "notification-open":
@@ -220,6 +222,7 @@ extension Action: Codable {
         case .replyFinished(let m): w = Wire("reply-finished"); w.message = m
         case .loadOlder: w = Wire("older")
         case .olderLoaded(let m, let r): w = Wire("older-loaded"); w.messages = m; w.reachedBeginning = r
+        case .rememberReading(let anchor): w = Wire("remember-reading"); w.anchor = anchor
         case .setFollowing(let v): w = Wire("set-following"); w.value = v
         case .setComposerFocus(let v): w = Wire("set-composer-focus"); w.value = v
         case .openedFromNotification(let id): w = Wire("notification-open"); w.id = id
