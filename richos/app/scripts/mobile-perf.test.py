@@ -1042,8 +1042,10 @@ def _():
         assert not samples and "ended (70) before tracing started" in rejected[0]["why"], rejected
         assert driver.events == ["pid"], driver.events  # never sent to the background
         assert procs[0].returncode == -15  # the waiter it started was stopped
+        before = set(os.listdir(d))
         assert "--trace-seconds" in raises(perfcore.Refused, ios.trace_series, "warm", FakeDriver([717]), 1, d,
                                            None, popen, lambda s: None, seconds=6, away=2.0)
+        assert set(os.listdir(d)) == before  # refused before any evidence directory exists
 
 
 def ios_args(**over):

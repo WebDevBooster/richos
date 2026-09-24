@@ -588,8 +588,6 @@ def _return_capture(driver, trace, prefix, seconds, away, app_args, runner, pope
     failed to find a just-backgrounded process by pid), and once the recording reports that
     tracing started, put Settings in front, wait `away` seconds and bring the app back. The same
     process must be running afterwards."""
-    if seconds < away + 5:
-        raise Refused(f"--trace-seconds {seconds} cannot hold {away} s away plus the return; use at least {away + 5:g}")
     pid = driver.pid()
     if pid is None:
         driver.launch(BUNDLE, *app_args)
@@ -641,6 +639,8 @@ def trace_series(cls, driver, trials, evidence, runner=subprocess.run, popen=sub
     except the re-read of a trace whose exporter died (export_tables)."""
     if not 1 <= trials <= 1000:
         raise Refused("trace trials must be between 1 and 1000")
+    if cls == "warm" and seconds < away + 5:
+        raise Refused(f"--trace-seconds {seconds} cannot hold {away} s away plus the return; use at least {away + 5:g}")
     if not evidence_root_ok(evidence):
         raise Refused("traces require --evidence-dir on mounted /Volumes/E1TB")
     os.makedirs(evidence, exist_ok=True)
