@@ -34,7 +34,17 @@ struct RichOSNativeApp: App {
         WindowGroup {
             Group {
                 if let store {
-                    RootView(state: store.state, send: { store.send($0) })  // ← the composition seam
+                    RootView(state: store.state, send: { store.send($0) })
+                        .safeAreaInset(edge: .top) {
+                            if let problem = store.persistenceProblem {
+                                Text(problem)
+                                    .font(.body)
+                                    .padding()
+                                    .frame(maxWidth: .infinity)
+                                    .background(.regularMaterial)
+                                    .accessibilityIdentifier("storage.problem")
+                            }
+                        }
                 } else {
                     // Loading the saved state takes milliseconds; nothing is announced meanwhile.
                     Color.clear

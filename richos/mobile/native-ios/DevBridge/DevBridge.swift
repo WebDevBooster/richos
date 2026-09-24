@@ -13,15 +13,15 @@ import RichOSCore
 import RichOSFixtures
 
 extension AppStore: CommandHost {
-    func currentState() async throws -> AppState { state }
+    public func currentState() async throws -> AppState { state }
 
-    func dispatch(_ action: Action) async throws -> AppState {
+    public func dispatch(_ action: Action) async throws -> AppState {
         await apply(action).value
         try check()
         return state
     }
 
-    func replace(with newState: AppState) async throws -> AppState {
+    public func replace(with newState: AppState) async throws -> AppState {
         // A fixture is a still frame: close any live connection, then stop effects and ticks.
         await apply(.backgrounded(at: 0)).value
         effectsSuspended = true
@@ -36,7 +36,7 @@ extension AppStore: CommandHost {
         return state
     }
 
-    func restart() async throws -> AppState {
+    public func restart() async throws -> AppState {
         try await reloadFromStorage()
         return state
     }
