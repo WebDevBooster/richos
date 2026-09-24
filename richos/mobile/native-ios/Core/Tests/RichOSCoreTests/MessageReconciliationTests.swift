@@ -15,6 +15,26 @@ import Testing
         #expect(s.messages.first?.delivery == nil)
     }
 
+    @Test func aFastReplyAfterEarlyEchoIsLatestAndImmediatelyCached() async throws {
+        let storage = MemoryStorage()
+        let runner = EffectRunner(storage: storage, clock: FixedClock(ms: 1_000))
+        var s = try Fixture.named("conv-empty").state
+        s.draft = "fast reply"
+        let user = Message(id: "turn1:user", author: .me, text: "fast reply", sentAt: 2, cursor: 1)
+        let reply = Message(id: "turn1:reply", author: .rich, text: "ack: fast reply", sentAt: 3, cursor: 2)
+        // All events land within the existing 250 ms cache coalescing interval, as
+        // on the physical Mac whose reply completed just 16 ms after acceptance.
+        for action: Action in [.sendDraft(clientID: "c1", at: 1), .messagesArrived([user]),
+                                .deliveryAccepted(clientID: "c1", at: 2), .replyFinished(reply)] {
+            s = Reducer.reduce(s, action).state
+            try await runner.run([.persist], state: s)
+        }
+        #expect(s.following)
+        #expect(s.messages.last?.id == reply.id, "following must show the reply, not a duplicate local row below it")
+        let restored = try #require(await runner.load())
+        #expect(restored.messages.last?.id == reply.id, "the final reply must not wait for another action to enter the cache")
+    }
+
     @Test func repeatedWordsRemainSeparateThroughReplayedRowsAndRelaunch() throws {
         var s = try Fixture.named("conv-empty").state
         let old = Message(id: "old:user", author: .me, text: "again", sentAt: 0, cursor: 1)
