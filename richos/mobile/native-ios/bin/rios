@@ -5,9 +5,9 @@
 #   bin/rios headless <command>       the real core, headless (loop L1')
 #   bin/rios sim <command>            the same commands inside the Debug app on a simulator
 #                                     this command created (loop L2)
-#   bin/rios perf (--simulator UDID | --device UDID) --stamp FILE [perf args]
-#                                     launch and background measurement (richos/mobile/perf/perf.py ios;
-#                                     written, first run pending)
+#   bin/rios perf (--simulator UDID | --device UDID | --reparse DIR) --stamp FILE [perf args]
+#                                     cold launch and warm return to the presented, input-ready
+#                                     viewport (richos/mobile/perf/perf.py ios; perf/README.md)
 #   bin/rios --help                   every command
 #
 # Build output never lands in the repository: SwiftPM's scratch directory, DerivedData and the

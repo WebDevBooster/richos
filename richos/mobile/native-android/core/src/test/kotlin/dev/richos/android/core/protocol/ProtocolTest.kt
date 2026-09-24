@@ -105,17 +105,23 @@ class ProtocolTest {
         assertFailsWith<CoreError> { Signing.authorization("dev_x", challenge, ByteArray(70)) }
     }
 
+    /**
+     * v2 only (the corpus replay is `PairV2ConformanceTest`). The expected words were computed
+     * outside this code, with Python's hashlib over the corpus's word list:
+     * SHA-256("RICHCONNECT-PAIR-V2\n" + origin + "\n" + hex + "\n" + point)[0..6] → WORDS.
+     */
     @Test
-    fun `the six words derive from the hex, and the word list is the reference list`() {
+    fun `the six words are v2 - the dialed origin, the Mac's value and this key - and the word list is the reference list`() {
         val hex = "31:BD:24:BC:73:12:61:6B:6D:65:05:56:92:92:76:0D:F1:E8:6A:6B:26:DA:1A:85:2B:33:20:33:38:CB:4F:7B"
-        assertEquals("cobra morning cargo moose grape bonus", Fingerprint.phrase(hex))
+        val origin = "https://mm1.tail1a2b3c.ts.net:8443"
+        assertEquals(listOf("castle", "kitten", "jasmine", "otter", "hornet", "koala"), Fingerprint.wordsV2(origin, hex, Fingerprint.pointB64url(point)))
         assertEquals(256, Fingerprint.WORDS.size)
-        assertEquals(
-            "42be3dbc35f8bfe999e7cfb0839b72744cc1d2c93733e453c45d0e273128196e",
-            Signing.hex(Signing.sha256(Fingerprint.WORDS.joinToString("\n").toByteArray())),
-        )
-        assertEquals(Fingerprint.phrase(hex), Fingerprint.phrase("sha256: " + hex.replace(":", "").lowercase()))
-        for (bad in listOf("zz", "31BD24", "31BD24BC73126")) assertFailsWith<CoreError>(bad) { Fingerprint.phrase(bad) }
+        assertEquals(Fingerprint.WORDLIST_SHA256, Signing.hex(Signing.sha256(Fingerprint.WORDS.joinToString("\n").toByteArray())))
+        // The Mac's value is hashed byte for byte: another spelling of the same hash is another input.
+        assertTrue(Fingerprint.wordsV2(origin, hex, Fingerprint.pointB64url(point)) != Fingerprint.wordsV2(origin, hex.lowercase(), Fingerprint.pointB64url(point)))
+        for (bad in listOf("http://mac.example", "mac.example", "https://")) assertFailsWith<CoreError>(bad) { Fingerprint.wordsV2(bad, hex, Fingerprint.pointB64url(point)) }
+        assertFailsWith<CoreError> { Fingerprint.wordsV2(origin, "", Fingerprint.pointB64url(point)) }
+        assertFailsWith<CoreError> { Fingerprint.pointB64url(point.copyOfRange(1, 65)) }
     }
 
     @Test

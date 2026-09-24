@@ -25,6 +25,7 @@ internal val USAGE = """Headless RichOS Android core (JSON output; nonzero exit 
   randroid headless action '{"type":"compose","text":"Hello"}'
   randroid headless transport accept|unreachable|lose-ack|revoked
   randroid headless advance 1000
+  randroid headless mac ${DevRequest.MAC_EVENTS.joinToString("|")}   (the person, at the scripted Mac)
   randroid headless scenario ${DevRuntime.SCENARIOS.joinToString("|")}
 The grammar and the result shape are the preserved phone CLI's (richos/mobile/cli/mobile.mjs).
 State persists between calls in the session file named by RANDROID_SESSION."""

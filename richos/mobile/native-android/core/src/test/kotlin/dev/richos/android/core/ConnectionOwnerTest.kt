@@ -96,7 +96,8 @@ class ConnectionOwnerTest {
         val newOrigin = "https://second.tail1a2b3c.ts.net"
         val mac = Mac { request ->
             val body = if (request.body?.toString(Charsets.UTF_8)?.contains("public_key_jwk") == true) {
-                """{"device_id":"new-phone","ca_fingerprint_sha256":"${Fixtures.CA_FINGERPRINT}","challenge":"new-c","api_base":"$newOrigin","thread_id":"general"}"""
+                // A pairing-v2 Mac whose own press already happened: "They match" pairs at once.
+                """{"device_id":"new-phone","ca_fingerprint_sha256":"${Fixtures.CA_FINGERPRINT}","challenge":"new-c","api_base":"$newOrigin","thread_id":"general","capabilities":["text","pair-v2"],"pairing_version":2}"""
             } else "{}"
             HttpResponse(200, mapOf("x-richos-challenge" to "new-c"), body.toByteArray())
         }

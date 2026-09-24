@@ -33,6 +33,13 @@ enum class PairingPhase {
     /** The Mac answered; the six words wait for the user's "They match" (round-12 `pair-words`). */
     @SerialName("confirming") CONFIRMING,
 
+    /**
+     * "They match" on the phone is sent; the Mac still waits for the person to press "They match"
+     * ON THE MAC (pairing v2, Sage F1). The phone asks on [dev.richos.android.core.protocol.MacWait]'s
+     * schedule, only while on screen, until the Mac answers, refuses, or the bound passes.
+     */
+    @SerialName("awaiting-mac") AWAITING_MAC,
+
     /** Confirmed. Messages may be sent. */
     @SerialName("paired") PAIRED,
 }
@@ -48,8 +55,15 @@ enum class Route {
  * The pairing, and what must survive a restart for it (contract §2.2 "What the phone must
  * persist"). [problem] names the last pairing outcome that was not a success, as a stable code a
  * screen chooses its words from: `refused` (a wrong or expired code, or the Mac already has a
- * phone), `rate-limited`, `unreachable`, `fault`, `revoked`.
+ * phone), `rate-limited`, `unreachable`, `fault`, `revoked`; and pairing v2's three:
+ * `mac-needs-update` (the Mac does not offer `pair-v2`), `mac-declined` (the Mac refused this
+ * phone while it waited for the press on the Mac: "They do not match" there, or its window closed)
+ * and `expired` (the press on the Mac did not come within the bound).
+ *
+ * The wait for the press on the Mac is persisted so a restart neither resets its request count
+ * nor outlives its bound: [awaitingUntil] (epoch ms), [macAsks] (requests made) and [nextAskAt].
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class Pairing(
     val phase: PairingPhase = PairingPhase.UNPAIRED,
@@ -60,6 +74,11 @@ data class Pairing(
     val words: List<String> = emptyList(),
     val challenge: String? = null,
     val problem: String? = null,
+    /** While confirming: how long the Mac will wait for its own press, from its answer. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val macWaitBoundMs: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val awaitingUntil: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val macAsks: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val nextAskAt: Long? = null,
 )
 
 /** What the user owns on this phone and what survives a restart: `app.js`'s `model`, plus `theme` and `pairing`. */
@@ -232,6 +251,12 @@ data class AppState(
     /** The selected conversation's rows that echo this phone's messages ([Session.echoes]). */
     @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
     val echoes: List<Echo> = emptyList(),
+    /**
+     * When the wait for the press on the Mac next needs the app's timer (`mac-wait`): the next ask,
+     * or the bound. Null unless waiting AND on screen, so a hidden app holds no timer for it.
+     */
+    @OptIn(ExperimentalSerializationApi::class) @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val macWaitDueInMs: Long? = null,
 ) {
     /**
      * What the gold circle in the composer shows: the microphone becomes the send arrow

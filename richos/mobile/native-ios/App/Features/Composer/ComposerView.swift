@@ -182,6 +182,8 @@ struct ComposerView: View {
                 .accessibilityLabel(hasPending ? "Add a message" : "Message")
                 .accessibilityIdentifier("composer.field")
                 .padding(.vertical, 12)
+                // PRD §7's launch boundary: the editable field exists (a disabled composer shows none).
+                .onAppear { ReadinessMarks.composerReady() }
         }
     }
 

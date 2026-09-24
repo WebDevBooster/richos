@@ -59,7 +59,16 @@ sealed interface DevRequest {
     data class Advance(val ms: Long) : DevRequest
     data class Dispatch(val action: Action) : DevRequest
 
+    /**
+     * Something the person does ON THE SCRIPTED MAC (pairing v2): `press` (They match on the Mac),
+     * `reject` (They do not match on the Mac, or its window closing), `v1` / `v2` (a Mac too old
+     * for pairing v2, or a current one, for the next pairing).
+     */
+    data class Mac(val event: String) : DevRequest
+
     companion object {
+        val MAC_EVENTS = listOf("press", "reject", "v1", "v2")
+
         fun parse(command: String?, arg: String?): DevRequest = when (command) {
             "state" -> State
             "reset" -> Reset
@@ -69,6 +78,7 @@ sealed interface DevRequest {
             "transport" -> SetTransport(TransportMode.parse(arg))
             "advance" -> Advance(arg?.toLongOrNull()?.takeIf { it >= 0 } ?: throw CoreError("ms must be a nonnegative integer"))
             "action" -> Dispatch(parseAction(arg ?: throw CoreError("action needs a JSON object")))
+            "mac" -> Mac(arg?.takeIf { it in MAC_EVENTS } ?: throw CoreError("mac takes ${MAC_EVENTS.joinToString("|")}"))
             null -> throw CoreError("A command is required. Use --help.")
             else -> throw CoreError("Unknown command: $command. Use --help.")
         }
@@ -86,6 +96,7 @@ fun DevRequest.toJson(): JsonObject = buildJsonObject {
         is DevRequest.SetTransport -> { put("command", "transport"); put("mode", r.mode.serialName) }
         is DevRequest.Advance -> { put("command", "advance"); put("ms", r.ms) }
         is DevRequest.Dispatch -> { put("command", "action"); put("action", CoreJson.encodeToJsonElement(Action.serializer(), r.action)) }
+        is DevRequest.Mac -> { put("command", "mac"); put("event", r.event) }
     }
 }
 
@@ -242,12 +253,20 @@ class DevRuntime private constructor(
             DevRequest.Reset -> { doc = Fixtures.fixture(); persist(); open() }
             DevRequest.Restart -> open()
             is DevRequest.SetTransport -> doc = doc.copy(mode = request.mode)
+            is DevRequest.Mac -> doc = doc.copy(mac = when (request.event) {
+                "press" -> doc.mac.copy(macPressed = true)
+                "reject" -> doc.mac.copy(devicePoint = null, confirmed = false, macPressed = false, forgot = true)
+                "v1" -> doc.mac.copy(pairV2 = false)
+                else -> doc.mac.copy(pairV2 = true)
+            })
             // Moves the scripted clock, then `sync`, as `runtime.js` does, so a retry schedule is
-            // tested without sleeping.
+            // tested without sleeping; and `mac-wait`, the app timer's other errand, which the core
+            // answers only when an ask (or the bound) is due.
             is DevRequest.Advance -> {
                 doc = doc.copy(now = doc.now + request.ms)
                 core.dispatch(Action.Sync)
                 core.dispatch(Action.Tick)
+                core.dispatch(Action.MacWait)
             }
             is DevRequest.Scenario -> throw CoreError("scenario runs through execute()")
         }
@@ -449,19 +468,65 @@ class DevRuntime private constructor(
                 s = step(DevRequest.Dispatch(Action.Link(LinkStatus.OPEN)))
                 check(s.connection.notice == null && s.connection.reason == ConnectionReason.CONNECTED, "reconnecting clears every notice")
             }
-            // Pairing (contract §2): the link goes out, the six words come back computed on the
-            // phone from the Mac's hash, "They match" makes the pairing, and the key survives.
+            // Pairing v2 (contract §2; Sage's review F1, F2): the link goes out, the six words come
+            // back computed on the phone over the origin it dialed, the Mac's value and its own key;
+            // "They match" on the phone waits for "They match" on the Mac, asking on the schedule
+            // (2 s, then 3 s, ...), and the press on the Mac makes the pairing, which survives.
             "pair-and-confirm" -> {
                 step(DevRequest.Fixture("unpaired"))
                 var s = step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
                 check(s.pairing.phase == PairingPhase.CONFIRMING, "a good code must reach the six words")
-                check(s.pairing.words.joinToString(" ") == "cobra morning cargo moose grape bonus", "the words must come from the Mac's hash")
+                check(s.pairing.words.joinToString(" ") == "castle kitten jasmine otter hornet koala", "the words must be the v2 words over the dialed origin, the Mac's value and this key")
                 check(s.threads.isNotEmpty() && s.selectedThreadId == s.threads.first().id, "the Mac's conversations arrive with the answer")
                 s = step(DevRequest.Dispatch(Action.ConfirmWords(true)))
-                check(s.pairing.phase == PairingPhase.PAIRED && s.paired, "They match must pair")
-                check(doc.mac.confirmed, "the Mac must have recorded the confirmation")
+                check(s.pairing.phase == PairingPhase.AWAITING_MAC && !s.paired && doc.mac.confirmed, "They match on the phone reaches the Mac, which waits for its own press")
+                check(s.macWaitDueInMs == 2_000L && doc.mac.eventReads == 0, "the first ask is 2 s away, and nothing was asked yet")
+                s = step(DevRequest.Advance(1_999))
+                check(doc.mac.eventReads == 0 && s.macWaitDueInMs == 1L, "nothing is asked before the schedule")
+                s = step(DevRequest.Advance(1))
+                check(doc.mac.eventReads == 1 && s.pairing.phase == PairingPhase.AWAITING_MAC && s.macWaitDueInMs == 3_000L, "the Mac still waits: ask again in 3 s")
+                step(DevRequest.Mac("press"))
+                s = step(DevRequest.Advance(3_000))
+                check(doc.mac.eventReads == 2 && s.pairing.phase == PairingPhase.PAIRED && s.paired && s.macWaitDueInMs == null, "the press on the Mac makes the pairing")
                 s = step(DevRequest.Restart)
                 check(s.pairing.phase == PairingPhase.PAIRED && s.pairing.deviceId == DevKeys.DEVICE_ID, "a pairing survives a restart")
+            }
+            // A Mac too old for pairing v2 is refused, never fallen back to: it is told to forget
+            // the key it registered, the key goes here, and the person is told to update the Mac.
+            "pair-v1-mac-refused" -> {
+                step(DevRequest.Fixture("unpaired"))
+                step(DevRequest.Mac("v1"))
+                val s = step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
+                check(s.pairing.phase == PairingPhase.UNPAIRED && s.pairing.problem == RichCore.PROBLEM_MAC_NEEDS_UPDATE && s.pairing.words.isEmpty(), "a Mac without pair-v2 is refused, and no words are shown")
+                check(doc.mac.devicePoint == null && Fixtures.ORIGIN !in doc.keys, "the Mac forgot the key it registered, and so did the phone")
+            }
+            // The press on the Mac never comes: at most 22 asks, then the bound ends it, and the
+            // phone forgets the key the Mac has already forgotten.
+            "pair-wait-expires" -> {
+                step(DevRequest.Fixture("unpaired"))
+                step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
+                var s = step(DevRequest.Dispatch(Action.ConfirmWords(true)))
+                var waited = 0L
+                while (s.pairing.phase == PairingPhase.AWAITING_MAC && waited <= 400_000L) {
+                    val due = s.macWaitDueInMs ?: break
+                    s = step(DevRequest.Advance(due))
+                    waited += due
+                }
+                check(doc.mac.eventReads == 22, "at most 22 asks in the window (got ${doc.mac.eventReads})")
+                check(waited == 300_000L, "the wait ends at the Mac's bound (after $waited ms)")
+                check(s.pairing.phase == PairingPhase.UNPAIRED && s.pairing.problem == RichCore.PROBLEM_EXPIRED && Fixtures.ORIGIN !in doc.keys, "expired: nothing paired, the key forgotten")
+            }
+            // "They do not match" pressed on the Mac while the phone waits: the next ask is refused,
+            // which is final, and the phone says the Mac did not accept it (never "removed").
+            "pair-mac-declined" -> {
+                step(DevRequest.Fixture("unpaired"))
+                step(DevRequest.Dispatch(Action.Pair(Fixtures.PAIR_LINK)))
+                step(DevRequest.Dispatch(Action.ConfirmWords(true)))
+                step(DevRequest.Mac("reject"))
+                var s = step(DevRequest.Advance(2_000))
+                check(s.pairing.phase == PairingPhase.UNPAIRED && s.pairing.problem == RichCore.PROBLEM_MAC_DECLINED && Fixtures.ORIGIN !in doc.keys, "a refusal while waiting is final")
+                s = step(DevRequest.Advance(60_000))
+                check(s.macWaitDueInMs == null, "nothing is asked after a refusal")
             }
             // A wrong code is refused with an empty 404, nothing is paired, and the window stays
             // open, so the right code still works (contract §2.3).
@@ -486,7 +551,9 @@ class DevRuntime private constructor(
 
     companion object {
         val SCENARIOS: List<String> =
-            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused", "stream-turn", "reconnect-notice", "voice-hold-send", "voice-lock-interrupt", "settings-forget", "update-policy", "load-older")
+            listOf("offline-reconnect", "revoked", "interrupted", "draft-survives-restart", "pair-and-confirm", "pair-refused",
+                "pair-v1-mac-refused", "pair-wait-expires", "pair-mac-declined", "stream-turn", "reconnect-notice", "voice-hold-send",
+                "voice-lock-interrupt", "settings-forget", "update-policy", "load-older")
 
         suspend fun create(
             initial: DevDoc? = null,

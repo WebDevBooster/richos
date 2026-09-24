@@ -2,6 +2,8 @@ package dev.richos.android.core
 
 import dev.richos.android.core.protocol.Fingerprint
 import dev.richos.android.core.protocol.MacApi
+import dev.richos.android.core.protocol.MacNeedsPairV2
+import dev.richos.android.core.protocol.MacWait
 import dev.richos.android.core.protocol.NativePush
 import dev.richos.android.core.protocol.Delta
 import dev.richos.android.core.protocol.Hello
@@ -90,6 +92,7 @@ class RichCore private constructor(
         }
         is Action.Pair -> pair(action.link)
         is Action.ConfirmWords -> confirmWords(action.match)
+        Action.MacWait -> macWait()
         Action.Forget -> forget()
         Action.Send -> send()
         Action.Sync -> if (session.paired) flush() else mutex.withLock { emit() }
@@ -239,6 +242,10 @@ class RichCore private constructor(
         visible = false
         outbox.backgrounded()
         historyJob?.cancel()
+        // The wait for the press on the Mac asks only while on screen: an ask in flight is
+        // abandoned (it was already counted), and the state published below holds no due time,
+        // so the app's timer holds nothing for it either (CEO ruling §81).
+        macWaitJob?.cancel()
         ports.recorder.stopPlayback()
         return mutex.withLock {
         playingRecordingId = null
@@ -705,13 +712,27 @@ class RichCore private constructor(
             previous?.let { ports.keys.delete(it) }
             ++generation
         }
-        val outcome = runCatching { api.pair(link, ports.deviceName) }
+        // THE ORIGIN THIS PHONE DIALED and this phone's own key: the v2 words are over both, so a
+        // relay, or a device that redeemed the code first, shows a different line (Sage F2).
+        val outcome = runCatching {
+            val point = ports.keys.publicPoint(link.origin)
+            val answer = api.pair(link, ports.deviceName, point)
+            answer to Fingerprint.wordsV2(link.origin, answer.caFingerprint, Fingerprint.pointB64url(point))
+        }
+        // A MAC WITHOUT `pair-v2` IS REFUSED, NEVER FALLEN BACK TO (review §3.5). It has just
+        // registered this key, so it is told to forget it with the one signed request this phone
+        // can still make, and then the key goes here too (`app.js` `startPairing`). The phase is
+        // still `exchanging`, so no other pairing can start meanwhile.
+        val tooOld = outcome.exceptionOrNull() as? MacNeedsPairV2
+        if (tooOld != null) {
+            runCatching { api.confirm(link.origin, tooOld.answer.deviceId, tooOld.answer.challenge, false) }
+            if (mutex.withLock { generation == mine }) ports.keys.delete(link.origin)
+        }
         return mutex.withLock {
             if (generation != mine || session.pairing.phase != PairingPhase.EXCHANGING) return@withLock flow.value
-            val answer = outcome.getOrNull()
-            val words = answer?.let { runCatching { Fingerprint.words(it.caFingerprint) }.getOrNull() }
+            val (answer, words) = outcome.getOrNull() ?: (null to null)
             if (answer == null || words == null) {
-                val problem = (outcome.exceptionOrNull() as? TransportFailure)?.reason ?: "fault"
+                val problem = if (tooOld != null) PROBLEM_MAC_NEEDS_UPDATE else (outcome.exceptionOrNull() as? TransportFailure)?.reason ?: "fault"
                 commit(session.copy(pairing = Pairing(apiBase = link.origin, route = routeOf(link.origin), problem = problem)))
             } else {
                 commit(
@@ -730,6 +751,7 @@ class RichCore private constructor(
                             caFingerprint = answer.caFingerprint,
                             words = words,
                             challenge = answer.challenge,
+                            macWaitBoundMs = MacWait.boundMs(answer.confirmWithinSeconds),
                         ),
                     ),
                 )
@@ -737,43 +759,155 @@ class RichCore private constructor(
         }
     }
 
+    /**
+     * The person's answer to the six words on the PHONE. "They match" tells the Mac, and then,
+     * unless the Mac says its own press already happened, waits for the person to press
+     * "They match" ON THE MAC (Sage F1): the Mac answers everything "waiting" until then. "They
+     * do not match" works while confirming and while waiting: the Mac is told first, while the key
+     * that signs the message still exists, then the key goes (contract §2.5).
+     */
     private suspend fun confirmWords(match: Boolean): AppState {
-        val (pending, mine) = mutex.withLock {
+        val (pending, mine, fcm) = mutex.withLock {
             val p = session.pairing
-            if (p.phase != PairingPhase.CONFIRMING || p.apiBase == null || p.deviceId == null || p.challenge == null) {
+            val answerable = p.phase == PairingPhase.CONFIRMING || (!match && p.phase == PairingPhase.AWAITING_MAC)
+            if (!answerable || p.apiBase == null || p.deviceId == null || p.challenge == null) {
                 throw CoreError("There is no pairing waiting for its six words")
             }
             if (!match) {
                 // "They do not match": the pairing is gone from the phone on the same press
                 // (contract §2.5). The Mac is told, best effort, and then the key is discarded.
+                macWaitJob?.cancel()
                 commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null, pairing = Pairing()))
             }
-            p to ++generation
+            Triple(p, ++generation, FCM in session.capabilities)
         }
         val apiBase = pending.apiBase!!
-        val outcome = runCatching { api.confirm(apiBase, pending.deviceId!!, pending.challenge!!, match) }
+        val outcome = runCatching { api.confirm(apiBase, pending.deviceId!!, pending.challenge!!, match, fcm) }
         if (!match) {
             ports.keys.delete(apiBase)
             return flow.value
         }
-        return mutex.withLock {
+        var forget = false
+        val state = mutex.withLock {
             if (generation != mine || session.pairing.phase != PairingPhase.CONFIRMING) return@withLock flow.value
-            val signed = outcome.getOrNull()
+            val answer = outcome.getOrNull()
             val failure = outcome.exceptionOrNull() as? TransportFailure
             when {
-                signed != null -> commit(
-                    session.copy(paired = true, pairing = pending.copy(phase = PairingPhase.PAIRED, challenge = signed.challenge, problem = null)),
+                // The Mac's own press had already happened: paired.
+                answer != null && !answer.awaitingMac -> commit(
+                    session.copy(paired = true, pairing = pending.copy(phase = PairingPhase.PAIRED, challenge = answer.challenge, problem = null, macWaitBoundMs = null)),
                 )
                 // A final answer: the Mac does not know this phone any more. Start again.
                 failure != null && !failure.retryable -> {
-                    commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null, pairing = Pairing(problem = failure.reason)))
-                    ports.keys.delete(apiBase)
-                    flow.value
+                    ++generation
+                    forget = true
+                    commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null,
+                        pairing = Pairing(apiBase = apiBase, route = pending.route, problem = PROBLEM_MAC_DECLINED)))
                 }
-                // Unreachable or a fault: the words stay on screen and the press can be repeated.
-                else -> commit(session.copy(pairing = pending.copy(problem = failure?.reason ?: "fault")))
+                // The Mac waits for its own press, or this answer did not arrive (unreachable, a
+                // fault): wait either way, because the wait asks the Mac itself (`app.js`).
+                else -> {
+                    val now = ports.clock.now()
+                    commit(session.copy(pairing = pending.copy(
+                        phase = PairingPhase.AWAITING_MAC,
+                        challenge = answer?.challenge ?: failure?.challenge ?: pending.challenge,
+                        problem = null,
+                        awaitingUntil = now + (pending.macWaitBoundMs ?: MacWait.WINDOW_MS),
+                        macAsks = 0,
+                        nextAskAt = now + MacWait.delayMs(0),
+                    )))
+                }
             }
         }
+        if (forget) ports.keys.delete(apiBase)
+        return state
+    }
+
+    // --- waiting for the press on the Mac (pairing v2; Sage's review F1, §3.1 step 5) ------------
+
+    /** The ask in flight, if any: one at a time, and abandoned when the app leaves the screen. */
+    @Volatile private var macWaitJob: Job? = null
+
+    /**
+     * One step of the wait, when the app's timer says one is due (`mac-wait`): the bound has
+     * passed (forget, `expired`), or an ask is due and the app is on screen (one signed read,
+     * `MacApi.macConfirmed`). Every rule of the schedule lives here, so a timer that fires early,
+     * late or twice cannot ask more often than [MacWait] allows: nothing hidden, nothing before
+     * `nextAskAt`, nothing past the bound, never more than [MacWait.MAX_REQUESTS]. The count is
+     * written before the request goes, so a restart cannot reset it.
+     */
+    private suspend fun macWait(): AppState = coroutineScope {
+        val operation = currentCoroutineContext()[Job]!!
+        var expired: String? = null
+        val ask = mutex.withLock {
+            val p = session.pairing
+            if (p.phase != PairingPhase.AWAITING_MAC || macWaitJob != null) return@withLock null
+            val now = ports.clock.now()
+            if (now >= (p.awaitingUntil ?: 0L) || p.apiBase == null || p.deviceId == null || p.challenge == null) {
+                // Past the bound the Mac has already forgotten this key; the phone forgets it too.
+                ++generation
+                expired = p.apiBase
+                commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null,
+                    pairing = Pairing(apiBase = p.apiBase, route = p.route, problem = PROBLEM_EXPIRED)))
+                return@withLock null
+            }
+            if (!visible || p.macAsks >= MacWait.MAX_REQUESTS || now < (p.nextAskAt ?: 0L)) {
+                emit()
+                return@withLock null
+            }
+            val next = p.copy(macAsks = p.macAsks + 1, nextAskAt = now + MacWait.delayMs(p.macAsks + 1))
+            commit(session.copy(pairing = next))
+            macWaitJob = operation
+            Triple(next, generation, session.selectedThreadId)
+        }
+        expired?.let { origin -> if (mutex.withLock { session.pairing.phase == PairingPhase.UNPAIRED }) ports.keys.delete(origin) }
+        if (ask == null) return@coroutineScope flow.value
+        val (p, mine, thread) = ask
+        var forget: String? = null
+        try {
+            val result = withTimeoutOrNull(MAC_WAIT_REQUEST_MS) {
+                runCatching { api.macConfirmed(p.apiBase!!, p.deviceId!!, p.challenge!!, thread) }
+            }
+            // Abandoned because the app left the screen: nothing from it is applied.
+            currentCoroutineContext().ensureActive()
+            mutex.withLock {
+                val now = session.pairing
+                if (generation != mine || now.phase != PairingPhase.AWAITING_MAC || now.deviceId != p.deviceId) return@withLock
+                val answered = result?.getOrNull()
+                val failure = result?.exceptionOrNull() as? TransportFailure
+                when {
+                    answered?.first == true -> commit(session.copy(paired = true, pairing = now.copy(
+                        phase = PairingPhase.PAIRED, challenge = answered.second, problem = null,
+                        macWaitBoundMs = null, awaitingUntil = null, macAsks = 0, nextAskAt = null,
+                    )))
+                    answered != null -> if (answered.second != now.challenge) commit(session.copy(pairing = now.copy(challenge = answered.second))) else emit()
+                    // A refusal is the Mac's final answer: "They do not match" was pressed there,
+                    // or its window closed. Never "removed from your Mac": that is not what happened.
+                    failure != null && !failure.retryable -> {
+                        ++generation
+                        forget = p.apiBase
+                        commit(session.copy(paired = false, threads = emptyList(), selectedThreadId = null,
+                            pairing = Pairing(apiBase = p.apiBase, route = p.route, problem = PROBLEM_MAC_DECLINED)))
+                    }
+                    // Unreachable, a fault, no answer in time: wait on the same schedule.
+                    else -> failure?.challenge?.takeIf { it != now.challenge }?.let { commit(session.copy(pairing = now.copy(challenge = it))) } ?: emit()
+                }
+            }
+        } finally {
+            withContext(NonCancellable) { mutex.withLock { if (macWaitJob === operation) macWaitJob = null } }
+        }
+        forget?.let { ports.keys.delete(it) }
+        flow.value
+    }
+
+    /** When the app's timer is next needed by the wait, or null (not waiting, or not on screen). */
+    private fun macWaitDue(): Long? {
+        val p = session.pairing
+        if (!visible || p.phase != PairingPhase.AWAITING_MAC) return null
+        val now = ports.clock.now()
+        val until = p.awaitingUntil ?: return 0L
+        val ask = if (p.macAsks < MacWait.MAX_REQUESTS) p.nextAskAt ?: now else until
+        return maxOf(0L, minOf(ask, until) - now)
     }
 
     private suspend fun forget(): AppState = mutex.withLock {
@@ -1023,6 +1157,7 @@ class RichCore private constructor(
             focusMessageId = focusMessageId,
             update = session.update,
             voicePaused = session.voicePaused,
+            macWaitDueInMs = macWaitDue(),
         )
 
     // --- the connection (connection.js + client.js onState) --------------------------------------
@@ -1055,6 +1190,14 @@ class RichCore private constructor(
 
         const val UNSENT_BEFORE_FORGET = "A message is still waiting to be sent. Send it or discard it, then forget this pairing."
 
+        /** Pairing v2's problem codes ([Pairing.problem]). */
+        const val PROBLEM_MAC_NEEDS_UPDATE = "mac-needs-update"
+        const val PROBLEM_MAC_DECLINED = "mac-declined"
+        const val PROBLEM_EXPIRED = "expired"
+
+        /** One ask of the wait gets this long; no answer in time is waited through like a fault. */
+        const val MAC_WAIT_REQUEST_MS = 10_000L
+
         suspend fun open(ports: Ports): RichCore {
             val outbox = Outbox(ports.storage, ports.clock)
             outbox.load()
@@ -1065,6 +1208,19 @@ class RichCore private constructor(
                     val recovered = if (known) null else ports.recorder.recover(interrupted)
                     core.commit(core.session.copy(activeRecording = null,
                         keptRecordings = core.session.keptRecordings + listOfNotNull(recovered)))
+                }
+                // A pairing the last process left part-way. An exchange's answer died with that
+                // process, and six words from a build before pairing v2 are the old words, which a v2
+                // phone never shows: both say pairing did not finish, and a fresh code starts again.
+                // A wait for the press on the Mac carries on inside its bound (the timer is armed by
+                // the state published here) and ends as expired past it.
+                val p = core.session.pairing
+                val unfinished = p.phase == PairingPhase.EXCHANGING || (p.phase == PairingPhase.CONFIRMING && p.macWaitBoundMs == null)
+                if (unfinished) {
+                    core.commit(core.session.copy(paired = false, pairing = Pairing(apiBase = p.apiBase, route = p.route, problem = "fault")))
+                    if (p.phase == PairingPhase.CONFIRMING) p.apiBase?.let { ports.keys.delete(it) }
+                } else {
+                    core.emit()
                 }
             }
         }

@@ -55,6 +55,14 @@ sealed interface Action {
     @Serializable @SerialName("confirm-words")
     data class ConfirmWords(val match: Boolean) : Action
 
+    /**
+     * Pairing v2: ask the Mac whether the person has pressed "They match" on it, if an ask is due
+     * (the app's one timer sends this at [AppState.macWaitDueInMs]). The core decides: nothing is
+     * asked while the app is hidden, before the schedule, past the bound or past 22 requests.
+     */
+    @Serializable @SerialName("mac-wait")
+    data object MacWait : Action
+
     /** Forget this pairing on the phone. Refused while unsent work is waiting. */
     @Serializable @SerialName("forget")
     data object Forget : Action

@@ -88,13 +88,21 @@ data class Receipt(
  * Why a send did not reach the Mac. [retryable] separates "try again later" (unreachable)
  * from a final answer that needs the user (revoked).
  */
-class TransportFailure(
+open class TransportFailure(
     val reason: String,
     val retryable: Boolean,
     /** A final answer about THIS message only (409/422/503 with `retry:false`): the queue moves on. */
     val aboutThisMessage: Boolean = false,
     /** An attachment commit's 422 `{"missing":[ids]}`: the uploads the Mac does not hold. */
     val missing: List<String> = emptyList(),
+    /**
+     * The Mac is waiting for the person to press "They match" ON THE MAC (pairing v2, Sage F1):
+     * a 409 `{"awaiting_mac_confirmation":true}`. A fault, retryable and never final, but named,
+     * so the pairing screen can say which press is missing.
+     */
+    val awaitingMac: Boolean = false,
+    /** The fresh challenge the refusal carried (`X-RichOS-Challenge`), when it carried one. */
+    val challenge: String? = null,
 ) : Exception(reason)
 
 fun interface PerformanceEvents {
