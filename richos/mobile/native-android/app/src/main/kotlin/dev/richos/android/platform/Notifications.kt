@@ -30,6 +30,7 @@ import dev.richos.android.BuildConfig
 import dev.richos.android.app.AppStore
 import dev.richos.android.app.RichApplication
 import dev.richos.android.core.Action
+import dev.richos.android.core.AppState
 import dev.richos.android.core.AppLinks
 import dev.richos.android.core.NotificationStatus
 import dev.richos.android.core.Platform
@@ -38,6 +39,9 @@ import dev.richos.android.core.protocol.Signing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -206,27 +210,41 @@ class FcmPlatform(
         // routine token fetch or a retry of earlier maintenance. Recheck after waiting for the
         // lane so queued foreground callbacks cannot start that work after the app is hidden.
         // Actual onNewToken events still use TokenRefresh's separate hand-over path.
-        if (isVisible()) reconcileNow(status, previews)
+        if (isVisible()) reconcileNow(status, previews, isVisible)
+    }
+
+    /** A restored foreground connection can finish a failed setup, without a retry timer. */
+    suspend fun reconcileOnConnection(states: Flow<AppState>, isVisible: () -> Boolean) {
+        states.distinctUntilChangedBy { it.online }.collect { state ->
+            if (state.online && state.notifications.status == NotificationStatus.SERVICE_UNAVAILABLE) {
+                reconcile(state.notifications.status, state.notifications.previews, isVisible)
+            }
+        }
     }
 
     /** Launch and each return to the foreground both reconcile; one at a time, so a change registers once. */
     private val reconciling = Mutex()
 
-    private suspend fun reconcileNow(status: NotificationStatus, previews: Boolean) {
+    private suspend fun reconcileNow(status: NotificationStatus, previews: Boolean, isVisible: () -> Boolean) {
         // A Forget made offline finishes now: one attempt per launch or return, never a timer.
         if (pendingForget.isFile) forgetInstallation()
+        if (!isVisible()) return
         // The way back: allowed again in Android Settings after a denial, the phone registers
         // again (no prompt: the OS already said yes) instead of staying "off" for good.
-        if (status == NotificationStatus.DENIED && granted()) return requestNotifications(previews)
-        if (status != NotificationStatus.ON) return
+        if (status !in setOf(NotificationStatus.ON, NotificationStatus.DENIED, NotificationStatus.SERVICE_UNAVAILABLE)) return
         if (!granted()) {
-            dispatch(Action.NotificationsResult(NotificationStatus.DENIED))
+            if (status != NotificationStatus.DENIED) dispatch(Action.NotificationsResult(NotificationStatus.DENIED))
             return
         }
         if (!firebaseReady()) return
-        val token = firebaseLane.withLock { runCatching { fetchToken() }.getOrNull() }
-        if (token.isNullOrBlank() || ledger.matches(token)) return
-        val key = if (previews) withContext(Dispatchers.IO) { runCatching { previewKeys.existing() }.getOrNull() } else null
+        val token = firebaseLane.withLock {
+            if (isVisible()) runCatching { fetchToken() }.getOrNull() else null
+        }
+        if (!isVisible() || token.isNullOrBlank() || (status == NotificationStatus.ON && ledger.matches(token))) return
+        val key = if (previews) withContext(Dispatchers.IO) {
+            runCatching { if (status == NotificationStatus.DENIED) previewKeys.key() else previewKeys.existing() }.getOrNull()
+        } else withContext(Dispatchers.IO) { previewKeys.discard(); null }
+        if (!isVisible()) return
         ledger.record(token)
         dispatch(Action.PushToken(token, key?.let(Signing::base64url)))
     }

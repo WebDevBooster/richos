@@ -15,6 +15,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Assert.assertEquals
@@ -100,8 +105,10 @@ class NotificationsTest {
         val release = CompletableDeferred<Unit>()
         var fetched = 0
         var visible = true
-        val platform = FcmPlatform(app, keys(), { }, { null }, firebaseReady = { true },
-            fetchToken = { fetched++; release.await(); "token" }, ledger = ledger())
+        val seen = mutableListOf<Action>()
+        val book = ledger()
+        val platform = FcmPlatform(app, keys(), { seen += it }, { null }, firebaseReady = { true },
+            fetchToken = { fetched++; release.await(); "token" }, ledger = book)
         val first = launch(start = CoroutineStart.UNDISPATCHED) {
             platform.reconcile(NotificationStatus.ON, previews = false) { visible }
         }
@@ -112,6 +119,56 @@ class NotificationsTest {
         release.complete(Unit)
         first.join(); queued.join()
         assertEquals(1, fetched)
+        assertTrue("a late token fetch must not start routine registration while hidden", seen.isEmpty())
+        assertFalse("the deferred token must still be handed over on return", book.matches("token"))
+        visible = true
+        platform.reconcile(NotificationStatus.ON, previews = false) { visible }
+        assertEquals(1, seen.size)
+    }
+
+    @Test
+    fun `a failed registration retries on normal visible reconciliation even with the same token`() = runBlocking {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val seen = mutableListOf<Action>()
+        val book = ledger().also { it.record("token") }
+        val previewKeys = keys().also { it.key() }
+        val platform = FcmPlatform(app, previewKeys, { seen += it }, { null }, firebaseReady = { true },
+            fetchToken = { "token" }, ledger = book)
+        platform.reconcile(NotificationStatus.SERVICE_UNAVAILABLE, previews = false) { false }
+        assertTrue(seen.isEmpty())
+        platform.reconcile(NotificationStatus.SERVICE_UNAVAILABLE, previews = false) { true }
+        assertEquals("token", (seen.single() as Action.PushToken).token)
+        assertTrue(previewKeys.existing() == null)
+    }
+
+    @Test
+    fun `connection recovery retries once without an online failure loop or hidden work`() = runBlocking {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val seen = mutableListOf<Action>()
+        val delivered = Channel<Unit>(Channel.UNLIMITED)
+        var visible = true
+        val base = dev.richos.android.core.dev.DevRuntime.create().core.state.copy(
+            online = false, notifications = dev.richos.android.core.Notifications(NotificationStatus.SERVICE_UNAVAILABLE, previews = false))
+        val states = MutableStateFlow(base)
+        val platform = FcmPlatform(app, keys(), { seen += it; delivered.trySend(Unit) }, { null }, firebaseReady = { true },
+            fetchToken = { "token" }, ledger = ledger())
+        val observer = launch(start = CoroutineStart.UNDISPATCHED) { platform.reconcileOnConnection(states) { visible } }
+        try {
+            states.value = base.copy(online = true)
+            withTimeout(2_000) { delivered.receive() }
+            assertEquals(1, seen.size)
+            repeat(20) { states.value = states.value.copy(draft = "change $it"); yield() }
+            assertEquals(1, seen.size)
+            visible = false
+            states.value = base; yield()
+            states.value = base.copy(online = true); yield()
+            assertEquals(1, seen.size)
+            visible = true
+            states.value = base; yield()
+            states.value = base.copy(online = true)
+            withTimeout(2_000) { delivered.receive() }
+            assertEquals(2, seen.size)
+        } finally { observer.cancelAndJoin() }
     }
 
     @Test
