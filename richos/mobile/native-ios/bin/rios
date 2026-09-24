@@ -38,12 +38,12 @@ SCRATCH="$RICHOS_NATIVE_IOS_CACHE/spm"
 
 if [ "${1:-}" = "test" ]; then
   shift
-  exec swift test --package-path "$CORE" --scratch-path "$SCRATCH" "$@"
+  exec python3 "$HERE/../../engine/scripts/lib/native-work.py" -- swift test --package-path "$CORE" --scratch-path "$SCRATCH" "$@"
 fi
 
 # Incremental: a no-op when nothing changed. Its output goes to a log so stdout stays pure JSON.
 BUILD_LOG="$RICHOS_NATIVE_IOS_CACHE/cli-build.log"
-if ! swift build --package-path "$CORE" --scratch-path "$SCRATCH" --product rios-cli >"$BUILD_LOG" 2>&1; then
+if ! python3 "$HERE/../../engine/scripts/lib/native-work.py" -- swift build --package-path "$CORE" --scratch-path "$SCRATCH" --product rios-cli >"$BUILD_LOG" 2>&1; then
   tail -40 "$BUILD_LOG" >&2
   echo "{\"ok\":false,\"error\":\"rios-cli did not build; full log: $BUILD_LOG\"}" >&2
   exit 1

@@ -91,7 +91,7 @@ need_java() {
 
 gradle() {
   need_java
-  "$HERE/gradlew" -p "$HERE" --project-cache-dir "$CACHE/gradle-project" -Prichos.out="$OUT" "$@"
+  python3 "$HERE/../../engine/scripts/lib/native-work.py" -- "$HERE/gradlew" -p "$HERE" --project-cache-dir "$CACHE/gradle-project" -Prichos.out="$OUT" "$@"
 }
 
 # --- L1′: headless --------------------------------------------------------------------------
@@ -125,6 +125,7 @@ serial() {
   s="$(record_get serial 2>/dev/null)" || fail "no emulator recorded for this checkout; run: randroid emu prepare"
   pid="$(record_get pid)"
   kill -0 "$pid" 2>/dev/null || fail "the recorded emulator (pid $pid) is not running; run: randroid emu prepare"
+  python3 "$HERE/../../engine/scripts/lib/testdevices.py" touch-lease --kind android-emulator --id "$CACHE"
   printf '%s' "$s"
 }
 
@@ -169,7 +170,7 @@ emu_boot() {
   pid="$(python3 "$HERE/../../engine/scripts/lib/testdevices.py" launch-android \
     --cache "$CACHE" --avd "$AVD" --port "$port" --checkout "$HERE/../../.." -- \
     "$EMULATOR" -avd "$AVD" -port "$port" -no-window -no-audio -no-boot-anim \
-    -gpu swiftshader_indirect)" || fail "emulator launch or ownership registration failed"
+    -cores 2 -gpu swiftshader_indirect)" || fail "emulator launch or ownership registration failed"
   local s="emulator-$port" booted="" i
   for i in $(seq 1 360); do
     kill -0 "$pid" 2>/dev/null || fail "the emulator exited during boot (see $CACHE/emulator.log)"

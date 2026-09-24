@@ -30,7 +30,9 @@ def booted_devices(runner=subprocess.run):
     devices = json.loads(result.stdout)["devices"]
     if not isinstance(devices, dict):
         raise ValueError("simulator inventory is unreadable")
-    return sum(device["state"] == "Booted" for group in devices.values() for device in group)
+    import testdevices
+    android = sum(d.get("state") == "Running" for d in testdevices.android_emulators(testdevices.records()))
+    return android + sum(device["state"] == "Booted" for group in devices.values() for device in group)
 
 
 def acquire(kind, timeout=1800, sampler=None, cache=None, inventory=None):

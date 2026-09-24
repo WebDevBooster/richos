@@ -25,7 +25,7 @@ T = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(T)
 
 FAKE_SIMCTL = r'''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, plistlib
 state = os.environ["FAKE_SIMCTL_STATE"]
 d = json.load(open(state))
 with open(state + ".log", "a") as log:
@@ -34,10 +34,21 @@ a = sys.argv[1:]
 if a[:2] == ["list", "devices"]:
     print(json.dumps({"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-18-6": d["devices"]}}))
     sys.exit(0)
+if a[0] == "create":
+    udid = "pool-" + str(len(d["devices"]))
+    d["devices"].append(dict(udid=udid, name=a[1], state="Shutdown"))
+    json.dump(d, open(state, "w"))
+    print(udid)
+    sys.exit(0)
 udid = a[1] if len(a) > 1 else ""
 dev = [x for x in d["devices"] if x["udid"] == udid]
 if not dev:
     sys.stderr.write("Invalid device: %s\n" % udid); sys.exit(148)
+if a[0] == "listapps":
+    print(plistlib.dumps({"dev.richos.connect": {"ApplicationType": "User"}, "com.apple.Preferences": {"ApplicationType": "System"}}).decode())
+    sys.exit(0)
+if a[0] == "boot":
+    dev[0]["state"] = "Booted"
 if a[0] == "shutdown":
     dev[0]["state"] = "Shutdown"
 elif a[0] == "delete":
@@ -52,6 +63,13 @@ class Base(unittest.TestCase):
     n = 0
 
     def setUp(self):
+        import cpu_guard
+        guard_state = patch.object(cpu_guard, "STATE", __import__("pathlib").Path(SANDBOX)/"cpu-state")
+        guard_state.start()
+        self.addCleanup(guard_state.stop)
+        admission = patch.object(T, "_device_admission", return_value=[])
+        admission.start()
+        self.addCleanup(admission.stop)
         Base.n += 1
         self.root = os.path.join(SANDBOX, "case-%02d" % Base.n)
         self.home = os.path.join(self.root, "home")
@@ -630,6 +648,146 @@ class Collector(Base):
         self.assertIn("external volume denied", self.rows()["collector:incomplete"]["why"])
         self.assertIn("android:42", self.rows())
         self.assertEqual(self.devices(), [])
+
+    def test_T38_activity_does_not_extend_maximum_lifetime(self):
+        udid = self.device("rios-ui-lease")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        created = rec["lease"]["created"]
+        T.touch_lease("ios-simulator", udid)
+        fresh = T.records()[0]
+        self.assertEqual(fresh["lease"]["created"], created)
+        self.assertGreaterEqual(fresh["lease"]["last_use"], rec["lease"]["last_use"])
+        renewed = T.register("ios-simulator", udid, os.getpid())
+        self.assertEqual(renewed["lease"]["created"], created)
+
+    def test_T39_expired_live_owned_simulator_is_removed_but_personal_device_is_not(self):
+        import cpu_guard
+        udid = self.device("rios-ui-lease")
+        personal = self.device("My iPhone")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["last_use"] = time.time() - 301
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        with patch.object(cpu_guard, "event") as event:
+            self.assertEqual(T.expire_leases(), 0)
+            event.assert_called_once()
+        self.assertEqual([d["udid"] for d in self.devices()], [personal])
+        self.assertEqual(T.records(), [])
+
+    def test_T40_pressure_sheds_registered_simulator_without_guessing_service_ownership(self):
+        import cpu_guard
+        udid = self.device("rios-ui-pressure")
+        personal = self.device("My iPhone")
+        T.register("ios-simulator", udid, os.getpid())
+        with patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(pressure=True), 0)
+        self.assertEqual([d["udid"] for d in self.devices()], [personal])
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Apple plist converter')
+    def test_simctl_openstep_application_list_is_parsed(self):
+        apps = T.simulator_apps('{ "dev.richos.connect" = { ApplicationType = User; }; }')
+        self.assertEqual(apps['dev.richos.connect']['ApplicationType'], 'User')
+
+    def test_stale_prepared_cache_cannot_use_another_run_lease(self):
+        udid = T.acquire_ios("iPhone", "runtime", os.getpid())
+        T.use_ios(udid, os.getpid())
+        other = subprocess.Popen(["sleep", "30"])
+        try:
+            with self.assertRaises(ValueError): T.use_ios(udid, other.pid)
+        finally:
+            other.terminate(); other.wait()
+        T.release_ios(udid, os.getpid())
+        with self.assertRaises(ValueError): T.use_ios(udid, os.getpid())
+
+    def test_prepared_os_is_reused_and_app_state_reset_without_erase(self):
+        first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        T.boot_ios(first)
+        T.release_ios(first, os.getpid())
+        second = T.acquire_ios("iPhone", "runtime", os.getpid())
+        T.boot_ios(second)
+        T.release_ios(second, os.getpid())
+        self.assertEqual(first, second)
+        self.assertEqual(self.devices()[0]["state"], "Shutdown")
+        log = open(self.state + ".log").read().splitlines()
+        self.assertEqual(sum(x.startswith("create ") for x in log), 1)
+        self.assertEqual(sum(x == "uninstall " + first + " dev.richos.connect" for x in log), 2)
+        self.assertEqual(sum(x == "keychain " + first + " reset" for x in log), 2)
+        self.assertFalse(any(x.startswith(("erase ", "delete ")) for x in log))
+        self.assertFalse(any("uninstall " + first + " com.apple" in x for x in log))
+
+    def test_prepared_lease_excludes_other_owner_and_other_device_type(self):
+        first = T.acquire_ios("iPhone", "runtime", os.getpid())
+        other = subprocess.Popen(["sleep", "30"])
+        try:
+            with self.assertRaises(TimeoutError):
+                T.acquire_ios("iPhone", "runtime", other.pid, timeout=0)
+            with self.assertRaises(TimeoutError):
+                T.acquire_ios("iPad", "runtime", os.getpid(), timeout=0)
+            with self.assertRaises(ValueError):
+                T.release_ios(first, other.pid)
+            with self.assertRaises(ValueError):
+                T.register("ios-simulator", first, other.pid)
+        finally:
+            other.terminate(); other.wait()
+        T.release_ios(first, os.getpid())
+
+    def test_prepared_pressure_and_dead_owner_keep_os_but_end_lease(self):
+        import cpu_guard
+        for pressure in (True, False):
+            udid = T.acquire_ios("iPhone", "runtime", os.getpid())
+            T.boot_ios(udid)
+            rec = T._read_json(T._record_path("ios-simulator", udid))
+            rec["lease"]["last_use"] = time.time() - 301
+            T._write_json(T._record_path("ios-simulator", udid), rec)
+            with patch.object(cpu_guard, "event"):
+                self.assertEqual(T.expire_leases(pressure), 0)
+            self.assertEqual(self.devices()[0]["state"], "Shutdown")
+            self.assertEqual(T.records(), [])
+
+    def test_pressure_shutdown_does_not_need_owner_process_listing(self):
+        import cpu_guard
+        udid = self.device("old-checkout-simulator")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec.pop("lease")  # The exact record shape before CPU guard landed.
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        with patch.object(T, "process_start", side_effect=AssertionError("ps is unavailable")), patch.object(cpu_guard, "event"):
+            self.assertEqual(T.expire_leases(pressure=True), 0)
+        log = open(self.state + ".log").read().splitlines()
+        self.assertTrue(log[0].startswith("shutdown "))
+        self.assertEqual(self.devices(), [])
+
+    def test_T41_dead_lease_holder_is_collected_even_with_live_owner(self):
+        udid = self.device("rios-ui-holder")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["holder"] = {"pid": self.dead_pid(), "start": "old birth"}
+        self.assertEqual(T._registered_verdict(rec)[0], T.COLLECT)
+
+    def test_T42_expired_emulator_is_stopped_with_live_owner(self):
+        import cpu_guard
+        cache = os.path.join(self.android, "lease-expiry")
+        avd = "randroid-lease-expiry"
+        pid = T.launch_android(cache, avd, 5556,
+            [sys.executable, "-c", "import time; time.sleep(600)", "-avd", avd], owner_pid=os.getpid())
+        try:
+            rec = T.records()[0]
+            rec["lease"]["created"] = time.time() - 901
+            T._write_json(T._record_path("android-emulator", cache), rec)
+            with patch.object(cpu_guard, "event"):
+                self.assertEqual(T.expire_leases(), 0)
+            self.assertEqual(T.process_start(pid), "")
+            self.assertFalse(os.path.exists(os.path.join(cache, "emulator.json")))
+        finally:
+            try: os.kill(pid, 9)
+            except ProcessLookupError: pass
+            try: os.waitpid(pid, 0)
+            except ChildProcessError: pass
+
+    def test_T43_expired_lease_cannot_be_renewed_by_touch(self):
+        udid = self.device("rios-ui-expired")
+        rec = T.register("ios-simulator", udid, os.getpid())
+        rec["lease"]["created"] = time.time() - 901
+        T._write_json(T._record_path("ios-simulator", udid), rec)
+        with self.assertRaisesRegex(ValueError, "expired"):
+            T.touch_lease("ios-simulator", udid)
 
 
 

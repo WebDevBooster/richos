@@ -58,6 +58,7 @@ import shlex
 import tempfile
 import hashlib
 import json
+import plistlib
 import os
 import re
 import signal
@@ -386,6 +387,8 @@ def register(kind, ident, owner_pid=None, script="", checkout="", device_set="")
             generation = {"pid": int(dev["pid"]), "start": start, "avd": dev["avd"]}
         path = _record_path(kind, ident)
         previous = _read_json(path) or {}
+        if previous.get("prepared") and not same_owner(previous.get("owner", {}), owner):
+            raise ValueError("prepared simulator already belongs to another run")
         owners = [owner]
         if generation and previous.get("generation") == generation:
             # A second live caller must not revoke the first caller's lease.
@@ -394,11 +397,51 @@ def register(kind, ident, owner_pid=None, script="", checkout="", device_set="")
                     owners.append(old)
         rec = {"kind": kind, "id": ident, "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                "owner": owner, "owners": owners, "generation": generation}
+        if previous.get("prepared"):
+            rec["prepared"] = previous["prepared"]
+        if kind in ("ios-simulator", "android-emulator"):
+            old_lease = previous.get("lease", {}) if previous.get("generation") == generation else {}
+            rec["lease"] = {**old_lease, "created": old_lease.get("created", time.time()),
+                            "last_use": time.time(), "max_seconds": 900, "idle_seconds": 300}
         _write_json(path, rec)
     return rec
 
 
+def touch_lease(kind, ident):
+    """Renew activity without resetting the maximum lifetime or adding owners."""
+    with registry_lock():
+        path = _record_path(kind, _norm(kind, ident))
+        rec = _read_json(path)
+        if not rec:
+            raise ValueError("device has no registered lease; prepare it again")
+        if kind == "android-emulator":
+            gen = rec.get("generation") or {}
+            if process_start(gen.get("pid", 0)) != gen.get("start") or not _names_avd(gen["pid"], gen["avd"]):
+                raise ValueError("device process identity changed; prepare it again")
+        if lease_expired(rec):
+            raise ValueError("device lease expired; stop and prepare the device again")
+        if rec.get("lease"):
+            rec["lease"]["last_use"] = time.time()
+            _write_json(path, rec)
+
+
+def lease_expired(rec, now=None):
+    lease = rec.get("lease")
+    if not lease:
+        return False
+    now = time.time() if now is None else now
+    return (now - lease["created"] >= lease["max_seconds"] or
+            now - lease["last_use"] >= lease["idle_seconds"])
+
+
 def _registered_verdict(rec):
+    holder = (rec.get("lease") or {}).get("holder")
+    if holder and process_start(holder["pid"]) == "":
+        return COLLECT, "device lease supervisor ended"
+    if holder and process_start(holder["pid"]) not in (None, holder["start"]):
+        return COLLECT, "device lease supervisor PID was reused"
+    if lease_expired(rec):
+        return COLLECT, "device lease reached its lifetime or inactivity limit"
     states = [owner_state(o) for o in rec.get("owners", [rec.get("owner", {})])]
     if any(st == "alive" for st, _ in states):
         return LEAVE, "a registered owner still runs"
@@ -627,6 +670,13 @@ def _ios_remove(dev):
     """(gone, how). Shut down if running, delete, then read the list back."""
     udid = dev["udid"]
     prefix = ["--set", dev["device_set"]] if dev.get("device_set") else []
+    registered = _read_json(_record_path("ios-simulator", udid)) or {}
+    if registered.get("prepared"):
+        simctl(*(prefix + ["shutdown", udid]))
+        after = ios_devices(dev.get("device_set", ""))
+        if after is not None and all(d["state"] == "Shutdown" for d in after if d["udid"] == udid):
+            return True, "shut down; prepared OS retained for reuse"
+        return False, "prepared simulator did not shut down"
     if dev.get("state") and dev["state"] != "Shutdown":
         simctl(*(prefix + ["shutdown", udid]))
     rc, _o, err = simctl(*(prefix + ["delete", udid]))
@@ -983,10 +1033,279 @@ def record_failures(survivors, undecided, seen, path=None, notes=(), deferred=()
     return rows
 
 
+def _device_admission():
+    """The same boot/live pool as iOS, and a machine token held until shutdown."""
+    from pathlib import Path
+    import cpu_guard
+    import worker_tokens
+    if not cpu_guard.healthy():
+        raise RuntimeError("CPU watchdog is unhealthy; device launch refused")
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "app/scripts/lib"))
+    import simulator_budget
+    held = []
+    try:
+        held.append(worker_tokens.Budget(worker_tokens.machine_directory(), runner=True).acquire(timeout=60))
+        held.append(simulator_budget.acquire("live", timeout=60))
+        held.append(simulator_budget.acquire("boot", timeout=60))
+        return held
+    except BaseException:
+        for token in held:
+            token.release()
+        raise
+
+
+def _transfer_device_leases(tokens, kind, ident):
+    if not tokens:
+        return
+    # The boot lease ends after the launch transaction. The live and worker
+    # leases transfer by inherited FDs, without LOCK_UN on the shared description.
+    tokens.pop().release()
+    fds = tuple(fd for token in tokens for fd in token.fds)
+    holder = subprocess.Popen([sys.executable, __file__, "hold-lease", "--kind", kind, "--id", ident],
+                     pass_fds=fds, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    path = _record_path(kind, ident)
+    rec = _read_json(path)
+    rec["lease"]["holder"] = {"pid": holder.pid, "start": process_start(holder.pid)}
+    _write_json(path, rec)
+    for token in tokens:
+        for fd in token.fds:
+            os.close(fd)
+        token.fd = None
+    tokens.clear()
+
+
+def hold_lease(kind, ident):
+    generation = None
+    while True:
+        rec = _read_json(_record_path(kind, ident))
+        if not rec:
+            return 0
+        created = (rec.get("lease") or {}).get("created")
+        if generation is not None and created != generation:
+            return 0
+        generation = created
+        holder = (rec.get("lease") or {}).get("holder")
+        if holder and holder["pid"] != os.getpid():
+            return 0
+        if kind == "android-emulator":
+            gen = rec.get("generation") or {}
+            if process_start(gen.get("pid", 0)) != gen.get("start"):
+                return 0
+        else:
+            devices = ios_devices((rec.get("generation") or {}).get("device_set", ""))
+            if devices is not None and not any(d["udid"] == ident and d.get("state") != "Shutdown" for d in devices):
+                return 0
+        time.sleep(2)
+
+
+def boot_ios(udid):
+    import cpu_guard
+    cpu_guard.require_ios()
+    if not _read_json(_record_path("ios-simulator", udid)):
+        raise ValueError("register the exact simulator before booting it")
+    tokens = _device_admission()
+    try:
+        cpu_guard.require_ios()
+        rc, _out, err = simctl("boot", udid)
+        if rc:
+            raise RuntimeError("simulator boot failed: " + err)
+        try:
+            with registry_lock():
+                _transfer_device_leases(tokens, "ios-simulator", udid)
+            rec = _read_json(_record_path("ios-simulator", udid)) or {}
+            if rec.get("prepared"):
+                checked_simctl("bootstatus", udid, "-b")
+                # Reset app data, keychain and permissions, retaining the OS's
+                # completed first boot. Never simctl erase a prepared device.
+                apps = simulator_apps(checked_simctl("listapps", udid))
+                for bundle, app in apps.items():
+                    if app.get("ApplicationType") == "User":
+                        checked_simctl("uninstall", udid, bundle)
+                checked_simctl("keychain", udid, "reset")
+                checked_simctl("privacy", udid, "reset", "all")
+        except BaseException:
+            simctl("shutdown", udid)
+            raise
+    finally:
+        for token in tokens:
+            token.release()
+
+
+def checked_simctl(*args):
+    rc, out, err = simctl(*args)
+    if rc:
+        raise RuntimeError("simctl %s: %s" % (args[0], err))
+    return out
+
+
+def simulator_apps(output):
+    try:
+        return plistlib.loads(output.encode())
+    except plistlib.InvalidFileException:
+        # simctl versions also emit OpenStep property lists, which plistlib
+        # cannot parse. Apple's plutil accepts both formats.
+        result = subprocess.run(['/usr/bin/plutil', '-convert', 'json', '-o', '-', '-'],
+                                input=output, capture_output=True, text=True, timeout=_timeout(10), check=True)
+        return json.loads(result.stdout)
+
+
+def prepared_dir():
+    # Tests put their registry under a sandbox; the real pool's manifest lives
+    # on the external SSD. Device storage keeps the approved Apple default.
+    if not machine_devices_allowed():
+        return os.path.join(registry_dir(), "prepared")
+    return "/Volumes/E1TB/caches/richos-ios-prepared"
+
+
+def same_owner(a, b):
+    keys = ("pid", "start") if a.get("pid") else ("workspace_key", "session_id", "agent_id")
+    return not a.get("unknown") and all(a.get(k) is not None and a.get(k) == b.get(k) for k in keys)
+
+
+def acquire_ios(device_type, runtime, owner_pid=None, checkout="", timeout=300):
+    """One active pool lease per machine; one retained OS per type/runtime."""
+    import cpu_guard
+    cpu_guard.require_ios()
+    owner = choose_owner(owner_pid, checkout, "prepared-ios")
+    if owner.get("unknown"):
+        raise ValueError("prepared simulator needs a durable owner")
+    key = hashlib.sha256((device_type + "\0" + runtime).encode()).hexdigest()[:20]
+    path = os.path.join(prepared_dir(), key + ".json")
+    deadline = time.monotonic() + timeout
+    while True:
+        cpu_guard.require_ios()
+        with registry_lock():
+            busy = [r for r in records() if r.get("prepared") and
+                    not (r["prepared"] == key and same_owner(r.get("owner", {}), owner))]
+            if not busy:
+                manifest = _read_json(path)
+                inventory = ios_devices()
+                if inventory is None:
+                    raise RuntimeError("cannot read simulator inventory")
+                if manifest and not any(d["udid"] == manifest["udid"] for d in inventory):
+                    raise RuntimeError("prepared simulator was deleted; repair the pool explicitly instead of silently cold-booting")
+                if not manifest:
+                    udid = checked_simctl("create", "RichOS prepared " + key, device_type, runtime).strip()
+                    manifest = dict(udid=udid, device_type=device_type, runtime=runtime)
+                    _write_json(path, manifest)
+                udid = manifest["udid"]
+                previous = _read_json(_record_path("ios-simulator", udid))
+                if previous:
+                    if not same_owner(previous.get("owner", {}), owner):
+                        raise RuntimeError("prepared simulator already belongs to another run")
+                    touch_lease("ios-simulator", udid)
+                else:
+                    rec = register("ios-simulator", udid, owner_pid, "prepared-ios", checkout)
+                    rec["prepared"] = key
+                    _write_json(_record_path("ios-simulator", udid), rec)
+                return udid
+        if time.monotonic() >= deadline:
+            raise TimeoutError("prepared simulator is leased by another run")
+        time.sleep(.5)
+
+
+def release_ios(udid, owner_pid=None, checkout=""):
+    with registry_lock():
+        rec = _read_json(_record_path("ios-simulator", udid))
+        if not rec:
+            return
+        owner = choose_owner(owner_pid, checkout, "prepared-ios")
+        if not same_owner(rec.get("owner", {}), owner):
+            raise ValueError("cannot release another run's simulator")
+        ok, why = _ios_remove(dict(udid=udid, state="Booted", device_set=""))
+        if not ok:
+            raise RuntimeError(why)
+        os.unlink(_record_path("ios-simulator", udid))
+
+
+def use_ios(udid, owner_pid=None, checkout=""):
+    with registry_lock():
+        rec = _read_json(_record_path("ios-simulator", udid)) or {}
+        owner = choose_owner(owner_pid, checkout, "prepared-ios")
+        if not rec.get("prepared") or not same_owner(rec.get("owner", {}), owner):
+            raise ValueError("no prepared simulator lease for this run; prepare again")
+        touch_lease("ios-simulator", udid)
+
+
+def expire_leases(pressure=False):
+    """Bounded collection of exact registered devices, without workspace discovery."""
+    token = _DEADLINE.set(time.time() + 12)
+    try:
+        return _expire_leases(pressure)
+    finally:
+        _DEADLINE.reset(token)
+
+
+def _expire_leases(pressure=False):
+    errors = []
+    with registry_lock():
+        regs = records()
+        if pressure:
+            regs.sort(key=lambda rec: rec.get("kind") != "ios-simulator")
+        for rec in regs:
+            if rec.get("kind") not in ("android-emulator", "ios-simulator"):
+                continue
+            # Simulator services are started by launchd, outside a CLI's process
+            # tree. Under sustained host pressure, stop only exact registered
+            # simulator UDIDs. Do not guess ownership from service names.
+            if pressure and rec["kind"] == "ios-simulator":
+                verdict, why = COLLECT, "sustained host CPU pressure; registered simulator shed for headroom"
+            else:
+                verdict, why = _registered_verdict(rec)
+            if verdict != COLLECT:
+                continue
+            if rec["kind"] == "android-emulator":
+                gen = rec.get("generation") or {}
+                if not gen.get("pid") or not gen.get("start") or not gen.get("avd"):
+                    errors.append("unproven emulator generation: " + rec["id"])
+                    continue
+                # _android_remove rechecks the PID generation before each signal.
+                ok = True
+                if os.path.exists(os.path.join(rec["id"], "emulator.json")):
+                    ok, detail = _android_remove(dict(gen, cache=rec["id"]))
+                    if not ok: errors.append(detail)
+                if ok:
+                    os.unlink(_record_path(rec["kind"], rec["id"]))
+            else:
+                device_set = (rec.get("generation") or {}).get("device_set", "")
+                # Shutdown the exact registered UDID first during an incident.
+                # Neither owner ps nor a full CoreSimulator inventory is needed
+                # to authorize this operation, and both stalled in the incident.
+                inventory = ([dict(udid=rec["id"], state="Booted", device_set=device_set)]
+                             if pressure else ios_devices(device_set))
+                if inventory is None:
+                    errors.append("cannot read simulator inventory")
+                    continue
+                ok = True
+                for dev in inventory:
+                    if dev["udid"] == rec["id"]:
+                        ok, detail = _ios_remove(dev)
+                        if not ok: errors.append(detail)
+                if ok:
+                    os.unlink(_record_path(rec["kind"], rec["id"]))
+            if ok and rec.get("lease"):
+                import cpu_guard
+                cpu_guard.event("Device lease ended; owned device stopped", device=rec["id"], reason=why)
+        if errors:
+            record_collector_failure("CPU device lease cleanup: " + "; ".join(errors))
+            print("CPU device lease cleanup: " + "; ".join(errors), file=sys.stderr)
+    return 1 if errors else 0
+
+
 def launch_android(cache, avd, port, command, checkout="", owner_pid=None, script="randroid"):
     """Publish process identity and ownership in one registry transaction."""
     cache = os.path.realpath(cache)
     os.makedirs(cache, exist_ok=True)
+    tokens = _device_admission()
+    try:
+        return _launch_android_admitted(cache, avd, port, command, checkout, owner_pid, script, tokens)
+    finally:
+        for token in tokens:
+            token.release()
+
+
+def _launch_android_admitted(cache, avd, port, command, checkout, owner_pid, script, tokens):
     with registry_lock():
         path = os.path.join(cache, "emulator.json")
         old = _read_json(path)
@@ -1005,6 +1324,7 @@ def launch_android(cache, avd, port, command, checkout="", owner_pid=None, scrip
             _write_json(path, {"pid": child.pid, "avd": avd, "port": port,
                                "serial": "emulator-%d" % port, "start": process_start(child.pid)})
             register("android-emulator", cache, owner_pid, script, checkout)
+            _transfer_device_leases(tokens, "android-emulator", cache)
             return child.pid
         except BaseException:
             child.terminate()
@@ -1047,6 +1367,29 @@ def stop_android(cache, delete=False):
 def _main(argv):
     ap = argparse.ArgumentParser(description="Test simulators and emulators: register, find, collect.")
     sub = ap.add_subparsers(dest="cmd")
+    pool = sub.add_parser("acquire-ios")
+    pool.add_argument("--type", required=True)
+    pool.add_argument("--runtime", required=True)
+    pool.add_argument("--owner-pid", type=int)
+    pool.add_argument("--checkout", default="")
+    release = sub.add_parser("release-ios")
+    release.add_argument("--id", required=True)
+    release.add_argument("--owner-pid", type=int)
+    release.add_argument("--checkout", default="")
+    use = sub.add_parser("use-ios")
+    use.add_argument("--id", required=True)
+    use.add_argument("--owner-pid", type=int)
+    use.add_argument("--checkout", default="")
+    expire = sub.add_parser("expire-leases")
+    expire.add_argument("--pressure", action="store_true")
+    touch = sub.add_parser("touch-lease")
+    touch.add_argument("--kind", required=True, choices=["android-emulator", "ios-simulator"])
+    touch.add_argument("--id", required=True)
+    hold = sub.add_parser("hold-lease")
+    hold.add_argument("--kind", required=True)
+    hold.add_argument("--id", required=True)
+    boot = sub.add_parser("boot-ios")
+    boot.add_argument("--id", required=True)
     r = sub.add_parser("register", help="record that the calling test owns a device, or the cache naming it")
     r.add_argument("--kind", required=True, choices=KINDS)
     r.add_argument("--id", required=True, help="a simulator UDID, or a cache directory")
@@ -1071,6 +1414,25 @@ def _main(argv):
                    help="a checkout being deleted right now: treat it as gone")
     c.add_argument("--budget", type=float, default=0.0, help="seconds for removals (0 = unbounded)")
     a = ap.parse_args(argv)
+    if a.cmd == "acquire-ios":
+        print(acquire_ios(a.type, a.runtime, a.owner_pid, a.checkout))
+        return 0
+    if a.cmd == "release-ios":
+        release_ios(a.id, a.owner_pid, a.checkout)
+        return 0
+    if a.cmd == "use-ios":
+        use_ios(a.id, a.owner_pid, a.checkout)
+        return 0
+    if a.cmd == "touch-lease":
+        touch_lease(a.kind, a.id)
+        return 0
+    if a.cmd == "expire-leases":
+        return expire_leases(a.pressure)
+    if a.cmd == "hold-lease":
+        return hold_lease(a.kind, a.id)
+    if a.cmd == "boot-ios":
+        boot_ios(a.id)
+        return 0
     if a.cmd == "stop-android":
         stop_android(a.cache, a.delete)
         return 0
