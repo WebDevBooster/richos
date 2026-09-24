@@ -79,7 +79,10 @@ else bad "S4 permanent application identity agrees across packaging and push" "a
 # suites. The suites are excluded on purpose: §76 keeps them running, and a suite may record a defect
 # in the preserved product (tom-opus-pwa1's KNOWN DEFECT tests) without that product changing. The
 # PWA's `test/` is also what build.rs PHONE_NOT_SHIPPED leaves out of the shipped phone app.
-TAG="preserved/mobile-ios-and-pwa-2026-09-22"
+# Re-based 2026-09-24 to include c5250dc9 (the PWA's v2 pairing: the Mac must press "They match"),
+# the one deliberate change since the 2026-09-22 tag: a security fix the PWA needs because it is the
+# CEO's Android stand-in (§76 preservation was Rich's technical call, not a CEO sentence).
+TAG="preserved/mobile-ios-and-pwa-2026-09-24"
 PRESERVED=(richos/mobile/ios richos/mobile/ui richos/web/web-app)
 NOT_PRODUCT=(richos/mobile/ios/Tests richos/mobile/ios/UITests richos/web/web-app/test)
 if git -C "$ROOT" rev-parse -q --verify "$TAG^{commit}" >/dev/null 2>&1; then
