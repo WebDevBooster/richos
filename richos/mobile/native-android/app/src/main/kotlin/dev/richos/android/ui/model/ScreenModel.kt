@@ -14,8 +14,11 @@ import dev.richos.android.core.UpdateNotice as CoreUpdate
 import dev.richos.android.core.VoiceEnding
 import dev.richos.android.core.VoicePhase as CorePhase
 import dev.richos.android.core.KeptReason as CoreKept
+import dev.richos.android.core.Echo
+import dev.richos.android.core.Line
 import dev.richos.android.core.OutboxItem
 import dev.richos.android.core.OutboxState
+import dev.richos.android.core.SentMessage
 import dev.richos.android.core.PairingPhase
 import dev.richos.android.core.RichCore
 import dev.richos.android.core.protocol.Row
@@ -297,40 +300,67 @@ data class ScreenModel(
         get() = (if (app.pairing.phase == PairingPhase.PAIRED) app.canRecord || app.voice != null else voiceSupported) &&
             !voicePaused && composerDisabledReason == null
 
-    /** The thread as drawn: core's rows, then every pending outbox item for this conversation. */
+    /**
+     * The thread as drawn: core's transcript ([AppState.transcript]): the Mac's rows, then your
+     * messages the Mac accepted and has not echoed yet, then your unsent ones. One of your
+     * messages keeps one list identity ([Message.key]) from Send to the Mac's echo, so it is one
+     * row that changes state in place, never a row that goes and another that comes (D01).
+     */
     val thread: List<Message>
         get() {
-            val thread = app.selectedThreadId
-            val pending = app.outbox.filter { thread == null || it.threadId == thread }.flatMap { pendingBubbles(it) }
-            val rows = app.messages.flatMap { bubbles(it) }
-            if (extra.isEmpty()) return rows + pending
+            val lines = app.transcript
+            val rows = lines.filterIsInstance<Line.Mac>().flatMap { bubbles(it.row, it.clientId, it.echo) }
+            val mine = lines.flatMap { line ->
+                when (line) {
+                    is Line.Accepted -> acceptedBubbles(line.message)
+                    is Line.Pending -> pendingBubbles(line.item)
+                    is Line.Mac -> emptyList()
+                }
+            }
+            if (extra.isEmpty()) return rows + mine
             val at = extraAfter?.let { id -> rows.indexOfFirst { it.id == id } + 1 }?.takeIf { it > 0 } ?: rows.size
-            return rows.take(at) + extra + rows.drop(at) + pending
+            return rows.take(at) + extra + rows.drop(at) + mine
         }
+
+    /** A voice message's length on the phone: the frame's pose, else the recording's own. */
+    private fun voiceLength(clientId: String, seconds: Double?): Long = voiceMs[clientId] ?: seconds?.let { (it * 1000).toLong() } ?: 0L
 
     /**
      * One of the Mac's rows as bubbles. Your photos and files come back as the words the Mac gave
      * Rich (`AttachmentDescription`): drawn as round 12.1's album and file bubbles, the photos as
-     * plain tiles (their pixels are on the Mac, not here), never as that text.
+     * plain tiles (their pixels are on the Mac, not here), never as that text. [clientId] is set
+     * when the row is the echo of one of your messages: the bubbles keep that message's identity.
      */
-    private fun bubbles(row: Row): List<Message> {
+    private fun bubbles(row: Row, clientId: String? = null, echo: Echo? = null): List<Message> {
         val parsed = if (row.role == "ceo") AttachmentDescription.parse(row.text) else null
-        if (parsed == null) return listOf(bubble(row))
-        val base = bubble(row)
-        val photos = parsed.files.filter { it.isPhoto }.mapIndexed { i, f -> Photo(LiveAttachments.ON_MAC + row.id + "#" + i, 4, 3, f.name, f.size) }
+        if (parsed == null) return listOf(bubble(row, clientId, echo))
+        val base = bubble(row, clientId, echo)
+        // Your photos keep the sizes they had on the phone, so the album does not reflow at the echo.
+        val own = echo?.attachments.orEmpty().filter { it.isPhoto }
+        val photos = parsed.files.filter { it.isPhoto }.mapIndexed { i, f ->
+            Photo(LiveAttachments.ON_MAC + (clientId ?: row.id) + "#" + i, own.getOrNull(i)?.width ?: 4, own.getOrNull(i)?.height ?: 3, f.name, f.size)
+        }
         val files = parsed.files.filterNot { it.isPhoto }.map { LiveAttachments.fileInfo(it.name, it.size) }
-        return LiveAttachments.split(photos, files, parsed.caption).mapIndexed { i, body -> base.copy(id = if (i == 0) row.id else "${row.id}#$i", body = body) }
+        return LiveAttachments.split(photos, files, parsed.caption).mapIndexed { i, body ->
+            base.copy(id = if (i == 0) row.id else "${row.id}#$i", key = if (i == 0) base.key else "${base.key}#$i", body = body)
+        }
     }
 
     /** One of the Mac's rows as a bubble (contract §5.4: `role` ceo|rich, `kind` text|voice, `state`). */
-    private fun bubble(row: Row): Message {
+    private fun bubble(row: Row, clientId: String? = null, echo: Echo? = null): Message {
         val rich = row.role != "ceo"
         val arriving = rich && !row.complete
+        // Your voice message comes back as the words the Mac heard: it stays the voice message you
+        // sent, with its own length and waveform (the iPhone's rule, `ceffcd9a`).
+        val voice = row.kind == "voice" || echo?.kind == "voice"
+        val seed = (clientId ?: row.id).hashCode()
         return Message(
             id = row.id,
+            key = clientId ?: row.id,
             speaker = if (rich) Speaker.RICH else Speaker.ME,
             // A voice row's length is core's (`duration_ms`); absent, the bubble shows no length, never 0:00.
-            body = if (row.kind == "voice") Body.Voice(row.durationMs ?: voiceMs[row.id] ?: 0L, Waves.forSeed(row.id.hashCode(), 42)) else Body.Text(row.text),
+            body = if (voice) Body.Voice(row.durationMs ?: clientId?.let { voiceLength(it, echo?.seconds) }?.takeIf { it > 0 } ?: voiceMs[row.id] ?: 0L, Waves.forSeed(seed, 42))
+                else Body.Text(row.text),
             time = TimeLabels.row(row.createdAt, nowMs, zone),
             replying = arriving && row.text.isEmpty(),
             streaming = arriving && row.text.isNotEmpty(),
@@ -358,7 +388,30 @@ data class ScreenModel(
             OutboxState.BLOCKED -> UploadStatus.ATTENTION
         }
         return LiveAttachments.split(photos, files, item.text).mapIndexed { i, body ->
-            base.copy(id = if (i == 0) item.clientId else "${item.clientId}#$i", body = body, upload = upload)
+            val id = if (i == 0) item.clientId else "${item.clientId}#$i"
+            base.copy(id = id, key = id, body = body, upload = upload)
+        }
+    }
+
+    /**
+     * One of your messages the Mac has accepted and not yet echoed: sent (the check mark), where
+     * it was while pending. Photos are the Mac's now (the phone's staged copies are released on
+     * acceptance), so they are drawn as the Mac's plain tiles, as the echo will draw them.
+     */
+    private fun acceptedBubbles(m: SentMessage): List<Message> {
+        val base = Message(
+            id = m.clientId,
+            speaker = Speaker.ME,
+            body = if (m.kind == "voice") Body.Voice(voiceLength(m.clientId, m.seconds), Waves.forSeed(m.clientId.hashCode(), 42)) else Body.Text(m.text),
+            time = TimeLabels.pending(m.queuedAt, nowMs, zone),
+        )
+        if (m.kind != "attachments") return listOf(base)
+        val all = m.attachments.orEmpty()
+        val photos = all.filter { it.isPhoto }.mapIndexed { i, a -> Photo(LiveAttachments.ON_MAC + m.clientId + "#" + i, a.width ?: 4, a.height ?: 3, a.name, a.size) }
+        val files = all.filterNot { it.isPhoto }.map { LiveAttachments.fileInfo(it.name, it.size) }
+        return LiveAttachments.split(photos, files, m.text).mapIndexed { i, body ->
+            val id = if (i == 0) m.clientId else "${m.clientId}#$i"
+            base.copy(id = id, key = id, body = body)
         }
     }
 
@@ -366,7 +419,7 @@ data class ScreenModel(
         id = item.clientId,
         speaker = Speaker.ME,
         body = if (item.kind == "voice") {
-            Body.Voice(voiceMs[item.clientId] ?: 0L, Waves.forSeed(item.clientId.hashCode(), 42))
+            Body.Voice(voiceLength(item.clientId, item.seconds), Waves.forSeed(item.clientId.hashCode(), 42))
         } else {
             Body.Text(item.text)
         },
@@ -403,6 +456,11 @@ data class Message(
     val speaker: Speaker,
     val body: Body,
     val time: String,
+    /**
+     * The bubble's identity in the list. Your message keeps its client id from Send through the
+     * Mac's echo, so the row changes state in place instead of leaving and arriving again.
+     */
+    val key: String = id,
     val delivery: Delivery = Delivery.SENT,
     /** Rich has started a reply and no words have arrived: three breathing dots. */
     val replying: Boolean = false,

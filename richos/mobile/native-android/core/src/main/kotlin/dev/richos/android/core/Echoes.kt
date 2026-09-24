@@ -43,6 +43,8 @@ data class Echo(
     val threadId: String,
     val kind: String,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val seconds: Double? = null,
+    /** The phone's own references (names, photo sizes) outlive the bubble they replace. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val attachments: List<Attachment>? = null,
 )
 
 /**
@@ -72,7 +74,7 @@ object Echoes {
             val claimed = echoes.mapTo(HashSet()) { it.rowId }
             val row = rows.filter { it.id !in claimed && matches(it, local.asLocal(), rows) }.minByOrNull { it.cursor }
             if (row == null) left += local
-            else echoes = echoes + Echo(row.id, local.clientId, local.threadId, local.kind, local.seconds)
+            else echoes = echoes + Echo(row.id, local.clientId, local.threadId, local.kind, local.seconds, local.attachments)
         }
         val sent = left.takeLast(Session.SENT_LIMIT)
         return if (sent == s.sent && echoes == s.echoes) s else s.copy(sent = sent, echoes = echoes)
