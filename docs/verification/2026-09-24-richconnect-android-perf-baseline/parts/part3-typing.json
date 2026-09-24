@@ -1,0 +1,163 @@
+{
+  "schema": "richos-mobile-perf/1",
+  "platform": "android",
+  "startedAt": "2026-09-24T03:38:42Z",
+  "tool": {
+    "path": "richos/mobile/perf/perf.py",
+    "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+    "dirty": false,
+    "paths": [
+      "richos/mobile/perf"
+    ]
+  },
+  "build": {
+    "package": "dev.richos.connect",
+    "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+    "dirty": false,
+    "installedSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "builtSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "stampPaths": [
+      "richos/mobile/native-android"
+    ],
+    "versionName": "0.1.0-dev",
+    "versionCode": 1,
+    "debuggable": true,
+    "configuration": "debug"
+  },
+  "device": {
+    "kind": "emulator",
+    "serial": "emulator-5580",
+    "manufacturer": "Google",
+    "model": "sdk_gphone64_arm64",
+    "os": "Android 14",
+    "sdk": "34",
+    "abi": "arm64-v8a",
+    "buildType": "userdebug",
+    "display": "1080x2400",
+    "density": "420",
+    "refreshHz": 60.0,
+    "host": {
+      "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+      "samples": {
+        "seed": {
+          "cpuBusyPercent": 60.9,
+          "memoryPressure": "normal"
+        },
+        "typing": {
+          "cpuBusyPercent": 29.4,
+          "memoryPressure": "normal"
+        },
+        "streaming": {
+          "cpuBusyPercent": 34.6,
+          "memoryPressure": "normal"
+        }
+      },
+      "pacing": {
+        "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
+        "waits": 19,
+        "totalWaitSeconds": 142.2,
+        "notQuiet": 0
+      }
+    }
+  },
+  "metrics": {
+    "typingCost": {
+      "method": "one character per `input text` into the focused composer; /proc/<pid>/io write syscalls and bytes, ftrace ext4/f2fs_sync_file_enter for the app's thread group (root), gfxinfo frames; per keystroke",
+      "units": 18,
+      "framesRendered": 327,
+      "frames": {
+        "frames": 120,
+        "skippedRows": 0,
+        "onTimePercent": 0.8,
+        "maxFrameMs": 68.8,
+        "stallsOver100Ms": 0
+      },
+      "io": {
+        "wchar": 21544266,
+        "syscw": 10750,
+        "write_bytes": 368640,
+        "rchar": 86371,
+        "syscr": 65276
+      },
+      "fsyncs": 18,
+      "perUnit": {
+        "writeSyscalls": 597.22,
+        "bytesWritten": 1196904,
+        "storageBytes": 20480,
+        "fsyncs": 1.0,
+        "frames": 18.17
+      },
+      "draftMatches": true
+    }
+  },
+  "phases": {
+    "seed": "measured",
+    "typing": "measured",
+    "streaming": "NOT MEASURED: the debug bridge did not answer action (a release build has none): ",
+    "background": "NOT RUN: the device emulator-5580 went away during 'streaming' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+    "idle-pairing": "NOT RUN: the device emulator-5580 went away during 'streaming' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)"
+  },
+  "notMeasured": [
+    {
+      "what": "streaming",
+      "why": "the debug bridge did not answer action (a release build has none): "
+    },
+    {
+      "what": "background",
+      "why": "not run: the device emulator-5580 went away during 'streaming' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)"
+    },
+    {
+      "what": "idle-pairing",
+      "why": "not run: the device emulator-5580 went away during 'streaming' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)"
+    },
+    {
+      "what": "sendToQueued (small text send to durable local queued state, p95 <= 150 ms)",
+      "why": "the tap metric ends at the first frame after the tap; nothing marks the moment the outbox item is durable. Settle: a Trace section (android.os.Trace) around the outbox commit in AppStore/RichCore's send path, read from the same atrace capture as the tap"
+    },
+    {
+      "what": "receiveToVisible (received text to visible text, p95 <= 100 ms)",
+      "why": "no trace mark at the moment stream bytes reach the app (the debug bridge's broadcast has none). Settle: a Trace section where ConnectionOwner hands a stream chunk to the store, then the first frame after it from framestats, as the tap metric does"
+    },
+    {
+      "what": "energy (mAh, OS battery attribution, OEM power-intensive warnings)",
+      "why": "an emulator has no battery or power model; its batterystats power estimates are not energy. Settle: the same background phase on a physical phone (PRD \u00a78 names the mandatory OEM phone family), plus Settings > Battery and the OEM manager over the PRD \u00a78 30-minute and overnight windows"
+    },
+    {
+      "what": "managed Connect and Tailscale routes",
+      "why": "this run used the debug build's scripted Mac (no network). Settle: pair with the lab Mac (native-android README 'Pairing the emulator') or a real Mac; count the phone's requests at the Mac and at the Connect Worker while backgrounded (Sage T7)"
+    },
+    {
+      "what": "release-configuration timing",
+      "why": "a debuggable, unminified build is slower than release; PRD \u00a77 budgets are for release builds. Settle: a profileable release-configuration build signed for local install, and a real pairing to reach the conversation without the debug bridge"
+    },
+    {
+      "what": "typing and streaming cost on the production persistence port",
+      "why": "in a development world the core persists through the bridge's document, not AppPorts' JsonFile. RichCore.commit changes show here; JsonFile changes need a paired production core"
+    },
+    {
+      "what": "physical-device timing",
+      "why": "an emulator on a shared Mac (software GPU, host CPU recorded per phase) is a pilot, never acceptance (PRD \u00a78). Settle: the same command on a phone with --kind physical"
+    }
+  ],
+  "conditions": {
+    "theme": "device",
+    "systemNightModeBefore": "Night mode: no",
+    "fixture": "online",
+    "history": 40,
+    "transport": "unreachable"
+  },
+  "route": {
+    "name": "development fixture",
+    "detail": "the debug build's scripted Mac inside the app: no network. Launch series run with the scripted Mac UNREACHABLE (Sage T6: launch must not depend on the network); the live spot check with it accepting",
+    "persistence": "the development world's document (DevBridge), written through the same RichCore.commit as production but not through the production JsonFile port"
+  },
+  "acceptance": {
+    "verdict": "NOT VERIFIED",
+    "why": [
+      "not a physical device (PRD \u00a78: an emulator or simulator cannot certify)",
+      "not a release configuration (debuggable build; PRD \u00a77 budgets are for release builds)",
+      "0 launch trials, below the PRD \u00a78 protocol of 100"
+    ]
+  },
+  "finishedAt": "2026-09-24T03:41:18Z"
+}

@@ -1,0 +1,864 @@
+{
+  "schema": "richos-mobile-perf/1",
+  "platform": "android",
+  "startedAt": "2026-09-24T03:18:26Z",
+  "tool": {
+    "path": "richos/mobile/perf/perf.py",
+    "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+    "dirty": false,
+    "paths": [
+      "richos/mobile/perf"
+    ]
+  },
+  "build": {
+    "package": "dev.richos.connect",
+    "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+    "dirty": false,
+    "installedSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "builtSha256": "1602b71dcf27431d9b9a357d3a29fcd9565806a16e708dc247ddf233808660bf",
+    "stampPaths": [
+      "richos/mobile/native-android"
+    ],
+    "versionName": "0.1.0-dev",
+    "versionCode": 1,
+    "debuggable": true,
+    "configuration": "debug",
+    "commits": [
+      "3065ac961a371313484f3be990ad13fc904010e0",
+      "5782c54be42f724236d7c4e115d450ae52f855de",
+      "e85e17aba6ff229e885380f50a471f638bc9ae75"
+    ]
+  },
+  "device": {
+    "kind": "emulator",
+    "serial": "emulator-5580",
+    "manufacturer": "Google",
+    "model": "sdk_gphone64_arm64",
+    "os": "Android 14",
+    "sdk": "34",
+    "abi": "arm64-v8a",
+    "buildType": "userdebug",
+    "display": "1080x2400",
+    "density": "420",
+    "refreshHz": 60.0
+  },
+  "metrics": {
+    "coldLaunch": {
+      "method": "am force-stop; am start -W (LaunchState COLD); useful content = ActivityTaskManager 'Fully drawn' (MainActivity ReportDrawnWhen: first frame after the saved state is read); scripted Mac unreachable",
+      "samplesMs": [
+        2594,
+        1660,
+        1143,
+        1013,
+        1189,
+        1069,
+        2105,
+        1009,
+        1070,
+        923,
+        979,
+        985,
+        1018,
+        1064,
+        984,
+        995,
+        1009,
+        1284,
+        1819,
+        1013
+      ],
+      "stats": {
+        "n": 20,
+        "min": 923,
+        "p50": 1018,
+        "p95": 2105,
+        "p99": null,
+        "max": 2594,
+        "why": "20 samples cannot place a p99 (needs 100); below the PRD \u00a78 protocol of 100 trials"
+      },
+      "budget": {
+        "budget": 1000,
+        "unit": "ms",
+        "statistic": "p95",
+        "row": "Cold launch to useful local interaction",
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed target, not a CEO number)",
+        "within": false
+      },
+      "firstFrameMs": [
+        1651,
+        982,
+        664,
+        594,
+        517,
+        586,
+        1111,
+        535,
+        595,
+        599,
+        542,
+        532,
+        515,
+        594,
+        531,
+        565,
+        569,
+        702,
+        754,
+        564
+      ],
+      "firstFrameStats": {
+        "n": 20,
+        "min": 515,
+        "p50": 586,
+        "p95": 1111,
+        "p99": null,
+        "max": 1651,
+        "why": "20 samples cannot place a p99 (needs 100); below the PRD \u00a78 protocol of 100 trials"
+      },
+      "rejected": [],
+      "screenCheck": {
+        "composerOnScreen": true,
+        "newestMessageOnScreen": true
+      },
+      "part": 1
+    },
+    "coldLaunchLive": {
+      "method": "the cold-launch method with the scripted Mac ACCEPTING: a spot check that the network never delays the useful-content mark (Sage T6)",
+      "samplesMs": [
+        871,
+        955,
+        965
+      ],
+      "stats": {
+        "n": 3,
+        "min": 871,
+        "p50": 955,
+        "p95": null,
+        "p99": null,
+        "max": 965,
+        "why": "3 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "firstFrameMs": [
+        503,
+        545,
+        454
+      ],
+      "rejected": [],
+      "part": 1
+    },
+    "idleFrames": {
+      "method": "gfxinfo reset, --idle-seconds untouched, 'Total frames rendered' for MainActivity's window (the app's own frames; the keyboard and system UI are other windows)",
+      "screens": {
+        "conversation": {
+          "seconds": 10.0,
+          "framesRendered": 0,
+          "framesPerSecond": 0.0,
+          "timing": {
+            "frames": 0,
+            "skippedRows": 0
+          },
+          "part": 1
+        },
+        "settings": {
+          "seconds": 10.0,
+          "framesRendered": 0,
+          "framesPerSecond": 0.0,
+          "timing": {
+            "frames": 0,
+            "skippedRows": 0
+          },
+          "part": 1
+        },
+        "pairing": {
+          "seconds": 10.0,
+          "framesRendered": 0,
+          "framesPerSecond": 0.0,
+          "timing": {
+            "frames": 0,
+            "skippedRows": 0
+          },
+          "part": 4
+        }
+      },
+      "zeroFrames": true,
+      "target": {
+        "row": "Settled idle UI",
+        "value": 0,
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed)"
+      },
+      "part": 1
+    },
+    "warmResume": {
+      "method": "HOME, --away seconds, the launcher settles, launcher intent with am start -W: TotalTime of a start in the same process (PRD J2: process retained). Android's HOT (activity kept) and WARM (activity recreated) both count, each sample keeps its state; a new pid is a cold start and is rejected",
+      "samplesMs": [
+        339,
+        302,
+        228,
+        238,
+        241,
+        202,
+        244,
+        181,
+        207,
+        170,
+        216,
+        241,
+        239,
+        216,
+        200,
+        196,
+        205,
+        179,
+        206,
+        169
+      ],
+      "stats": {
+        "n": 20,
+        "min": 169,
+        "p50": 207,
+        "p95": 302,
+        "p99": null,
+        "max": 339,
+        "why": "20 samples cannot place a p99 (needs 100); below the PRD \u00a78 protocol of 100 trials"
+      },
+      "budget": {
+        "budget": 200,
+        "unit": "ms",
+        "statistic": "p95",
+        "row": "Warm resume to usable retained state",
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed target, not a CEO number)",
+        "within": false
+      },
+      "sampleStates": [
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM",
+        "WARM"
+      ],
+      "launchStates": {
+        "WARM": 20
+      },
+      "hotStats": {
+        "n": 0,
+        "min": null,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "recreatedStats": {
+        "n": 20,
+        "min": 169,
+        "p50": 207,
+        "p95": 302,
+        "p99": null,
+        "max": 339,
+        "why": "20 samples cannot place a p99 (needs 100); below the PRD \u00a78 protocol of 100 trials"
+      },
+      "firstRecreation": [],
+      "rejected": [],
+      "part": 2
+    },
+    "activeFrames": {
+      "method": "input swipe on the transcript (older and back), gfxinfo framestats over the swipes: frames whose FrameCompleted <= FrameDeadline, and frames of 100 ms or more",
+      "swipes": 6,
+      "framesRendered": 109,
+      "framesTimed": 107,
+      "timing": {
+        "frames": 107,
+        "skippedRows": 3,
+        "onTimePercent": 13.1,
+        "maxFrameMs": 115.9,
+        "stallsOver100Ms": 7
+      },
+      "part": 2
+    },
+    "tapToFeedback": {
+      "method": "input tap on 'Send message': the app's deliverInputEvent eventTimeNano (atrace input) to the FrameCompleted of the frame carrying that InputEventId (gfxinfo framestats); both CLOCK_MONOTONIC. The draft is set through the debug bridge; the sent text is checked on screen after each tap",
+      "samplesMs": [
+        44.8,
+        56.3,
+        59.9,
+        55.3,
+        68.5,
+        59.3,
+        66.8,
+        63.6,
+        67.7,
+        55.4
+      ],
+      "stats": {
+        "n": 10,
+        "min": 44.8,
+        "p50": 59.3,
+        "p95": null,
+        "p99": null,
+        "max": 68.5,
+        "why": "10 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "budget": {
+        "budget": 100,
+        "unit": "ms",
+        "statistic": "p95",
+        "row": "Tap, edit or gesture feedback",
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed target, not a CEO number)",
+        "within": null,
+        "why": "10 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "settledMs": [
+        679.1,
+        464.4,
+        452.4,
+        440.4,
+        473.8,
+        449.1,
+        472.7,
+        471.6,
+        457.5,
+        445.5
+      ],
+      "settledStats": {
+        "n": 10,
+        "min": 440.4,
+        "p50": 457.5,
+        "p95": null,
+        "p99": null,
+        "max": 679.1,
+        "why": "10 samples cannot place a p95 (needs 20) or a p99 (needs 100); a pilot sample"
+      },
+      "burstFrames": [
+        21,
+        15,
+        14,
+        14,
+        14,
+        14,
+        14,
+        14,
+        14,
+        13
+      ],
+      "rejected": [],
+      "part": 2
+    },
+    "typingCost": {
+      "method": "one character per `input text` into the focused composer; /proc/<pid>/io write syscalls and bytes, ftrace ext4/f2fs_sync_file_enter for the app's thread group (root), gfxinfo frames; per keystroke",
+      "units": 18,
+      "framesRendered": 327,
+      "frames": {
+        "frames": 120,
+        "skippedRows": 0,
+        "onTimePercent": 0.8,
+        "maxFrameMs": 68.8,
+        "stallsOver100Ms": 0
+      },
+      "io": {
+        "wchar": 21544266,
+        "syscw": 10750,
+        "write_bytes": 368640,
+        "rchar": 86371,
+        "syscr": 65276
+      },
+      "fsyncs": 18,
+      "perUnit": {
+        "writeSyscalls": 597.22,
+        "bytesWritten": 1196904,
+        "storageBytes": 20480,
+        "fsyncs": 1.0,
+        "frames": 18.17
+      },
+      "draftMatches": true,
+      "part": 3
+    },
+    "streamCost": {
+      "method": "a streamed reply fed as `receive` delta frames through the debug bridge; the same write, fsync and frame counts per delta. The bridge's own save of its document per command is included",
+      "units": 8,
+      "framesRendered": 45,
+      "frames": {
+        "frames": 45,
+        "skippedRows": 1,
+        "onTimePercent": 13.3,
+        "maxFrameMs": 117.1,
+        "stallsOver100Ms": 1
+      },
+      "io": {
+        "wchar": 4748086,
+        "syscw": 3121,
+        "write_bytes": 352256,
+        "rchar": 34122,
+        "syscr": 25261
+      },
+      "fsyncs": 20,
+      "perUnit": {
+        "writeSyscalls": 390.12,
+        "bytesWritten": 593511,
+        "storageBytes": 44032,
+        "fsyncs": 2.5,
+        "frames": 5.62
+      },
+      "includes": "the opening and final rows as well as the deltas; per-delta figures divide the whole reply",
+      "replyMatches": true,
+      "part": 4
+    },
+    "backgroundQuiet": {
+      "method": "HOME; after --background-settle seconds, over --background-seconds: context switches of every app thread, CPU ticks, batterystats reset at the start and read at the end (checkin: wakeup alarms, wake locks, jobs, syncs, network bytes), pending alarms, jobs, held wake locks, open sockets",
+      "zeroWork": false,
+      "target": {
+        "row": "Background quiet",
+        "value": 0,
+        "source": "richos-hq/docs/prds/2026-09-24-richconnect-perceived-speed-and-no-annoyance.md \u00a77 (proposed)"
+      },
+      "seconds": 60.0,
+      "settleSeconds": 5.0,
+      "processAliveAtEnd": true,
+      "settleWindowWakeups": {
+        "total": 113,
+        "threads": [
+          {
+            "tid": 3761,
+            "thread": ".richos.connect",
+            "switches": 58,
+            "new": false
+          },
+          {
+            "tid": 3824,
+            "thread": "RenderThread",
+            "switches": 19,
+            "new": false
+          },
+          {
+            "tid": 3797,
+            "thread": "binder:3761_4",
+            "switches": 13,
+            "new": false
+          },
+          {
+            "tid": 3782,
+            "thread": "binder:3761_2",
+            "switches": 6,
+            "new": false
+          },
+          {
+            "tid": 3913,
+            "thread": "DefaultDispatch",
+            "switches": 5,
+            "new": false
+          },
+          {
+            "tid": 3774,
+            "thread": "Jit thread pool",
+            "switches": 4,
+            "new": false
+          },
+          {
+            "tid": 5968,
+            "thread": "queued-work-loo",
+            "switches": 4,
+            "new": true
+          },
+          {
+            "tid": 3914,
+            "thread": "DefaultDispatch",
+            "switches": 2,
+            "new": false
+          },
+          {
+            "tid": 3775,
+            "thread": "HeapTaskDaemon",
+            "switches": 1,
+            "new": false
+          },
+          {
+            "tid": 3940,
+            "thread": "binder:3761_4",
+            "switches": 1,
+            "new": false
+          }
+        ],
+        "threadsEnded": []
+      },
+      "threadWakeups": {
+        "total": 10,
+        "threads": [
+          {
+            "tid": 3808,
+            "thread": "Profile Saver",
+            "switches": 8,
+            "new": false
+          },
+          {
+            "tid": 3913,
+            "thread": "DefaultDispatch",
+            "switches": 1,
+            "new": false
+          },
+          {
+            "tid": 3914,
+            "thread": "DefaultDispatch",
+            "switches": 1,
+            "new": false
+          }
+        ],
+        "threadsEnded": [
+          3918
+        ]
+      },
+      "cpuTicks": 1,
+      "batterystats": {
+        "cpuMs": {
+          "user": 7,
+          "system": 4
+        },
+        "networkBytes": {
+          "total": 0,
+          "note": "no network row for the uid since the reset"
+        },
+        "wakeupAlarms": [],
+        "wakelocks": [],
+        "jobs": [],
+        "syncs": [],
+        "partialWakelockMs": 0,
+        "processes": [
+          {
+            "name": "dev.richos.connect",
+            "userMs": 990,
+            "systemMs": 550,
+            "starts": 0,
+            "anrs": 0,
+            "crashes": 0
+          }
+        ],
+        "uidSeen": true
+      },
+      "pendingAlarms": [],
+      "scheduledJobs": [],
+      "heldWakeLocks": [],
+      "openSockets": {},
+      "part": 4
+    }
+  },
+  "phases": {
+    "seed": "measured (part 4)",
+    "cold": "measured (part 1)",
+    "cold-live": "measured (part 1)",
+    "idle-conversation": "measured (part 1)",
+    "idle-settings": "measured (part 1)",
+    "warm": "measured (part 2)",
+    "scroll": "measured (part 2)",
+    "tap": "measured (part 2)",
+    "typing": "measured (part 3)",
+    "streaming": "measured (part 4)",
+    "background": "measured (part 4)",
+    "idle-pairing": "measured (part 4)"
+  },
+  "notMeasured": [
+    {
+      "what": "sendToQueued (small text send to durable local queued state, p95 <= 150 ms)",
+      "why": "the tap metric ends at the first frame after the tap; nothing marks the moment the outbox item is durable. Settle: a Trace section (android.os.Trace) around the outbox commit in AppStore/RichCore's send path, read from the same atrace capture as the tap"
+    },
+    {
+      "what": "receiveToVisible (received text to visible text, p95 <= 100 ms)",
+      "why": "no trace mark at the moment stream bytes reach the app (the debug bridge's broadcast has none). Settle: a Trace section where ConnectionOwner hands a stream chunk to the store, then the first frame after it from framestats, as the tap metric does"
+    },
+    {
+      "what": "energy (mAh, OS battery attribution, OEM power-intensive warnings)",
+      "why": "an emulator has no battery or power model; its batterystats power estimates are not energy. Settle: the same background phase on a physical phone (PRD \u00a78 names the mandatory OEM phone family), plus Settings > Battery and the OEM manager over the PRD \u00a78 30-minute and overnight windows"
+    },
+    {
+      "what": "managed Connect and Tailscale routes",
+      "why": "this run used the debug build's scripted Mac (no network). Settle: pair with the lab Mac (native-android README 'Pairing the emulator') or a real Mac; count the phone's requests at the Mac and at the Connect Worker while backgrounded (Sage T7)"
+    },
+    {
+      "what": "release-configuration timing",
+      "why": "a debuggable, unminified build is slower than release; PRD \u00a77 budgets are for release builds. Settle: a profileable release-configuration build signed for local install, and a real pairing to reach the conversation without the debug bridge"
+    },
+    {
+      "what": "typing and streaming cost on the production persistence port",
+      "why": "in a development world the core persists through the bridge's document, not AppPorts' JsonFile. RichCore.commit changes show here; JsonFile changes need a paired production core"
+    },
+    {
+      "what": "physical-device timing",
+      "why": "an emulator on a shared Mac (software GPU, host CPU recorded per phase) is a pilot, never acceptance (PRD \u00a78). Settle: the same command on a phone with --kind physical"
+    }
+  ],
+  "conditions": {
+    "theme": "device",
+    "systemNightModeBefore": "Night mode: no",
+    "fixture": "online",
+    "history": 40,
+    "transport": "unreachable"
+  },
+  "route": {
+    "name": "development fixture",
+    "detail": "the debug build's scripted Mac inside the app: no network. Launch series run with the scripted Mac UNREACHABLE (Sage T6: launch must not depend on the network); the live spot check with it accepting",
+    "persistence": "the development world's document (DevBridge), written through the same RichCore.commit as production but not through the production JsonFile port"
+  },
+  "acceptance": {
+    "verdict": "NOT VERIFIED",
+    "why": [
+      "not a physical device (PRD \u00a78: an emulator or simulator cannot certify)",
+      "not a release configuration (debuggable build; PRD \u00a77 budgets are for release builds)",
+      "20 launch trials, below the PRD \u00a78 protocol of 100"
+    ]
+  },
+  "finishedAt": "2026-09-24T03:44:45Z",
+  "parts": [
+    {
+      "part": 1,
+      "tool": {
+        "path": "richos/mobile/perf/perf.py",
+        "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+        "dirty": false,
+        "paths": [
+          "richos/mobile/perf"
+        ]
+      },
+      "build": {
+        "commit": "3065ac961a371313484f3be990ad13fc904010e0",
+        "dirty": false
+      },
+      "startedAt": "2026-09-24T03:18:26Z",
+      "finishedAt": "2026-09-24T03:21:51Z",
+      "phases": {
+        "seed": "measured",
+        "cold": "measured",
+        "cold-live": "measured",
+        "idle-conversation": "measured",
+        "idle-settings": "measured",
+        "warm": "NOT MEASURED: adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n dev.richos.connect/dev.richos.and exited 1: error: closed",
+        "scroll": "NOT RUN: the device emulator-5580 went away during 'warm' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+        "tap": "NOT RUN: the device emulator-5580 went away during 'warm' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+        "typing": "NOT RUN: the device emulator-5580 went away during 'warm' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+        "streaming": "NOT RUN: the device emulator-5580 went away during 'warm' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+        "background": "NOT RUN: the device emulator-5580 went away during 'warm' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+        "idle-pairing": "NOT RUN: the device emulator-5580 went away during 'warm' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)"
+      },
+      "host": {
+        "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+        "samples": {
+          "seed": {
+            "cpuBusyPercent": 64.7,
+            "memoryPressure": "normal"
+          },
+          "cold": {
+            "cpuBusyPercent": 29.3,
+            "memoryPressure": "normal"
+          },
+          "cold-live": {
+            "cpuBusyPercent": 9.5,
+            "memoryPressure": "normal"
+          },
+          "idle-conversation": {
+            "cpuBusyPercent": 3.7,
+            "memoryPressure": "normal"
+          },
+          "idle-settings": {
+            "cpuBusyPercent": 3.7,
+            "memoryPressure": "normal"
+          },
+          "warm": {
+            "cpuBusyPercent": 4.9,
+            "memoryPressure": "normal"
+          }
+        },
+        "pacing": {
+          "rule": "before each trial and window, wait until the emulator's host process used under 1.5 cores over one second (at most 30 s); keeps the run under the Mac's CPU circuit breaker",
+          "waits": 28,
+          "totalWaitSeconds": 47.2,
+          "notQuiet": 0
+        }
+      },
+      "conditions": {
+        "theme": "device",
+        "systemNightModeBefore": "Night mode: no",
+        "fixture": "online",
+        "history": 40,
+        "transport": "unreachable"
+      }
+    },
+    {
+      "part": 2,
+      "tool": {
+        "path": "richos/mobile/perf/perf.py",
+        "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+        "dirty": false,
+        "paths": [
+          "richos/mobile/perf"
+        ]
+      },
+      "build": {
+        "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+        "dirty": false
+      },
+      "startedAt": "2026-09-24T03:30:31Z",
+      "finishedAt": "2026-09-24T03:37:51Z",
+      "phases": {
+        "seed": "measured",
+        "warm": "measured",
+        "scroll": "measured",
+        "tap": "measured"
+      },
+      "host": {
+        "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+        "samples": {
+          "seed": {
+            "cpuBusyPercent": 58.3,
+            "memoryPressure": "normal"
+          },
+          "warm": {
+            "cpuBusyPercent": 30.5,
+            "memoryPressure": "normal"
+          },
+          "scroll": {
+            "cpuBusyPercent": 6.5,
+            "memoryPressure": "normal"
+          },
+          "tap": {
+            "cpuBusyPercent": 8.4,
+            "memoryPressure": "normal"
+          }
+        },
+        "pacing": {
+          "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
+          "waits": 56,
+          "totalWaitSeconds": 255.7,
+          "notQuiet": 0
+        }
+      },
+      "conditions": {
+        "theme": "device",
+        "systemNightModeBefore": "Night mode: no",
+        "fixture": "online",
+        "history": 40,
+        "transport": "unreachable"
+      }
+    },
+    {
+      "part": 3,
+      "tool": {
+        "path": "richos/mobile/perf/perf.py",
+        "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+        "dirty": false,
+        "paths": [
+          "richos/mobile/perf"
+        ]
+      },
+      "build": {
+        "commit": "5782c54be42f724236d7c4e115d450ae52f855de",
+        "dirty": false
+      },
+      "startedAt": "2026-09-24T03:38:42Z",
+      "finishedAt": "2026-09-24T03:41:18Z",
+      "phases": {
+        "seed": "measured",
+        "typing": "measured",
+        "streaming": "NOT MEASURED: the debug bridge did not answer action (a release build has none): ",
+        "background": "NOT RUN: the device emulator-5580 went away during 'streaming' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)",
+        "idle-pairing": "NOT RUN: the device emulator-5580 went away during 'streaming' (an emulator stopped by the Mac's CPU circuit breaker is one way; see its events)"
+      },
+      "host": {
+        "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+        "samples": {
+          "seed": {
+            "cpuBusyPercent": 60.9,
+            "memoryPressure": "normal"
+          },
+          "typing": {
+            "cpuBusyPercent": 29.4,
+            "memoryPressure": "normal"
+          },
+          "streaming": {
+            "cpuBusyPercent": 34.6,
+            "memoryPressure": "normal"
+          }
+        },
+        "pacing": {
+          "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
+          "waits": 19,
+          "totalWaitSeconds": 142.2,
+          "notQuiet": 0
+        }
+      },
+      "conditions": {
+        "theme": "device",
+        "systemNightModeBefore": "Night mode: no",
+        "fixture": "online",
+        "history": 40,
+        "transport": "unreachable"
+      }
+    },
+    {
+      "part": 4,
+      "tool": {
+        "path": "richos/mobile/perf/perf.py",
+        "commit": "e85e17aba6ff229e885380f50a471f638bc9ae75",
+        "dirty": false,
+        "paths": [
+          "richos/mobile/perf"
+        ]
+      },
+      "build": {
+        "commit": "e85e17aba6ff229e885380f50a471f638bc9ae75",
+        "dirty": false
+      },
+      "startedAt": "2026-09-24T03:42:41Z",
+      "finishedAt": "2026-09-24T03:44:45Z",
+      "phases": {
+        "seed": "measured",
+        "streaming": "measured",
+        "background": "measured",
+        "idle-pairing": "measured"
+      },
+      "host": {
+        "note": "an emulator's timings depend on the Mac running it; sampled at each phase",
+        "samples": {
+          "seed": {
+            "cpuBusyPercent": 49.8,
+            "memoryPressure": "normal"
+          },
+          "streaming": {
+            "cpuBusyPercent": 37.5,
+            "memoryPressure": "normal"
+          },
+          "background": {
+            "cpuBusyPercent": 8.3,
+            "memoryPressure": "normal"
+          },
+          "idle-pairing": {
+            "cpuBusyPercent": 79.4,
+            "memoryPressure": "normal"
+          }
+        },
+        "pacing": {
+          "rule": "before each trial, keystroke, delta, swipe and window, wait until the emulator's host process used under 1.5 cores for four consecutive one-second samples (at most 30 s); keeps the run under the Mac's CPU circuit breaker (3 cores for 10 s, sampled every 2 s)",
+          "waits": 2,
+          "totalWaitSeconds": 33.3,
+          "notQuiet": 0
+        }
+      },
+      "conditions": {
+        "theme": "device",
+        "systemNightModeBefore": "Night mode: no",
+        "fixture": "online",
+        "history": 40,
+        "transport": "unreachable"
+      }
+    }
+  ]
+}
