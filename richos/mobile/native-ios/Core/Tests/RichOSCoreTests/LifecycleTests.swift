@@ -48,12 +48,16 @@ actor LifecycleStream: EventStreamTransport {
                 continuation.onTermination = { _ in Task { await self.markClosed() } }
                 for chunk in chunks { continuation.yield(Data(chunk.utf8)) }
             }
+            held += 1
             return (HTTPResponse(status: 200, headers: ["X-RichOS-Challenge": "c-open"]), stream)
         }
     }
 
+    /// Streams handed out held open, and how many of those the phone has closed.
+    private var held = 0
     private func markClosed() { closed += 1 }
-    var open: Int { opened.count - closed }
+    /// Streams open right now: held open and not yet closed by the phone.
+    var open: Int { held - closed }
 }
 
 /// The Mac's JSON routes: `/api/challenge` offers a new challenge each time; the revocation probe
@@ -256,6 +260,61 @@ func holds(_ ms: UInt64 = 250, _ condition: @Sendable () async -> Bool) async ->
         #expect(s.troubleSinceMs == nil, "the reopened stream is connected; no Reconnecting… is owed")
         #expect(s.connectionNotice == nil && TickSchedule.nextTick(s) == nil)
         _ = try await host.dispatch(.backgrounded(at: 9))
+    }
+
+    /// Back on screen after the challenge aged out (ten minutes in a pocket): ONE reconnect at once,
+    /// re-signed with the challenge the Mac's refusal offered, and no back-off wait in front of the
+    /// person; then, if the Mac is away, the usual back-off from 1 s (Android `ConnectionOwnerTest`
+    /// "back on screen it reconnects at once, then backs off as before"). Before, the stale attempt
+    /// was a failure: "connection lost", a revocation probe and a 1 s wait before the real one.
+    @Test func backOnScreenItReconnectsAtOnceWithALiveChallengeThenBacksOff() async throws {
+        let stream = LifecycleStream([
+            .open(chunks: [LifecycleStream.hello]),
+            .status(404, challenge: "c-fresh"),
+            .open(chunks: [LifecycleStream.hello]),
+            .unreachable,
+        ], fallback: .unreachable)
+        let waits = Waits()
+        let network = NetworkEffects(transport: LifecycleMac(), stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+                                     sleep: waits.sleep)
+        let host = try await host(network, state: try paired())
+        _ = try await host.dispatch(.foregrounded(at: 1))
+        #expect(await becomes { await stream.open == 1 })
+        _ = try await host.dispatch(.backgrounded(at: 2))
+        #expect(await becomes { await stream.open == 0 })
+
+        _ = try await host.dispatch(.foregrounded(at: 3))
+        #expect(await becomes { await stream.open == 1 }, "reconnected")
+        let opened = await stream.opened
+        #expect(opened.count == 3, "the stale attempt, then the re-signed one: \(opened.map(\.target))")
+        #expect(opened.last?.target.contains(".c-fresh.") == true, "signed with the challenge the refusal offered")
+        #expect(await waits.asked.isEmpty, "no back-off wait before the reconnect")
+        #expect(try await host.currentState().troubleSinceMs == nil, "and no connection lost on the way")
+
+        // The Mac goes away while the app is off screen: back on screen, one attempt, then 1 s.
+        _ = try await host.dispatch(.backgrounded(at: 4))
+        #expect(await becomes { await stream.open == 0 })
+        _ = try await host.dispatch(.foregrounded(at: 5))
+        #expect(await becomes { await waits.asked == [1000] }, "one attempt at once, then the back-off starts again at 1 s")
+        #expect(await holds { await stream.opened.count == 4 }, "nothing more until the wait ends")
+        _ = try await host.dispatch(.backgrounded(at: 6))
+    }
+
+    /// A relaunch holds no challenge (none is stored). The first attempt asks for one and opens the
+    /// stream at once; before, it could not be signed, so it counted as a failure and waited 1 s.
+    @Test func aColdStartOpensTheStreamAtOnce() async throws {
+        let stream = LifecycleStream()
+        let mac = LifecycleMac()
+        let waits = Waits()
+        let network = NetworkEffects(transport: mac, stream: stream, identities: MemoryIdentityStore(), clock: FixedClock(ms: 5),
+                                     sleep: waits.sleep)
+        let host = try await host(network, state: try paired())
+        _ = try await host.dispatch(.foregrounded(at: 1))
+        #expect(await becomes { await stream.open == 1 })
+        #expect(await mac.targets == ["GET /api/challenge"], "one challenge, then the stream")
+        #expect(await waits.asked.isEmpty)
+        #expect(try await host.currentState().troubleSinceMs == nil)
+        _ = try await host.dispatch(.backgrounded(at: 2))
     }
 
     /// A `disconnect` that lands between the new owner being recorded and its start must still win.

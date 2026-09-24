@@ -80,7 +80,10 @@ public actor LiveConnection {
         var since: Int?
         var first = true
         while mine == generation, !Task.isCancelled {
-            if !first { _ = try? await api.probeChallenge() }
+            // A retry asks for a live challenge first (link.js rule 2). So does a first attempt with
+            // none held: after a relaunch none is stored, and signing needs one.
+            let held = await api.challenge
+            if !first || held == nil { _ = try? await api.probeChallenge() }
             first = false
             attempts += 1
             var path = "/api/events"
@@ -90,8 +93,7 @@ public actor LiveConnection {
             if !query.isEmpty { path += "?" + query.joined(separator: "&") }
             var resnapshot = false
             do {
-                let request = try await api.signedRequest("GET", path, credential: .query)
-                let (response, bytes) = try await stream.open(request, origin: api.origin)
+                let (response, bytes) = try await openSigned(path)
                 if response.status != 200 {
                     if response.status == 403, APIClient.classify(response).reason == .revoked {
                         await sink(.pairingRevoked)
@@ -138,6 +140,30 @@ public actor LiveConnection {
                 do { try await sleep(delay) } catch { return }
                 delay = min(delay * 2, Self.maxRetryMs)
             }
+        }
+    }
+
+    /// Opens the stream signed with the challenge held. Every answer's `X-RichOS-Challenge` replaces
+    /// the held one (the Mac puts one on every response, 404 included: `phone/listen.rs` `render`).
+    /// A 404 offering a DIFFERENT challenge is the held one aged out — ten minutes
+    /// (`mobile/service/CONNECT.md`), so the usual case after the phone sat in a pocket — and is
+    /// re-signed with it and opened once more at once: the contract's once-only re-sign
+    /// (`conformance/vectors/challenge.json`, `APIClient.signed`), with no back-off wait in front of
+    /// the person who just came back. A fresh challenge costs nothing extra; only a stale one costs
+    /// the second request, which a probe before every return would cost every time.
+    private func openSigned(_ path: String) async throws -> (response: HTTPResponse, bytes: AsyncThrowingStream<Data, Error>) {
+        var resigned = false
+        while true {
+            let signedWith = await api.challenge
+            let request = try await api.signedRequest("GET", path, credential: .query)
+            let (response, bytes) = try await stream.open(request, origin: api.origin)
+            let offered = response.header("X-RichOS-Challenge")
+            if let offered { await api.adopt(challenge: offered) }
+            if response.status == 404, !resigned, let offered, offered != signedWith {
+                resigned = true
+                continue
+            }
+            return (response, bytes)
         }
     }
 
