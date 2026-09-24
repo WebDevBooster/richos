@@ -616,14 +616,17 @@ async fn handle(channel: Arc<Channel>, drain: Arc<Drain>, request: Request<Hyper
     // at a time (`DeviceDesk::hold_answer`), and for at most `PAIR_WAIT_MAX_SECONDS`. No blocking
     // thread is held: this is one async task waiting on the desk's release signal.
     if let Some(seconds) = wait.filter(|_| super::routes::holdable(&incoming, &outcome)) {
-        let _ = tokio::time::timeout(
+        let ended = tokio::time::timeout(
             std::time::Duration::from_secs(seconds),
             channel.devices.hold_answer(since),
         )
         .await;
         // Something changed — the press, a refusal, an expiry, a teardown — so the request is
-        // run again and the phone is sent THAT answer. Otherwise it is "still waiting", as before.
-        if channel.devices.hold_generation() != since {
+        // run again and the phone is sent THAT answer. A hold that was superseded or ran its full
+        // time is "still waiting", as before, unless a release landed in its last instant.
+        let released = matches!(ended, Ok(super::device::HoldEnd::Released))
+            || channel.devices.hold_generation() != since;
+        if released {
             outcome = run(&channel, &incoming).await;
         }
     }
@@ -2982,7 +2985,9 @@ mod tests {
             if let Some(mut listener) = self.listener.lock().unwrap().take() {
                 listener.stop();
             }
-            let _ = std::fs::remove_dir_all(&self.dir);
+            if let Err(error) = std::fs::remove_dir_all(&self.dir) {
+                eprintln!("[test] could not remove {}: {error}", self.dir.display());
+            }
         }
     }
 
@@ -3056,7 +3061,11 @@ mod tests {
             tls.write_all(body).expect("write body");
             tls.flush().ok();
             let mut raw = Vec::new();
-            let _ = tls.read_to_end(&mut raw);
+            // A close without close_notify ends the read with an error after the whole answer has
+            // arrived; what was read is what is parsed, so the error is said and not acted on.
+            if let Err(error) = tls.read_to_end(&mut raw) {
+                eprintln!("[test] the answer's read ended with: {error}");
+            }
             parse_response(&raw)
         }
 
