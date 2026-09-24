@@ -35,6 +35,28 @@ launch arguments `-rios-fixture <name> -rios-appearance dark|light` open the app
 `voice-interrupted`, `revoked`) carry their own checks and run identically headless and in the
 simulator (`sim verify` requires byte-identical results).
 
+## Physical iPhone checks
+
+`bin/rios device build` builds the `RichOSPhysical` Release scheme with development
+signing and sandbox APNs. Set `RICHOS_IOS_DEVICE` to the physical UDID and
+`RICHOS_APPLE_TEAM` to the signing team. Build output stays in the external cache.
+
+For `bin/rios device verify pairing`, `device verify text` or `device verify recording`, also set
+`RICHOS_MOBILE_TEST_CONFIG` to the isolated lab's external JSON with
+`"isolatedLab": "true"`. Pairing requires its current HTTPS `pairLink` and exact
+fingerprint `words`; recording requires that same isolated session already paired.
+These checks drive normal Release UI and real microphone capture. They never use
+fixtures or pass the lab configuration to the app. Do not run them against a personal
+conversation. Pairing starts unpaired. Recording discards its first test capture and
+retains the recovered termination capture for independent WAV inspection.
+
+The runner checks host USB continuity, bounds each check, stops on failure and rejects
+skipped or missing tests. It never resets USB or retries automatically. Each invocation
+retains its log and result bundle; the private test specification is removed afterward.
+Trust or verification failures before launch are not successful device tests. Local
+signing does not itself prove device acceptance. Release timing and energy qualification
+are separate from these functional checks.
+
 ## The protocol, and the shared corpus
 
 `Core/Sources/RichOSCore/Protocol/` speaks the Mac's phone protocol: request signing, the event

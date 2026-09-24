@@ -95,6 +95,17 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.richos.connect.uitests
         TEST_TARGET_NAME: RichOSNative
 schemes:
+  RichOSPhysical:
+    build:
+      targets:
+        RichOSNative: all
+    test:
+      config: Release
+      targets:
+        - name: RichOSNativeUITests
+          selectedTests:
+            - PhysicalDeviceTests
+      gatherCoverageData: false
   RichOSNative:
     build:
       targets:

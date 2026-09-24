@@ -44,6 +44,11 @@ if [ "${1:-}" = "perf" ]; then
   PYTHONDONTWRITEBYTECODE=1 exec python3 "$HERE/../perf/perf.py" ios "$@"
 fi
 
+if [ "${1:-}" = "device" ]; then
+  shift
+  exec node "$HERE/Tools/physical-device.mjs" "$@"
+fi
+
 if [ "${1:-}" = "test" ]; then
   shift
   exec python3 "$HERE/../../engine/scripts/lib/native-work.py" -- swift test --package-path "$CORE" --scratch-path "$SCRATCH" "$@"
