@@ -1,0 +1,47 @@
+# The RichConnect review Worker. A TEMPLATE: copy it outside the repository, replace every
+# example.org name with names in the zone chosen for review (never richos.ceo; see README), and
+# deploy from the copy with --config. Nothing in this file is secret; the secrets go in with
+# `wrangler secret bulk` (README, "Deploy").
+
+name = "richconnect-review"
+main = "src/worker.mjs"
+# The newest date the local runtime test has run against (test/runtime.test.mjs).
+compatibility_date = "2026-06-25"
+
+# No public workers.dev or preview address, as for the Connect Worker.
+workers_dev = false
+preview_urls = false
+
+# One custom domain per name: the access page and each review host. Custom domains get their own
+# certificates. Never a wildcard route, and never a name in the richos.ceo zone (Sage M2).
+routes = [
+  { pattern = "review.example.org", custom_domain = true },
+  { pattern = "apple.review.example.org", custom_domain = true },
+  { pattern = "google.review.example.org", custom_domain = true },
+  { pattern = "spare.review.example.org", custom_domain = true }
+]
+
+# No logs or traces, as for the Connect Worker. (Tables start here: every top-level key above.)
+[observability]
+enabled = false
+
+[vars]
+ACCESS_HOSTNAME = "review.example.org"
+REVIEW_HOSTS = '[{"hostname":"apple.review.example.org","label":"Apple App Review","username":"apple-review"},{"hostname":"google.review.example.org","label":"Google Play review","username":"google-review"},{"hostname":"spare.review.example.org","label":"Additional device","username":"spare-review"}]'
+PAIRING_WORDS = "v1"
+CONNECT_ORIGIN = "https://connect.richos.ceo"
+
+# Each review host is one Durable Object, keyed by its hostname: that is the isolation.
+[[durable_objects.bindings]]
+name = "HOSTS"
+class_name = "ReviewHost"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ReviewHost"]
+
+# Sign-in attempts: 10 a minute per caller address (hashed before use).
+[[ratelimits]]
+name = "LOGIN_LIMIT"
+namespace_id = "7301"
+simple = { limit = 10, period = 60 }
