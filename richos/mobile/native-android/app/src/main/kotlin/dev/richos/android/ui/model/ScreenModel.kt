@@ -55,8 +55,8 @@ data class ScreenModel(
     val playing: Pair<String, Float>? = null,
     /** Where times are shown (the phone's zone; fixed in fixtures so frames never move). */
     val zone: ZoneId = ZoneId.systemDefault(),
-    /** STAND-IN (core: conversation backfill). What sits above the oldest message. */
-    val history: HistoryEdge = HistoryEdge.MORE_AVAILABLE,
+    /** Optional catalog pose; production derives paging from the core. */
+    val history: HistoryEdge? = null,
     /** Core's sentence for the last action it refused (`AppStore.lastRefusal`), or null. */
     val refusal: String? = null,
     /**
@@ -107,6 +107,11 @@ data class ScreenModel(
     /** Presentation clock for "Now" labels on pending messages: epoch ms, or null. */
     val nowMs: Long? = null,
 ) {
+    val historyEdge: HistoryEdge get() = history ?: when {
+        app.loadingOlder -> HistoryEdge.LOADING_OLDER
+        app.olderAvailable -> HistoryEdge.MORE_AVAILABLE
+        else -> HistoryEdge.BEGINNING
+    }
     /** The reply opened from a notification (core `focusMessageId`), which glows once. */
     val focusedId: String? get() = app.focusMessageId
 

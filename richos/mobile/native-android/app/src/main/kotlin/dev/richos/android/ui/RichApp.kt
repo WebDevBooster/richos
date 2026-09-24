@@ -311,7 +311,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         } else {
             Thread(
                 messages = thread,
-                edge = model.history,
+                edge = model.historyEdge,
                 dayLabel = if (model.cachedWhileOffline) "Showing what was on this phone · your Mac is out of reach" else "Today",
                 controller = controller,
                 topPadding = headerDp + 16.dp,

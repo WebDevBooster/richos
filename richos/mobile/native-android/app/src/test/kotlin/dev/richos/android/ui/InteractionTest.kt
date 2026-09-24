@@ -64,7 +64,7 @@ class InteractionTest {
         set(screen("comp-typing"))
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Send message").performClick()
-        assertEquals(Action.Send, actions.last())
+        assertEquals(1, actions.count { it == Action.Send })
     }
 
     @Test
@@ -217,6 +217,25 @@ class InteractionTest {
         assertTrue("the composer's width in dp (was ${press.width})", press.width in 300.0..360.0)
         val move = voice.filterIsInstance<Action.VoiceMove>().last()
         assertTrue("left travel in dp (was ${move.dx})", move.dx < -20.0)
+    }
+
+    @Test
+    fun `reaching older history invokes core once and loading failure does not spin`() {
+        val base = screen("conv-populated").let { it.copy(app = it.app.copy(olderAvailable = true)) }
+        val update = show(base)
+        repeat(12) {
+            if (Action.LoadOlder !in actions) {
+                compose.onNodeWithTag("thread").performTouchInput { swipeDown(startY = centerY - 200f, endY = centerY + 600f) }
+                compose.waitForIdle()
+            }
+        }
+        assertTrue("the scroll edge must reach the core action", Action.LoadOlder in actions)
+        val count = actions.count { it == Action.LoadOlder }
+        update(base.copy(app = base.app.copy(loadingOlder = true)))
+        compose.waitForIdle()
+        update(base)
+        compose.waitForIdle()
+        assertEquals("a failed page must not restart itself", count, actions.count { it == Action.LoadOlder })
     }
 
     @Test

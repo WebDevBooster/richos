@@ -147,7 +147,10 @@ fun Thread(
     }
     // Reaching the oldest loaded message asks core for the next chunk (no pagination).
     val nearOldest by remember { derivedStateOf { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index == state.layoutInfo.totalItemsCount - 1 } }
-    LaunchedEffect(nearOldest, edge) {
+    val oldest = messages.firstOrNull()?.id
+    // A failed page must not cycle MORE -> LOADING -> MORE into an immediate request loop.
+    // Core owns bounded transient retries. A new page or a new approach to the edge can ask again.
+    LaunchedEffect(nearOldest, oldest) {
         if (nearOldest && edge == HistoryEdge.MORE_AVAILABLE && !follow.following) onEvent(UiEvent.NearOldest)
     }
 

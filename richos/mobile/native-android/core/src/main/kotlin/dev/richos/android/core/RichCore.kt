@@ -16,6 +16,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URI
 
 /**
@@ -218,6 +226,7 @@ class RichCore private constructor(
     suspend fun backgrounded(): AppState {
         visible = false
         outbox.backgrounded()
+        historyJob?.cancel()
         ports.recorder.stopPlayback()
         return mutex.withLock {
         playingRecordingId = null
@@ -420,36 +429,65 @@ class RichCore private constructor(
     // --- older messages (contract §5.5) ----------------------------------------------------------
 
     private var loadingOlder = false
+    @Volatile private var historyJob: Job? = null
 
-    private suspend fun loadOlder(): AppState {
+    private suspend fun loadOlder(): AppState = coroutineScope {
+        val operation = currentCoroutineContext()[Job]!!
+        var mine = 0
         val request = mutex.withLock {
             val thread = session.selectedThreadId
             val p = session.pairing
             val oldest = thread?.let { session.cache[it] }?.minOfOrNull { it.cursor }
-            if (loadingOlder || thread == null || oldest == null || session.olderAvailable[thread] != true || !session.paired ||
+            if (!visible || !session.online || loadingOlder || thread == null || oldest == null || session.olderAvailable[thread] != true || !session.paired ||
                 p.apiBase == null || p.deviceId == null || p.challenge == null
             ) {
                 return@withLock null
             }
             loadingOlder = true
+            historyJob = operation
+            mine = generation
             emit()
             Triple(thread, oldest, p)
-        } ?: return flow.value
+        } ?: return@coroutineScope flow.value
         val (thread, oldest, p) = request
-        val outcome = runCatching { api.backfill(p.apiBase!!, p.deviceId!!, p.challenge!!, thread, oldest) }
-        return mutex.withLock {
-            loadingOlder = false
-            val (answer, challenge) = outcome.getOrNull() ?: return@withLock emit()
-            val held = session.cache[thread].orEmpty()
-            val merged = bounded(answer.messages + held, held.size + answer.messages.size)
-            commit(
-                session.copy(
+        try {
+            val result = withTimeoutOrNull(10_000) { historyPage(p, thread, oldest) }
+            if (result != null) mutex.withLock {
+                if (!visible || generation != mine || session.pairing.apiBase != p.apiBase) return@withLock
+                val (answer, challenge) = result
+                val held = session.cache[thread].orEmpty()
+                val merged = bounded(answer.messages + held, held.size + answer.messages.size)
+                commit(session.copy(
                     cache = session.cache + (thread to merged),
                     olderAvailable = session.olderAvailable + (thread to answer.more),
                     pairing = session.pairing.copy(challenge = challenge),
-                ),
-            )
+                ))
+            }
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    if (historyJob === operation) {
+                        historyJob = null
+                        loadingOlder = false
+                        emit()
+                    }
+                }
+            }
         }
+        flow.value
+    }
+
+    private suspend fun historyPage(pairing: Pairing, thread: String, oldest: Long): Pair<dev.richos.android.core.protocol.Backfill, String>? {
+        for (attempt in 1..3) {
+            currentCoroutineContext().ensureActive()
+            if (!visible || !session.online) return null
+            try { return api.backfill(pairing.apiBase!!, pairing.deviceId!!, pairing.challenge!!, thread, oldest) }
+            catch (failure: TransportFailure) {
+                if (!failure.retryable || attempt == 3) return null
+                delay(Outbox.retryDelayMs(attempt))
+            }
+        }
+        return null
     }
 
     // --- photos and files (CEO §75; Echo 22e59ed8) ------------------------------------------------
