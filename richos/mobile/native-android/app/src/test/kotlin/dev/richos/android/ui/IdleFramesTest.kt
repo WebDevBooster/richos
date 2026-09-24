@@ -115,6 +115,29 @@ class IdleFramesTest {
         }
     }
 
+    /**
+     * The measured redraw (e45d301f emulator: 31 frames a second for as long as the Mac was away):
+     * the Reconnecting dot breathes for its first 10 s, then rests at full opacity and draws
+     * nothing until the notice goes; a new Reconnecting breathes again.
+     */
+    @Test
+    fun `the Reconnecting dot breathes for 10 s, then rests until the state changes`() {
+        show(screen("conn-reconnecting"))
+        compose.mainClock.advanceTimeBy(3_000)
+        assertEquals("breathing at 3 s", 120, busyFrames())
+        // 3 s + 2 s measured. Fifteen 700 ms legs end at 10.5 s, each starting on the frame after
+        // the last ended (~16 ms apiece), so the dot is at rest before 11 s; measured from 11.5 s.
+        compose.mainClock.advanceTimeBy(RichMotion.PULSE_FOR_MS + 1_500L - 5_000L)
+        assertEquals("busy frames at rest, 11.5 s in", 0, busyFrames())
+        compose.mainClock.advanceTimeBy(60_000)
+        assertEquals("a minute later", 0, busyFrames())
+        // The link comes back, then drops again: a new notice, a new dot.
+        atRest(screen("conv-populated"))
+        show(screen("conn-reconnecting"))
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals("a new Reconnecting breathes", 120, busyFrames())
+    }
+
     /** The conversation, with core's recording ended as [ending] and not yet settled. */
     private fun ended(ending: VoiceEnding, toast: Toast?): ScreenModel {
         val base = screen("comp-idle")
