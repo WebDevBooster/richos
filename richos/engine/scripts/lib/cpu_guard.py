@@ -287,7 +287,7 @@ def install(engine):
     config = dict(Label=LABEL, ProgramArguments=['/usr/bin/python3', '-B', str(target), 'watch', str(Path(engine).resolve())],
                   RunAtLoad=True, KeepAlive=True, ThrottleInterval=5, ProcessType='Background',
                   EnvironmentVariables={'RICHOS_CPU_GUARD_STATE': str(STATE), 'LC_ALL': 'C'},
-                  StandardOutPath=str(STATE / 'launchd.log'), StandardErrorPath=str(STATE / 'launchd.log'))
+                  StandardOutPath='/dev/null', StandardErrorPath='/dev/null')
     agent.parent.mkdir(parents=True, exist_ok=True)
     with agent.open('wb') as out:
         plistlib.dump(config, out)
