@@ -432,6 +432,24 @@ def hook():
     return 0
 
 
+def notice_payload(payload):
+    alert = read_json(STATE/'alert.json')
+    message = ''
+    if not healthy():
+        message = 'CPU GUARD UNHEALTHY: native build and device admission is closed.'
+    marker = STATE/'notices'/('visible-' + str(payload.get('session_id', 'unknown')).replace('/', '_') + '.json')
+    seen = read_json(marker, {})
+    if alert and seen.get('at') != alert.get('at'):
+        message += ' CPU GUARD ALERT: ' + json.dumps(alert)
+        write_json(marker, {'at':alert.get('at')})
+    if not message:
+        return None
+    result = {'systemMessage':message.strip()}
+    if payload.get('hook_event_name') == 'SessionStart':
+        result['hookSpecificOutput'] = {'hookEventName':'SessionStart','additionalContext':message.strip()}
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['watch', 'install', 'register', 'hook', 'status', 'notice', 'notice-json'])
@@ -444,22 +462,19 @@ def main():
     if a.action == 'status':
         print(json.dumps(dict(healthy=healthy(), heartbeat=read_json(STATE/'heartbeat.json'), alert=read_json(STATE/'alert.json'))))
         return 0 if healthy() else 1
-    if a.action in ('notice', 'notice-json'):
+    if a.action == 'notice-json':
+        result = notice_payload(json.load(sys.stdin))
+        if result: print(json.dumps(result))
+    if a.action == 'notice':
+        if not healthy(): print('CPU GUARD UNHEALTHY: native build and device admission is closed.')
         alert = read_json(STATE/'alert.json')
-        message = ''
-        if not healthy(): message = 'CPU GUARD UNHEALTHY: native build and device admission is closed.'
-        if alert: message += ' CPU GUARD ALERT: ' + json.dumps(alert)
-        if message:
-            if a.action == 'notice-json':
-                payload = json.load(sys.stdin)
-                result = {'systemMessage': message.strip()}
-                if payload.get('hook_event_name') == 'SessionStart':
-                    result['hookSpecificOutput'] = {'hookEventName':'SessionStart', 'additionalContext':message.strip()}
-                print(json.dumps(result))
-            else:
-                print(message.strip())
+        if alert: print('CPU GUARD ALERT: ' + json.dumps(alert))
     return 0
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:
+        print('cpu-guard: ' + str(exc), file=sys.stderr)
+        sys.exit(2)

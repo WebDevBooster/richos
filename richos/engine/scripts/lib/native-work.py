@@ -32,6 +32,26 @@ def capped(command):
     return command
 
 
+def wait_for_headroom(reserve, timeout=1800):
+    deadline = time.monotonic() + timeout
+    announced = False
+    while True:
+        try:
+            # macOS can return identical cached counters for a subsecond read.
+            # Use reserve's full interval and retry an unavailable measurement.
+            sample = reserve.host_sample()
+        except BlockingIOError:
+            sample = None
+        if sample is not None and not reserve._refusal(sample, 60, 16) and sample['cpu_idle_percent'] >= 30:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError('native build admission timed out waiting for measurable CPU/memory headroom')
+        if not announced:
+            print('native-work: waiting for measurable CPU/memory headroom', file=sys.stderr, flush=True)
+            announced = True
+        time.sleep(3)
+
+
 def run(command):
     if sys.platform == 'darwin' and not cpu_guard.healthy():
         raise RuntimeError('CPU watchdog is not healthy; native work refused. Run cpu_guard.py status.')
@@ -49,14 +69,7 @@ def run(command):
         if sys.platform == 'darwin':
             sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'app/scripts/testvm'))
             import reserve
-            deadline = time.monotonic() + 1800
-            while True:
-                sample = reserve.host_sample(.25)
-                if not reserve._refusal(sample, 60, 16) and sample['cpu_idle_percent'] >= 30:
-                    break
-                if time.monotonic() >= deadline:
-                    raise TimeoutError('native build waited 30 minutes for host headroom')
-                time.sleep(3)
+            wait_for_headroom(reserve)
             if not cpu_guard.healthy():
                 raise RuntimeError('CPU watchdog stopped during admission')
         env = {**os.environ, 'RICHOS_MACHINE_WORKERS': directory,
