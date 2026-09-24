@@ -342,8 +342,13 @@ const SURFACES = [
     // of margin to either edge of its minute; `phone.js` pins the same knob for its own two
     // shots and `settings-fit.js` pins it at 245 for the same reason. It pins the ANSWER and
     // does not move the clock, so every color this suite measures is the one it measured before.
+    //
+    // AND THE SIX WORDS ARE NO LONGER ON IT (Sage's pairing review 3.1 steps 1 and 4): they are
+    // derived over the key a phone registers, so they appear on the card the phone reaches —
+    // surface `phone-awaiting-mac` below — beside the two buttons that answer them. The driver
+    // now waits on the code itself, which is this screen's last-painted thing.
     name: "phone-pairing",
-    what: "the pairing screen: the code, the countdown, the four phone steps and the six words",
+    what: "the pairing screen: the code, the countdown, the four phone steps and where the six words will appear",
     preset: {phonePairing: true, phonePairingSecondsLeft: 270, phoneTailnet: {
       state: "ready",
       name: "mm1.tail9a3b2.ts.net",
@@ -353,13 +358,32 @@ const SURFACES = [
     drive: async (p) => {
       await p.click("#set-btn");
       await p.click("#set-phone-open");
-      // The six words are the last thing the sheet paints, so their presence is the signal that
+      // The code is the last thing the pairing screen paints, so its presence is the signal that
       // the whole pairing state is up rather than a guess at a delay.
       await p.waitForFunction(() => {
-        const words = document.getElementById("phone-words");
-        return words && words.textContent.trim().split(/\s+/).length === 6;
+        const code = document.getElementById("phone-pair-url");
+        return code && /#pair=/.test(code.textContent);
       });
       await p.waitForSelector("#phone-pairing", {state:"visible"});
+      await overlaySettled(p, "#phone-sheet");
+    },
+  },
+  {
+    // THE CARD A PHONE REACHES, WAITING FOR THE PRESS ON THIS MAC — Sage's pairing review F1. The
+    // six words (derived over the key that phone registered) and the two buttons that answer them:
+    // They match activates the phone, They do not match runs the rejection teardown. Its own
+    // surface because it is the one screen where those three things are drawn.
+    name: "phone-awaiting-mac",
+    what: "a phone has reached this Mac: the six words and They match / They do not match, before the press",
+    preset: {phonePaired: true, phoneMacUnconfirmed: true, phoneFingerprintUnconfirmed: true},
+    drive: async (p) => {
+      await p.click("#set-btn");
+      await p.click("#set-phone-open");
+      await p.waitForFunction(() => {
+        const words = document.getElementById("phone-paired-words");
+        return words && !words.hidden && words.textContent.trim().split(/\s+/).length === 6;
+      });
+      await p.waitForSelector("#phone-mac-answer", {state:"visible"});
       await overlaySettled(p, "#phone-sheet");
     },
   },

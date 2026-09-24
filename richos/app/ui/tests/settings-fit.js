@@ -433,7 +433,10 @@ async function main() {
       contentHeight: scroller.scrollHeight,
       clientHeight: scroller.clientHeight,
       scrollTop: Math.round(scroller.scrollTop),
-      codeOnScreen: ["phone-qr-pair", "phone-pair-url", "phone-countdown", "phone-words"].every((id) => {
+      // The six words are no longer beside the code (Sage's pairing review 3.1): they appear on the
+      // card a phone reaches, beside They match. What must be on screen with a live code is the
+      // code, its address, its countdown and the note that says where the words will appear.
+      codeOnScreen: ["phone-qr-pair", "phone-pair-url", "phone-countdown", "phone-words-note"].every((id) => {
         const br = document.getElementById(id).getBoundingClientRect();
         return br.top >= 0 && br.bottom <= window.innerHeight && br.height > 0;
       }),
