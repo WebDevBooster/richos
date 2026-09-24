@@ -296,7 +296,7 @@ private fun Conversation(model: ScreenModel, menuOpen: Boolean, onEvent: (UiEven
         val maxAbove = maxHeight * 0.4f
         val headerDp = with(density) { headerPx.toDp() }
         val zoneDp = with(density) { zonePx.toDp() }
-        if (thread.isEmpty() && model.history == HistoryEdge.MORE_AVAILABLE) {
+        if (thread.isEmpty() && model.historyEdge != HistoryEdge.LOADING_OLDER) {
             // Bottom-padded by the composer zone's own measured height (as Thread's scroll is,
             // line below): at the smallest phone and the largest text the added voice-message
             // paragraph is tall enough to reach the composer, and must scroll clear of it rather

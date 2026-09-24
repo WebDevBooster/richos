@@ -154,6 +154,9 @@ class MockupFidelityTest {
         val verbatim = "Press and hold the gold microphone to record a voice message. Release to send. Or slide left to cancel. Or slide up to lock. Because then you don't need to hold and can scroll."
         show(screen("conv-empty"))
         assertEquals(verbatim, text(tagged("mic-how")))
+        // A real empty hello has no older page. It still needs the first-use instructions.
+        show(ScreenModel(app = screen("conv-empty").app.copy(olderAvailable = false)))
+        assertEquals(verbatim, text(tagged("mic-how")))
     }
 
     /**
