@@ -1,5 +1,6 @@
 package dev.richos.android.ui.overlays
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -63,6 +64,7 @@ import dev.richos.android.ui.model.SettingsInfo
 /** The scrim behind sheets and dialogs; a tap on it closes what is open (never a blocking one). */
 @Composable
 fun Scrim(onDismiss: (() -> Unit)?) {
+    BackHandler(enabled = onDismiss != null) { onDismiss?.invoke() }
     val c = Rich.colors
     val a = remember { Animatable(0f) }
     LaunchedEffect(Unit) { a.animateTo(1f, tween(250)) }

@@ -1,6 +1,8 @@
 package dev.richos.android.ui
 
 import android.app.Application
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -46,11 +48,15 @@ class InteractionTest {
     val compose = createComposeRule()
 
     private val events = mutableListOf<UiEvent>()
+    private lateinit var backDispatcher: OnBackPressedDispatcher
     private val actions get() = events.mapNotNull { it.toAction() }
 
     private fun show(model: ScreenModel): (ScreenModel) -> Unit {
         var current by mutableStateOf(model)
-        compose.setContent { RichApp(current, onEvent = { events += it }) }
+        compose.setContent {
+            backDispatcher = checkNotNull(LocalOnBackPressedDispatcherOwner.current).onBackPressedDispatcher
+            RichApp(current, onEvent = { events += it })
+        }
         compose.waitForIdle()
         return { current = it }
     }
@@ -146,6 +152,13 @@ class InteractionTest {
         // The sheet covers the middle of the scrim; press the scrim itself, as TalkBack would.
         compose.onNodeWithContentDescription("Close").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         assertEquals(Action.CloseSheet, actions.last())
+    }
+
+    @Test
+    fun `system Back dismisses Settings instead of leaving the conversation`() {
+        show(screen("settings"))
+        compose.runOnIdle { backDispatcher.onBackPressed() }
+        assertEquals(listOf(UiEvent.CloseOverlay), events)
     }
 
     @Test
