@@ -422,6 +422,33 @@ do {
     check(ScreenModel(state: Reducer.reduce(noMac, .pickAttachments(.files)).state).cards.contains(.attachMacUnsupported), "attach: a Mac without attachments says so")
 }
 
+// D03 (native acceptance r1): the microphone-off card is the answer to a press, never the OS's answer
+// alone; Not now and a grant take it down. (Not now's button is proved end to end by InteractionTests.)
+do {
+    let off = Reducer.reduce(try! Fixture.named("comp-idle").state, .microphonePermission(.denied)).state
+    check(!ScreenModel(state: off).cards.contains(.microphoneDenied), "D03 a denial alone, before any press, draws no microphone card")
+    let pressed = Reducer.reduce(off, .voicePress(id: "v", width: 386, at: 1)).state
+    check(ScreenModel(state: pressed).cards.contains(.microphoneDenied), "D03 a press with the microphone off draws the card")
+    check(!ScreenModel(state: Reducer.reduce(pressed, .dismissMicrophoneCard).state).cards.contains(.microphoneDenied), "D03 Not now takes the card down")
+    check(!ScreenModel(state: Reducer.reduce(pressed, .microphonePermission(.granted)).state).cards.contains(.microphoneDenied), "D03 a grant takes the card down")
+}
+// I05 (native acceptance r1, the physical iPhone): with "Waiting to send" already showing, the
+// microphone-off card stacks under it, and the region above the composer brings it into view.
+// (The scroll itself is proved on a simulator by InteractionTests.)
+do {
+    let off = Reducer.reduce(try! Fixture.named("conv-retry").state, .microphonePermission(.denied)).state
+    let before = ScreenModel(state: off).cards
+    let after = ScreenModel(state: Reducer.reduce(off, .voicePress(id: "v", width: 386, at: 1)).state).cards
+    check(before == [.waitingToSend(count: 1)], "I05 conv-retry with the microphone off shows only Waiting to send")
+    check(after == [.waitingToSend(count: 1), .microphoneDenied], "I05 a press stacks the microphone-off card under Waiting to send")
+    check(ScreenModel.Card.raised(before: before, after: after) == ScreenModel.Card.microphoneDenied.id,
+          "I05 the region brings the microphone-off card into view")
+    check(ScreenModel.Card.raised(before: after, after: before) == nil, "I05 a card going away moves nothing")
+    check(ScreenModel.Card.raised(before: after, after: after) == nil, "I05 an unchanged stack moves nothing")
+    check(ScreenModel.Card.raised(before: [.waitingToSend(count: 1)], after: [.waitingToSend(count: 2)]) == nil,
+          "I05 a new count on a card already showing is not a new card")
+}
+
 // G7 (Urban's audit): the CEO's how-to paragraph on conv-empty is full ink under a hairline, at a
 // 300 pt measure with 22 + 20 pt around the rule, and reads at AA in both themes.
 for p in [Palette.sovereign, Palette.daybreak] {

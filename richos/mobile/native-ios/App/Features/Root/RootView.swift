@@ -187,13 +187,22 @@ struct ScreenView: View {
             }
             VStack(spacing: 8) {
                 if !model.cards.isEmpty || model.toast != nil {
-                    ScrollView {
-                        AboveComposer(cards: model.cards, toast: model.toast, send: send)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
+                    ScrollViewReader { region in
+                        ScrollView {
+                            AboveComposer(cards: model.cards, toast: model.toast, send: send)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { aboveHeight = $0 }
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .scrollIndicators(.hidden)
+                        .frame(height: min(max(aboveHeight, 1), height * 0.4))
+                        // I05: a card raised while another shows is brought into view, the least
+                        // scroll that shows it, once, when it is raised: never a timer or a redraw.
+                        .onChange(of: model.cards) { before, after in
+                            guard let raised = ScreenModel.Card.raised(before: before, after: after) else { return }
+                            // After this update lays the new card out, so the reader can find it.
+                            DispatchQueue.main.async { withAnimation(Motion.card) { region.scrollTo(raised) } }
+                        }
                     }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .scrollIndicators(.hidden)
-                    .frame(height: min(max(aboveHeight, 1), height * 0.4))
                 }
                 ComposerView(composer: model.composer, voice: model.voice, pending: model.attach.pending,
                              attachMenuOpen: model.attach.menuOpen, send: send)

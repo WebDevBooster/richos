@@ -10,11 +10,13 @@ enum Screen {
 
     @discardableResult
     static func launch(_ id: String, appearance: String = "dark", textSize: String? = nil,
-                       interactive: Bool = false) -> XCUIApplication {
+                       interactive: Bool = false, microphone: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-rios-fixture", id, "-rios-appearance", appearance]
         if interactive {
             app.launchArguments += ["-rios-interactive-fixture", "YES"]
+            // The interactive fixture's stand-in for the OS's microphone answer (granted by default).
+            if let microphone { app.launchArguments += ["-rios-microphone", microphone] }
         } else {
             app.launchArguments += ["-rios-now", fixtureNow]
         }

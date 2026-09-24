@@ -254,6 +254,54 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["pair.noMatch"].isHittable)
     }
 
+    /// D03 (native acceptance r1): with the microphone off, the card is the answer to a press and to
+    /// nothing else; "Not now" takes it down; the next press brings it back. A real press on the real
+    /// orb into the production core; the microphone's answer is the interactive fixture's stand-in.
+    func testAPressWithTheMicrophoneOffShowsTheCardAndNotNowDismissesIt() {
+        let app = Screen.launch("comp-idle", interactive: true, microphone: "denied")
+        XCTAssertTrue(app.descendants(matching: .any)["debug.microphone.denied"].waitForExistence(timeout: 3),
+                      "the core was not told the microphone is off")
+        let card = app.descendants(matching: .any)["card.micDenied"]
+        XCTAssertFalse(card.exists, "the card is up before any press")
+        let before = rows(app)
+        orb(app).press(forDuration: 0.4)
+        XCTAssertTrue(card.waitForExistence(timeout: 3), "a press with the microphone off shows nothing")
+        XCTAssertEqual(card.label, "The microphone is off for RichConnect, Turn it on in iPhone Settings to send voice messages, or type instead.")
+        assertOnScreenAndHittable(app.buttons["card.openSettings"], in: app, "Open Settings")
+        XCTAssertEqual(rows(app), before, "a press with the microphone off sent something")
+        let notNow = app.buttons["card.micNotNow"]
+        assertOnScreenAndHittable(notNow, in: app, "Not now")
+        notNow.tap()
+        XCTAssertTrue(card.waitForNonExistence(timeout: 3), "Not now did not take the card down")
+        orb(app).press(forDuration: 0.4)
+        XCTAssertTrue(card.waitForExistence(timeout: 3), "the next press did not bring the card back")
+        keepScreenshot(app, name: "d03-mic-denied-after-press")
+    }
+
+    /// I05 (native acceptance r1, the physical iPhone): with another card already showing, the
+    /// microphone-off card a press raises was laid out behind the message field. The region above the
+    /// composer holds at most 40% of the screen and scrolls; on the iPhone SE the kept-recording card
+    /// and this one do not fit together, so the new card must be brought into view.
+    func testTheMicrophoneOffCardIsInViewWhenAnotherCardIsShowing() {
+        let app = Screen.launch("rec-card", interactive: true, microphone: "denied")
+        XCTAssertTrue(app.descendants(matching: .any)["debug.microphone.denied"].waitForExistence(timeout: 3),
+                      "the core was not told the microphone is off")
+        XCTAssertTrue(app.buttons["kept.send"].waitForExistence(timeout: 3), "the kept recording's card is not showing first")
+        orb(app).press(forDuration: 0.4)
+        let settings = app.buttons["card.openSettings"]
+        let notNow = app.buttons["card.micNotNow"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3), "a press with the microphone off shows nothing")
+        let composerTop = app.textFields["composer.field"].frame.minY
+        // Let the bring-into-view settle (Motion.card), then measure where the card's actions are.
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, notNow.frame.maxY > composerTop { Thread.sleep(forTimeInterval: 0.1) }
+        XCTAssertLessThanOrEqual(settings.frame.maxY, composerTop, "Open Settings is behind the message field")
+        XCTAssertLessThanOrEqual(notNow.frame.maxY, composerTop, "Not now is behind the message field")
+        assertOnScreenAndHittable(settings, in: app, "Open Settings")
+        assertOnScreenAndHittable(notNow, in: app, "Not now")
+        keepScreenshot(app, name: "i05-mic-denied-under-a-second-card")
+    }
+
     func testSettingsOpensAndForgetAsksFirst() {
         let app = Screen.launch("comp-idle")
         app.buttons["header.settings"].tap()

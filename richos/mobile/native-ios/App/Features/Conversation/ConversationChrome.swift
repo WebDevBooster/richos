@@ -244,13 +244,20 @@ struct AboveComposer: View {
             CardView {
                 CardText(title: "The microphone is off for RichConnect",
                          detail: "Turn it on in iPhone Settings to send voice messages, or type instead.")
+                    .accessibilityIdentifier("card.micDenied")
                 FlowButtons {
                     Button { send(.openSystemSettings) } label: { Text("Open Settings") }
                         .buttonStyle(RButtonStyle(kind: .primary))
+                        .accessibilityIdentifier("card.openSettings")
                     Button { send(.dismissCard(id: card.id)) } label: { QuietLabel(text: "Not now") }
                         .buttonStyle(RButtonStyle(kind: .quiet))
+                        .accessibilityIdentifier("card.micNotNow")
                 }
                 .padding(.top, 10)
+            }
+            // The card is the press's answer (D03): VoiceOver hears it, as TalkBack does on Android.
+            .onAppear {
+                AccessibilityNotification.Announcement("The microphone is off for RichConnect").post()
             }
         case .keptRecording(let recording):
             KeptRecordingCard(recording: recording, send: send)

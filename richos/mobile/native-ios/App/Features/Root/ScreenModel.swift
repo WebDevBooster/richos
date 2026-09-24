@@ -332,7 +332,8 @@ extension ScreenModel {
             }
             cards.append(.keptRecording(KeptRecording(id: r.id, durationMs: r.durationMs, levels: r.levels, reason: reason)))
         }
-        if s.microphone == .denied { cards.append(.microphoneDenied) }
+        // Only after a press found the microphone off (D03), never from the OS's answer alone.
+        if s.microphoneCard, s.microphone == .denied { cards.append(.microphoneDenied) }
         if s.pairing == .paired, s.notifications.status == .notAsked, !s.notifications.offerDismissed {
             cards.append(.notificationOffer)
         }
@@ -385,6 +386,18 @@ extension ScreenModel {
         case .appleUnavailable: return .appleUnavailable
         case .serviceUnavailable: return .serviceUnavailable
         }
+    }
+}
+
+extension ScreenModel.Card {
+    /// The card the region above the composer brings into view after `before` became `after`: the
+    /// last card that was not there before, or `nil` when none was added (I05). That region is at most
+    /// 40% of the screen and scrolls, so a card raised under one already showing (the microphone-off
+    /// card under "Waiting to send") was laid out behind the message field, and a press looked like
+    /// it did nothing. A card that only changed (a new count) is not new, and nothing moves for it.
+    static func raised(before: [ScreenModel.Card], after: [ScreenModel.Card]) -> String? {
+        let shown = Set(before.map(\.id))
+        return after.last { !shown.contains($0.id) }?.id
     }
 }
 

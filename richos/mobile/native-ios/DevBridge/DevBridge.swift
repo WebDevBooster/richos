@@ -61,6 +61,13 @@ enum DevBridge {
         UserDefaults.standard.bool(forKey: "rios-interactive-fixture")
     }
 
+    /// `-rios-microphone denied|granted|unknown`: the controlled microphone answer an interactive
+    /// fixture starts with, standing in for the OS's (granted when absent). How the UI tests reach the
+    /// microphone-off card (D03) through a real press.
+    static var interactiveMicrophone: Permission {
+        UserDefaults.standard.string(forKey: "rios-microphone").flatMap(Permission.init(rawValue:)) ?? .granted
+    }
+
     @MainActor
     static func start(store: AppStore) async {
         if let name = UserDefaults.standard.string(forKey: fixtureArgument) {
@@ -68,7 +75,7 @@ enum DevBridge {
                 _ = try await store.replace(with: try Fixture.named(name).state)
                 if interactiveFixture {
                     store.effectsSuspended = false
-                    _ = try await store.dispatch(.microphonePermission(.granted))
+                    _ = try await store.dispatch(.microphonePermission(interactiveMicrophone))
                 }
             } catch {
                 print("rios: launch fixture refused: \(error)")
