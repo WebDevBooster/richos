@@ -33,6 +33,7 @@ cd <repo>/richos/app/scripts/testvm
 ./ax.sh      <vm> click --title <text> [--role R] [--nth N] [--contains]
 ./ax.sh      <vm> click --at <x>,<y>
 ./ax.sh      <vm> '<applescript>' | --focused | --windows | --key <code>
+./hand-file.sh <vm> paste <guest-file> | drag <guest-file> --to <x>,<y>
 ./stop.sh    <vm>
 ./tailnet.sh join|name|logout|nodes|doctor [<vm>]
 ./keychain.sh prepare|check <vm> <guest-home-path>
@@ -189,6 +190,30 @@ shows nothing but the base.
 
 The window's own geometry is the reason for all of this: **`size=1024 700`**, which
 AppleScript would have handed over as `1024700`.
+
+### `hand-file.sh` — a file, handed over the way a person does it
+
+```sh
+./guest.sh <vm> --push './Screenshot invoice 4471.png' /Users/admin/walk/
+./hand-file.sh <vm> paste '/Users/admin/walk/Screenshot invoice 4471.png'
+./hand-file.sh <vm> drag  /Users/admin/walk/board-memo.pdf --to 950,780
+```
+
+**Added 2026-09-24**, when the Mac composer started taking files (CEO §86). `ax.sh type`
+hands the app text; nothing handed it a file.
+
+* `paste` puts the file on the guest's pasteboard the way macOS does: a `.png` as image
+  data (what a screenshot to the clipboard is), anything else as a file reference (what
+  Finder's Copy is). Then Command-V, to the app under test by PID, and the text that was on
+  the pasteboard is put back.
+* `drag` places the file on the guest user's Desktop and moves it with real mouse events
+  from its Finder icon to `--to x,y` (screen coordinates; take them from
+  `ax.sh find --json`). The app receives an ordinary Finder drag; nothing in it is bypassed.
+
+Both refuse unless the app's PID is frontmost, for the reason `ax.sh --key` does. The
+program travels on stdin, so a guest path with a space in it never becomes part of a
+command line. Tests: `test/run-tests.sh hand-file` (5, against the stub guest; both
+refusals proven by mutation).
 
 ---
 
