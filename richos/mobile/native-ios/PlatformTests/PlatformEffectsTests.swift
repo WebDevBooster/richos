@@ -99,6 +99,15 @@ final class PlatformEffectsTests: XCTestCase {
         XCTAssertEqual(tokens, ["ab01"], "an unchanged token does not re-register")
     }
 
+    func testATokenArrivingBeforeStoreSetupIsDeliveredOnce() {
+        let platform = NotificationPlatform()
+        platform.registered(deviceToken: Data([0xAB, 0x01]))
+        var tokens: [String] = []
+        platform.onToken = { tokens.append($0) }
+        platform.registered(deviceToken: Data([0xAB, 0x01]))
+        XCTAssertEqual(tokens, ["ab01"], "Startup must not lose a token that precedes the store listener")
+    }
+
     func testAColdLaunchTapIsDeliveredOnceTheStoreListens() throws {
         let platform = NotificationPlatform()
         let target = try XCTUnwrap(NotificationTarget(userInfo: ["richos": ["host": String(repeating: "a", count: 32),

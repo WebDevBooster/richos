@@ -15,7 +15,13 @@ final class NotificationPlatform: NSObject, UNUserNotificationCenterDelegate {
     /// The latest APNs token, lowercase hex; `nil` until iOS gives one.
     private(set) var token: String?
     /// Called when the token arrives or changes, so the core can (re-)register with the Mac.
-    var onToken: ((String) -> Void)?
+    var onToken: ((String) -> Void)? {
+        didSet {
+            // APNs can answer while the local store is still loading. Deliver that
+            // token when the listener arrives, without waiting for another OS callback.
+            if let token { onToken?(token) }
+        }
+    }
     /// Called when iOS could not register with Apple (no network to Apple, or no push entitlement).
     var onRegistrationFailed: (() -> Void)?
     /// Called for a tap on a RichOS reply notification (after strict parsing).
