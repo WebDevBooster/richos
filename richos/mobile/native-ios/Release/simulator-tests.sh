@@ -4,13 +4,14 @@
 #
 #   Release/simulator-tests.sh <output directory on /Volumes/E1TB>
 #
-# Creates ONE simulator of its own, boots it with `simctl boot` (no Simulator.app, nothing on the
+# Leases ONE prepared simulator, boots it headlessly (no Simulator.app, nothing on the
 # Mac's screen), grants the microphone to the host app as I2's UI tests do, runs the tests, and shuts
-# the simulator down and deletes it however the run ends. It never uses `booted`. The share sheet's
+# the simulator down and retains its prepared OS however the run ends. It never uses `booted`. The share sheet's
 # rendered states are written to <output>/snapshots/*.png. Prints the xcresult counts and exits 0
 # only when every test passed and at least one ran.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "$HERE/../../engine/scripts/lib/cpu_guard.py" check-ios || exit 2
 OUT="${1:?usage: simulator-tests.sh <output directory>}"
 case "$OUT" in /Volumes/E1TB/*) ;; *) echo "simulator-tests: the output directory must be on /Volumes/E1TB" >&2; exit 2 ;; esac
 BUDGET="$HERE/../../app/scripts/lib/simulator_budget.py"
@@ -21,34 +22,31 @@ OUT="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$OUT")"
 if [ "${RICHOS_SIMULATOR_CACHE_HELD:-}" != "$OUT" ]; then
   exec python3 "$BUDGET" cache "$OUT" -- bash "${BASH_SOURCE[0]}" "$@"
 fi
-if [ "${RICHOS_PLATFORM_SIM_SLOT:-}" != "$OUT" ]; then
-  export RICHOS_PLATFORM_SIM_SLOT="$OUT"
-  exec python3 "$BUDGET" live -- bash "${BASH_SOURCE[0]}" "$@"
-fi
 mkdir -p "$OUT/logs"
 rm -rf "$OUT/snapshots" "$OUT/result.xcresult"
 
 PROJECT="$("$HERE/Release/generate.sh" "$OUT/project")" || { echo "FAIL generate"; exit 1; }
 RUNTIME="$(xcrun simctl list runtimes --json | python3 -c 'import json,sys; r=[x for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and x["name"].startswith("iOS")]; print(r[-1]["identifier"] if r else "")')"
 [ -n "$RUNTIME" ] || { echo "NOT RUN no iOS simulator runtime"; exit 2; }
-UDID="$(xcrun simctl create "RichOS native-ios platform-tests $(basename "$OUT")" "iPhone 16 Pro" "$RUNTIME")" || { echo "FAIL simctl create"; exit 1; }
+export RICHOS_TEST_DEVICE_OWNER_PID=$$
+UDID="$(python3 "$HERE/../../engine/scripts/lib/testdevices.py" acquire-ios --type "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro" --runtime "$RUNTIME" --owner-pid $$)" || { echo "FAIL simctl create"; exit 1; }
 cleanup() {
-  xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
-  xcrun simctl delete "$UDID" >/dev/null 2>&1 || true
+  python3 "$HERE/../../engine/scripts/lib/testdevices.py" release-ios --id "$UDID" --owner-pid $$ >&2 || return 1
 }
-trap cleanup EXIT HUP INT TERM
+trap 'rc=$?; cleanup || rc=1; exit "$rc"' EXIT
+trap 'exit 130' HUP INT TERM
 # A run killed before its trap leaves this simulator behind; registering it with this shell's pid lets
 # the engine remove it once this shell is gone (richos/engine/scripts/lib/testdevices.py, §54).
 python3 "$HERE/../../engine/scripts/lib/testdevices.py" register --kind ios-simulator --id "$UDID" \
   --owner-pid $$ --script simulator-tests.sh >/dev/null || { echo "FAIL device ownership registration" >&2; exit 1; }
 
-python3 "$BUDGET" boot -- bash -c 'xcrun simctl boot "$1" && xcrun simctl bootstatus "$1" -b' simulator-boot "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
+python3 "$HERE/../../engine/scripts/lib/testdevices.py" boot-ios --id "$UDID" >/dev/null || { echo "FAIL simctl boot $UDID"; exit 1; }
 xcrun simctl privacy "$UDID" grant microphone dev.richos.connect >/dev/null 2>&1 || true
 
-TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
+TEST_RUNNER_RICHOS_SNAPSHOT_DIR="$OUT/snapshots" python3 "$HERE/../../engine/scripts/lib/native-work.py" -- xcodebuild test -project "$PROJECT" -scheme RichOSPlatformTests \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$OUT/DerivedData" \
   -clonedSourcePackagesDirPath "$OUT/SourcePackages" -resultBundlePath "$OUT/result.xcresult" \
-  -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- >"$OUT/logs/test.log" 2>&1
+  CODE_SIGN_IDENTITY=- >"$OUT/logs/test.log" 2>&1
 CODE=$?
 
 SUMMARY="$(xcrun xcresulttool get test-results summary --path "$OUT/result.xcresult" 2>/dev/null)"
@@ -58,7 +56,7 @@ except Exception: print("0 0 0"); sys.exit()
 print(d.get("totalTestCount",0), d.get("passedTests",0), d.get("failedTests",0))')"
 read -r TOTAL PASSED FAILED <<<"$COUNTS"
 SHOTS="$(find "$OUT/snapshots" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
-echo "simulator tests: $PASSED passed, $FAILED failed of $TOTAL; $SHOTS share-sheet snapshots in $OUT/snapshots; device $UDID (deleted on exit)"
+echo "simulator tests: $PASSED passed, $FAILED failed of $TOTAL; $SHOTS share-sheet snapshots in $OUT/snapshots; device $UDID (shut down on exit; prepared OS retained)"
 if [ "$CODE" -ne 0 ] || [ "${TOTAL:-0}" -eq 0 ] || [ "${FAILED:-1}" -ne 0 ]; then
   grep -E 'error:|failed|XCTAssert' "$OUT/logs/test.log" | head -20
   echo "FAIL full log $OUT/logs/test.log"
