@@ -12,14 +12,18 @@ import UIKit
 final class PlatformEffects: EffectHandler, @unchecked Sendable {
     private let network: (any EffectHandler)?
     private let clock: any Clock
+    /// The reply-preview key the notification extension opens sealed previews with.
+    private let previewKeys: PreviewKeyStore
     @MainActor let recorder: VoiceRecorder
     /// Where actions that were not asked for go (the store's `send`). Set once the store exists.
     @MainActor var dispatch: ((Action) -> Void)?
 
     @MainActor
-    init(network: (any EffectHandler)? = nil, clock: any Clock = SystemClock(), recorder: VoiceRecorder = VoiceRecorder()) {
+    init(network: (any EffectHandler)? = nil, clock: any Clock = SystemClock(), recorder: VoiceRecorder = VoiceRecorder(),
+         previewKeys: PreviewKeyStore = .shared) {
         self.network = network
         self.clock = clock
+        self.previewKeys = previewKeys
         self.recorder = recorder
         recorder.onLevel = { [weak self] level in self?.dispatch?(.voiceLevel(level)) }
         recorder.onInterrupted = { [weak self] in
@@ -100,7 +104,15 @@ final class PlatformEffects: EffectHandler, @unchecked Sendable {
             // are null until the CEO's App Store Connect record); nothing to open, nothing guessed.
             return []
 
-        case .persist, .pair, .confirmFingerprint, .forgetIdentity, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,
+        case .forgetIdentity:
+            // "Forget this phone": the preview key goes with the pairing, here on the phone. The
+            // unregistration that would stop the Mac sealing previews is best effort (sent only while
+            // a connection exists), so without this a phone showing no pairing would keep opening
+            // them (security review I-1). The signing key is the core's to remove.
+            try? previewKeys.erase()
+            return await network?.handle(effect, state: state) ?? []
+
+        case .persist, .pair, .confirmFingerprint, .deliver, .loadOlder, .fetchReplyAudio, .connect, .disconnect, .deleteAttachments,
              .unregisterNotifications:
             return await network?.handle(effect, state: state) ?? []
         }

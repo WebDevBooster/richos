@@ -121,6 +121,29 @@ final class PlatformEffectsTests: XCTestCase {
         let other = try NotificationPlatform.shared.configurePreviews(origin: "https://c-y.richos.ceo", previews: false)
         XCTAssertNotEqual(other.key, first.key, "a different Mac gets a new key")
     }
+
+    /// Security review I-1: "Forget this phone" takes the preview key with the pairing, on the phone,
+    /// whether or not the Mac ever hears the unregistration (it is sent best effort, and only when a
+    /// connection exists). Here the Mac hears nothing: the network handler answers nothing at all.
+    func testForgetErasesThePreviewKeyEvenWhenTheMacNeverHearsIt() async throws {
+        let store = PreviewKeyStore.shared
+        try store.erase()
+        defer { try? store.erase() }
+        let origin = "https://c-x.richos.ceo"
+        XCTAssertEqual(try store.configure(origin: origin).key?.count, 32)
+        var state = AppState()
+        state.pairing = .paired
+        state.mac = MacLink(origin: origin, route: .connect, deviceID: "dev_1", threadID: "thr_5c1e", name: "Alex’s Mac")
+        state.notifications.status = .on
+        state.sheet = .forget
+        let (forgotten, effects) = Reducer.reduce(state, .confirmForget)
+        XCTAssertTrue(effects.contains(.forgetIdentity(origin: origin)), "the core asks for the identity to go")
+        let network = RecordingHandler(answer: [])
+        let platform = PlatformEffects(network: network)
+        for effect in effects { _ = await platform.handle(effect, state: forgotten) }
+        XCTAssertTrue(network.seen.contains(.forgetIdentity(origin: origin)), "the signing key is still the core's to remove")
+        XCTAssertNil(try store.load().key, "no sealed preview opens on a phone that forgot its Mac")
+    }
 }
 
 final class RecordingHandler: EffectHandler, @unchecked Sendable {
